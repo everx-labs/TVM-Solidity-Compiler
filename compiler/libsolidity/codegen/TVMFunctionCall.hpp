@@ -25,6 +25,7 @@ namespace solidity {
 
 class FunctionCallCompiler : public StackPusherHelper {
 	IExpressionCompiler* const m_exprCompiler;
+	bool m_isResultNeeded;
 	
 protected:
 	void acceptExpr(const Expression* expr) {
@@ -34,9 +35,14 @@ protected:
 public:
 	FunctionCallCompiler(IStackPusher* pusher, IExpressionCompiler* exprCompiler, const TVMCompilerContext& ctx)
 		: StackPusherHelper(pusher, &ctx)
-		, m_exprCompiler(exprCompiler) {}
+		, m_exprCompiler(exprCompiler)
+		, m_isResultNeeded{true}
+	{
+
+	}
 		
-	void compile(FunctionCall const& _functionCall) {
+	void compile(FunctionCall const& _functionCall, bool isResultNeeded = true) {
+		m_isResultNeeded = isResultNeeded;
 		auto arguments = _functionCall.arguments();
 		auto expr = &_functionCall.expression();
 		
@@ -93,7 +99,7 @@ protected:
 			acceptExpr(&_node.expression());
 			// stack: value address
 			push(+1, "NEWC"); // empty body
-			pushPrivateFunctionCall(-3, "send_grams");
+			pushPrivateFunctionOrMacroCall(-3, "send_internal_message_macro");
 			return true;
 		}
 		return false;
@@ -106,6 +112,9 @@ protected:
 			auto arrayType = to<ArrayType>(getType(&_node.expression()));
 			if (arrayType == nullptr) {
 				cast_error(_node.expression(), "Left hand side should be array type.");
+			}
+			if (m_isResultNeeded) {
+				cast_error(_node.expression(), "arr.push(..) is supported only in simple expressions");
 			}
 			auto arrayBaseType = arrayType->baseType().get();
 			bool isInterger = isIntegralType(arrayBaseType);
@@ -185,46 +194,70 @@ protected:
 			return false;
 		}
 		auto arguments = _functionCall.arguments();
+		auto defaultActionForCasting = [&arguments, &etn, this]() {
+			for (const auto &arg : arguments)
+				acceptExpr(arg.get());
+			acceptExpr(etn);
+		};
 
-		{
-			Type::Category argCategory = arguments[0]->annotation().type->category();
-			if (argCategory == Type::Category::Address && to<Literal>(arguments[0].get()) == nullptr) {
-				cast_error(_functionCall, "Unsupported casting.");
-			}
-		}
-
-		if (etn->typeName().token() == Token::BytesM) {
-			if (arguments.size() != 1) {
-				cast_error(_functionCall, "Unsupported casting.");
-			}
-			Type::Category argCategory = arguments[0]->annotation().type->category();
-			if (argCategory == Type::Category::FixedBytes) {
-				acceptExpr(arguments[0].get());
+		switch (etn->typeName().token()) {
+			case Token::BytesM: {
+				Type::Category argCategory = arguments[0]->annotation().type->category();
 				int diff = 0;
-				auto argType = to<FixedBytesType>(arguments[0]->annotation().type.get());
-				diff = 8 * static_cast<int>(etn->typeName().firstNumber()) -
-				       8 * static_cast<int>(argType->storageBytes());
+				if (argCategory == Type::Category::FixedBytes) {
+					acceptExpr(arguments[0].get());
+					auto argType = to<FixedBytesType>(arguments[0]->annotation().type.get());
+					diff = 8 * static_cast<int>(etn->typeName().firstNumber()) -
+					       8 * static_cast<int>(argType->storageBytes());
+				} else if (argCategory == Type::Category::Address) {
+					acceptExpr(arguments[0].get());
+					pushPrivateFunctionOrMacroCall(-1 + 1, "address2uint");
+					diff = 8 * static_cast<int>(etn->typeName().firstNumber()) - static_cast<int>(256);
+					if (diff < 0) {
+						cast_warning(_functionCall, "Such conversion can cause loss of data. Only first bytes are used in such assignment.");
+					}
+				} else {
+					cast_error(_functionCall, "Unsupported casting.");
+				}
+
 				if (diff > 0) {
 					push(0, "LSHIFT " + std::to_string(diff));
 				} else if (diff < 0) {
 					push(0, "RSHIFT " + std::to_string(-diff));
 				}
-			} else {
-				cast_error(_functionCall, "Unsupported casting.");
+				break;
 			}
-		} else if (etn->typeName().token() == Token::Address) {
-			if (arguments.size() != 1) {
-				cast_error(_functionCall, "Unsupported casting.");
+			case Token::Address: {
+				Type::Category argCategory = arguments[0]->annotation().type->category();
+				switch (argCategory) {
+					case Type::Category::Contract:
+						acceptExpr(arguments[0].get());
+						break;
+					case Type::Category::RationalNumber:
+					case Type::Category::Integer:
+						acceptExpr(arguments[0].get());
+						pushPrivateFunctionOrMacroCall(-1 + 1, "make_std_address_with_zero_wid_macro");
+						break;
+					default:
+						cast_error(_functionCall, "Unsupported casting.");
+				}
+				break;
 			}
-			Type::Category argCategory = arguments[0]->annotation().type->category();
-			if (argCategory != Type::Category::Contract) {
-				cast_error(_functionCall, "Unsupported casting.");
+			case Token::Int:
+			case Token::UInt: {
+				Type::Category argCategory = arguments[0]->annotation().type->category();
+				if (argCategory == Type::Category::Contract || argCategory == Type::Category::Address) {
+					acceptExpr(arguments[0].get());
+					pushPrivateFunctionOrMacroCall(-1 + 1, "address2uint");
+					cast_warning(_functionCall, "Workchain id is lost in this conversion.");
+				} else {
+					defaultActionForCasting();
+				}
+				break;
 			}
-			acceptExpr(arguments[0].get());
-		} else {
-			for (const auto &arg : arguments)
-				acceptExpr(arg.get());
-			acceptExpr(etn);
+			default:
+				defaultActionForCasting();
+
 		}
 		return true;
 	}
@@ -239,9 +272,12 @@ protected:
 		solAssert(functionType, "#209");
 		if (ctx().m_inlinedFunctions.count(functionName) > 0) {
 			// Inline function call
-			CodeLines code = ctx().m_inlinedFunctions.at(functionName);
-			pushCont(code, functionName);
-			pushInlineCall(functionType);
+			auto &codeLines = ctx().m_inlinedFunctions.at(functionName);
+			int nParams = functionType->parameterTypes().size();
+			int nRetVals = functionType->returnParameterTypes().size();
+
+			push(codeLines);
+			push(-nParams + nRetVals, "");
 		} else {
 			pushCall(ctx().getFunctionInternalName(function), functionType);
 		}
@@ -269,10 +305,22 @@ protected:
 			push(+1, "PUSHINT 1000"); // grams_value // TODO why not 0? Is here bug in local node?
 			push(+1, "PUSHINT 0"); // bounce
 			push(+1, "PUSHINT " + toString(TvmConst::SENDRAWMSG::CarryAllMoney)); // sendrawmsg_flag
-			pushPrivateFunctionCall(-4, "accurate_transfer");
+			pushPrivateFunctionOrMacroCall(-4, "send_accurate_internal_message_macro");
 			return true;
 		}
 		return false;
+	}
+
+	void dropFunctionResult(FunctionCall const& _functionCall) {
+		Type const* returnType = _functionCall.annotation().type.get();
+		switch(returnType->category()) {
+			case Type::Category::Tuple: {
+				drop(to<TupleType>(returnType)->components().size());
+				break;
+			}
+			default:
+				drop(1);
+		}
 	}
 
 	bool checkForIdentifier(FunctionCall const& _functionCall) {
@@ -288,6 +336,9 @@ protected:
 		}
 
 		if (checkLocalFunctionCall(identifier)) {
+			if (!m_isResultNeeded) {
+				dropFunctionResult(_functionCall);
+			}
 		} else if (ctx().isContractName(iname)) {
 			// convertion from address to Contract. Do nothing
 			// TODO: move to function call level?
@@ -305,13 +356,16 @@ protected:
 			int returnCnt = functionType->returnParameterTypes().size();
 			int paramCnt = functionType->parameterTypes().size();
 			push(-1 - paramCnt + returnCnt, "CALLX");
+			if (!m_isResultNeeded) {
+				dropFunctionResult(_functionCall);
+			}
 		} else {
 			cast_error(*identifier, "Unknown identifier");
 		}
 		return true;
 	}
 
-	void setupStructure(string iname) {
+	void setupStructure(const string& iname) {
 		// Setting up a structure with given members.
 		// Members are already on stack
 		push( 0, ";; struct " + iname);

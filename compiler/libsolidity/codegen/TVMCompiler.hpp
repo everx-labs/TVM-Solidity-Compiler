@@ -136,14 +136,51 @@ public:
 		}
 		cout << code.str("");
 	}
-	
+
+	static bool notNeedsPushContWhenInlining(FunctionDefinition const* _function) {
+		TVMScanner bodyScanner{_function->body()};
+
+		std::vector<ASTPointer<Statement>> statements = _function->body().statements();
+		for (std::vector<int>::size_type i = 0; i + 1 < statements.size(); ++i) {
+			TVMScanner scanner{*statements[i].get()};
+			if (scanner.m_info.canReturn) {
+				return false;
+			}
+		}
+
+		if (statements.empty()) {
+			return true;
+		}
+
+		bool isLastStatementReturn = to<Return>(statements.back().get()) != nullptr;
+		return isLastStatementReturn || (_function->returnParameters().empty() && !bodyScanner.m_info.canReturn);
+	}
+
+	static CodeLines makeInlineFunctionCall(const TVMCompilerContext& ctx, FunctionDefinition const* _function) {
+		TVMCompiler tvm(&ctx);
+		tvm.visitFunction2(*_function);
+		bool doInline = notNeedsPushContWhenInlining(_function);
+
+		CodeLines res;
+		if (doInline) {
+			if (!tvm.m_code.lines.empty() && tvm.m_code.lines.back() == "RET") {
+				tvm.m_code.lines.pop_back();
+			}
+			res.push("; " + _function->name());
+			res.append(tvm.m_code);
+			res.push("; end " + _function->name());
+		} else {
+			res.pushCont(tvm.m_code, _function->name());
+			res.push("CALLX");
+		}
+		return res;
+	}
+
 	static void fillInlinedFunctions(TVMCompilerContext& ctx, ContractDefinition const* contract) {
 		for (const auto& _function : getContractFunctions(contract)) {
 			auto fname = _function->name();
 			if (ends_with(fname, "_inline")) {
-				TVMCompiler tvm(&ctx);
-				tvm.visitFunction2(*_function, false);
-				ctx.m_inlinedFunctions[fname] = tvm.m_code;
+				ctx.m_inlinedFunctions[fname] = makeInlineFunctionCall(ctx, _function);
 			}
 		}
 	}
@@ -161,16 +198,39 @@ public:
 			code.append(tvm.m_code);
 		}
 
-		for (const auto& fi : ctx.m_functionsList) {
-			const auto& _function = fi.m_function;
-			ctx.m_currentFunction = &fi;
-			TVMCompiler tvm(&ctx);
-			// if (tvm.ctx().isPureFunction(_function))
-				// continue;
+		for (const auto& funcInfo : ctx.m_functionsList) {
+			const auto& _function = funcInfo.m_function;
+			ctx.m_currentFunction = &funcInfo;
 			solAssert(!ctx.isPureFunction(_function), "");
-			tvm.generateHeaderAndDecoder(fi);
-			tvm.visitFunction(*_function);
-			code.append(tvm.m_code);
+			if (_function->visibility() == Declaration::Visibility::TvmGetter) {
+				TVMCompiler tvm(&ctx);
+				tvm.m_code.generateGlobl(_function->name(), true);
+				tvm.visitFunction(*_function);
+				code.append(tvm.m_code);
+			} else if (isMacro(funcInfo.m_internalName)) {
+				code.generateMacro(funcInfo.m_internalName);
+				code.append(makeInlineFunctionCall(ctx, _function));
+				code.push(" ");
+			} else {
+				if (_function->isPublic()) {
+					TVMCompiler tvm0(&ctx);
+					TVMCompiler tvm1(&ctx);
+					bool isBaseConstructor = _function->isConstructor() && !ctx.isMainConstructor(_function);
+					bool isBaseMethod = !_function->isConstructor() && _function != getContractFunctions(contract, _function->name()).back();
+					if (!isBaseConstructor && !isBaseMethod) {
+						tvm0.generatePublicFunction(funcInfo, true);
+					}
+					if (!_function->isFallback()) {
+						tvm1.generatePrivateFunction(funcInfo);
+					}
+					code.append(tvm0.m_code);
+					code.append(tvm1.m_code);
+				} else {
+					TVMCompiler tvm(&ctx);
+					tvm.generatePrivateFunction(funcInfo);
+					code.append(tvm.m_code);
+				}
+			}
 		}
 		if (!ctx.haveFallbackFunction() && !ctx.isStdlib()) {
 			TVMCompiler tvm(&ctx);
@@ -229,18 +289,22 @@ public:
 			// create external constructor
 			m_code.generateGlobl("constructor", true);
 			generateConstructorProtection();
+			pushPersistentDataFromC4ToC7();
 			decodeParameters(ptr_vec<VariableDeclaration>());
 			for (const auto& name : getBaseContractNames(mainContract)) {
-				pushPrivateFunctionCall(0, "constructor_" + name);
+				pushPrivateFunctionOrMacroCall(0, "constructor_" + name);
 			}
 			setDefaultMemberValues(mainContract);
 			pushPersistentDataFromC7ToC4();
+			push(0, "PUSHINT 0");
+			push(0, "ONLYTOPX");
 			push(0, " ");
 		}
 	}
 
 	void generateDefaultFallbackFunction() {
 		push(0, ".globl	fallback");
+		push(0, ".public fallback");
 		push(0, ".type	fallback, @function");
 		push(0, "DROP");
 		push(0, "RET");
@@ -255,106 +319,152 @@ public:
 		push(0, " ");
 	}
 
+	class DecodePosition : private boost::noncopyable {
+		bool isPositionValid;
+		int minRestSliceBits;
+		int maxRestSliceBits;
+		int restFef;
+	public:
+
+		enum Algo { JustLoad, NeedLoadNextCell, Unknown };
+
+		DecodePosition() :
+				isPositionValid{true},
+				minRestSliceBits{TvmConst::CellBitLength - TvmConst::Message::functionIdLength - TvmConst::Message::timestampLength},
+				maxRestSliceBits{TvmConst::CellBitLength - TvmConst::Message::functionIdLength},
+				restFef{3}
+		{
+
+		}
+
+		Algo updateStateAndGetLoadAlgo(Type const* type) {
+			ABITypeSize size(type);
+			solAssert(0 <= size.refs && size.refs <= 1, "");
+			solAssert(0 <= size.minBits && size.minBits <= size.maxBits, "");
+
+			if (!isPositionValid) {
+				return Unknown;
+			}
+
+			minRestSliceBits -= size.maxBits;
+			maxRestSliceBits -= size.minBits;
+			restFef -= size.refs;
+
+			if (minRestSliceBits < 0 && maxRestSliceBits >= 0) {
+				isPositionValid = false;
+				return Unknown;
+			}
+
+			if (minRestSliceBits < 0 || restFef == 0) {
+				minRestSliceBits = TvmConst::CellBitLength - size.maxBits;
+				maxRestSliceBits = TvmConst::CellBitLength - size.minBits;
+				restFef = 4 - size.refs;
+				return NeedLoadNextCell;
+			}
+
+			return JustLoad;
+		}
+	};
+
 	void decodeParameters(const ptr_vec<VariableDeclaration>& params) {
+		DecodePosition position;
 		push(0, "; Decode input parameters");
 		for (const auto& variable: params) {
 			auto savedStackSize = m_stack.size();
-			decodeParameter(variable.get());
+			decodeParameter(variable.get(), &position);
 			m_stack.ensureSize(savedStackSize, "decodeParameter-2");
 		}
 		push(0, "DROP");
 //		push(0, "ENDS");
 	}
 
-	void generateHeaderAndDecoder(const FuncInfo& fi) {
+	void generateModifier(FunctionDefinition const* _function){
+		for (const auto& m : _function->modifiers()) {
+			string name = m->name()->name();
+			if (ctx().isContractName(name))
+				continue;
+			// TODO: check that "_" is in the end...
+			if (m->arguments())
+				cast_error(*m, "Modifiers with parameters are not supported.");
+			push(0, "; Modifier " + name);
+			for (const ModifierDefinition* modifier : ctx().getContract()->functionModifiers()) {
+				if (modifier->name() != name)
+					continue;
+				// TODO: use PUSHCONT!
+				if (!to<PlaceholderStatement>(modifier->body().statements().back().get()))
+					cast_warning(*modifier, R"(Code after "_;" is not supported, it will be executed before "_;".)");
+				modifier->body().accept(*this);
+				if (!doesAlways<Return>(&modifier->body()))
+					drop(m_stack.size());
+			}
+		}
+	}
+
+	void generatePublicFunction(const FuncInfo& fi, const bool inlineInternalFunctionCall) {
 		bool dontEmitReturn = !!getFunction(ctx().getContract(), "tvm_dont_emit_events_on_return");
 		FunctionDefinition const* _function = fi.m_function;
 		auto fnameInternal = fi.m_internalName;
-		if (fi.m_needsDecoder) {
-			auto fnameExternal = TVMCompilerContext::getFunctionExternalName(_function);
-			if (ctx().isMainConstructor(_function)) {
-				m_code.generateGlobl(fnameExternal, true);
-				generateConstructorProtection();
-				decodeParameters(_function->parameters());
-			} else {
-				m_code.generateGlobl(fnameExternal, _function->visibility() == Declaration::Visibility::Public);
-				for (const auto& m : _function->modifiers()) {
-					string name = m->name()->name();
-					if (ctx().isContractName(name))
-						continue;
-					// TODO: check that "_" is in the end...
-					if (m->arguments())
-						cast_error(*m, "Modifiers with parameters are not supported.");
-					push(0, "; Modifier " + name);
-					for (const ModifierDefinition* modifier : ctx().getContract()->functionModifiers()) {
-						if (modifier->name() != name)
-							continue;
-						// TODO: use PUSHCONT!
-						modifier->body().accept(*this);
-						if (!doesAlways<Return>(&modifier->body()))
-							drop(m_stack.size());
-					}
-				}
-				decodeParameters(_function->parameters());
-			}
-			pushPrivateFunctionCall(0, fnameInternal);
-			if (!dontEmitReturn) {
-				emitFunctionResult(_function);
-			}
-			if (_function->stateMutability() != StateMutability::Pure &&
-				_function->stateMutability() != StateMutability::View) {
-				pushPersistentDataFromC7ToC4();
-			}
-			push(0, "RET");
-			push(0, " ");
+		auto fnameExternal = TVMCompilerContext::getFunctionExternalName(_function);
+
+		// generate header
+		if (ctx().isMainConstructor(_function)) {
+			m_code.generateGlobl(fnameExternal, true);
+			generateConstructorProtection();
+			pushPersistentDataFromC4ToC7();
+		} else {
+			m_code.generateGlobl(fnameExternal, _function->visibility() == Declaration::Visibility::Public);
+			pushPersistentDataFromC4ToC7();
+			generateModifier(_function);
 		}
+		decodeParameters(_function->parameters());
+
+		// function body
+		if (inlineInternalFunctionCall){
+			CodeLines res = makeInlineFunctionCall(ctx(), _function);
+			m_code.append(res);
+		} else {
+			pushPrivateFunctionOrMacroCall(0, fnameInternal);
+		}
+
+		// emit function result
+		if (!dontEmitReturn) {
+			emitFunctionResult(_function);
+		}
+
+		// copy c7 to c4 back if needed
+		if (_function->stateMutability() != StateMutability::Pure &&
+			_function->stateMutability() != StateMutability::View) {
+			pushPersistentDataFromC7ToC4();
+		}
+
+		// drop not needed variables from stack
+		pushInt(fi.m_function->returnParameters().size());
+		push(0, "ONLYTOPX");
+		push(-1, ""); // fix stack
+
+		push(0, "RET");
+		push(0, " ");
+	}
+
+	void generatePrivateFunction(const FuncInfo& fi) {
+		FunctionDefinition const *_function = fi.m_function;
+		auto fnameInternal = fi.m_internalName;
 		if (_function->name() == "onTickTock") {
 			m_code.generateInternal("onTickTock", -2);
-			push(0, "PUSHINT 0");
-			push(0, "PUSHINT 0");
-			push(0, "PUSHINT 0");
-			pushLines(R"(;; Function: store_inbound_stack_and_c4_to_c7_inline
-;; param: msg_balance
-;; param: src_addr
-;; param: sign
-PRINTSTR store_sig
-TUPLE 0
-;; decl: tuple
-;; sign
-;; stack=4
-PUSH s1
-TPUSH
-;; src_addr
-;; stack=4
-PUSH s2
-TPUSH
-;; msg_balance
-;; stack=4
-PUSH s3
-TPUSH
-PUSHCTR c7
-;; decl: c7
-;; tuple
-;; stack=5
-PUSH s1
-TPUSH
-PUSHROOT
-CTOS
-PLDDICT
-TPUSH
-;; c7
-;; stack=5
-DUP
-POPCTR c7
-BLKDROP 5
-)");
+			push(0, "PUSHINT -2");
+			push(0, "PUSHINT -2");
+			push(0, "PUSH s2");
+			pushPersistentDataFromC4ToC7();
 		} else if (_function->name() == "main_external") {
 			m_code.generateInternal("main_external", -1);
+			m_code.push("PUSHINT -1 ; selector");
 		} else if (_function->name() == "main_internal") {
 			m_code.generateInternal("main_internal", 0);
+			m_code.push("PUSHINT 0 ; selector");
 		} else {
 			m_code.generateGlobl(fnameInternal, false);
 		}
+		visitFunction(*_function);
 	}
 
 	void emitFunctionResult(FunctionDefinition const* _function) {
@@ -372,76 +482,141 @@ BLKDROP 5
 			nodes.push_back(param.get());
 		}
 
+		int prevStackSize = getStack().size();
 		encodeFunctionAndParams(
 				TVMCompilerContext::getFunctionExternalName(_function),
 				types,
 				nodes,
-				[&](size_t /*idx*/) {
-					push(+1, "PUSH s" + toString(params.size() + 1));
+				[&](size_t idx) {
+					int pos = (getStack().size() - prevStackSize) + (static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
+					push(+1, "PUSH s" + toString(pos));
 				},
 				StackPusherHelper::ReasonOfOutboundMessage::FunctionReturnExternal
 		);
-		pushPrivateFunctionCall(-1, "send_ext_msg");
+		pushPrivateFunctionOrMacroCall(-1, "send_external_message_macro");
 	}
 	
-	void decodeStructParameter(const StructType* stype) {
+	void decodeStructParameter(StructType const* stype, DecodePosition* position) {
 		auto sname = stype->structDefinition().name();
 		push(0, ";; struct " + sname);
-		if (sname == "TvmCell") {
-			push(0, "LDREF");
-			return;
-		}
-		auto members = stype->structDefinition().members();
-		// slice
-		push(0, "NEWDICT");
-		// slice dict
-		push(0, "SWAP");
-		// dict slice
-		for (size_t i = 0; i < members.size(); i++) {
-			auto& m = members[i];
-			push(0, ";; " + sname + "." + m->name());
-			// dict slice
-			auto savedStackSize = m_stack.size();
-			decodeParameter(m.get());
-			m_stack.ensureSize(savedStackSize, "decodeParameter");
-			// dict value slice
+		if (isTvmCell(stype)) {
+			decodeRefParameter(stype, position);
+		} else {
+			auto members = stype->structDefinition().members();
+			// slice
+			push(0, "NEWDICT");
+			// slice dict
 			push(0, "SWAP");
-			// dict slice value 
-			auto memberType = getType(m.get());
-			if (isIntegralType(memberType)) {
-				intToBuilder(memberType);
+			// dict slice
+			for (size_t i = 0; i < members.size(); i++) {
+				auto &m = members[i];
+				push(0, ";; " + sname + "." + m->name());
+				// dict slice
+				auto savedStackSize = m_stack.size();
+				decodeParameter(m.get(), position);
+				m_stack.ensureSize(savedStackSize, "decodeParameter");
+				// dict value slice
+				push(0, "SWAP");
+				// dict slice value
+				auto memberType = getType(m.get());
+				if (isIntegralType(memberType)) {
+					intToBuilder(memberType);
+				}
+				// dict slice value'
+				pushInt(i);
+				// dict slice value' idx
+				push(0, "PUSH s3");
+				// dict slice value' idx dict
+				setDict(isIntegralType(memberType), 8, false);
+				push(+1, "");    // fixup stack
+				// dict slice dict'
+				push(0, "POP s2");
+				// dict' slice
 			}
-			// dict slice value'
-			pushInt(i);
-			// dict slice value' idx
-			push(0, "PUSH s3");
-			// dict slice value' idx dict
-			setDict(isIntegralType(memberType), 8, false);
-			push(+1, "");	// fixup stack
-			// dict slice dict'
-			push(0, "POP s2");
-			// dict' slice
+			// dict slice
 		}
-		// dict slice
 	}
 
-	void decodeParameter(VariableDeclaration const* variable) {
+	void decodeRefParameter(Type const*const type, DecodePosition* position) {
+		switch (position->updateStateAndGetLoadAlgo(type)) {
+			case DecodePosition::JustLoad:
+				break;
+			case DecodePosition::NeedLoadNextCell:
+				loadNextSlice();
+				break;
+			case DecodePosition::Unknown:
+				ifRefsAreEmptyThenLoadNextSlice();
+				break;
+		}
+		push(0, "LDREF");
+	}
+
+	void loadNextSlice() {
+		push(0, "LDREF");
+		push(0, "ENDS");
+		push(0, "CTOS");
+	}
+
+	void ifBitsAreEmptyThenLoadNextSlice() {
+		pushLines(R"(DUP
+SDEMPTY
+PUSHCONT {
+	LDREF
+	ENDS
+	CTOS
+}
+IF
+)");
+	}
+
+	void ifRefsAreEmptyThenLoadNextSlice() {
+		pushLines(R"(DUP
+SREFS
+EQINT 1
+PUSHCONT {
+	LDREF
+	ENDS
+	CTOS
+}
+IF
+)");
+	}
+
+	void loadNextSliceIfNeed(const DecodePosition::Algo algo) {
+		switch (algo) {
+			case DecodePosition::JustLoad:
+				break;
+			case DecodePosition::NeedLoadNextCell:
+				loadNextSlice();
+				break;
+			case DecodePosition::Unknown:
+				ifBitsAreEmptyThenLoadNextSlice();
+				break;
+		}
+	}
+
+	void decodeParameter(VariableDeclaration const* variable, DecodePosition* position) {
 		auto type = getType(variable);
 		const Type::Category category = variable->type()->category();
 		if (auto stype = to<StructType>(type)) {
-			decodeStructParameter(stype);
+			decodeStructParameter(stype, position);
 		} else if (category == Type::Category::Address || category == Type::Category::Contract) {
-			pushPrivateFunctionCall(0, "decode_addr");
+			loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type));
+			push(0, "LDMSGADDR");
+			push(0, "SWAP");
+			pushPrivateFunctionOrMacroCall(0, "convertAddressToStd_macro");
+			push(0, "SWAP");
 		} else if (isIntegralType(type)) {
 			TypeInfo ti{type};
 			solAssert(ti.isNumeric, "");
-			pushInt(ti.numBits);
-			pushPrivateFunctionCall(-1, ti.isSigned? "smart_ldi" : "smart_ldu");
+			loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type));
+			push(0, (ti.isSigned ? "LDI " : "LDU ") + toString(ti.numBits));
 		} else if (auto arrayType = to<ArrayType>(type)) {
 			if (arrayType->isByteArray()) {
-				push(0, "LDREF");
+				decodeRefParameter(type, position);
 			} else {
-				pushPrivateFunctionCall(0, "decode_array");
+				loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type));
+				pushPrivateFunctionOrMacroCall(0, "decode_array_macro");
 			}
 		} else {
 			cast_error(*variable, "Unsupported parameter type: " + type->toString());
@@ -465,7 +640,7 @@ BLKDROP 5
 		push(0, " ");
 	}
 
-	void visitFunction2(FunctionDefinition const& _function, bool tvm_mode0) {
+	void visitFunction2(FunctionDefinition const& _function, bool tvm_mode0 = false) {
 		for (const auto& m : _function.modifiers()) {
 			string name = m->name()->name();
 			if (ctx().isContractName(name)) {
@@ -474,7 +649,7 @@ BLKDROP 5
 			}
 			// Ensure that modifier is allowed
 			if (_function.isConstructor())
-				cast_error(*m, "Modifiers for costructors are not supported.");
+				cast_error(*m, "Modifiers for constructors are not supported.");
 			if (!_function.isPublic())
 				cast_error(*m, "Modifiers are allowed only for public functions.");
 		}
@@ -556,114 +731,17 @@ BLKDROP 5
 	}
 
 	void generateConstructorProtection() {
-		// this is copy pasta from generated file stdlib.code
-		pushLines(R"(PRINTSTR constr_prot_0
-PUSHINT 0
-;; decl: dict
-PUSHINT 0
-;; decl: previous_message_timestamp
-PUSHINT 1800000
-;; decl: interval
-PUSHROOT
-CTOS
-;; decl: c4
-;; c4
-;; stack=4
-DUP
-LDDICT
-POP s2
-;; assign dict
-POP s4
-;; if
-;; c4
-;; stack=4
-DUP
-PUSHINT 128
-SCHKBITSQ
-PUSHCONT {
-	;; c4
-	;; stack=4
-	DUP
-	LDI 64
-	POP s2
-	;; assign previous_message_timestamp
-	POP s3
-	;; c4
-	;; stack=4
-	DUP
-	LDI 64
-	POP s2
-	;; assign interval
-	POP s2
-	;; if
-	;; c4
-	;; stack=4
-	DUP
-	PUSHINT 1
-	SCHKBITSQ
-	PUSHCONT {
-		PUSHINT 123
-		THROWANY
-	}
-	IF
-}
-IF
-NEWC
-;; decl: c4_builder
-;; dict
-;; stack=5
-PUSH s4
-SWAP
-STDICT
-;; previous_message_timestamp
-;; stack=5
-PUSH s3
-STUR 64
-;; interval
-;; stack=5
-PUSH s2
-STUR 64
-PUSHINT 1
-STONES
-;; c4
-;; stack=5
-PUSH s1
-STSLICER
-;; c4_builder
-;; stack=5
-DUP
-ENDC
-POPROOT
-PRINTSTR constr_prot_1
-BLKDROP 5)");
+		pushPrivateFunctionOrMacroCall(0, "generateConstructorProtection_macro");
+		push( 0, "NOP");
 		push( 0, "ACCEPT");
 	}
 
+	void pushPersistentDataFromC4ToC7()  {
+		pushPrivateFunctionOrMacroCall(0, "push_persistent_data_from_c4_to_c7_macro");
+	}
+
 	void pushPersistentDataFromC7ToC4()  {
-		// copy pasta from generated file stdlib.code
-		pushLines(R"(PRINTSTR pushpdc7toc4
-PUSHROOT
-CTOS
-;; decl: c4
-SKIPDICT
-NEWC
-;; decl: c4_builder
-PUSHCTR c7
-THIRD
-SWAP
-STDICT
-;; c4
-;; stack=2
-PUSH s1
-STSLICER
-;; c4_builder
-;; stack=2
-DUP
-ENDC
-POPROOT
-PRINTSTR pushpdc7toc40
-BLKDROP 2
-)");
+		pushPrivateFunctionOrMacroCall(0, "push_persistent_data_from_c7_to_c4_macro");
 	}
 
 	void visitConstructor(FunctionDefinition const& _function, bool tvm_mode0) {
@@ -692,7 +770,7 @@ BLKDROP 2
 			auto name = "constructor_" + name1;
 			if (definedConstructors.count(name) > 0)
 				continue;
-			pushPrivateFunctionCall(0, name);
+			pushPrivateFunctionOrMacroCall(0, name);
 		}
 	}
 
@@ -727,7 +805,7 @@ BLKDROP 2
 						}
 					}
 				}
-				pushPrivateFunctionCall(0, ctx().getFunctionInternalName(f));
+				pushPrivateFunctionOrMacroCall(0, ctx().getFunctionInternalName(f));
 			}
 		}
 	}
@@ -862,7 +940,7 @@ BLKDROP 2
 		push(+1, ""); // adjust stack
 	}
 
-	void addFalseFlagIfNeeded(CodeLines& code) {
+	static void addFalseFlagIfNeeded(CodeLines& code) {
 		auto s = code.lines.back();
 		if (s != "RET" && s != "PUSHINT 2 ; break" && s != "PUSHINT 3 ; continue")
 			code.push("FALSE");
@@ -1132,7 +1210,7 @@ BLKDROP 2
 			eventCall->arguments(), 
 			event->parameterList().parameters(),
 			StackPusherHelper::ReasonOfOutboundMessage::EmitEventExternal);
-		pushPrivateFunctionCall(-1, "send_ext_msg");
+		pushPrivateFunctionOrMacroCall(-1, "send_external_message_macro");
 		return false;
 	}
 

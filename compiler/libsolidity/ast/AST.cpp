@@ -312,6 +312,7 @@ FunctionTypePointer FunctionDefinition::functionType(bool _internal) const
 		case Declaration::Visibility::Private:
 		case Declaration::Visibility::Internal:
 		case Declaration::Visibility::Public:
+		case Declaration::Visibility::TvmGetter:
 			return make_shared<FunctionType>(*this, _internal);
 		case Declaration::Visibility::External:
 			return {};
@@ -328,6 +329,7 @@ FunctionTypePointer FunctionDefinition::functionType(bool _internal) const
 			return {};
 		case Declaration::Visibility::Public:
 		case Declaration::Visibility::External:
+		case Declaration::Visibility::TvmGetter:
 			return make_shared<FunctionType>(*this, _internal);
 		}
 	}
@@ -567,6 +569,7 @@ FunctionTypePointer VariableDeclaration::functionType(bool _internal) const
 		return {};
 	case Declaration::Visibility::Public:
 	case Declaration::Visibility::External:
+	case Declaration::Visibility::TvmGetter:
 		return make_shared<FunctionType>(*this);
 	}
 

@@ -260,8 +260,7 @@ private:
 			}
             solAssert(false, "Unsupported param type (not integral array) " + type->toString());
 		} else if (to<StructType>(type)) {
-			string sname = getStructName(type);
-			if (sname == "TvmCell") 
+			if (isTvmCell(type))
 				return "cell";
 			return "tuple";
         }

@@ -346,6 +346,9 @@ Declaration::Visibility Parser::parseVisibilitySpecifier()
 		case Token::Private:
 			visibility = Declaration::Visibility::Private;
 			break;
+		case Token::TvmGetter:
+			visibility = Declaration::Visibility::TvmGetter;
+			break;
 		case Token::External:
 			visibility = Declaration::Visibility::External;
 			break;
@@ -859,6 +862,9 @@ ASTPointer<TypeName> Parser::parseTypeName(bool _allowVar)
 				parserError("State mutability can only be specified for address types.");
 				m_scanner->next();
 			}
+		}
+		else if (m_scanner->currentToken() == Token::Public) {
+			m_errorReporter.warning("Modifier 'public' doesn't create a getter function.", SourceLocation{position(), endPosition(), source()});
 		}
 		type = nodeFactory.createNode<ElementaryTypeName>(elemTypeName, stateMutability);
 	}

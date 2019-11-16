@@ -37,9 +37,9 @@ ErrorReporter& ErrorReporter::operator=(ErrorReporter const& _errorReporter)
 }
 
 
-void ErrorReporter::warning(string const& _description)
+void ErrorReporter::warning(string const& _description, SourceLocation const& _location)
 {
-	error(Error::Type::Warning, SourceLocation(), _description);
+	error(Error::Type::Warning, _location, _description);
 }
 
 void ErrorReporter::warning(

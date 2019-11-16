@@ -29,22 +29,24 @@ class TVMExpressionCompiler : public IExpressionCompiler, private StackPusherHel
 private:
 	ITVMCompiler* const m_compiler;
 	int m_expressionDepth;
+	bool m_isResultNeeded;
 
 public:
 	TVMExpressionCompiler(ITVMCompiler* compiler, const TVMCompilerContext& ctx) 
 		: StackPusherHelper(compiler, &ctx)
 		, m_compiler(compiler)
-		, m_expressionDepth{0} 
+		, m_expressionDepth{-1}
+		, m_isResultNeeded{false}
 	{
 	}
 
-	void acceptExpr2(const Expression* expr, const bool isResultNeeded = true) override {
+	void acceptExpr2(const Expression* expr, const bool _isResultNeeded = true) override {
 		solAssert(expr, "");
 		// Recursive call are not allowed.
-		solAssert(m_expressionDepth == 0, "");
-		m_expressionDepth = isResultNeeded ? 1 : 0;
+		solAssert(m_expressionDepth == -1, "");
+		m_isResultNeeded = _isResultNeeded;
 		acceptExpr(expr);
-		m_expressionDepth = 0;
+		m_expressionDepth = -1;
 	}
 
 protected:
@@ -134,6 +136,10 @@ protected:
 		} else if (name == "now") {
 			// Getting value of `now` variable
 			push(+1, "NOW");
+		} else if (name == "this") {
+			// calling this.function() will create intrenal message that should be sent to the address of current contract
+			push(0, "; call function of this");
+			push(+1, "MYADDR");
 		} else if (ctx().getLocalFunction(name)) {
 			CodeLines code;
 			code.push("CALL $" + name + "_internal$");
@@ -143,13 +149,13 @@ protected:
 		}
 	}
 
-	void compileUnaryOperation(UnaryOperation const& _node, std::string tvmUnaryOperation) {
-		if (m_expressionDepth > 1) {
+	void compileUnaryOperation(UnaryOperation const& _node, const std::string& tvmUnaryOperation) {
+		if (m_expressionDepth >= 1 || m_isResultNeeded) {
 			cast_error(_node, "++ operation is supported only in simple expressions.");
 		}
 
 		if (auto identifier = to<Identifier>(&_node.subExpression())) {
-			auto name = identifier->name();
+			const auto& name = identifier->name();
 			TVMStack& stack = getStack();
 			if (stack.isParam(name) && stack.getOffset(name) == 0) {
 				push(0, tvmUnaryOperation);
@@ -178,10 +184,7 @@ protected:
 			expandMappingValue(exprs, false);
 			Type const* exprType = getType(&node.subExpression());
 			if (to<AddressType>(exprType)) {
-				pushInt(0);
-				pushPrivateFunctionCall(-1 + 1, "make__MsgAddressInt__addr_std_10");
-				push(0, "ENDC");
-				push(0, "CTOS");
+				pushPrivateFunctionOrMacroCall(+ 1, "make_zero_address_macro");
 			} else if (to<IntegerType>(exprType) ||
 				to<BoolType>(exprType) ||
 				to<FixedBytesType>(exprType)) {
@@ -272,7 +275,7 @@ protected:
 		return true;
 	}
 
-	string compareAddresses(Token op) {
+	static string compareAddresses(Token op) {
 		if (op == Token::GreaterThan)
 			return "SDLEXCMP ISPOS";
 		if (op == Token::GreaterThanOrEqual)
@@ -288,6 +291,40 @@ protected:
 		solAssert(false, "Wrong compare operation");
 	}
 
+	bool tryOptimizeBinaryOperation(BinaryOperation const& _node) {
+		Token op = _node.getOperator();
+		auto r = to<Literal>(&_node.rightExpression());
+		if ((op == Token::NotEqual || op == Token::Equal || op == Token::GreaterThan || op == Token::LessThan) && r) {
+			int value;
+			try {
+				value = boost::lexical_cast<int>(r->valueWithoutUnderscores());
+			} catch (...) {
+				return false;
+			}
+			if (-128 <= value && value < 128) {
+				acceptExpr(&_node.leftExpression());
+				switch (op) {
+					case Token::NotEqual:
+						push(-1 + 1, "NEQINT " + toString(value));
+						break;
+					case Token::Equal:
+						push(-1 + 1, "EQINT " + toString(value));
+						break;
+					case Token::GreaterThan:
+						push(-1 + 1, "GTINT " + toString(value));
+						break;
+					case Token::LessThan:
+						push(-1 + 1, "LESSINT " + toString(value));
+						break;
+					default:
+						solAssert(false, "");
+				}
+				return true;
+			}
+		}
+		return false;
+	}
+
 	void visit2(BinaryOperation const& _node) {
 		if (!checkArgumentsForFixedBytes(getType(&_node.leftExpression()), getType(&_node.rightExpression()))) {
 			cast_error(_node, "Unsupported operation for this arguments");
@@ -296,10 +333,14 @@ protected:
 		Type::Category leftType = _node.leftExpression().annotation().type->category();
 		Type::Category rightType = _node.leftExpression().annotation().type->category();
 
+		if (tryOptimizeBinaryOperation(_node)) {
+			return;
+		}
+
 		acceptExpr(&_node.leftExpression());
 		acceptExpr(&_node.rightExpression());
-		push(0, string(";; ") + TokenTraits::toString(_node.getOperator()));
 		auto op = _node.getOperator();
+		push(0, string(";; ") + TokenTraits::toString(_node.getOperator()));
 		if (op == Token::Exp) {
 			// TODO: this code is hard to understand. Would it be better to move it to stdlib?
 			push(0, "SWAP");
@@ -370,22 +411,18 @@ protected:
 		if (op == Token::BitXor) cmd = "XOR";
 		push(-1, cmd);
 	}
-	
+
 	bool checkForMagic(MemberAccess const& _node, Type::Category category) {
 		if (category != Type::Category::Magic)
 			return false;
 		auto expr = to<Identifier>(&_node.expression());
 		if (expr != nullptr && expr->name() == "msg") {
 			if (_node.memberName() == "sender") { // msg.sender
-				push(+1, "PUSHCTR c7");
-				push(0, "SECOND");
-				push(0, "SECOND");
+				pushPrivateFunctionOrMacroCall(+1, "sender_address_macro");
 				return true;
 			}
 			if (_node.memberName() == "value") { // msg.value
-				push(+1, "PUSHCTR c7");
-				push(0, "SECOND");
-				push(0, "THIRD");
+				pushPrivateFunctionOrMacroCall(+1, "message_balance_macro");
 				return true;
 			}
 		}
@@ -422,7 +459,7 @@ protected:
 		if (_node.memberName() == "balance") {
 			if (!isAddressThis(to<FunctionCall>(&_node.expression())))
 				cast_error(_node.expression(), "only 'address(this).balance' is supported for balance");
-			pushPrivateFunctionCall(+1, "get_contract_balance");
+			pushPrivateFunctionOrMacroCall(+1, "get_contract_balance_macro");
 			return true;
 		}
 		return false;
@@ -510,7 +547,7 @@ protected:
 						TypeInfo arrayElementTypeInfo(array->baseType().get());
 						acceptExpr(argument.get());
 						pushInt(arrayElementTypeInfo.numBits);
-						pushPrivateFunctionCall(-3 + 1,"abi_encode_packed");
+						pushPrivateFunctionOrMacroCall(-3 + 1, "abi_encode_packed_macro");
 					} else {
 						cast_error(_functionCall, "Only numeric types or numeric arrays are supported for abi.encodePacked(...)");
 					}
@@ -571,10 +608,10 @@ protected:
 					acceptExpr(&memberAccess->expression());
 					if (const FunctionDefinition* fdef = m_compiler->getRemoteFunctionDefinition(memberAccess)) {
 						auto fn = ctx().getFunctionExternalName(memberAccess->memberName());
-						if (m_expressionDepth > 1)
+						if (m_expressionDepth >= 1 || m_isResultNeeded)
 							cast_error(_functionCall, "Calls to remote contract do not return result.");
 						encodeOutboundMessageBody(fn, arguments, fdef->parameters(), StackPusherHelper::ReasonOfOutboundMessage::RemoteCallInternal);
-						pushPrivateFunctionCall(-3, "send_grams");
+						pushPrivateFunctionOrMacroCall(-3, "send_internal_message_macro");
 						dumpStackSize();
 						return true;
 					}
@@ -588,12 +625,13 @@ protected:
 		auto arguments = _functionCall.arguments();
 		if (auto memberAccess = to<MemberAccess>(&_functionCall.expression())) {
 			if (const FunctionDefinition* fdef = m_compiler->getRemoteFunctionDefinition(memberAccess)) {
+				pushInt(10'000'000); // // 10_000_000 is 10_000 * gas price (1000)
 				acceptExpr(&memberAccess->expression());
 				auto fn = ctx().getFunctionExternalName(memberAccess->memberName());
-				if (m_expressionDepth > 1)
+				if (m_expressionDepth >= 1 || m_isResultNeeded)
 					cast_error(_functionCall, "Calls to remote contract do not return result.");
 				encodeOutboundMessageBody(fn, arguments, fdef->parameters(), StackPusherHelper::ReasonOfOutboundMessage::RemoteCallInternal);
-				pushPrivateFunctionCall(-2, "send_int_msg_2");
+				pushPrivateFunctionOrMacroCall(-3, "send_internal_message_macro");
 				return true;
 			}
 		}
@@ -609,7 +647,7 @@ protected:
 		if (checkRemoteMethodCall(_functionCall)) return;
 		if (checkRemoteMethodCallWithValue(_functionCall)) return;
 
-		fcc.compile(_functionCall);
+		fcc.compile(_functionCall, m_expressionDepth >= 1 || m_isResultNeeded);
 	}
 		
 	void visit2(Conditional const& _conditional) {
@@ -697,10 +735,9 @@ protected:
 				auto[numBits, isSigned, keyCategory] = parseIndexType(index);
 				getFromDict(getType(index), numBits, isSigned, keyCategory);
 				// index dict1 dict2
-			}
-			else if (auto index = to<MemberAccess>(exprs[i])) {
+			} else if (auto member = to<MemberAccess>(exprs[i])) {
 				// dict1
-				auto type = pushStructMemberIndex(index);
+				auto type = pushStructMemberIndex(member);
 				// dict1 index
 				push(0, "SWAP");
 				// index dict1
@@ -743,20 +780,20 @@ protected:
 					setDict(isIntegralType(type), numBits, isSigned, keyCategory);
 					// index dict1 dict2'
 				}
-			} else if (auto index = to<MemberAccess>(exprs[i])) {
+			} else if (auto member = to<MemberAccess>(exprs[i])) {
 				if (isLast && !haveValueOnStackTop) {
 					push(-1, "NIP");
 				} else {
 					if (isLast) {
 						// TODO: check other types
-						auto type = pushStructMemberIndex(index, false);
-						if (isIntegralType(getType(index)))
+						auto type = pushStructMemberIndex(member, false);
+						if (isIntegralType(getType(member)))
 							intToBuilder(type);
 					}
 					// index dict1 index2 dict2 value
 					push(0, "ROTREV");
 					// index dict1 value index2 dict2
-					setDict(isIntegralType(getType(index)), 8, false);
+					setDict(isIntegralType(getType(member)), 8, false);
 					// index dict1 dict2'
 				}
 			} else {
@@ -771,16 +808,16 @@ protected:
 		if (!exprs[0])
 			return false;
 
-		if (m_expressionDepth > 1) {
+		if (m_expressionDepth >= 1 || m_isResultNeeded) {
 			cast_error(_assignment, "Assignment is supported only in simple expressions.");
 		}
 		const Token op = _assignment.assignmentOperator();
 		if (op == Token::Assign){
-			if (leftType == Type::Category::Address && to<Literal>(&_assignment.rightHandSide())) {
-				cast_error(_assignment, "Can't convert literal to address. Use tvm_make_address");
-			}
 			expandMappingValue(exprs, false);
 			acceptExpr(&_assignment.rightHandSide());
+			if (leftType == Type::Category::Address && to<Literal>(&_assignment.rightHandSide())) {
+				pushPrivateFunctionOrMacroCall(-1 + 1, "make_std_address_with_zero_wid_macro");
+			}
 		} else {
 			string cmd;
 			if      (op == Token::AssignAdd)    cmd = "ADD";
@@ -827,19 +864,19 @@ protected:
 					cast_error(_assignment, "Unsupported operation.");
 				return tryAssign(lhs, rhs);
 			} else if (auto rhs = to<FunctionCall>(&_assignment.rightHandSide())) {
-				visit2(*rhs);
+				acceptExpr(rhs);
 				push(0, "REVERSE " + to_string(lhs->components().size()) + ", 0");
-				for (size_t i = 0; i < lhs->components().size(); i++) {
-					if (!lhs->components()[i]) {
+				for (const auto & i : lhs->components()) {
+					if (!i) {
 						push(-1, "DROP");
 						continue;
 					}
-					const vector<Expression const*> exprs = unrollLHS(lhs->components()[i].get());
+					const vector<Expression const*> exprs = unrollLHS(i.get());
 					if (!exprs[0])
 						cast_error(_assignment, "Unsupported tuple field.");
 					expandMappingValue(exprs, false);
-					if ((to<MemberAccess>(lhs->components()[i].get())) ||
-						 (to<IndexAccess>(lhs->components()[i].get()))){
+					if ((to<MemberAccess>(i.get())) ||
+						 (to<IndexAccess>(i.get()))){
 						push(0, "BLKSWAP 1, 2");
 					}
 					collectMappingValue(exprs);
@@ -890,7 +927,7 @@ protected:
 			acceptExpr(&_assignment.rightHandSide());
 			// some_expanded_data... defaultValue arr newArrSize
 
-			pushPrivateFunctionCall(-3 + 1,    "change_array_length");
+			pushPrivateFunctionOrMacroCall(-3 + 1, "change_array_length_macro");
 			// some_expanded_data arr'
 
 			collectMappingValue(exprs);

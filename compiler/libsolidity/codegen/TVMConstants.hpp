@@ -21,19 +21,23 @@
 namespace TvmConst {
 	namespace C4 {
 		// length of key in dict c4
-//		const int KeyLength = 16;
-		const int KeyLength = 64; // TODO DELETE
+		const int KeyLength = 64;
 
 		const int PersistenceMembersStartIndex = 100;
-	}
-	namespace Exception {
-		const int ConstructorIsCalledTwice  = 123; // TODO set normal value
-		const int ReplayProtection  = 124; // TODO set normal value
 	}
 	namespace SENDRAWMSG {
 		const int CarryAllMoney  = 128;
 	}
-	namespace ReplayProtection {
-		const int Interval = 30 * 60 * 1000; // 30 min = 30 * 60 * 1000 milisec;
+	namespace Message {
+		const int functionIdLength = 32;
+		const int timestampLength = 64;
+		namespace ReplayProtection {
+			const int Interval = 30 * 60 * 1000; // 30 min = 30 * 60 * 1000 milisec;
+		}
+		namespace Exception {
+			const int ReplayProtection  = 124; // TODO set normal value
+			const int ConstructorIsCalledTwice  = 123; // TODO set normal value
+		}
 	}
+	const int CellBitLength = 1023;
 }

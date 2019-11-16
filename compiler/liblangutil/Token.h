@@ -180,6 +180,7 @@ namespace langutil
 	K(CallData, "calldata", 0)                                         \
 	K(Struct, "struct", 0)                                             \
 	K(Throw, "throw", 0)                                               \
+	K(TvmGetter, "tvm_getter", 0)                                      \
 	K(Type, "type", 0)                                                 \
 	K(Using, "using", 0)                                               \
 	K(Var, "var", 0)                                                   \
@@ -296,7 +297,11 @@ namespace TokenTraits
 	constexpr bool isUnaryOp(Token op) { return (Token::Not <= op && op <= Token::Delete) || op == Token::Add || op == Token::Sub; }
 	constexpr bool isCountOp(Token op) { return op == Token::Inc || op == Token::Dec; }
 	constexpr bool isShiftOp(Token op) { return (Token::SHL <= op) && (op <= Token::SHR); }
-	constexpr bool isVariableVisibilitySpecifier(Token op) { return op == Token::Public || op == Token::Private || op == Token::Internal; }
+	
+	constexpr bool isVariableVisibilitySpecifier(Token op) { 
+		return op == Token::Public || op == Token::Private || op == Token::Internal || op == Token::TvmGetter; 
+	}
+	
 	constexpr bool isVisibilitySpecifier(Token op) { return isVariableVisibilitySpecifier(op) || op == Token::External; }
 	constexpr bool isLocationSpecifier(Token op) { return op == Token::Memory || op == Token::Storage || op == Token::CallData; }
 
