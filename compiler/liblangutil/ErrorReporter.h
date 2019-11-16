@@ -47,7 +47,7 @@ public:
 		m_errorList += _errorList;
 	}
 
-	void warning(std::string const& _description);
+	void warning(std::string const& _description, SourceLocation const& _location = SourceLocation());
 
 	void warning(SourceLocation const& _location, std::string const& _description);
 
