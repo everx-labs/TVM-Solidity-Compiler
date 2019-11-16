@@ -176,7 +176,7 @@ class Declaration: public ASTNode, public Scopable
 {
 public:
 	/// Visibility ordered from restricted to unrestricted.
-	enum class Visibility { Default, Private, Internal, Public, External };
+	enum class Visibility { Default, Private, Internal, Public, TvmGetter, External };
 
 	static std::string visibilityToString(Declaration::Visibility _visibility)
 	{

@@ -89,8 +89,7 @@ bool DocStringParser::parse(string const& _docString, ErrorReporter& _errorRepor
 			auto tagNameEndPos = firstWhitespaceOrNewline(tagPos, end);
 			if (tagNameEndPos == end)
 			{
-				appendError("End of tag " + string(tagPos, tagNameEndPos) + " not found");
-				break;
+				_errorReporter.warning("Tag " + string(tagPos, tagNameEndPos) + " is empty");
 			}
 
 			currPos = parseDocTag(tagNameEndPos + 1, end, string(tagPos + 1, tagNameEndPos));

@@ -28,6 +28,8 @@
 #include <typeinfo>
 #include <json/json.h>
 
+#include <boost/algorithm/string/predicate.hpp>
+
 #include "TVMConstants.hpp"
 
 using namespace std;
@@ -52,6 +54,8 @@ T get_from_map(const string_map<T>& map, string key, TT defValue) {
 		return map.at(key);
 	return defValue;
 }
+
+bool ends_with(const string& str, const string& suffix);
 	
 class TVMStack {
 	int m_size;
@@ -151,7 +155,7 @@ struct CodeLines {
 		}
 	}
 
-	void generateGlobl(const string& fname,  const bool isPublic) {
+	void generateGlobl(const string& fname, const bool isPublic) {
 		push(".globl\t" + fname);
 		if (isPublic) {
 			push(".public\t" + fname);
@@ -162,6 +166,10 @@ struct CodeLines {
 	void generateInternal(const string& fname, const int id) {
 		push(".internal-alias :" + fname + ",        " + toString(id));
 		push(".internal\t:" + fname);
+	}
+
+	void generateMacro(const string& functionName) {
+		push(".macro " + functionName);
 	}
 };
 
@@ -284,6 +292,23 @@ bool isAddressType(const Type* type) {
 	return to<AddressType>(type) || to<ContractType>(type);
 }
 
+bool isTvmCell(const Type* type) {
+	auto structType = to<StructType>(type);
+	return structType && structType->structDefinition().name() == "TvmCell";
+}
+
+struct AddressInfo {
+	static int minBitLength() {
+		// addr_var$11 anycast:(Maybe Anycast) addr_len:(## 9) workchain_id:int32 address:(bits addr_len) = MsgAddressInt;
+		return 2 + 1 + 9 + 32 + 1;
+	}
+
+	static int maxBitLength() {
+		// addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt
+		return 2 + 1 + 8 + 256;
+	}
+};
+
 struct TypeInfo {
 	bool isNumeric {false};
 	bool isSigned {false};
@@ -299,7 +324,7 @@ struct TypeInfo {
 		} else if (isAddressType(type)) {
 			isNumeric = true;
 			isSigned = false;
-			numBits = 2 + 1 + 8 + 256;
+			numBits = AddressInfo::maxBitLength();
 			category = Type::Category::Address;
 		} else if (to<BoolType>(type)) {
 			isNumeric = true;
@@ -421,6 +446,10 @@ bool isSuper(Expression const* expr) {
 	return false;
 }
 
+bool isMacro(const std::string& functionName) {
+	return ends_with(functionName, "_macro");
+}
+
 bool isAddressThis(const FunctionCall* fcall) {
 	if (!fcall)
 		return false;
@@ -436,16 +465,6 @@ bool isAddressThis(const FunctionCall* fcall) {
 	}
 	return false;
 }
-
-/*
-auto findFunction(ContractDefinition const* contract0, const string& contractName, const string& functionName) {
-	for (const auto& p : getContractFunctionPairs(contract0)) {
-		if (p.first->name() == functionName && p.second->name() == contractName)
-			return p;
-	}
-	return pair<FunctionDefinition const*, ContractDefinition const*> {nullptr, nullptr};
-}
-*/
 
 // List of all function with a given name
 auto getContractFunctions(ContractDefinition const* contract, const string& fname) {
@@ -501,13 +520,13 @@ bool ends_with(const string& str, const string& suffix) {
 	return 0 == str.compare(str.size()-suffix.size(), suffix.size(), suffix);
 }
 
-std::string ASTNode2String(const ASTNode& node, const string& error_messag = "") {
+std::string ASTNode2String(const ASTNode& node, const string& error_messag = "", bool isWarning = false) {
 	ErrorList		m_errors;
 	ErrorReporter	m_errorReporter(m_errors);
 	m_errorReporter.parserError(node.location(), error_messag);
 	string message = SourceReferenceFormatter::formatExceptionInformation(
 		*(m_errorReporter.errors())[0],
-		"Error"
+		isWarning ? "Warning" : "Error"
 	);
 	return message;
 }
@@ -518,16 +537,18 @@ void cast_error(const ASTNode& node, const string& error_message) {
 	std::exit(EXIT_FAILURE);
 }
 
+void cast_warning(const ASTNode& node, const string& error_message) {
+	cerr << ASTNode2String(node, error_message, true) << endl;
+}
+
 struct FuncInfo {
 	const FunctionDefinition*	m_function;
 	const ContractDefinition*	m_contract;
 	string						m_internalName;
-	bool						m_needsDecoder;
-	
+
 	FuncInfo(const FunctionDefinition* f, const ContractDefinition* c)
 		: m_function(f), m_contract(c) 
 	{
-		m_needsDecoder = f->isPublic();
 	}
 };
 
@@ -626,12 +647,7 @@ class TVMCompilerContext {
 				fi.m_internalName = getFunctionInternalName(f);
 				if (!f->isConstructor() && f != getContractFunctions(contract, f->name()).back()) {
 					fi.m_internalName = c->name() + "_" + f->name();
-					fi.m_needsDecoder = false;
 				}
-				bool isBaseConstructor = f->isConstructor() && !isMainConstructor(f);
-				// Base constructors should not be exported
-				if (isBaseConstructor || f->name() == "onTickTock")
-					fi.m_needsDecoder = false;
 				m_functionsList.push_back(fi);
 			}
 		}
@@ -645,10 +661,10 @@ public:
 		initMembers(contract, allContracts);
 	}
 	
-	mutable set<string>						m_remoteFunctions;
-	vector<FuncInfo>						m_functionsList;
-	const FuncInfo *						m_currentFunction = nullptr;
-	map<string, CodeLines>					m_inlinedFunctions;
+	mutable set<string>		m_remoteFunctions;
+	vector<FuncInfo>		m_functionsList;
+	const FuncInfo*			m_currentFunction = nullptr;
+	map<string, CodeLines>	m_inlinedFunctions;
 
 	bool isStdlib() const {
 		return m_contract->name() == "stdlib";
@@ -796,6 +812,42 @@ struct StackPusherImpl : IStackPusher {
 	
 };
 
+struct ABITypeSize {
+	int minBits = -1;
+	int maxBits = -1;
+	int refs = -1;
+
+	explicit ABITypeSize(Type const* type) {
+		if (isAddressType(type)){
+			minBits = AddressInfo::minBitLength();
+			maxBits = AddressInfo::maxBitLength();
+			refs = 0;
+		} else if (isIntegralType(type)) {
+			TypeInfo ti{type};
+			solAssert(ti.isNumeric, "");
+			minBits = ti.numBits;
+			maxBits = ti.numBits;
+			refs = 0;
+		} else if (auto arrayType = to<ArrayType>(type)) {
+			if (arrayType->isByteArray()) {
+				minBits = 0;
+				maxBits = 0;
+				refs = 1;
+			} else {
+				minBits = 32;
+				maxBits = 32;
+				refs = 1;
+			}
+		} else if (isTvmCell(type)) {
+			minBits = 0;
+			maxBits = 0;
+			refs = 1;
+		} else {
+			solAssert(false, "");
+		}
+	}
+};
+
 class StackPusherHelper {
 private:
 	IStackPusher* const					m_pusher;
@@ -837,8 +889,14 @@ public:
 	void pushInt(int i) {
 		push(+1, "PUSHINT " + toString(i));
 	}
+
+	void push(const CodeLines& codeLines) {
+		for (const std::string& s : codeLines.lines) {
+			push(0, s);
+		}
+	}
 	
-	void pushPrivateFunctionCall(const int stackDelta, const string& fname) {
+	void pushPrivateFunctionOrMacroCall(const int stackDelta, const string& fname) {
 		push(stackDelta, "CALL $" + fname + "$");
 	}
 
@@ -852,12 +910,6 @@ public:
 		push(+1, "PUSHINT $" + fname + "$");
 	}
 
-	void pushInlineCall(const FunctionType* ft) {
-		auto nParams  = ft->parameterTypes().size();
-		auto nRetVals = ft->returnParameterTypes().size();
-		push(-nParams-1+nRetVals, "CALLX");
-	}
-	
 	void dumpStackSize(string prefix = "") {
 		push(0, prefix + ";; stack=" + toString(m_pusher->getStack().size()));
 	}
@@ -926,8 +978,8 @@ public:
 	}
 
 	void setDict(bool isDictValueInteger, int numBits, bool isSigned, Type::Category keyCategory = Type::Category::Integer) {
-		// expects on stack: value index dict
-		pushInt(numBits);
+		// stack: value index dict
+		pushInt(numBits); // stack: value index dict nBits
 
 		string dict_cmd;
 		if (isDictValueInteger) {
@@ -947,13 +999,13 @@ public:
 	}
 
 	void pushPersistentDataDict() {
-		push(+1, "PUSH c7 THIRD");
+		push(+1, "PUSH c7 SECOND");
 	}
 
 	void setPersistentDataDict() {
 		push(+1, "PUSH c7");
 		push(0, "SWAP");
-		push(-1, "SETTHIRD");
+		push(-1, "SETSECOND");
 		push(-1, "POP c7");
 	}
 
@@ -984,9 +1036,9 @@ public:
 	}
 
 	void getFromDict(const Type* resultType, int nbits = 256, bool isSigned = false, Type::Category keyCategory = Type::Category::Integer) {
-		// expects on stack: index dict
+		// stack: index dict
 		const Type::Category resultCategory = resultType->category();
-		pushInt(nbits);
+		pushInt(nbits); // stack: index dict nbits
 
 		if (isIntegralType(resultType)) {
 			if (keyCategory == Type::Category::Address) {
@@ -995,12 +1047,13 @@ public:
 				push(-3 + 2, isSigned ? "DICTIGET" : "DICTUGET");
 			}
 			if (isAddressType(resultType)) {
-				push(+1, "PUSHCONT {");
-				push(0 , "	PUSHINT 0");
-				pushPrivateFunctionCall(0, "make__MsgAddressInt__addr_std_10");
-				push(0 , "	ENDC");
-				push(0 , "	CTOS");
-				push(0 , "}");
+				TVMStack stack;
+				CodeLines code;
+				StackPusherImpl pusher(stack, code);
+				StackPusherHelper pusherHelper(&pusher, &ctx());
+				pusherHelper.pushPrivateFunctionOrMacroCall(0, "make_zero_address_macro");
+
+				pushCont(code);
 				push(-2, "IFNOT");
 			} else {
 				push(+1, "PUSHCONT { " + makeLoadNumericTypeCommand(resultType) + " ENDS }");
@@ -1071,6 +1124,41 @@ public:
 		RemoteCallInternal
 	};
 
+	class EncodePosition : private boost::noncopyable {
+		int restSliceBits;
+		int restFef;
+		int qtyOfCreatedBuilders;
+
+	public:
+		explicit EncodePosition(int bits) :
+				restSliceBits{TvmConst::CellBitLength - bits},
+				restFef{3},
+				qtyOfCreatedBuilders{0}
+		{
+
+		}
+
+		bool needNewCell(Type const* type) {
+			ABITypeSize size(type);
+			solAssert(0 <= size.refs && size.refs <= 1, "");
+
+			restSliceBits -= size.maxBits;
+			restFef -= size.refs;
+
+			if (restSliceBits < 0 || restFef == 0) {
+				restSliceBits =  TvmConst::CellBitLength - size.maxBits;
+				restFef = 4 - size.refs;
+				++qtyOfCreatedBuilders;
+				return true;
+			}
+			return false;
+		}
+
+		int countOfCreatedBuilders() {
+			return qtyOfCreatedBuilders;
+		}
+	};
+
 	void encodeFunctionAndParams(const string& functionName,
 	                             const std::vector<Type const*>& types,
 	                             const std::vector<ASTNode const*>& nodes,
@@ -1093,76 +1181,90 @@ public:
 		}
 
 		push(-1, "STUR 32");
+		EncodePosition position{32};
 
-		encodeParams(types, nodes, pushParam);
+		encodeParameters(types, nodes, pushParam, position);
 	}
 
-	void encodeParams(const std::vector<Type const*>& types,
-	                  const std::vector<ASTNode const*>& nodes,
-	                  const std::function<void(size_t)>& pushParam) {
+	void encodeParameters(const std::vector<Type const*>& types,
+	                      const std::vector<ASTNode const*>& nodes,
+	                      const std::function<void(size_t)>& pushParam,
+	                      EncodePosition& position) {
+		// builder must be situated on top stack
 		solAssert(types.size() == nodes.size(), "");
 		for (size_t idx = 0; idx < types.size(); idx++) {
-			push(+1, "NEWC");
 			auto type = types[idx];
-			pushParam(idx);
-			if (isIntegralType(type)) {
-				push(-1, makeStoreTypeCommand(type, true));
-			} else if (auto arrayType = to<ArrayType>(type)) {
-				if (arrayType->isByteArray()) {
-					push(-1, "STREFR");
-				} else {
-					pushPrivateFunctionCall(-2 + 1, "encode_array");
-				}
-			} else if (auto structType = to<StructType>(type)) {
-				encodeStruct(structType, nodes[idx]);
-			} else {
-				cast_error(*nodes[idx], "Unsupported type : " + type->toString());
-			}
+			encodeParameter(type, position, [&](){pushParam(idx);}, nodes[idx]);
 		}
-		for(size_t idx = 0; idx < types.size(); idx++) {
+		for (int idx = 0; idx < position.countOfCreatedBuilders(); idx++) {
 			push(-1, "STBREFR");
 		}
 	}
 
-	void encodeStruct(const StructType* structType, ASTNode const* param) {
-		const StructDefinition& strDef = structType->structDefinition();
-		const auto& members = strDef.members();
-		push(0, ";; store struct " + strDef.name());
-		// ; stack: builder struct
-		auto savedStackSize = getStack().size();
-		push( 0, "SWAP");
-		// ; stack: struct builder
-		for (size_t i = 0; i < members.size(); i++) {
-			auto member = members[i].get();
-			auto mtype = getType(member);
-			push(0, ";; " + strDef.name() + "." + member->name());
+	void encodeParameter(Type const* type, EncodePosition& position, const std::function<void()>& pushParam, ASTNode const* node) {
+		// stack: builder...
+		if (auto structType = to<StructType>(type); structType && !isTvmCell(structType)) {
+			pushParam();
+			push(0, "SWAP"); // stack: builder... struct builder
+			encodeStruct(structType, node, position); // stack: builder...
+		} else {
+			if (position.needNewCell(type)) {
+				push(+1, "NEWC");
+			}
 
-			// ; stack: struct builder
-			pushInt(i);
-			push(+1, "PUSH s2");
-			// ; stack: struct builder i struct
-			pushInt(8);
-			if (isIntegralType(mtype)) {
-				push(-3+2, "DICTUGET");
-				push(-1, "THROWIFNOT 98");
-				// TODO: This is a place for future optimizations. There is no need
-				// to load integer from slice and then store it to builder.
-				// Just store slice as is with STSLICE.
-				// ; stack: struct builder s.x-cell
-				push(+1, makeLoadNumericTypeCommand(mtype));
-				push(-1, "DROP");
-				push(-1, makeStoreTypeCommand(mtype, true));
-			} else if (auto structType2 = to<StructType>(mtype)) {
-				// ; stack: struct builder struct2
-				push(-3+1, "DICTUGETOPTREF");
-				encodeStruct(structType2, param);
+			if (isIntegralType(type)) {
+				pushParam();
+				push(-1, makeStoreTypeCommand(type, true));
+			} else if (auto arrayType = to<ArrayType>(type)) {
+				if (arrayType->isByteArray()) {
+					pushParam();
+					push(-1, "STREFR");
+				} else {
+					pushParam();
+					pushPrivateFunctionOrMacroCall(-2 + 1, "encode_array_macro");
+				}
+			} else if (isTvmCell(structType)) {
+				pushParam();
+				push(-1, "STREFR");
 			} else {
-				cast_error(*param, "Unsupported type in structure: " + mtype->toString());
+				cast_error(*node, "Unsupported type : " + type->toString());
 			}
 		}
-		getStack().ensureSize(savedStackSize, "encodeStruct");
-		// drop struct
-		push(-1, "POP s1");
+	}
+
+	void encodeStruct(const StructType* structType, ASTNode const* node, EncodePosition& position) {
+		// stack: struct builder...
+		const StructDefinition& structDefinition = structType->structDefinition();
+		const auto& members = structDefinition.members();
+		push(0, ";; store struct " + structDefinition.name());
+		int prevStackSize = getStack().size();
+		for (size_t i = 0; i < members.size(); i++) {
+			VariableDeclaration const* member = members[i].get();
+			Type const* memberType = member->annotation().type.get();
+			push(0, ";; " + structDefinition.name() + "." + member->name());
+			if (isIntegralType(memberType) || to<ArrayType>(memberType) || isTvmCell(memberType)) {
+				if (position.needNewCell(memberType)) {
+					push(+1, "NEWC"); // stack: struct builder...
+				}
+				pushInt(i); // stack: struct builder... i
+				push(+1, "PUSH s" + toString(getStack().size() - prevStackSize + 1)); // stack: struct builder... i struct
+				pushInt(8); // stack: struct builder... i struct 8
+				push(-3+2, "DICTUGET"); // stack: struct builder... value -1
+				push(-1, "THROWIFNOT 98"); // stack: struct builder... value
+				push(-1, "STSLICER"); // stack: struct builder...
+			} else if (auto nestedStructType = to<StructType>(memberType)) {
+				pushInt(i); // stack: struct builder... i
+				push(+1, "PUSH s" + toString(getStack().size() - prevStackSize + 1)); // stack: struct builder... i struct
+				pushInt(8); // stack: struct builder... i struct 8
+				push(-3+1, "DICTUGETOPTREF");  // stack: struct builder... inner_struct
+				push(0, "SWAP"); // stack: struct builder... inner_struct builder
+				encodeStruct(nestedStructType, node, position);
+			} else {
+				cast_error(*node, "Unsupported type in structure: " + memberType->toString());
+			}
+		}
+		// stack: struct builder...
+		dropUnder(getStack().size() - prevStackSize + 1, 1); // stack: builder...
 	}
 };
 

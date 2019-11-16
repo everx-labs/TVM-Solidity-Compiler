@@ -86,30 +86,36 @@ public:
 			}
 			return true;
 		}
-		if (iname == "tvm_ldu") { // TODO optimize
+		if (iname == "tvm_ldu" || iname == "tvm_ldi")  {
 			auto slice = ensureParamIsIdentifier(0);
-			acceptExpr(slice);
-			auto bits = arguments[1].get();
-			if (auto literal = to<Literal>(bits)) {
-				push(+1, "LDU " + literal->value());
+			if (arguments.size() >= 3) {
+				acceptExpr(slice);
+				for (size_t i = 1; i < arguments.size(); ++i) {
+					auto bits = arguments[i].get();
+					auto literal = to<Literal>(bits);
+					if (!literal) {
+						cast_error(*arguments[i].get(), "Should be literal");
+					}
+					push(+1, opcode + " " + literal->value());
+				}
+				solAssert(tryAssignParam(slice->name()), "");
 			} else {
-				acceptExpr(bits);
-				push(0, "LDUX");
+				auto bits = arguments[1].get();
+				auto literal = to<Literal>(bits);
+				if (getStack().getOffset(slice->name()) == 0 && literal) {
+					push(+1, opcode + " " + literal->value());
+					push(0, "SWAP");
+				} else {
+					acceptExpr(slice);
+					if (literal) {
+						push(+1, opcode + " " + literal->value());
+					} else {
+						acceptExpr(bits);
+						push(0, opcode + "X");
+					}
+					solAssert(tryAssignParam(slice->name()), "");
+				}
 			}
-			solAssert(tryAssignParam(slice->name()), "");
-			return true;
-		}
-		if (iname == "tvm_ldi") { // TODO optimize
-			auto slice = ensureParamIsIdentifier(0);
-			acceptExpr(slice);
-			auto bits = arguments[1].get();
-			if (auto literal = to<Literal>(bits)) {
-				push(+1, "LDI " + literal->value());
-			} else {
-				acceptExpr(bits);
-				push(0, "LDIX");
-			}
-			solAssert(tryAssignParam(slice->name()), "");
 			return true;
 		}
 		if (iname == "tvm_pldu") {
@@ -300,13 +306,11 @@ public:
 			return true;
 		}
 		if (iname == "tvm_sender_pubkey") {
-			push(+1, "PUSHCTR c7");
-			push(0, "SECOND");
-			push(0, "FIRST");
+			pushPrivateFunctionOrMacroCall(+1, "sender_pubkey_macro");
 			return true;
 		}
 		if (iname == "tvm_my_public_key") {
-			pushPrivateFunctionCall(+1, "my_pubkey");
+			pushPrivateFunctionOrMacroCall(+1, "my_pubkey_macro");
 			return true;
 		}
 		if (iname == "tvm_c4_key_length") {
@@ -314,15 +318,15 @@ public:
 			return true;
 		}
 		if (iname == "tvm_exception_constructoriscalledtwice") {
-			push(+1, "PUSHINT " + toString(TvmConst::Exception::ConstructorIsCalledTwice));
+			push(+1, "PUSHINT " + toString(TvmConst::Message::Exception::ConstructorIsCalledTwice));
 			return true;
 		}
 		if (iname == "tvm_exception_replayprotection") {
-			push(+1, "PUSHINT " + toString(TvmConst::Exception::ReplayProtection));
+			push(+1, "PUSHINT " + toString(TvmConst::Message::Exception::ReplayProtection));
 			return true;
 		}
 		if (iname == "tvm_default_replay_protection_interval"){
-			push(+1, "PUSHINT " + toString(TvmConst::ReplayProtection::Interval));
+			push(+1, "PUSHINT " + toString(TvmConst::Message::ReplayProtection::Interval));
 			return true;
 		}
 		if (iname == "tvm_now") {
@@ -338,11 +342,11 @@ public:
 			return true;
 		}
 		if (iname == "tvm_rand_seed") {
-			pushPrivateFunctionCall(+1,   "get_rand_seed");
+			pushPrivateFunctionOrMacroCall(+1, "get_rand_seed_macro");
 			return true;
 		}
 		if (iname == "tvm_balance") {
-			pushPrivateFunctionCall(+1,   "get_balance");
+			pushPrivateFunctionOrMacroCall(+1, "get_balance");
 			return true;
 		}
 		/*
@@ -437,10 +441,15 @@ public:
 		if (iname == "tvm_sdskipfirst") {
 			checkArgCount(2);
 			Identifier const* slice = ensureParamIsIdentifier(0);
-			acceptExpr(slice);
-			acceptExpr(arguments[1].get());
-			push(-1, "SDSKIPFIRST");
-			solAssert(tryAssignParam(slice->name()), "");
+			if (getStack().getOffset(slice->name()) == 0) {
+				acceptExpr(arguments[1].get());
+				push(-2 + 1, "SDSKIPFIRST");
+			} else {
+				acceptExpr(slice);
+				acceptExpr(arguments[1].get());
+				push(-2 + 1, "SDSKIPFIRST");
+				solAssert(tryAssignParam(slice->name()), "");
+			}
 			return true;
 		}
 		if (iname == "tvm_dictudel") {
@@ -501,6 +510,13 @@ public:
 			}
 			return true;
 		}
+		if (iname == "tvm_pldref_and_to_slice") {
+			checkArgCount(1);
+			acceptExpr(arguments[0].get());
+			push(+1, "LDREFRTOS");
+			push(-1, "NIP");
+			return true;
+		}
 		if (iname == "tvm_hashsu") {
 			checkArgCount(1);
 			acceptExpr(arguments[0].get());
@@ -521,13 +537,13 @@ public:
 			acceptExpr(arguments[3].get());
 
 			Type const * type3 = arguments[3].get()->annotation().type.get();
-			if (type3->category() == Type::Category::Struct && to<StructType>(type3)->structDefinition().name() == "TvmCell"){
+			if (isTvmCell(type3)){
 				if (arguments.size() != 4) {
 					cast_error(_functionCall,
 					           "Correct argument types: (TvmCell memory my_contract, address addr, uint128 grams, TvmCell memory payload) "
 					           "or (TvmCell memory my_contract, address addr, uint128 gram, uint constuctor_id, some_type0 constuctor_param0, some_type1 constuctor_param1, ...)");
 				}
-				pushPrivateFunctionCall(-4, "deploy_contract2");
+				pushPrivateFunctionOrMacroCall(-4, "deploy_contract2_macro");
 			} else {
 				pushLog("insr");
 				// auto x = _functionCall.annotation().argumentTypes; why argumentTypes is always null ?
@@ -538,33 +554,27 @@ public:
 					nodes.push_back(arguments[i].get());
 				}
 				push(+1, "NEWC");
-				encodeParams(types, nodes, [&](std::size_t index) {
+				EncodePosition position{0};
+				encodeParameters(types, nodes, [&](std::size_t index) {
 					acceptExpr(arguments[index + 4].get());
-				});
+				}, position);
 				pushLog("insr1");
-				pushPrivateFunctionCall(-5, "deploy_contract");
+				pushPrivateFunctionOrMacroCall(-5, "deploy_contract_macro");
 			}
 			return true;
 		}
-		if (iname == "tvm_drop_stack_and_jump") {
+		if (iname == "tvm_jump") {
 			checkArgCount(2);
-			auto dropCount = getStack().size();
+			pushLog("tvm_jump");
 			acceptExpr(arguments[1].get());		// rest_body_slice
 			acceptExpr(arguments[0].get());		// func_id
-			dropUnder(2, dropCount);
-			push(0, "JMP 1");
-			push(-2+dropCount, "");		// fix stack
+			pushLog("tvm_jump0");
+			push(-2, "JMP 1");
 			return true;
 		}
 		if (iname == "tvm_sempty") {
 			acceptExpr(arguments[0].get());
 			push(0, "SEMPTY");
-			return true;
-		}
-		if (iname == "tvm_ldrefnpop"){
-			acceptExpr(arguments[0].get());
-			push(+1, "LDREF");
-			push(-1, "NIP");
 			return true;
 		}
 		if (iname == "tvm_lddict") {
@@ -593,13 +603,20 @@ public:
 		}
 		if (iname == "tvm_unpack_address") {
 			acceptExpr(arguments[0].get());
-			pushPrivateFunctionCall(-1 + 2,"unpack_address");
+			pushPrivateFunctionOrMacroCall(-1 + 2, "unpack_address_macro");
 			return true;
 		}
 		if (iname == "tvm_make_address") {
-			acceptExpr(arguments[0].get());
-			acceptExpr(arguments[1].get());
-			pushPrivateFunctionCall(-2 + 1, "make_address");
+			checkArgCount(2);
+			Expression const* a0 = arguments[0].get();
+			Expression const* a1 = arguments[1].get();
+			if (to<Literal>(a0) && to<Literal>(a1) && to<Literal>(a0)->value() == "0" && to<Literal>(a1)->value() == "0") {
+				pushPrivateFunctionOrMacroCall(+1, "make_zero_address_macro");
+			} else {
+				acceptExpr(arguments[0].get());
+				acceptExpr(arguments[1].get());
+				pushPrivateFunctionOrMacroCall(-2 + 1, "make_address_macro");
+			}
 			return true;
 		}
 		if (iname == "tvm_push_callback_func_id") {
@@ -660,7 +677,7 @@ public:
 			checkArgCount(2);
 			acceptExpr(arguments[0].get());
 			acceptExpr(arguments[1].get());
-			pushPrivateFunctionCall(-2+1, "insert_pubkey");
+			pushPrivateFunctionOrMacroCall(-2 + 1, "insert_pubkey_macro");
 			return true;
 		}
 		if (iname == "tvm_getparam") {
@@ -696,7 +713,7 @@ public:
 			acceptExpr(arguments[1].get());
 			acceptExpr(arguments[2].get());
 			acceptExpr(arguments[3].get());
-			pushPrivateFunctionCall(-4, "accurate_transfer");
+			pushPrivateFunctionOrMacroCall(-4, "send_accurate_internal_message_macro");
 			return true;
 		}
 		if (iname == "tvm_poproot") {
@@ -722,7 +739,7 @@ public:
 			push(-1 + 1, opcode);
 			return true;
 		}
-		if (iname == "tvm_skip_and_load_address_in_slice_copy"){ // TODO delete this
+		if (iname == "tvm_skip_and_load_uint256_in_slice_copy"){
 			// tvm_skip_and_load_in_slice_copy(uint slice, uint skippedLength) returns (uint)
 			checkArgCount(2);
 			acceptExpr(arguments[0].get());
@@ -735,7 +752,7 @@ public:
 			checkArgCount(2);
 			acceptExpr(arguments[0].get());
 			acceptExpr(arguments[1].get());
-			pushPrivateFunctionCall(-2 + 1, "build_state_init");
+			pushPrivateFunctionOrMacroCall(-2 + 1, "build_state_init_macro");
 			return true;
 		}
 		if (iname == "tvm_config_param15") {
@@ -796,6 +813,20 @@ public:
 
 			push(-2 + 5, "IFELSE");
 
+			return true;
+		}
+		if (iname == "tvm_reverse_push") { // index is staring from one
+			push(+1, "DEPTH");
+			acceptExpr(arguments[0].get());
+			push(-2 + 1, "SUB");
+			push(-1 + 1, "PICK");
+			return true;
+		}
+		if (iname == "tvm_is_zero_address") {
+			acceptExpr(arguments[0].get());
+			pushLines(R"(PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_
+SDEQ
+)");
 			return true;
 		}
 		return false;
