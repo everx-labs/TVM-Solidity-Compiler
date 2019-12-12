@@ -35,9 +35,10 @@ namespace TvmConst {
 			const int Interval = 30 * 60 * 1000; // 30 min = 30 * 60 * 1000 milisec;
 		}
 		namespace Exception {
-			const int ReplayProtection  = 124; // TODO set normal value
-			const int ConstructorIsCalledTwice  = 123; // TODO set normal value
+			const int ConstructorIsCalledTwice  = 123;
+			const int ReplayProtection  = 124;
 		}
 	}
 	const int CellBitLength = 1023;
+	const int ArrayKeyLength = 32;
 }

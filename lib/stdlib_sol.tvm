@@ -51,10 +51,10 @@ PUSH s1
 PUSH s3
 STDICT
 POP s3
+;; return
 ;; builder
 ;; stack=3
 PUSH s2
-;; return
 XCHG s3
 BLKDROP 3
 ; end encode_array_macro
@@ -91,13 +91,13 @@ PUSH s1
 EQUAL
 THROWIFNOT 100
 PRINTSTR decode_array_ok
+;; return
 ;; array
 ;; stack=4
 PUSH s1
 ;; slice
 ;; stack=5
 PUSH s4
-;; return
 BLKSWAP 4, 2
 BLKDROP 4
 ; end decode_array_macro
@@ -172,10 +172,10 @@ UNTIL
 ; erase idx
 DROP
 ; for end
+;; return
 ;; builder
 ;; stack=4
 PUSH s3
-;; return
 XCHG s4
 BLKDROP 4
 ; end abi_encode_packed_macro
@@ -204,8 +204,8 @@ PUSHINT 0
 PRINTSTR buildmsg
 NEWC
 ;; decl: builder
-PUSHINT 2
-STZEROES
+PUSHINT 1
+STUR 2
 ;; bounce
 ;; stack=4
 PUSH s1
@@ -233,12 +233,9 @@ STZEROES
 NOW
 STUR 32
 PRINTSTR buildmsg_end
-;; builder
-;; stack=4
-DUP
 ;; return
-XCHG s4
-BLKDROP 4
+XCHG s3
+BLKDROP 3
 ; end make__CommonMsgInfoRelaxed__int_msg_info__inline
 STBR
 PUSHINT 1
@@ -306,14 +303,13 @@ PUSHCONT {
 }
 IFELSE
 PRINTSTR st_either_cell0
+;; return
 ;; builder
 ;; stack=3
 PUSH s1
-;; return
 XCHG s3
 BLKDROP 3
 ; end store_either_for_cell_inline
-;; assign msg_builder
 NIP
 NEWC
 ;; decl: body_builder
@@ -367,14 +363,9 @@ PUSHCONT {
 }
 IFELSE
 PRINTSTR store_either_0
-;; builder
-;; stack=2
-DUP
 ;; return
 NIP
-NIP
 ; end store_either_for_builder_inline
-;; assign msg_builder
 POP s2
 PRINTSTR deploy_contrac0
 ;; msg_builder
@@ -409,8 +400,8 @@ PUSHINT 0
 PRINTSTR buildmsg
 NEWC
 ;; decl: builder
-PUSHINT 2
-STZEROES
+PUSHINT 1
+STUR 2
 ;; bounce
 ;; stack=4
 PUSH s1
@@ -438,12 +429,9 @@ STZEROES
 NOW
 STUR 32
 PRINTSTR buildmsg_end
-;; builder
-;; stack=4
-DUP
 ;; return
-XCHG s4
-BLKDROP 4
+XCHG s3
+BLKDROP 3
 ; end make__CommonMsgInfoRelaxed__int_msg_info__inline
 STBR
 PUSHINT 1
@@ -511,14 +499,13 @@ PUSHCONT {
 }
 IFELSE
 PRINTSTR st_either_cell0
+;; return
 ;; builder
 ;; stack=3
 PUSH s1
-;; return
 XCHG s3
 BLKDROP 3
 ; end store_either_for_cell_inline
-;; assign msg_builder
 NIP
 ;; payload
 ;; stack=5
@@ -583,14 +570,13 @@ PUSHCONT {
 }
 IFELSE
 PRINTSTR st_either_cell0
+;; return
 ;; builder
 ;; stack=3
 PUSH s1
-;; return
 XCHG s3
 BLKDROP 3
 ; end store_either_for_cell_inline
-;; assign msg_builder
 NIP
 PRINTSTR deploy_contr2_1
 ;; msg_builder
@@ -769,11 +755,11 @@ PUSHCONT {
 }
 IFELSE
 PRINTSTR insert_pubkey_9
+;; return
 ;; builder
 ;; stack=8
 PUSH s4
 ENDC
-;; return
 XCHG s8
 BLKDROP 8
 ; end insert_pubkey_macro
@@ -802,11 +788,11 @@ STREFR
 PUSHINT 1
 STZEROES
 PRINTSTR bld_stt_nt_1
+;; return
 ;; builder
 ;; stack=3
 DUP
 ENDC
-;; return
 XCHG s3
 BLKDROP 3
 ; end build_state_init_macro
@@ -833,8 +819,8 @@ PUSHINT -1
 PRINTSTR buildmsg
 NEWC
 ;; decl: builder
-PUSHINT 2
-STZEROES
+PUSHINT 1
+STUR 2
 ;; bounce
 ;; stack=4
 PUSH s1
@@ -862,12 +848,9 @@ STZEROES
 NOW
 STUR 32
 PRINTSTR buildmsg_end
-;; builder
-;; stack=4
-DUP
 ;; return
-XCHG s4
-BLKDROP 4
+XCHG s3
+BLKDROP 3
 ; end make__CommonMsgInfoRelaxed__int_msg_info__inline
 STBR
 PUSHINT 0
@@ -914,14 +897,9 @@ PUSHCONT {
 }
 IFELSE
 PRINTSTR store_either_0
-;; builder
-;; stack=2
-DUP
 ;; return
 NIP
-NIP
 ; end store_either_for_builder_inline
-;; assign msg_builder
 NIP
 ;; msg_builder
 ;; stack=4
@@ -945,12 +923,12 @@ STUR 11
 PUSH s1
 STUR 256
 PRINTSTR make_addr_std0
+;; return
 ;; builder
 ;; stack=2
 DUP
 ENDC
 CTOS
-;; return
 NIP
 NIP
 ; end make_std_address_with_zero_wid_macro
@@ -964,8 +942,8 @@ NIP
 PRINTSTR ac_transfer
 NEWC
 ;; decl: builder
-PUSHINT 2
-STZEROES
+PUSHINT 1
+STUR 2
 ;; bounce
 ;; stack=5
 PUSH s2
@@ -1006,6 +984,129 @@ PRINTSTR ac_transfer_end
 BLKDROP 5
 ; end send_accurate_internal_message_macro
 
+.macro send_accurate_internal_message_with_body_macro
+; send_accurate_internal_message_with_body_macro
+;; param: remote_addr
+;; param: grams_value
+;; param: bounce
+;; param: sendrawmsg_flag
+;; param: body
+PRINTSTR ac_transfer
+NEWC
+;; decl: builder
+PUSHINT 1
+STUR 2
+;; bounce
+;; stack=6
+PUSH s3
+STIR 1
+PUSHINT 1
+STZEROES
+MYADDR
+STSLICER
+;; remote_addr
+;; stack=6
+PUSH s5
+STSLICER
+;; grams_value
+;; stack=6
+PUSH s4
+STGRAMS
+PUSHINT 1
+STZEROES
+PUSHINT 0
+STGRAMS
+PUSHINT 0
+STGRAMS
+PUSHINT 64
+STZEROES
+NOW
+STUR 32
+PUSHINT 1
+STZEROES
+;; body
+;; stack=6
+PUSH s1
+;; builder
+;; stack=7
+PUSH s1
+; store_either_for_cell_inline
+;; param: x
+;; param: builder
+PRINTSTR st_either_cell
+;; x
+;; stack=2
+PUSH s1
+CTOS
+;; decl: slice_x
+;; if
+;; builder
+;; stack=3
+PUSH s1
+BREMBITS ; tvm_brembits
+;; slice_x
+;; stack=4
+PUSH s1
+SBITS ; tvm_sbits
+PUSHINT 1
+;; +
+ADD
+;; >
+GREATER
+PUSHCONT {
+	;; builder
+	;; stack=3
+	PUSH s1
+	PUSHINT 1
+	STZEROES
+	POP s2
+	;; slice_x
+	;; stack=3
+	DUP
+	;; builder
+	;; stack=4
+	PUSH s2
+	STSLICE
+	POP s2
+}
+PUSHCONT {
+	;; builder
+	;; stack=3
+	PUSH s1
+	PUSHINT 1
+	STONES
+	POP s2
+	;; x
+	;; stack=3
+	PUSH s2
+	;; builder
+	;; stack=4
+	PUSH s2
+	STREF
+	POP s2
+}
+IFELSE
+PRINTSTR st_either_cell0
+;; return
+;; builder
+;; stack=3
+PUSH s1
+XCHG s3
+BLKDROP 3
+; end store_either_for_cell_inline
+NIP
+;; builder
+;; stack=6
+DUP
+ENDC
+;; sendrawmsg_flag
+;; stack=7
+PUSH s3
+SENDRAWMSG
+PRINTSTR ac_transfer_end
+BLKDROP 6
+; end send_accurate_internal_message_with_body_macro
+
 .globl	store_either_for_builder_inline
 .type	store_either_for_builder_inline, @function
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1045,11 +1146,7 @@ PUSHCONT {
 }
 IFELSE
 PRINTSTR store_either_0
-;; builder
-;; stack=2
-DUP
 ;; return
-NIP
 NIP
 RET
 
@@ -1113,10 +1210,10 @@ PUSHCONT {
 }
 IFELSE
 PRINTSTR st_either_cell0
+;; return
 ;; builder
 ;; stack=3
 PUSH s1
-;; return
 XCHG s3
 BLKDROP 3
 RET
@@ -1131,8 +1228,8 @@ RET
 PRINTSTR buildmsg
 NEWC
 ;; decl: builder
-PUSHINT 2
-STZEROES
+PUSHINT 1
+STUR 2
 ;; bounce
 ;; stack=4
 PUSH s1
@@ -1160,12 +1257,9 @@ STZEROES
 NOW
 STUR 32
 PRINTSTR buildmsg_end
-;; builder
-;; stack=4
-DUP
 ;; return
-XCHG s4
-BLKDROP 4
+XCHG s3
+BLKDROP 3
 RET
 
 .macro push_persistent_data_from_c4_to_c7_macro
@@ -1240,11 +1334,11 @@ PUSHCONT {
 	STBREFR
 }
 IFELSE
+;; return
 ;; builder
 ;; stack=4
 DUP
 ENDC
-;; return
 XCHG s4
 BLKDROP 4
 RET
@@ -1297,7 +1391,6 @@ PUSHCONT {
 		PUSHINT 32
 		DICTUDEL
 		DROP
-		;; assign array
 		POP s3
 		FALSE
 	}
@@ -1333,10 +1426,10 @@ PUSHCONT {
 }
 IFELSE
 PRINTSTR ch_arr_len_end
+;; return
 ;; array
 ;; stack=4
 PUSH s2
-;; return
 XCHG s4
 BLKDROP 4
 ; end change_array_length_macro
@@ -1402,11 +1495,11 @@ PUSHCONT {
 	STBREFR
 }
 IFELSE
+;; return
 ;; builder
 ;; stack=4
 DUP
 ENDC
-;; return
 XCHG s4
 BLKDROP 4
 ; end build_external_outbound_message_inline
@@ -1414,25 +1507,6 @@ PUSHINT 0
 SENDRAWMSG
 DROP
 ; end send_external_message_macro
-
-.macro make_zero_address_macro
-; make_zero_address_macro
-PRINTSTR make_z_address
-NEWC
-;; decl: builder
-PUSHINT 1
-STONES
-PUSHINT 266
-STZEROES
-PRINTSTR make_z_address0
-;; builder
-;; stack=1
-DUP
-ENDC
-CTOS
-;; return
-NIP
-; end make_zero_address_macro
 
 .macro make_address_macro
 ; make_address_macro
@@ -1452,12 +1526,12 @@ STIR 8
 PUSH s1
 STUR 256
 PRINTSTR make_address0
+;; return
 ;; builder
 ;; stack=3
 DUP
 ENDC
 CTOS
-;; return
 XCHG s3
 BLKDROP 3
 ; end make_address_macro
@@ -1478,6 +1552,7 @@ FIRST
 EQINT 2
 THROWIFNOT 84
 PRINTSTR unpack_address0
+;; return
 ;; tuple
 ;; stack=2
 DUP
@@ -1487,7 +1562,6 @@ THIRD
 PUSH s1
 INDEX 3
 PLDU 256
-;; return
 BLKSWAP 2, 2
 BLKDROP 2
 ; end unpack_address_macro
@@ -1495,16 +1569,16 @@ BLKDROP 2
 .macro get_rand_seed_macro
 ; get_rand_seed_macro
 PRINTSTR get_rand_seed
-GETPARAM 6
 ;; return
+GETPARAM 6
 ; end get_rand_seed_macro
 
 .macro get_contract_balance_macro
 ; get_contract_balance_macro
 PRINTSTR get_balance
+;; return
 GETPARAM 7
 FIRST
-;; return
 ; end get_contract_balance_macro
 
 .globl	get_bounced_inline
@@ -1521,9 +1595,9 @@ CTOS
 PUSHINT 3
 SDSKIPFIRST
 PRINTSTR get_src_addr0
+;; return
 LDU 1
 SWAP
-;; return
 NIP
 NIP
 RET
@@ -1543,10 +1617,10 @@ DUP
 SDEMPTY
 PUSHCONT {
 	PRINTSTR checkSign2
+	;; return
 	;; msg_slice
 	;; stack=2
 	PUSH s1
-	;; return
 	NIP
 	NIP
 	RET
@@ -1572,10 +1646,10 @@ PUSH s2
 CHKSIGNU
 THROWIFNOT 40
 PRINTSTR checkSign3
+;; return
 ;; msg_slice
 ;; stack=3
 PUSH s2
-;; return
 XCHG s3
 BLKDROP 3
 RET
@@ -1605,9 +1679,9 @@ CTOS
 PUSHINT 3
 SDSKIPFIRST
 PRINTSTR get_src_addr0
+;; return
 LDU 1
 SWAP
-;; return
 NIP
 NIP
 ; end get_bounced_inline
@@ -1703,10 +1777,10 @@ PUSHCONT { ; checkAndDetachSignature_inline
 	SDEMPTY
 	PUSHCONT {
 		PRINTSTR checkSign2
+		;; return
 		;; msg_slice
 		;; stack=2
 		PUSH s1
-		;; return
 		NIP
 		NIP
 		RET
@@ -1732,10 +1806,10 @@ PUSHCONT { ; checkAndDetachSignature_inline
 	CHKSIGNU
 	THROWIFNOT 40
 	PRINTSTR checkSign3
+	;; return
 	;; msg_slice
 	;; stack=3
 	PUSH s2
-	;; return
 	XCHG s3
 	BLKDROP 3
 	RET
@@ -1787,14 +1861,11 @@ PUSHCONT { ; replay_prot_inline
 		LDU 64
 		POP s4
 		REVERSE 2, 0
-		;; assign previous_message_timestamp
 		POP s5
-		;; assign interval
 		POP s3
 	}
 	PUSHCONT {
 		PUSHINT 1800000
-		;; assign interval
 		POP s3
 	}
 	IFELSE
@@ -1842,18 +1913,16 @@ PUSHCONT { ; replay_prot_inline
 		ENDC
 		POPROOT
 		PRINTSTR replay_prot2
-		TRUE
 		;; return
-		XCHG s5
 		BLKDROP 5
+		TRUE
 		RET
 	}
 	IFJMP
 	PRINTSTR replay_prot3
-	FALSE
 	;; return
-	XCHG s5
 	BLKDROP 5
+	FALSE
 	RET
 }
 CALLX
@@ -1940,14 +2009,11 @@ PUSHCONT {
 	LDU 64
 	POP s4
 	REVERSE 2, 0
-	;; assign previous_message_timestamp
 	POP s5
-	;; assign interval
 	POP s3
 }
 PUSHCONT {
 	PUSHINT 1800000
-	;; assign interval
 	POP s3
 }
 IFELSE
@@ -1995,18 +2061,16 @@ PUSHCONT {
 	ENDC
 	POPROOT
 	PRINTSTR replay_prot2
-	TRUE
 	;; return
-	XCHG s5
 	BLKDROP 5
+	TRUE
 	RET
 }
 IFJMP
 PRINTSTR replay_prot3
-FALSE
 ;; return
-XCHG s5
 BLKDROP 5
+FALSE
 RET
 
 .macro my_pubkey_macro
@@ -2039,12 +2103,9 @@ ENDS
 NULL
 POP s2
 PRINTSTR my_pubkey_end
-;; pubkey
-;; stack=4
-DUP
 ;; return
-XCHG s4
-BLKDROP 4
+XCHG s3
+BLKDROP 3
 ; end my_pubkey_macro
 
 .macro generateConstructorProtection_macro
@@ -2064,7 +2125,6 @@ CTOS
 DUP
 LDDICT
 POP s2
-;; assign dict
 POP s4
 ;; if
 ;; c4
@@ -2075,11 +2135,9 @@ SCHKBITSQ
 PUSHCONT {
 	LDU 64
 	SWAP
-	;; assign previous_message_timestamp
 	POP s3
 	LDU 64
 	SWAP
-	;; assign interval
 	POP s2
 	;; if
 	;; c4
@@ -2124,88 +2182,6 @@ PRINTSTR constr_prot_1
 BLKDROP 5
 ; end generateConstructorProtection_macro
 
-.macro convertAddressToStd_macro
-; convertAddressToStd_macro
-;; param: _address
-;; if
-;; _address
-;; stack=1
-DUP
-PLDU 2
-NEQINT 2
-PUSHCONT {
-	;; _address
-	;; stack=1
-	DUP
-	PARSEMSGADDR
-	;; decl: tuple
-	;; if
-	;; tuple
-	;; stack=2
-	DUP
-	FIRST
-	EQINT 3
-	PUSHCONT {
-		NEWC
-		;; decl: builder
-		PUSHINT 4
-		STUR 3
-		;; tuple
-		;; stack=3
-		PUSH s1
-		THIRD
-		STIR 8
-		;; tuple
-		;; stack=3
-		PUSH s1
-		INDEX 3
-		;; decl: addr
-		;; builder
-		;; stack=4
-		PUSH s1
-		PUSHINT 256
-		;; addr
-		;; stack=6
-		PUSH s2
-		SBITS ; tvm_sbits
-		;; -
-		SUB
-		STZEROES
-		POP s2
-		;; addr
-		;; stack=4
-		DUP
-		;; builder
-		;; stack=5
-		PUSH s2
-		STSLICE
-		POP s2
-		;; builder
-		;; stack=4
-		PUSH s1
-		ENDC
-		CTOS
-		;; assign _address
-		POP s4
-		;; drop locals
-		BLKDROP 2
-	}
-	PUSHCONT {
-		FALSE
-		THROWIFNOT 100
-	}
-	IFELSE
-	;; drop locals
-	DROP
-}
-IF
-;; _address
-;; stack=1
-DUP
-;; return
-NIP
-; end convertAddressToStd_macro
-
 .macro sender_address_macro
 ; sender_address_macro
 PRINTSTR msg_sender
@@ -2235,7 +2211,6 @@ PUSHCONT {
 	DUP
 	LDMSGADDR
 	POP s2
-	;; assign sender_address
 	POP s3
 	;; drop locals
 	DROP
@@ -2249,21 +2224,8 @@ PUSHCONT {
 	;; ==
 	EQUAL
 	PUSHCONT {
-		NEWC
-		;; decl: builder
-		PUSHINT 1
-		STONES
-		PUSHINT 266
-		STZEROES
-		;; builder
-		;; stack=3
-		DUP
-		ENDC
-		CTOS
-		;; assign sender_address
-		POP s3
-		;; drop locals
-		DROP
+		PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_
+		POP s2
 	}
 	PUSHCONT {
 		FALSE
@@ -2273,10 +2235,10 @@ PUSHCONT {
 }
 IFELSE
 PRINTSTR msg_sender0
+;; return
 ;; sender_address
 ;; stack=2
 PUSH s1
-;; return
 NIP
 NIP
 ; end sender_address_macro
@@ -2320,7 +2282,6 @@ PUSHCONT {
 		PUSHINT 512
 		SDSKIPFIRST
 		PLDU 256
-		;; assign pubkey
 		POP s3
 	}
 	IF
@@ -2329,11 +2290,7 @@ PUSHCONT {
 }
 IF
 PRINTSTR sender_pk3
-;; pubkey
-;; stack=2
-DUP
 ;; return
-NIP
 NIP
 ; end sender_pubkey_macro
 
@@ -2362,26 +2319,33 @@ PUSHCONT {
 	THROWIFNOT 100
 }
 IF
+;; return
 DEPTH
 PUSHINT 2
 SUB
 PICK
-;; return
 NIP
 ; end message_balance_macro
 
-.globl	address2uint
-.type	address2uint, @function
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Function: address2uint
+.macro address2uint_macro
+; address2uint_macro
 ;; param: slice
 ;; slice
 ;; stack=1
 DUP
 PARSEMSGADDR
 INDEX 3
-PLDU 256
+;; decl: addr
 ;; return
+;; addr
+;; stack=2
+DUP
+;; addr
+;; stack=3
+PUSH s1
+SBITS ; tvm_sbits
+PLDUX
 NIP
-RET
+NIP
+; end address2uint_macro
 

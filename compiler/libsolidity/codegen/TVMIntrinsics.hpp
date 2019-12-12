@@ -23,8 +23,7 @@
 #include "TVMCommons.hpp"
 #include <libsolidity/ast/Types.h>
 
-namespace dev {
-namespace solidity {
+namespace dev::solidity {
 
 class IntrinsicsCompiler : public StackPusherHelper {
 	IExpressionCompiler* const m_exprCompiler;
@@ -120,12 +119,14 @@ public:
 		}
 		if (iname == "tvm_pldu") {
 			checkArgCount(2);
-			auto literal = to<Literal>(arguments[1].get());
-			if (literal == nullptr) {
-				cast_error(_functionCall, "second param should be literal");
+			if (auto literal = to<Literal>(arguments[1].get())) {
+				acceptExpr(arguments[0].get());
+				push(-1 + 1, opcode + " " + literal->value());
+			} else {
+				acceptExpr(arguments[0].get());
+				acceptExpr(arguments[1].get());
+				push(-2 + 1, opcode + "X");
 			}
-			acceptExpr(arguments[0].get());
-			push(-1 + 1, opcode + " " + literal->value());
 			return true;
 		}
 		if (iname == "tvm_ldmsgaddr") {
@@ -608,15 +609,9 @@ public:
 		}
 		if (iname == "tvm_make_address") {
 			checkArgCount(2);
-			Expression const* a0 = arguments[0].get();
-			Expression const* a1 = arguments[1].get();
-			if (to<Literal>(a0) && to<Literal>(a1) && to<Literal>(a0)->value() == "0" && to<Literal>(a1)->value() == "0") {
-				pushPrivateFunctionOrMacroCall(+1, "make_zero_address_macro");
-			} else {
-				acceptExpr(arguments[0].get());
-				acceptExpr(arguments[1].get());
-				pushPrivateFunctionOrMacroCall(-2 + 1, "make_address_macro");
-			}
+			acceptExpr(arguments[0].get());
+			acceptExpr(arguments[1].get());
+			pushPrivateFunctionOrMacroCall(-2 + 1, "make_address_macro");
 			return true;
 		}
 		if (iname == "tvm_push_callback_func_id") {
@@ -708,12 +703,22 @@ public:
 			return true;
 		}
 		if (iname == "tvm_transfer") {
-			checkArgCount(4);
-			acceptExpr(arguments[0].get());
-			acceptExpr(arguments[1].get());
-			acceptExpr(arguments[2].get());
-			acceptExpr(arguments[3].get());
-			pushPrivateFunctionOrMacroCall(-4, "send_accurate_internal_message_macro");
+			if (arguments.size() == 4) {
+				acceptExpr(arguments[0].get());
+				acceptExpr(arguments[1].get());
+				acceptExpr(arguments[2].get());
+				acceptExpr(arguments[3].get());
+				pushPrivateFunctionOrMacroCall(-4, "send_accurate_internal_message_macro");
+			} else if (arguments.size() == 5) {
+				acceptExpr(arguments[0].get());
+				acceptExpr(arguments[1].get());
+				acceptExpr(arguments[2].get());
+				acceptExpr(arguments[3].get());
+				acceptExpr(arguments[4].get());
+				pushPrivateFunctionOrMacroCall(-5, "send_accurate_internal_message_with_body_macro");
+			} else {
+				cast_error(_functionCall, iname + " should have 4 or 5 arguments");
+			}
 			return true;
 		}
 		if (iname == "tvm_poproot") {
@@ -753,6 +758,29 @@ public:
 			acceptExpr(arguments[0].get());
 			acceptExpr(arguments[1].get());
 			pushPrivateFunctionOrMacroCall(-2 + 1, "build_state_init_macro");
+			return true;
+		}
+		if (iname == "tvm_config_param1") {
+			//_ elector_addr:bits256 = ConfigParam 1;
+			pushLog("config_param1");
+			push(0, "PUSHINT 1");
+			push(0, "CONFIGPARAM");
+
+			CodeLines contOk;
+			contOk.push("CTOS");
+			contOk.push("LDU 256");
+			contOk.push("ENDS");
+			contOk.push("PUSHINT -1");
+
+			CodeLines contFail;
+			contFail.push("PUSHINT 0");
+			contFail.push("PUSHINT 0");
+
+			pushCont(contOk);
+			pushCont(contFail);
+
+			push(-2 + 2, "IFELSE");
+
 			return true;
 		}
 		if (iname == "tvm_config_param15") {
@@ -829,9 +857,70 @@ SDEQ
 )");
 			return true;
 		}
+		if (iname == "tvm_make_zero_address") {
+			pushZeroAddress();
+			return true;
+		}
+		if (isIn(iname, "tvm_dictmin", "tvm_dictgetnext")) {
+			for (auto &arg : arguments) {
+				acceptExpr(arg.get());
+			}
+
+			auto identifierAnnotation = to<IdentifierAnnotation>(&_functionCall.expression().annotation());
+			auto functionDefinition = to<FunctionDefinition>(identifierAnnotation->referencedDeclaration);
+			VariableDeclaration const *mapDeclaration = functionDefinition->parameters()[iname == "tvm_dictmin"? 0 : 1].get();
+			auto mapType = to<MappingType>(mapDeclaration->type().get());
+			if (isIn(mapType->keyType()->category(), Type::Category::Address, Type::Category::Contract)) {
+				if (iname == "tvm_dictgetnext") {
+					prepareKeyForDictOperations(mapType->keyType().get());
+				}
+				pushInt(AddressInfo::maxBitLength());
+			} else {
+				pushInt(getKeyDictLength(mapType->keyType().get())); // stack: index dict nbits
+			}
+
+			if (iname == "tvm_dictmin") {
+				push(-2 + 3, "DICT" + getKeyDict(mapType->keyType().get()) + "MIN");
+			} else {
+				push(-3 + 3, "DICT" + getKeyDict(mapType->keyType().get()) + "GETNEXT");
+			}
+
+			TVMStack stack;
+			CodeLines code;
+			StackPusherImpl pusher(stack, code);
+			StackPusherHelper pusherHelper(&pusher, &ctx());
+			pusherHelper.pushDefaultValue(mapType->keyType().get());
+			pusherHelper.pushDefaultValue(mapType->valueType().get());
+			pusherHelper.push(0, "FALSE");
+
+			if (isIntegralType(mapType->valueType().get())) {
+				TVMStack stack2;
+				CodeLines code2;
+				StackPusherImpl pusher2(stack2, code2);
+				StackPusherHelper pusherHelper2(&pusher2, &ctx());
+				if (isAddressType(mapType->keyType().get())) {
+					pusherHelper2.push(0, "LDMSGADDR");
+					pusherHelper2.push(0, "DROP");
+				}
+				pusherHelper2.push(0, "SWAP");
+				pusherHelper2.push(0, loadIntegralOrAddress(mapType->valueType().get()) + " ENDS");
+				pusherHelper2.push(0, "TRUE");
+
+				pushCont(code2);
+				pushCont(code);
+				push(-2, ""); // fix stack
+				push(0, "IFELSE");
+			} else {
+				push(0, "DUP");
+				pushCont(code);
+				push(-1, ""); // fix stack
+				push(0, "IFNOT");
+			}
+
+			return true;
+		}
 		return false;
 	}
 };
 	
-}	// solidity
-}	// dev
+} // end dev::solidity

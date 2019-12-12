@@ -16,13 +16,17 @@
  * TVM codegen driver
  */
 
-#include "TVMCommons.hpp"
+
+#include "TVMCommons.cpp"
 #include "TVMIntrinsics.hpp"
 #include "TVMFunctionCall.hpp"
 #include "TVMExpressionCompiler.hpp"
 #include "TVMABI.hpp"
 #include "TVMCompiler.hpp"
 #include "TVM.h"
+#include "TVMStructCompiler.hpp"
+#include "TVMTypeChecker.hpp"
+
 
 bool TVMCompiler::m_optionsEnabled = false;
 bool TVMCompiler::m_abiOnly = false;
@@ -34,6 +38,9 @@ std::vector<ContractDefinition const*> TVMCompiler::m_allContracts;
 void TVMCompilerProceedContract(ContractDefinition const& _contract) {
 	if (!TVMCompiler::m_optionsEnabled) 
 		return;
+	for (ContractDefinition const* c : TVMCompiler::m_allContracts) {
+		TVMTypeChecker::check(c);
+	}
 	if (TVMCompiler::m_abiOnly)
 		TVMCompiler::generateABI(&_contract);
 	else	

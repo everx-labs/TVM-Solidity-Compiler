@@ -19,6 +19,7 @@
 #pragma once
 
 #include "TVMCommons.hpp"
+#include "TVMStructCompiler.hpp"
 
 namespace dev {
 namespace solidity {
@@ -43,24 +44,47 @@ public:
 		
 	void compile(FunctionCall const& _functionCall, bool isResultNeeded = true) {
 		m_isResultNeeded = isResultNeeded;
-		auto arguments = _functionCall.arguments();
-		auto expr = &_functionCall.expression();
 		
 		if (checkNewExpression(_functionCall)) return;
 		if (checkTvmIntrinsic(_functionCall)) return;
 		if (checkAddressThis(_functionCall)) return;
 		if (checkSolidityUnits(_functionCall)) return;
+		if (_functionCall.annotation().kind == FunctionCallKind::StructConstructorCall) {
+			auto const& type = dynamic_cast<TypeType const&>(*_functionCall.expression().annotation().type);
+			auto const& structType = dynamic_cast<StructType const&>(*type.actualType());
+			auto const& structDefinition = structType.structDefinition();
+			StructCompiler structCompiler{this, &structDefinition};
+			structCompiler.createStruct([this, &_functionCall](const int fieldIndex, const std::string& fieldName) {
+				std::vector<ASTPointer<ASTString>> names = _functionCall.names();
+				if (!names.empty()) {
+					for (size_t i = 0; i < names.size(); ++i) {
+						if (fieldName == *names[i].get()) {
+							acceptExpr(_functionCall.arguments()[i].get());
+							return;
+						}
+					}
+					solAssert(false, "");
+				}
+				acceptExpr(_functionCall.arguments()[fieldIndex].get());
+			});
+			return ;
+		}
+		if (_functionCall.annotation().kind == FunctionCallKind::TypeConversion) {
+			typeConversion(_functionCall);
+			return;
+		}
 		if (checkForIdentifier(_functionCall)) return;
-		if (checkExplicitCasting(_functionCall)) return;
+
 
 		// TODO: move to function
+		auto arguments = _functionCall.arguments();
+		auto expr = &_functionCall.expression();
 		if (auto ma = to<MemberAccess>(expr)) {
-			for (const auto arg : arguments)
+			for (const auto& arg : arguments)
 				acceptExpr(arg.get());
 			auto category = getType(&ma->expression())->category();
 			if (checkForSuper(*ma, category)) return;
 			if (checkForTransfer(*ma, category)) return;
-			if (checkForArrayPush(*ma, category)) return;
 			if (checkForMemberAccessTypeType(*ma, category)) return;
 			cast_error(*ma, "Unsupported function call");
 		}
@@ -105,64 +129,6 @@ protected:
 		return false;
 	}
 
-	bool checkForArrayPush(MemberAccess const& _node, Type::Category category) {
-		if (category != Type::Category::Array)
-			return false;
-		if (_node.memberName() == "push") {
-			auto arrayType = to<ArrayType>(getType(&_node.expression()));
-			if (arrayType == nullptr) {
-				cast_error(_node.expression(), "Left hand side should be array type.");
-			}
-			if (m_isResultNeeded) {
-				cast_error(_node.expression(), "arr.push(..) is supported only in simple expressions");
-			}
-			auto arrayBaseType = arrayType->baseType().get();
-			bool isInterger = isIntegralType(arrayBaseType);
-
-			// Arguments are already on stack
-			auto savedStackSize = getStack().size();
-			// TODO: this code is hard to understand. Would it be better to move it to stdlib?
-			// stack: value
-			dumpStackSize();
-			push(0, "LOGSTR array_push");
-			if (isInterger) {
-				push(-1 + 1, "NEWC STU " + toString(TypeInfo(arrayBaseType).numBits));
-			}
-			// stack: value-slice
-			acceptExpr(&_node.expression());
-			// stack: value-slice array
-			push(+1, "DUP");
-			// stack: value-slice array array
-			pushInt(32);
-			// • F48E — DICTUMAX (s n – x i −1 or 0).
-			push(-2+3,	"DICTUMAX");
-			// stack: value-slice array max_value max_idx -1
-			push(+1,		"PUSHCONT { POP s1 INC}");
-			push(+1,		"PUSHCONT { PUSHINT 0 }");
-			push(-3-2+1,	"IFELSE");
-			// stack: value-slice array (max_idx+1)
-			push(0,		"SWAP");
-			// stack: value-slice (max_idx+1) array
-			if (isInterger) {
-				pushInt(32);
-				// stack: value-slice (max_idx+1) array 32
-				push(-4 + 1, "DICTUSETB");
-			} else {
-				setDict(false, 32, false);
-			}
-			// stack: array'
-			if (auto id = to<Identifier>(&_node.expression())) {
-				assignVar(id);
-			} else {
-				cast_error(_node.expression(), "Left hand side should be identifier.");
-			}
-			dumpStackSize();
-			getStack().ensureSize(savedStackSize-1, "array.push()");
-			return true;
-		}
-		return false;
-	}
-	
 	bool checkForMemberAccessTypeType(MemberAccess const& _node, Type::Category category) {
 		if (category != Type::Category::TypeType)
 			return false;
@@ -188,78 +154,147 @@ protected:
 		return false;
 	}
 
-	bool checkExplicitCasting(FunctionCall const& _functionCall) {
-		auto etn = to<ElementaryTypeNameExpression>(&_functionCall.expression());
-		if (etn == nullptr) {
-			return false;
-		}
+	void typeConversion(FunctionCall const& _functionCall) {
 		auto arguments = _functionCall.arguments();
-		auto defaultActionForCasting = [&arguments, &etn, this]() {
+		Type::Category argCategory = arguments[0]->annotation().type->category();
+		auto acceptArg = [&arguments, this] () {
 			for (const auto &arg : arguments)
 				acceptExpr(arg.get());
-			acceptExpr(etn);
+			solAssert(arguments.size() == 1, "");
+		};
+		auto conversionToAddress = [&_functionCall, &argCategory, &acceptArg, &arguments, this](){
+			switch (argCategory) {
+				case Type::Category::Contract:
+				case Type::Category::Address:
+					acceptArg();
+					break;
+				case Type::Category::RationalNumber:
+				case Type::Category::Integer: {
+					auto literal = to<Literal>(arguments[0].get());
+					if (literal) {
+						literalToSliceAddress(literal);
+					} else {
+						acceptArg();
+						pushPrivateFunctionOrMacroCall(-1 + 1, "make_std_address_with_zero_wid_macro");
+					}
+					break;
+				}
+				default:
+					cast_error(_functionCall, "Unsupported casting.");
+			}
 		};
 
-		switch (etn->typeName().token()) {
-			case Token::BytesM: {
-				Type::Category argCategory = arguments[0]->annotation().type->category();
-				int diff = 0;
-				if (argCategory == Type::Category::FixedBytes) {
-					acceptExpr(arguments[0].get());
-					auto argType = to<FixedBytesType>(arguments[0]->annotation().type.get());
-					diff = 8 * static_cast<int>(etn->typeName().firstNumber()) -
-					       8 * static_cast<int>(argType->storageBytes());
-				} else if (argCategory == Type::Category::Address) {
-					acceptExpr(arguments[0].get());
-					pushPrivateFunctionOrMacroCall(-1 + 1, "address2uint");
-					diff = 8 * static_cast<int>(etn->typeName().firstNumber()) - static_cast<int>(256);
-					if (diff < 0) {
-						cast_warning(_functionCall, "Such conversion can cause loss of data. Only first bytes are used in such assignment.");
-					}
-				} else {
-					cast_error(_functionCall, "Unsupported casting.");
-				}
+		if (auto etn = to<ElementaryTypeNameExpression>(&_functionCall.expression())) {
+			auto defaultActionForCasting = [&acceptArg, &etn, this]() {
+				acceptArg();
+				acceptExpr(etn);
+			};
 
-				if (diff > 0) {
-					push(0, "LSHIFT " + std::to_string(diff));
-				} else if (diff < 0) {
-					push(0, "RSHIFT " + std::to_string(-diff));
-				}
-				break;
-			}
-			case Token::Address: {
-				Type::Category argCategory = arguments[0]->annotation().type->category();
-				switch (argCategory) {
-					case Type::Category::Contract:
-						acceptExpr(arguments[0].get());
-						break;
-					case Type::Category::RationalNumber:
-					case Type::Category::Integer:
-						acceptExpr(arguments[0].get());
-						pushPrivateFunctionOrMacroCall(-1 + 1, "make_std_address_with_zero_wid_macro");
-						break;
-					default:
+			Type const *argType = arguments[0]->annotation().type.get();
+			switch (etn->typeName().token()) {
+				case Token::BytesM: {
+					acceptArg();
+					int diff = 0;
+					if (argCategory == Type::Category::FixedBytes) {
+						auto fixedBytesType = to<FixedBytesType>(arguments[0]->annotation().type.get());
+						diff = 8 * static_cast<int>(etn->typeName().firstNumber()) -
+						       8 * static_cast<int>(fixedBytesType->storageBytes());
+					} else if (argCategory == Type::Category::Address) {
+						pushPrivateFunctionOrMacroCall(-1 + 1, "address2uint_macro");
+						diff = 8 * static_cast<int>(etn->typeName().firstNumber()) - static_cast<int>(256);
+						if (diff < 0) {
+							cast_warning(_functionCall,
+							             "Such conversion can cause loss of data. Only first bytes are used in such assignment.");
+						}
+					} else {
 						cast_error(_functionCall, "Unsupported casting.");
-				}
-				break;
-			}
-			case Token::Int:
-			case Token::UInt: {
-				Type::Category argCategory = arguments[0]->annotation().type->category();
-				if (argCategory == Type::Category::Contract || argCategory == Type::Category::Address) {
-					acceptExpr(arguments[0].get());
-					pushPrivateFunctionOrMacroCall(-1 + 1, "address2uint");
-					cast_warning(_functionCall, "Workchain id is lost in this conversion.");
-				} else {
-					defaultActionForCasting();
-				}
-				break;
-			}
-			default:
-				defaultActionForCasting();
+					}
 
+					if (diff > 0) {
+						push(0, "LSHIFT " + std::to_string(diff));
+					} else if (diff < 0) {
+						push(0, "RSHIFT " + std::to_string(-diff));
+					}
+					break;
+				}
+				case Token::Address: {
+					conversionToAddress();
+					break;
+				}
+				case Token::Int:
+				case Token::UInt: {
+					if (argCategory == Type::Category::Contract || argCategory == Type::Category::Address) {
+						auto literal = to<Literal>(arguments[0].get());
+						if (literal) {
+							const u256 value = literal->annotation().type->literalValue(literal);
+							push(+1, "PUSHINT " + toString(value));
+						} else {
+							acceptArg();
+							pushPrivateFunctionOrMacroCall(-1 + 1, "address2uint_macro");
+							cast_warning(_functionCall, "Workchain id is lost in this conversion.");
+						}
+					} else {
+						defaultActionForCasting();
+					}
+					break;
+				}
+				case Token::Bytes:
+				case Token::String: {
+					if (isStringOrStringLiteralOrBytes(argType)) {
+						acceptArg(); // nothing to do here
+					} else {
+						cast_error(_functionCall, "Unsupported casting.");
+					}
+					break;
+				}
+				default:
+					defaultActionForCasting();
+			}
+		} else if (auto identifier = to<Identifier>(&_functionCall.expression())) {
+			if (to<ContractDefinition>(identifier->annotation().referencedDeclaration)) {
+				conversionToAddress();
+			} else if (auto enumDef = to<EnumDefinition>(identifier->annotation().referencedDeclaration)) {
+				
+				if (auto e = to<UnaryOperation>(_functionCall.arguments()[0].get())) {
+					auto literal = to<Literal>(&e->subExpression());
+					if ((e->getOperator() == Token::Sub) && (literal)) {
+						const auto* type = literal->annotation().type.get();
+						dev::u256 value = type->literalValue(literal);
+						if (value != 0)
+							cast_error(_functionCall, "Argument for enum casting should not be negative.");
+						pushInt(0);
+						return;
+					}
+				}
+				if (auto literal = to<Literal>(_functionCall.arguments()[0].get())) {
+					const auto* type = literal->annotation().type.get();
+					dev::u256 value = type->literalValue(literal);
+					if (value >= enumDef->members().size())
+						cast_error(_functionCall, "Argument for enum casting should not exceed enum limit.");
+					push(+1, "PUSHINT " + toString(value));
+					return;
+				}
+				
+				acceptExpr(_functionCall.arguments()[0].get());
+				push(+1, "DUP");
+				pushInt(enumDef->members().size());
+				push(-1, "GEQ");
+				
+				auto type = _functionCall.arguments()[0].get()->annotation().type.get();
+				TypeInfo ti(type);
+				if (!ti.isNumeric || ti.isSigned)
+				{
+					push(+1, "OVER");
+					push(0, "ISNEG");
+					push(-1, "OR");
+				}
+				push(-1, "THROWIF 5");
+			} else {
+				cast_error(_functionCall, "Unsupported type conversion");
+			}
+		} else {
+			cast_error(_functionCall, "Unsupported type conversion");
 		}
-		return true;
 	}
 	
 	bool checkLocalFunctionCall(const Identifier* identifier) {
@@ -327,8 +362,9 @@ protected:
 		auto arguments = _functionCall.arguments();
 		auto expr = &_functionCall.expression();
 		auto identifier = to<Identifier>(expr);
-		if (!identifier) 
+		if (!identifier)
 			return false;
+
 		string iname = identifier->name();
 		// TODO: Refactor this ugly function
 		for (const auto& arg : arguments) {
@@ -339,16 +375,6 @@ protected:
 			if (!m_isResultNeeded) {
 				dropFunctionResult(_functionCall);
 			}
-		} else if (ctx().isContractName(iname)) {
-			// convertion from address to Contract. Do nothing
-			// TODO: move to function call level?
-		} else if (ctx().isStruct(iname)) {
-			// Setting up a structure with given members.
-			// Members are already on stack
-			// TODO: move it to upper level?
-			if (!_functionCall.names().empty())
-				cast_error(_functionCall, "Only unnamed variables inside struct initialization are supported.");
-			setupStructure(iname);
 		} else if (getStack().isParam(iname)) {
 			// Local variable of functional type
 			acceptExpr(expr);
@@ -365,29 +391,6 @@ protected:
 		return true;
 	}
 
-	void setupStructure(const string& iname) {
-		// Setting up a structure with given members.
-		// Members are already on stack
-		push( 0, ";; struct " + iname);
-		auto members = ctx().getStructMembers(iname);
-		push(+1, "NEWDICT");
-		for (int i = members.size() - 1; i >= 0; i--) {
-			VariableDeclaration const* member = members[i].get();
-			push( 0, ";; member " + member->name());
-			auto type = getType(member);
-			if (isIntegralType(type)) {
-				// x dict
-				push( 0, "SWAP");
-				// dict x
-				intToBuilder(type);
-				push( 0, "SWAP");
-			}
-			pushInt(i);
-			push( 0, "SWAP");
-			setDict(isIntegralType(type), 8, false);
-		}
-	}
-
 	bool checkNewExpression(FunctionCall const& _functionCall) {
 		auto arguments = _functionCall.arguments();
 		if (to<NewExpression>(&_functionCall.expression())) {
@@ -396,26 +399,31 @@ protected:
 			Type const* resultType = getType(&_functionCall);
 			push( 0, ";; new " + resultType->toString());
 
-			Type const* arrayBaseType = nullptr;
-			if (auto arrayType = to<ArrayType>(resultType)) {
-				arrayBaseType = arrayType->baseType().get();
-			}
-			solAssert(arrayBaseType, string("Unsupported type: ") + typeid(*resultType).name());
 
-			pushInt(0);
-			intToBuilder(arrayBaseType);
-			acceptExpr(arguments[0].get());
-			// TODO: too complex code to read
-			push(+1, "DUP");
-			push(+1, "PUSHCONT {");
-			push( 0, "\tDEC");
-			push(+1, "\tNEWDICT");
-			push(+1, "\tPUSHINT 32");
-			push(-3, "\tDICTUSETB");
-			dumpStackSize("\t");
-			push(0, "}");
-			push(+1, "PUSHCONT { DROP DROP NEWDICT }");
-			push(-3,  "IFELSE");
+			auto arrayType = to<ArrayType>(resultType);
+			Type const* arrayBaseType = arrayType->baseType().get();
+
+			int size = getStack().size();
+
+			pushDefaultValue(arrayBaseType); // default
+			prepareValueForDictOperations(arrayBaseType);
+			acceptExpr(arguments[0].get()); // default size
+			push(+1, "DUP");  // default size size
+			{
+				TVMStack stack;
+				CodeLines code;
+				StackPusherImpl pusher(stack, code);
+				StackPusherHelper pusherHelper(&pusher, &ctx());
+				pusherHelper.push(0, "DEC"); // default index
+				pusherHelper.push(0, "NEWDICT"); // default index arr
+				pusherHelper.setDict(getKeyTypeOfArray(), *arrayBaseType, _functionCall);
+
+				pushCont(code);// default size size cont0
+			}
+			push(+1, "PUSHCONT { DROP DROP NEWDICT }"); // default size size cont0 cont1
+			push(-5 + 1,  "IFELSE");
+
+			solAssert(size + 1 == getStack().size(), "");
 			return true;
 		}
 		return false;
