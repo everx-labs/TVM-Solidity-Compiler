@@ -393,11 +393,8 @@ void ContractLevelChecker::checkFallbackFunction(ContractDefinition const& _cont
 		m_errorReporter.typeError(fallback->parameterList().location(), "Fallback function cannot take parameters.");
 	if (!fallback->returnParameters().empty())
 		m_errorReporter.typeError(fallback->returnParameterList()->location(), "Fallback function cannot return values.");
-//  TODO uncomment if external is supported
-//	if (fallback->visibility() != FunctionDefinition::Visibility::External)
-//		m_errorReporter.typeError(fallback->location(), "Fallback function must be defined as \"external\".");
-	if (fallback->visibility() != FunctionDefinition::Visibility::Public)
-		m_errorReporter.typeError(fallback->location(), "Fallback function must be defined as \"public\".");
+	if (fallback->visibility() != FunctionDefinition::Visibility::External)
+		m_errorReporter.typeError(fallback->location(), "Fallback function must be defined as \"external\".");
 }
 
 void ContractLevelChecker::checkExternalTypeClashes(ContractDefinition const& _contract)

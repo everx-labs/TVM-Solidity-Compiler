@@ -29,8 +29,8 @@ public:
 		TVMCompilerContext ctx(contract, m_allContracts);
 
 
-		std::vector<const FunctionDefinition *> publicFunctions;
-		std::vector<const EventDefinition *> events;
+		std::vector<const FunctionDefinition *> publicFunctions {};
+		std::vector<const EventDefinition *> events {};
 
 		if (auto main_constr = contract->constructor(); main_constr != nullptr)
 			publicFunctions.push_back(contract->constructor());
@@ -58,19 +58,12 @@ public:
 					continue;
 				}
 				used.insert(fname);
-				bool isSigned = false;
-				for (const auto &modifier : f->modifiers()) {
-					// TODO: is this needed?
-					if (modifier->name()->name() == "tvm_signed") {
-						isSigned = true;
-					}
-				}
-				functions.append(processFunction(fname, f->parameters(), f->returnParameters(), isSigned));
+				functions.append(processFunction(fname, f->parameters(), f->returnParameters()));
 			}
 
 			if (used.count("constructor") == 0) {
 				auto v = ptr_vec<VariableDeclaration>();
-				functions.append(processFunction("constructor", v, v, false));
+				functions.append(processFunction("constructor", v, v));
 			}
 
 			root["functions"] = functions;
@@ -99,7 +92,7 @@ public:
 			Json::Value stateVariables(Json::arrayValue);
 			for (ContractDefinition const *c : contract->annotation().linearizedBaseContracts) {
 				for (VariableDeclaration const *variable: c->stateVariables()) {
-					if (variable->visibility() == Declaration::Visibility::Public) {
+					if (variable->visibility() == Declaration::Visibility::Public && !variable->isConstant()) {
 						Json::Value var;
 						var["name"] = variable->name();
 						try {
@@ -203,16 +196,12 @@ private:
 	static Json::Value processFunction(
 		const string& fname,
 		const ptr_vec<VariableDeclaration>& params,
-		const ptr_vec<VariableDeclaration>& retParams,
-		bool isSigned
+		const ptr_vec<VariableDeclaration>& retParams
 	) {
 		Json::Value function;
 		Json::Value inputs  = encodeParams(params);
 		Json::Value outputs = encodeParams(retParams);
 		function["name"] = fname;
-		if (isSigned) {
-			function["signed"] = true;
-		}
 		function["inputs"] = inputs;
 		function["outputs"] = outputs;
 		return function;
@@ -224,8 +213,7 @@ private:
 		for (const auto& variable: params) {
 			string name = variable->name();
 			if (name.empty()) name = "value" + toString(idx);
-			Json::Value json;
-			setupType(json, name, getType(variable.get()));
+			Json::Value json = setupType(name, getType(variable.get()));
 			result.append(json);
 			idx++;
 		}
@@ -254,8 +242,11 @@ private:
             if (isIntegralType(arrayBaseType)) {
                 return getParamTypeString(arrayBaseType) +  "[]";
             }
+            if (to<StructType>(arrayBaseType)) {
+            	return getParamTypeString(arrayBaseType) +  "[]";
+            }
             // TODO: hack for correct abi compilation. To be fixed later
-			if (to<FixedBytesType>(arrayBaseType) || to<StructType>(arrayBaseType)) {
+			if (to<FixedBytesType>(arrayBaseType)) {
 				return "uint8[]";
 			}
             solAssert(false, "Unsupported param type (not integral array) " + type->toString());
@@ -268,25 +259,38 @@ private:
 		return "";
     }
 	
-	static void setupType(Json::Value& json, const string& name, const Type* type) {
+	static Json::Value setupType(const string& name, const Type* type) {
+		Json::Value json(Json::objectValue);
 		json["name"] = name;
 		json["type"] = getParamTypeString(type);
-		if (auto stype = to<StructType>(type)) {
-			if (json["type"] == "tuple")
-				setupStructComponents(json, stype);
+		switch (type->category()) {
+			case Type::Category::Struct:
+				if (!isTvmCell(type)) {
+					json["components"] = setupStructComponents(to<StructType>(type));
+				}
+				break;
+			case Type::Category::Array: {
+				auto arrayType = to<ArrayType>(type);
+				Type const *arrayBaseType = arrayType->baseType().get();
+				if (arrayBaseType->category() == Type::Category::Struct) {
+					json["components"] = setupStructComponents(to<StructType>(arrayBaseType));
+				}
+				break;
+			}
+			default:
+				break;
 		}
+		return json;
 	}
 
-	static void setupStructComponents(Json::Value& json, const StructType* type) {
-		solAssert(type, "");
-		Json::Value j;
-		const StructDefinition& strDef = type->structDefinition();
-		const auto& members = strDef.members();
-		for (size_t i = 0; i < members.size(); i++) {
-			int ii = int(i);
-			setupType(j[ii], members[i]->name(), getType(members[i].get()));
+	static Json::Value setupStructComponents(const StructType* type) {
+		Json::Value components(Json::arrayValue);
+		const StructDefinition& structDefinition = type->structDefinition();
+		const auto& members = structDefinition.members();
+		for (const auto & member : members) {
+			components.append(setupType(member->name(), getType(member.get())));
 		}
-		json["components"] = j;
+		return components;
 	}
 
 };

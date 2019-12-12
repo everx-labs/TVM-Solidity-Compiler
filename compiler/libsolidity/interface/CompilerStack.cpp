@@ -820,7 +820,11 @@ void CompilerStack::compileContract(
 			if (!_contract.annotation().unimplementedFunctions.empty()) {
 				warningMessage << " There are unimplemented functions:" << endl;
 				for (auto f : _contract.annotation().unimplementedFunctions) {
-					warningMessage << "\t" << f->name() << endl;
+					if (f->isConstructor()) {
+						warningMessage << "\t" << "constructor" << endl;
+					} else {
+						warningMessage << "\t" << f->name() << endl;
+					}
 				}
 			} else {
 				warningMessage << endl;

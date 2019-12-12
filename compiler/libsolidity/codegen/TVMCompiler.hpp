@@ -51,6 +51,7 @@ class TVMCompiler: public ASTConstVisitor, public ITVMCompiler, StackPusherHelpe
 	CodeLines					m_code;
 	StackPusherImpl				m_pusherHelperImpl;
 	CompilerState				m_state;
+	bool						mDropFunctionStack {true};
 
 public:
 	static std::vector<ContractDefinition const*> m_allContracts;
@@ -108,31 +109,13 @@ public:
 	}
 	
 	static void proceedContractMode0(ContractDefinition const* contract) {
-		int cnt = getContractFunctions(contract).size();
-		bool specialMode = (cnt > 1);
+		solAssert(getContractFunctions(contract).size() == 1, "");
 		CodeLines code;
-		int idx = 0;
 		for (const auto& _function : getContractFunctions(contract)) {
 			TVMCompilerContext ctx(contract, m_allContracts);
 			TVMCompiler tvm(&ctx);
-			tvm.visitFunction(*_function, true);
-			if (!specialMode) {
-				code.append(tvm.m_code);
-			} else {
-				code.pushCont(tvm.m_code, toString(idx));
-			}
-			idx++;
-		}
-		if (specialMode) {
-			// Add Selector
-			code.push(";;; params method_id cont0..cont" + toString(cnt-1));
-			code.push("PUSH s"   + toString(cnt));
-			code.push("PUSHINT " + toString(cnt-1));
-			code.push("SUBR");
-			code.push("XCHGX");
-			code.push("XCHG s"   + toString(cnt));
-			code.push("BLKDROP " + toString(cnt));
-			code.push("JMPX");
+			tvm.visitFunction(*_function);
+			code.append(tvm.m_code);
 		}
 		cout << code.str("");
 	}
@@ -156,9 +139,14 @@ public:
 		return isLastStatementReturn || (_function->returnParameters().empty() && !bodyScanner.m_info.canReturn);
 	}
 
-	static CodeLines makeInlineFunctionCall(const TVMCompilerContext& ctx, FunctionDefinition const* _function) {
+	static CodeLines makeInlineFunctionCall(const TVMCompilerContext& ctx, FunctionDefinition const* _function,
+            bool dropFunctionStack = true,
+			set<const ContractDefinition *> * calledConstructors = nullptr) {
 		TVMCompiler tvm(&ctx);
-		tvm.visitFunction2(*_function);
+		if (_function->isConstructor())
+			tvm.visitConstructor(*_function, calledConstructors);
+		else
+			tvm.visitFunction2(*_function, dropFunctionStack);
 		bool doInline = notNeedsPushContWhenInlining(_function);
 
 		CodeLines res;
@@ -176,9 +164,10 @@ public:
 		return res;
 	}
 
+
 	static void fillInlinedFunctions(TVMCompilerContext& ctx, ContractDefinition const* contract) {
 		for (const auto& _function : getContractFunctions(contract)) {
-			auto fname = _function->name();
+			const auto& fname = _function->name();
 			if (ends_with(fname, "_inline")) {
 				ctx.m_inlinedFunctions[fname] = makeInlineFunctionCall(ctx, _function);
 			}
@@ -190,18 +179,21 @@ public:
 		CodeLines code;
 		
 		fillInlinedFunctions(ctx, contract);
-
+		
+		// generate global constructor which inlines all contract constructors
+		if (!ctx.isStdlib())
 		{
-			// generate default constructor
 			TVMCompiler tvm(&ctx);
-			tvm.generateDefaultConstructors();
+			tvm.generateConstructors();
 			code.append(tvm.m_code);
 		}
-
+		
 		for (const auto& funcInfo : ctx.m_functionsList) {
 			const auto& _function = funcInfo.m_function;
 			ctx.m_currentFunction = &funcInfo;
 			solAssert(!ctx.isPureFunction(_function), "");
+			if (_function->isConstructor())
+				continue;
 			if (_function->visibility() == Declaration::Visibility::TvmGetter) {
 				TVMCompiler tvm(&ctx);
 				tvm.m_code.generateGlobl(_function->name(), true);
@@ -215,10 +207,9 @@ public:
 				if (_function->isPublic()) {
 					TVMCompiler tvm0(&ctx);
 					TVMCompiler tvm1(&ctx);
-					bool isBaseConstructor = _function->isConstructor() && !ctx.isMainConstructor(_function);
-					bool isBaseMethod = !_function->isConstructor() && _function != getContractFunctions(contract, _function->name()).back();
-					if (!isBaseConstructor && !isBaseMethod) {
-						tvm0.generatePublicFunction(funcInfo, true);
+					bool isBaseMethod = _function != getContractFunctions(contract, _function->name()).back();
+					if (!isBaseMethod) {
+						tvm0.generatePublicFunction(funcInfo);
 					}
 					if (!_function->isFallback()) {
 						tvm1.generatePrivateFunction(funcInfo);
@@ -255,51 +246,46 @@ public:
 		}
 		cout << code.str("");
 	}
-	
-	// TODO: move
-	auto getConstructorsList() const {
-		auto mainContract = ctx().getContract();
-		vector<pair<const ContractDefinition*, const FunctionDefinition*>> result;
-		for (auto& c : getContractsChain(mainContract)) {
-			if (c->name() == "stdlib")
-				continue;
-			auto constructor = ctx().getConstructor(c);
-			result.push_back(make_pair(c, constructor));
-		}
-		return result;
-	}
-	
-	void generateDefaultConstructors() {
-		auto mainContract = ctx().getContract();
-		
-		for (auto& pair : getConstructorsList()) {
-			auto c = pair.first;
-			if (/*auto f = */pair.second) {
-			} else {
-				string fnameInternal = "constructor_" + c->name();
-				m_code.generateGlobl(fnameInternal, false);
-				callBaseConstructorsImplicit(c);
-				setDefaultMemberValues(c);
-				push(0, "RET");
-				push(0, " ");
-			}
-		}
 
-		if (!TVMCompilerContext::hasConstructor(mainContract)) {
-			// create external constructor
-			m_code.generateGlobl("constructor", true);
-			generateConstructorProtection();
-			pushPersistentDataFromC4ToC7();
-			decodeParameters(ptr_vec<VariableDeclaration>());
-			for (const auto& name : getBaseContractNames(mainContract)) {
-				pushPrivateFunctionOrMacroCall(0, "constructor_" + name);
-			}
-			setDefaultMemberValues(mainContract);
-			pushPersistentDataFromC7ToC4();
-			push(0, "PUSHINT 0");
-			push(0, "ONLYTOPX");
-			push(0, " ");
+	void generateConstructors() {
+		m_code.generateGlobl("constructor", true);
+		generateConstructorProtection();
+		pushPersistentDataFromC4ToC7();
+		
+		bool newChain = true;
+		deque<const ContractDefinition * > constructorHeads;
+		auto mainChain = getContractsChain(ctx().getContract());
+		for(auto c: mainChain)
+			setDefaultMemberValues(c);
+		for(auto c = mainChain.rbegin(); c != mainChain.rend(); c++) {
+			if ((*c)->constructor()) {
+				if (newChain) {
+					constructorHeads.push_front((*c));
+					newChain = false;
+				}
+			} else
+				newChain = true;
 		}
+		
+		vector<const ContractDefinition * > chainHeads;
+		
+		set<const ContractDefinition *> calledConstructors;
+		
+		for (auto c : constructorHeads){
+			if (calledConstructors.count(c) != 0)
+				continue;
+			push(0, "; call " + c->name() + " constr");
+			if (ctx().getContract() == c)
+				decodeParameters(c->constructor()->parameters());
+			calledConstructors.insert(c);
+			m_code.append(makeInlineFunctionCall(ctx(), c->constructor(), true, &calledConstructors));
+		}
+		
+		pushPersistentDataFromC7ToC4();
+		push(0, "PUSHINT 0");
+		push(0, "ONLYTOPX");
+//		push(0, "NOP");
+		push(0, "   ");
 	}
 
 	void generateDefaultFallbackFunction() {
@@ -368,13 +354,14 @@ public:
 
 	void decodeParameters(const ptr_vec<VariableDeclaration>& params) {
 		DecodePosition position;
-		push(0, "; Decode input parameters");
+		push(+1, "; Decode input parameters"); // locate slice on stack
 		for (const auto& variable: params) {
 			auto savedStackSize = m_stack.size();
 			decodeParameter(variable.get(), &position);
-			m_stack.ensureSize(savedStackSize, "decodeParameter-2");
+			m_stack.ensureSize(savedStackSize + 1, "decodeParameter-2");
 		}
-		push(0, "DROP");
+		push(-1, "DROP"); // drop slice
+		push(-params.size(), ""); // fix stack
 //		push(0, "ENDS");
 	}
 
@@ -387,44 +374,45 @@ public:
 			if (m->arguments())
 				cast_error(*m, "Modifiers with parameters are not supported.");
 			push(0, "; Modifier " + name);
-			for (const ModifierDefinition* modifier : ctx().getContract()->functionModifiers()) {
-				if (modifier->name() != name)
-					continue;
-				// TODO: use PUSHCONT!
-				if (!to<PlaceholderStatement>(modifier->body().statements().back().get()))
-					cast_warning(*modifier, R"(Code after "_;" is not supported, it will be executed before "_;".)");
-				modifier->body().accept(*this);
-				if (!doesAlways<Return>(&modifier->body()))
-					drop(m_stack.size());
+			bool found = false;
+			auto chain = getContractsChain(ctx().getContract());
+			for (auto contract = chain.rbegin(); contract != chain.rend(); contract++)
+			{
+				for (const ModifierDefinition* modifier : (*contract)->functionModifiers()) {
+					if (modifier->name() != name)
+						continue;
+					// TODO: use PUSHCONT!
+					if (!to<PlaceholderStatement>(modifier->body().statements().back().get()))
+						cast_warning(*modifier, R"(Code after "_;" is not supported, it will be executed before "_;".)");
+					modifier->body().accept(*this);
+					if (!doesAlways<Return>(&modifier->body()))
+						drop(m_stack.size());
+					found = true;
+				}
+				if (found)
+					break;
 			}
 		}
 	}
 
-	void generatePublicFunction(const FuncInfo& fi, const bool inlineInternalFunctionCall) {
+	void generatePublicFunction(const FuncInfo& fi) {
 		bool dontEmitReturn = !!getFunction(ctx().getContract(), "tvm_dont_emit_events_on_return");
 		FunctionDefinition const* _function = fi.m_function;
 		auto fnameInternal = fi.m_internalName;
 		auto fnameExternal = TVMCompilerContext::getFunctionExternalName(_function);
 
 		// generate header
-		if (ctx().isMainConstructor(_function)) {
-			m_code.generateGlobl(fnameExternal, true);
-			generateConstructorProtection();
+		m_code.generateGlobl(fnameExternal, _function->isPublic());
+		if (fi.m_function->stateMutability() != StateMutability::Pure) {
 			pushPersistentDataFromC4ToC7();
-		} else {
-			m_code.generateGlobl(fnameExternal, _function->visibility() == Declaration::Visibility::Public);
-			pushPersistentDataFromC4ToC7();
-			generateModifier(_function);
 		}
+		generateModifier(_function);
+
 		decodeParameters(_function->parameters());
 
 		// function body
-		if (inlineInternalFunctionCall){
-			CodeLines res = makeInlineFunctionCall(ctx(), _function);
-			m_code.append(res);
-		} else {
-			pushPrivateFunctionOrMacroCall(0, fnameInternal);
-		}
+		CodeLines res = makeInlineFunctionCall(ctx(), _function, false);
+		m_code.append(res);
 
 		// emit function result
 		if (!dontEmitReturn) {
@@ -454,7 +442,9 @@ public:
 			push(0, "PUSHINT -2");
 			push(0, "PUSHINT -2");
 			push(0, "PUSH s2");
-			pushPersistentDataFromC4ToC7();
+			if (fi.m_function->stateMutability() != StateMutability::Pure) {
+				pushPersistentDataFromC4ToC7();
+			}
 		} else if (_function->name() == "main_external") {
 			m_code.generateInternal("main_external", -1);
 			m_code.push("PUSHINT -1 ; selector");
@@ -495,47 +485,6 @@ public:
 		);
 		pushPrivateFunctionOrMacroCall(-1, "send_external_message_macro");
 	}
-	
-	void decodeStructParameter(StructType const* stype, DecodePosition* position) {
-		auto sname = stype->structDefinition().name();
-		push(0, ";; struct " + sname);
-		if (isTvmCell(stype)) {
-			decodeRefParameter(stype, position);
-		} else {
-			auto members = stype->structDefinition().members();
-			// slice
-			push(0, "NEWDICT");
-			// slice dict
-			push(0, "SWAP");
-			// dict slice
-			for (size_t i = 0; i < members.size(); i++) {
-				auto &m = members[i];
-				push(0, ";; " + sname + "." + m->name());
-				// dict slice
-				auto savedStackSize = m_stack.size();
-				decodeParameter(m.get(), position);
-				m_stack.ensureSize(savedStackSize, "decodeParameter");
-				// dict value slice
-				push(0, "SWAP");
-				// dict slice value
-				auto memberType = getType(m.get());
-				if (isIntegralType(memberType)) {
-					intToBuilder(memberType);
-				}
-				// dict slice value'
-				pushInt(i);
-				// dict slice value' idx
-				push(0, "PUSH s3");
-				// dict slice value' idx dict
-				setDict(isIntegralType(memberType), 8, false);
-				push(+1, "");    // fixup stack
-				// dict slice dict'
-				push(0, "POP s2");
-				// dict' slice
-			}
-			// dict slice
-		}
-	}
 
 	void decodeRefParameter(Type const*const type, DecodePosition* position) {
 		switch (position->updateStateAndGetLoadAlgo(type)) {
@@ -548,7 +497,7 @@ public:
 				ifRefsAreEmptyThenLoadNextSlice();
 				break;
 		}
-		push(0, "LDREF");
+		push(+1, "LDREF");
 	}
 
 	void loadNextSlice() {
@@ -598,25 +547,46 @@ IF
 	void decodeParameter(VariableDeclaration const* variable, DecodePosition* position) {
 		auto type = getType(variable);
 		const Type::Category category = variable->type()->category();
-		if (auto stype = to<StructType>(type)) {
-			decodeStructParameter(stype, position);
+		if (auto structType = to<StructType>(type)) {
+			auto structName = structType->structDefinition().name();
+			if (isTvmCell(structType)) {
+				push(0, ";; decode cell " + structName);
+				decodeRefParameter(structType, position);
+			} else {
+				push(0, ";; decode struct " + structName + " " + variable->name());
+				auto members = structType->structDefinition().members();
+				int saveStackSize = getStack().size() - 1;
+				for (const auto &m : members) {
+					push(0, ";; decode " + structName + "." + m->name());
+					decodeParameter(m.get(), position);
+				}
+				push(0, ";; build struct " + structName + " ss:" + toString(getStack().size()));
+				StructCompiler structCompiler{this, &structType->structDefinition()};
+				structCompiler.createStruct([this, saveStackSize](const int memberIndex, const std::string &) {
+					int currentStackSize = getStack().size();
+					push(+1, "PUSH s" + toString(currentStackSize - saveStackSize - 1 - memberIndex));
+				});
+				push(0, "SWAP"); // ... struct slice
+				dropUnder(2, members.size());
+			}
 		} else if (category == Type::Category::Address || category == Type::Category::Contract) {
 			loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type));
-			push(0, "LDMSGADDR");
-			push(0, "SWAP");
-			pushPrivateFunctionOrMacroCall(0, "convertAddressToStd_macro");
-			push(0, "SWAP");
+			push(+1, "LDMSGADDR");
 		} else if (isIntegralType(type)) {
 			TypeInfo ti{type};
 			solAssert(ti.isNumeric, "");
 			loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type));
-			push(0, (ti.isSigned ? "LDI " : "LDU ") + toString(ti.numBits));
+			push(+1, (ti.isSigned ? "LDI " : "LDU ") + toString(ti.numBits));
 		} else if (auto arrayType = to<ArrayType>(type)) {
 			if (arrayType->isByteArray()) {
 				decodeRefParameter(type, position);
 			} else {
 				loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type));
-				pushPrivateFunctionOrMacroCall(0, "decode_array_macro");
+				auto baseType = to<StructType>(arrayType->baseType().get());
+				if (baseType && !StructCompiler::isPlaneStruct(baseType)) {
+					cast_error(*variable, "Only arrays of plane struct are supported");
+				}
+				pushPrivateFunctionOrMacroCall(+1, "decode_array_macro");
 			}
 		} else {
 			cast_error(*variable, "Unsupported parameter type: " + type->toString());
@@ -625,7 +595,7 @@ IF
 
 	bool visit(FunctionDefinition const& /*_function*/) override { solAssert(false, ""); }
 
-	void visitFunction(FunctionDefinition const& _function, bool tvm_mode0 = false) {
+	void visitFunction(FunctionDefinition const& _function, bool dropFunctionStack = true) {
 		string fname = ctx().getFunctionInternalName(&_function);
 		if (isTvmIntrinsic(fname))
 			return;
@@ -635,21 +605,16 @@ IF
 		push(0, ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;");
 		push(0, string(";; Function: ") + fname);
 		
-		visitFunction2(_function, tvm_mode0);
-		
+		visitFunction2(_function, dropFunctionStack);
+
 		push(0, " ");
 	}
 
-	void visitFunction2(FunctionDefinition const& _function, bool tvm_mode0 = false) {
+	void visitFunction2(FunctionDefinition const& _function, bool dropFunctionStack = true) {
+		int savedStackSize = m_stack.size();
+
 		for (const auto& m : _function.modifiers()) {
 			string name = m->name()->name();
-			if (ctx().isContractName(name)) {
-				// constructor call is processed in another place
-				continue;
-			}
-			// Ensure that modifier is allowed
-			if (_function.isConstructor())
-				cast_error(*m, "Modifiers for constructors are not supported.");
 			if (!_function.isPublic())
 				cast_error(*m, "Modifiers are allowed only for public functions.");
 		}
@@ -660,30 +625,32 @@ IF
 			m_stack.add(name, true);
 		}
 
-		bool doFunctionAlwaysReturn = doesAlways<Return>(&_function.body());
 		bool haveSomeNamedReturnParams = false;
 		for (const auto& returnParam: _function.returnParameters()) {
 			haveSomeNamedReturnParams |= !returnParam->name().empty();
 		}
-		if (!doFunctionAlwaysReturn && haveSomeNamedReturnParams) {
+		if (haveSomeNamedReturnParams) {
 			pushReturnParameters(_function.returnParameters());
 		}
 
-		if (_function.isConstructor()) {
-			visitConstructor(_function, tvm_mode0);
-		}
-
+		mDropFunctionStack = dropFunctionStack;
 		_function.body().accept(*this);
 
+		bool doFunctionAlwaysReturn = doesAlways<Return>(&_function.body());
 		if (!doFunctionAlwaysReturn && haveSomeNamedReturnParams) {
 			int paramQty = _function.parameters().size();
 			int retQty = _function.returnParameters().size();
 			push(0, ";; returning named params");
-			drop(m_stack.size() - (paramQty + retQty));
-			dropUnder(retQty, paramQty);
+			if (dropFunctionStack) {
+				int m = getStack().size() - savedStackSize - paramQty;
+				blockSwap(paramQty, m);
+				drop(getStack().size() - savedStackSize - retQty);
+			} else {
+				drop(getStack().size() - (savedStackSize + retQty + paramQty));
+			}
 		} else if (!doFunctionAlwaysReturn) {
 			// if function did not return
-			drop(m_stack.size());
+			drop(m_stack.size() - savedStackSize);
 			pushReturnParameters(_function.returnParameters());
 		}
 
@@ -695,6 +662,25 @@ IF
 		}
 	}
 
+	void visitConstructor(FunctionDefinition const& _function, set<const ContractDefinition *> * calledConstructors) {
+		for (const auto& m : _function.modifiers()) {
+			string name = m->name()->name();
+			if (ctx().isContractName(name)) {
+				// constructor call is processed in another place
+				continue;
+			}
+			cast_error(*m, "Modifiers for constructors are not supported.");
+		}
+		for (const auto& variable: _function.parameters()) {
+			auto name = variable->name();
+			push(0, string(";; param: ") + name);
+			m_stack.add(name, true);
+		}
+		callBaseConstructorsExplicit(&_function, calledConstructors);
+		_function.body().accept(*this);
+		drop(m_stack.size());
+	}
+
 	void pushReturnParameters(const std::vector<ASTPointer<VariableDeclaration>>& returnParameters) {
 		int idParam = 0;
 		for (const auto& returnParam: returnParameters) {
@@ -703,36 +689,16 @@ IF
 				name = "retParam@" + std::to_string(idParam);
 			}
 			push(0, string(";; ret param: ") + name);
-			pushDefaultValue(returnParam.get()->typeName());
+			pushDefaultValue(returnParam->type().get());
 			m_stack.add(name, false);
 
 			++idParam;
 		}
 	}
 
-	void pushDefaultValue(TypeName* typeName) {
-		Type::Category cat = typeName->annotation().type->category();
-		switch (cat) {
-			case Type::Category::Address:
-			case Type::Category::Bool:
-			case Type::Category::FixedBytes:
-			case Type::Category::Function:
-			case Type::Category::Integer:
-				push(+1, "PUSHINT 0");
-				break;
-			case Type::Category::Array:
-			case Type::Category::Mapping:
-			case Type::Category::Struct:
-				push(+1, "NEWDICT");
-				break;
-			default:
-				solAssert(false, "");
-		}
-	}
-
 	void generateConstructorProtection() {
 		pushPrivateFunctionOrMacroCall(0, "generateConstructorProtection_macro");
-		push( 0, "NOP");
+//		push( 0, "NOP");
 		push( 0, "ACCEPT");
 	}
 
@@ -744,83 +710,82 @@ IF
 		pushPrivateFunctionOrMacroCall(0, "push_persistent_data_from_c7_to_c4_macro");
 	}
 
-	void visitConstructor(FunctionDefinition const& _function, bool tvm_mode0) {
-		if (tvm_mode0) {
-			push(+1, "NEWDICT");
-			push( 0, "NEWC STDICT ENDC");
-			push(-1, "POPROOT");
-		}
-		// TODO: check if they are not called twice!
-		auto contract = ctx().getContract(&_function);
-		callBaseConstructorsImplicit(contract);
-		callBaseConstructorsExplicit(&_function);
-		setDefaultMemberValues(contract);
-	}
-	
-	void callBaseConstructorsImplicit(const ContractDefinition* contract) {
-		// TODO: refactor this function!
-		set<string> definedConstructors;
-		for (auto p : getContractFunctionPairs(contract)) {
-			auto f = p.first;
-			if (f->isConstructor()) {
-				definedConstructors.insert(ctx().getFunctionInternalName(f));
-			}
-		}
-		for (auto name1 : getBaseContractNames(contract)) {
-			auto name = "constructor_" + name1;
-			if (definedConstructors.count(name) > 0)
-				continue;
-			pushPrivateFunctionOrMacroCall(0, name);
-		}
-	}
-
-	void callBaseConstructorsExplicit(const FunctionDefinition* function) {
+	void callBaseConstructorsExplicit(const FunctionDefinition* function, set<const ContractDefinition *> * calledConstructors) {
 		auto contract0 = ctx().getContract(function);
 		auto bases = contract0->baseContracts();
-		for (auto p : getContractFunctionPairs(contract0)) {
-			auto f = p.first;
-			if (f->isConstructor() && f != function) {
-				auto contract = p.second;
-				for (auto m : function->modifiers()) {
-					if (m->name()->name() == contract->name()) {
-						// add parameters for base constructor
-						// TODO: check two base constructors with parameters!
-						if (m->arguments()) {
-							for (auto expr : *m->arguments()) {
+		auto chain = getContractsChain(ctx().getContract());
+		auto prev = chain.rbegin();
+		for (auto c = chain.rbegin(); c != chain.rend(); c++)
+		{
+			if (*c == contract0)
+				break;
+			prev = c;
+		}
+		if (prev != chain.rend())
+			if (!(*prev)->constructor())
+			{
+				auto deriv_bases = (*prev)->baseContracts();
+				for (const auto& base: deriv_bases)
+				{
+					if (base->name().namePath()[0] == contract0->name())
+					{
+						if (base->arguments()) {
+							for (const auto& expr : *base->arguments()) {
 								acceptExpr(expr.get());
 								push(-1, "");	// fix stack
 							}
 						}
 					}
 				}
-				for (auto base: bases)
+			}
+		for (auto contract : getContractsChain(contract0)) {
+			if (find_if(bases.begin(),bases.end(),[&contract](auto base){
+				return base->name().namePath()[0] == contract->name();
+			}) == bases.end())
+				continue;
+			if (contract->constructor()) {
+				if (calledConstructors->count(contract) != 0) 
+					continue;
+				for (const auto& m : function->modifiers()) {
+					if (m->name()->name() == contract->name()) {
+						if (m->arguments()) {
+							for (const auto& expr : *m->arguments()) {
+								acceptExpr(expr.get());
+							}
+							push(-(m->arguments()->size()), "");	// fix stack
+						}
+					}
+				}
+				for (const auto& base: bases)
 				{
 					if (base->name().namePath()[0] == contract->name())
 					{
 						if (base->arguments()) {
-							for (auto expr : *base->arguments()) {
+							for (const auto& expr : *base->arguments()) {
 								acceptExpr(expr.get());
 								push(-1, "");	// fix stack
 							}
 						}
 					}
 				}
-				pushPrivateFunctionOrMacroCall(0, ctx().getFunctionInternalName(f));
+				push(0, "; call " + contract->name() + " constr");
+				calledConstructors->insert(contract);
+				pushLines(makeInlineFunctionCall(ctx(), contract->constructor(), true, calledConstructors).str("\n"));
 			}
 		}
 	}
 	
 	void setDefaultMemberValues(const ContractDefinition* contract) {
 		for (VariableDeclaration const* variable: contract->stateVariables()) {
+			if (variable->isConstant()) {
+				continue;
+			}
 			// Setting default values if needed
 			if (auto value = variable->value().get()) {
 				push(0, ";; " + variable->name());
 				auto type = getType(variable);
-				if (!isIntegralType(type)) {
-					cast_error(*value, "only int member type is supported!");
-				}
 				acceptExpr(value);
-				setRootItem(variable->name(), type);
+				setRootItem(variable->name(), type, *variable);
 			}
 		}
 	}
@@ -853,7 +818,7 @@ IF
 			return nullptr;
 		if (auto ctype = to<ContractType>(getType(expr))) {
 			auto remoteContract = &ctype->contractDefinition();
-			string fname = memberAccess->memberName();
+			const string& fname = memberAccess->memberName();
 			if (auto f = getFunction(remoteContract, fname)) {
 				if (!ctx().getLocalFunction(fname))
 					ctx().m_remoteFunctions.insert(fname);
@@ -870,10 +835,20 @@ IF
 	bool visit(VariableDeclarationStatement const& _variableDeclarationStatement) override {
 		auto decls = _variableDeclarationStatement.declarations();
 		if (auto init = _variableDeclarationStatement.initialValue()) {
-			acceptExpr(init);
+			auto tupleExpression = to<TupleExpression>(init);
+			if (tupleExpression) {
+				std::vector<ASTPointer<Expression>> const&  tuple = tupleExpression->components();
+				for (std::size_t i = 0; i < tuple.size(); ++i) {
+					if (!tryImplicitConvert(decls[i]->type().get(), tuple[i]->annotation().type.get())) {
+						acceptExpr(init);
+					}
+				}
+			} else  if (decls[0] == nullptr || !tryImplicitConvert(decls[0]->type().get(), init->annotation().type.get())) {
+				acceptExpr(init);
+			}
 		} else {
 			for (const auto& decl : decls) {
-				pushDefaultValue(decl.get()->typeName());
+				pushDefaultValue(decl->type().get());
 			}
 		}
 
@@ -1135,14 +1110,28 @@ IF
 
 	// statement
 	bool visit(Return const& _return) override {
-		if (auto expr = _return.expression()) {
-			acceptExpr(expr);
-		}
 		push(0, ";; return");
+		auto expr = _return.expression();
+		if (expr) {
+			if (!tryOptimizeReturn(expr)) {
+				if (!areReturnedValuesLiterals(expr)) {
+					acceptExpr(expr);
+				}
+			}
+		}
+
 		auto params = _return.annotation().functionReturnParameters->parameters();
 		int retCount = params.size();
-		dropUnder(retCount, m_stack.size() - retCount);
-		
+
+		if (expr && areReturnedValuesLiterals(expr)) {
+			if (mDropFunctionStack) {
+				drop(m_stack.size());
+			}
+			acceptExpr(expr);
+		} else if (mDropFunctionStack) {
+			dropUnder(retCount, m_stack.size() - retCount);
+		}
+
 		auto ensureFits = [&] (Expression const* expr) {
 			if (!isExpressionExactTypeKnown(expr)) {
 				// push(0, toString(";; ") + typeid(*expr).name());
@@ -1151,7 +1140,7 @@ IF
 					if (isUInt256(typeName->typeName()) && isNonNegative(expr)) {
 						// no need to check
 					} else {
-						ensureValueFitsType(typeName->typeName());
+						ensureValueFitsType(typeName->typeName(), *expr);
 					}
 				}
 			}
@@ -1205,7 +1194,7 @@ IF
 		auto event = ctx().getEvent(name);
 		solAssert(event, "");
 		TVMExpressionCompiler ec(this, ctx());
-		ec.encodeOutboundMessageBody(
+		ec.encodeOutboundMessageBody2(
 			name, 
 			eventCall->arguments(), 
 			event->parameterList().parameters(),
@@ -1230,6 +1219,47 @@ protected:
 		for (const auto& name : locals)
 			push(0, "; erase " + name);
 		drop(locals.size());
+	}
+
+	bool tryOptimizeReturn(Expression const* expr) {
+		auto identifier = to<Identifier>(expr);
+		if (identifier) {
+			const std::string& name = identifier->name();
+			if (getStack().isParam(name) && getStack().getOffset(name) == 0) {
+				return true;
+			}
+		} else if (auto tuple = to<TupleExpression>(expr)) {
+			int size = tuple->components().size();
+			int i = 0;
+			for (const ASTPointer<Expression>& comp : tuple->components()) {
+				identifier = to<Identifier>(comp.get());
+				if (!identifier || !getStack().isParam(identifier->name()) ||
+							getStack().getOffset(identifier->name()) != size - 1 - i) {
+					return false;
+				}
+
+				++i;
+			}
+			return true;
+		}
+
+		return false;
+	}
+
+	static bool areReturnedValuesLiterals(Expression const* expr) {
+		auto literal = to<Literal>(expr);
+		if (literal) {
+			return true;
+		} else if (auto tuple = to<TupleExpression>(expr)) {
+			for (const ASTPointer<Expression>& comp : tuple->components()) {
+				if (to<Literal>(comp.get()) == nullptr) {
+					return false;
+				}
+			}
+			return true;
+		}
+
+		return false;
 	}
 	
 protected:
