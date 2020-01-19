@@ -64,25 +64,25 @@ private:
 
 void ContractCompiler::compileContract(
 	ContractDefinition const& _contract,
-	map<ContractDefinition const*, shared_ptr<Compiler const>> const& _otherCompilers
+	map<ContractDefinition const*, shared_ptr<Compiler const>> const& /*_otherCompilers*/
 )
 {
-	CompilerContext::LocationSetter locationSetter(m_context, _contract);
+//	CompilerContext::LocationSetter locationSetter(m_context, _contract);
 
 	TVMCompilerProceedContract(_contract);
 	
-	if (_contract.isLibrary())
-		// Check whether this is a call (true) or a delegatecall (false).
-		// This has to be the first code in the contract.
-		appendDelegatecallCheck();
-
-	initializeContext(_contract, _otherCompilers);
-	// This generates the dispatch function for externally visible functions
-	// and adds the function to the compilation queue. Additionally internal functions,
-	// which are referenced directly or indirectly will be added.
-	appendFunctionSelector(_contract);
-	// This processes the above populated queue until it is empty.
-	appendMissingFunctions();
+//	if (_contract.isLibrary())
+//		// Check whether this is a call (true) or a delegatecall (false).
+//		// This has to be the first code in the contract.
+//		appendDelegatecallCheck();
+//
+//	initializeContext(_contract, _otherCompilers);
+//	// This generates the dispatch function for externally visible functions
+//	// and adds the function to the compilation queue. Additionally internal functions,
+//	// which are referenced directly or indirectly will be added.
+//	appendFunctionSelector(_contract);
+//	// This processes the above populated queue until it is empty.
+//	appendMissingFunctions();
 }
 
 size_t ContractCompiler::compileConstructor(

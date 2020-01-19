@@ -41,7 +41,7 @@ void ArrayUtils::copyArrayToStorage(ArrayType const& _targetType, ArrayType cons
 	// need to leave "target_ref target_byte_off" on the stack at the end
 
 	// stack layout: [source_ref] [source length] target_ref (top)
-	solAssert(_targetType.location() == DataLocation::Storage, "");
+//	solAssert(_targetType.location() == DataLocation::Storage, "");
 
 	TypePointer uint256 = make_shared<IntegerType>(256);
 	TypePointer targetBaseType = _targetType.isByteArray() ? uint256 : _targetType.baseType();

@@ -1,144 +1,51 @@
-	.internal-alias :general_purpose,    1
+.internal-alias :general_purpose,    1
 
-	.selector
-	;s0 - selector
-	; s1.. - other data
-	SETCP 0
-	DUP
-    EQINT 1
-	DICTPUSHCONST 32
-    ROT
-	PUSHCONT {
-        DICTIGETJMP
-	}
-	IFNOTJMP
-    PUSHREFCONT
-	POPCTR c3
-	ROT 
-    DROP
-	DICTIGETJMP
+.selector
+; s0 - selector (0 (internal message), -1 (external message), -2 (tick tock) or 1 (function call by contract))
+; [s1] - function id if s0==1
+; [s2] - message id (int, ext) if s0==1
+SETCP 0          ; -2
+DICTPUSHCONST 32 ; -2 dict 32
+PUSH S2          ; -2 dict 32 -2
+EQINT 1          ; -2 dict 32 -2==1
+PUSHCONT {
+	; -2 dict 32
+	DICTIGETJMP ; nothing
+}
+IFNOTJMP
+PUSHREFCONT ; funId 1 dict 32 cont
+POPCTR c3   ; funId 1 dict 32
+ROT         ; funId dict 32 1
+DROP        ; funId dict 32
+DICTUGETJMP
 
-				;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-				;;; THE CODE BELOW IS GENERATED. DO NOT CHANGE IT!
-
-.macro encode_array_macro
-; encode_array_macro
-;; param: builder
-;; param: array
-PRINTSTR encode_array
-;; array
-;; stack=2
-DUP
-PUSHINT 32
-DICTUMAX
-PUSHCONT { POP s1 INC }
-PUSHCONT { PUSHINT 0 }
-IFELSE
-;; decl: len
-;; len
-;; stack=3
-DUP
-;; builder
-;; stack=4
-PUSH s3
-STU 32
-POP s3
-;; array
-;; stack=3
-PUSH s1
-;; builder
-;; stack=4
-PUSH s3
-STDICT
-POP s3
-;; return
-;; builder
-;; stack=3
-PUSH s2
-XCHG s3
-BLKDROP 3
-; end encode_array_macro
-
-.macro decode_array_macro
-; decode_array_macro
-;; param: slice
-PRINTSTR decode_array
-LDU 32
-SWAP
-;; decl: len
-;; slice
-;; stack=2
-PUSH s1
-LDDICT
-POP s3
-;; decl: array
-;; array
-;; stack=3
-DUP
-PUSHINT 32
-DICTUMAX
-PUSHCONT { POP s1 INC }
-PUSHCONT { PUSHINT 0 }
-IFELSE
-;; decl: len_actual
-;; len
-;; stack=4
-PUSH s2
-;; len_actual
-;; stack=5
-PUSH s1
-;; ==
-EQUAL
-THROWIFNOT 100
-PRINTSTR decode_array_ok
-;; return
-;; array
-;; stack=4
-PUSH s1
-;; slice
-;; stack=5
-PUSH s4
-BLKSWAP 4, 2
-BLKDROP 4
-; end decode_array_macro
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; THE CODE BELOW IS GENERATED. DO NOT CHANGE IT!
 
 .macro abi_encode_packed_macro
 ; abi_encode_packed_macro
 ;; param: builder
-;; param: array
-;; param: bitSizeOfArrayElement
-;; array
-;; stack=3
-PUSH s1
-PUSHINT 32
-DICTUMAX
-PUSHCONT { POP s1 INC }
-PUSHCONT { PUSHINT 0 }
-IFELSE
-;; decl: arraySize
+;; param: arraySize
+;; param: dict
+;; param: valueLength
 ; for statement
 PUSHINT 0
 ;; decl: idx
 PUSHCONT {
-	;; idx
-	;; stack=5
+	;; push identifier idx
 	DUP
-	;; arraySize
-	;; stack=6
-	PUSH s2
+	;; push identifier arraySize
+	PUSH s4
 	;; <
 	LESS
 	NOT DUP IFRET DROP
 	;; m_isUntil = 1
-	;; bitSizeOfArrayElement
-	;; stack=5
-	PUSH s2
-	;; idx
-	;; stack=6
+	;; push identifier valueLength
 	PUSH s1
-	;; array
-	;; stack=7
-	PUSH s5
+	;; push identifier idx
+	PUSH s1
+	;; push identifier dict
+	PUSH s4
 	PUSHINT 32
 	DICTUGET
 	PUSHCONT { 
@@ -153,19 +60,16 @@ PUSHCONT {
 		CTOS      ; default_value
 	}
 	IFELSE
-	;; decl: data_slice
-	;; data_slice
-	;; stack=6
-	DUP
-	;; builder
-	;; stack=7
-	PUSH s6
+	;; push identifier builder
+	PUSH s5
 	STSLICE
-	POP s6
-	;; drop locals
-	DROP
+	POP s5
 	;; ++
+	; expValue
+	; end expValue
 	INC
+	; colValue
+	; end colValue
 	FALSE
 }
 UNTIL
@@ -173,8 +77,7 @@ UNTIL
 DROP
 ; for end
 ;; return
-;; builder
-;; stack=4
+;; push identifier builder
 PUSH s3
 XCHG s4
 BLKDROP 4
@@ -187,39 +90,32 @@ BLKDROP 4
 ;; param: grams_value
 ;; param: constuctor_id
 ;; param: encodedParams
-PRINTSTR deploy_contract
 NEWC
 ;; decl: msg_builder
-;; grams_value
-;; stack=6
+;; push identifier grams_value
 PUSH s3
-;; remote_addr
-;; stack=7
+;; push identifier remote_addr
 PUSH s5
 PUSHINT 0
 ; make__CommonMsgInfoRelaxed__int_msg_info__inline
 ;; param: value
 ;; param: remote_addr
 ;; param: bounce
-PRINTSTR buildmsg
 NEWC
 ;; decl: builder
 PUSHINT 1
 STUR 2
-;; bounce
-;; stack=4
+;; push identifier bounce
 PUSH s1
 STIR 1
 PUSHINT 1
 STZEROES
 MYADDR
 STSLICER
-;; remote_addr
-;; stack=4
+;; push identifier remote_addr
 PUSH s2
 STSLICER
-;; value
-;; stack=4
+;; push identifier value
 PUSH s3
 STGRAMS
 PUSHINT 1
@@ -232,7 +128,6 @@ PUSHINT 64
 STZEROES
 NOW
 STUR 32
-PRINTSTR buildmsg_end
 ;; return
 XCHG s3
 BLKDROP 3
@@ -240,139 +135,115 @@ BLKDROP 3
 STBR
 PUSHINT 1
 STONES
-;; my_contract
-;; stack=6
+;; push identifier my_contract
 PUSH s5
-;; msg_builder
-;; stack=7
+;; push identifier msg_builder
 PUSH s1
 ; store_either_for_cell_inline
 ;; param: x
 ;; param: builder
-PRINTSTR st_either_cell
-;; x
-;; stack=2
+;; push identifier x
 PUSH s1
 CTOS
 ;; decl: slice_x
 ;; if
-;; builder
-;; stack=3
+;; push identifier builder
 PUSH s1
 BREMBITS ; tvm_brembits
-;; slice_x
-;; stack=4
+;; push identifier slice_x
 PUSH s1
 SBITS ; tvm_sbits
-PUSHINT 1
-;; +
-ADD
 ;; >
 GREATER
 PUSHCONT {
-	;; builder
-	;; stack=3
+	;; push identifier builder
 	PUSH s1
 	PUSHINT 1
 	STZEROES
 	POP s2
-	;; slice_x
-	;; stack=3
+	;; push identifier slice_x
 	DUP
-	;; builder
-	;; stack=4
+	;; push identifier builder
 	PUSH s2
 	STSLICE
 	POP s2
 }
 PUSHCONT {
-	;; builder
-	;; stack=3
+	;; push identifier builder
 	PUSH s1
 	PUSHINT 1
 	STONES
 	POP s2
-	;; x
-	;; stack=3
+	;; push identifier x
 	PUSH s2
-	;; builder
-	;; stack=4
+	;; push identifier builder
 	PUSH s2
 	STREF
 	POP s2
 }
 IFELSE
-PRINTSTR st_either_cell0
 ;; return
-;; builder
-;; stack=3
+;; push identifier builder
 PUSH s1
 XCHG s3
 BLKDROP 3
 ; end store_either_for_cell_inline
+; expValue
+; end expValue
+; colValue
 NIP
+; end colValue
 NEWC
 ;; decl: body_builder
-;; constuctor_id
-;; stack=7
+;; push identifier constuctor_id
 PUSH s3
 STUR 32
-;; encodedParams
-;; stack=7
+;; push identifier encodedParams
 PUSH s2
 STBR
-;; body_builder
-;; stack=7
+;; push identifier body_builder
 DUP
-;; msg_builder
-;; stack=8
+;; push identifier msg_builder
 PUSH s2
 ; store_either_for_builder_inline
 ;; param: x
 ;; param: builder
-PRINTSTR store_either
 ;; if
-;; builder
-;; stack=2
+;; push identifier builder
 DUP
 BREMBITS ; tvm_brembits
-;; x
-;; stack=3
+;; push identifier x
 PUSH s2
 BBITS
-PUSHINT 1
-;; +
-ADD
 ;; >
 GREATER
 PUSHCONT {
 	PUSHINT 1
 	STZEROES
-	;; x
-	;; stack=2
+	;; push identifier x
 	PUSH s1
 	STBR
 }
 PUSHCONT {
 	PUSHINT 1
 	STONES
-	;; x
-	;; stack=2
+	;; push identifier x
 	PUSH s1
 	STBREFR
 }
 IFELSE
-PRINTSTR store_either_0
 ;; return
 NIP
 ; end store_either_for_builder_inline
+; expValue
+; end expValue
+; colValue
 POP s2
-PRINTSTR deploy_contrac0
-;; msg_builder
-;; stack=7
+; end colValue
+;; push identifier msg_builder
 PUSH s1
 ENDC
-PUSHINT 0
+PUSHINT 1
 SENDRAWMSG
 BLKDROP 7
 ; end deploy_contract_macro
@@ -383,39 +254,32 @@ BLKDROP 7
 ;; param: remote_addr
 ;; param: grams
 ;; param: payload
-PRINTSTR deploy_contr2_0
 NEWC
 ;; decl: msg_builder
-;; grams
-;; stack=5
+;; push identifier grams
 PUSH s2
-;; remote_addr
-;; stack=6
+;; push identifier remote_addr
 PUSH s4
 PUSHINT 0
 ; make__CommonMsgInfoRelaxed__int_msg_info__inline
 ;; param: value
 ;; param: remote_addr
 ;; param: bounce
-PRINTSTR buildmsg
 NEWC
 ;; decl: builder
 PUSHINT 1
 STUR 2
-;; bounce
-;; stack=4
+;; push identifier bounce
 PUSH s1
 STIR 1
 PUSHINT 1
 STZEROES
 MYADDR
 STSLICER
-;; remote_addr
-;; stack=4
+;; push identifier remote_addr
 PUSH s2
 STSLICER
-;; value
-;; stack=4
+;; push identifier value
 PUSH s3
 STGRAMS
 PUSHINT 1
@@ -428,7 +292,6 @@ PUSHINT 64
 STZEROES
 NOW
 STUR 32
-PRINTSTR buildmsg_end
 ;; return
 XCHG s3
 BLKDROP 3
@@ -436,154 +299,126 @@ BLKDROP 3
 STBR
 PUSHINT 1
 STONES
-;; my_contract
-;; stack=5
+;; push identifier my_contract
 PUSH s4
-;; msg_builder
-;; stack=6
+;; push identifier msg_builder
 PUSH s1
 ; store_either_for_cell_inline
 ;; param: x
 ;; param: builder
-PRINTSTR st_either_cell
-;; x
-;; stack=2
+;; push identifier x
 PUSH s1
 CTOS
 ;; decl: slice_x
 ;; if
-;; builder
-;; stack=3
+;; push identifier builder
 PUSH s1
 BREMBITS ; tvm_brembits
-;; slice_x
-;; stack=4
+;; push identifier slice_x
 PUSH s1
 SBITS ; tvm_sbits
-PUSHINT 1
-;; +
-ADD
 ;; >
 GREATER
 PUSHCONT {
-	;; builder
-	;; stack=3
+	;; push identifier builder
 	PUSH s1
 	PUSHINT 1
 	STZEROES
 	POP s2
-	;; slice_x
-	;; stack=3
+	;; push identifier slice_x
 	DUP
-	;; builder
-	;; stack=4
+	;; push identifier builder
 	PUSH s2
 	STSLICE
 	POP s2
 }
 PUSHCONT {
-	;; builder
-	;; stack=3
+	;; push identifier builder
 	PUSH s1
 	PUSHINT 1
 	STONES
 	POP s2
-	;; x
-	;; stack=3
+	;; push identifier x
 	PUSH s2
-	;; builder
-	;; stack=4
+	;; push identifier builder
 	PUSH s2
 	STREF
 	POP s2
 }
 IFELSE
-PRINTSTR st_either_cell0
 ;; return
-;; builder
-;; stack=3
+;; push identifier builder
 PUSH s1
 XCHG s3
 BLKDROP 3
 ; end store_either_for_cell_inline
+; expValue
+; end expValue
+; colValue
 NIP
-;; payload
-;; stack=5
+; end colValue
+;; push identifier payload
 PUSH s1
-;; msg_builder
-;; stack=6
+;; push identifier msg_builder
 PUSH s1
 ; store_either_for_cell_inline
 ;; param: x
 ;; param: builder
-PRINTSTR st_either_cell
-;; x
-;; stack=2
+;; push identifier x
 PUSH s1
 CTOS
 ;; decl: slice_x
 ;; if
-;; builder
-;; stack=3
+;; push identifier builder
 PUSH s1
 BREMBITS ; tvm_brembits
-;; slice_x
-;; stack=4
+;; push identifier slice_x
 PUSH s1
 SBITS ; tvm_sbits
-PUSHINT 1
-;; +
-ADD
 ;; >
 GREATER
 PUSHCONT {
-	;; builder
-	;; stack=3
+	;; push identifier builder
 	PUSH s1
 	PUSHINT 1
 	STZEROES
 	POP s2
-	;; slice_x
-	;; stack=3
+	;; push identifier slice_x
 	DUP
-	;; builder
-	;; stack=4
+	;; push identifier builder
 	PUSH s2
 	STSLICE
 	POP s2
 }
 PUSHCONT {
-	;; builder
-	;; stack=3
+	;; push identifier builder
 	PUSH s1
 	PUSHINT 1
 	STONES
 	POP s2
-	;; x
-	;; stack=3
+	;; push identifier x
 	PUSH s2
-	;; builder
-	;; stack=4
+	;; push identifier builder
 	PUSH s2
 	STREF
 	POP s2
 }
 IFELSE
-PRINTSTR st_either_cell0
 ;; return
-;; builder
-;; stack=3
+;; push identifier builder
 PUSH s1
 XCHG s3
 BLKDROP 3
 ; end store_either_for_cell_inline
+; expValue
+; end expValue
+; colValue
 NIP
-PRINTSTR deploy_contr2_1
-;; msg_builder
-;; stack=5
+; end colValue
+;; push identifier msg_builder
 DUP
 ENDC
-PUSHINT 0
+PUSHINT 1
 SENDRAWMSG
 BLKDROP 5
 ; end deploy_contract2_macro
@@ -592,17 +427,14 @@ BLKDROP 5
 ; insert_pubkey_macro
 ;; param: my_contract
 ;; param: pubkey
-PRINTSTR insert_pubkey_0
-;; my_contract
-;; stack=2
+;; push identifier my_contract
 PUSH s1
 CTOS
 ;; decl: slice
 NEWC
 ;; decl: builder
 ;; if
-;; slice
-;; stack=4
+;; push identifier slice
 PUSH s1
 LDU 1
 POP s3
@@ -614,8 +446,7 @@ PUSHCONT {
 PUSHCONT {
 	PUSHINT 1
 	STONES
-	;; slice
-	;; stack=4
+	;; push identifier slice
 	PUSH s1
 	LDU 32
 	POP s3
@@ -623,8 +454,7 @@ PUSHCONT {
 }
 IFELSE
 ;; if
-;; slice
-;; stack=4
+;; push identifier slice
 PUSH s1
 LDU 1
 POP s3
@@ -636,8 +466,7 @@ PUSHCONT {
 PUSHCONT {
 	PUSHINT 1
 	STONES
-	;; slice
-	;; stack=4
+	;; push identifier slice
 	PUSH s1
 	LDU 2
 	POP s3
@@ -645,8 +474,7 @@ PUSHCONT {
 }
 IFELSE
 ;; if
-;; slice
-;; stack=4
+;; push identifier slice
 PUSH s1
 LDU 1
 POP s3
@@ -658,106 +486,92 @@ PUSHCONT {
 PUSHCONT {
 	PUSHINT 1
 	STONES
-	;; slice
-	;; stack=4
+	;; push identifier slice
 	PUSH s1
 	LDREF
 	POP s3
 	STREFR
 }
 IFELSE
-;; slice
-;; stack=4
+;; if
+;; push identifier slice
 PUSH s1
 LDU 1
 POP s3
-EQINT 1
-THROWIFNOT 100
+NEQINT 1
+PUSHCONT {
+	PUSHINT 55
+	THROWANY
+}
+IF
 PUSHINT 1
 STONES
 NEWC
 ;; decl: key_builder
-;; pubkey
-;; stack=5
+;; push identifier pubkey
 PUSH s3
 STUR 256
-;; slice
-;; stack=5
+;; push identifier slice
 PUSH s2
 LDREF
 POP s4
 CTOS
 ;; decl: data
-;; data
-;; stack=6
-DUP
 LDDICT
-POP s2
+SWAP
 ;; decl: dict
-;; key_builder
-;; stack=7
+;; push identifier key_builder
 PUSH s2
 PUSHINT 0
-;; dict
-;; stack=9
+;; push identifier dict
 PUSH s2
 PUSHINT 64
 DICTUSETB
 NIP
 NEWC
 ;; decl: dict_builder
-;; dict
-;; stack=8
+;; push identifier dict
 PUSH s1
 SWAP
 STDICT
-;; dict_builder
-;; stack=8
+;; push identifier dict_builder
 DUP
 ENDC
-;; builder
-;; stack=9
+;; push identifier builder
 PUSH s5
 STREF
 POP s5
 ;; if
-;; slice
-;; stack=8
+;; push identifier slice
 PUSH s5
 LDU 1
 POP s7
 ISZERO
 PUSHCONT {
-	;; builder
-	;; stack=8
+	;; push identifier builder
 	PUSH s4
 	PUSHINT 1
 	STZEROES
 	POP s5
 }
 PUSHCONT {
-	;; builder
-	;; stack=8
+	;; push identifier builder
 	PUSH s4
 	PUSHINT 1
 	STONES
 	POP s5
-	;; slice
-	;; stack=8
+	;; push identifier slice
 	PUSH s5
 	LDREF
 	POP s7
-	;; builder
-	;; stack=9
+	;; push identifier builder
 	PUSH s5
 	STREF
 	POP s5
 }
 IFELSE
-PRINTSTR insert_pubkey_9
 ;; return
-;; builder
-;; stack=8
+;; push identifier builder
 PUSH s4
 ENDC
 XCHG s8
@@ -768,29 +582,24 @@ BLKDROP 8
 ; build_state_init_macro
 ;; param: code
 ;; param: data
-PRINTSTR bld_stt_nt_0
 NEWC
 ;; decl: builder
 PUSHINT 2
 STZEROES
 PUSHINT 1
 STONES
-;; code
-;; stack=3
+;; push identifier code
 PUSH s2
 STREFR
 PUSHINT 1
 STONES
-;; data
-;; stack=3
+;; push identifier data
 PUSH s1
 STREFR
 PUSHINT 1
 STZEROES
-PRINTSTR bld_stt_nt_1
 ;; return
-;; builder
-;; stack=3
+;; push identifier builder
 DUP
 ENDC
 XCHG s3
@@ -802,39 +611,32 @@ BLKDROP 3
 ;; param: grams_value
 ;; param: remote_addr
 ;; param: body
-PRINTSTR send_int_msg
 NEWC
 ;; decl: msg_builder
-;; grams_value
-;; stack=4
+;; push identifier grams_value
 PUSH s3
-;; remote_addr
-;; stack=5
+;; push identifier remote_addr
 PUSH s3
 PUSHINT -1
 ; make__CommonMsgInfoRelaxed__int_msg_info__inline
 ;; param: value
 ;; param: remote_addr
 ;; param: bounce
-PRINTSTR buildmsg
 NEWC
 ;; decl: builder
 PUSHINT 1
 STUR 2
-;; bounce
-;; stack=4
+;; push identifier bounce
 PUSH s1
 STIR 1
 PUSHINT 1
 STZEROES
 MYADDR
 STSLICER
-;; remote_addr
-;; stack=4
+;; push identifier remote_addr
 PUSH s2
 STSLICER
-;; value
-;; stack=4
+;; push identifier value
 PUSH s3
 STGRAMS
 PUSHINT 1
@@ -847,7 +649,6 @@ PUSHINT 64
 STZEROES
 NOW
 STUR 32
-PRINTSTR buildmsg_end
 ;; return
 XCHG s3
 BLKDROP 3
@@ -855,57 +656,49 @@ BLKDROP 3
 STBR
 PUSHINT 0
 STUR 1
-;; body
-;; stack=4
+;; push identifier body
 PUSH s1
-;; msg_builder
-;; stack=5
+;; push identifier msg_builder
 PUSH s1
 ; store_either_for_builder_inline
 ;; param: x
 ;; param: builder
-PRINTSTR store_either
 ;; if
-;; builder
-;; stack=2
+;; push identifier builder
 DUP
 BREMBITS ; tvm_brembits
-;; x
-;; stack=3
+;; push identifier x
 PUSH s2
 BBITS
-PUSHINT 1
-;; +
-ADD
 ;; >
 GREATER
 PUSHCONT {
 	PUSHINT 1
 	STZEROES
-	;; x
-	;; stack=2
+	;; push identifier x
 	PUSH s1
 	STBR
 }
 PUSHCONT {
 	PUSHINT 1
 	STONES
-	;; x
-	;; stack=2
+	;; push identifier x
 	PUSH s1
 	STBREFR
 }
 IFELSE
-PRINTSTR store_either_0
 ;; return
 NIP
 ; end store_either_for_builder_inline
+; expValue
+; end expValue
+; colValue
 NIP
-;; msg_builder
-;; stack=4
+; end colValue
+;; push identifier msg_builder
 DUP
 ENDC
-PUSHINT 0
+PUSHINT 1
 SENDRAWMSG
 BLKDROP 4
 ; end send_internal_message_macro
@@ -913,19 +706,15 @@ BLKDROP 4
 .macro make_std_address_with_zero_wid_macro
 ; make_std_address_with_zero_wid_macro
 ;; param: _address
-PRINTSTR make_addr_std
 NEWC
 ;; decl: builder
 PUSHINT 1024
 STUR 11
-;; _address
-;; stack=2
+;; push identifier _address
 PUSH s1
 STUR 256
-PRINTSTR make_addr_std0
 ;; return
-;; builder
-;; stack=2
+;; push identifier builder
 DUP
 ENDC
 CTOS
@@ -939,25 +728,21 @@ NIP
 ;; param: grams_value
 ;; param: bounce
 ;; param: sendrawmsg_flag
-PRINTSTR ac_transfer
 NEWC
 ;; decl: builder
 PUSHINT 1
 STUR 2
-;; bounce
-;; stack=5
+;; push identifier bounce
 PUSH s2
 STIR 1
 PUSHINT 1
 STZEROES
 MYADDR
 STSLICER
-;; remote_addr
-;; stack=5
+;; push identifier remote_addr
 PUSH s4
 STSLICER
-;; grams_value
-;; stack=5
+;; push identifier grams_value
 PUSH s3
 STGRAMS
 PUSHINT 1
@@ -972,15 +757,12 @@ NOW
 STUR 32
 PUSHINT 2
 STZEROES
-;; builder
-;; stack=5
+;; push identifier builder
 DUP
 ENDC
-;; sendrawmsg_flag
-;; stack=6
+;; push identifier sendrawmsg_flag
 PUSH s2
 SENDRAWMSG
-PRINTSTR ac_transfer_end
 BLKDROP 5
 ; end send_accurate_internal_message_macro
 
@@ -991,25 +773,21 @@ BLKDROP 5
 ;; param: bounce
 ;; param: sendrawmsg_flag
 ;; param: body
-PRINTSTR ac_transfer
 NEWC
 ;; decl: builder
 PUSHINT 1
 STUR 2
-;; bounce
-;; stack=6
+;; push identifier bounce
 PUSH s3
 STIR 1
 PUSHINT 1
 STZEROES
 MYADDR
 STSLICER
-;; remote_addr
-;; stack=6
+;; push identifier remote_addr
 PUSH s5
 STSLICER
-;; grams_value
-;; stack=6
+;; push identifier grams_value
 PUSH s4
 STGRAMS
 PUSHINT 1
@@ -1024,86 +802,70 @@ NOW
 STUR 32
 PUSHINT 1
 STZEROES
-;; body
-;; stack=6
+;; push identifier body
 PUSH s1
-;; builder
-;; stack=7
+;; push identifier builder
 PUSH s1
 ; store_either_for_cell_inline
 ;; param: x
 ;; param: builder
-PRINTSTR st_either_cell
-;; x
-;; stack=2
+;; push identifier x
 PUSH s1
 CTOS
 ;; decl: slice_x
 ;; if
-;; builder
-;; stack=3
+;; push identifier builder
 PUSH s1
 BREMBITS ; tvm_brembits
-;; slice_x
-;; stack=4
+;; push identifier slice_x
 PUSH s1
 SBITS ; tvm_sbits
-PUSHINT 1
-;; +
-ADD
 ;; >
 GREATER
 PUSHCONT {
-	;; builder
-	;; stack=3
+	;; push identifier builder
 	PUSH s1
 	PUSHINT 1
 	STZEROES
 	POP s2
-	;; slice_x
-	;; stack=3
+	;; push identifier slice_x
 	DUP
-	;; builder
-	;; stack=4
+	;; push identifier builder
 	PUSH s2
 	STSLICE
 	POP s2
 }
 PUSHCONT {
-	;; builder
-	;; stack=3
+	;; push identifier builder
 	PUSH s1
 	PUSHINT 1
 	STONES
 	POP s2
-	;; x
-	;; stack=3
+	;; push identifier x
 	PUSH s2
-	;; builder
-	;; stack=4
+	;; push identifier builder
 	PUSH s2
 	STREF
 	POP s2
 }
 IFELSE
-PRINTSTR st_either_cell0
 ;; return
-;; builder
-;; stack=3
+;; push identifier builder
 PUSH s1
 XCHG s3
 BLKDROP 3
 ; end store_either_for_cell_inline
+; expValue
+; end expValue
+; colValue
 NIP
-;; builder
-;; stack=6
+; end colValue
+;; push identifier builder
 DUP
 ENDC
-;; sendrawmsg_flag
-;; stack=7
+;; push identifier sendrawmsg_flag
 PUSH s3
 SENDRAWMSG
-PRINTSTR ac_transfer_end
 BLKDROP 6
 ; end send_accurate_internal_message_with_body_macro
 
@@ -1113,39 +875,30 @@ BLKDROP 6
 ;; Function: store_either_for_builder_inline
 ;; param: x
 ;; param: builder
-PRINTSTR store_either
 ;; if
-;; builder
-;; stack=2
+;; push identifier builder
 DUP
 BREMBITS ; tvm_brembits
-;; x
-;; stack=3
+;; push identifier x
 PUSH s2
 BBITS
-PUSHINT 1
-;; +
-ADD
 ;; >
 GREATER
 PUSHCONT {
 	PUSHINT 1
 	STZEROES
-	;; x
-	;; stack=2
+	;; push identifier x
 	PUSH s1
 	STBR
 }
 PUSHCONT {
 	PUSHINT 1
 	STONES
-	;; x
-	;; stack=2
+	;; push identifier x
 	PUSH s1
 	STBREFR
 }
 IFELSE
-PRINTSTR store_either_0
 ;; return
 NIP
 RET
@@ -1156,63 +909,48 @@ RET
 ;; Function: store_either_for_cell_inline
 ;; param: x
 ;; param: builder
-PRINTSTR st_either_cell
-;; x
-;; stack=2
+;; push identifier x
 PUSH s1
 CTOS
 ;; decl: slice_x
 ;; if
-;; builder
-;; stack=3
+;; push identifier builder
 PUSH s1
 BREMBITS ; tvm_brembits
-;; slice_x
-;; stack=4
+;; push identifier slice_x
 PUSH s1
 SBITS ; tvm_sbits
-PUSHINT 1
-;; +
-ADD
 ;; >
 GREATER
 PUSHCONT {
-	;; builder
-	;; stack=3
+	;; push identifier builder
 	PUSH s1
 	PUSHINT 1
 	STZEROES
 	POP s2
-	;; slice_x
-	;; stack=3
+	;; push identifier slice_x
 	DUP
-	;; builder
-	;; stack=4
+	;; push identifier builder
 	PUSH s2
 	STSLICE
 	POP s2
 }
 PUSHCONT {
-	;; builder
-	;; stack=3
+	;; push identifier builder
 	PUSH s1
 	PUSHINT 1
 	STONES
 	POP s2
-	;; x
-	;; stack=3
+	;; push identifier x
 	PUSH s2
-	;; builder
-	;; stack=4
+	;; push identifier builder
 	PUSH s2
 	STREF
 	POP s2
 }
 IFELSE
-PRINTSTR st_either_cell0
 ;; return
-;; builder
-;; stack=3
+;; push identifier builder
 PUSH s1
 XCHG s3
 BLKDROP 3
@@ -1225,25 +963,21 @@ RET
 ;; param: value
 ;; param: remote_addr
 ;; param: bounce
-PRINTSTR buildmsg
 NEWC
 ;; decl: builder
 PUSHINT 1
 STUR 2
-;; bounce
-;; stack=4
+;; push identifier bounce
 PUSH s1
 STIR 1
 PUSHINT 1
 STZEROES
 MYADDR
 STSLICER
-;; remote_addr
-;; stack=4
+;; push identifier remote_addr
 PUSH s2
 STSLICER
-;; value
-;; stack=4
+;; push identifier value
 PUSH s3
 STGRAMS
 PUSHINT 1
@@ -1256,7 +990,6 @@ PUSHINT 64
 STZEROES
 NOW
 STUR 32
-PRINTSTR buildmsg_end
 ;; return
 XCHG s3
 BLKDROP 3
@@ -1264,271 +997,124 @@ RET
 
 .macro push_persistent_data_from_c4_to_c7_macro
 ; push_persistent_data_from_c4_to_c7_macro
-PRINTSTR c4_to_c7
-PUSHCTR c7
-;; decl: c7
+PUSHINT 0
+;; decl: dict
 PUSHROOT
 CTOS
-PLDDICT
+;; decl: cellTree
+LDDICT
+SWAP
+; expValue
+; end expValue
+; colValue
+POP s2
+; end colValue
+;; push identifier cellTree
+DUP
+LDSLICE 129
+POP s2
+;; decl: time_int_flag
+PUSHCTR c7
+;; decl: c7
+;; push identifier cellTree
+PUSH s2
 TPUSH
-;; c7
-;; stack=1
+;; push identifier dict
+PUSH s3
+TPUSH
+;; push identifier time_int_flag
+PUSH s1
+TPUSH
+;; push identifier c7
 DUP
 POPCTR c7
-PRINTSTR c4_to_c70
-DROP
+BLKDROP 4
 ; end push_persistent_data_from_c4_to_c7_macro
 
-.globl	build_external_outbound_message_inline
-.type	build_external_outbound_message_inline, @function
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Function: build_external_outbound_message_inline
-;; param: body
-;; param: logical_time
-;; param: src_address
-PRINTSTR build_ext_msg
+.macro push_persistent_data_from_c7_to_c4_macro
+; push_persistent_data_from_c7_to_c4_macro
 NEWC
-;; decl: builder
-PUSHINT 3
-STUR 2
-;; src_address
-;; stack=4
-PUSH s1
+;; decl: c4_builder
+PUSHCTR c7
+INDEX 2
+SWAP
+STDICT
+PUSHCTR c7
+INDEX 3
 STSLICER
-PUSHINT 2
-STZEROES
-;; logical_time
-;; stack=4
-PUSH s2
-STUR 64
-PUSHINT 33
-STZEROES
-;; if
-;; builder
-;; stack=4
-DUP
-BREMBITS ; tvm_brembits
-;; body
-;; stack=5
-PUSH s4
-BBITS
-PUSHINT 1
-;; +
-ADD
-;; >
-GREATER
-PUSHCONT {
-	PUSHINT 1
-	STZEROES
-	;; body
-	;; stack=4
-	PUSH s3
-	STBR
-}
-PUSHCONT {
-	PUSHINT 1
-	STONES
-	;; body
-	;; stack=4
-	PUSH s3
-	STBREFR
-}
-IFELSE
-;; return
-;; builder
-;; stack=4
+PUSHCTR c7
+INDEX 1
+STSLICER
+;; push identifier c4_builder
 DUP
 ENDC
-XCHG s4
-BLKDROP 4
-RET
-
-.macro change_array_length_macro
-; change_array_length_macro
-;; param: defaultValue
-;; param: array
-;; param: new_len
-PRINTSTR change_arr_len
-;; array
-;; stack=3
-PUSH s1
-PUSHINT 32
-DICTUMAX
-PUSHCONT { POP s1 INC }
-PUSHCONT { PUSHINT 0 }
-IFELSE
-;; decl: len
-;; if
-;; len
-;; stack=4
-DUP
-;; new_len
-;; stack=5
-PUSH s2
-;; >=
-GEQ
-PUSHCONT {
-	; while statement
-	PUSHCONT {
-		;; len
-		;; stack=4
-		DUP
-		;; new_len
-		;; stack=5
-		PUSH s2
-		;; >
-		GREATER
-		NOT DUP IFRET DROP
-		;; m_isUntil = 1
-		;; --
-		DEC
-		;; len
-		;; stack=4
-		DUP
-		;; array
-		;; stack=5
-		PUSH s3
-		PUSHINT 32
-		DICTUDEL
-		DROP
-		POP s3
-		FALSE
-	}
-	UNTIL
-	; while end
-}
-PUSHCONT {
-	;; if
-	;; !
-	;; defaultValue
-	;; stack=4
-	PUSH s3
-	ISNULL
-	NOT
-	PUSHCONT {
-		;; defaultValue
-		;; stack=4
-		PUSH s3
-		;; new_len
-		;; stack=5
-		PUSH s2
-		PUSHINT 1
-		;; -
-		SUB
-		;; array
-		;; stack=6
-		PUSH s4
-		PUSHINT 32
-		DICTUSETB
-		POP s3
-	}
-	IF
-}
-IFELSE
-PRINTSTR ch_arr_len_end
-;; return
-;; array
-;; stack=4
-PUSH s2
-XCHG s4
-BLKDROP 4
-; end change_array_length_macro
+POPROOT
+DROP
+; end push_persistent_data_from_c7_to_c4_macro
 
 .macro send_external_message_macro
 ; send_external_message_macro
 ;; param: body
-PRINTSTR send_ext_msg
-;; body
-;; stack=1
-DUP
-LTIME
-MYADDR
-; build_external_outbound_message_inline
-;; param: body
-;; param: logical_time
-;; param: src_address
-PRINTSTR build_ext_msg
 NEWC
 ;; decl: builder
 PUSHINT 3
 STUR 2
-;; src_address
-;; stack=4
-PUSH s1
+MYADDR
 STSLICER
 PUSHINT 2
 STZEROES
-;; logical_time
-;; stack=4
-PUSH s2
+LTIME
 STUR 64
 PUSHINT 33
 STZEROES
 ;; if
-;; builder
-;; stack=4
+;; push identifier builder
 DUP
 BREMBITS ; tvm_brembits
-;; body
-;; stack=5
-PUSH s4
+;; push identifier body
+PUSH s2
 BBITS
-PUSHINT 1
-;; +
-ADD
 ;; >
 GREATER
 PUSHCONT {
 	PUSHINT 1
 	STZEROES
-	;; body
-	;; stack=4
-	PUSH s3
+	;; push identifier body
+	PUSH s1
 	STBR
 }
 PUSHCONT {
 	PUSHINT 1
 	STONES
-	;; body
-	;; stack=4
-	PUSH s3
+	;; push identifier body
+	PUSH s1
 	STBREFR
 }
 IFELSE
-;; return
-;; builder
-;; stack=4
+;; push identifier builder
 DUP
 ENDC
-XCHG s4
-BLKDROP 4
-; end build_external_outbound_message_inline
-PUSHINT 0
+PUSHINT 1
 SENDRAWMSG
-DROP
+DROP2
 ; end send_external_message_macro
 
 .macro make_address_macro
 ; make_address_macro
 ;; param: wid
 ;; param: addr
-PRINTSTR make_address
 NEWC
 ;; decl: builder
 PUSHINT 4
 STUR 3
-;; wid
-;; stack=3
+;; push identifier wid
 PUSH s2
 STIR 8
-;; addr
-;; stack=3
+;; push identifier addr
 PUSH s1
 STUR 256
-PRINTSTR make_address0
 ;; return
-;; builder
-;; stack=3
+;; push identifier builder
 DUP
 ENDC
 CTOS
@@ -1539,120 +1125,44 @@ BLKDROP 3
 .macro unpack_address_macro
 ; unpack_address_macro
 ;; param: slice
-PRINTSTR unpack_address
-;; slice
-;; stack=1
+;; push identifier slice
 DUP
 PARSEMSGADDR
 ;; decl: tuple
-;; tuple
-;; stack=2
+;; if
+;; push identifier tuple
 DUP
 FIRST
-EQINT 2
-THROWIFNOT 84
-PRINTSTR unpack_address0
+NEQINT 2
+PUSHCONT {
+	PUSHINT 53
+	THROWANY
+}
+IF
 ;; return
-;; tuple
-;; stack=2
+;; push identifier tuple
 DUP
 THIRD
-;; tuple
-;; stack=3
+;; push identifier tuple
 PUSH s1
 INDEX 3
 PLDU 256
 BLKSWAP 2, 2
-BLKDROP 2
+DROP2
 ; end unpack_address_macro
 
 .macro get_rand_seed_macro
 ; get_rand_seed_macro
-PRINTSTR get_rand_seed
 ;; return
 GETPARAM 6
 ; end get_rand_seed_macro
 
 .macro get_contract_balance_macro
 ; get_contract_balance_macro
-PRINTSTR get_balance
 ;; return
 GETPARAM 7
 FIRST
 ; end get_contract_balance_macro
-
-.globl	get_bounced_inline
-.type	get_bounced_inline, @function
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Function: get_bounced_inline
-;; param: msg_cell
-PRINTSTR get_src_addr
-;; msg_cell
-;; stack=1
-DUP
-CTOS
-;; decl: msg_slice
-PUSHINT 3
-SDSKIPFIRST
-PRINTSTR get_src_addr0
-;; return
-LDU 1
-SWAP
-NIP
-NIP
-RET
-
-.globl	checkAndDetachSignature_inline
-.type	checkAndDetachSignature_inline, @function
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Function: checkAndDetachSignature_inline
-;; param: msg_slice
-PRINTSTR checkSign
-LDREFRTOS
-;; decl: slice
-;; if
-;; slice
-;; stack=2
-DUP
-SDEMPTY
-PUSHCONT {
-	PRINTSTR checkSign2
-	;; return
-	;; msg_slice
-	;; stack=2
-	PUSH s1
-	NIP
-	NIP
-	RET
-}
-IFJMP
-;; slice
-;; stack=2
-DUP
-PUSHINT 512
-SDSKIPFIRST
-PLDU 256
-;; decl: pubKey
-;; msg_slice
-;; stack=3
-PUSH s2
-HASHSU
-;; slice
-;; stack=4
-PUSH s2
-;; pubKey
-;; stack=5
-PUSH s2
-CHKSIGNU
-THROWIFNOT 40
-PRINTSTR checkSign3
-;; return
-;; msg_slice
-;; stack=3
-PUSH s2
-XCHG s3
-BLKDROP 3
-RET
 
 .internal-alias :main_internal,        0
 .internal	:main_internal
@@ -1661,49 +1171,36 @@ PUSHINT 0 ; selector
 ;; Function: main_internal
 ;; param: 
 ;; param: 
-;; param: msg_cell
+;; param: inbound_message
 ;; param: msg_body_slice
 ;; param: 
-PRINTSTR main_internal
-;; msg_cell
-;; stack=5
+;; push identifier inbound_message
 PUSH s2
-; get_bounced_inline
-;; param: msg_cell
-PRINTSTR get_src_addr
-;; msg_cell
-;; stack=1
-DUP
 CTOS
-;; decl: msg_slice
+; expValue
+; end expValue
+; colValue
+POP s3
+; end colValue
+;; push identifier inbound_message
+PUSH s2
 PUSHINT 3
 SDSKIPFIRST
-PRINTSTR get_src_addr0
-;; return
-LDU 1
-SWAP
-NIP
-NIP
-; end get_bounced_inline
+PLDU 1
 ;; decl: bounced
 ;; if
-;; msg_body_slice
-;; stack=6
+;; push identifier msg_body_slice
 PUSH s2
 SEMPTY
 PUSHCONT {
 	;; if
-	;; bounced
-	;; stack=6
+	;; push identifier bounced
 	DUP
 	EQINT 0
 	PUSHCONT {
-		PRINTSTR tvm_jump
-		;; msg_body_slice
-		;; stack=6
+		;; push identifier msg_body_slice
 		PUSH s2
 		PUSHINT $fallback$
-		PRINTSTR tvm_jump0
 		JMP 1
 		;; return
 		BLKDROP 6
@@ -1715,633 +1212,414 @@ PUSHCONT {
 	RET
 }
 IFJMP
-PRINTSTR main_internal1
-;; msg_body_slice
-;; stack=6
+;; push identifier msg_body_slice
 PUSH s2
 LDU 32
 POP s4
 ;; decl: func_id
 ;; if
-;; bounced
-;; stack=7
+;; push identifier bounced
 PUSH s1
 EQINT 1
 PUSHCONT {
-	PRINTSTR tvm_jump
-	;; func_id
-	;; stack=7
+	;; push identifier func_id
 	DUP
 	PUSHINT $onBounce$
-	PRINTSTR tvm_jump0
 	JMP 1
 	;; return
 	BLKDROP 7
 	RET
 }
 IFJMP
-PRINTSTR tvm_jump
-;; msg_body_slice
-;; stack=7
+;; push identifier msg_body_slice
 PUSH s3
-;; func_id
-;; stack=8
+;; push identifier func_id
 PUSH s1
-PRINTSTR tvm_jump0
 JMP 1
 BLKDROP 7
 
 .internal-alias :main_external,        -1
 .internal	:main_external
-PUSHINT -1 ; selector
+
+PUSHINT -1 ; main_external trans id
+PUSH s1    ; originMsgBodySlice
+LDREFRTOS  ; msgBodySlice signSlice
+DUP        ; msgBodySlice signSlice signSlice
+SDEMPTY    ; msgBodySlice signSlice isSignSliceEmpty
+PUSHCONT {
+	PUSHINT 0; msgBodySlice signSlice pubKey
+}
+PUSHCONT {
+	DUP          ; msgBodySlice signSlice signSlice
+	PUSHINT 512  ; msgBodySlice signSlice signSlice 512
+	SDSKIPFIRST  ; msgBodySlice signSlice signSlice'
+	PLDU 256     ; msgBodySlice signSlice pubKey
+	PUSH s2      ; msgBodySlice signSlice pubKey msgBodySlice
+	HASHSU       ; msgBodySlice signSlice pubKey msgHash
+	PUSH2 s2,s1  ; msgBodySlice signSlice pubKey msgHash signSlice pubKey
+	CHKSIGNU     ; msgBodySlice signSlice pubKey isSigned
+	THROWIFNOT 40
+}
+IFELSE
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Function: main_external
 ;; param: 
 ;; param: 
 ;; param: 
+;; param: 
+;; param: 
 ;; param: msg_body_slice
 ;; param: 
-PRINTSTR main_external
-;; msg_body_slice
-;; stack=5
-PUSH s1
-PUSHCONT { ; checkAndDetachSignature_inline
-	;; param: msg_slice
-	PRINTSTR checkSign
-	LDREFRTOS
-	;; decl: slice
-	;; if
-	;; slice
-	;; stack=2
-	DUP
-	SDEMPTY
-	PUSHCONT {
-		PRINTSTR checkSign2
-		;; return
-		;; msg_slice
-		;; stack=2
-		PUSH s1
-		NIP
-		NIP
-		RET
-	}
-	IFJMP
-	;; slice
-	;; stack=2
-	DUP
-	PUSHINT 512
-	SDSKIPFIRST
-	PLDU 256
-	;; decl: pubKey
-	;; msg_slice
-	;; stack=3
-	PUSH s2
-	HASHSU
-	;; slice
-	;; stack=4
-	PUSH s2
-	;; pubKey
-	;; stack=5
-	PUSH s2
-	CHKSIGNU
-	THROWIFNOT 40
-	PRINTSTR checkSign3
-	;; return
-	;; msg_slice
-	;; stack=3
-	PUSH s2
-	XCHG s3
-	BLKDROP 3
-	RET
-}
-CALLX
-;; decl: rest_msg_body_slice
-;; rest_msg_body_slice
-;; stack=6
-DUP
+;; param: 
+;; push identifier msg_body_slice
+PUSH s2
 LDU 32
 LDU 64
-POP s3
+POP s5
 ;; decl: func_id
 ;; decl: msg_timestamp
 ;; if
-;; msg_timestamp
-;; stack=8
+;; push identifier msg_timestamp
 DUP
-PUSHCONT { ; replay_prot_inline
-	;; param: msg_timestamp
-	PRINTSTR replay_prot
-	PUSHINT 0
-	;; decl: previous_message_timestamp
-	PUSHINT 0
-	;; decl: interval
-	PUSHROOT
-	CTOS
-	;; decl: c4
-	NEWC
-	;; decl: c4_builder
-	;; c4
-	;; stack=5
-	PUSH s1
-	LDDICT
-	POP s3
+; replay_prot_inline
+;; param: msg_timestamp
+PUSHINT 0
+;; decl: dict
+PUSHINT 0
+;; decl: previous_message_timestamp
+PUSHINT 0
+;; decl: interval
+PUSHROOT
+CTOS
+;; decl: c4
+LDDICT
+SWAP
+; expValue
+; end expValue
+; colValue
+POP s4
+; end colValue
+;; if
+;; push identifier c4
+DUP
+PUSHINT 128
+SCHKBITSQ
+PUSHCONT {
+	LDU 64
 	SWAP
-	STDICT
+	; expValue
+	; end expValue
+	; colValue
+	POP s3
+	; end colValue
+	LDU 64
+	SWAP
+	; expValue
+	; end expValue
+	; colValue
+	POP s2
+	; end colValue
+}
+PUSHCONT {
+	PUSHINT 1800000
+	; expValue
+	; end expValue
+	; colValue
+	POP s2
+	; end colValue
+}
+IFELSE
+FALSE
+;; decl: result
+;; if
+;; push identifier previous_message_timestamp
+PUSH s3
+;; push identifier msg_timestamp
+PUSH s6
+;; <
+LESS
+PUSHCONT {
 	;; if
-	;; c4
-	;; stack=5
-	PUSH s1
-	PUSHINT 128
-	SCHKBITSQ
-	PUSHCONT {
-		;; c4
-		;; stack=5
-		PUSH s1
-		LDU 64
-		LDU 64
-		POP s4
-		REVERSE 2, 0
-		POP s5
-		POP s3
-	}
-	PUSHCONT {
-		PUSHINT 1800000
-		POP s3
-	}
-	IFELSE
-	;; if
-	;; previous_message_timestamp
-	;; stack=5
-	PUSH s3
-	;; msg_timestamp
-	;; stack=6
-	PUSH s5
-	;; <
-	LESS
-	;; msg_timestamp
-	;; stack=6
+	;; push identifier msg_timestamp
 	PUSH s5
 	NOW
 	PUSHINT 1000
 	;; *
 	MUL
-	;; interval
-	;; stack=8
-	PUSH s5
+	;; push identifier interval
+	PUSH s4
 	;; +
 	ADD
 	;; <
 	LESS
-	;; &&
-	AND
 	PUSHCONT {
-		;; msg_timestamp
-		;; stack=5
-		PUSH s4
+		NEWC
+		;; decl: c4_builder
+		;; push identifier dict
+		PUSH s5
+		SWAP
+		STDICT
+		;; push identifier msg_timestamp
+		PUSH s6
 		STUR 64
-		;; interval
-		;; stack=5
+		;; push identifier interval
+		PUSH s3
+		STUR 64
+		;; push identifier c4
 		PUSH s2
-		STUR 64
-		;; c4
-		;; stack=5
-		PUSH s1
 		STSLICER
-		;; c4_builder
-		;; stack=5
+		;; push identifier c4_builder
 		DUP
 		ENDC
 		POPROOT
-		PRINTSTR replay_prot2
-		;; return
-		BLKDROP 5
 		TRUE
-		RET
+		; expValue
+		; end expValue
+		; colValue
+		POP s2
+		; end colValue
+		;; drop locals
+		DROP
 	}
-	IFJMP
-	PRINTSTR replay_prot3
-	;; return
-	BLKDROP 5
-	FALSE
-	RET
+	IF
 }
-CALLX
+IF
+;; return
+XCHG s5
+BLKDROP 5
+; end replay_prot_inline
 PUSHCONT {
-	PRINTSTR main_external2
-	PRINTSTR tvm_jump
-	;; rest_msg_body_slice
-	;; stack=8
+	;; push identifier msg_body_slice
+	PUSH s4
+	;; push identifier func_id
 	PUSH s2
-	;; func_id
-	;; stack=9
-	PUSH s2
-	PRINTSTR tvm_jump0
 	JMP 1
-	PRINTSTR main_external3
 	;; return
-	BLKDROP 8
+	BLKDROP 10
 	RET
 }
 IFJMP
-PUSHINT 124
+PUSHINT 52
 THROWANY
-BLKDROP 8
-
-.macro push_persistent_data_from_c7_to_c4_macro
-; push_persistent_data_from_c7_to_c4_macro
-PRINTSTR c7_to_c4
-PUSHROOT
-CTOS
-;; decl: c4
-SKIPDICT
-NEWC
-;; decl: c4_builder
-PUSHCTR c7
-SECOND
-SWAP
-STDICT
-;; c4
-;; stack=2
-PUSH s1
-STSLICER
-;; c4_builder
-;; stack=2
-DUP
-ENDC
-POPROOT
-PRINTSTR c7_to_c40
-BLKDROP 2
-; end push_persistent_data_from_c7_to_c4_macro
+BLKDROP 10
 
 .globl	replay_prot_inline
 .type	replay_prot_inline, @function
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Function: replay_prot_inline
 ;; param: msg_timestamp
-PRINTSTR replay_prot
-PUSHINT 0
-;; decl: previous_message_timestamp
-PUSHINT 0
-;; decl: interval
-PUSHROOT
-CTOS
-;; decl: c4
-NEWC
-;; decl: c4_builder
-;; c4
-;; stack=5
-PUSH s1
-LDDICT
-POP s3
-SWAP
-STDICT
-;; if
-;; c4
-;; stack=5
-PUSH s1
-PUSHINT 128
-SCHKBITSQ
-PUSHCONT {
-	;; c4
-	;; stack=5
-	PUSH s1
-	LDU 64
-	LDU 64
-	POP s4
-	REVERSE 2, 0
-	POP s5
-	POP s3
-}
-PUSHCONT {
-	PUSHINT 1800000
-	POP s3
-}
-IFELSE
-;; if
-;; previous_message_timestamp
-;; stack=5
-PUSH s3
-;; msg_timestamp
-;; stack=6
-PUSH s5
-;; <
-LESS
-;; msg_timestamp
-;; stack=6
-PUSH s5
-NOW
-PUSHINT 1000
-;; *
-MUL
-;; interval
-;; stack=8
-PUSH s5
-;; +
-ADD
-;; <
-LESS
-;; &&
-AND
-PUSHCONT {
-	;; msg_timestamp
-	;; stack=5
-	PUSH s4
-	STUR 64
-	;; interval
-	;; stack=5
-	PUSH s2
-	STUR 64
-	;; c4
-	;; stack=5
-	PUSH s1
-	STSLICER
-	;; c4_builder
-	;; stack=5
-	DUP
-	ENDC
-	POPROOT
-	PRINTSTR replay_prot2
-	;; return
-	BLKDROP 5
-	TRUE
-	RET
-}
-IFJMP
-PRINTSTR replay_prot3
-;; return
-BLKDROP 5
-FALSE
-RET
-
-.macro my_pubkey_macro
-; my_pubkey_macro
-PRINTSTR my_pubkey
-PUSHROOT
-CTOS
-;; decl: slice_dict
-;; slice_dict
-;; stack=1
-DUP
-LDDICT
-POP s2
-;; decl: persistentDataDict
-PUSHINT 0
-;; persistentDataDict
-;; stack=3
-PUSH s1
-PUSHINT 64
-DICTUGET
-THROWIFNOT 100
-;; decl: slice_pubkey
-LDU 256
-SWAP
-;; decl: pubkey
-;; slice_pubkey
-;; stack=4
-PUSH s1
-ENDS
-NULL
-POP s2
-PRINTSTR my_pubkey_end
-;; return
-XCHG s3
-BLKDROP 3
-; end my_pubkey_macro
-
-.macro generateConstructorProtection_macro
-; generateConstructorProtection_macro
-PRINTSTR constr_prot_0
 PUSHINT 0
 ;; decl: dict
 PUSHINT 0
 ;; decl: previous_message_timestamp
-PUSHINT 1800000
+PUSHINT 0
 ;; decl: interval
 PUSHROOT
 CTOS
 ;; decl: c4
-;; c4
-;; stack=4
-DUP
 LDDICT
-POP s2
+SWAP
+; expValue
+; end expValue
+; colValue
 POP s4
+; end colValue
 ;; if
-;; c4
-;; stack=4
+;; push identifier c4
 DUP
 PUSHINT 128
 SCHKBITSQ
 PUSHCONT {
 	LDU 64
 	SWAP
+	; expValue
+	; end expValue
+	; colValue
 	POP s3
+	; end colValue
 	LDU 64
 	SWAP
+	; expValue
+	; end expValue
+	; colValue
 	POP s2
+	; end colValue
+}
+PUSHCONT {
+	PUSHINT 1800000
+	; expValue
+	; end expValue
+	; colValue
+	POP s2
+	; end colValue
+}
+IFELSE
+FALSE
+;; decl: result
+;; if
+;; push identifier previous_message_timestamp
+PUSH s3
+;; push identifier msg_timestamp
+PUSH s6
+;; <
+LESS
+PUSHCONT {
 	;; if
-	;; c4
-	;; stack=4
-	DUP
-	PUSHINT 1
-	SCHKBITSQ
+	;; push identifier msg_timestamp
+	PUSH s5
+	NOW
+	PUSHINT 1000
+	;; *
+	MUL
+	;; push identifier interval
+	PUSH s4
+	;; +
+	ADD
+	;; <
+	LESS
 	PUSHCONT {
-		PUSHINT 123
-		THROWANY
+		NEWC
+		;; decl: c4_builder
+		;; push identifier dict
+		PUSH s5
+		SWAP
+		STDICT
+		;; push identifier msg_timestamp
+		PUSH s6
+		STUR 64
+		;; push identifier interval
+		PUSH s3
+		STUR 64
+		;; push identifier c4
+		PUSH s2
+		STSLICER
+		;; push identifier c4_builder
+		DUP
+		ENDC
+		POPROOT
+		TRUE
+		; expValue
+		; end expValue
+		; colValue
+		POP s2
+		; end colValue
+		;; drop locals
+		DROP
 	}
 	IF
 }
 IF
-NEWC
-;; decl: c4_builder
-;; dict
-;; stack=5
-PUSH s4
-SWAP
-STDICT
-;; previous_message_timestamp
-;; stack=5
-PUSH s3
-STUR 64
-;; interval
-;; stack=5
-PUSH s2
-STUR 64
-PUSHINT 1
-STONES
-;; c4
-;; stack=5
-PUSH s1
-STSLICER
-;; c4_builder
-;; stack=5
-DUP
-ENDC
-POPROOT
-PRINTSTR constr_prot_1
+;; return
+XCHG s5
 BLKDROP 5
-; end generateConstructorProtection_macro
+RET
+
+.macro my_pubkey_macro
+; my_pubkey_macro
+;; return
+PUSHINT 0
+PUSHCTR c7
+INDEX 2
+PUSHINT 64
+DICTUGET
+THROWIFNOT 10
+PLDU 256
+; end my_pubkey_macro
 
 .macro sender_address_macro
 ; sender_address_macro
-PRINTSTR msg_sender
-PUSHINT 0
+PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_
 ;; decl: sender_address
+;; if
 DEPTH
 PUSHINT 5
 SUB
 PICK
-;; decl: trans_id
-;; if
-;; trans_id
-;; stack=2
-DUP
 EQINT 0
 PUSHCONT {
 	DEPTH
 	PUSHINT 3
 	SUB
 	PICK
-	CTOS
-	;; decl: msg_slice
 	PUSHINT 4
 	SDSKIPFIRST
-	;; msg_slice
-	;; stack=3
-	DUP
 	LDMSGADDR
-	POP s2
-	POP s3
-	;; drop locals
 	DROP
+	; expValue
+	; end expValue
+	; colValue
+	NIP
+	; end colValue
 }
-PUSHCONT {
-	;; if
-	;; trans_id
-	;; stack=2
-	DUP
-	PUSHINT -1
-	;; ==
-	EQUAL
-	PUSHCONT {
-		PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_
-		POP s2
-	}
-	PUSHCONT {
-		FALSE
-		THROWIFNOT 100
-	}
-	IFELSE
-}
-IFELSE
-PRINTSTR msg_sender0
+IF
 ;; return
-;; sender_address
-;; stack=2
-PUSH s1
-NIP
-NIP
 ; end sender_address_macro
 
 .macro sender_pubkey_macro
 ; sender_pubkey_macro
-PRINTSTR sender_pk
+PUSHINT 0
+;; decl: pubkey
+;; if
 DEPTH
 PUSHINT 5
 SUB
 PICK
-;; decl: trans_id
-PUSHINT 0
-;; decl: pubkey
-;; if
-;; trans_id
-;; stack=2
-PUSH s1
 PUSHINT -1
 ;; ==
 EQUAL
 PUSHCONT {
 	DEPTH
-	PUSHINT 4
+	PUSHINT 8
 	SUB
 	PICK
-	;; decl: msg_slice
-	LDREFRTOS
-	;; decl: slice
-	;; if
-	;; !
-	;; slice
-	;; stack=4
-	DUP
-	SDEMPTY
-	NOT
-	PUSHCONT {
-		;; slice
-		;; stack=4
-		DUP
-		PUSHINT 512
-		SDSKIPFIRST
-		PLDU 256
-		POP s3
-	}
-	IF
-	;; drop locals
-	BLKDROP 2
+	; expValue
+	; end expValue
+	; colValue
+	NIP
+	; end colValue
 }
 IF
-PRINTSTR sender_pk3
 ;; return
-NIP
 ; end sender_pubkey_macro
 
 .macro message_balance_macro
 ; message_balance_macro
+;; ret param: balance
+PUSHINT 0
+;; if
 DEPTH
 PUSHINT 5
 SUB
 PICK
-;; decl: trans_id
-;; if
-;; trans_id
-;; stack=1
-DUP
-PUSHINT -1
-;; !=
-NEQ
-;; trans_id
-;; stack=2
-PUSH s1
-NEQINT 0
-;; &&
-AND
+EQINT 0
 PUSHCONT {
-	FALSE
-	THROWIFNOT 100
+	DEPTH
+	PUSHINT 2
+	SUB
+	PICK
+	; expValue
+	; end expValue
+	; colValue
+	NIP
+	; end colValue
 }
 IF
-;; return
-DEPTH
-PUSHINT 2
-SUB
-PICK
-NIP
+;; returning named params
 ; end message_balance_macro
 
 .macro address2uint_macro
 ; address2uint_macro
 ;; param: slice
-;; slice
-;; stack=1
+;; push identifier slice
 DUP
 PARSEMSGADDR
 INDEX 3
 ;; decl: addr
 ;; return
-;; addr
-;; stack=2
+;; push identifier addr
 DUP
-;; addr
-;; stack=3
+;; push identifier addr
 PUSH s1
 SBITS ; tvm_sbits
 PLDUX

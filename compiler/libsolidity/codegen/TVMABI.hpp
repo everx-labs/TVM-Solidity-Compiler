@@ -96,7 +96,7 @@ public:
 						Json::Value var;
 						var["name"] = variable->name();
 						try {
-							var["type"] = getParamTypeString(variable->type().get());
+							var["type"] = getParamTypeString(variable->type().get(), *variable);
 						} catch (...) {
 							cerr << "Warning: " << "Unsupported param type " + variable->type()->toString() << endl;
 							continue;
@@ -213,14 +213,14 @@ private:
 		for (const auto& variable: params) {
 			string name = variable->name();
 			if (name.empty()) name = "value" + toString(idx);
-			Json::Value json = setupType(name, getType(variable.get()));
+			Json::Value json = setupType(name, getType(variable.get()), *variable);
 			result.append(json);
 			idx++;
 		}
 		return result;
 	};
 
-	static string getParamTypeString(Type const* type) {
+	static string getParamTypeString(Type const* type, ASTNode const& node) {
 		const Type::Category category = type->category();
 		TypeInfo ti(type);
 		if (category == Type::Category::Address || category == Type::Category::Contract) {
@@ -239,41 +239,35 @@ private:
 			if (arrayType->isByteArray()) {
 				return "bytes";
 			}
-            if (isIntegralType(arrayBaseType)) {
-                return getParamTypeString(arrayBaseType) +  "[]";
+            if (isIntegralType(arrayBaseType) || isAddressType(arrayBaseType) ||
+                to<StructType>(arrayBaseType) || to<ArrayType>(arrayBaseType)) {
+
+                return getParamTypeString(arrayBaseType, node) +  "[]";
             }
-            if (to<StructType>(arrayBaseType)) {
-            	return getParamTypeString(arrayBaseType) +  "[]";
-            }
-            // TODO: hack for correct abi compilation. To be fixed later
-			if (to<FixedBytesType>(arrayBaseType)) {
-				return "uint8[]";
-			}
-            solAssert(false, "Unsupported param type (not integral array) " + type->toString());
+            cast_error(node, "Unsupported param type " + type->toString(true));
 		} else if (to<StructType>(type)) {
 			if (isTvmCell(type))
 				return "cell";
 			return "tuple";
         }
-        solAssert(false, "Unsupported param type " + type->toString());
-		return "";
+		cast_error(node, "Unsupported param type " + type->toString(true));
     }
 	
-	static Json::Value setupType(const string& name, const Type* type) {
+	static Json::Value setupType(const string& name, const Type* type, ASTNode const& node) {
 		Json::Value json(Json::objectValue);
 		json["name"] = name;
-		json["type"] = getParamTypeString(type);
+		json["type"] = getParamTypeString(type, node);
 		switch (type->category()) {
 			case Type::Category::Struct:
 				if (!isTvmCell(type)) {
-					json["components"] = setupStructComponents(to<StructType>(type));
+					json["components"] = setupStructComponents(to<StructType>(type), node);
 				}
 				break;
 			case Type::Category::Array: {
 				auto arrayType = to<ArrayType>(type);
 				Type const *arrayBaseType = arrayType->baseType().get();
 				if (arrayBaseType->category() == Type::Category::Struct) {
-					json["components"] = setupStructComponents(to<StructType>(arrayBaseType));
+					json["components"] = setupStructComponents(to<StructType>(arrayBaseType), node);
 				}
 				break;
 			}
@@ -283,12 +277,12 @@ private:
 		return json;
 	}
 
-	static Json::Value setupStructComponents(const StructType* type) {
+	static Json::Value setupStructComponents(const StructType* type, ASTNode const& node) {
 		Json::Value components(Json::arrayValue);
 		const StructDefinition& structDefinition = type->structDefinition();
 		const auto& members = structDefinition.members();
 		for (const auto & member : members) {
-			components.append(setupType(member->name(), getType(member.get())));
+			components.append(setupType(member->name(), getType(member.get()), node));
 		}
 		return components;
 	}

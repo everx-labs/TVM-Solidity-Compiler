@@ -1824,7 +1824,7 @@ MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 	if (!isString())
 	{
 		members.emplace_back("length", make_shared<IntegerType>(256));
-		if (isDynamicallySized() && location() == DataLocation::Storage)
+		if (isDynamicallySized())
 		{
 			members.emplace_back("push", make_shared<FunctionType>(
 				TypePointers{baseType()},
@@ -1842,6 +1842,34 @@ MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 			));
 		}
 	}
+	return members;
+}
+
+MemberList::MemberMap MappingType::nativeMembers(ContractDefinition const*) const
+{
+	MemberList::MemberMap members;
+	
+	members.emplace_back("min", make_shared<FunctionType>(
+		TypePointers{},
+		TypePointers{keyType(), valueType(), make_shared<BoolType>()},
+		strings{},
+		strings{string(), string(), string()},
+		FunctionType::Kind::MappingGetMinKey
+	));
+	members.emplace_back("next", make_shared<FunctionType>(
+		TypePointers{keyType()},
+		TypePointers{keyType(), valueType(), make_shared<BoolType>()},
+		strings{string()},
+		strings{string(), string(), string()},
+		FunctionType::Kind::MappingGetNextKey
+	));
+	members.emplace_back("fetch", make_shared<FunctionType>(
+		TypePointers{keyType()},
+		TypePointers{make_shared<BoolType>(), valueType()},
+		strings{string()},
+		strings{string(), string()},
+		FunctionType::Kind::MappingFetch
+	));
 	return members;
 }
 
@@ -2677,6 +2705,9 @@ string FunctionType::richIdentifier() const
 	case Kind::MulMod: id += "mulmod"; break;
 	case Kind::ArrayPush: id += "arraypush"; break;
 	case Kind::ArrayPop: id += "arraypop"; break;
+	case Kind::MappingGetMinKey: id += "mapgetmin"; break;
+	case Kind::MappingGetNextKey: id += "mapgetnext"; break;
+	case Kind::MappingFetch: id += "mapfetch"; break;
 	case Kind::ByteArrayPush: id += "bytearraypush"; break;
 	case Kind::ObjectCreation: id += "objectcreation"; break;
 	case Kind::Assert: id += "assert"; break;
@@ -3225,6 +3256,10 @@ string MappingType::toString(bool _short) const
 string MappingType::canonicalName() const
 {
 	return "mapping(" + keyType()->canonicalName() + " => " + valueType()->canonicalName() + ")";
+}
+
+TypeResult MappingType::unaryOperatorResult(Token _operator) const {
+	return _operator == Token::Delete ? make_shared<TupleType>() : TypePointer();
 }
 
 string TypeType::richIdentifier() const

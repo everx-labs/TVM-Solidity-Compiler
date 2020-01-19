@@ -987,6 +987,9 @@ public:
 		ArrayPush, ///< .push() to a dynamically sized array in storage
 		ArrayPop, ///< .pop() from a dynamically sized array in storage
 		ByteArrayPush, ///< .push() to a dynamically sized byte array in storage
+		MappingGetNextKey, ///< .next() for a mapping
+		MappingGetMinKey, ///< .min() for a mapping
+		MappingFetch, ///< .fetch() for a mapping
 		ObjectCreation, ///< array creation using new
 		Assert, ///< assert()
 		Require, ///< require()
@@ -1230,6 +1233,9 @@ public:
 
 	TypePointer const& keyType() const { return m_keyType; }
 	TypePointer const& valueType() const { return m_valueType; }
+	MemberList::MemberMap nativeMembers(ContractDefinition const* _currentScope) const override;
+
+	TypeResult unaryOperatorResult(Token _operator) const override;
 
 private:
 	TypePointer m_keyType;

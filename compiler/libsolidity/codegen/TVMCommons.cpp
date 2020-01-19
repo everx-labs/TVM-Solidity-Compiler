@@ -18,13 +18,14 @@
 
 #include "TVMCommons.hpp"
 #include "TVMStructCompiler.hpp"
+#include "TVMCompiler.hpp"
 
 void StackPusherHelper::f(const StructDefinition &structDefinition, const string &pref,
 		const std::map<std::string, int> &memberToStackSize,
 		EncodePosition& position, ASTNode const* node) {
 	for (const ASTPointer<VariableDeclaration> &member : structDefinition.members()) {
 		Type const* type = member->type().get();
-		if (type->category() == Type::Category::Struct) {
+		if (isUsualStruct(type)) {
 			auto structType = to<StructType>(type);
 			f(structType->structDefinition(), pref + "@" + member->name(), memberToStackSize, position, node);
 		} else {
@@ -41,9 +42,8 @@ void StackPusherHelper::encodeStruct(const StructType* structType, ASTNode const
 	// builder... builder struct
 	const int saveStackSize0 = getStack().size() - 2;
 
-	const StructDefinition& structDefinition = structType->structDefinition();
 	std::map<std::string, int> memberToStackSize;
-	StructCompiler structCompiler{this, &structDefinition};
+	StructCompiler structCompiler{this, structType};
 	structCompiler.expandStruct(memberToStackSize);
 
 	// builder... builder data...
@@ -51,13 +51,14 @@ void StackPusherHelper::encodeStruct(const StructType* structType, ASTNode const
 	const int builderIndex = saveStackSize1 - (saveStackSize0 + 1);
 	push(+1, "PUSH s" + toString(builderIndex)); // builder... builder data... builder
 
+	const StructDefinition& structDefinition = structType->structDefinition();
 	f(structDefinition, "", memberToStackSize, position, node);
 	// builder data... builder...
 	const int saveStackSize2 = getStack().size();
 	dropUnder(saveStackSize2 - saveStackSize1, saveStackSize1 - saveStackSize0);
 }
 
-void StackPusherHelper::pushDefaultValue(Type const* type) {
+void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder) {
 	Type::Category cat = type->category();
 	switch (cat) {
 		case Type::Category::Address:
@@ -76,7 +77,14 @@ void StackPusherHelper::pushDefaultValue(Type const* type) {
 				push(0, "ENDC");
 				break;
 			}
-			[[fallthrough]];
+			push(+1, "NEWC");
+			pushInt(33);
+			push(-1, "STZEROES");
+			if (!isResultBuilder) {
+				push(0, "ENDC");
+				push(0, "CTOS");
+			}
+			break;
 		case Type::Category::Mapping:
 			push(+1, "NEWDICT");
 			break;
@@ -87,9 +95,8 @@ void StackPusherHelper::pushDefaultValue(Type const* type) {
 				push(0, "ENDC");
 				break;
 			}
-			StructDefinition const* structDefinition = &structType->structDefinition();
-			StructCompiler structCompiler{this, structDefinition};
-			structCompiler.createDefaultStruct();
+			StructCompiler structCompiler{this, structType};
+			structCompiler.createDefaultStruct(isResultBuilder);
 			break;
 		}
 		case Type::Category::Function: {
@@ -108,57 +115,109 @@ void StackPusherHelper::pushDefaultValue(Type const* type) {
 	}
 }
 
-void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, ASTNode const& node) {
+void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, ASTNode const& node, const bool pushDefaultValue) {
 	// stack: index dict
 	const Type::Category valueCategory = valueType.category();
 	prepareKeyForDictOperations(&keyType);
-	if (isIn(keyType.category(), Type::Category::Address, Type::Category::Contract)) {
-		pushInt(AddressInfo::maxBitLength());
-	} else {
-		pushInt(getKeyDictLength(&keyType)); // stack: index dict nbits
-	}
+	int keyLength = lengthOfDictKey(&keyType);
+	pushInt(keyLength); // stack: index dict nbits
 
-	std::string dictOpcode = "DICT" + getKeyDict(&keyType);
-	if (isIn(valueCategory, Type::Category::Mapping, Type::Category::Array) || isTvmCell(&valueType)) {
-		push(-3 + 1, dictOpcode + "GETOPTREF");
-		if (isStringOrStringLiteralOrBytes(&valueType) || isTvmCell(&valueType)) {
-			push(+1, "DUP");
-			push(-1 + 1, "ISNULL");
-			{
-				StackPusherImpl2 pusher;
-				StackPusherHelper pusherHelper(&pusher, &ctx());
-				pusherHelper.push(-1, "DROP");
-				pusherHelper.pushDefaultValue(&valueType);
-				pushCont(pusher.codeLines());
-			}
-			push(-2, "IF");
-		}
-		return;
-	}
-
-	push(-3 + 2, dictOpcode + "GET");
-	if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract, Type::Category::Function, Type::Category::Struct)) {
+	auto pushDefaultDictValue = [&](){
 		StackPusherImpl2 pusher;
 		StackPusherHelper pusherHelper(&pusher, &ctx());
 		pusherHelper.pushDefaultValue(&valueType);
 		pushCont(pusher.codeLines());
-		push(-2, "IFNOT");
-	} else if (isIntegralType(&valueType) || valueCategory == Type::Category::Enum) {
-		{
+	};
+
+	std::string dictOpcode = "DICT" + typeToDictChar(&keyType);
+	if (isTvmCell(&valueType)) {
+		push(-3 + 2, dictOpcode + "GETREF");
+		if (pushDefaultValue) {
+			pushDefaultDictValue();
+			push(-2, "IFNOT");
+		} else {
+			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+		}
+	} else if (valueCategory == Type::Category::Mapping || isTvmCell(&valueType)) {
+		push(-3 + 1, dictOpcode + "GETOPTREF");
+	} else if (valueCategory == Type::Category::Struct) {
+		if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(&valueType))) {
+			push(-3 + 2, dictOpcode + "GET");
+			if (pushDefaultValue) {
+				pushDefaultDictValue();
+				push(-2, "IFNOT");
+			} else {
+				push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+			}
+		} else {
+			push(-3 + 2, dictOpcode + "GETREF");
+			if (pushDefaultValue) {
+				StackPusherImpl2 pusher;
+				StackPusherHelper pusherHelper(&pusher, &ctx());
+				pusher.push(-1 + 1, "CTOS");
+				pushCont(pusher.codeLines());
+
+				pushDefaultDictValue();
+				push(-3, "IFELSE");
+			} else {
+				push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+				push(-1 + 1, "CTOS");
+			}
+		}
+	} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract, Type::Category::Array)) {
+		if (valueCategory == Type::Category::Array && to<ArrayType>(&valueType)->isByteArray()) {
+			push(-3 + 2, dictOpcode + "GETREF");
+		} else {
+			push(-3 + 2, dictOpcode + "GET");
+		}
+		if (pushDefaultValue) {
+			pushDefaultDictValue();
+			push(-2, "IFNOT");
+		} else {
+			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+		}
+	} else if (isIntegralType(&valueType)) {
+		push(-3 + 2, dictOpcode + "GET");
+		if (pushDefaultValue) {
 			StackPusherImpl2 pusher;
 			StackPusherHelper pusherHelper(&pusher, &ctx());
-			pusher.push(+1, loadIntegralOrAddress(&valueType));
-			pusher.push(-1, "ENDS");
+			pusher.push(0, preloadIntergal(&valueType));
 			pushCont(pusher.codeLines());
+
+			pushDefaultDictValue();
+			push(-3, "IFELSE");
+		} else {
+			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+			push(0, preloadIntergal(&valueType));
 		}
-		{
-			StackPusherImpl2 pusher;
-			StackPusherHelper pusherHelper(&pusher, &ctx());
-			pusherHelper.pushDefaultValue(&valueType);
-			pushCont(pusher.codeLines());
-		}
-		push(-3, "IFELSE");
 	} else {
 		cast_error(node, "Unsupported value type: " + valueType.toString());
+	}
+}
+
+std::vector<VariableDeclaration const *> StackPusherHelper::notConstantAndNotPublicStateVariables() {
+	std::vector<VariableDeclaration const*> variableDeclarations;
+	std::vector<ContractDefinition const*> mainChain = getContractsChain(ctx().getContract());
+	for (ContractDefinition const* contract : mainChain) {
+		for (VariableDeclaration const *variable: contract->stateVariables()) {
+			if (!variable->isConstant() && !variable->isPublic()) {
+				variableDeclarations.push_back(variable);
+			}
+		}
+	}
+	return variableDeclarations;
+}
+
+bool StackPusherHelper::isNotConstantAndNotPublicStateVariables(VariableDeclaration const* vd) {
+	std::vector<VariableDeclaration const *> arr = notConstantAndNotPublicStateVariables();
+	return std::any_of(arr.begin(), arr.end(), [&vd](VariableDeclaration const * element){
+		return element->name() == vd->name();
+	});
+}
+
+
+void StackPusherHelper::pushLog(const std::string& str) {
+	if (TVMCompiler::g_with_logstr) {
+		push(0, "PRINTSTR " + str);
 	}
 }

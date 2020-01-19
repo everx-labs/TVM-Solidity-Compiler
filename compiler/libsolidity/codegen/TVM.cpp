@@ -18,13 +18,14 @@
 
 
 #include "TVMCommons.cpp"
-#include "TVMIntrinsics.hpp"
+
 #include "TVMFunctionCall.hpp"
 #include "TVMExpressionCompiler.hpp"
 #include "TVMABI.hpp"
 #include "TVMCompiler.hpp"
+#include "TVMIntrinsics.cpp"
 #include "TVM.h"
-#include "TVMStructCompiler.hpp"
+#include "TVMStructCompiler.cpp"
 #include "TVMTypeChecker.hpp"
 
 
@@ -32,6 +33,7 @@ bool TVMCompiler::m_optionsEnabled = false;
 bool TVMCompiler::m_abiOnly = false;
 bool TVMCompiler::m_dbg = false;
 bool TVMCompiler::m_outputProduced = false;
+bool TVMCompiler::g_with_logstr = false;
 std::string TVMCompiler::m_outputWarnings;
 std::vector<ContractDefinition const*> TVMCompiler::m_allContracts;
 
@@ -47,10 +49,11 @@ void TVMCompilerProceedContract(ContractDefinition const& _contract) {
 		TVMCompiler::proceedContract(&_contract);
 }
 
-void TVMCompilerEnable(bool abiOnly, bool dbg) {
+void TVMCompilerEnable(bool abiOnly, bool dbg, bool with_logstr) {
 	TVMCompiler::m_optionsEnabled = true;
 	TVMCompiler::m_dbg = dbg;
 	TVMCompiler::m_abiOnly = abiOnly;
+	TVMCompiler::g_with_logstr = with_logstr;
 }
 
 void TVMSetAllContracts(const std::vector<ContractDefinition const*>& allContracts) {

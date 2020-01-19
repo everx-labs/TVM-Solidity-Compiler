@@ -18,17 +18,30 @@
 #pragma once
 
 #include <libsolidity/ast/ASTForward.h>
-
+#include <boost/range/adaptor/reversed.hpp>
 #include "TVMCommons.hpp"
 
 namespace dev::solidity {
 
 class TVMTypeChecker {
 public:
-	static void check(ContractDefinition const* c) {
-		for (FunctionDefinition const* f : c->definedFunctions()) {
+	static void check(ContractDefinition const* contractDefinition) {
+		for (FunctionDefinition const* f : contractDefinition->definedFunctions()) {
 			if (isTvmIntrinsic(f->name())) {
 				checkTvmIntrinsic(f);
+			}
+		}
+
+		std::set<std::string> usedNames;
+		for (ContractDefinition const* c : contractDefinition->annotation().linearizedBaseContracts | boost::adaptors::reversed) {
+			for (VariableDeclaration const *variable: c->stateVariables()) {
+				if (variable->isPublic() && variable->value() != nullptr) {
+					cast_error(*variable, "Use sdk to init public state variables");
+				}
+				if (usedNames.count(variable->name()) != 0) {
+					cast_error(*variable, "Duplicate member variable");
+				}
+				usedNames.insert(variable->name());
 			}
 		}
 	}
@@ -38,7 +51,7 @@ public:
 			cast_error(*f, "Intrinsic should have private visibility");
 		}
 
-		if (f->name() == "tvm_init_storage") {
+		if (isIn(f->name(), "tvm_init_storage", "tvm_commit")) {
 			if (f->stateMutability() != StateMutability::NonPayable) {
 				cast_error(*f, R"(Should have "NonPayable" state mutability)");
 			}
@@ -53,53 +66,15 @@ public:
 		}
 
 		auto arguments = f->parameters();
-		auto checkArgCount = [&](std::size_t argCount) {
-			if (arguments.size() != argCount) {
-				if (argCount == 0) {
-					cast_error(*f, "Should have no argument");
-				} else if (argCount == 1) {
-					cast_error(*f, "Should have one argument");
-				} else {
-					cast_error(*f, "Should have " + toString(argCount) + " arguments");
-				}
-			}
-		};
 
 		switch (str2int(f->name().c_str())) {
-			case str2int("tvm_dictgetnext"): {
-				checkArgCount(2);
-				VariableDeclaration const *keyDeclaration = f->parameters()[0].get();
-				VariableDeclaration const *mapDeclaration = f->parameters()[1].get();
-				auto mapType = to<MappingType>(mapDeclaration->type().get());
-				if (!mapType) {
-					cast_error(*mapDeclaration, "Should have mapping type");
-				}
-				if (*keyDeclaration->type().get() != *mapType->keyType().get()) {
-					cast_error(*keyDeclaration, "Should have type " + mapType->keyType()->toString());
-				}
-				[[fallthrough]];
-			}
-			case str2int("tvm_dictmin"): {
-				if (f->name() == "tvm_dictmin") {
-					checkArgCount(1);
-				}
-				VariableDeclaration const *mapDeclaration = f->parameters()[f->name() == "tvm_dictmin" ? 0 : 1].get();
-				auto mapType = to<MappingType>(mapDeclaration->type().get());
-				if (!mapType) {
-					cast_error(*mapDeclaration, "Should have mapping type");
-				}
-				std::vector<ASTPointer<VariableDeclaration>> const& ret = f->returnParameters();
-				if (ret.size() != 3) {
-					cast_error(*f, "Should return 3 value");
-				}
-				if (*ret[0].get()->annotation().type.get() != *mapType->keyType().get()) {
-					cast_error(*ret[0], "Should have type " + mapType->keyType()->toString());
-				}
-				if (*ret[1].get()->annotation().type.get() != *mapType->valueType().get()) {
-					cast_error(*ret[1], "Should have type " + mapType->valueType()->toString());
-				}
-				if (ret[2].get()->annotation().type->category() != Type::Category::Bool) {
-					cast_error(*ret[2], "Should have bool type");
+			case str2int("tvm_deploy_contract"): {
+				Type const * type3 = f->parameters()[3]->annotation().type.get();
+				if (!isTvmCell(type3))
+				{
+					TypeInfo ti(type3);
+					if (!ti.isNumeric || ti.numBits != 32 || ti.isSigned)
+						cast_error(*(f->parameters()[3].get()),"Constructor id argument should be of type uint32.");
 				}
 				break;
 			}

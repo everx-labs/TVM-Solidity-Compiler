@@ -20,6 +20,7 @@
 
 #include "TVMCommons.hpp"
 #include "TVMStructCompiler.hpp"
+#include "TVMIntrinsics.hpp"
 
 namespace dev {
 namespace solidity {
@@ -41,7 +42,19 @@ public:
 	{
 
 	}
-		
+
+	void structConstructorCall(FunctionCall const& _functionCall) {
+		auto const& type = dynamic_cast<TypeType const&>(*_functionCall.expression().annotation().type);
+		auto const& structType = dynamic_cast<StructType const&>(*type.actualType());
+		const int saveStackSize = getStack().size();
+		for (const ASTPointer<Expression const> &arg : _functionCall.arguments()) {
+			acceptExpr(arg.get());
+		}
+		StructCompiler structCompiler{this, &structType};
+		structCompiler.createStruct(saveStackSize, _functionCall.names());
+		dropUnder(1, _functionCall.arguments().size());
+	}
+
 	void compile(FunctionCall const& _functionCall, bool isResultNeeded = true) {
 		m_isResultNeeded = isResultNeeded;
 		
@@ -50,23 +63,7 @@ public:
 		if (checkAddressThis(_functionCall)) return;
 		if (checkSolidityUnits(_functionCall)) return;
 		if (_functionCall.annotation().kind == FunctionCallKind::StructConstructorCall) {
-			auto const& type = dynamic_cast<TypeType const&>(*_functionCall.expression().annotation().type);
-			auto const& structType = dynamic_cast<StructType const&>(*type.actualType());
-			auto const& structDefinition = structType.structDefinition();
-			StructCompiler structCompiler{this, &structDefinition};
-			structCompiler.createStruct([this, &_functionCall](const int fieldIndex, const std::string& fieldName) {
-				std::vector<ASTPointer<ASTString>> names = _functionCall.names();
-				if (!names.empty()) {
-					for (size_t i = 0; i < names.size(); ++i) {
-						if (fieldName == *names[i].get()) {
-							acceptExpr(_functionCall.arguments()[i].get());
-							return;
-						}
-					}
-					solAssert(false, "");
-				}
-				acceptExpr(_functionCall.arguments()[fieldIndex].get());
-			});
+			structConstructorCall(_functionCall);
 			return ;
 		}
 		if (_functionCall.annotation().kind == FunctionCallKind::TypeConversion) {
@@ -327,9 +324,8 @@ protected:
 
 		string iname = identifier->name();
 		if (iname == "sha256") {
-			for (const auto& arg : _functionCall.arguments()) {
-				acceptExpr(arg.get());
-			}
+			acceptExpr(_functionCall.arguments()[0].get());
+			push(0, "CTOS");
 			push(0, "SHA256U");
 			return true;
 		}
@@ -337,6 +333,10 @@ protected:
 			for (const auto& arg : _functionCall.arguments()) {
 				acceptExpr(arg.get()); //  remote_addr
 			}
+			push(+1, "NEWC");
+			push(+1-1, "ENDC");
+			push(-1, "SETCODE");
+			
 			push(+1, "PUSHINT 1000"); // grams_value // TODO why not 0? Is here bug in local node?
 			push(+1, "PUSHINT 0"); // bounce
 			push(+1, "PUSHINT " + toString(TvmConst::SENDRAWMSG::CarryAllMoney)); // sendrawmsg_flag
@@ -392,41 +392,55 @@ protected:
 	}
 
 	bool checkNewExpression(FunctionCall const& _functionCall) {
-		auto arguments = _functionCall.arguments();
-		if (to<NewExpression>(&_functionCall.expression())) {
-			// create new array
-			// TODO: this code looks buggy. Do we check that it is array?
-			Type const* resultType = getType(&_functionCall);
-			push( 0, ";; new " + resultType->toString());
 
-
-			auto arrayType = to<ArrayType>(resultType);
-			Type const* arrayBaseType = arrayType->baseType().get();
-
-			int size = getStack().size();
-
-			pushDefaultValue(arrayBaseType); // default
-			prepareValueForDictOperations(arrayBaseType);
-			acceptExpr(arguments[0].get()); // default size
-			push(+1, "DUP");  // default size size
-			{
-				TVMStack stack;
-				CodeLines code;
-				StackPusherImpl pusher(stack, code);
-				StackPusherHelper pusherHelper(&pusher, &ctx());
-				pusherHelper.push(0, "DEC"); // default index
-				pusherHelper.push(0, "NEWDICT"); // default index arr
-				pusherHelper.setDict(getKeyTypeOfArray(), *arrayBaseType, _functionCall);
-
-				pushCont(code);// default size size cont0
-			}
-			push(+1, "PUSHCONT { DROP DROP NEWDICT }"); // default size size cont0 cont1
-			push(-5 + 1,  "IFELSE");
-
-			solAssert(size + 1 == getStack().size(), "");
-			return true;
+		if (to<NewExpression>(&_functionCall.expression()) == nullptr) {
+			return false;
 		}
-		return false;
+		Type const *resultType = _functionCall.annotation().type.get();
+		if (resultType->category() == Type::Category::Contract) {
+			cast_error(_functionCall, "Unsupported such contract creating. Use tvm_deploy_contract(...)");
+		}
+
+		int size = getStack().size();
+
+		push(0, ";; new " + resultType->toString(true));
+		push(+1, "NEWDICT"); // dict
+		acceptExpr(_functionCall.arguments()[0].get()); // dict size
+		push(+1, "DUP"); // dict size sizeIter
+
+
+		auto arrayType = to<ArrayType>(resultType);
+		const IntegerType key = getKeyTypeOfArray();
+		Type const* arrayBaseType = arrayType->baseType().get();
+
+		{
+			CodeLines code;
+			code.push("DUP");
+			pushCont(code);
+		}
+		{
+			StackPusherImpl2 pusher;
+			StackPusherHelper pusherHelper(&pusher, &ctx());
+			pusherHelper.push(0, "DEC"); // dict size sizeIter'
+			pusherHelper.pushDefaultValue(arrayBaseType, false); // dict size sizeIter' value
+			pusherHelper.prepareValueForDictOperations(&key, arrayBaseType); // arr value'
+			pusherHelper.push(0, "PUSH2 S1,S3"); // dict size sizeIter' value sizeIter' dict
+			pusherHelper.setDict(key, *arrayType->baseType().get(), _functionCall, false); // dict size sizeIter' dict'
+			pusherHelper.push(0, "POP S3"); // dict' size sizeIter'
+			pushCont(pusher.codeLines());
+		}
+		push(-2, "WHILE");
+		// dict size 0
+		drop(1);  // dict size
+
+		push(+1, "NEWC");
+		push(-1, "STU " + toString(TvmConst::ArrayKeyLength));
+		push(-1, "STDICT");
+		push(0, "ENDC");
+		push(0, "CTOS");
+
+		solAssert(size + 1 == getStack().size(), "");
+		return true;
 	}
 
 	bool checkTvmIntrinsic(FunctionCall const& _functionCall) {
