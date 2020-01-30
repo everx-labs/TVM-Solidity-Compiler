@@ -194,6 +194,7 @@ static string const g_argTvm = "tvm";
 static string const g_argTvmABI = "tvm-abi";
 static string const g_argTvmABI2 = "tvm_abi";
 static string const g_argTvmDbg = "tvm-dbg";
+static string const g_argTvmWithLogStr = "with-logstr";
 
 
 /// Possible arguments to for --combined-json
@@ -699,6 +700,7 @@ Allowed options)",
 		(g_argMetadata.c_str(), "Combined Metadata JSON whose Swarm hash is stored on-chain.")
 		(g_argTvm.c_str(), "Produce TVM assembly.")
 		(g_argTvmDbg.c_str(), "Produce TVM debug output.")
+		(g_argTvmWithLogStr.c_str(), "Intrisic logstr(...) produce log strings")
 		(g_argTvmABI2.c_str(), "Produce JSON ABI for contract.")
 		(g_argTvmABI.c_str(), "Produce JSON ABI for contract.");
 	desc.add(outputComponents);
@@ -725,10 +727,10 @@ Allowed options)",
 	}
 	
 	if (m_args.count(g_argTvm)) {
-		TVMCompilerEnable(false, m_args.count(g_argTvmDbg));
+		TVMCompilerEnable(false, m_args.count(g_argTvmDbg), m_args.count(g_argTvmWithLogStr));
 	}
 	if (m_args.count(g_argTvmABI) || m_args.count(g_argTvmABI2)) {
-		TVMCompilerEnable(true, m_args.count(g_argTvmDbg));
+		TVMCompilerEnable(true, m_args.count(g_argTvmDbg), m_args.count(g_argTvmWithLogStr));
 	}
 
 	if (m_args.count(g_argColor) && m_args.count(g_argNoColor))

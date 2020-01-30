@@ -231,8 +231,15 @@ void VariableDeclaration::accept(ASTConstVisitor& _visitor) const
 {
 	if (_visitor.visit(*this))
 	{
-		if (m_typeName)
+		if (m_typeName) {
+			if (auto map = dynamic_cast<Mapping*>(m_typeName.get()))
+				if (m_location != Location::Memory)
+					map->setLocation(DataLocation::Storage);
+			if (auto arr = dynamic_cast<ArrayTypeName*>(m_typeName.get()))
+				if (m_location != Location::Memory)
+					arr->setLocation(DataLocation::Storage);
 			m_typeName->accept(_visitor);
+		}
 		if (m_value)
 			m_value->accept(_visitor);
 	}

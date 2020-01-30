@@ -21,7 +21,27 @@
 #include "TVMCommons.hpp"
 
 namespace dev::solidity {
-	
+
+class FunctionIdFinder : public ASTConstVisitor {
+public:
+	bool visit(FunctionCall const& _node) override {
+		auto ident = to<Identifier>(&_node.expression());
+		if (ident && ident->name() == "tvm_methodID") {
+			auto literal = to<Literal>(_node.arguments()[0].get());
+			dev::u256 value = literal->annotation().type->literalValue(literal);
+			std::ostringstream oss;
+			oss << std::hex << std::showbase << value;
+			function_id = oss.str();
+		}
+		return visitNode(_node);
+	}
+
+	const std::string& functionId() const { return function_id; }
+
+private:
+	std::string function_id;
+};
+
 class TVMABI {
 public:
 	static void generateABI(ContractDefinition const* contract, const vector<ContractDefinition const*>& m_allContracts) {
@@ -51,19 +71,19 @@ public:
 
 		{
 			Json::Value functions(Json::arrayValue);
-			for (auto f : publicFunctions) {
+			for (FunctionDefinition const* f : publicFunctions) {
 				auto fname = TVMCompilerContext::getFunctionExternalName(f);
 				// DBG("#### " << fname << " " << used.count(fname));
 				if (used.count(fname)) {
 					continue;
 				}
 				used.insert(fname);
-				functions.append(processFunction(fname, f->parameters(), f->returnParameters()));
+				functions.append(processFunction(fname, f->parameters(), f->returnParameters(), f->isImplemented()? &f->body() : nullptr));
 			}
 
 			if (used.count("constructor") == 0) {
 				auto v = ptr_vec<VariableDeclaration>();
-				functions.append(processFunction("constructor", v, v));
+				functions.append(processFunction("constructor", v, v, nullptr));
 			}
 
 			root["functions"] = functions;
@@ -88,30 +108,6 @@ public:
 			root["events"] = eventAbi;
 		}
 
-		{
-			Json::Value stateVariables(Json::arrayValue);
-			for (ContractDefinition const *c : contract->annotation().linearizedBaseContracts) {
-				for (VariableDeclaration const *variable: c->stateVariables()) {
-					if (variable->visibility() == Declaration::Visibility::Public && !variable->isConstant()) {
-						Json::Value var;
-						var["name"] = variable->name();
-						try {
-							var["type"] = getParamTypeString(variable->type().get());
-						} catch (...) {
-							cerr << "Warning: " << "Unsupported param type " + variable->type()->toString() << endl;
-							continue;
-						}
-						const int index = ctx.getMemberIdx(variable->name());
-						solAssert(index != -1, "");
-						var["key"] = index;
-						stateVariables.append(var);
-					}
-				}
-			}
-			root["data"] = stateVariables;
-		}
-
-
 //		Json::StreamWriterBuilder builder;
 //		const std::string json_file = Json::writeString(builder, root);
 //		std::cout << json_file << std::endl;
@@ -125,22 +121,6 @@ public:
 
 		cout << "\t" << R"("events": [)" << "\n";
 		print(root["events"]);
-		cout << "\t" << "],\n";
-
-		cout << "\t" << R"("data": [)" << "\n";
-		for (unsigned i = 0; i < root["data"].size(); ++i) {
-			const auto& output = root["data"][i];
-			Json::StreamWriterBuilder builder;
-			builder["indentation"] = "";
-			std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
-			cout << "\t\t";
-			writer->write(output, &std::cout);
-			if (i + 1 == root["data"].size()) {
-				cout << "\n";
-			} else {
-				cout << ",\n";
-			}
-		}
 		cout << "\t" << "]\n";
 
 		cout << "}" << endl;
@@ -153,6 +133,10 @@ private:
 			cout << "\t\t{\n";
 
 			cout << "\t\t\t" << R"("name": )" << function["name"] << ",\n";
+
+			if (function.isMember("id")) {
+				cout << "\t\t\t" << R"("id": )" << function["id"] << ",\n";
+			}
 
 			cout << "\t\t\t" << R"("inputs": [)" << "\n";
 			for (unsigned i = 0; i < function["inputs"].size(); ++i) {
@@ -196,12 +180,20 @@ private:
 	static Json::Value processFunction(
 		const string& fname,
 		const ptr_vec<VariableDeclaration>& params,
-		const ptr_vec<VariableDeclaration>& retParams
+		const ptr_vec<VariableDeclaration>& retParams,
+		Block const* body
 	) {
 		Json::Value function;
 		Json::Value inputs  = encodeParams(params);
 		Json::Value outputs = encodeParams(retParams);
 		function["name"] = fname;
+		if (body != nullptr) {
+			FunctionIdFinder functionIdFinder;
+			body->accept(functionIdFinder);
+			if (!functionIdFinder.functionId().empty()) {
+				function["id"] = functionIdFinder.functionId();
+			}
+		}
 		function["inputs"] = inputs;
 		function["outputs"] = outputs;
 		return function;
@@ -213,14 +205,14 @@ private:
 		for (const auto& variable: params) {
 			string name = variable->name();
 			if (name.empty()) name = "value" + toString(idx);
-			Json::Value json = setupType(name, getType(variable.get()));
+			Json::Value json = setupType(name, getType(variable.get()), *variable);
 			result.append(json);
 			idx++;
 		}
 		return result;
 	};
 
-	static string getParamTypeString(Type const* type) {
+	static string getParamTypeString(Type const* type, ASTNode const& node) {
 		const Type::Category category = type->category();
 		TypeInfo ti(type);
 		if (category == Type::Category::Address || category == Type::Category::Contract) {
@@ -239,41 +231,35 @@ private:
 			if (arrayType->isByteArray()) {
 				return "bytes";
 			}
-            if (isIntegralType(arrayBaseType)) {
-                return getParamTypeString(arrayBaseType) +  "[]";
+            if (isIntegralType(arrayBaseType) || isAddressType(arrayBaseType) ||
+                to<StructType>(arrayBaseType) || to<ArrayType>(arrayBaseType)) {
+
+                return getParamTypeString(arrayBaseType, node) +  "[]";
             }
-            if (to<StructType>(arrayBaseType)) {
-            	return getParamTypeString(arrayBaseType) +  "[]";
-            }
-            // TODO: hack for correct abi compilation. To be fixed later
-			if (to<FixedBytesType>(arrayBaseType)) {
-				return "uint8[]";
-			}
-            solAssert(false, "Unsupported param type (not integral array) " + type->toString());
+            cast_error(node, "Unsupported param type " + type->toString(true));
 		} else if (to<StructType>(type)) {
 			if (isTvmCell(type))
 				return "cell";
 			return "tuple";
         }
-        solAssert(false, "Unsupported param type " + type->toString());
-		return "";
+		cast_error(node, "Unsupported param type " + type->toString(true));
     }
 	
-	static Json::Value setupType(const string& name, const Type* type) {
+	static Json::Value setupType(const string& name, const Type* type, ASTNode const& node) {
 		Json::Value json(Json::objectValue);
 		json["name"] = name;
-		json["type"] = getParamTypeString(type);
+		json["type"] = getParamTypeString(type, node);
 		switch (type->category()) {
 			case Type::Category::Struct:
 				if (!isTvmCell(type)) {
-					json["components"] = setupStructComponents(to<StructType>(type));
+					json["components"] = setupStructComponents(to<StructType>(type), node);
 				}
 				break;
 			case Type::Category::Array: {
 				auto arrayType = to<ArrayType>(type);
 				Type const *arrayBaseType = arrayType->baseType().get();
 				if (arrayBaseType->category() == Type::Category::Struct) {
-					json["components"] = setupStructComponents(to<StructType>(arrayBaseType));
+					json["components"] = setupStructComponents(to<StructType>(arrayBaseType), node);
 				}
 				break;
 			}
@@ -283,12 +269,12 @@ private:
 		return json;
 	}
 
-	static Json::Value setupStructComponents(const StructType* type) {
+	static Json::Value setupStructComponents(const StructType* type, ASTNode const& node) {
 		Json::Value components(Json::arrayValue);
 		const StructDefinition& structDefinition = type->structDefinition();
 		const auto& members = structDefinition.members();
 		for (const auto & member : members) {
-			components.append(setupType(member->name(), getType(member.get())));
+			components.append(setupType(member->name(), getType(member.get()), node));
 		}
 		return components;
 	}

@@ -837,6 +837,24 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			appendExternalFunctionCall(function, arguments);
 			break;
 		}
+		case FunctionType::Kind::AddressType:
+		case FunctionType::Kind::AddressIsZero:
+		case FunctionType::Kind::AddressUnpack:
+		case FunctionType::Kind::AddressMakeAddrExtern:
+		case FunctionType::Kind::AddressMakeAddrNone:
+		case FunctionType::Kind::AddressMakeAddrStd:
+		case FunctionType::Kind::MessagePubkey:
+		case FunctionType::Kind::TVMPubkey:
+		case FunctionType::Kind::MappingDelMin:
+		case FunctionType::Kind::MappingGetMinKey:
+		case FunctionType::Kind::MappingGetNextKey:
+		case FunctionType::Kind::MappingFetch:
+		case FunctionType::Kind::MappingExists:
+		case FunctionType::Kind::MappingEmpty:
+		{
+			solAssert(false, "");
+			break;
+		}
 		case FunctionType::Kind::ByteArrayPush:
 		case FunctionType::Kind::ArrayPush:
 		{
@@ -886,7 +904,7 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			ArrayType const& arrayType = dynamic_cast<ArrayType const&>(
 				*dynamic_cast<MemberAccess const&>(_functionCall.expression()).expression().annotation().type
 			);
-			solAssert(arrayType.dataStoredIn(DataLocation::Storage), "");
+//			solAssert(arrayType.dataStoredIn(DataLocation::Storage), "");
 
 			ArrayUtils(m_context).popStorageArrayElement(arrayType);
 			break;
@@ -1414,6 +1432,11 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 		m_context << type.memberValue(_memberAccess.memberName());
 		break;
 	}
+	case Type::Category::Mapping:
+	{
+		solAssert(false, "");
+		break;
+	}
 	case Type::Category::Array:
 	{
 		auto const& type = dynamic_cast<ArrayType const&>(*_memberAccess.expression().annotation().type);
@@ -1442,7 +1465,7 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 		{
 			solAssert(
 				type.isDynamicallySized() &&
-				type.location() == DataLocation::Storage &&
+//				type.location() == DataLocation::Storage &&
 				type.category() == Type::Category::Array,
 				"Tried to use ." + member + "() on a non-dynamically sized array"
 			);

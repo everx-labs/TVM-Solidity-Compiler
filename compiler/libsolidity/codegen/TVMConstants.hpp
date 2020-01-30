@@ -22,7 +22,6 @@ namespace TvmConst {
 	namespace C4 {
 		// length of key in dict c4
 		const int KeyLength = 64;
-
 		const int PersistenceMembersStartIndex = 100;
 	}
 	namespace SENDRAWMSG {
@@ -35,10 +34,23 @@ namespace TvmConst {
 			const int Interval = 30 * 60 * 1000; // 30 min = 30 * 60 * 1000 milisec;
 		}
 		namespace Exception {
-			const int ConstructorIsCalledTwice  = 123;
-			const int ReplayProtection  = 124;
+			const int ConstructorIsCalledTwice  = 51;
+			const int ReplayProtection  = 52;
+			const int AddressUnpackException = 53;
+			const int InsertPubkeyException = 55;
 		}
 	}
 	const int CellBitLength = 1023;
 	const int ArrayKeyLength = 32;
+
+	namespace RuntimeException {
+		const int ArrayIndexOutOfRange = 50;
+		const int PopFromEmptyArray = 54;
+		const int DelMinFromEmptyMap = 56;
+		const int MinFromEmptyMap = 57;
+	}
+
+	namespace C7 {
+		const int ExtDestAddrIndex = 4;
+	}
 }

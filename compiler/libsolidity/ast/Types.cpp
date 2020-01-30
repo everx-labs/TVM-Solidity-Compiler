@@ -546,11 +546,32 @@ MemberList::MemberMap AddressType::nativeMembers(ContractDefinition const*) cons
 {
 	MemberList::MemberMap members = {
 		{"balance", make_shared<IntegerType>(256)},
+		{"wid", make_shared<IntegerType>(8, IntegerType::Modifier::Signed)},
+		{"value", make_shared<IntegerType>(256)},
 		{"call", make_shared<FunctionType>(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareCall, false, StateMutability::Payable)},
 		{"callcode", make_shared<FunctionType>(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareCallCode, false, StateMutability::Payable)},
 		{"delegatecall", make_shared<FunctionType>(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareDelegateCall, false)},
-		{"staticcall", make_shared<FunctionType>(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareStaticCall, false, StateMutability::View)}
+		{"staticcall", make_shared<FunctionType>(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareStaticCall, false, StateMutability::View)},
+		{"isStdZero", make_shared<FunctionType>(strings(), strings{"bool"}, FunctionType::Kind::AddressIsZero, false, StateMutability::Pure)},
+		{"isNone", make_shared<FunctionType>(strings(), strings{"bool"}, FunctionType::Kind::AddressIsZero, false, StateMutability::Pure)},
+		{"isExternZero", make_shared<FunctionType>(strings(), strings{"bool"}, FunctionType::Kind::AddressIsZero, false, StateMutability::Pure)}
 	};
+	members.emplace_back("unpack", make_shared<FunctionType>(
+			TypePointers{},
+			TypePointers{make_shared<IntegerType>(8, IntegerType::Modifier::Signed), make_shared<IntegerType>(256)},
+			strings{},
+			strings{string(), string()},
+			FunctionType::Kind::AddressUnpack,
+			false, StateMutability::Pure
+	));
+	members.emplace_back("getType", make_shared<FunctionType>(
+			TypePointers{},
+			TypePointers{make_shared<IntegerType>(8)},
+			strings{},
+			strings{string()},
+			FunctionType::Kind::AddressType,
+			false, StateMutability::Pure
+	));
 	if (m_stateMutability == StateMutability::Payable)
 	{
 		members.emplace_back(MemberList::Member{"send", make_shared<FunctionType>(strings{"uint"}, strings{"bool"}, FunctionType::Kind::Send)});
@@ -1824,24 +1845,81 @@ MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 	if (!isString())
 	{
 		members.emplace_back("length", make_shared<IntegerType>(256));
-		if (isDynamicallySized() && location() == DataLocation::Storage)
+		if (isDynamicallySized())
 		{
 			members.emplace_back("push", make_shared<FunctionType>(
 				TypePointers{baseType()},
 				TypePointers{make_shared<IntegerType>(256)},
 				strings{string()},
 				strings{string()},
-				isByteArray() ? FunctionType::Kind::ByteArrayPush : FunctionType::Kind::ArrayPush
+				isByteArray() ? FunctionType::Kind::ByteArrayPush : FunctionType::Kind::ArrayPush,
+				false, StateMutability::Pure
 			));
 			members.emplace_back("pop", make_shared<FunctionType>(
 				TypePointers{},
 				TypePointers{},
 				strings{},
 				strings{},
-				FunctionType::Kind::ArrayPop
+				FunctionType::Kind::ArrayPop,
+				false, StateMutability::Pure
 			));
 		}
 	}
+	return members;
+}
+
+MemberList::MemberMap MappingType::nativeMembers(ContractDefinition const*) const
+{
+	MemberList::MemberMap members;
+	
+	members.emplace_back("min", make_shared<FunctionType>(
+		TypePointers{},
+		TypePointers{keyType(), valueType()},
+		strings{},
+		strings{string(), string()},
+		FunctionType::Kind::MappingGetMinKey,
+		false, StateMutability::Pure
+	));
+	members.emplace_back("delMin", make_shared<FunctionType>(
+			TypePointers{},
+			TypePointers{keyType(), valueType()},
+			strings{},
+			strings{string(), string()},
+			FunctionType::Kind::MappingDelMin,
+			false, StateMutability::Pure
+	));
+	members.emplace_back("next", make_shared<FunctionType>(
+		TypePointers{keyType()},
+		TypePointers{keyType(), valueType(), make_shared<BoolType>()},
+		strings{string()},
+		strings{string(), string(), string()},
+		FunctionType::Kind::MappingGetNextKey,
+		false, StateMutability::Pure
+	));
+	members.emplace_back("fetch", make_shared<FunctionType>(
+		TypePointers{keyType()},
+		TypePointers{make_shared<BoolType>(), valueType()},
+		strings{string()},
+		strings{string(), string()},
+		FunctionType::Kind::MappingFetch,
+		false, StateMutability::Pure
+	));
+	members.emplace_back("exists", make_shared<FunctionType>(
+		TypePointers{keyType()},
+		TypePointers{make_shared<BoolType>()},
+		strings{string()},
+		strings{string()},
+		FunctionType::Kind::MappingExists,
+		false, StateMutability::Pure
+	));
+	members.emplace_back("empty", make_shared<FunctionType>(
+			TypePointers{},
+			TypePointers{make_shared<BoolType>()},
+			strings{},
+			strings{string()},
+			FunctionType::Kind::MappingEmpty,
+			false, StateMutability::Pure
+	));
 	return members;
 }
 
@@ -2015,11 +2093,6 @@ BoolResult StructType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 	if (_convertTo.category() != category())
 		return false;
 	auto& convertTo = dynamic_cast<StructType const&>(_convertTo);
-	// memory/calldata to storage can be converted, but only to a direct storage reference
-	if (convertTo.location() == DataLocation::Storage && location() != DataLocation::Storage && convertTo.isPointer())
-		return false;
-	if (convertTo.location() == DataLocation::CallData && location() != convertTo.location())
-		return false;
 	return this->m_struct == convertTo.m_struct;
 }
 
@@ -2200,7 +2273,7 @@ FunctionTypePointer StructType::constructorType() const
 	strings paramNames;
 	for (auto const& member: members(nullptr))
 	{
-		if (!member.type->canLiveOutsideStorage())
+		if (!member.type->canLiveOutsideStorage() || member.type->category() == Category::Mapping)
 			continue;
 		paramNames.push_back(member.name);
 		paramTypes.push_back(copyForLocationIfReference(DataLocation::Memory, member.type));
@@ -2647,6 +2720,8 @@ string FunctionType::richIdentifier() const
 	string id = "t_function_";
 	switch (m_kind)
 	{
+	case Kind::TVMPubkey: id += "tvmpubkey"; break;
+	case Kind::MessagePubkey: id += "msgpubkey"; break;
 	case Kind::Internal: id += "internal"; break;
 	case Kind::External: id += "external"; break;
 	case Kind::DelegateCall: id += "delegatecall"; break;
@@ -2657,6 +2732,12 @@ string FunctionType::richIdentifier() const
 	case Kind::Creation: id += "creation"; break;
 	case Kind::Send: id += "send"; break;
 	case Kind::Transfer: id += "transfer"; break;
+	case Kind::AddressIsZero: id += "addressiszero"; break;
+	case Kind::AddressUnpack: id += "addressunpack"; break;
+	case Kind::AddressType: id += "addresstype"; break;
+	case Kind::AddressMakeAddrExtern: id += "addressmakeaddrextern"; break;
+	case Kind::AddressMakeAddrNone: id += "addressmakeaddrnone"; break;
+	case Kind::AddressMakeAddrStd: id += "addressmakeaddrstd"; break;
 	case Kind::KECCAK256: id += "keccak256"; break;
 	case Kind::Selfdestruct: id += "selfdestruct"; break;
 	case Kind::Revert: id += "revert"; break;
@@ -2677,6 +2758,12 @@ string FunctionType::richIdentifier() const
 	case Kind::MulMod: id += "mulmod"; break;
 	case Kind::ArrayPush: id += "arraypush"; break;
 	case Kind::ArrayPop: id += "arraypop"; break;
+	case Kind::MappingGetMinKey: id += "mapgetmin"; break;
+	case Kind::MappingGetNextKey: id += "mapgetnext"; break;
+	case Kind::MappingFetch: id += "mapfetch"; break;
+	case Kind::MappingExists: id += "mapexists"; break;
+	case Kind::MappingDelMin: id += "mapdelmin"; break;
+	case Kind::MappingEmpty: id += "mapempty"; break;
 	case Kind::ByteArrayPush: id += "bytearraypush"; break;
 	case Kind::ObjectCreation: id += "objectcreation"; break;
 	case Kind::Assert: id += "assert"; break;
@@ -3227,6 +3314,10 @@ string MappingType::canonicalName() const
 	return "mapping(" + keyType()->canonicalName() + " => " + valueType()->canonicalName() + ")";
 }
 
+TypeResult MappingType::unaryOperatorResult(Token _operator) const {
+	return _operator == Token::Delete ? make_shared<TupleType>() : TypePointer();
+}
+
 string TypeType::richIdentifier() const
 {
 	return "t_type" + identifierList(actualType());
@@ -3294,6 +3385,31 @@ MemberList::MemberMap TypeType::nativeMembers(ContractDefinition const* _current
 		auto enumType = make_shared<EnumType>(enumDef);
 		for (ASTPointer<EnumValue> const& enumValue: enumDef.members())
 			members.emplace_back(enumValue->name(), enumType);
+	} else if (m_actualType->category() == Category::Address) {
+		members.emplace_back("makeAddrExtern", make_shared<FunctionType>(
+				TypePointers{make_shared<IntegerType>(256), make_shared<IntegerType>(256)},
+				TypePointers{make_shared<AddressType>(StateMutability::NonPayable)},
+				strings{string(), string()},
+				strings{string()},
+				FunctionType::Kind::AddressMakeAddrExtern,
+				false, StateMutability::Pure
+		));
+		members.emplace_back("makeAddrNone", make_shared<FunctionType>(
+				TypePointers{},
+				TypePointers{make_shared<AddressType>(StateMutability::NonPayable)},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::AddressMakeAddrNone,
+				false, StateMutability::Pure
+		));
+		members.emplace_back("makeAddrStd", make_shared<FunctionType>(
+				TypePointers{make_shared<IntegerType>(8, IntegerType::Modifier::Signed), make_shared<IntegerType>(256)},
+				TypePointers{make_shared<AddressType>(StateMutability::Payable)},
+				strings{string(), string()},
+				strings{string()},
+				FunctionType::Kind::AddressMakeAddrStd,
+				false, StateMutability::Pure
+		));
 	}
 	return members;
 }
@@ -3387,6 +3503,8 @@ string MagicType::richIdentifier() const
 		return "t_magic_block";
 	case Kind::Message:
 		return "t_magic_message";
+	case Kind::TVM:
+		return "t_magic_tvm";
 	case Kind::Transaction:
 		return "t_magic_transaction";
 	case Kind::ABI:
@@ -3422,10 +3540,15 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 	case Kind::Message:
 		return MemberList::MemberMap({
 			{"sender", make_shared<AddressType>(StateMutability::Payable)},
+			{"pubkey", make_shared<FunctionType>(strings(), strings{"uint"}, FunctionType::Kind::MessagePubkey, false, StateMutability::Pure)},
 			{"gas", make_shared<IntegerType>(256)},
 			{"value", make_shared<IntegerType>(256)},
 			{"data", make_shared<ArrayType>(DataLocation::CallData)},
 			{"sig", make_shared<FixedBytesType>(4)}
+		});
+	case Kind::TVM:
+		return MemberList::MemberMap({
+			{"pubkey", make_shared<FunctionType>(strings(), strings{"uint"}, FunctionType::Kind::TVMPubkey, false, StateMutability::Pure)},
 		});
 	case Kind::Transaction:
 		return MemberList::MemberMap({
@@ -3508,6 +3631,8 @@ string MagicType::toString(bool _short) const
 		return "block";
 	case Kind::Message:
 		return "msg";
+	case Kind::TVM:
+		return "tvm";
 	case Kind::Transaction:
 		return "tx";
 	case Kind::ABI:

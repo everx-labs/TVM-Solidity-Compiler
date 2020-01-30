@@ -34,6 +34,23 @@ using namespace std;
 using namespace dev;
 using namespace dev::solidity;
 
+
+void Mapping::setLocation(DataLocation _location) {
+	m_location = _location;
+	if (auto map = dynamic_cast<Mapping*>(m_valueType.get()))
+		map->setLocation(_location);
+	if (auto arr = dynamic_cast<ArrayTypeName*>(m_valueType.get()))
+		arr->setLocation(_location);
+}
+
+void ArrayTypeName::setLocation(DataLocation _location) {
+	m_location = _location;
+	if (auto map = dynamic_cast<Mapping*>(m_baseType.get()))
+		map->setLocation(_location);
+	if (auto arr = dynamic_cast<ArrayTypeName*>(m_baseType.get()))
+		arr->setLocation(_location);
+}
+
 class IDDispenser
 {
 public:
@@ -541,7 +558,7 @@ set<VariableDeclaration::Location> VariableDeclaration::allowedDataLocations() c
 		solAssert(typeName(), "");
 		solAssert(typeName()->annotation().type, "Can only be called after reference resolution");
 		if (typeName()->annotation().type->category() == Type::Category::Mapping)
-			return set<Location>{ Location::Storage };
+			return set<Location>{ Location::Storage, Location::Memory };
 		else
 			//  TODO: add Location::Calldata once implemented for local variables.
 			return set<Location>{ Location::Memory, Location::Storage };

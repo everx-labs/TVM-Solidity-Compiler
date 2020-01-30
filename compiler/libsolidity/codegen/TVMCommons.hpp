@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "TVMConstants.hpp"
+#include "TVMStructCompiler.hpp"
 
 using namespace std;
 using namespace dev;
@@ -70,7 +71,7 @@ bool ends_with(const string& str, const string& suffix);
 
 class TVMStack {
 	int m_size;
-	// map paramters or local variables to their absolute stack position
+	// map parameters or local variables to their absolute stack position
 	string_map<int> m_params;
 
 public:
@@ -291,7 +292,28 @@ bool isTvmCell(const Type* type) {
 	return structType && structType->structDefinition().name() == "TvmCell";
 }
 
+bool isUsualArray(const Type* type) {
+	auto arrayType = to<ArrayType>(type);
+	return arrayType && !arrayType->isByteArray();
+}
+
+bool isByteArrayOrString(const Type* type) {
+	auto arrayType = to<ArrayType>(type);
+	return arrayType && arrayType->isByteArray();
+}
+
+bool isUsualStruct(const Type* type) {
+	auto structType = to<StructType>(type);
+	return structType && !isTvmCell(structType);
+}
+
 struct AddressInfo {
+
+	static int stdAddrLength() {
+		// addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt
+		return 2 + 1 + 8 + 256;
+	}
+
 	static int minBitLength() {
 		// addr_var$11 anycast:(Maybe Anycast) addr_len:(## 9) workchain_id:int32 address:(bits addr_len) = MsgAddressInt;
 		return 2 + 1 + 9 + 32 + 1;
@@ -348,6 +370,10 @@ bool isTvmIntrinsic(const string& name) {
 	return 0 == name.find("tvm_");
 }
 
+bool isInlineFunction(FunctionDefinition const* f) {
+	return ends_with(f->name(), "_inline");
+}
+
 const Type* getType(const Expression* expr) {
 	return expr->annotation().type.get();
 }
@@ -365,7 +391,7 @@ bool isStringOrStringLiteralOrBytes(const Type* type) {
 	return type->category() == Type::Category::StringLiteral || (arrayType && arrayType->isByteArray());
 }
 
-std::string getKeyDict(Type const* keyType) {
+std::string typeToDictChar(Type const* keyType) {
 	TypeInfo ti(keyType);
 	if (ti.isNumeric) {
 		return ti.isSigned? "I" : "U";
@@ -375,14 +401,20 @@ std::string getKeyDict(Type const* keyType) {
 	return ""; // dict key is slice
 }
 
-int getKeyDictLength(Type const* key) {
+int lengthOfDictKey(Type const* key) {
+	if (isIn(key->category(), Type::Category::Address, Type::Category::Contract)) {
+		return AddressInfo::stdAddrLength();
+	}
+
 	TypeInfo ti{key};
 	if (ti.isNumeric) {
 		return ti.numBits;
 	}
+
 	if (isStringOrStringLiteralOrBytes(key)){
 		return 256;
 	}
+
 	solAssert(false, "");
 }
 
@@ -405,20 +437,6 @@ string storeIntegralOrAddress(const Type* type, bool reverse) {
 		return cmd + " " + toString(ti.numBits);
 	}
 	solAssert(false, "Unsupported param type " + type->toString());
-}
-
-string loadIntegralOrAddress(const Type* type) {
-	if (isAddressType(type)) {
-		return "LDMSGADDR";
-	}
-	auto ti = TypeInfo(type);
-	solAssert(ti.isNumeric, "");
-	string cmd = ti.isSigned? "LDI " : "LDU ";
-	return cmd + toString(ti.numBits);
-}
-
-string preloadIntergalOrAddress(const Type* type) {
-	return "P" + loadIntegralOrAddress(type);
 }
 
 bool isExpressionExactTypeKnown(Expression const* expr) {
@@ -467,7 +485,7 @@ auto getContractFunctionPairs(ContractDefinition const* contract) {
 	vector<pair<FunctionDefinition const*, ContractDefinition const*>> result;
 	for (ContractDefinition const* c : getContractsChain(contract)) {
 		for (const auto f : c->definedFunctions())
-			result.push_back(make_pair(f, c));
+			result.emplace_back(f, c);
 	}
 	return result;
 }
@@ -498,7 +516,7 @@ bool isAddressThis(const FunctionCall* fcall) {
 	auto arguments = fcall->arguments();
 	if (auto etn = to<ElementaryTypeNameExpression>(&fcall->expression())) {
 		if (etn->typeName().token() == Token::Address) {
-			solAssert(arguments.size() == 1, "");
+			solAssert(arguments.size() >= 1, "");
 			if (auto arg0 = to<Identifier>(arguments[0].get())) {
 				if (arg0->name() == "this")
 					return true;
@@ -589,20 +607,12 @@ class TVMCompilerContext {
 	const ContractDefinition*				m_contract = nullptr;
 	string_map<const FunctionDefinition*>	m_functions;
 	map<const FunctionDefinition*, const ContractDefinition*>	m_function2contract;
-	string_map<int>							m_members;
 	string_map<const EventDefinition*>		m_events;
 	set<string>								m_allContractNames;
 	bool haveFallback = false;
 	bool haveOnBounce = false;
-
-	void addMember(VariableDeclaration const* variable) {
-		if (variable->isConstant()){
-			return;
-		}
-		const string& name = variable->name();
-		solAssert(m_members.count(name) == 0, "Duplicate member variable " + name);
-		m_members[name] = m_members.size() + TvmConst::C4::PersistenceMembersStartIndex;
-	}
+	bool ignoreIntOverflow = false;
+	bool m_haveSetDestAddr = false;
 
 	void addEvent(EventDefinition const *event) {
 		std::string name = event->name();
@@ -624,10 +634,6 @@ class TVMCompilerContext {
 	void initMembers(ContractDefinition const* contract, const std::vector<ContractDefinition const*>& allContracts) {
 		solAssert(!m_contract, "");
 		m_contract = contract;
-		for (ContractDefinition const* c : getContractsChain(contract)) {
-			for (VariableDeclaration const* variable: c->stateVariables())
-				addMember(variable);
-		}
 		for (ContractDefinition const* c : getContractsChain(contract)) {
 			for (EventDefinition const *event : c->events())
 				addEvent(event);
@@ -656,6 +662,12 @@ class TVMCompilerContext {
 				}
 			}
 		}
+
+
+		for (FunctionDefinition const* f : contract->definedFunctions()) {
+			ignoreIntOverflow |= f->name() == "tvm_ignore_integer_overflow";
+			m_haveSetDestAddr |=  f->name() == "tvm_set_ext_dest_address";
+		}
 		for (const auto f : getContractFunctions(contract)) {
 			haveFallback |= f->isFallback();
 			haveOnBounce |= f->name() == "onBounce";
@@ -666,7 +678,7 @@ class TVMCompilerContext {
 		for (const auto pair : getContractFunctionPairs(contract)) {
 			auto f = pair.first;
 			auto c = pair.second;
-			if (!isTvmIntrinsic(f->name()) && !isPureFunction(f)) {
+			if (!isTvmIntrinsic(f->name()) && !isPureFunction(f) && !isInlineFunction(f)) {
 				FuncInfo fi(f, c);
 				fi.m_internalName = getFunctionInternalName(f);
 				if (!f->isConstructor() && f != getContractFunctions(contract, f->name()).back()) {
@@ -692,6 +704,10 @@ public:
 
 	bool isStdlib() const {
 		return m_contract->name() == "stdlib";
+	}
+
+	bool haveSetDestAddr() const {
+		return m_haveSetDestAddr;
 	}
 
 	string getFunctionInternalName(FunctionDefinition const* _function) const {
@@ -737,10 +753,6 @@ public:
 		return m_function2contract.at(f);
 	}
 
-	int getMemberIdx(const string& name) const {
-		return get_from_map(m_members, name, -1);
-	}
-	
 	const FunctionDefinition* getLocalFunction(string fname) const {
 		return get_from_map(m_functions, std::move(fname), nullptr);
 	}
@@ -759,6 +771,10 @@ public:
 
 	bool haveOnBounceHandler() const {
 		return haveOnBounce;
+	}
+
+	bool ignoreIntegerOverflow() const {
+		return ignoreIntOverflow;
 	}
 
 	std::vector<const EventDefinition*> events() const {
@@ -800,9 +816,7 @@ struct StackPusherImpl2 : IStackPusher {
 	TVMStack m_stack;
 	CodeLines m_code;
 
-	explicit StackPusherImpl2() {
-
-	};
+	explicit StackPusherImpl2() = default;
 
 	void push(int stackDiff, const string& cmd) override {
 		m_code.push(cmd);
@@ -821,35 +835,45 @@ struct StackPusherImpl2 : IStackPusher {
 struct ABITypeSize {
 	int minBits = -1;
 	int maxBits = -1;
-	int refs = -1;
+	int minRefs = -1;
+	int maxRefs = -1;
 
-	explicit ABITypeSize(Type const* type) {
+	explicit ABITypeSize(Type const* type, ASTNode const* node = nullptr) {
 		if (isAddressType(type)){
 			minBits = AddressInfo::minBitLength();
 			maxBits = AddressInfo::maxBitLength();
-			refs = 0;
+			minRefs = 0;
+			maxRefs = 0;
 		} else if (isIntegralType(type)) {
 			TypeInfo ti{type};
 			solAssert(ti.isNumeric, "");
 			minBits = ti.numBits;
 			maxBits = ti.numBits;
-			refs = 0;
+			minRefs = 0;
+			maxRefs = 0;
 		} else if (auto arrayType = to<ArrayType>(type)) {
 			if (arrayType->isByteArray()) {
 				minBits = 0;
 				maxBits = 0;
-				refs = 1;
+				minRefs = 1;
+				maxRefs = 1;
 			} else {
-				minBits = 32;
-				maxBits = 32;
-				refs = 1;
+				minBits = 32 + 1;
+				maxBits = 32 + 1;
+				minRefs = 0;
+				maxRefs = 1;
 			}
 		} else if (isTvmCell(type)) {
 			minBits = 0;
 			maxBits = 0;
-			refs = 1;
+			minRefs = 1;
+			maxRefs = 1;
 		} else {
-			solAssert(false, "");
+			if (node)
+				cast_error(*node, "Undefined type");
+			else {
+				solAssert(false, "Undefined type");
+			}
 		}
 	}
 };
@@ -858,13 +882,25 @@ class StackPusherHelper {
 private:
 	IStackPusher* const					m_pusher;
 	const TVMCompilerContext* const		m_ctx;
+	StructCompiler m_structCompiler;
 
 public:
 	StackPusherHelper(IStackPusher* compiler, const TVMCompilerContext* ctx) 
-		: m_pusher(compiler), m_ctx(ctx) {}
+		: m_pusher(compiler),
+		m_ctx(ctx),
+		m_structCompiler{this,
+		                 notConstantStateVariables(),
+				            1 + 64 + 64 + 1, 1, true, nullptr} // dict + timestamp + interval + constructor_flag
+	{
+
+	}
 		
 	const TVMCompilerContext&  ctx() const {
 		return *m_ctx;
+	}
+
+	StructCompiler& structCompiler() {
+		return m_structCompiler;
 	}
 
 	TVMStack& getStack() {
@@ -875,9 +911,7 @@ public:
 		return m_pusher;
 	}
 
-	void pushLog(const std::string& str) {
-		push(0, "PRINTSTR " + str);
-	}
+	void pushLog(const std::string& str);
 
 	void pushLines(const std::string& lines) {
 		std::istringstream stream{lines};
@@ -892,8 +926,55 @@ public:
 		m_pusher->push(stackDiff, cmd);
 	}
 
+	void pushS(int i) {
+		solAssert(i >= 0, "");
+		push(+1, "PUSH S" + toString(i));
+	}
+
 	void pushInt(int i) {
 		push(+1, "PUSHINT " + toString(i));
+	}
+
+	void loadArray() {
+		pushLines(R"(LDU 32
+LDDICT
+ROTREV
+PAIR
+SWAP
+)");
+		push(-1 + 2, ""); // fix stack
+		// stack: array slice
+	}
+
+	void preLoadArray() {
+		pushLines(R"(LDU 32
+PLDDICT
+PAIR
+)");
+		push(-1 + 1, ""); // fix stack
+		// stack: array
+	}
+
+	void load(const Type* type) {
+		if (isUsualArray(type)) {
+			loadArray();
+		} else {
+			TypeInfo ti{type};
+			solAssert(ti.isNumeric, "");
+			string cmd = ti.isSigned ? "LDI " : "LDU ";
+			push(-1 + 2, cmd + toString(ti.numBits));
+		}
+	}
+
+	void preload(const Type* type) {
+		if (isUsualArray(type)) {
+			preLoadArray();
+		} else {
+			TypeInfo ti{type};
+			solAssert(ti.isNumeric, "");
+			string cmd = ti.isSigned ? "PLDI " : "PLDU ";
+			push(-1 + 1, cmd + toString(ti.numBits));
+		}
 	}
 
 	void pushZeroAddress() {
@@ -963,7 +1044,11 @@ public:
 	void pushCall(const string& functionName, const FunctionType* ft) {
 		int params  = ft->parameterTypes().size();
 		int retVals = ft->returnParameterTypes().size();
-		push(-params + retVals, "CALL $" + functionName + "$");
+		if (functionName == "onCodeUpgrade_internal") {
+			push(-params + retVals, "CALL 2");
+		} else {
+			push(-params + retVals, "CALL $" + functionName + "$");
+		}
 	}
 
 	void pushFunctionIndex(const string& fname) {
@@ -981,8 +1066,9 @@ public:
 
 		if (cnt == 1) {
 			push(-1, "DROP");
-		}
-		else {
+		} else if (cnt == 2) {
+			push(-2, "DROP2");
+		} else {
 			if (cnt > 15) {
 				pushInt(cnt);
 				push(-(cnt + 1), "DROPX");
@@ -996,7 +1082,29 @@ public:
 		if (m == 0 || n == 0) {
 			return;
 		}
-		push(0, "BLKSWAP " + toString(m) + ", " + toString(n));
+		if (m == 1 && n == 1) {
+			exchange(0, 1);
+		} else if (m == 2 && n == 2) {
+			push(0, "SWAP2");
+		} else {
+			push(0, "BLKSWAP " + toString(m) + ", " + toString(n));
+		}
+	}
+
+	void reverse(int i, int j) {
+		solAssert(i >= 2, "");
+		solAssert(j >= 0, "");
+		if (i == 2 && j == 0) {
+			push(0, "SWAP");
+		} else if (i == 3 && j == 0) {
+			push(0, "XCHG s2");
+		} else if (i - 2 <= 15 && j <= 15) {
+			push(0, "REVERSE " + toString(i) + ", " + toString(j));
+		} else {
+			pushInt(i);
+			pushInt(j);
+			push(-2, "REVX");
+		}
 	}
 
 	void dropUnder(int leftCount, int droppedCount) {
@@ -1010,7 +1118,7 @@ public:
 				pushInt(leftCount);
 				push(-2, "BLKSWX");
 			} else {
-				push(0, "BLKSWAP " + toString(droppedCount) + ", " + toString(leftCount));
+				blockSwap(droppedCount, leftCount);
 			}
 			drop(droppedCount);
 		};
@@ -1034,7 +1142,7 @@ public:
 			}
 		} else {
 			if (leftCount == 1) {
-				push(0, "XCHG s" + toString(droppedCount));
+				exchange(0, droppedCount);
 				drop(droppedCount);
 			} else {
 				f();
@@ -1042,44 +1150,73 @@ public:
 		}
 	}
 
-	void setRootItem(const string& name, const Type* dictValueType, ASTNode const& node) {
-		// value
-		prepareValueForDictOperations(dictValueType); // value'
-		pushInt(ctx().getMemberIdx(name)); // value' key
-		pushPersistentDataDict(); // value' key dict
-		setDict(getKeyTypeOfC4(), *dictValueType, node); // dict
+	void exchange(int i, int j) {
+		solAssert(i <= j, "");
+		solAssert(i >= 0, "");
+		solAssert(j >= 1, "");
+		if (i == 0 && j <= 15) {
+			if (j == 1) {
+				push(0, "SWAP");
+			} else {
+				push(0, "XCHG s" + toString(j));
+			}
+		} else {
+			push(0, "XCHG s" + toString(i) + ",s" + toString(j));
+		}
+	}
 
-		push(+1, "PUSH c7");
-		push(0, "SWAP");
-		push(-1, "SETSECOND");
-		push(-1, "POP c7");
+	static void restoreKeyAfterDictOperations(Type const* keyType, ASTNode const& node) {
+		if (isStringOrStringLiteralOrBytes(keyType)) {
+			cast_error(node, "Unsupported for mapping key type: " + keyType->toString(true));
+		}
 	}
 
 	void prepareKeyForDictOperations(Type const* key) {
-	    // stack: key
-	    if (isIn(key->category(), Type::Category::Address, Type::Category::Contract)) {
-		    // addr dict
-		    push(+1, "NEWC"); // addr dict builder
-		    push(+1, "PUSH s2"); // addr dict builder addr
-		    push(-1, "STSLICER"); // addr dict builder
-		    pushInt(AddressInfo::maxBitLength()); // addr dict builder n maxL
-		    push(+1, "PUSH s3"); // addr dict builder n addr
-		    push(0, "SBITS"); // addr dict builder n
-		    push(-1, "SUB"); // addr dict builder l
-		    push(-1, "STZEROES"); // addr dict builder
-		    push(0, "ENDC CTOS"); // addr dict builder
-		    push(-1, "POP s2"); // addr dict
-	    } else if (isStringOrStringLiteralOrBytes(key)) {
+	    // stack: key dict
+	    if (isStringOrStringLiteralOrBytes(key)) {
 		    push(+1, "PUSH s1"); // str dict str
 		    push(-1 + 1, "HASHCU"); // str dict hash
 		    push(-1, "POP s2"); // hash dict
 	    }
 	}
 
-	void prepareValueForDictOperations(Type const* dictValueType) {
+	[[nodiscard]]
+	bool prepareValueForDictOperations(Type const* keyType, Type const* dictValueType, bool isValueBuilder) {
+		// value
 		if (isIntegralType(dictValueType)) {
-			push(0, "NEWC " + storeIntegralOrAddress(dictValueType, false));
+			if (!isValueBuilder) {
+				push(0, "NEWC " + storeIntegralOrAddress(dictValueType, false));
+				return true;
+			}
+		} else if (isUsualStruct(dictValueType)) {
+			if (!StructCompiler::isCompatibleWithSDK(lengthOfDictKey(keyType), to<StructType>(dictValueType))) {
+				push(+1, "NEWC");
+				push(-1, isValueBuilder? "STB" : "STSLICE");
+				push(0, "ENDC");
+				return false;
+			}
+		} else if (isUsualArray(dictValueType)) {
+			if (!isValueBuilder) {
+				push(-1 + 2, "UNPAIR"); // size dict
+				push(0, "SWAP"); // dict size
+				push(+1, "NEWC"); // dict size builder
+				push(-1, "STU 32"); // dict builder
+				push(-1, "STDICT"); // builder
+				return true;
+			}
+		} else if (isTvmCell(dictValueType)) {
+			if (isValueBuilder) {
+				push(0, "ENDC");
+				return false;
+			}
+		} else if (to<ArrayType>(dictValueType) && to<ArrayType>(dictValueType)->isByteArray()) {
+			if (isValueBuilder) {
+				push(0, "ENDC");
+				return false;
+			}
 		}
+
+		return isValueBuilder;
 	}
 
 	static TypePointer parseIndexType(Type const* type) {
@@ -1092,39 +1229,58 @@ public:
 		solAssert(false, "");
 	}
 
-	void setDict(Type const &keyType, Type const &valueType, ASTNode const& node) {
+	void setDict(Type const &keyType, Type const &valueType, bool isValueBuilder, ASTNode const& node) {
 		// stack: value index dict
-		if (isIn(keyType.category(), Type::Category::Address, Type::Category::Contract)) {
-			pushInt(AddressInfo::maxBitLength()); // value index dict nBits
-		} else if (isStringOrStringLiteralOrBytes(&keyType)) {
-			pushInt(256);
-		} else {
-			TypeInfo ti{&keyType};
-			solAssert(ti.isNumeric, "");
-			pushInt(ti.numBits); // stack: value index dict nBits
-		}
+		int keyLength = lengthOfDictKey(&keyType);
+		pushInt(keyLength);
 
 		// stack: value index dict keyBitLength
 		string dict_cmd;
 		switch (valueType.category()) {
 			case Type::Category::Address:
 			case Type::Category::Contract:
+				if (isValueBuilder) {
+					dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETB";
+				} else {
+					dict_cmd = "DICT" + typeToDictChar(&keyType) + "SET";
+				}
+				break;
 			case Type::Category::Struct:
 				if (isTvmCell(&valueType)) {
-					dict_cmd = "DICT" + getKeyDict(&keyType) + "SETGETOPTREF DROP";
+					solAssert(!isValueBuilder, "");
+					dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETREF";
 				} else {
-					dict_cmd = "DICT" + getKeyDict(&keyType) + "SET";
+					if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(&valueType))) {
+						if (isValueBuilder) {
+							dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETB";
+						} else {
+							dict_cmd = "DICT" + typeToDictChar(&keyType) + "SET";
+						}
+					} else {
+						solAssert(!isValueBuilder, "");
+						dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETREF";
+					}
 				}
 				break;
 			case Type::Category::Integer:
 			case Type::Category::Bool:
 			case Type::Category::FixedBytes:
 			case Type::Category::Enum:
-				dict_cmd = "DICT" + getKeyDict(&keyType) + "SETB";
+				solAssert(isValueBuilder, "");
+				dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETB";
 				break;
 			case Type::Category::Array:
+				if (!to<ArrayType>(&valueType)->isByteArray()) {
+					solAssert(isValueBuilder, "");
+					dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETB";
+				} else {
+					solAssert(!isValueBuilder, "");
+					dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETREF";
+				}
+				break;
 			case Type::Category::Mapping:
-				dict_cmd = "DICT" + getKeyDict(&keyType) + "SETGETOPTREF DROP";
+				solAssert(!isValueBuilder, "");
+				dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETGETOPTREF DROP";
 				break;
 			default:
 				cast_error(node, "Unsupported value type: " + valueType.toString());
@@ -1133,16 +1289,19 @@ public:
 		push(-3, dict_cmd);
 	}
 
-	void pushPersistentDataDict() {
-		push(+1, "PUSH c7 SECOND");
+	void pushPersistentDataCellTree() {
+		push(+1, "PUSH c7");
+		push(-1 + 1, "SECOND");
 	}
 
 	bool tryAssignParam(const string& name) {
 		auto& stack = m_pusher->getStack();
 		if (stack.isParam(name)) {
 			int idx = stack.getOffset(name);
-			solAssert(idx > 0, "");
-			if (idx == 1) {
+			solAssert(idx >= 0, "");
+			if (idx == 0) {
+				// nothing
+			} else if (idx == 1) {
 				push(-1, "NIP");
 			} else {
 				push(-1, "POP s" + toString(idx));
@@ -1152,7 +1311,7 @@ public:
 		return false;
 	}
 	
-	void getFromDict(const Type& keyType, const Type& valueType, ASTNode const& node);
+	void getFromDict(const Type& keyType, const Type& valueType, ASTNode const& node, const bool pushDefaultValue);
 
 	void pushCont(const CodeLines& cont, const string& comment = "") {
 		if (comment.empty())
@@ -1215,14 +1374,14 @@ public:
 
 		bool needNewCell(Type const* type) {
 			ABITypeSize size(type);
-			solAssert(0 <= size.refs && size.refs <= 1, "");
+			solAssert(0 <= size.maxRefs && size.maxRefs <= 1, "");
 
 			restSliceBits -= size.maxBits;
-			restFef -= size.refs;
+			restFef -= size.maxRefs;
 
 			if (restSliceBits < 0 || restFef == 0) {
 				restSliceBits =  TvmConst::CellBitLength - size.maxBits;
-				restFef = 4 - size.refs;
+				restFef = 4 - size.maxRefs;
 				++qtyOfCreatedBuilders;
 				return true;
 			}
@@ -1295,7 +1454,11 @@ public:
 					push(-1, "STREFR");
 				} else {
 					pushParam();
-					pushPrivateFunctionOrMacroCall(-2 + 1, "encode_array_macro");
+					// builder array
+					push(-1 + 2, "UNPAIR"); // builder size dict
+					exchange(0, 2); // dict size builder
+					push(-1, "STU 32"); // dict builder
+					push(-1, "STDICT"); // builder
 				}
 			} else if (isTvmCell(structType)) {
 				pushParam();
@@ -1309,7 +1472,8 @@ public:
 	void f(const StructDefinition &structDefinition, const string &pref, const std::map<std::string, int> &memberToStackSize,
 			EncodePosition& position, ASTNode const* node);
 	void encodeStruct(const StructType* structType, ASTNode const* node, EncodePosition& position);
-	void pushDefaultValue(Type const* type);
+	void pushDefaultValue(Type const* type, bool isResultBuilder = false);
+	std::vector<VariableDeclaration const*> notConstantStateVariables();
 };
 
 class ITVMCompiler : public IStackPusher {

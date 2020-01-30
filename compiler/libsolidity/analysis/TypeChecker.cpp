@@ -892,11 +892,11 @@ bool TypeChecker::visit(VariableDeclarationStatement const& _statement)
 				m_errorReporter.declarationError(varDecl.location(), errorText);
 			}
 		}
-		else if (dynamic_cast<MappingType const*>(type(varDecl).get()))
-			m_errorReporter.typeError(
-				varDecl.location(),
-				"Uninitialized mapping. Mappings cannot be created dynamically, you have to assign them from a state variable."
-			);
+//		else if (dynamic_cast<MappingType const*>(type(varDecl).get()))
+//			m_errorReporter.typeError(
+//				varDecl.location(),
+//				"Uninitialized mapping. Mappings cannot be created dynamically, you have to assign them from a state variable."
+//			);
 		varDecl.accept(*this);
 		return false;
 	}
@@ -1139,16 +1139,16 @@ void TypeChecker::checkExpressionAssignment(Type const& _type, Expression const&
 				checkExpressionAssignment(*types[i], *tupleExpression->components()[i]);
 			}
 	}
-	else if (_type.category() == Type::Category::Mapping)
-	{
-		bool isLocalOrReturn = false;
-		if (auto const* identifier = dynamic_cast<Identifier const*>(&_expression))
-			if (auto const *variableDeclaration = dynamic_cast<VariableDeclaration const*>(identifier->annotation().referencedDeclaration))
-				if (variableDeclaration->isLocalOrReturn())
-					isLocalOrReturn = true;
-		if (!isLocalOrReturn)
-			m_errorReporter.typeError(_expression.location(), "Mappings cannot be assigned to.");
-	}
+//	else if (_type.category() == Type::Category::Mapping)
+//	{
+//		bool isLocalOrReturn = false;
+//		if (auto const* identifier = dynamic_cast<Identifier const*>(&_expression))
+//			if (auto const *variableDeclaration = dynamic_cast<VariableDeclaration const*>(identifier->annotation().referencedDeclaration))
+//				if (variableDeclaration->isLocalOrReturn())
+//					isLocalOrReturn = true;
+//		if (!isLocalOrReturn)
+//			m_errorReporter.typeError(_expression.location(), "Mappings cannot be assigned to.");
+//	}
 }
 
 bool TypeChecker::visit(Assignment const& _assignment)

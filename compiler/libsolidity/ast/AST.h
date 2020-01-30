@@ -982,16 +982,20 @@ public:
 		ASTPointer<ElementaryTypeName> const& _keyType,
 		ASTPointer<TypeName> const& _valueType
 	):
-		TypeName(_location), m_keyType(_keyType), m_valueType(_valueType) {}
+		TypeName(_location), m_keyType(_keyType), m_valueType(_valueType), m_location(DataLocation::Memory) {}
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 
 	ElementaryTypeName const& keyType() const { return *m_keyType; }
 	TypeName const& valueType() const { return *m_valueType; }
 
+	DataLocation location() const { return m_location; }
+	void setLocation(DataLocation _location);
+
 private:
 	ASTPointer<ElementaryTypeName> m_keyType;
 	ASTPointer<TypeName> m_valueType;
+	DataLocation m_location;
 };
 
 /**
@@ -1005,19 +1009,24 @@ public:
 		ASTPointer<TypeName> const& _baseType,
 		ASTPointer<Expression> const& _length
 	):
-		TypeName(_location), m_baseType(_baseType), m_length(_length) {}
+		TypeName(_location), m_baseType(_baseType), m_length(_length), m_location(DataLocation::Memory) {}
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 
 	TypeName const& baseType() const { return *m_baseType; }
 	Expression const* length() const { return m_length.get(); }
+	
+	DataLocation location() const { return m_location; }
+	void setLocation(DataLocation _location);
 
 private:
 	ASTPointer<TypeName> m_baseType;
 	ASTPointer<Expression> m_length; ///< Length of the array, might be empty.
+	DataLocation m_location;
 };
 
 /// @}
+
 
 /// Statements
 /// @{

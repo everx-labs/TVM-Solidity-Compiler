@@ -66,6 +66,7 @@ using namespace dev::solidity;
 
 void TVMSetAllContracts(const std::vector<ContractDefinition const*>& allContracts);
 void TVMAddWarning(const std::string& msg);
+void TVMCompilerProceedContract(ContractDefinition const& _contract);
 
 boost::optional<CompilerStack::Remapping> CompilerStack::parseRemapping(string const& _remapping)
 {
@@ -358,8 +359,10 @@ bool CompilerStack::compile()
 	for (Source const* source: m_sourceOrder)
 		for (ASTPointer<ASTNode> const& node: source->ast->nodes())
 			if (auto contract = dynamic_cast<ContractDefinition const*>(node.get()))
-				if (isRequestedContract(*contract))
-					compileContract(*contract, otherCompilers);
+				if (isRequestedContract(*contract)) {
+					TVMCompilerProceedContract(*contract);
+//					compileContract(*contract, otherCompilers);
+				}
 	m_stackState = CompilationSuccessful;
 	this->link();
 	return true;

@@ -390,7 +390,7 @@ void StorageItem::setToZero(SourceLocation const&, bool _removeReference) const
 	}
 	else
 	{
-		solAssert(m_dataType->isValueType(), "Clearing of unsupported type requested: " + m_dataType->toString());
+//		solAssert(m_dataType->isValueType(), "Clearing of unsupported type requested: " + m_dataType->toString());
 		if (!_removeReference)
 			CompilerUtils(m_context).copyToStackTop(sizeOnStack(), sizeOnStack());
 		if (m_dataType->storageBytes() == 32)
