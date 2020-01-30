@@ -837,17 +837,20 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			appendExternalFunctionCall(function, arguments);
 			break;
 		}
+		case FunctionType::Kind::AddressType:
+		case FunctionType::Kind::AddressIsZero:
+		case FunctionType::Kind::AddressUnpack:
+		case FunctionType::Kind::AddressMakeAddrExtern:
+		case FunctionType::Kind::AddressMakeAddrNone:
+		case FunctionType::Kind::AddressMakeAddrStd:
+		case FunctionType::Kind::MessagePubkey:
+		case FunctionType::Kind::TVMPubkey:
+		case FunctionType::Kind::MappingDelMin:
 		case FunctionType::Kind::MappingGetMinKey:
-		{
-			solAssert(false, "");
-			break;
-		}
 		case FunctionType::Kind::MappingGetNextKey:
-		{
-			solAssert(false, "");
-			break;
-		}
 		case FunctionType::Kind::MappingFetch:
+		case FunctionType::Kind::MappingExists:
+		case FunctionType::Kind::MappingEmpty:
 		{
 			solAssert(false, "");
 			break;

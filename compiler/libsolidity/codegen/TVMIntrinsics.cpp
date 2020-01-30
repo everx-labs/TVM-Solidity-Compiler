@@ -309,10 +309,12 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		return true;
 	}
 	if (iname == "tvm_sender_pubkey") {
+		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
 		pushPrivateFunctionOrMacroCall(+1, "sender_pubkey_macro");
 		return true;
 	}
 	if (iname == "tvm_my_public_key") {
+		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
 		pushPrivateFunctionOrMacroCall(+1, "my_pubkey_macro");
 		return true;
 	}
@@ -609,11 +611,13 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		return true;
 	}
 	if (iname == "tvm_unpack_address") {
+		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
 		acceptExpr(arguments[0].get());
 		pushPrivateFunctionOrMacroCall(-1 + 2, "unpack_address_macro");
 		return true;
 	}
 	if (iname == "tvm_make_address") {
+		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
 		checkArgCount(2);
 		acceptExpr(arguments[0].get());
 		acceptExpr(arguments[1].get());
@@ -855,6 +859,52 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 
 		return true;
 	}
+	if (iname == "tvm_config_param34") {
+		// _ cur_validators:ValidatorSet = ConfigParam 34;
+
+		// validators#11 utime_since:uint32 utime_until:uint32
+		// total:(## 16) main:(## 16) { main <= total } { main >= 1 }
+		// list:(Hashmap 16 ValidatorDescr) = ValidatorSet;
+
+		// validators_ext#12 utime_since:uint32 utime_until:uint32
+		// total:(## 16) main:(## 16) { main <= total } { main >= 1 }
+		// total_weight:uint64 list:(HashmapE 16 ValidatorDescr) = ValidatorSet;
+
+		// validator#53 public_key:SigPubKey weight:uint64 = ValidatorDescr;
+
+		// validator_addr#73 public_key:SigPubKey weight:uint64 adnl_addr:bits256 = ValidatorDescr;
+
+		// ed25519_pubkey#8e81278a pubkey:bits256 = SigPubKey;  // 288 bits
+
+		push(0, "PUSHINT 34");
+		push(0, "CONFIGPARAM");
+
+		StackPusherImpl2 pusher;
+		StackPusherHelper pusherHelper(&pusher, &ctx());
+		pusherHelper.push(0, "CTOS");
+
+		pusherHelper.push(0, "LDU 8"); // constructor
+		pusherHelper.push(0, "LDU 32"); // utime_since
+		pusherHelper.push(0, "LDU 32"); // utime_until
+		pusherHelper.push(0, "LDU 16"); // total
+		pusherHelper.push(0, "LDU 16"); // main
+		pusherHelper.push(0, "DROP");
+		pusherHelper.push(0, "PUSHINT -1");
+
+		CodeLines contFail;
+		contFail.push("PUSHINT 0"); // constructor
+		contFail.push("PUSHINT 0"); // utime_since
+		contFail.push("PUSHINT 0"); // utime_until
+		contFail.push("PUSHINT 0"); // total
+		contFail.push("PUSHINT 0"); // main
+		contFail.push("PUSHINT 0"); //
+
+		pushCont(pusher.m_code);
+		pushCont(contFail);
+		push(-2 + 6, "IFELSE");
+
+		return true;
+	}
 	if (iname == "tvm_reverse_push") { // index is staring from one
 		push(+1, "DEPTH");
 		acceptExpr(arguments[0].get());
@@ -863,19 +913,108 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		return true;
 	}
 	if (iname == "tvm_is_zero_address") {
+		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
 		acceptExpr(arguments[0].get());
 		pushLines(R"(PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_
 SDEQ
 )");
 		return true;
 	}
+	if (iname == "tvm_zero_ext_address") {
+		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
+		push(+1, "PUSHSLICE x2_");
+		return true;
+	}
+	if (iname == "tvm_make_external_address") {
+		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
+		checkArgCount(2);
+		// addr_extern$01 len:(## 9) external_address:(bits len) = MsgAddressExt;
+		acceptExpr(arguments[0].get()); // numb
+		acceptExpr(arguments[1].get()); // numb cntBit
+		push(+1, "DUP"); // numb cntBit cntBit
+		pushInt(1); // numb cntBit cntBit 1
+
+		push(+1, "NEWC"); // numb cntBit cntBit 1 builder
+		push(-1, "STU 2"); // numb cntBit cntBit builder'
+		push(-1, "STU 9"); // numb cntBit builder''
+		push(0, "SWAP"); // numb builder'' cntBit
+		push(-3 + 1, "STUX"); // builder'''
+		push(0, "ENDC");
+		push(0, "CTOS"); // extAddress
+
+		return true;
+	}
 	if (iname == "tvm_make_zero_address") {
+		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
 		pushZeroAddress();
 		return true;
 	}
 	if (iname == "tvm_unpackfirst4") {
 		acceptExpr(arguments[0].get());
 		push(-1 + 4, "UNPACKFIRST 4");
+		return true;
+	}
+	if (iname == "tvm_tree_cell_size") {
+		acceptExpr(arguments[0].get());
+		pushLines(R"(NULL
+SWAP
+PUSHINT 0
+PUSHINT 1 ; null s b r
+PUSHCONT {
+    ; null s... b r
+	PUSH S2 ; null s... b r s
+	SREFS   ; null s... b r cntRef
+	PUSHCONT {
+		; null s... b r
+		ROT         ; null s... b r s
+		LDREFRTOS   ; null s... b r s' new_s
+		SWAP2       ; null s... s' new_s b r
+		INC
+	}
+	PUSHCONT {
+		; null s... b r
+		XCHG S2 ; null s... r b s
+		SBITS   ; null s... r b bs
+		ADD     ; null s... r b
+		SWAP    ; null s... b r
+	}
+	IFELSE
+	PUSH S2
+	ISNULL
+}
+UNTIL
+; null b r
+ROT  ; b r null
+DROP ; b r
+)");
+		push(-1 + 2, ""); // fix stack
+		return true;
+	}
+	if (iname == "tvm_reset_storage") {
+		push(+1, "PUSH C7");
+		structCompiler().createDefaultStruct();
+		push(-2 + 1, "SETINDEX 1");
+		push(-1, "POP C7");
+		return true;
+	}
+	if (iname == "tvm_pop_c3") {
+		acceptExpr(arguments[0].get());
+		push(-1, "POP c3");
+		return true;
+	}
+	if (iname == "tvm_bless") {
+		acceptExpr(arguments[0].get());
+		push(0, "BLESS");
+		return true;
+	}
+	if (iname == "tvm_set_ext_dest_address") {
+		push(+1, "PUSH C7");
+		acceptExpr(arguments[0].get());
+		push(-1, "SETINDEXQ " + toString(TvmConst::C7::ExtDestAddrIndex));
+		push(-1, "POP C7");
+		return true;
+	}
+	if (iname == "tvm_methodID") {
 		return true;
 	}
 	return false;

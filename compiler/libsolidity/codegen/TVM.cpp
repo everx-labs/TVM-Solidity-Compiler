@@ -27,6 +27,7 @@
 #include "TVM.h"
 #include "TVMStructCompiler.cpp"
 #include "TVMTypeChecker.hpp"
+#include "TVMInlineFunctionChecker.cpp"
 
 
 bool TVMCompiler::m_optionsEnabled = false;

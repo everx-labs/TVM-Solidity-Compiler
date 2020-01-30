@@ -229,9 +229,8 @@ void ReferencesResolver::endVisit(Mapping const& _typeName)
 	TypePointer valueType = _typeName.valueType().annotation().type;
 	// Convert key type to memory.
 	keyType = ReferenceType::copyForLocationIfReference(DataLocation::Memory, keyType);
-	// Convert value type to storage reference.
-	valueType = ReferenceType::copyForLocationIfReference(DataLocation::Storage, valueType);
-	_typeName.annotation().type = make_shared<MappingType>(keyType, valueType);
+	valueType = ReferenceType::copyForLocationIfReference(_typeName.location(), valueType);
+	_typeName.annotation().type = make_shared<MappingType>(keyType, valueType, _typeName.location());
 }
 
 void ReferencesResolver::endVisit(ArrayTypeName const& _typeName)
@@ -259,10 +258,10 @@ void ReferencesResolver::endVisit(ArrayTypeName const& _typeName)
 		else if (lengthType->isNegative())
 			fatalTypeError(length->location(), "Array with negative length specified.");
 		else
-			_typeName.annotation().type = make_shared<ArrayType>(DataLocation::Storage, baseType, lengthType->literalValue(nullptr));
+			_typeName.annotation().type = make_shared<ArrayType>(_typeName.location(), baseType, lengthType->literalValue(nullptr));
 	}
 	else
-		_typeName.annotation().type = make_shared<ArrayType>(DataLocation::Storage, baseType);
+		_typeName.annotation().type = make_shared<ArrayType>(_typeName.location(), baseType);
 }
 
 bool ReferencesResolver::visit(InlineAssembly const& _inlineAssembly)

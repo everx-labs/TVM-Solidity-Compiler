@@ -59,8 +59,6 @@ set(sources
 	codegen/CompilerUtils.h
 	codegen/ContractCompiler.cpp
 	codegen/ContractCompiler.h
-	codegen/TVM.cpp
-	codegen/TVM.h
 	codegen/ExpressionCompiler.cpp
 	codegen/ExpressionCompiler.h
 	codegen/LValue.cpp
@@ -98,6 +96,9 @@ set(sources
 	parsing/Parser.cpp
 	parsing/Parser.h
 	parsing/Token.h
+
+	codegen/TVM.cpp
+	codegen/TVM.h
 )
 
 find_package(Z3 4.6.0)

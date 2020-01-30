@@ -150,6 +150,7 @@ protected:
 
 	void visit2(TupleExpression const& _tupleExpression) {
 		if (_tupleExpression.isInlineArray()) {
+			pushInt(_tupleExpression.components().size());
 			push(+1, "NEWDICT");
 			Type const* type = _tupleExpression.annotation().type.get();
 			for (int i = 0; i < static_cast<int>(_tupleExpression.components().size()); ++i) {
@@ -157,15 +158,12 @@ protected:
 				auto arrayBaseType = to<ArrayType>(type)->baseType().get();
 
 				acceptExpr(_tupleExpression.components().at(i).get()); // totalSize dict value
-				prepareValueForDictOperations(&key, arrayBaseType); // totalSize dict value'
+				bool isValueBuilder = prepareValueForDictOperations(&key, arrayBaseType, false); // totalSize dict value'
 				pushInt(i); // totalSize dict value' index
 				push(0, "ROT"); // totalSize value' index dict
-				setDict(key, *arrayBaseType, _tupleExpression, false); // totalSize dict
+				setDict(key, *arrayBaseType, isValueBuilder, _tupleExpression); // totalSize dict
 			}
-			pushInt(_tupleExpression.components().size());
-			collectArrayToBuilder(false);
-			push(0, "ENDC");
-			push(0, "CTOS");
+			push(-2 + 1, "PAIR");
 		} else {
 			for (const auto &comp : _tupleExpression.components()) {
 				acceptExpr(comp.get());
@@ -193,16 +191,14 @@ protected:
 			if (offset == 0) {
 				push(+1, "DUP");
 			} else {
-				push(+1, "PUSH s" + toString(offset));
+				pushS(offset);
 			}
 			return true;
-		} else if (auto vd = to<VariableDeclaration>(_identifier.annotation().referencedDeclaration);
-				vd && isNotConstantAndNotPublicStateVariables(vd)) {
-
+		} else if (tryPushConstant(_identifier)) {
+			return true;
+		} else if (auto vd = to<VariableDeclaration>(_identifier.annotation().referencedDeclaration)) {
 			pushPersistentDataCellTree();
 			structCompiler().pushMember(vd->name());
-			return true;
-		} else if (tryPushConstant(_identifier)) {
 			return true;
 		}
 		return false;
@@ -225,13 +221,6 @@ protected:
 			CodeLines code;
 			code.push("CALL $" + name + "_internal$");
 			pushCont(code);
-		} else if (auto vd = to<VariableDeclaration>(_identifier.annotation().referencedDeclaration);
-					vd && vd->isPublic()) {
-			auto idx = ctx().getMemberIdx(name);
-			pushInt(idx); // dict
-			push(+1, "PUSH C7"); // index c7
-			push(-1 + 1, "THIRD"); // index dict
-			getFromDict(getKeyTypeOfC4(), *getType(&_identifier), _identifier, true);
 		} else {
 			cast_error(_identifier, "Unsupported identifier: " + name);
 		}
@@ -242,9 +231,10 @@ protected:
 
 	void compileUnaryOperation(UnaryOperation const& _node, const std::string& tvmUnaryOperation, const bool isPrefixOperation) {
 		const int saveStackSize = getStack().size();
-		const LValueInfo lValueInfo = expandLValue(&_node.subExpression(), true);
-		const int expandedLValueSize = getStack().size() - saveStackSize - 1;
 		if (isCurrentResultNeeded()) {
+			const LValueInfo lValueInfo = expandLValue(&_node.subExpression(), true);
+			const int expandedLValueSize = getStack().size() - saveStackSize - 1;
+			solAssert(expandedLValueSize >= 0, "");
 			if (isPrefixOperation) {
 				push(0, tvmUnaryOperation);
 				push(+1, "DUP"); // expanded.. value value
@@ -254,28 +244,35 @@ protected:
 			} else {
 				push(+1, "DUP"); // expanded.. value value
 				push(0, tvmUnaryOperation); // expanded.. value newValue
-				exchange(0, 1); // expanded.. newValue value
-				blockSwap(expandedLValueSize + 1, 1); // value expanded.. newValue
+				if (expandedLValueSize) {
+					exchange(0, 1); // expanded.. newValue value
+					blockSwap(expandedLValueSize + 1, 1); // value expanded.. newValue
+				}
 			}
+			checkBitFit(_node.annotation().type.get(), _node.annotation().type.get(), _node.annotation().type.get(), tvmUnaryOperation);
+			collectLValue(lValueInfo);
 		} else {
+			const LValueInfo lValueInfo = expandLValue(&_node.subExpression(), true, true);
 			push(0, tvmUnaryOperation);
+			checkBitFit(_node.annotation().type.get(), _node.annotation().type.get(), _node.annotation().type.get(), tvmUnaryOperation);
+			collectLValue(lValueInfo);
 		}
-		checkBitFit(_node.annotation().type.get(), _node.annotation().type.get(), _node.annotation().type.get(), tvmUnaryOperation);
-		collectLValue(lValueInfo);
 	}
 
 	void compileUnaryDelete(UnaryOperation const& node) {
 		const LValueInfo lValueInfo = expandLValue(&node.subExpression(), false);
-		if (to<Identifier>(lValueInfo.expressions.back())) {
+		Expression const* lastExpr = lValueInfo.expressions.back();
+		if (to<Identifier>(lastExpr)) {
 			Type const* exprType = node.subExpression().annotation().type.get();
-			pushDefaultValue(exprType, true);
-			collectLValue(lValueInfo, true, true);
-		} else if (auto memberAccess = to<MemberAccess>(lValueInfo.expressions.back())) {
+			bool isValueBuilder = isUsualStruct(exprType);
+			pushDefaultValue(exprType, isValueBuilder);
+			collectLValue(lValueInfo, true, isValueBuilder);
+		} else if (auto memberAccess = to<MemberAccess>(lastExpr)) {
 			MemberAccessAnnotation& a = memberAccess->annotation();
 			auto decl = to<VariableDeclaration>(a.referencedDeclaration);
 			pushDefaultValue(decl->type().get(), true);
 			collectLValue(lValueInfo, true, true);
-		} else if (auto indexAccess = to<IndexAccess>(lValueInfo.expressions.back())) {
+		} else if (auto indexAccess = to<IndexAccess>(lastExpr)) {
 			// ... index dict
 			Type const* baseExprType = indexAccess->baseExpression().annotation().type.get();
 			auto arrayType = to<ArrayType>(baseExprType);
@@ -287,12 +284,8 @@ protected:
 				push(+1, "PUSH S1");                            // ... index dict index
 				push(0, "SWAP");                                // ... index index dict
 				TypePointer const dictKey = parseIndexType(indexAccess->baseExpression().annotation().type.get());
-				if (isIn(dictKey->category(), Type::Category::Address, Type::Category::Contract)) {
-					prepareKeyForDictOperations(dictKey.get()); // ..index index' dict
-					pushInt(AddressInfo::maxBitLength()); // ..index index' dict nbits
-				} else {
-					pushInt(lengthOfDictKey(dictKey.get())); // ..index index dict nbits
-				}
+				prepareKeyForDictOperations(dictKey.get()); // ..index index' dict
+				pushInt(lengthOfDictKey(dictKey.get())); // ..index index dict nbits
 				push(-3 + 2, "DICT" + typeToDictChar(dictKey.get()) + "DEL");  // ... index dict' {-1,0}
 				push(-1, "DROP");                               // ... index dict'
 				collectLValue(lValueInfo, false);
@@ -437,9 +430,9 @@ protected:
 			push(0, "DUP");
 			push(0, "PUSHCONT {");
 			acceptExpr(&_node.rightExpression());
-			push(-1, (op == Token::Or)?"OR":"AND");
+			push(-1, op == Token::Or? "OR" : "AND");
 			push(+1, "}");
-			push(-1, (op == Token::Or)?"IFNOT":"IF");
+			push(-1, op == Token::Or? "IFNOT" : "IF");
 			return;
 		}
 		acceptExpr(&_node.rightExpression());
@@ -573,7 +566,7 @@ protected:
 		}
 
 		if (checkForMagic(_node, category)) return; 
-		if (checkForMemberAccessBalance(_node, category)) return;
+		if (checkForAddressMemberAccess(_node, category)) return;
 		
 		if (category == Type::Category::Array) 
 			return visitMemberAccessArray(_node);
@@ -591,13 +584,28 @@ protected:
 		cast_error(_node, "Not supported");
 	}
 	
-	bool checkForMemberAccessBalance(MemberAccess const& _node, Type::Category category) {
+	bool checkForAddressMemberAccess(MemberAccess const& _node, Type::Category category) {
 		if (category != Type::Category::Address)
 			return false;
 		if (_node.memberName() == "balance") {
 			if (!isAddressThis(to<FunctionCall>(&_node.expression())))
 				cast_error(_node.expression(), "only 'address(this).balance' is supported for balance");
 			pushPrivateFunctionOrMacroCall(+1, "get_contract_balance_macro");
+			return true;
+		}
+		if (_node.memberName() == "wid") {
+			acceptExpr(&_node.expression());
+			pushInt(3);
+			push(-1, "SDSKIPFIRST");
+			push(0, "PLDI 8");
+			return true;
+			
+		}
+		if (_node.memberName() == "value") {
+			acceptExpr(&_node.expression());
+			pushInt(3 + 8);
+			push(-1, "SDSKIPFIRST");
+			push(0, "PLDU 256");
 			return true;
 		}
 		return false;
@@ -610,7 +618,7 @@ protected:
 				cast_error(_node, "Unsupported member access");
 			}
 			acceptExpr(&_node.expression());
-			push(-1 + 1, "PLDU " + toString(TvmConst::ArrayKeyLength));
+			push(-1 + 1, "FIRST");
 		} else {
 			cast_error(_node, "Unsupported member access");
 		}
@@ -646,7 +654,7 @@ protected:
 				solAssert(false, "");
 			} else {
 				// index array
-				expandArray(); // index size dict
+				push(-1 + 2, "UNPAIR"); // index size dict
 				dropUnder(1, 1); // index dict
 			}
 		}
@@ -679,8 +687,8 @@ protected:
 							cast_error(_functionCall, "Only one array is supported for abi.encodePacked(...)");
 						}
 						TypeInfo arrayElementTypeInfo(array->baseType().get());
-						acceptExpr(argument.get());
-						expandArray();
+						acceptExpr(argument.get()); // builder
+						push(-1 + 2, "UNPAIR"); // builder size dict
 						pushInt(arrayElementTypeInfo.numBits); // builder size dict valueLength
 						pushPrivateFunctionOrMacroCall(-4 + 1, "abi_encode_packed_macro");
 						haveArray = true;
@@ -810,19 +818,18 @@ protected:
 
 			// stack: arr value
 			push(0, ";; array.push(..)");
-			prepareValueForDictOperations(&key, arrayBaseType); // arr value'
+			bool isValueBuilder = prepareValueForDictOperations(&key, arrayBaseType, false); // arr value'
 			exchange(0, 1); // value' arr
-			expandArray(); // value' size dict
+			push(-1 + 2, "UNPAIR");  // value' size dict
 			push(+1, "PUSH S1"); // value' size dict size
 			push(0, "INC"); // value' size dict newSize
 			exchange(0, 3); // newSize size dict value'
 			push(0, "ROTREV"); // newSize value' size dict
-			setDict(key, *arrayBaseType, _functionCall, false);
-			// newSize dict
-			collectArrayToBuilder(); // builder
+			setDict(key, *arrayBaseType, isValueBuilder, _functionCall); // newSize dict'
+			push(-2 + 1, "PAIR");  // arr
 		} else if (ma->memberName() == "pop") {
 			// arr
-			expandArray(); // size dict
+			push(-1 + 2, "UNPAIR"); // size dict
 			push(+1, "PUSH s1"); // size dict size
 			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::PopFromEmptyArray)); // size dict
 			push(0, "SWAP"); // dict size
@@ -832,220 +839,315 @@ protected:
 			pushInt(TvmConst::ArrayKeyLength); // newSize newSize dict 32
 			push(-3 + 2, "DICTUDEL"); // newSize dict ?
 			drop(1);  // newSize dict
-			collectArrayToBuilder();
+			push(-2 + 1, "PAIR");  // arr
 		} else {
 			cast_error(*ma, "Unsupported function call");
 		}
 		
-		collectLValue(lValueInfo, true, true);
+		collectLValue(lValueInfo, true, false);
 		return true;
 	}
-	
+
+	void mappingDelMin(FunctionCall const& _functionCall) {
+		auto ma = to<MemberAccess>(&_functionCall.expression());
+		auto mapType = to<MappingType>(ma->expression().annotation().type.get());
+		Type const* keyType = mapType->keyType().get();
+		Type const* valueType = mapType->valueType().get();
+		Type::Category valueCategory = mapType->valueType()->category();
+		const int keyLength = lengthOfDictKey(keyType);
+		const std::string dictOpcode = "DICT" + typeToDictChar(keyType);
+
+		auto mapIdentifier = to<Identifier>(&ma->expression());
+		if (mapIdentifier == nullptr) {
+			cast_error(_functionCall.expression(), "Should be identifier");
+		}
+
+		acceptExpr(&ma->expression()); // dict
+		pushInt(keyLength); // dict nbits
+
+		auto assignMap = [this, mapIdentifier, &keyType, &_functionCall]() {
+			// D value key
+			restoreKeyAfterDictOperations(keyType, _functionCall);
+			exchange(0, 2); // key value D
+			const int saveStackSize = getStack().size();
+			const LValueInfo lValueInfo = expandLValue(mapIdentifier, false);
+			blockSwap(1, getStack().size() - saveStackSize);
+			collectLValue(lValueInfo);
+		};
+
+		if (isTvmCell(valueType) || valueCategory == Type::Category::Mapping) {
+			// dict nbits
+			push(-2 + 4, dictOpcode + "REMMINREF"); //  D value key -1
+			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
+			assignMap(); // key value
+		} else if (valueCategory == Type::Category::Struct) {
+			if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(valueType))) {
+				// dict nbits
+				push(-2 + 4, dictOpcode + "REMMIN"); //  D value key -1
+				push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
+				assignMap(); // key value
+			} else {
+				// dict nbits
+				push(-2 + 4, dictOpcode + "REMMINREF"); //  D cellValue key -1
+				push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
+				assignMap(); // key cellValue
+				push(0, "CTOS");
+			}
+		} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract) || isByteArrayOrString(valueType)) {
+			if (isByteArrayOrString(valueType)) {
+				push(-2 + 4, dictOpcode + "REMMINREF"); //  D cellValue key -1
+			} else {
+				push(-2 + 4, dictOpcode + "REMMIN"); //  D value key -1
+			}
+			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
+			assignMap(); // key cellValue
+		} else if (isIntegralType(valueType) || isUsualArray(valueType)) {
+			// dict nbits
+			push(-2 + 4, dictOpcode + "REMMIN"); //  D cellValue key -1
+			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
+			assignMap(); // key cellValue
+			preload(valueType);
+		} else {
+			cast_error(_functionCall, "Unsupported value type: ");
+		}
+	}
+
+	void mappingFetchOrExists(FunctionCall const& _functionCall) {
+		auto memberAccess = to<MemberAccess>(&_functionCall.expression());
+		auto mapType = to<MappingType>(memberAccess->expression().annotation().type.get());
+		Type const* keyType = mapType->keyType().get();
+		Type const* valueType = mapType->valueType().get();
+		Type::Category valueCategory = mapType->valueType()->category();
+		const int keyLength = lengthOfDictKey(keyType);
+		const std::string dictOpcode = "DICT" + typeToDictChar(keyType);
+
+		acceptExpr(_functionCall.arguments()[0].get()); // index
+		acceptExpr(&memberAccess->expression()); // index dict
+		prepareKeyForDictOperations(keyType);
+		pushInt(keyLength); // index dict nbits
+
+		StackPusherImpl2 pusher;
+		StackPusherHelper pusherHelper(&pusher, &ctx());
+
+		if (isTvmCell(valueType) || valueCategory == Type::Category::Mapping) {
+			push(-3 + 2, dictOpcode + "GETREF");
+			push(0, "DUP");
+			pusherHelper.push(0, "SWAP");
+		} else if (valueCategory == Type::Category::Struct) {
+			if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(valueType))) {
+				// index dict nbits
+				push(-3 + 2, dictOpcode + "GET"); // [value] {-1, 0}
+				push(0, "DUP");
+				pusherHelper.push(0, "SWAP");
+			} else {
+				push(-3 + 2, dictOpcode + "GETREF");
+				push(0, "DUP");
+				pusherHelper.push(0, "SWAP");
+				pusherHelper.push(0, "CTOS");
+			}
+		} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract) || isByteArrayOrString(valueType)) {
+			if (isByteArrayOrString(valueType)) {
+				push(-3 + 2, dictOpcode + "GETREF");
+			} else {
+				push(-3 + 2, dictOpcode + "GET");
+			}
+			push(0, "DUP");
+			pusherHelper.push(0, "SWAP");
+		} else if (isIntegralType(valueType) || isUsualArray(valueType)) {
+			push(-3 + 2, dictOpcode + "GET");
+			push(0, "DUP");
+			pusherHelper.push(0, "SWAP");
+			pusherHelper.preload(valueType);
+		} else {
+			cast_error(_functionCall, "Unsupported value type: ");
+		}
+
+
+		CodeLines code2;
+		TVMStack& stack2 = getStack();
+		StackPusherImpl pusher2{stack2, code2};
+		StackPusherHelper pusherHelper2(&pusher2, &ctx());
+		if (memberAccess->memberName() == "fetch") {
+			pushCont(pusher.m_code);
+			pusherHelper2.pushDefaultValue(valueType, false);
+			pushCont(code2);
+			push(-3, "IFELSE");
+		} else if (memberAccess->memberName() == "exists") {
+			pusherHelper2.push(-1,"NIP"); // delete value
+			pushCont(code2);
+			push(-1, "IF");
+		} else {
+			solAssert(false, "");
+		}
+	}
+
+	void mappingNextMethod(FunctionCall const& _functionCall) {
+		auto expr = &_functionCall.expression();
+		auto ma = to<MemberAccess>(expr);
+		auto mapType = to<MappingType>(getType(&ma->expression()));
+		Type const* keyType = mapType->keyType().get();
+		Type const* valueType = mapType->valueType().get();
+		Type::Category valueCategory = mapType->valueType()->category();
+		const int keyLength = lengthOfDictKey(keyType);
+		const std::string dictOpcode = "DICT" + typeToDictChar(keyType);
+
+		acceptExpr(_functionCall.arguments()[0].get()); // index
+		acceptExpr(&ma->expression()); // index dict
+		prepareKeyForDictOperations(keyType);
+		pushInt(lengthOfDictKey(keyType)); // index dict nbits
+
+		push(-3 + 3, dictOpcode + "GETNEXT"); // value key -1 or 0
+
+
+		StackPusherImpl2 pusherOk;
+		StackPusherHelper pusherHelperOk(&pusherOk, &ctx());
+		pusherHelperOk.restoreKeyAfterDictOperations(keyType, _functionCall);
+		pusherHelperOk.push(0, "SWAP"); // key value
+
+
+		StackPusherImpl2 pusherFail;
+		StackPusherHelper pusherHelperFail(&pusherFail, &ctx());
+		pusherHelperFail.pushDefaultValue(keyType);
+		pusherHelperFail.pushDefaultValue(valueType);
+		pusherHelperFail.push(0, "FALSE");
+
+
+		if (isTvmCell(valueType) || valueCategory == Type::Category::Mapping) {
+			pusherHelperOk.push(0, "PLDREFIDX 0");
+		} else if (valueCategory == Type::Category::Struct) {
+			if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(valueType))) {
+				// nothing
+			} else {
+				pusherHelperOk.push(0, "LDREFRTOS");
+				pusherHelperOk.push(0, "NIP");
+			}
+		} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract, Type::Category::Array)) {
+			if (valueCategory == Type::Category::Array && to<ArrayType>(valueType)->isByteArray()) {
+				pusherHelperOk.push(0, "PLDREFIDX 0");
+			} else {
+			}
+		} else if (isIntegralType(valueType)) {
+			pusherHelperOk.preload(valueType);
+		} else {
+			cast_error(_functionCall, "Unsupported for mapping value type: " + valueType->toString(true));
+		}
+
+		pusherHelperOk.push(0, "TRUE");
+
+		pushCont(pusherOk.m_code);
+		pushCont(pusherFail.m_code);
+		push(-2, ""); // fix stack
+		push(0, "IFELSE");
+
+	}
+
+	void mappingMinMethod(FunctionCall const& _functionCall) {
+		auto expr = &_functionCall.expression();
+		auto ma = to<MemberAccess>(expr);
+		auto mapType = to<MappingType>(getType(&ma->expression()));
+		Type const* keyType = mapType->keyType().get();
+		Type const* valueType = mapType->valueType().get();
+		Type::Category valueCategory = mapType->valueType()->category();
+		const int keyLength = lengthOfDictKey(keyType);
+		const std::string dictOpcode = "DICT" + typeToDictChar(keyType);
+
+		acceptExpr(&ma->expression());
+		pushInt(lengthOfDictKey(keyType)); // dict nbits
+
+		auto f = [this, &keyType, &_functionCall]() {
+			// value key -1
+			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::MinFromEmptyMap));
+			restoreKeyAfterDictOperations(keyType, _functionCall);
+			// value key
+			push(0, "SWAP"); // key value
+		};
+
+		if (isTvmCell(valueType) || valueCategory == Type::Category::Mapping) {
+			push(-2 + 3, dictOpcode + "MINREF");
+			f(); // key value
+		} else if (valueCategory == Type::Category::Struct) {
+			if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(valueType))) {
+				push(-2 + 3, dictOpcode + "MIN");
+				f(); // key value
+			} else {
+				push(-2 + 3, dictOpcode + "MINREF");
+				f(); // key value
+				push(0, "CTOS");
+			}
+		} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract) || isByteArrayOrString(valueType)) {
+			if (isByteArrayOrString(valueType)) {
+				push(-2 + 3, dictOpcode + "MINREF");
+				f(); // key value
+			} else {
+				push(-2 + 3, dictOpcode + "MIN");
+				f(); // key value
+			}
+		} else if (isIntegralType(valueType) || isUsualArray(valueType)) {
+			push(-2 + 3, dictOpcode + "MIN");
+			f(); // key value
+			preload(valueType);
+		} else {
+			cast_error(_functionCall, "Unsupported value type: " + valueType->toString(true));
+		}
+	}
+
+	void mappingEmpty(FunctionCall const& _functionCall) {
+		auto expr = &_functionCall.expression();
+		auto ma = to<MemberAccess>(expr);
+		acceptExpr(&ma->expression());
+		push(0, "DICTEMPTY");
+	}
+
 	bool checkForMappingMethods(FunctionCall const& _functionCall) {
 		auto expr = &_functionCall.expression();
 		auto ma = to<MemberAccess>(expr);
 		if (!ma || !to<MappingType>(ma->expression().annotation().type.get()))
 			return false;
-		
-		if (!isIn(ma->memberName(),"min","next","fetch")) {
-			cast_error(*ma, "Unsupported function call");
-		}
-		
-		auto mapType = to<MappingType>(getType(&ma->expression()));
-		
-		Type const* keyType = mapType->keyType().get();
-		Type const* valueType = mapType->valueType().get();
-		Type::Category valueCategory = mapType->valueType()->category();
-		
-		for (const auto& arg : _functionCall.arguments())
-			acceptExpr(arg.get());
-		acceptExpr(&ma->expression());
-		
-		int keyLength = lengthOfDictKey(keyType);
-		std::string dictOpcode = "DICT" + typeToDictChar(keyType);
-		
-		if (ma->memberName() == "fetch") {
-			pushInt(keyLength); // index dict nbits
-			push(0, ";; map.fetch");
-			CodeLines code;
-			TVMStack& stack = getStack();
-			StackPusherImpl pusher{stack, code};
-			StackPusherHelper pusherHelper(&pusher, &ctx());
-			
-			if (valueCategory == Type::Category::Struct) {
-				if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(valueType))) {
-					// index dict nbits
-					push(-3 + 2, dictOpcode + "GET"); // [value] {-1, 0}
-					push(0, "DUP");
-					pusherHelper.push(0, "SWAP");
-				} else {
-					push(-3 + 2, dictOpcode + "GETREF");
-	
-					push(0, "DUP");
-	
-					pusherHelper.push(0, "SWAP");
-					pusherHelper.push(0, "CTOS");
-				}
-			} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract, Type::Category::Array)) {
-				if (valueCategory == Type::Category::Array && to<ArrayType>(valueType)->isByteArray()) {
-					push(-3 + 2, dictOpcode + "GETREF");
-				} else {
-					push(-3 + 2, dictOpcode + "GET");
-				}
-	
-				push(0, "DUP");
-	
-				pusherHelper.push(0, "SWAP");
-			} else if (isIntegralType(valueType)) {
-				push(-3 + 2, dictOpcode + "GET");
-	
-				push(0, "DUP");
-	
-				pusherHelper.push(0, "SWAP");
-				
-				pusherHelper.push(0, preloadIntergal(valueType));
-			} else {
-				cast_error(_functionCall, "Unsupported value type: ");
-			}
-			pushCont(code);
-			CodeLines code2;
-			TVMStack& stack2 = getStack();
-			StackPusherImpl pusher2{stack2, code2};
-			StackPusherHelper pusherHelper2(&pusher2, &ctx());
-			pusherHelper2.pushDefaultValue(valueType, false);
-			pushCont(code2);
-			push(-3, "IFELSE");
-			return true;
-		}
-		
-		if (isIn(mapType->keyType()->category(), Type::Category::Address, Type::Category::Contract)) {
-			if (ma->memberName() == "next") {
-				prepareKeyForDictOperations(keyType);
-			}
-			pushInt(AddressInfo::maxBitLength());
+
+		push(0, ";; map." + ma->memberName());
+
+		if (ma->memberName() == "delMin") {
+			mappingDelMin(_functionCall);
+		} else  if (isIn(ma->memberName(), "fetch", "exists")) {
+			mappingFetchOrExists(_functionCall);
+		} else if (ma->memberName() == "min") {
+			mappingMinMethod(_functionCall);
+		} else if (ma->memberName() =="next") {
+			mappingNextMethod(_functionCall);
+		} else if (ma->memberName() == "empty") {
+			mappingEmpty(_functionCall);
 		} else {
-			pushInt(lengthOfDictKey(keyType)); // stack: index dict nbits
+			cast_error(_functionCall, "Unsupported");
 		}
 
-		if (ma->memberName() == "min") {
-			if (isIntegralType(valueType)) {
-				push(-2 + 3, dictOpcode + "MIN");
-			} else if (valueCategory == Type::Category::Struct && !isTvmCell(valueType)) {
-				if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(valueType))) {
-					push(-2 + 3, dictOpcode + "MIN");
-				} else {
-					push(-2 + 3, dictOpcode + "MINREF");
-				}
-			} else {
-				cast_error(_functionCall, "Unsupported value type: " + valueType->toString());
-			}
-		} else {
-			push(-3 + 3, dictOpcode + "GETNEXT");
-		}
-
-
-		if (isIntegralType(valueType)) {
-			TVMStack stack;
-			CodeLines code;
-			StackPusherImpl pusher(stack, code);
-			StackPusherHelper pusherHelper(&pusher, &ctx());
-			pusherHelper.pushDefaultValue(keyType);
-			pusherHelper.pushDefaultValue(valueType);
-			pusherHelper.push(0, "FALSE");
-
-
-			TVMStack stack2;
-			CodeLines code2;
-			StackPusherImpl pusher2(stack2, code2);
-			StackPusherHelper pusherHelper2(&pusher2, &ctx());
-			if (isAddressType(keyType)) {
-				pusherHelper2.push(0, "LDMSGADDR");
-				pusherHelper2.push(0, "DROP");
-			}
-			pusherHelper2.push(0, "SWAP");
-			pusherHelper2.push(0, preloadIntergal(valueType));
-			pusherHelper2.push(0, "TRUE");
-
-			pushCont(code2);
-			pushCont(code);
-			push(-2, ""); // fix stack
-			push(0, "IFELSE");
-		} else if (valueCategory == Type::Category::Struct && !isTvmCell(valueType)) {
-			if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(valueType))) {
-				StackPusherImpl2 pusher;
-				StackPusherHelper pusherHelper(&pusher, &ctx());
-				pusherHelper.pushDefaultValue(valueType);
-				pusherHelper.pushDefaultValue(keyType);
-				pusherHelper.push(0, "ROT");
-
-				push(0, "DUP");
-				pushCont(pusher.m_code);
-				push(-1, ""); // fix stack
-				push(0, "IFNOT");
-				exchange(1, 2);
-			} else {
-				if (ma->memberName() == "min") {
-					{ // have value
-						StackPusherImpl2 pusher;
-						StackPusherHelper pusherHelper(&pusher, &ctx()); // cell index
-						pusherHelper.push(0, "SWAP");
-						pusherHelper.push(0, "CTOS");
-						pusherHelper.push(0, "SWAP"); // sliceValue index
-						pusherHelper.push(0, "TRUE"); // sliceValue index -1
-						pushCont(pusher.m_code);
-						push(-1, ""); // fix stack
-					}
-					{ // no value
-						StackPusherImpl2 pusher;
-						StackPusherHelper pusherHelper(&pusher, &ctx());
-						pusherHelper.pushDefaultValue(valueType);
-						pusherHelper.pushDefaultValue(keyType);
-						pusherHelper.push(0, "FALSE");
-						pushCont(pusher.m_code);
-						push(-1, ""); // fix stack
-					}
-					push(0, "IFELSE");
-					exchange(1, 2);
-				} else {
-					{ // have value
-						StackPusherImpl2 pusher;
-						StackPusherHelper pusherHelper(&pusher, &ctx()); // slice index
-						pusherHelper.push(0, "SWAP");// index slice
-						pusherHelper.push(0, "LDREFRTOS"); // index slice data
-						pusherHelper.push(0, "NIP");  // index data
-//						pusherHelper.push(0, "SWAP"); // data index
-						pusherHelper.push(0, "TRUE"); // data index -1
-						pushCont(pusher.m_code);
-						push(-1, ""); // fix stack
-					}
-					{ // no value
-						StackPusherImpl2 pusher;
-						StackPusherHelper pusherHelper(&pusher, &ctx());
-						pusherHelper.pushDefaultValue(keyType);
-						pusherHelper.pushDefaultValue(valueType);
-						pusherHelper.push(0, "FALSE");
-						pushCont(pusher.m_code);
-						push(-1, ""); // fix stack
-					}
-					push(0, "IFELSE");
-				}
-			}
-		}
 		return true;
 	}
 	
 	void visit2(FunctionCall const& _functionCall) {
 		auto arguments = _functionCall.arguments();
 
+		if (checkForArrayMethods(_functionCall) ||
+			checkRemoteMethodCall(_functionCall) || // To avoid situation when we call a function of a remote contract and don't save the result.
+			checkRemoteMethodCallWithValue(_functionCall)) { // // Remote function can return a result but in fact we don't get it.
+			return;
+		}
+
 		FunctionCallCompiler fcc(m_compiler, this, ctx());
+		if (!checkAbiMethodCall(_functionCall) &&
+			!checkForMappingMethods(_functionCall)) {
+			fcc.compile(_functionCall);
+		}
 		
-		if (checkAbiMethodCall(_functionCall)) return;
-		if (checkRemoteMethodCall(_functionCall)) return;
-		if (checkRemoteMethodCallWithValue(_functionCall)) return;
-		if (checkForArrayMethods(_functionCall)) return;
-		if (checkForMappingMethods(_functionCall)) return;
-		fcc.compile(_functionCall, isCurrentResultNeeded());
-		
+		if (!isCurrentResultNeeded()) {
+			if (_functionCall.expression().annotation().type->category() == Type::Category::Function) {
+				auto ft = to<FunctionType>(_functionCall.expression().annotation().type.get());
+				auto size = ft->returnParameterNames().size();
+				if (size != 0) {
+					cast_warning(_functionCall, "Result is not used.");
+					drop(size);
+				}
+			}
+		}
 	}
 		
 	void visit2(Conditional const& _conditional) {
@@ -1063,15 +1165,16 @@ protected:
 	}
 
 	struct LValueInfo {
-		bool onTopstack = false;
+//		bool willNoStackPermutarion = false;
 		std::vector<Expression const*> expressions;
 	};
 
 
 
 protected:
-	LValueInfo expandLValue(Expression const* expr, const bool withExpandLastValue) {
+	LValueInfo expandLValue(Expression const* expr, const bool withExpandLastValue, bool willNoStackPermutarion = false) {
 		LValueInfo lValueInfo {};
+//		lValueInfo.willNoStackPermutarion = willNoStackPermutarion;
 
 		while (true) {
 			lValueInfo.expressions.push_back(expr);
@@ -1088,13 +1191,6 @@ protected:
 		}
 		std::reverse(lValueInfo.expressions.begin(), lValueInfo.expressions.end());
 
-		lValueInfo.onTopstack = false;
-		if (auto variable = to<Identifier>(lValueInfo.expressions[0])) {
-			const ASTString& name = variable->name();
-			lValueInfo.onTopstack = getStack().isParam(name) && getStack().getOffset(name) == 0;
-		}
-
-
 		push(0, "; expValue");
 		for (size_t i = 0; i < lValueInfo.expressions.size(); i++) {
 			bool isLast = (i + 1) == lValueInfo.expressions.size();
@@ -1104,28 +1200,15 @@ protected:
 				if (stack.isParam(name)) {
 					if (isLast && !withExpandLastValue)
 						break;
-					if (!lValueInfo.onTopstack) {
+					if (!willNoStackPermutarion || stack.getOffset(name) != 0) {
 						pushMemberOrLocalVarOrConstant(*variable);
 					}
-				} else if (auto vd = to<VariableDeclaration>(variable->annotation().referencedDeclaration);
-						isNotConstantAndNotPublicStateVariables(vd)) {
+				} else {
 					push(0, ";; fetch " + name);
 					push(+1, "PUSH C7"); // c7
 					push(+1, "DUP");
 					push(-1 + 1, "SECOND"); // c7 struct
 					structCompiler().expandStruct(variable->name(), !isLast || withExpandLastValue);
-				} else if (vd && vd->isPublic()){
-					push(+1, "PUSH C7"); // c7
-					push(+1, "DUP");
-					push(-1 + 1, "THIRD"); // c7 dict
-					if (isLast && !withExpandLastValue)
-						break;
-					auto idx = ctx().getMemberIdx(name);
-					pushInt(idx); // c7 dict index
-					push(+1, "PUSH s1"); // c7 dict index dict
-					getFromDict(getKeyTypeOfC4(), *getType(variable), *variable, true); // c7 dict value
-				} else {
-					cast_error(*variable, "Unsupported expr");
 				}
 			} else if (auto index = to<IndexAccess>(lValueInfo.expressions[i])) {
 				if (index->baseExpression().annotation().type->category() == Type::Category::Mapping) {
@@ -1143,7 +1226,7 @@ protected:
 					// index dict1 dict2
 				} else {
 					// array
-					expandArray(); // size dict
+					push(-1 + 2, "UNPAIR"); // size dict
 					acceptExpr(index->indexExpression()); // size dict index
 					push(0, "SWAP"); // size index dict
 					push(+2, "PUSH2 s1,s2"); // size index dict index size
@@ -1179,81 +1262,47 @@ protected:
 		return arrayType && !arrayType->isByteArray();
 	}
 
-	static bool isStatePublicVariable(Expression const* expr) {
+	static bool isStateVariable(Expression const* expr) {
 		auto variable = to<Identifier>(expr);
 		if (!variable) {
 			return false;
 		}
 		auto vd = to<VariableDeclaration>(variable->annotation().referencedDeclaration);
-		return vd->isStateVariable() && vd->isPublic();
-	}
-
-	static bool isStateNotPublicVariable(Expression const* expr) {
-		auto variable = to<Identifier>(expr);
-		if (!variable) {
-			return false;
-		}
-		auto vd = to<VariableDeclaration>(variable->annotation().referencedDeclaration);
-		return vd->isStateVariable() && !vd->isPublic();
+		return vd->isStateVariable();
 	}
 
 	void collectLValue(const LValueInfo &lValueInfo, const bool haveValueOnStackTop = true,
 																					const bool _isLastValueBuilder  = false) {
+		// variable [arrayIndex | mapIndex | structMember]...
+
 		push(0, "; colValue");
 		const int n = static_cast<int>(lValueInfo.expressions.size());
 		bool isValueBuilder = _isLastValueBuilder;
 
 		for (int i = n - 1; i >= 0; i--) {
 			bool isLast = (i + 1) == static_cast<int>(lValueInfo.expressions.size());
-			auto prepareForDictOperation = [&](Type const* keyType, Type const* valueDictType){
-				if (isLast) { // convert struct from builder to slice
-					prepareValueForDictOperations(keyType, valueDictType);
-				} else {
-					if (to<MemberAccess>(lValueInfo.expressions[i + 1])) {
-						if (isValueBuilder) {
-							push(0, "ENDC");
-							push(0, "CTOS");
-							isValueBuilder = false;
-						}
-						prepareValueForDictOperations(keyType, valueDictType);
-					}
-				}
-			};
 
 			if (auto variable = to<Identifier>(lValueInfo.expressions[i])) {
 //				pushLog("colVar");
 				auto& stack = getStack();
-				auto name = variable->name();
+				const auto& name = variable->name();
 				if (stack.isParam(name)) {
 					if (isValueBuilder) {
 						Type const* type = variable->annotation().type.get();
-						if ((type->category() == Type::Category::Struct && !isTvmCell(type)) ||
-								(type->category() == Type::Category::Array && !to<ArrayType>(type)->isByteArray())) {
+						if (isUsualStruct(type)) {
 							push(0, "ENDC");
 							push(0, "CTOS");
 						} else {
-							solAssert(false, "");
+							cast_error(*lValueInfo.expressions[0], ":");
 						}
 					}
-					if (!lValueInfo.onTopstack) {
-						tryAssignParam(name);
-					}
-				} else if (isStateNotPublicVariable(variable)) {
+					solAssert((haveValueOnStackTop && n == 1) || n > 1, "");
+					tryAssignParam(name);
+				} else {
 					// c7 struct... value
 					structCompiler().collectStruct(variable->name(), isValueBuilder, false); // c7 struct
 					push(-1, "SETSECOND"); // c7
 					push(-1, "POP c7");
-				} else if (isStatePublicVariable(variable)){
-					// c7 dict value
-					IntegerType key = getKeyTypeOfC4();
-					prepareValueForDictOperations(&key, variable->annotation().type.get()); // c7 dict value'
-					pushInt(ctx().getMemberIdx(name)); // c7 dict value' index
-					push(0, "ROT"); // c7 value' index dict
-					setDict(getKeyTypeOfC4(), *variable->annotation().type.get(), *lValueInfo.expressions[i], isValueBuilder); // c7 dict
-					push(-1, "SETTHIRD");
-					push(-1, "POP c7");
-				} else {
-					solAssert(false, "");
 				}
 			} else if (auto index = to<IndexAccess>(lValueInfo.expressions[i])) {
 				if (isIndexAccessOfDynamicArray(lValueInfo.expressions[i])) {
@@ -1265,17 +1314,26 @@ protected:
 						// size index dict value
 						TypePointer const keyType = parseIndexType(index->baseExpression().annotation().type.get());
 						auto valueDictType = getType(index);
-						prepareForDictOperation(keyType.get(), valueDictType);
+						isValueBuilder = prepareValueForDictOperations(keyType.get(), valueDictType, isValueBuilder);
 						push(0, "ROTREV"); // size value index dict
 						prepareKeyForDictOperations(keyType.get());
-						setDict(*keyType.get(), *valueDictType, *lValueInfo.expressions[i], isValueBuilder); // size dict'
+						setDict(*keyType.get(), *valueDictType, isValueBuilder, *lValueInfo.expressions[i]); // size dict'
 					}
-					push(0, "SWAP"); // dict size
-					push(+1, "NEWC"); // dict size builder
-					push(-1, "STU " + toString(TvmConst::ArrayKeyLength)); // dict builder
-					push(-1, "STDICT"); // builder
 
-					isValueBuilder = true;
+					// arrIndex | mapIndex | struct | stateVar
+					if (to<MemberAccess>(lValueInfo.expressions[i - 1]) ||
+					        to<IndexAccess>(lValueInfo.expressions[i - 1]) ||
+							isStateVariable(lValueInfo.expressions[i - 1])) {
+						// size dict'
+						push(0, "SWAP"); // dict size
+						push(+1, "NEWC"); // dict size builder
+						push(-1, "STU 32"); // dict builder
+						push(-1, "STDICT"); // builder
+						isValueBuilder = true;
+					} else {
+						push(-2 + 1, "PAIR");
+						isValueBuilder = false;
+					}
 				} else {
 //					pushLog("colMapIndex");
 					if (isLast && !haveValueOnStackTop) {
@@ -1285,10 +1343,10 @@ protected:
 						// index dict value
 						TypePointer const keyType = parseIndexType(index->baseExpression().annotation().type.get());
 						auto valueDictType = getType(index);
-						prepareForDictOperation(keyType.get(), valueDictType);
+						isValueBuilder = prepareValueForDictOperations(keyType.get(), valueDictType, isValueBuilder);
 						push(0, "ROTREV"); // value index dict
 						prepareKeyForDictOperations(keyType.get());
-						setDict(*keyType.get(), *valueDictType, *lValueInfo.expressions[i], isValueBuilder); // dict'
+						setDict(*keyType.get(), *valueDictType, isValueBuilder, *lValueInfo.expressions[i]); // dict'
 					}
 					isValueBuilder = false;
 				}

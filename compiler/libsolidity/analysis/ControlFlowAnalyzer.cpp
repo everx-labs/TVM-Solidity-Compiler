@@ -131,6 +131,9 @@ void ControlFlowAnalyzer::checkUninitializedAccess(CFGNode const* _entry, CFGNod
 
 		for (auto const* variableOccurrence: uninitializedAccessesOrdered)
 		{
+			if (variableOccurrence->declaration().referenceLocation() == VariableDeclaration::Location::Memory)
+				continue;
+			
 			SecondarySourceLocation ssl;
 			if (variableOccurrence->occurrence())
 				ssl.append("The variable was declared here.", variableOccurrence->declaration().location());

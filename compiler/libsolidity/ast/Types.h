@@ -637,7 +637,8 @@ public:
 	virtual TypePointer copyForLocation(DataLocation _location, bool _isPointer) const = 0;
 
 	TypePointer mobileType() const override { return copyForLocation(m_location, true); }
-	bool dataStoredIn(DataLocation _location) const override { return m_location == _location; }
+	bool dataStoredIn(DataLocation _location) const override { 
+		return m_location == _location; }
 	bool hasSimpleZeroValueInMemory() const override { return false; }
 
 	/// Storage references can be pointers or bound references. In general, local variables are of
@@ -687,19 +688,17 @@ public:
 		ReferenceType(_location),
 		m_arrayKind(_isString ? ArrayKind::String : ArrayKind::Bytes),
 		m_baseType(std::make_shared<FixedBytesType>(1))
-	{
-	}
+	{}
 	/// Constructor for a dynamically sized array type ("type[]")
 	ArrayType(DataLocation _location, TypePointer const& _baseType):
 		ReferenceType(_location),
 		m_baseType(copyForLocationIfReference(_baseType))
-	{
-	}
+	{}
 	/// Constructor for a fixed-size array type ("type[20]")
 	ArrayType(DataLocation _location, TypePointer const& _baseType, u256 const& _length):
 		ReferenceType(_location),
 		m_baseType(copyForLocationIfReference(_baseType)),
-		m_hasDynamicLength(false),
+		m_hasDynamicLength(true),
 		m_length(_length)
 	{}
 
@@ -967,6 +966,12 @@ public:
 		Creation, ///< external call using CREATE
 		Send, ///< CALL, but without data and gas
 		Transfer, ///< CALL, but without data and throws on error
+		AddressIsZero, ///< .isStdZero() .isExternZero() for address
+		AddressUnpack, ///< .unpack() for address
+		AddressType, ///< .getType() for address
+		AddressMakeAddrExtern, ///< .makeAddrExtern() for address
+		AddressMakeAddrNone, ///< .makeAddrNone() for address
+		AddressMakeAddrStd, ///< .makeAddrStd() for address
 		KECCAK256, ///< KECCAK256
 		Selfdestruct, ///< SELFDESTRUCT
 		Revert, ///< REVERT
@@ -984,12 +989,17 @@ public:
 		BlockHash, ///< BLOCKHASH
 		AddMod, ///< ADDMOD
 		MulMod, ///< MULMOD
+		MessagePubkey, ///< msg.pubkey()
+		TVMPubkey, ///< tvm.pubkey()
 		ArrayPush, ///< .push() to a dynamically sized array in storage
 		ArrayPop, ///< .pop() from a dynamically sized array in storage
 		ByteArrayPush, ///< .push() to a dynamically sized byte array in storage
 		MappingGetNextKey, ///< .next() for a mapping
 		MappingGetMinKey, ///< .min() for a mapping
+		MappingDelMin, ///< .delMin() for a mapping
 		MappingFetch, ///< .fetch() for a mapping
+		MappingExists, ///< .exists() for a mapping
+		MappingEmpty,  ///< .empty() for a mapping
 		ObjectCreation, ///< array creation using new
 		Assert, ///< assert()
 		Require, ///< require()
@@ -1210,14 +1220,16 @@ class MappingType: public Type
 {
 public:
 	Category category() const override { return Category::Mapping; }
-	MappingType(TypePointer const& _keyType, TypePointer const& _valueType):
-		m_keyType(_keyType), m_valueType(_valueType) {}
+	MappingType(TypePointer const& _keyType, TypePointer const& _valueType,  DataLocation _location = DataLocation::Storage):
+		m_keyType(_keyType), m_valueType(_valueType) {
+		m_location = _location;
+	}
 
 	std::string richIdentifier() const override;
 	bool operator==(Type const& _other) const override;
 	std::string toString(bool _short) const override;
 	std::string canonicalName() const override;
-	bool canLiveOutsideStorage() const override { return false; }
+	bool canLiveOutsideStorage() const override { return true; }
 	TypeResult binaryOperatorResult(Token, TypePointer const&) const override { return TypePointer(); }
 	TypePointer encodingType() const override
 	{
@@ -1227,7 +1239,7 @@ public:
 	{
 		return _inLibrary ? shared_from_this() : TypePointer();
 	}
-	bool dataStoredIn(DataLocation _location) const override { return _location == DataLocation::Storage; }
+	bool dataStoredIn(DataLocation _location) const override { return _location == m_location; }
 	/// Cannot be stored in memory, but just in case.
 	bool hasSimpleZeroValueInMemory() const override { solAssert(false, ""); }
 
@@ -1240,6 +1252,7 @@ public:
 private:
 	TypePointer m_keyType;
 	TypePointer m_valueType;
+	DataLocation m_location;
 };
 
 /**
@@ -1329,6 +1342,7 @@ public:
 	enum class Kind {
 		Block, ///< "block"
 		Message, ///< "msg"
+		TVM, ///< "tvm"
 		Transaction, ///< "tx"
 		ABI, ///< "abi"
 		MetaType ///< "type(...)"

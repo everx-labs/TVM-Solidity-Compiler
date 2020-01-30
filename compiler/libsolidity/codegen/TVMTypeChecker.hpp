@@ -30,14 +30,14 @@ public:
 			if (isTvmIntrinsic(f->name())) {
 				checkTvmIntrinsic(f);
 			}
+			if (isInlineFunction(f) && f->isPublic()) {
+				cast_error(*f, "Inline function should have private visibility");
+			}
 		}
 
 		std::set<std::string> usedNames;
 		for (ContractDefinition const* c : contractDefinition->annotation().linearizedBaseContracts | boost::adaptors::reversed) {
 			for (VariableDeclaration const *variable: c->stateVariables()) {
-				if (variable->isPublic() && variable->value() != nullptr) {
-					cast_error(*variable, "Use sdk to init public state variables");
-				}
 				if (usedNames.count(variable->name()) != 0) {
 					cast_error(*variable, "Duplicate member variable");
 				}
@@ -51,13 +51,9 @@ public:
 			cast_error(*f, "Intrinsic should have private visibility");
 		}
 
-		if (isIn(f->name(), "tvm_init_storage", "tvm_commit")) {
+		if (isIn(f->name(), "tvm_commit", "tvm_reset_storage")) {
 			if (f->stateMutability() != StateMutability::NonPayable) {
 				cast_error(*f, R"(Should have "NonPayable" state mutability)");
-			}
-		} else if (f->name() == "tvm_my_public_key") {
-			if (f->stateMutability() != StateMutability::View) {
-				cast_error(*f, R"(Should have "view" state mutability)");
 			}
 		} else {
 			if (f->stateMutability() != StateMutability::Pure) {

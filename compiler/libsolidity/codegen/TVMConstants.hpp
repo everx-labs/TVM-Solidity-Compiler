@@ -46,5 +46,11 @@ namespace TvmConst {
 	namespace RuntimeException {
 		const int ArrayIndexOutOfRange = 50;
 		const int PopFromEmptyArray = 54;
+		const int DelMinFromEmptyMap = 56;
+		const int MinFromEmptyMap = 57;
+	}
+
+	namespace C7 {
+		const int ExtDestAddrIndex = 4;
 	}
 }

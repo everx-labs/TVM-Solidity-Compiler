@@ -32,7 +32,7 @@ void StackPusherHelper::f(const StructDefinition &structDefinition, const string
 			encodeParameter(type, position, [this, &memberToStackSize, &member, &pref](){
 				int stackSize = getStack().size();
 				const std::string memberName = pref + "@" + member->name();
-				push(+1, "PUSH s" + toString(stackSize - memberToStackSize.at(memberName)));
+				pushS(stackSize - memberToStackSize.at(memberName));
 			}, node);
 		}
 	}
@@ -49,7 +49,7 @@ void StackPusherHelper::encodeStruct(const StructType* structType, ASTNode const
 	// builder... builder data...
 	const int saveStackSize1 = getStack().size();
 	const int builderIndex = saveStackSize1 - (saveStackSize0 + 1);
-	push(+1, "PUSH s" + toString(builderIndex)); // builder... builder data... builder
+	pushS(builderIndex); // builder... builder data... builder
 
 	const StructDefinition& structDefinition = structType->structDefinition();
 	f(structDefinition, "", memberToStackSize, position, node);
@@ -63,36 +63,51 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 	switch (cat) {
 		case Type::Category::Address:
 		case Type::Category::Contract:
-			push(+1, "PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_");
+			pushZeroAddress();
+			if (isResultBuilder) {
+				push(+1, "NEWC");
+				push(-1, "STSLICE");
+			}
 			break;
 		case Type::Category::Bool:
 		case Type::Category::FixedBytes:
 		case Type::Category::Integer:
 		case Type::Category::Enum:
 			push(+1, "PUSHINT 0");
+			if (isResultBuilder) {
+				push(+1, "NEWC");
+				push(-1, storeIntegralOrAddress(type, false));
+			}
 			break;
 		case Type::Category::Array:
 			if (to<ArrayType>(type)->isByteArray()) {
 				push(+1, "NEWC");
-				push(0, "ENDC");
+				if (!isResultBuilder) {
+					push(0, "ENDC");
+				}
 				break;
 			}
-			push(+1, "NEWC");
-			pushInt(33);
-			push(-1, "STZEROES");
 			if (!isResultBuilder) {
-				push(0, "ENDC");
-				push(0, "CTOS");
+				pushInt(0);
+				push(+1, "NEWDICT");
+				push(-2 + 1, "PAIR");
+			} else {
+				push(+1, "NEWC");
+				pushInt(33);
+				push(-1, "STZEROES");
 			}
 			break;
 		case Type::Category::Mapping:
+			solAssert(!isResultBuilder, "");
 			push(+1, "NEWDICT");
 			break;
 		case Type::Category::Struct: {
 			auto structType = to<StructType>(type);
 			if (isTvmCell(structType)) {
 				push(+1, "NEWC");
-				push(0, "ENDC");
+				if (!isResultBuilder) {
+					push(0, "ENDC");
+				}
 				break;
 			}
 			StructCompiler structCompiler{this, structType};
@@ -100,6 +115,7 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 			break;
 		}
 		case Type::Category::Function: {
+			solAssert(!isResultBuilder, "");
 			auto functionType = to<FunctionType>(type);
 			StackPusherImpl2 pusher;
 			StackPusherHelper pusherHelper(&pusher, &ctx());
@@ -138,7 +154,7 @@ void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, 
 		} else {
 			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
 		}
-	} else if (valueCategory == Type::Category::Mapping || isTvmCell(&valueType)) {
+	} else if (valueCategory == Type::Category::Mapping) {
 		push(-3 + 1, dictOpcode + "GETOPTREF");
 	} else if (valueCategory == Type::Category::Struct) {
 		if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(&valueType))) {
@@ -164,57 +180,51 @@ void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, 
 				push(-1 + 1, "CTOS");
 			}
 		}
-	} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract, Type::Category::Array)) {
-		if (valueCategory == Type::Category::Array && to<ArrayType>(&valueType)->isByteArray()) {
+	} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract) || isByteArrayOrString(&valueType)) {
+		if (isByteArrayOrString(&valueType)) {
 			push(-3 + 2, dictOpcode + "GETREF");
 		} else {
 			push(-3 + 2, dictOpcode + "GET");
 		}
+
 		if (pushDefaultValue) {
 			pushDefaultDictValue();
 			push(-2, "IFNOT");
 		} else {
 			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
 		}
-	} else if (isIntegralType(&valueType)) {
+	} else if (isIntegralType(&valueType) || isUsualArray(&valueType)) {
 		push(-3 + 2, dictOpcode + "GET");
 		if (pushDefaultValue) {
 			StackPusherImpl2 pusher;
 			StackPusherHelper pusherHelper(&pusher, &ctx());
-			pusher.push(0, preloadIntergal(&valueType));
+
+			pusherHelper.preload(&valueType);
 			pushCont(pusher.codeLines());
 
 			pushDefaultDictValue();
 			push(-3, "IFELSE");
 		} else {
 			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-			push(0, preloadIntergal(&valueType));
+			preload(&valueType);
 		}
 	} else {
 		cast_error(node, "Unsupported value type: " + valueType.toString());
 	}
 }
 
-std::vector<VariableDeclaration const *> StackPusherHelper::notConstantAndNotPublicStateVariables() {
+std::vector<VariableDeclaration const *> StackPusherHelper::notConstantStateVariables() {
 	std::vector<VariableDeclaration const*> variableDeclarations;
 	std::vector<ContractDefinition const*> mainChain = getContractsChain(ctx().getContract());
 	for (ContractDefinition const* contract : mainChain) {
 		for (VariableDeclaration const *variable: contract->stateVariables()) {
-			if (!variable->isConstant() && !variable->isPublic()) {
+			if (!variable->isConstant()) {
 				variableDeclarations.push_back(variable);
 			}
 		}
 	}
 	return variableDeclarations;
 }
-
-bool StackPusherHelper::isNotConstantAndNotPublicStateVariables(VariableDeclaration const* vd) {
-	std::vector<VariableDeclaration const *> arr = notConstantAndNotPublicStateVariables();
-	return std::any_of(arr.begin(), arr.end(), [&vd](VariableDeclaration const * element){
-		return element->name() == vd->name();
-	});
-}
-
 
 void StackPusherHelper::pushLog(const std::string& str) {
 	if (TVMCompiler::g_with_logstr) {

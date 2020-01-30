@@ -59,6 +59,7 @@ private:
 		bool tryAddField(const Field &f, bool useAllRefs = false);
 		void removeFirstField(int index);
 		bool tryAddChild(int child);
+		void removeChildIfHave(int v);
 	};
 
 	struct PathToStructMember {
@@ -107,6 +108,7 @@ private:
 	void skip(const std::vector<FieldSizeInfo> &fieldInfo);
 	void split(const FieldSizeInfo& fieldSizeInfo);
 	void split(int bitQty, int refQty);
+	void merge(const FieldSizeInfo& fieldSizeInfo);
 	static std::vector<VariableDeclaration const*> fVariableDeclarations(StructDefinition const* structDefinition);
 }; // end StructCompiler
 } // end dev::solidity

@@ -35,17 +35,17 @@ PUSHCONT {
 	;; push identifier idx
 	DUP
 	;; push identifier arraySize
-	PUSH s4
+	PUSH S4
 	;; <
 	LESS
 	NOT DUP IFRET DROP
 	;; m_isUntil = 1
 	;; push identifier valueLength
-	PUSH s1
+	PUSH S1
 	;; push identifier idx
-	PUSH s1
+	PUSH S1
 	;; push identifier dict
-	PUSH s4
+	PUSH S4
 	PUSHINT 32
 	DICTUGET
 	PUSHCONT { 
@@ -61,7 +61,7 @@ PUSHCONT {
 	}
 	IFELSE
 	;; push identifier builder
-	PUSH s5
+	PUSH S5
 	STSLICE
 	POP s5
 	;; ++
@@ -78,7 +78,7 @@ DROP
 ; for end
 ;; return
 ;; push identifier builder
-PUSH s3
+PUSH S3
 XCHG s4
 BLKDROP 4
 ; end abi_encode_packed_macro
@@ -93,9 +93,9 @@ BLKDROP 4
 NEWC
 ;; decl: msg_builder
 ;; push identifier grams_value
-PUSH s3
+PUSH S3
 ;; push identifier remote_addr
-PUSH s5
+PUSH S5
 PUSHINT 0
 ; make__CommonMsgInfoRelaxed__int_msg_info__inline
 ;; param: value
@@ -106,17 +106,17 @@ NEWC
 PUSHINT 1
 STUR 2
 ;; push identifier bounce
-PUSH s1
+PUSH S1
 STIR 1
 PUSHINT 1
 STZEROES
 MYADDR
 STSLICER
 ;; push identifier remote_addr
-PUSH s2
+PUSH S2
 STSLICER
 ;; push identifier value
-PUSH s3
+PUSH S3
 STGRAMS
 PUSHINT 1
 STZEROES
@@ -136,55 +136,55 @@ STBR
 PUSHINT 1
 STONES
 ;; push identifier my_contract
-PUSH s5
+PUSH S5
 ;; push identifier msg_builder
-PUSH s1
+PUSH S1
 ; store_either_for_cell_inline
 ;; param: x
 ;; param: builder
 ;; push identifier x
-PUSH s1
+PUSH S1
 CTOS
 ;; decl: slice_x
 ;; if
 ;; push identifier builder
-PUSH s1
+PUSH S1
 BREMBITS ; tvm_brembits
 ;; push identifier slice_x
-PUSH s1
+PUSH S1
 SBITS ; tvm_sbits
 ;; >
 GREATER
 PUSHCONT {
 	;; push identifier builder
-	PUSH s1
+	PUSH S1
 	PUSHINT 1
 	STZEROES
 	POP s2
 	;; push identifier slice_x
 	DUP
 	;; push identifier builder
-	PUSH s2
+	PUSH S2
 	STSLICE
 	POP s2
 }
 PUSHCONT {
 	;; push identifier builder
-	PUSH s1
+	PUSH S1
 	PUSHINT 1
 	STONES
 	POP s2
 	;; push identifier x
-	PUSH s2
+	PUSH S2
 	;; push identifier builder
-	PUSH s2
+	PUSH S2
 	STREF
 	POP s2
 }
 IFELSE
 ;; return
 ;; push identifier builder
-PUSH s1
+PUSH S1
 XCHG s3
 BLKDROP 3
 ; end store_either_for_cell_inline
@@ -196,15 +196,15 @@ NIP
 NEWC
 ;; decl: body_builder
 ;; push identifier constuctor_id
-PUSH s3
+PUSH S3
 STUR 32
 ;; push identifier encodedParams
-PUSH s2
+PUSH S2
 STBR
 ;; push identifier body_builder
 DUP
 ;; push identifier msg_builder
-PUSH s2
+PUSH S2
 ; store_either_for_builder_inline
 ;; param: x
 ;; param: builder
@@ -213,7 +213,7 @@ PUSH s2
 DUP
 BREMBITS ; tvm_brembits
 ;; push identifier x
-PUSH s2
+PUSH S2
 BBITS
 ;; >
 GREATER
@@ -221,14 +221,14 @@ PUSHCONT {
 	PUSHINT 1
 	STZEROES
 	;; push identifier x
-	PUSH s1
+	PUSH S1
 	STBR
 }
 PUSHCONT {
 	PUSHINT 1
 	STONES
 	;; push identifier x
-	PUSH s1
+	PUSH S1
 	STBREFR
 }
 IFELSE
@@ -241,7 +241,7 @@ NIP
 POP s2
 ; end colValue
 ;; push identifier msg_builder
-PUSH s1
+PUSH S1
 ENDC
 PUSHINT 1
 SENDRAWMSG
@@ -257,9 +257,9 @@ BLKDROP 7
 NEWC
 ;; decl: msg_builder
 ;; push identifier grams
-PUSH s2
+PUSH S2
 ;; push identifier remote_addr
-PUSH s4
+PUSH S4
 PUSHINT 0
 ; make__CommonMsgInfoRelaxed__int_msg_info__inline
 ;; param: value
@@ -270,17 +270,17 @@ NEWC
 PUSHINT 1
 STUR 2
 ;; push identifier bounce
-PUSH s1
+PUSH S1
 STIR 1
 PUSHINT 1
 STZEROES
 MYADDR
 STSLICER
 ;; push identifier remote_addr
-PUSH s2
+PUSH S2
 STSLICER
 ;; push identifier value
-PUSH s3
+PUSH S3
 STGRAMS
 PUSHINT 1
 STZEROES
@@ -300,55 +300,55 @@ STBR
 PUSHINT 1
 STONES
 ;; push identifier my_contract
-PUSH s4
+PUSH S4
 ;; push identifier msg_builder
-PUSH s1
+PUSH S1
 ; store_either_for_cell_inline
 ;; param: x
 ;; param: builder
 ;; push identifier x
-PUSH s1
+PUSH S1
 CTOS
 ;; decl: slice_x
 ;; if
 ;; push identifier builder
-PUSH s1
+PUSH S1
 BREMBITS ; tvm_brembits
 ;; push identifier slice_x
-PUSH s1
+PUSH S1
 SBITS ; tvm_sbits
 ;; >
 GREATER
 PUSHCONT {
 	;; push identifier builder
-	PUSH s1
+	PUSH S1
 	PUSHINT 1
 	STZEROES
 	POP s2
 	;; push identifier slice_x
 	DUP
 	;; push identifier builder
-	PUSH s2
+	PUSH S2
 	STSLICE
 	POP s2
 }
 PUSHCONT {
 	;; push identifier builder
-	PUSH s1
+	PUSH S1
 	PUSHINT 1
 	STONES
 	POP s2
 	;; push identifier x
-	PUSH s2
+	PUSH S2
 	;; push identifier builder
-	PUSH s2
+	PUSH S2
 	STREF
 	POP s2
 }
 IFELSE
 ;; return
 ;; push identifier builder
-PUSH s1
+PUSH S1
 XCHG s3
 BLKDROP 3
 ; end store_either_for_cell_inline
@@ -358,55 +358,55 @@ BLKDROP 3
 NIP
 ; end colValue
 ;; push identifier payload
-PUSH s1
+PUSH S1
 ;; push identifier msg_builder
-PUSH s1
+PUSH S1
 ; store_either_for_cell_inline
 ;; param: x
 ;; param: builder
 ;; push identifier x
-PUSH s1
+PUSH S1
 CTOS
 ;; decl: slice_x
 ;; if
 ;; push identifier builder
-PUSH s1
+PUSH S1
 BREMBITS ; tvm_brembits
 ;; push identifier slice_x
-PUSH s1
+PUSH S1
 SBITS ; tvm_sbits
 ;; >
 GREATER
 PUSHCONT {
 	;; push identifier builder
-	PUSH s1
+	PUSH S1
 	PUSHINT 1
 	STZEROES
 	POP s2
 	;; push identifier slice_x
 	DUP
 	;; push identifier builder
-	PUSH s2
+	PUSH S2
 	STSLICE
 	POP s2
 }
 PUSHCONT {
 	;; push identifier builder
-	PUSH s1
+	PUSH S1
 	PUSHINT 1
 	STONES
 	POP s2
 	;; push identifier x
-	PUSH s2
+	PUSH S2
 	;; push identifier builder
-	PUSH s2
+	PUSH S2
 	STREF
 	POP s2
 }
 IFELSE
 ;; return
 ;; push identifier builder
-PUSH s1
+PUSH S1
 XCHG s3
 BLKDROP 3
 ; end store_either_for_cell_inline
@@ -428,14 +428,14 @@ BLKDROP 5
 ;; param: my_contract
 ;; param: pubkey
 ;; push identifier my_contract
-PUSH s1
+PUSH S1
 CTOS
 ;; decl: slice
 NEWC
 ;; decl: builder
 ;; if
 ;; push identifier slice
-PUSH s1
+PUSH S1
 LDU 1
 POP s3
 ISZERO
@@ -447,7 +447,7 @@ PUSHCONT {
 	PUSHINT 1
 	STONES
 	;; push identifier slice
-	PUSH s1
+	PUSH S1
 	LDU 32
 	POP s3
 	STUR 32
@@ -455,7 +455,7 @@ PUSHCONT {
 IFELSE
 ;; if
 ;; push identifier slice
-PUSH s1
+PUSH S1
 LDU 1
 POP s3
 ISZERO
@@ -467,7 +467,7 @@ PUSHCONT {
 	PUSHINT 1
 	STONES
 	;; push identifier slice
-	PUSH s1
+	PUSH S1
 	LDU 2
 	POP s3
 	STUR 2
@@ -475,7 +475,7 @@ PUSHCONT {
 IFELSE
 ;; if
 ;; push identifier slice
-PUSH s1
+PUSH S1
 LDU 1
 POP s3
 ISZERO
@@ -487,7 +487,7 @@ PUSHCONT {
 	PUSHINT 1
 	STONES
 	;; push identifier slice
-	PUSH s1
+	PUSH S1
 	LDREF
 	POP s3
 	STREFR
@@ -495,7 +495,7 @@ PUSHCONT {
 IFELSE
 ;; if
 ;; push identifier slice
-PUSH s1
+PUSH S1
 LDU 1
 POP s3
 NEQINT 1
@@ -509,10 +509,10 @@ STONES
 NEWC
 ;; decl: key_builder
 ;; push identifier pubkey
-PUSH s3
+PUSH S3
 STUR 256
 ;; push identifier slice
-PUSH s2
+PUSH S2
 LDREF
 POP s4
 CTOS
@@ -521,58 +521,58 @@ LDDICT
 SWAP
 ;; decl: dict
 ;; push identifier key_builder
-PUSH s2
+PUSH S2
 PUSHINT 0
 ;; push identifier dict
-PUSH s2
+PUSH S2
 PUSHINT 64
 DICTUSETB
 NIP
 NEWC
 ;; decl: dict_builder
 ;; push identifier dict
-PUSH s1
+PUSH S1
 SWAP
 STDICT
 ;; push identifier dict_builder
 DUP
 ENDC
 ;; push identifier builder
-PUSH s5
+PUSH S5
 STREF
 POP s5
 ;; if
 ;; push identifier slice
-PUSH s5
+PUSH S5
 LDU 1
 POP s7
 ISZERO
 PUSHCONT {
 	;; push identifier builder
-	PUSH s4
+	PUSH S4
 	PUSHINT 1
 	STZEROES
 	POP s5
 }
 PUSHCONT {
 	;; push identifier builder
-	PUSH s4
+	PUSH S4
 	PUSHINT 1
 	STONES
 	POP s5
 	;; push identifier slice
-	PUSH s5
+	PUSH S5
 	LDREF
 	POP s7
 	;; push identifier builder
-	PUSH s5
+	PUSH S5
 	STREF
 	POP s5
 }
 IFELSE
 ;; return
 ;; push identifier builder
-PUSH s4
+PUSH S4
 ENDC
 XCHG s8
 BLKDROP 8
@@ -589,12 +589,12 @@ STZEROES
 PUSHINT 1
 STONES
 ;; push identifier code
-PUSH s2
+PUSH S2
 STREFR
 PUSHINT 1
 STONES
 ;; push identifier data
-PUSH s1
+PUSH S1
 STREFR
 PUSHINT 1
 STZEROES
@@ -614,9 +614,9 @@ BLKDROP 3
 NEWC
 ;; decl: msg_builder
 ;; push identifier grams_value
-PUSH s3
+PUSH S3
 ;; push identifier remote_addr
-PUSH s3
+PUSH S3
 PUSHINT -1
 ; make__CommonMsgInfoRelaxed__int_msg_info__inline
 ;; param: value
@@ -627,17 +627,17 @@ NEWC
 PUSHINT 1
 STUR 2
 ;; push identifier bounce
-PUSH s1
+PUSH S1
 STIR 1
 PUSHINT 1
 STZEROES
 MYADDR
 STSLICER
 ;; push identifier remote_addr
-PUSH s2
+PUSH S2
 STSLICER
 ;; push identifier value
-PUSH s3
+PUSH S3
 STGRAMS
 PUSHINT 1
 STZEROES
@@ -657,9 +657,9 @@ STBR
 PUSHINT 0
 STUR 1
 ;; push identifier body
-PUSH s1
+PUSH S1
 ;; push identifier msg_builder
-PUSH s1
+PUSH S1
 ; store_either_for_builder_inline
 ;; param: x
 ;; param: builder
@@ -668,7 +668,7 @@ PUSH s1
 DUP
 BREMBITS ; tvm_brembits
 ;; push identifier x
-PUSH s2
+PUSH S2
 BBITS
 ;; >
 GREATER
@@ -676,14 +676,14 @@ PUSHCONT {
 	PUSHINT 1
 	STZEROES
 	;; push identifier x
-	PUSH s1
+	PUSH S1
 	STBR
 }
 PUSHCONT {
 	PUSHINT 1
 	STONES
 	;; push identifier x
-	PUSH s1
+	PUSH S1
 	STBREFR
 }
 IFELSE
@@ -703,6 +703,29 @@ SENDRAWMSG
 BLKDROP 4
 ; end send_internal_message_macro
 
+.macro make_std_address_with_wid_macro
+; make_std_address_with_wid_macro
+;; param: _wid
+;; param: _address
+NEWC
+;; decl: builder
+PUSHINT 4
+STUR 3
+;; push identifier _wid
+PUSH S2
+STIR 8
+;; push identifier _address
+PUSH S1
+STUR 256
+;; return
+;; push identifier builder
+DUP
+ENDC
+CTOS
+XCHG s3
+BLKDROP 3
+; end make_std_address_with_wid_macro
+
 .macro make_std_address_with_zero_wid_macro
 ; make_std_address_with_zero_wid_macro
 ;; param: _address
@@ -711,7 +734,7 @@ NEWC
 PUSHINT 1024
 STUR 11
 ;; push identifier _address
-PUSH s1
+PUSH S1
 STUR 256
 ;; return
 ;; push identifier builder
@@ -733,17 +756,17 @@ NEWC
 PUSHINT 1
 STUR 2
 ;; push identifier bounce
-PUSH s2
+PUSH S2
 STIR 1
 PUSHINT 1
 STZEROES
 MYADDR
 STSLICER
 ;; push identifier remote_addr
-PUSH s4
+PUSH S4
 STSLICER
 ;; push identifier grams_value
-PUSH s3
+PUSH S3
 STGRAMS
 PUSHINT 1
 STZEROES
@@ -761,7 +784,7 @@ STZEROES
 DUP
 ENDC
 ;; push identifier sendrawmsg_flag
-PUSH s2
+PUSH S2
 SENDRAWMSG
 BLKDROP 5
 ; end send_accurate_internal_message_macro
@@ -778,17 +801,17 @@ NEWC
 PUSHINT 1
 STUR 2
 ;; push identifier bounce
-PUSH s3
+PUSH S3
 STIR 1
 PUSHINT 1
 STZEROES
 MYADDR
 STSLICER
 ;; push identifier remote_addr
-PUSH s5
+PUSH S5
 STSLICER
 ;; push identifier grams_value
-PUSH s4
+PUSH S4
 STGRAMS
 PUSHINT 1
 STZEROES
@@ -803,55 +826,55 @@ STUR 32
 PUSHINT 1
 STZEROES
 ;; push identifier body
-PUSH s1
+PUSH S1
 ;; push identifier builder
-PUSH s1
+PUSH S1
 ; store_either_for_cell_inline
 ;; param: x
 ;; param: builder
 ;; push identifier x
-PUSH s1
+PUSH S1
 CTOS
 ;; decl: slice_x
 ;; if
 ;; push identifier builder
-PUSH s1
+PUSH S1
 BREMBITS ; tvm_brembits
 ;; push identifier slice_x
-PUSH s1
+PUSH S1
 SBITS ; tvm_sbits
 ;; >
 GREATER
 PUSHCONT {
 	;; push identifier builder
-	PUSH s1
+	PUSH S1
 	PUSHINT 1
 	STZEROES
 	POP s2
 	;; push identifier slice_x
 	DUP
 	;; push identifier builder
-	PUSH s2
+	PUSH S2
 	STSLICE
 	POP s2
 }
 PUSHCONT {
 	;; push identifier builder
-	PUSH s1
+	PUSH S1
 	PUSHINT 1
 	STONES
 	POP s2
 	;; push identifier x
-	PUSH s2
+	PUSH S2
 	;; push identifier builder
-	PUSH s2
+	PUSH S2
 	STREF
 	POP s2
 }
 IFELSE
 ;; return
 ;; push identifier builder
-PUSH s1
+PUSH S1
 XCHG s3
 BLKDROP 3
 ; end store_either_for_cell_inline
@@ -864,136 +887,10 @@ NIP
 DUP
 ENDC
 ;; push identifier sendrawmsg_flag
-PUSH s3
+PUSH S3
 SENDRAWMSG
 BLKDROP 6
 ; end send_accurate_internal_message_with_body_macro
-
-.globl	store_either_for_builder_inline
-.type	store_either_for_builder_inline, @function
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Function: store_either_for_builder_inline
-;; param: x
-;; param: builder
-;; if
-;; push identifier builder
-DUP
-BREMBITS ; tvm_brembits
-;; push identifier x
-PUSH s2
-BBITS
-;; >
-GREATER
-PUSHCONT {
-	PUSHINT 1
-	STZEROES
-	;; push identifier x
-	PUSH s1
-	STBR
-}
-PUSHCONT {
-	PUSHINT 1
-	STONES
-	;; push identifier x
-	PUSH s1
-	STBREFR
-}
-IFELSE
-;; return
-NIP
-RET
-
-.globl	store_either_for_cell_inline
-.type	store_either_for_cell_inline, @function
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Function: store_either_for_cell_inline
-;; param: x
-;; param: builder
-;; push identifier x
-PUSH s1
-CTOS
-;; decl: slice_x
-;; if
-;; push identifier builder
-PUSH s1
-BREMBITS ; tvm_brembits
-;; push identifier slice_x
-PUSH s1
-SBITS ; tvm_sbits
-;; >
-GREATER
-PUSHCONT {
-	;; push identifier builder
-	PUSH s1
-	PUSHINT 1
-	STZEROES
-	POP s2
-	;; push identifier slice_x
-	DUP
-	;; push identifier builder
-	PUSH s2
-	STSLICE
-	POP s2
-}
-PUSHCONT {
-	;; push identifier builder
-	PUSH s1
-	PUSHINT 1
-	STONES
-	POP s2
-	;; push identifier x
-	PUSH s2
-	;; push identifier builder
-	PUSH s2
-	STREF
-	POP s2
-}
-IFELSE
-;; return
-;; push identifier builder
-PUSH s1
-XCHG s3
-BLKDROP 3
-RET
-
-.globl	make__CommonMsgInfoRelaxed__int_msg_info__inline
-.type	make__CommonMsgInfoRelaxed__int_msg_info__inline, @function
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Function: make__CommonMsgInfoRelaxed__int_msg_info__inline
-;; param: value
-;; param: remote_addr
-;; param: bounce
-NEWC
-;; decl: builder
-PUSHINT 1
-STUR 2
-;; push identifier bounce
-PUSH s1
-STIR 1
-PUSHINT 1
-STZEROES
-MYADDR
-STSLICER
-;; push identifier remote_addr
-PUSH s2
-STSLICER
-;; push identifier value
-PUSH s3
-STGRAMS
-PUSHINT 1
-STZEROES
-PUSHINT 0
-STGRAMS
-PUSHINT 0
-STGRAMS
-PUSHINT 64
-STZEROES
-NOW
-STUR 32
-;; return
-XCHG s3
-BLKDROP 3
-RET
 
 .macro push_persistent_data_from_c4_to_c7_macro
 ; push_persistent_data_from_c4_to_c7_macro
@@ -1017,13 +914,13 @@ POP s2
 PUSHCTR c7
 ;; decl: c7
 ;; push identifier cellTree
-PUSH s2
+PUSH S2
 TPUSH
 ;; push identifier dict
-PUSH s3
+PUSH S3
 TPUSH
 ;; push identifier time_int_flag
-PUSH s1
+PUSH S1
 TPUSH
 ;; push identifier c7
 DUP
@@ -1072,7 +969,7 @@ STZEROES
 DUP
 BREMBITS ; tvm_brembits
 ;; push identifier body
-PUSH s2
+PUSH S2
 BBITS
 ;; >
 GREATER
@@ -1080,14 +977,14 @@ PUSHCONT {
 	PUSHINT 1
 	STZEROES
 	;; push identifier body
-	PUSH s1
+	PUSH S1
 	STBR
 }
 PUSHCONT {
 	PUSHINT 1
 	STONES
 	;; push identifier body
-	PUSH s1
+	PUSH S1
 	STBREFR
 }
 IFELSE
@@ -1099,6 +996,55 @@ SENDRAWMSG
 DROP2
 ; end send_external_message_macro
 
+.macro send_external_message_with_dest_macro
+; send_external_message_with_dest_macro
+;; param: dest
+;; param: body
+NEWC
+;; decl: builder
+PUSHINT 3
+STUR 2
+MYADDR
+STSLICER
+;; push identifier dest
+PUSH S2
+STSLICER
+LTIME
+STUR 64
+PUSHINT 33
+STZEROES
+;; if
+;; push identifier builder
+DUP
+BREMBITS ; tvm_brembits
+;; push identifier body
+PUSH S2
+BBITS
+;; >
+GREATER
+PUSHCONT {
+	PUSHINT 1
+	STZEROES
+	;; push identifier body
+	PUSH S1
+	STBR
+}
+PUSHCONT {
+	PUSHINT 1
+	STONES
+	;; push identifier body
+	PUSH S1
+	STBREFR
+}
+IFELSE
+;; push identifier builder
+DUP
+ENDC
+PUSHINT 1
+SENDRAWMSG
+BLKDROP 3
+; end send_external_message_with_dest_macro
+
 .macro make_address_macro
 ; make_address_macro
 ;; param: wid
@@ -1108,10 +1054,10 @@ NEWC
 PUSHINT 4
 STUR 3
 ;; push identifier wid
-PUSH s2
+PUSH S2
 STIR 8
 ;; push identifier addr
-PUSH s1
+PUSH S1
 STUR 256
 ;; return
 ;; push identifier builder
@@ -1144,10 +1090,10 @@ IF
 DUP
 THIRD
 ;; push identifier tuple
-PUSH s1
+PUSH S1
 INDEX 3
 PLDU 256
-BLKSWAP 2, 2
+SWAP2
 DROP2
 ; end unpack_address_macro
 
@@ -1175,7 +1121,7 @@ PUSHINT 0 ; selector
 ;; param: msg_body_slice
 ;; param: 
 ;; push identifier inbound_message
-PUSH s2
+PUSH S2
 CTOS
 ; expValue
 ; end expValue
@@ -1183,14 +1129,14 @@ CTOS
 POP s3
 ; end colValue
 ;; push identifier inbound_message
-PUSH s2
+PUSH S2
 PUSHINT 3
 SDSKIPFIRST
 PLDU 1
 ;; decl: bounced
 ;; if
 ;; push identifier msg_body_slice
-PUSH s2
+PUSH S2
 SEMPTY
 PUSHCONT {
 	;; if
@@ -1199,7 +1145,7 @@ PUSHCONT {
 	EQINT 0
 	PUSHCONT {
 		;; push identifier msg_body_slice
-		PUSH s2
+		PUSH S2
 		PUSHINT $fallback$
 		JMP 1
 		;; return
@@ -1213,13 +1159,13 @@ PUSHCONT {
 }
 IFJMP
 ;; push identifier msg_body_slice
-PUSH s2
+PUSH S2
 LDU 32
 POP s4
 ;; decl: func_id
 ;; if
 ;; push identifier bounced
-PUSH s1
+PUSH S1
 EQINT 1
 PUSHCONT {
 	;; push identifier func_id
@@ -1232,9 +1178,9 @@ PUSHCONT {
 }
 IFJMP
 ;; push identifier msg_body_slice
-PUSH s3
+PUSH S3
 ;; push identifier func_id
-PUSH s1
+PUSH S1
 JMP 1
 BLKDROP 7
 
@@ -1273,7 +1219,7 @@ IFELSE
 ;; param: 
 ;; param: 
 ;; push identifier msg_body_slice
-PUSH s2
+PUSH S2
 LDU 32
 LDU 64
 POP s5
@@ -1334,21 +1280,21 @@ FALSE
 ;; decl: result
 ;; if
 ;; push identifier previous_message_timestamp
-PUSH s3
+PUSH S3
 ;; push identifier msg_timestamp
-PUSH s6
+PUSH S6
 ;; <
 LESS
 PUSHCONT {
 	;; if
 	;; push identifier msg_timestamp
-	PUSH s5
+	PUSH S5
 	NOW
 	PUSHINT 1000
 	;; *
 	MUL
 	;; push identifier interval
-	PUSH s4
+	PUSH S4
 	;; +
 	ADD
 	;; <
@@ -1357,17 +1303,17 @@ PUSHCONT {
 		NEWC
 		;; decl: c4_builder
 		;; push identifier dict
-		PUSH s5
+		PUSH S5
 		SWAP
 		STDICT
 		;; push identifier msg_timestamp
-		PUSH s6
+		PUSH S6
 		STUR 64
 		;; push identifier interval
-		PUSH s3
+		PUSH S3
 		STUR 64
 		;; push identifier c4
-		PUSH s2
+		PUSH S2
 		STSLICER
 		;; push identifier c4_builder
 		DUP
@@ -1391,9 +1337,9 @@ BLKDROP 5
 ; end replay_prot_inline
 PUSHCONT {
 	;; push identifier msg_body_slice
-	PUSH s4
+	PUSH S4
 	;; push identifier func_id
-	PUSH s2
+	PUSH S2
 	JMP 1
 	;; return
 	BLKDROP 10
@@ -1403,117 +1349,6 @@ IFJMP
 PUSHINT 52
 THROWANY
 BLKDROP 10
-
-.globl	replay_prot_inline
-.type	replay_prot_inline, @function
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Function: replay_prot_inline
-;; param: msg_timestamp
-PUSHINT 0
-;; decl: dict
-PUSHINT 0
-;; decl: previous_message_timestamp
-PUSHINT 0
-;; decl: interval
-PUSHROOT
-CTOS
-;; decl: c4
-LDDICT
-SWAP
-; expValue
-; end expValue
-; colValue
-POP s4
-; end colValue
-;; if
-;; push identifier c4
-DUP
-PUSHINT 128
-SCHKBITSQ
-PUSHCONT {
-	LDU 64
-	SWAP
-	; expValue
-	; end expValue
-	; colValue
-	POP s3
-	; end colValue
-	LDU 64
-	SWAP
-	; expValue
-	; end expValue
-	; colValue
-	POP s2
-	; end colValue
-}
-PUSHCONT {
-	PUSHINT 1800000
-	; expValue
-	; end expValue
-	; colValue
-	POP s2
-	; end colValue
-}
-IFELSE
-FALSE
-;; decl: result
-;; if
-;; push identifier previous_message_timestamp
-PUSH s3
-;; push identifier msg_timestamp
-PUSH s6
-;; <
-LESS
-PUSHCONT {
-	;; if
-	;; push identifier msg_timestamp
-	PUSH s5
-	NOW
-	PUSHINT 1000
-	;; *
-	MUL
-	;; push identifier interval
-	PUSH s4
-	;; +
-	ADD
-	;; <
-	LESS
-	PUSHCONT {
-		NEWC
-		;; decl: c4_builder
-		;; push identifier dict
-		PUSH s5
-		SWAP
-		STDICT
-		;; push identifier msg_timestamp
-		PUSH s6
-		STUR 64
-		;; push identifier interval
-		PUSH s3
-		STUR 64
-		;; push identifier c4
-		PUSH s2
-		STSLICER
-		;; push identifier c4_builder
-		DUP
-		ENDC
-		POPROOT
-		TRUE
-		; expValue
-		; end expValue
-		; colValue
-		POP s2
-		; end colValue
-		;; drop locals
-		DROP
-	}
-	IF
-}
-IF
-;; return
-XCHG s5
-BLKDROP 5
-RET
 
 .macro my_pubkey_macro
 ; my_pubkey_macro
@@ -1620,7 +1455,7 @@ INDEX 3
 ;; push identifier addr
 DUP
 ;; push identifier addr
-PUSH s1
+PUSH S1
 SBITS ; tvm_sbits
 PLDUX
 NIP

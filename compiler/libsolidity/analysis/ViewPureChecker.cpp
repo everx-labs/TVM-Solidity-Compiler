@@ -323,6 +323,12 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 	ASTString const& member = _memberAccess.memberName();
 	switch (_memberAccess.expression().annotation().type->category())
 	{
+	case Type::Category::Mapping:
+		if (member == "delMin") {
+			if (_memberAccess.expression().annotation().type->dataStoredIn(DataLocation::Storage))
+				mutability = StateMutability::NonPayable;
+		}
+		break;
 	case Type::Category::Address:
 		if (member == "balance")
 			mutability = StateMutability::View;
@@ -339,6 +345,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::Block, "blockhash"},
 			{MagicType::Kind::Message, "data"},
 			{MagicType::Kind::Message, "sig"},
+			{MagicType::Kind::Message, "pubkey"},
 			{MagicType::Kind::MetaType, "creationCode"},
 			{MagicType::Kind::MetaType, "runtimeCode"}
 		};
@@ -366,6 +373,10 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 		auto const& type = dynamic_cast<ArrayType const&>(*_memberAccess.expression().annotation().type);
 		if (member == "length" && type.isDynamicallySized() && type.dataStoredIn(DataLocation::Storage))
 			mutability = writes ? StateMutability::NonPayable : StateMutability::View;
+		if (member == "pop" || member == "push"){
+			if (_memberAccess.expression().annotation().type->dataStoredIn(DataLocation::Storage))
+				mutability = StateMutability::NonPayable;
+		}
 		break;
 	}
 	default:

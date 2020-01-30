@@ -27,7 +27,6 @@ namespace solidity {
 
 class FunctionCallCompiler : public StackPusherHelper {
 	IExpressionCompiler* const m_exprCompiler;
-	bool m_isResultNeeded;
 	
 protected:
 	void acceptExpr(const Expression* expr) {
@@ -38,7 +37,6 @@ public:
 	FunctionCallCompiler(IStackPusher* pusher, IExpressionCompiler* exprCompiler, const TVMCompilerContext& ctx)
 		: StackPusherHelper(pusher, &ctx)
 		, m_exprCompiler(exprCompiler)
-		, m_isResultNeeded{true}
 	{
 
 	}
@@ -55,8 +53,7 @@ public:
 		dropUnder(1, _functionCall.arguments().size());
 	}
 
-	void compile(FunctionCall const& _functionCall, bool isResultNeeded = true) {
-		m_isResultNeeded = isResultNeeded;
+	void compile(FunctionCall const& _functionCall) {
 		
 		if (checkNewExpression(_functionCall)) return;
 		if (checkTvmIntrinsic(_functionCall)) return;
@@ -81,8 +78,10 @@ public:
 				acceptExpr(arg.get());
 			auto category = getType(&ma->expression())->category();
 			if (checkForSuper(*ma, category)) return;
-			if (checkForTransfer(*ma, category)) return;
+			if (checkForAddressMethods(*ma, category)) return;
 			if (checkForMemberAccessTypeType(*ma, category)) return;
+			if (checkForMagicFunction(*ma, category)) return;
+			if (checkForTypeTypeMember(*ma, category)) return;
 			cast_error(*ma, "Unsupported function call");
 		}
 		
@@ -110,7 +109,37 @@ protected:
 		solAssert(false, "");
 	}
 
-	bool checkForTransfer(MemberAccess const& _node, Type::Category category) {
+	bool checkForTypeTypeMember(MemberAccess const& _node, Type::Category category) {
+		if (category != Type::Category::TypeType)
+			return false;
+		if (_node.memberName() == "makeAddrExtern") {
+			// addr_extern$01 len:(## 9) external_address:(bits len) = MsgAddressExt;
+			push(0, ";; address.makeAddrExtern()");
+			push(+1, "DUP"); // numb cntBit cntBit
+			pushInt(1); // numb cntBit cntBit 1
+			push(+1, "NEWC"); // numb cntBit cntBit 1 builder
+			push(-1, "STU 2"); // numb cntBit cntBit builder'
+			push(-1, "STU 9"); // numb cntBit builder''
+			push(0, "SWAP"); // numb builder'' cntBit
+			push(-3 + 1, "STUX"); // builder'''
+			push(0, "ENDC");
+			push(0, "CTOS"); // extAddress
+			return true;
+		}
+		if (_node.memberName() == "makeAddrNone") {
+			push(0, ";; address.makeAddrNone()");
+			push(+1, "PUSHSLICE x2_");
+			return true;
+		}
+		if (_node.memberName() == "makeAddrStd") {
+			push(0, ";; address.makeAddrStd()");
+			pushPrivateFunctionOrMacroCall(-2 + 1, "make_std_address_with_wid_macro");
+			return true;
+		}
+		return false;
+	}
+
+	bool checkForAddressMethods(MemberAccess const& _node, Type::Category category) {
 		if (category != Type::Category::Address)
 			return false;
 		if (_node.memberName() == "transfer") {
@@ -123,9 +152,63 @@ protected:
 			pushPrivateFunctionOrMacroCall(-3, "send_internal_message_macro");
 			return true;
 		}
+		if (_node.memberName() == "isStdZero") {
+			push(0, ";; address.isStdZero()");
+			acceptExpr(&_node.expression());
+			pushZeroAddress();
+			push(-2 + 1, "SDEQ");
+			return true;
+		}
+		if (_node.memberName() == "isExternZero") {
+			push(0, ";; address.isExternZero()");
+			acceptExpr(&_node.expression());
+			push(+1, "PUSHSLICE x401_");
+			push(-2 + 1, "SDEQ");
+			return true;
+		}
+		if (_node.memberName() == "isNone") {
+			push(0, ";; address.isNone()");
+			acceptExpr(&_node.expression());
+			push(+1, "PUSHSLICE x2_");
+			push(-2 + 1, "SDEQ");
+			return true;
+		}
+		if (_node.memberName() == "unpack") {
+			push(0, ";; address.unpack()");
+			acceptExpr(&_node.expression());
+			pushPrivateFunctionOrMacroCall(-1 + 2, "unpack_address_macro");
+			return true;
+		}
+		if (_node.memberName() == "getType") {
+			push(0, ";; address.getType()");
+			acceptExpr(&_node.expression());
+			push(+1 - 1, "PLDU 2");
+			return true;
+		}
 		return false;
 	}
 
+	bool checkForMagicFunction(MemberAccess const& _node, Type::Category category) {
+		if (category != Type::Category::Magic)
+			return false;
+		
+		auto expr = to<Identifier>(&_node.expression());
+		if (expr != nullptr && expr->name() == "msg") {
+			if (_node.memberName() == "pubkey") { // msg.pubkey
+				pushPrivateFunctionOrMacroCall(+1, "sender_pubkey_macro");
+				return true;
+			}
+		}
+		if (expr != nullptr && expr->name() == "tvm") {
+			if (_node.memberName() == "pubkey") { // tvm.pubkey
+				pushPrivateFunctionOrMacroCall(+1, "my_pubkey_macro");
+				return true;
+			}
+		}
+		cast_error(_node, "Unsupported magic");
+		return false;
+	}
+	
 	bool checkForMemberAccessTypeType(MemberAccess const& _node, Type::Category category) {
 		if (category != Type::Category::TypeType)
 			return false;
@@ -154,6 +237,9 @@ protected:
 	void typeConversion(FunctionCall const& _functionCall) {
 		auto arguments = _functionCall.arguments();
 		Type::Category argCategory = arguments[0]->annotation().type->category();
+		Type const* argType = arguments[0]->annotation().type.get();
+		Type const* resultType = _functionCall.annotation().type.get();
+
 		auto acceptArg = [&arguments, this] () {
 			for (const auto &arg : arguments)
 				acceptExpr(arg.get());
@@ -187,7 +273,6 @@ protected:
 				acceptExpr(etn);
 			};
 
-			Type const *argType = arguments[0]->annotation().type.get();
 			switch (etn->typeName().token()) {
 				case Token::BytesM: {
 					acceptArg();
@@ -218,9 +303,26 @@ protected:
 					conversionToAddress();
 					break;
 				}
+				case Token::IntM:
+				case Token::UIntM: {
+					auto a = to<IntegerType>(argType);
+					auto r = to<IntegerType>(resultType);
+					if (a && r && a->isSigned() == r->isSigned() && a->numBits() <= r->numBits()) {
+						// nothing to do here
+						acceptArg();
+					} else {
+						defaultActionForCasting();
+					}
+					break;
+				}
 				case Token::Int:
 				case Token::UInt: {
-					if (argCategory == Type::Category::Contract || argCategory == Type::Category::Address) {
+					auto a = to<IntegerType>(argType);
+					auto r = to<IntegerType>(resultType);
+					if (a && r && a->isSigned() == r->isSigned() && a->numBits() <= r->numBits()) {
+						// nothing to do here
+						acceptArg();
+					} else if (argCategory == Type::Category::Contract || argCategory == Type::Category::Address) {
 						auto literal = to<Literal>(arguments[0].get());
 						if (literal) {
 							const u256 value = literal->annotation().type->literalValue(literal);
@@ -301,9 +403,9 @@ protected:
 			return false;
 		// Calling local function
 		auto functionType = to<FunctionType>(getType(identifier));
+		auto funDef = to<FunctionDefinition>(identifier->annotation().referencedDeclaration);
 		solAssert(functionType, "#209");
-		if (ctx().m_inlinedFunctions.count(functionName) > 0) {
-			// Inline function call
+		if (isInlineFunction(funDef)) {
 			auto &codeLines = ctx().m_inlinedFunctions.at(functionName);
 			int nParams = functionType->parameterTypes().size();
 			int nRetVals = functionType->returnParameterTypes().size();
@@ -372,9 +474,6 @@ protected:
 		}
 
 		if (checkLocalFunctionCall(identifier)) {
-			if (!m_isResultNeeded) {
-				dropFunctionResult(_functionCall);
-			}
 		} else if (getStack().isParam(iname)) {
 			// Local variable of functional type
 			acceptExpr(expr);
@@ -382,9 +481,6 @@ protected:
 			int returnCnt = functionType->returnParameterTypes().size();
 			int paramCnt = functionType->parameterTypes().size();
 			push(-1 - paramCnt + returnCnt, "CALLX");
-			if (!m_isResultNeeded) {
-				dropFunctionResult(_functionCall);
-			}
 		} else {
 			cast_error(*identifier, "Unknown identifier");
 		}
@@ -422,10 +518,11 @@ protected:
 			StackPusherImpl2 pusher;
 			StackPusherHelper pusherHelper(&pusher, &ctx());
 			pusherHelper.push(0, "DEC"); // dict size sizeIter'
-			pusherHelper.pushDefaultValue(arrayBaseType, false); // dict size sizeIter' value
-			pusherHelper.prepareValueForDictOperations(&key, arrayBaseType); // arr value'
+			pusherHelper.pushDefaultValue(arrayBaseType, true); // dict size sizeIter' value
+			// TODO optimize. Locate default value on stack (don't create default value in each iteration)
+			bool isValueBuilder = pusherHelper.prepareValueForDictOperations(&key, arrayBaseType, true); // arr value'
 			pusherHelper.push(0, "PUSH2 S1,S3"); // dict size sizeIter' value sizeIter' dict
-			pusherHelper.setDict(key, *arrayType->baseType().get(), _functionCall, false); // dict size sizeIter' dict'
+			pusherHelper.setDict(key, *arrayType->baseType().get(), isValueBuilder, _functionCall); // dict size sizeIter' dict'
 			pusherHelper.push(0, "POP S3"); // dict' size sizeIter'
 			pushCont(pusher.codeLines());
 		}
@@ -433,11 +530,8 @@ protected:
 		// dict size 0
 		drop(1);  // dict size
 
-		push(+1, "NEWC");
-		push(-1, "STU " + toString(TvmConst::ArrayKeyLength));
-		push(-1, "STDICT");
-		push(0, "ENDC");
-		push(0, "CTOS");
+		push(0, "SWAP");
+		push(-2 + 1, "PAIR");
 
 		solAssert(size + 1 == getStack().size(), "");
 		return true;

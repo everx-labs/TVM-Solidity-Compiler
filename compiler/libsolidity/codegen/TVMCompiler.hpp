@@ -22,6 +22,7 @@
 #include "TVMABI.hpp"
 #include "TVMConstants.hpp"
 #include "TVMExpressionCompiler.hpp"
+#include "TVMInlineFunctionChecker.hpp"
 
 namespace dev::solidity {
 
@@ -165,18 +166,24 @@ public:
 
 
 	static void fillInlinedFunctions(TVMCompilerContext& ctx, ContractDefinition const* contract) {
-		for (const auto& _function : getContractFunctions(contract)) {
-			const auto& fname = _function->name();
-			if (ends_with(fname, "_inline")) {
-				ctx.m_inlinedFunctions[fname] = makeInlineFunctionCall(ctx, _function, nullptr);
+		TVMInlineFunctionChecker inlineFunctionChecker;
+		for (FunctionDefinition const* _function : getContractFunctions(contract)) {
+			if (isInlineFunction(_function)) {
+				_function->accept(inlineFunctionChecker);
 			}
+		}
+		std::vector<FunctionDefinition const*> order = inlineFunctionChecker.functionOrder();
+
+		for (const auto& _function : order) {
+			const auto& fname = _function->name();
+			ctx.m_inlinedFunctions[fname] = makeInlineFunctionCall(ctx, _function, nullptr);
 		}
 	}
 	
 	static void proceedContractMode1(ContractDefinition const* contract) {
 		TVMCompilerContext ctx(contract, m_allContracts);
 		CodeLines code;
-		
+
 		fillInlinedFunctions(ctx, contract);
 		
 		// generate global constructor which inlines all contract constructors
@@ -272,7 +279,7 @@ POPCTR c7 ; restSlice
 SWAP      ; restSlice encodeConstructorParams
 )");
 
-		for (VariableDeclaration const *variable: notConstantAndNotPublicStateVariables()) {
+		for (VariableDeclaration const *variable: notConstantStateVariables()) {
 			if (auto value = variable->value().get()) {
 				push(0, ";; init state var: " + variable->name());
 				push(+1, "PUSH c7");
@@ -562,6 +569,8 @@ IFELSE
 		} else if (_function->name() == "main_internal") {
 			m_code.generateInternal("main_internal", 0);
 			m_code.push("PUSHINT 0 ; selector");
+		} else if (_function->name() == "onCodeUpgrade") {
+			m_code.generateInternal("onCodeUpgrade", 2);
 		} else {
 			m_code.generateGlobl(fnameInternal, false);
 		}
@@ -589,12 +598,33 @@ IFELSE
 				types,
 				nodes,
 				[&](size_t idx) {
-					int pos = (getStack().size() - prevStackSize) + (static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
-					push(+1, "PUSH s" + toString(pos));
+					int pos = (getStack().size() - prevStackSize) +
+							(static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
+					pushS(pos);
 				},
 				StackPusherHelper::ReasonOfOutboundMessage::FunctionReturnExternal
 		);
-		pushPrivateFunctionOrMacroCall(-1, "send_external_message_macro");
+		sendExternalMessage();
+	}
+
+	void sendExternalMessage() {
+		// stack: builder with encoded params
+		if (ctx().haveSetDestAddr()) {
+			push(+1, "PUSH C7");
+			push(0, "INDEXQ " + toString(TvmConst::C7::ExtDestAddrIndex));
+			pushLines(R"(DUP
+ISNULL
+PUSHCONT {
+	DROP
+	PUSHSLICE x2_
+}
+IF
+)");
+			exchange(0, 1);
+			pushPrivateFunctionOrMacroCall(-2, "send_external_message_with_dest_macro");
+		} else {
+			pushPrivateFunctionOrMacroCall(-1, "send_external_message_macro");
+		}
 	}
 
 	void decodeRefParameter(Type const*const type, DecodePosition* position, ASTNode const& node) {
@@ -1252,7 +1282,8 @@ IF
 			eventCall->arguments(), 
 			event->parameterList().parameters(),
 			StackPusherHelper::ReasonOfOutboundMessage::EmitEventExternal);
-		pushPrivateFunctionOrMacroCall(-1, "send_external_message_macro");
+
+		sendExternalMessage();
 		return false;
 	}
 
