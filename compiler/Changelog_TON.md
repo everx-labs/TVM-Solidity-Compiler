@@ -3,8 +3,8 @@
 APIs for common TON-specific functionality:
  * Address constructors and accessors
  * Extended address format that includes workchain ID
-  - Members for workchain ID and the actual address part
-  - isZero() and unpack() functions
+   * Members for workchain ID and the actual address part
+   * isZero() and unpack() functions
  * External addresses support
 
 New APIs to handle mappings:
