@@ -69,8 +69,8 @@ StructCompiler::FieldSizeInfo::FieldSizeInfo(Type const* type, ASTNode const& no
 			maxBitLength = 1;
 			maxRefLength = 1;
 			break;
+		case Type::Category::TvmCell:
 		case Type::Category::Struct: {
-			// if isTvmCell(type) or usual structure
 			isBitFixed = true;
 			isRefFixed = true;
 			maxBitLength = 0;
@@ -455,7 +455,7 @@ void StructCompiler::createDefaultStructDfs(int v) {
 			pusher->push(-2 + 1, "STZEROES");
 		} else {
 			auto structType = to<StructType>(f.member->type().get());
-			if (structType && !isTvmCell(structType)) {
+			if (structType) {
 				StructCompiler structCompiler{pusher, structType};
 				structCompiler.createDefaultStructDfs(0);
 				store(f.member, true, true);
@@ -531,14 +531,13 @@ void StructCompiler::load(const VariableDeclaration *vd, bool reverseOrder) {
 	// slice
 	Type const *type = vd->type().get();
 	switch (vd->type()->category()) {
-		case Type::Category::Struct:
-			if (isTvmCell(type)) {
-				pusher->push(-1 + 2, "LDREF");
-				if (reverseOrder) {
-					pusher->push(0, "SWAP");
-				}
-				break;
+		case Type::Category::TvmCell:
+			pusher->push(-1 + 2, "LDREF");
+			if (reverseOrder) {
+				pusher->push(0, "SWAP");
 			}
+			break;
+		case Type::Category::Struct:
 			pusher->push(+1, "LDREFRTOS");
 			if (!reverseOrder) {
 				pusher->push(0, "SWAP");
@@ -598,11 +597,10 @@ void StructCompiler::preload(const VariableDeclaration *vd) {
 				pusher->drop(1);
 			}
 			break;
+		case Type::Category::TvmCell:
+			pusher->push(0, "PLDREF");
+			break;
 		case Type::Category::Struct:
-			if (isTvmCell(type)) {
-				pusher->push(0, "PLDREF");
-				break;
-			}
 			pusher->push(-1 + 2, "LDREFRTOS");
 			pusher->push(-1, "NIP");
 			break;
@@ -634,11 +632,10 @@ void StructCompiler::store(const VariableDeclaration *vd, bool reverse, bool isV
 	// builder value    - reverse order
 	Type const *type = vd->type().get();
 	switch (vd->type()->category()) {
+		case Type::Category::TvmCell:
+			pusher->push(-1, reverse? "STREFR" : "STREF"); // builder
+			break;
 		case Type::Category::Struct:
-			if (isTvmCell(type)) {
-				pusher->push(-1, reverse? "STREFR" : "STREF"); // builder
-				break;
-			}
 			if (!reverse) {
 				pusher->push(0, "SWAP"); // builder slice-value
 			}

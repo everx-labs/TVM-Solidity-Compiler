@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include "TVM.h"
 #include "TVMCommons.hpp"
 #include "TVMABI.hpp"
 #include "TVMConstants.hpp"
@@ -58,7 +59,7 @@ public:
 
 	static bool m_optionsEnabled;
 	static bool m_dbg;
-	static bool m_abiOnly;
+	static TvmOption m_tvmOption;
 	static bool m_outputProduced;
 	static std::string m_outputWarnings;
 	static bool g_with_logstr;
@@ -96,6 +97,32 @@ public:
 			}
 		}
 		return name;
+	}
+
+	static void printStorageScheme(int v, const std::vector<StructCompiler::Node> nodes, const int tabs = 0) {
+		for (int i = 0; i < tabs; ++i) {
+			std::cout << " ";
+		}
+		for (const StructCompiler::Field& field : nodes[v].fields) {
+			std::cout << " " << field.member->name();
+		}
+		std::cout << std::endl;
+
+		for (const int to : nodes[v].children) {
+			printStorageScheme(to, nodes, tabs + 1);
+		}
+	}
+
+	static void proceedDumpStorage(ContractDefinition const* contract) {
+		if (contract->name() != getLastContractName())
+			return;
+		m_outputProduced = true;
+
+		TVMCompilerContext ctx(contract, m_allContracts);
+		CodeLines code;
+		TVMCompiler tvm(&ctx);
+		const std::vector<StructCompiler::Node>& nodes = tvm.structCompiler().getNodes();
+		printStorageScheme(0, nodes);
 	}
 
 	static void proceedContract(ContractDefinition const* contract) {
@@ -675,25 +702,23 @@ IF
 	void decodeParameter(VariableDeclaration const* variable, DecodePosition* position) {
 		auto type = getType(variable);
 		const Type::Category category = variable->type()->category();
-		if (auto structType = to<StructType>(type)) {
+		if (auto cellType = to<TvmCellType>(type)) {
+			push(0, ";; decode cell ");
+			decodeRefParameter(cellType, position, *variable);
+		} else if (auto structType = to<StructType>(type)) {
 			auto structName = structType->structDefinition().name();
-			if (isTvmCell(structType)) {
-				push(0, ";; decode cell " + structName);
-				decodeRefParameter(structType, position, *variable);
-			} else {
-				push(0, ";; decode struct " + structName + " " + variable->name());
-				auto members = structType->structDefinition().members();
-				int saveStackSize = getStack().size() - 1; // -1 because there is slice in stack
-				for (const auto &m : members) {
-					push(0, ";; decode " + structName + "." + m->name());
-					decodeParameter(m.get(), position);
-				}
-				push(0, ";; build struct " + structName + " ss:" + toString(getStack().size()));
-				StructCompiler structCompiler{this, structType};
-				structCompiler.createStruct(saveStackSize, {});
-				push(0, "SWAP"); // ... struct slice
-				dropUnder(2, members.size());
+			push(0, ";; decode struct " + structName + " " + variable->name());
+			auto members = structType->structDefinition().members();
+			int saveStackSize = getStack().size() - 1; // -1 because there is slice in stack
+			for (const auto &m : members) {
+				push(0, ";; decode " + structName + "." + m->name());
+				decodeParameter(m.get(), position);
 			}
+			push(0, ";; build struct " + structName + " ss:" + toString(getStack().size()));
+			StructCompiler structCompiler{this, structType};
+			structCompiler.createStruct(saveStackSize, {});
+			push(0, "SWAP"); // ... struct slice
+			dropUnder(2, members.size());
 		} else if (category == Type::Category::Address || category == Type::Category::Contract) {
 			loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type));
 			push(+1, "LDMSGADDR");

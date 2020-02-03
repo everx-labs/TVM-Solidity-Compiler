@@ -19,6 +19,9 @@ ROT         ; funId dict 32 1
 DROP        ; funId dict 32
 DICTUGETJMP
 
+.globl    ffffffff
+.type    ffffffff, @function
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; THE CODE BELOW IS GENERATED. DO NOT CHANGE IT!
 

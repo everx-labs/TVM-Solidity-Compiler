@@ -157,7 +157,7 @@ public:
 		Address, Integer, RationalNumber, StringLiteral, Bool, FixedPoint, Array,
 		FixedBytes, Contract, Struct, Function, Enum, Tuple,
 		Mapping, TypeType, Modifier, Magic, Module,
-		InaccessibleDynamic
+		InaccessibleDynamic, TvmCell
 	};
 
 	/// @{
@@ -611,6 +611,21 @@ public:
 
 	std::string toString(bool) const override { return "bool"; }
 	u256 literalValue(Literal const* _literal) const override;
+	TypePointer encodingType() const override { return shared_from_this(); }
+	TypePointer interfaceType(bool) const override { return shared_from_this(); }
+};
+
+/**
+ * The TVM Cell type.
+ */
+class TvmCellType: public Type
+{
+public:
+	Category category() const override { return Category::TvmCell; }
+	bool isValueType() const override { return true; }
+	std::string richIdentifier() const override { return "t_tvmcell"; }
+	std::string toString(bool) const override { return "TvmCell"; }
+	
 	TypePointer encodingType() const override { return shared_from_this(); }
 	TypePointer interfaceType(bool) const override { return shared_from_this(); }
 };

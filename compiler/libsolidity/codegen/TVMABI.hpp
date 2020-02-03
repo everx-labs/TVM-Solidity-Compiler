@@ -238,10 +238,9 @@ private:
             }
             cast_error(node, "Unsupported param type " + type->toString(true));
 		} else if (to<StructType>(type)) {
-			if (isTvmCell(type))
-				return "cell";
 			return "tuple";
-        }
+		} else if (category == Type::Category::TvmCell) 
+			return "cell";
 		cast_error(node, "Unsupported param type " + type->toString(true));
     }
 	
@@ -251,9 +250,7 @@ private:
 		json["type"] = getParamTypeString(type, node);
 		switch (type->category()) {
 			case Type::Category::Struct:
-				if (!isTvmCell(type)) {
-					json["components"] = setupStructComponents(to<StructType>(type), node);
-				}
+				json["components"] = setupStructComponents(to<StructType>(type), node);
 				break;
 			case Type::Category::Array: {
 				auto arrayType = to<ArrayType>(type);

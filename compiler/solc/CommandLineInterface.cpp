@@ -195,6 +195,7 @@ static string const g_argTvmABI = "tvm-abi";
 static string const g_argTvmABI2 = "tvm_abi";
 static string const g_argTvmDbg = "tvm-dbg";
 static string const g_argTvmWithLogStr = "with-logstr";
+static string const g_argTvmDumpStorage = "dump-storage";
 
 
 /// Possible arguments to for --combined-json
@@ -702,7 +703,8 @@ Allowed options)",
 		(g_argTvmDbg.c_str(), "Produce TVM debug output.")
 		(g_argTvmWithLogStr.c_str(), "Intrisic logstr(...) produce log strings")
 		(g_argTvmABI2.c_str(), "Produce JSON ABI for contract.")
-		(g_argTvmABI.c_str(), "Produce JSON ABI for contract.");
+		(g_argTvmABI.c_str(), "Produce JSON ABI for contract.")
+		(g_argTvmDumpStorage.c_str(), "Dump state vars");
 	desc.add(outputComponents);
 
 	po::options_description allOptions = desc;
@@ -726,12 +728,23 @@ Allowed options)",
 		return false;
 	}
 	
-	if (m_args.count(g_argTvm)) {
-		TVMCompilerEnable(false, m_args.count(g_argTvmDbg), m_args.count(g_argTvmWithLogStr));
+	const bool tvmAbi = m_args.count(g_argTvmABI) || m_args.count(g_argTvmABI2);
+	const bool tvmCode = m_args.count(g_argTvm);
+	const bool tvmDump = m_args.count(g_argTvmDumpStorage);
+	if ((tvmAbi && tvmCode) || (tvmAbi && tvmDump) || (tvmCode && tvmDump))
+	{
+		serr() << "Option " << g_argTvmABI << ", " << g_argTvm << " and " << g_argNoColor << " are mutualy exclusive." << endl;
+		return false;
 	}
-	if (m_args.count(g_argTvmABI) || m_args.count(g_argTvmABI2)) {
-		TVMCompilerEnable(true, m_args.count(g_argTvmDbg), m_args.count(g_argTvmWithLogStr));
+	if (tvmAbi || tvmCode || tvmDump) {
+		TvmOption op;
+		if (tvmAbi) op = TvmOption::Abi;
+		else if (tvmDump) op = TvmOption::DumpStorage;
+		else op = TvmOption::Code;
+		TVMCompilerEnable(op, m_args.count(g_argTvmDbg), m_args.count(g_argTvmWithLogStr));
 	}
+
+
 
 	if (m_args.count(g_argColor) && m_args.count(g_argNoColor))
 	{
@@ -1387,7 +1400,7 @@ void CommandLineInterface::outputCompilationResults()
 		handleNatspec(false, contract);
 	} // end of contracts iteration
 	
-	if (m_args.count(g_argTvm) || m_args.count(g_argTvmABI) || m_args.count(g_argTvmABI2)) {
+	if (m_args.count(g_argTvm) || m_args.count(g_argTvmABI) || m_args.count(g_argTvmABI2) || m_args.count(g_argTvmDumpStorage)) {
 		g_hasOutput = TVMIsOutputProduced();
 	}
 

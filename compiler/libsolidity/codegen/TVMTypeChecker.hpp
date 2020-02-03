@@ -66,7 +66,7 @@ public:
 		switch (str2int(f->name().c_str())) {
 			case str2int("tvm_deploy_contract"): {
 				Type const * type3 = f->parameters()[3]->annotation().type.get();
-				if (!isTvmCell(type3))
+				if (!(to<TvmCellType>(type3)))
 				{
 					TypeInfo ti(type3);
 					if (!ti.isNumeric || ti.numBits != 32 || ti.isSigned)
