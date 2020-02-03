@@ -875,7 +875,7 @@ protected:
 			collectLValue(lValueInfo);
 		};
 
-		if (isTvmCell(valueType) || valueCategory == Type::Category::Mapping) {
+		if (isIn(valueCategory, Type::Category::Mapping, Type::Category::TvmCell)) {
 			// dict nbits
 			push(-2 + 4, dictOpcode + "REMMINREF"); //  D value key -1
 			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
@@ -929,7 +929,7 @@ protected:
 		StackPusherImpl2 pusher;
 		StackPusherHelper pusherHelper(&pusher, &ctx());
 
-		if (isTvmCell(valueType) || valueCategory == Type::Category::Mapping) {
+		if (isIn(valueCategory, Type::Category::Mapping, Type::Category::TvmCell)) {
 			push(-3 + 2, dictOpcode + "GETREF");
 			push(0, "DUP");
 			pusherHelper.push(0, "SWAP");
@@ -1012,7 +1012,7 @@ protected:
 		pusherHelperFail.push(0, "FALSE");
 
 
-		if (isTvmCell(valueType) || valueCategory == Type::Category::Mapping) {
+		if (isIn(valueCategory, Type::Category::Mapping, Type::Category::TvmCell)) {
 			pusherHelperOk.push(0, "PLDREFIDX 0");
 		} else if (valueCategory == Type::Category::Struct) {
 			if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(valueType))) {
@@ -1024,7 +1024,8 @@ protected:
 		} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract, Type::Category::Array)) {
 			if (valueCategory == Type::Category::Array && to<ArrayType>(valueType)->isByteArray()) {
 				pusherHelperOk.push(0, "PLDREFIDX 0");
-			} else {
+			} else if (isUsualArray(valueType)){
+				pusherHelperOk.preload(valueType);
 			}
 		} else if (isIntegralType(valueType)) {
 			pusherHelperOk.preload(valueType);
@@ -1054,15 +1055,35 @@ protected:
 		acceptExpr(&ma->expression());
 		pushInt(lengthOfDictKey(keyType)); // dict nbits
 
-		auto f = [this, &keyType, &_functionCall]() {
-			// value key -1
-			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::MinFromEmptyMap));
-			restoreKeyAfterDictOperations(keyType, _functionCall);
-			// value key
-			push(0, "SWAP"); // key value
+		auto f = [this, &keyType, &valueType, &valueCategory, &_functionCall, &keyLength]() {
+			// (value, key, -1) or 0
+			{
+				// value key -1
+				StackPusherImpl2 pusherOk;
+				StackPusherHelper pusherHelperOk(&pusherOk, &ctx());
+				pusherHelperOk.restoreKeyAfterDictOperations(keyType, _functionCall);
+				// value key
+				pusherHelperOk.push(0, "SWAP"); // key value
+				if (isIntegralType(valueType) || isUsualArray(valueType)) {
+					pusherHelperOk.preload(valueType);
+				} else if (valueCategory == Type::Category::Struct && !StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(valueType))) {
+					pusherHelperOk.push(0, "CTOS");
+				}
+				pusherHelperOk.push(0, "TRUE");
+				pushCont(pusherOk.m_code);
+			}
+			{
+				StackPusherImpl2 pusherFail;
+				StackPusherHelper pusherHelperFail(&pusherFail, &ctx());
+				pusherHelperFail.pushDefaultValue(keyType);
+				pusherHelperFail.pushDefaultValue(valueType);
+				pusherHelperFail.push(0, "FALSE");
+				pushCont(pusherFail.m_code);
+			}
+			push(-2, "IFELSE");
 		};
 
-		if (isTvmCell(valueType) || valueCategory == Type::Category::Mapping) {
+		if (isIn(valueCategory, Type::Category::Mapping, Type::Category::TvmCell)) {
 			push(-2 + 3, dictOpcode + "MINREF");
 			f(); // key value
 		} else if (valueCategory == Type::Category::Struct) {
@@ -1072,7 +1093,6 @@ protected:
 			} else {
 				push(-2 + 3, dictOpcode + "MINREF");
 				f(); // key value
-				push(0, "CTOS");
 			}
 		} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract) || isByteArrayOrString(valueType)) {
 			if (isByteArrayOrString(valueType)) {
@@ -1085,7 +1105,6 @@ protected:
 		} else if (isIntegralType(valueType) || isUsualArray(valueType)) {
 			push(-2 + 3, dictOpcode + "MIN");
 			f(); // key value
-			preload(valueType);
 		} else {
 			cast_error(_functionCall, "Unsupported value type: " + valueType->toString(true));
 		}

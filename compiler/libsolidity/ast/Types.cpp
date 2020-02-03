@@ -319,6 +319,8 @@ TypePointer Type::fromElementaryTypeName(ElementaryTypeNameToken const& _type)
 		return make_shared<AddressType>(StateMutability::NonPayable);
 	case Token::Bool:
 		return make_shared<BoolType>();
+	case Token::TvmCell:
+		return make_shared<TvmCellType>();
 	case Token::Bytes:
 		return make_shared<ArrayType>(DataLocation::Storage);
 	case Token::String:
@@ -1874,9 +1876,9 @@ MemberList::MemberMap MappingType::nativeMembers(ContractDefinition const*) cons
 	
 	members.emplace_back("min", make_shared<FunctionType>(
 		TypePointers{},
-		TypePointers{keyType(), valueType()},
+		TypePointers{keyType(), valueType(), make_shared<BoolType>()},
 		strings{},
-		strings{string(), string()},
+		strings{string(), string(), string()},
 		FunctionType::Kind::MappingGetMinKey,
 		false, StateMutability::Pure
 	));

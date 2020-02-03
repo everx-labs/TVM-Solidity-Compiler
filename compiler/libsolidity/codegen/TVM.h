@@ -18,6 +18,12 @@
 
 #pragma once
 
-void TVMCompilerEnable(bool abiOnly, bool dbg, bool with_logstr);
+enum class TvmOption {
+	Code,
+	Abi,
+	DumpStorage
+};
+
+void TVMCompilerEnable(const TvmOption tvmOption, bool dbg, bool with_logstr);
 void TVMSetAllContracts(const std::vector<ContractDefinition const*>& allContracts);
 bool TVMIsOutputProduced();

@@ -287,11 +287,6 @@ bool isAddressType(const Type* type) {
 	return to<AddressType>(type) || to<ContractType>(type);
 }
 
-bool isTvmCell(const Type* type) {
-	auto structType = to<StructType>(type);
-	return structType && structType->structDefinition().name() == "TvmCell";
-}
-
 bool isUsualArray(const Type* type) {
 	auto arrayType = to<ArrayType>(type);
 	return arrayType && !arrayType->isByteArray();
@@ -304,7 +299,7 @@ bool isByteArrayOrString(const Type* type) {
 
 bool isUsualStruct(const Type* type) {
 	auto structType = to<StructType>(type);
-	return structType && !isTvmCell(structType);
+	return structType;
 }
 
 struct AddressInfo {
@@ -863,7 +858,7 @@ struct ABITypeSize {
 				minRefs = 0;
 				maxRefs = 1;
 			}
-		} else if (isTvmCell(type)) {
+		} else if (to<TvmCellType>(type)) {
 			minBits = 0;
 			maxBits = 0;
 			minRefs = 1;
@@ -1204,7 +1199,7 @@ PAIR
 				push(-1, "STDICT"); // builder
 				return true;
 			}
-		} else if (isTvmCell(dictValueType)) {
+		} else if (to<TvmCellType>(dictValueType)) {
 			if (isValueBuilder) {
 				push(0, "ENDC");
 				return false;
@@ -1245,21 +1240,20 @@ PAIR
 					dict_cmd = "DICT" + typeToDictChar(&keyType) + "SET";
 				}
 				break;
+			case Type::Category::TvmCell:
+				solAssert(!isValueBuilder, "");
+				dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETREF";
+				break;
 			case Type::Category::Struct:
-				if (isTvmCell(&valueType)) {
+				if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(&valueType))) {
+					if (isValueBuilder) {
+						dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETB";
+					} else {
+						dict_cmd = "DICT" + typeToDictChar(&keyType) + "SET";
+					}
+				} else {
 					solAssert(!isValueBuilder, "");
 					dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETREF";
-				} else {
-					if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(&valueType))) {
-						if (isValueBuilder) {
-							dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETB";
-						} else {
-							dict_cmd = "DICT" + typeToDictChar(&keyType) + "SET";
-						}
-					} else {
-						solAssert(!isValueBuilder, "");
-						dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETREF";
-					}
 				}
 				break;
 			case Type::Category::Integer:
@@ -1437,7 +1431,7 @@ PAIR
 
 	void encodeParameter(Type const* type, EncodePosition& position, const std::function<void()>& pushParam, ASTNode const* node) {
 		// stack: builder...
-		if (auto structType = to<StructType>(type); structType && !isTvmCell(structType)) {
+		if (auto structType = to<StructType>(type)) {
 			pushParam(); // builder... struct
 			encodeStruct(structType, node, position); // stack: builder...
 		} else {
@@ -1460,7 +1454,7 @@ PAIR
 					push(-1, "STU 32"); // dict builder
 					push(-1, "STDICT"); // builder
 				}
-			} else if (isTvmCell(structType)) {
+			} else if (to<TvmCellType>(type)) {
 				pushParam();
 				push(-1, "STREFR");
 			} else {

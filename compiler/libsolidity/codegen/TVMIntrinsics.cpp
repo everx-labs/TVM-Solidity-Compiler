@@ -555,11 +555,11 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		acceptExpr(arguments[3].get());
 
 		Type const * type3 = arguments[3].get()->annotation().type.get();
-		if (isTvmCell(type3)){
+		if (to<TvmCellType>(type3)){
 			if (arguments.size() != 4) {
 				cast_error(_functionCall,
-				           "Correct argument types: (TvmCell memory my_contract, address addr, uint128 grams, TvmCell memory payload) "
-				           "or (TvmCell memory my_contract, address addr, uint128 gram, uint constuctor_id, some_type0 constuctor_param0, some_type1 constuctor_param1, ...)");
+				           "Correct argument types: (TvmCell my_contract, address addr, uint128 grams, TvmCell payload) "
+				           "or (TvmCell my_contract, address addr, uint128 gram, uint constuctor_id, some_type0 constuctor_param0, some_type1 constuctor_param1, ...)");
 			}
 			pushPrivateFunctionOrMacroCall(-4, "deploy_contract2_macro");
 		} else {

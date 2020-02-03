@@ -103,17 +103,16 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 			break;
 		case Type::Category::Struct: {
 			auto structType = to<StructType>(type);
-			if (isTvmCell(structType)) {
-				push(+1, "NEWC");
-				if (!isResultBuilder) {
-					push(0, "ENDC");
-				}
-				break;
-			}
 			StructCompiler structCompiler{this, structType};
 			structCompiler.createDefaultStruct(isResultBuilder);
 			break;
 		}
+		case Type::Category::TvmCell:
+			push(+1, "NEWC");
+			if (!isResultBuilder) {
+				push(0, "ENDC");
+			}
+			break;
 		case Type::Category::Function: {
 			solAssert(!isResultBuilder, "");
 			auto functionType = to<FunctionType>(type);
@@ -146,7 +145,7 @@ void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, 
 	};
 
 	std::string dictOpcode = "DICT" + typeToDictChar(&keyType);
-	if (isTvmCell(&valueType)) {
+	if (valueCategory == Type::Category::TvmCell) {
 		push(-3 + 2, dictOpcode + "GETREF");
 		if (pushDefaultValue) {
 			pushDefaultDictValue();

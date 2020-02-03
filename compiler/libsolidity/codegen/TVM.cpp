@@ -31,7 +31,7 @@
 
 
 bool TVMCompiler::m_optionsEnabled = false;
-bool TVMCompiler::m_abiOnly = false;
+TvmOption TVMCompiler::m_tvmOption = TvmOption::Code;
 bool TVMCompiler::m_dbg = false;
 bool TVMCompiler::m_outputProduced = false;
 bool TVMCompiler::g_with_logstr = false;
@@ -41,19 +41,28 @@ std::vector<ContractDefinition const*> TVMCompiler::m_allContracts;
 void TVMCompilerProceedContract(ContractDefinition const& _contract) {
 	if (!TVMCompiler::m_optionsEnabled) 
 		return;
+
 	for (ContractDefinition const* c : TVMCompiler::m_allContracts) {
 		TVMTypeChecker::check(c);
 	}
-	if (TVMCompiler::m_abiOnly)
-		TVMCompiler::generateABI(&_contract);
-	else	
-		TVMCompiler::proceedContract(&_contract);
+
+	switch (TVMCompiler::m_tvmOption) {
+		case TvmOption::Code:
+			TVMCompiler::proceedContract(&_contract);
+			break;
+		case TvmOption::Abi:
+			TVMCompiler::generateABI(&_contract);
+			break;
+		case TvmOption::DumpStorage:
+			TVMCompiler::proceedDumpStorage(&_contract);
+			break;
+	}
 }
 
-void TVMCompilerEnable(bool abiOnly, bool dbg, bool with_logstr) {
+void TVMCompilerEnable(const TvmOption tvmOption, bool dbg, bool with_logstr) {
 	TVMCompiler::m_optionsEnabled = true;
 	TVMCompiler::m_dbg = dbg;
-	TVMCompiler::m_abiOnly = abiOnly;
+	TVMCompiler::m_tvmOption = tvmOption;
 	TVMCompiler::g_with_logstr = with_logstr;
 }
 

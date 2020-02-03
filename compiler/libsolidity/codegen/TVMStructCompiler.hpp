@@ -25,7 +25,8 @@ namespace dev::solidity {
 class StackPusherHelper;
 
 class StructCompiler {
-private:
+
+public:
 	struct FieldSizeInfo {
 		bool isBitFixed{false};
 		bool isRefFixed{false};
@@ -77,6 +78,7 @@ private:
 				bool haveDataOrRefsAfterMember);
 	};
 
+private:
 	std::vector<VariableDeclaration const*> variableDeclarations;
 	std::vector<Node> nodes;
 	std::map<std::string, VariableDeclaration const*> nameToVariableDeclarations;
@@ -94,7 +96,7 @@ public:
 	void collectStruct(const std::string &memberName, bool isValueBuilder, bool isResultBuilder);
 	void expandStruct(std::map<std::string, int> &memberToStackSize);
 	static bool isCompatibleWithSDK(int keyLength, StructType const* structType);
-
+	const std::vector<Node>& getNodes() { return nodes; }
 private:
 	void dfs(int v, std::vector<int> &nodePath, std::vector<int> &refPath);
 	void createDefaultStructDfs(int v);
