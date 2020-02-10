@@ -427,14 +427,18 @@ protected:
 		acceptExpr(&_node.leftExpression());
 		if ((op == Token::And || op == Token::Or) && !to<Identifier>(&_node.rightExpression()) && !to<Literal>(&_node.rightExpression()) ){
 			push(0, ";; shortCirc");
-			push(0, "DUP");
-			push(0, "PUSHCONT {");
+			push(+1, "DUP");
+			push(-1, ""); // fix stack for if
+
+			m_compiler->startContinuation();
+			push(-1, "DROP");
 			acceptExpr(&_node.rightExpression());
-			push(-1, op == Token::Or? "OR" : "AND");
-			push(+1, "}");
-			push(-1, op == Token::Or? "IFNOT" : "IF");
+			m_compiler->endContinuation();
+
+			push(0, op == Token::Or? "IFNOT" : "IF");
 			return;
 		}
+
 		acceptExpr(&_node.rightExpression());
 
 		push(0, string(";; ") + TokenTraits::toString(_node.getOperator()));
@@ -1162,7 +1166,7 @@ protected:
 				auto ft = to<FunctionType>(_functionCall.expression().annotation().type.get());
 				auto size = ft->returnParameterNames().size();
 				if (size != 0) {
-					cast_warning(_functionCall, "Result is not used.");
+//					cast_warning(_functionCall, "Result is not used.");
 					drop(size);
 				}
 			}
@@ -1170,13 +1174,20 @@ protected:
 	}
 		
 	void visit2(Conditional const& _conditional) {
-		CodeLines codeTrue  = m_compiler->proceedContinuationExpr(_conditional.trueExpression());
-		CodeLines codeFalse = m_compiler->proceedContinuationExpr(_conditional.falseExpression());
 		acceptExpr(&_conditional.condition());
-		// TODO: no need to call compiler here
-		m_compiler->applyContinuation(codeTrue);
-		m_compiler->applyContinuation(codeFalse);
-		push(-3+1, "IFELSE");
+		push(-1, ""); // fix stack
+
+		m_compiler->startContinuation();
+		acceptExpr(&_conditional.trueExpression());
+		m_compiler->endContinuation();
+		push(-1, ""); // fix stack
+
+		m_compiler->startContinuation();
+		acceptExpr(&_conditional.falseExpression());
+		m_compiler->endContinuation();
+		push(-1, ""); // fix stack
+
+		push(+1, "IFELSE");
 	}
 
 	void visit2(ElementaryTypeNameExpression const& _node) {

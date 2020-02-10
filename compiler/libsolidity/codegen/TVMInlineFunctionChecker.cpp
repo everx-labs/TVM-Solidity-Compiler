@@ -25,7 +25,7 @@ using namespace dev::solidity;
 bool TVMInlineFunctionChecker::visit(Identifier const &_identifier) {
 	auto functionType = to<FunctionType>(_identifier.annotation().type.get());
 	auto funDef = to<FunctionDefinition>(_identifier.annotation().referencedDeclaration);
-	if (functionType && isInlineFunction(funDef)) {
+	if (functionType && funDef && isInlineFunction(funDef)) {
 		graph[currentFunctionDefinition].insert(funDef);
 	}
 	return false;

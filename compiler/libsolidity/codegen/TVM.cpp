@@ -34,7 +34,7 @@ bool TVMCompiler::m_optionsEnabled = false;
 TvmOption TVMCompiler::m_tvmOption = TvmOption::Code;
 bool TVMCompiler::m_dbg = false;
 bool TVMCompiler::m_outputProduced = false;
-bool TVMCompiler::g_with_logstr = false;
+bool TVMCompiler::g_without_logstr = false;
 std::string TVMCompiler::m_outputWarnings;
 std::vector<ContractDefinition const*> TVMCompiler::m_allContracts;
 
@@ -59,11 +59,11 @@ void TVMCompilerProceedContract(ContractDefinition const& _contract) {
 	}
 }
 
-void TVMCompilerEnable(const TvmOption tvmOption, bool dbg, bool with_logstr) {
+void TVMCompilerEnable(const TvmOption tvmOption, bool dbg, bool without_logstr) {
 	TVMCompiler::m_optionsEnabled = true;
 	TVMCompiler::m_dbg = dbg;
 	TVMCompiler::m_tvmOption = tvmOption;
-	TVMCompiler::g_with_logstr = with_logstr;
+	TVMCompiler::g_without_logstr = without_logstr;
 }
 
 void TVMSetAllContracts(const std::vector<ContractDefinition const*>& allContracts) {

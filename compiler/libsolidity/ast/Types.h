@@ -998,6 +998,7 @@ public:
 		Log2,
 		Log3,
 		Log4,
+		LogTVM,
 		Event, ///< syntactic sugar for LOG*
 		SetGas, ///< modify the default gas value for the function call
 		SetValue, ///< modify the default value transfer for the function call
@@ -1006,6 +1007,12 @@ public:
 		MulMod, ///< MULMOD
 		MessagePubkey, ///< msg.pubkey()
 		TVMPubkey, ///< tvm.pubkey()
+		TVMAccept, ///< tvm.accept()
+		TVMCommit, ///< tvm.commit()
+		TVMSetcode, ///< tvm.setcode()
+		TVMTransfer, ///< tvm.transfer()
+		TVMHash, ///< tvm.hash()
+		TVMChecksign, ///< tvm.checkSign()
 		ArrayPush, ///< .push() to a dynamically sized array in storage
 		ArrayPop, ///< .pop() from a dynamically sized array in storage
 		ByteArrayPush, ///< .push() to a dynamically sized byte array in storage

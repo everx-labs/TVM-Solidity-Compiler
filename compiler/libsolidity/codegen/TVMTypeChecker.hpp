@@ -30,9 +30,14 @@ public:
 			if (isTvmIntrinsic(f->name())) {
 				checkTvmIntrinsic(f);
 			}
+			if (ends_with(f->name(), "_inline")) {
+				cast_warning(*f, "Suffix is deprecated it will be removed from compiler soon.");
+			}
 			if (isInlineFunction(f) && f->isPublic()) {
 				cast_error(*f, "Inline function should have private visibility");
 			}
+
+			checkDecodeEncodeParams(f);
 		}
 
 		std::set<std::string> usedNames;
@@ -46,11 +51,55 @@ public:
 		}
 	}
 
+private:
+	static void checkDecodeEncodeParams(FunctionDefinition const* f) {
+		if (!f->isPublic()) {
+			return;
+		}
+
+		for (const ASTPointer<VariableDeclaration>& param : f->parameters()) {
+			checkDecodeEncodeParam(param.get());
+		}
+
+		for (const ASTPointer<VariableDeclaration>& param : f->returnParameters()) {
+			checkDecodeEncodeParam(param.get());
+		}
+	}
+
+	static void checkDecodeEncodeParam(VariableDeclaration const* param) {
+		switch (param->type()->category()) {
+			case Type::Category::Mapping: {
+				auto mappingType = to<MappingType>(param->type().get());
+				auto intKey = to<IntegerType>(mappingType->keyType().get());
+				if (!intKey) {
+					cast_error(*param, "Key type must be any of int<M>/uint<M> types with M from 8 to 256");
+				}
+
+				auto valueStruct = to<StructType>(mappingType->valueType().get());
+				if (valueStruct) {
+					if (!StructCompiler::isCompatibleWithSDK(static_cast<int>(intKey->numBits()), valueStruct)) {
+						cast_error(*param, "Value type is not compatible with SDK");
+					}
+				}
+
+				break;
+			}
+			default:
+				break;
+		}
+	}
+
 	static void checkTvmIntrinsic(FunctionDefinition const* f) {
 		if (f->visibility() != Declaration::Visibility::Private) {
 			cast_error(*f, "Intrinsic should have private visibility");
 		}
 
+		if (isIn(f->name(), "tvm_sender_pubkey", "tvm_my_public_key", "tvm_chksignu", "tvm_hashcu", "tvm_accept",
+					"tvm_unpack_address", "tvm_make_address", "tvm_transfer", "tvm_make_zero_address", "tvm_setcode",
+					"tvm_is_zero_address", "tvm_zero_ext_address", "tvm_make_external_address", "tvm_commit", "tvm_logstr")) {
+			cast_warning(*f, "Function is deprecated it will be removed from compiler soon.");
+		}
+		
 		if (isIn(f->name(), "tvm_commit", "tvm_reset_storage")) {
 			if (f->stateMutability() != StateMutability::NonPayable) {
 				cast_error(*f, R"(Should have "NonPayable" state mutability)");

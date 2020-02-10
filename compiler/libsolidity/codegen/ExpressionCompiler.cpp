@@ -837,6 +837,7 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			appendExternalFunctionCall(function, arguments);
 			break;
 		}
+		case FunctionType::Kind::LogTVM:
 		case FunctionType::Kind::AddressType:
 		case FunctionType::Kind::AddressIsZero:
 		case FunctionType::Kind::AddressUnpack:
@@ -845,12 +846,18 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 		case FunctionType::Kind::AddressMakeAddrStd:
 		case FunctionType::Kind::MessagePubkey:
 		case FunctionType::Kind::TVMPubkey:
+		case FunctionType::Kind::TVMAccept:
+		case FunctionType::Kind::TVMCommit:
+		case FunctionType::Kind::TVMHash:
+		case FunctionType::Kind::TVMTransfer:
+		case FunctionType::Kind::TVMChecksign:
 		case FunctionType::Kind::MappingDelMin:
 		case FunctionType::Kind::MappingGetMinKey:
 		case FunctionType::Kind::MappingGetNextKey:
 		case FunctionType::Kind::MappingFetch:
 		case FunctionType::Kind::MappingExists:
 		case FunctionType::Kind::MappingEmpty:
+		case FunctionType::Kind::TVMSetcode:
 		{
 			solAssert(false, "");
 			break;

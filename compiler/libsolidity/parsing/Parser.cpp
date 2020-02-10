@@ -470,6 +470,34 @@ Parser::FunctionHeaderParserResult Parser::parseFunctionHeader(bool _forceEmptyN
 			else
 				result.stateMutability = parseStateMutability();
 		}
+		else if (token == Token::FunctionID) 
+		{
+			m_scanner->next();
+			if (m_scanner->currentToken() != Token::LParen) {
+				parserError("functionID modifier should be specified as: functionID(ID).");
+			}
+			m_scanner->next();
+			ASTPointer<ASTString> literal = getLiteralAndAdvance();
+			
+			try {
+				size_t pos = 0;
+				unsigned long id = stoul(*literal, &pos, 0);
+				if (pos != literal->size() || id > 0xFFFFFFFF || id <= 2) {
+					parserError("functionID argument should be a positive 32-bit number and greater than 2.");
+				}
+				result.functionID = static_cast<unsigned int>(id);
+			} catch (...) {
+				parserError("functionID argument should be a positive 32-bit number and greater than 2.");
+			}
+			if (m_scanner->currentToken() != Token::RParen)
+				parserError("functionID modifier should be specified as: functionID(ID).");
+			m_scanner->next();
+		}
+		else if (token == Token::Inline)
+		{
+			result.isInline = true;
+			m_scanner->next();
+		}
 		else
 			break;
 	}
@@ -521,7 +549,9 @@ ASTPointer<ASTNode> Parser::parseFunctionDefinitionOrFunctionTypeStateVariable()
 			header.parameters,
 			header.modifiers,
 			header.returnParameters,
-			block
+			block,
+			header.functionID,
+			header.isInline
 		);
 	}
 	else

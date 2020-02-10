@@ -194,7 +194,7 @@ static string const g_argTvm = "tvm";
 static string const g_argTvmABI = "tvm-abi";
 static string const g_argTvmABI2 = "tvm_abi";
 static string const g_argTvmDbg = "tvm-dbg";
-static string const g_argTvmWithLogStr = "with-logstr";
+static string const g_argTvmWithoutLogStr = "without-logstr";
 static string const g_argTvmDumpStorage = "dump-storage";
 
 
@@ -701,7 +701,7 @@ Allowed options)",
 		(g_argMetadata.c_str(), "Combined Metadata JSON whose Swarm hash is stored on-chain.")
 		(g_argTvm.c_str(), "Produce TVM assembly.")
 		(g_argTvmDbg.c_str(), "Produce TVM debug output.")
-		(g_argTvmWithLogStr.c_str(), "Intrisic logstr(...) produce log strings")
+		(g_argTvmWithoutLogStr.c_str(), "Intrisic logstr(...) won't produce log strings")
 		(g_argTvmABI2.c_str(), "Produce JSON ABI for contract.")
 		(g_argTvmABI.c_str(), "Produce JSON ABI for contract.")
 		(g_argTvmDumpStorage.c_str(), "Dump state vars");
@@ -741,7 +741,7 @@ Allowed options)",
 		if (tvmAbi) op = TvmOption::Abi;
 		else if (tvmDump) op = TvmOption::DumpStorage;
 		else op = TvmOption::Code;
-		TVMCompilerEnable(op, m_args.count(g_argTvmDbg), m_args.count(g_argTvmWithLogStr));
+		TVMCompilerEnable(op, m_args.count(g_argTvmDbg), m_args.count(g_argTvmWithoutLogStr));
 	}
 
 

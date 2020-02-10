@@ -27,32 +27,18 @@
 
 namespace dev::solidity {
 
-struct ContSettings {
-	bool addReturnFlag = false;
-	bool isUntil = false;
-	ContSettings() = default;
-	explicit ContSettings(bool addReturnFlag) : addReturnFlag(addReturnFlag) {}
-};
-
-struct CompilerState {
-	bool m_addReturnFlag = false;
-	bool m_isUntil = false;
-	int m_untilStackSize = -1;
-	const Statement* m_loopExpression = nullptr;
-	
-	void overwrite(const ContSettings& settings) {
-		m_addReturnFlag  = settings.addReturnFlag;
-		m_isUntil		 = settings.isUntil;
-	}
-	
-};
-
-class TVMCompiler: public ASTConstVisitor, public ITVMCompiler, StackPusherHelper
+class TVMCompiler: public ASTConstVisitor, public ITVMCompiler, StackPusherHelper, private boost::noncopyable
 {
-	TVMStack					m_stack;
-	CodeLines					m_code;
-	StackPusherImpl				m_pusherHelperImpl;
-	CompilerState				m_state;
+	struct ControlFlowInfo {
+		int stackSize {-1};
+		bool isLoop {false};
+		bool useJmp {false};
+	};
+
+	TVMStack m_stack;
+	CodeLines m_code;
+	StackPusherImpl m_pusherHelperImpl;
+	std::vector<ControlFlowInfo> m_controlFlowInfo;
 
 public:
 	static std::vector<ContractDefinition const*> m_allContracts;
@@ -62,17 +48,37 @@ public:
 	static TvmOption m_tvmOption;
 	static bool m_outputProduced;
 	static std::string m_outputWarnings;
-	static bool g_with_logstr;
+	static bool g_without_logstr;
 
 public:
+
+	void startContinuation() override {
+		m_pusherHelperImpl.startContinuation();
+	}
+
+	void endContinuation() override {
+		m_pusherHelperImpl.endContinuation();
+	}
+
+	void endContinuation2(const bool doDrop) {
+		int delta = getStack().size() - m_controlFlowInfo.back().stackSize;
+		if (doDrop) {
+			drop(delta);
+		} else {
+			push(-delta, ""); // fix stack
+		}
+		endContinuation();
+	}
+
+	[[nodiscard]]
+	bool allJmp() const {
+		return std::all_of(m_controlFlowInfo.begin(), m_controlFlowInfo.end(), [](const ControlFlowInfo& info){
+			return info.useJmp;
+		});
+	}
+
 	explicit TVMCompiler(const TVMCompilerContext* ctx)
 		: StackPusherHelper(this, ctx)
-		, m_pusherHelperImpl(m_stack, m_code)
-		{}
-		
-	TVMCompiler(const TVMCompiler& oth)
-		: StackPusherHelper(this, &oth.ctx())
-		, m_stack(oth.m_stack)
 		, m_pusherHelperImpl(m_stack, m_code)
 		{}
 
@@ -99,7 +105,7 @@ public:
 		return name;
 	}
 
-	static void printStorageScheme(int v, const std::vector<StructCompiler::Node> nodes, const int tabs = 0) {
+	static void printStorageScheme(int v, const std::vector<StructCompiler::Node>& nodes, const int tabs = 0) {
 		for (int i = 0; i < tabs; ++i) {
 			std::cout << " ";
 		}
@@ -284,8 +290,7 @@ public:
 	void generateConstructors() {
 		m_code.generateGlobl("constructor", true);
 		// generate constructor protection and copy c4 to c7
-		pushLines(R"(
-PUSHROOT
+		pushLines(R"(PUSHROOT
 CTOS
 DUP
 PUSHINT 130 ; 1 + 64 + 64 + 1
@@ -738,8 +743,10 @@ IF
 				}
 				loadArray();
 			}
+		} else if (to<MappingType>(type)) {
+			push(+1, "LDDICT");
 		} else {
-			cast_error(*variable, "Unsupported parameter type: " + type->toString());
+			cast_error(*variable, "Unsupported parameter type for decoding: " + type->toString());
 		}
 	}
 
@@ -923,18 +930,6 @@ IF
 		TVMExpressionCompiler(this, ctx()).acceptExpr2(expr, isResultNeeded);
 	}
 
-	// TODO: free function
-	static bool isUInt256(const ElementaryTypeNameToken& typeName) {
-		switch (typeName.token()) {
-			case Token::UIntM:
-				return 256 == typeName.firstNumber();
-			case Token::UInt:
-				return true;
-			default:
-				return false;
-		}
-	}
-
 	// TODO: move to TVMExpressionCompiler
 	const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess) override {
 		auto expr = &memberAccess->expression();
@@ -955,16 +950,13 @@ IF
 		}
 	}
 
-	// statement
 	bool visit(VariableDeclarationStatement const& _variableDeclarationStatement) override {
 		const int saveStackSize = getStack().size();
 
 		auto decls = _variableDeclarationStatement.declarations();
 		if (auto init = _variableDeclarationStatement.initialValue()) {
 			auto tupleExpression = to<TupleExpression>(init);
-			if (tupleExpression && tupleExpression->isInlineArray()) {
-				acceptExpr(init);
-			} else if (tupleExpression) {
+			if (tupleExpression && !tupleExpression->isInlineArray()) {
 				std::vector<ASTPointer<Expression>> const&  tuple = tupleExpression->components();
 				for (std::size_t i = 0; i < tuple.size(); ++i) {
 					if (!tryImplicitConvert(decls[i]->type().get(), tuple[i]->annotation().type.get())) {
@@ -993,7 +985,7 @@ IF
 				} else if (i == decls.size() - 2) {
 					push(0, "NIP");
 				} else {
-					blockSwap(1, decls.size() - 1 - i);
+					blockSwap(1, static_cast<int>(decls.size()) - 1 - i);
 					push(0, "DROP");
 				}
 			}
@@ -1002,112 +994,11 @@ IF
 		return false;
 	}
 
-	// statement
 	bool visit(Block const& /*_block*/) override {
 		// TODO: write the code explicitly
 		return true;
 	}
 
-	void on_start() {
-		if (m_state.m_addReturnFlag)
-			push(0, ";; m_addReturnFlag = " + toString(m_state.m_addReturnFlag));
-		if (m_state.m_isUntil)
-			push(0, ";; m_isUntil = " + toString(m_state.m_isUntil));
-	}
-
-	CodeLines proceedContinuationExpr(const Expression& expression) override {
-		TVMCompiler compiler(*this);
-		compiler.acceptExpr(&expression);
-		return compiler.m_code;
-	}
-
-	CodeLines proceedContinuation(const Statement& statement, ContSettings settings = ContSettings()) {
-		TVMCompiler compiler(*this);
-		compiler.m_state = m_state;
-		compiler.m_state.overwrite(settings);
-		compiler.on_start();
-		statement.accept(compiler);
-		if (!doesAlways<Return>(&statement) && !doesAlways<Break>(&statement) && !doesAlways<Continue>(&statement)) {
-			// TODO: this condition looks suspisious
-			int diff = compiler.m_stack.size() - m_stack.size();
-			solAssert(diff >= 0, "diff = " + toString(diff));
-			if (diff > 0) {
-				compiler.push(0, ";; drop locals");
-				compiler.drop(diff);
-			}
-		}
-		if (settings.addReturnFlag)
-			addFalseFlagIfNeeded(compiler.m_code);
-		return compiler.m_code;
-	}
-
-	void applyContinuation(const CodeLines& code) override {
-		m_code.pushCont(code);
-		push(+1, ""); // adjust stack
-	}
-
-	static void addFalseFlagIfNeeded(CodeLines& code) {
-		auto s = code.lines.back();
-		if (s != "RET" && s != "PUSHINT 2 ; break" && s != "PUSHINT 3 ; continue")
-			code.push("FALSE");
-	}
-
-	void dispatchFlagsAfterIf(const ContInfo& ci) {
-		if (m_state.m_isUntil) {
-			dispatchFlagsInUntil(ci);
-		} else if (m_state.m_addReturnFlag) {
-			push(0,  "DUP");
-			push(0,  "IFRET");
-			push(0,  "DROP");
-		} else {
-			push(0,  "IFRET");
-		}
-	}
-	
-	void passReturnFlagOut() {
-		solAssert(m_state.m_addReturnFlag, "");
-		solAssert(m_state.m_isUntil, "");
-		push(0,  "PUSHCONT { TRUE TRUE }");
-		push(0,  "IFJMP\t; return");
-	}
-
-	void dispatchFlagsInUntil(const ContInfo& ci) {
-		solAssert(m_state.m_isUntil, "");
-		if (ci.canReturn && !(ci.canBreak || ci.canContinue)) {
-			passReturnFlagOut();
-		} else {
-			if (ci.canReturn) {
-				push(0,  "DUP DUP");
-				push(0,  "PUSHINT 1");
-				push(0,  "EQUAL");
-				push(0,  "IFRET");
-				push(0,  "DROP");
-			}
-			if (ci.canBreak) {
-				push(0,  "DUP");
-				push(0,  "PUSHINT 2");
-				push(0,  "EQUAL");
-				
-				// TODO: shouldn't the same check be performed for Continue?
-				if (m_state.m_addReturnFlag)
-					push(0,  "PUSHCONT { DROP FALSE TRUE }");
-				else
-					push(0,  "PUSHCONT { DROP TRUE }");
-				
-				push(0,  "IFJMP");
-			}
-			if (ci.canContinue) {
-				push(0,  "DUP");
-				push(0,  "PUSHINT 3");
-				push(0,  "EQUAL");
-				push(0,  "PUSHCONT { DROP FALSE }");
-				push(0,  "IFJMP");
-			}
-			push(0,  "THROWIF 99");
-		}
-	}
-
-	// statement
 	bool visit(ExpressionStatement const& _expressionStatement) override {
 		auto savedStackSize = m_stack.size();
 		acceptExpr(&_expressionStatement.expression(), false);
@@ -1115,131 +1006,352 @@ IF
 		return false;
 	}
 
-	// statement
 	bool visit(IfStatement const& _ifStatement) override {
+		const int saveStackSize = getStack().size();
+
 		push(0, ";; if");
-		if (!_ifStatement.falseStatement()) {
-			ContInfo ci = getInfo(_ifStatement.trueStatement());
-			solAssert(ci.alwaysReturns == getInfo(_ifStatement.trueStatement()).alwaysReturns, "");
-			bool useJump = !m_state.m_isUntil;
-			bool canBranch = ci.canReturn || ci.canBreak || ci.canContinue;
-			bool addFlag = m_state.m_addReturnFlag || (
-				useJump? (canBranch && !ci.alwaysReturns) : canBranch
-			);
-			auto ciTrue = proceedContinuation(_ifStatement.trueStatement(), ContSettings(addFlag));
-			acceptExpr(&_ifStatement.condition());
-			applyContinuation(ciTrue);
-			if (useJump && ci.alwaysReturns) {
-				push(-2, "IFJMP");
-			} else if (!canBranch) {
-				push(-2, "IF");
+
+
+		// header
+		ContInfo ci = getInfo(_ifStatement);
+		bool canUseJmp = _ifStatement.falseStatement() != nullptr?
+			getInfo(_ifStatement.trueStatement()).doThatAlways() && getInfo(*_ifStatement.falseStatement()).doThatAlways() :
+			getInfo(_ifStatement.trueStatement()).doThatAlways();
+		if (canUseJmp) {
+			ControlFlowInfo info {};
+			info.stackSize = getStack().size();
+			info.isLoop = false;
+			info.useJmp = true;
+			m_controlFlowInfo.push_back(info);
+		} else {
+			ControlFlowInfo info = pushControlFlowFlagAndReturnControlFlowInfo(ci, false);
+			m_controlFlowInfo.push_back(info);
+		}
+
+		// condition
+		acceptExpr(&_ifStatement.condition(), true);
+		push(-1, ""); // drop condition
+
+		// if
+		startContinuation();
+		_ifStatement.trueStatement().accept(*this);
+		endContinuation2(!canUseJmp);
+
+
+		if (_ifStatement.falseStatement() != nullptr) {
+			// else
+			startContinuation();
+			_ifStatement.falseStatement()->accept(*this);
+			endContinuation2(!canUseJmp);
+
+			if (canUseJmp) {
+				push(0, "CONDSEL");
+				push(0, "JMPX");
 			} else {
-				push(+1, "PUSHCONT { FALSE }");
-				push(-3, "IFELSE");
-				dispatchFlagsAfterIf(ci);
+				push(0, "IFELSE");
 			}
 		} else {
-			ContInfo ci = getInfo(_ifStatement);
-			solAssert(ci.alwaysReturns == (
-				getInfo(_ifStatement.trueStatement()).alwaysReturns &&
-				getInfo(*_ifStatement.falseStatement()).alwaysReturns), "");
-			bool addFlag = m_state.m_addReturnFlag 
-					   || (ci.canReturn && !ci.alwaysReturns)
-					   || (ci.canBreak || ci.canContinue);
-			ContSettings settings(addFlag);
-			auto ciTrue  = proceedContinuation(_ifStatement.trueStatement(), settings);
-			auto ciFalse = proceedContinuation(*_ifStatement.falseStatement(), settings);
-			acceptExpr(&_ifStatement.condition());
-			applyContinuation(ciTrue);
-			applyContinuation(ciFalse);
-			push(-3, "IFELSE");
-			if (addFlag) {
-				dispatchFlagsAfterIf(ci);
-			} else if (ci.alwaysReturns) {
-				push(0, "RET");
+			if (canUseJmp) {
+				push(0, "IFJMP");
+			} else {
+				push(0, "IF");
 			}
 		}
+
+		m_controlFlowInfo.pop_back();
+
+		if (!canUseJmp) {
+			// bottom
+			if (ci.canReturn || ci.canBreak || ci.canContinue) {
+				if (ci.canReturn) {
+					if (allJmp()) { // no loops, only if-else
+						push(0, "EQINT 4");
+						push(-1, "IFRET");
+					} else {
+						push(+1, "DUP");
+						push(-1, "IFRET");
+						push(-1, "DROP");
+					}
+				} else {
+					push(+1, "DUP");
+					push(-1, "IFRET");
+					push(-1, "DROP");
+				}
+			}
+		}
+
+		push(0, ";; end if");
+
+		getStack().ensureSize(saveStackSize, "");
+
 		return false;
 	}
 
-	void loop_processing(Statement const* initial, Expression const* conditionExpr,
-						 ExpressionStatement const* loopExpression, Statement const& bodyStatement) {
-		auto savedStackSize1 = m_stack.size();
-		if (initial)
-			initial->accept(*this);
-
-		bool canReturn = getInfo(bodyStatement).canReturn;
-		ContSettings settings;
-		settings.isUntil = true;
-		settings.addReturnFlag = canReturn;
-		auto savedUntilStackSize = m_state.m_untilStackSize;
-		m_state.m_untilStackSize = m_stack.size();
-		m_state.m_loopExpression = loopExpression; ///////////////////////
-		CodeLines body = proceedContinuation(bodyStatement, settings);
-		if (canReturn) {
-			body.push("DROP");
+	ControlFlowInfo pushControlFlowFlagAndReturnControlFlowInfo(ContInfo &ci, bool isLoop) {
+		ControlFlowInfo info {};
+		info.isLoop = isLoop;
+		info.stackSize = -1;
+		if (ci.canReturn || ci.canBreak || ci.canContinue) {
+			push(+1, "FALSE ; decl return flag"); // break flag
 		}
-		m_state.m_untilStackSize = savedUntilStackSize;
-
-		CodeLines condition;
-		if (conditionExpr) {
-			condition = proceedContinuationExpr(*conditionExpr);
-			if (canReturn) {
-				// TODO: optimize with IFJMP
-				condition.push("FALSE SWAP ; no return");
-				condition.push("NOT DUP IFRET DROP");
-				condition.push("DROP ; drop return flag");
-			} else {
-				condition.push("NOT DUP IFRET DROP");
-			}
-		}
-
-		CodeLines loopExpr;
-		if (loopExpression) {
-			loopExpr = proceedContinuation(*loopExpression);
-		}
-		loopExpr.push("FALSE");
-
-		CodeLines cont;
-		cont.append(condition);
-		cont.append(body);
-		cont.append(loopExpr);
-		applyContinuation(cont);
-		
-		push(-1, "UNTIL");
-		if (canReturn) {
-			if (m_state.m_addReturnFlag) {
-				passReturnFlagOut();
-			} else {
-				push(0, "IFRET ; return");
-			}
-		}
-		restoreStack(savedStackSize1);
+		info.stackSize = getStack().size();
+		return info;
 	}
 
-	// statement
+	void doWhile(WhileStatement const& _whileStatement) {
+		int saveStackSize = getStack().size();
+
+		// header
+		push(0, "; do-while");
+		ContInfo ci = getInfo(_whileStatement.body());
+		ControlFlowInfo info = pushControlFlowFlagAndReturnControlFlowInfo(ci, true);
+		m_controlFlowInfo.push_back(info);
+
+		// body
+		startContinuation();
+		if (ci.canReturn || ci.canBreak || ci.canContinue) {
+			int ss = getStack().size();
+			startContinuation();
+			_whileStatement.body().accept(*this);
+			drop(getStack().size() - ss);
+			endContinuation();
+			push(0, "CALLX");
+		} else {
+			int ss = getStack().size();
+			_whileStatement.body().accept(*this);
+			drop(getStack().size() - ss);
+		}
+		// condition
+		push(0, "; condition");
+		if (ci.canBreak || ci.canReturn) {
+			push(+1, "DUP");
+			push(0, "GTINT 1");
+			push(+1, "DUP");
+			push(-2, ""); // fix stack
+
+			startContinuation();
+			push(0, "DROP");
+			acceptExpr(&_whileStatement.condition(), true);
+			push(0, "NOT");
+			endContinuation();
+			push(-1, ""); // fix stack
+
+			push(+1, "IFNOT");
+		} else {
+			acceptExpr(&_whileStatement.condition(), true);
+			push(0, "NOT");
+		}
+		push(-1, ""); // drop condition
+		endContinuation();
+
+		push(0, "UNTIL");
+
+		m_controlFlowInfo.pop_back();
+
+		// bottom
+		if (ci.canReturn) {
+			if (allJmp()) { // no loops, only if-else
+				push(0, "EQINT 4");
+				push(-1, "IFRET");
+			} else {
+				push(+1, "DUP");
+				if (ci.canBreak || ci.canContinue) {
+					push(0, "EQINT 4");
+				}
+				push(-1, "IFRET");
+				push(-1, "DROP");
+			}
+		} else if (ci.canBreak || ci.canContinue) {
+			drop(1);
+		}
+
+		push(0, "; end do-while");
+
+		getStack().ensureSize(saveStackSize, "");
+	}
+
+	void visitForOrWhileCondiction(const ContInfo& ci, const ControlFlowInfo& info, Expression const* condition) {
+		int stackSize = getStack().size();
+		startContinuation();
+		if (ci.canBreak || ci.canReturn) {
+			pushS(getStack().size() - info.stackSize);
+			push(0, "LESSINT 2");
+			push(-1, ""); // fix stack
+
+			if (condition != nullptr) {
+				push(0, "DUP");
+				startContinuation();
+				push(0, "DROP");
+				acceptExpr(condition, true);
+				endContinuation();
+				push(-1, ""); // fix stack
+				push(0, "IF");
+			}
+		} else {
+			acceptExpr(condition, true);
+			push(-1, ""); // fix stack
+		}
+		endContinuation();
+		getStack().ensureSize(stackSize, "visitForOrWhileCondiction");
+	}
+
 	bool visit(WhileStatement const& _whileStatement) override {
-		// TODO: support do while loop expression
+		int saveStackSizeForWhile = getStack().size();
+
 		if (_whileStatement.isDoWhile()) {
-			cast_error(_whileStatement, "Unsupported loop type do while.");
+			doWhile(_whileStatement);
+			return false;
 		}
-		push(0, "; while statement");
-		loop_processing(nullptr, &_whileStatement.condition(),
-						nullptr, _whileStatement.body());
-		push(0, "; while end");
+
+		// header
+		push(0, "; while");
+		ContInfo ci = getInfo(_whileStatement.body());
+		ControlFlowInfo info = pushControlFlowFlagAndReturnControlFlowInfo(ci, true);
+		m_controlFlowInfo.push_back(info);
+
+		int saveStackSize = getStack().size();
+
+		// condition
+		visitForOrWhileCondiction(ci, info, &_whileStatement.condition());
+
+		getStack().ensureSize(saveStackSize, "while condition");
+
+		// body
+		startContinuation();
+		_whileStatement.body().accept(*this);
+		drop(getStack().size() - saveStackSize);
+		endContinuation();
+
+		push(0, "WHILE");
+
+		m_controlFlowInfo.pop_back();
+
+		// bottom
+		// TODO to common function
+		if (ci.canReturn) {
+			if (allJmp()) { // no loops, only if-else
+				push(0, "EQINT 4");
+				push(-1, "IFRET");
+			} else {
+				push(+1, "DUP");
+				if (ci.canBreak || ci.canContinue) {
+					push(0, "EQINT 4");
+				}
+				push(-1, "IFRET");
+				push(-1, "DROP");
+			}
+		} else if (ci.canBreak || ci.canContinue) {
+			drop(1);
+		}
+
+		push(0, "; end while");
+
+		getStack().ensureSize(saveStackSizeForWhile, "");
+
 		return false;
 	}
 
-	// statement
 	bool visit(ForStatement const& _forStatement) override {
-		push(0, "; for statement");
-		loop_processing(_forStatement.initializationExpression(), _forStatement.condition(),
-						_forStatement.loopExpression(), _forStatement.body());
-		push(0, "; for end");
+
+		// init - opt
+		// return break or continue flag  - opt
+		// PUSHCONT {
+		//     condition
+		// }
+		// PUSHCONT {
+		//     PUSHCONT {
+		//        body
+		//     }
+		//     CALLX
+		//     loopExpression
+		// }
+
+		// init - opt
+		// PUSHCONT {
+		//     condition
+		// }
+		// PUSHCONT {
+		//     body
+		//     loopExpression
+		// }
+
+		int saveStackSize = getStack().size();
+		push(0, "; for");
+
+		// init
+		if (_forStatement.initializationExpression() != nullptr) {
+			_forStatement.initializationExpression()->accept(*this);
+		}
+
+		// header
+		ContInfo ci = getInfo(_forStatement.body());
+		ControlFlowInfo info = pushControlFlowFlagAndReturnControlFlowInfo(ci, true);
+		m_controlFlowInfo.push_back(info);
+
+		// condition
+		visitForOrWhileCondiction(ci, info, _forStatement.condition());
+
+		// body and loopExpression
+		startContinuation();
+		if (ci.canReturn || ci.canBreak || ci.canContinue) {
+			int ss = getStack().size();
+			startContinuation();
+			_forStatement.body().accept(*this);
+			drop(getStack().size() - ss);
+			endContinuation();
+			push(0, "CALLX");
+			pushLines(R"(
+DUP
+EQINT 4
+IFRET
+)");
+		} else {
+			int ss = getStack().size();
+			_forStatement.body().accept(*this);
+			drop(getStack().size() - ss);
+		}
+		if (_forStatement.loopExpression() != nullptr) {
+			_forStatement.loopExpression()->accept(*this);
+		}
+		endContinuation();
+
+		push(0, "WHILE");
+
+		m_controlFlowInfo.pop_back();
+
+
+		// bottom
+		int cntDrop = 0;
+		if (ci.canReturn || ci.canBreak || ci.canContinue) {
+			++cntDrop;
+		}
+		if (_forStatement.initializationExpression() != nullptr) {
+			++cntDrop;
+		}
+		if (ci.canReturn) {
+			if (allJmp()) {
+				push(0, "EQINT 4");
+				push(-1, "IFRET");
+				if (_forStatement.initializationExpression() != nullptr) {
+					drop(1);
+				}
+			} else {
+				push(+1, "DUP");
+				if (ci.canBreak || ci.canContinue) {
+					push(0, "EQINT 4");
+				}
+				push(-1, "IFRET");
+				drop(cntDrop);
+			}
+		} else {
+			drop(cntDrop);
+		}
+
+		push(0, "; end for");
+		getStack().ensureSize(saveStackSize, "for");
 		return false;
 	}
 
-	// statement
 	bool visit(Return const& _return) override {
 		push(0, ";; return");
 		auto expr = _return.expression();
@@ -1253,11 +1365,13 @@ IF
 
 		int retCount = 0;
 		if (_return.annotation().functionReturnParameters != nullptr) {
-			std::vector<ASTPointer<VariableDeclaration>> const& params = _return.annotation().functionReturnParameters->parameters();
+			std::vector<ASTPointer<VariableDeclaration>> const& params =
+					_return.annotation().functionReturnParameters->parameters();
 			retCount = params.size();
 		}
 
 
+		int revertDelta = m_stack.size() - retCount;
 		if (expr && areReturnedValuesLiterals(expr)) {
 			drop(m_stack.size());
 			acceptExpr(expr);
@@ -1265,33 +1379,53 @@ IF
 			dropUnder(retCount, m_stack.size() - retCount);
 		}
 
-		if (m_state.m_addReturnFlag)
-			push(0, "PUSHINT 1 ; return");
+
+		if (!allJmp()) {
+			pushInt(4);
+
+			revertDelta--;
+			push(revertDelta, ""); // fix stack
+		} else if (!m_controlFlowInfo.empty()) { // all continuation are run by JMPX
+			push(revertDelta, ""); // fix stack
+		}
 		push(0, "RET");
 		return false;
 	}
 
-	// statement
+	void breakOrContinue(int code) {
+		solAssert(code == 1 || code == 2, "");
+
+		if (code == 1) {
+			push(0, ";; continue");
+		} else {
+			push(0, ";; break");
+		}
+
+		ControlFlowInfo controlFlowInfo;
+		for (int i = static_cast<int>(m_controlFlowInfo.size()) - 1; ; --i) {
+			if (m_controlFlowInfo.at(i).isLoop) {
+				controlFlowInfo = m_controlFlowInfo.at(i);
+				break;
+			}
+		}
+
+		const int sizeDelta = getStack().size() - controlFlowInfo.stackSize;
+		drop(sizeDelta + 1);
+		pushInt(code);
+		push(0, "RET");
+		push(sizeDelta, ""); // fix stack
+	}
+
 	bool visit(Break const&) override {
-		push(0, ";; break");
-		solAssert(m_state.m_untilStackSize >= 0, "");
-		restoreStack(m_state.m_untilStackSize);
-		push(0, "PUSHINT 2 ; break");
+		breakOrContinue(2);
 		return false;
 	}
 
-	// statement
 	bool visit(Continue const&) override {
-		push(0, ";; continue");
-		restoreStack(m_state.m_untilStackSize);
-		solAssert(m_state.m_loopExpression, "");
-		// TODO: get rid of accept()
-		m_state.m_loopExpression->accept(*this);
-		push(0, "PUSHINT 3 ; continue");
+		breakOrContinue(1);
 		return false;
 	}
 
-	// statement
 	bool visit(EmitStatement const& _emit) override {
 		auto eventCall = to<FunctionCall>(&_emit.eventCall());
 		solAssert(eventCall, "");

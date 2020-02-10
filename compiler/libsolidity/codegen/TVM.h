@@ -24,6 +24,6 @@ enum class TvmOption {
 	DumpStorage
 };
 
-void TVMCompilerEnable(const TvmOption tvmOption, bool dbg, bool with_logstr);
+void TVMCompilerEnable(const TvmOption tvmOption, bool dbg, bool without_logstr);
 void TVMSetAllContracts(const std::vector<ContractDefinition const*>& allContracts);
 bool TVMIsOutputProduced();

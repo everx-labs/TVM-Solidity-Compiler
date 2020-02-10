@@ -69,18 +69,18 @@ public:
 		}
 		if (checkForIdentifier(_functionCall)) return;
 
-
 		// TODO: move to function
 		auto arguments = _functionCall.arguments();
 		auto expr = &_functionCall.expression();
 		if (auto ma = to<MemberAccess>(expr)) {
+			if (!isIn(ma->memberName(), "log", "transfer", "checkSign"))
 			for (const auto& arg : arguments)
 				acceptExpr(arg.get());
 			auto category = getType(&ma->expression())->category();
 			if (checkForSuper(*ma, category)) return;
-			if (checkForAddressMethods(*ma, category)) return;
+			if (checkForAddressMethods(*ma, category, arguments)) return;
 			if (checkForMemberAccessTypeType(*ma, category)) return;
-			if (checkForMagicFunction(*ma, category)) return;
+			if (checkForMagicFunction(*ma, category, arguments)) return;
 			if (checkForTypeTypeMember(*ma, category)) return;
 			cast_error(*ma, "Unsupported function call");
 		}
@@ -139,17 +139,30 @@ protected:
 		return false;
 	}
 
-	bool checkForAddressMethods(MemberAccess const& _node, Type::Category category) {
+	bool checkForAddressMethods(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments) {
 		if (category != Type::Category::Address)
 			return false;
 		if (_node.memberName() == "transfer") {
 			// address.transfer(value)
 			push(0, ";; transfer()");
-			// stack: value
-			acceptExpr(&_node.expression());
-			// stack: value address
-			push(+1, "NEWC"); // empty body
-			pushPrivateFunctionOrMacroCall(-3, "send_internal_message_macro");
+			if (arguments.size() == 3) {
+				acceptExpr(&_node.expression());
+				for (const auto& arg : arguments)
+					acceptExpr(arg.get());
+				pushPrivateFunctionOrMacroCall(-4, "send_accurate_internal_message_macro");
+			} else if (arguments.size() == 4) {
+				acceptExpr(&_node.expression());
+				for (const auto& arg : arguments)
+					acceptExpr(arg.get());
+				pushPrivateFunctionOrMacroCall(-5, "send_accurate_internal_message_with_body_macro");
+			} else {
+				for (const auto& arg : arguments)
+					acceptExpr(arg.get());
+				acceptExpr(&_node.expression());
+				// stack: value address
+				push(+1, "NEWC"); // empty body
+				pushPrivateFunctionOrMacroCall(-3, "send_internal_message_macro");
+			}
 			return true;
 		}
 		if (_node.memberName() == "isStdZero") {
@@ -188,7 +201,7 @@ protected:
 		return false;
 	}
 
-	bool checkForMagicFunction(MemberAccess const& _node, Type::Category category) {
+	bool checkForMagicFunction(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments) {
 		if (category != Type::Category::Magic)
 			return false;
 		
@@ -202,6 +215,58 @@ protected:
 		if (expr != nullptr && expr->name() == "tvm") {
 			if (_node.memberName() == "pubkey") { // tvm.pubkey
 				pushPrivateFunctionOrMacroCall(+1, "my_pubkey_macro");
+				return true;
+			}
+			if (_node.memberName() == "accept") { // tvm.accept
+				push(0, "ACCEPT");
+				return true;
+			}
+			if (_node.memberName() == "transfer") { // tvm.transfer
+				for (const auto& arg : arguments)
+					acceptExpr(arg.get());
+				if (arguments.size() == 4)
+					pushPrivateFunctionOrMacroCall(-4, "send_accurate_internal_message_macro");
+				else
+					pushPrivateFunctionOrMacroCall(-5, "send_accurate_internal_message_with_body_macro");
+				return true;
+			}
+			if (_node.memberName() == "hash") { // tvm.hash
+				push(0, "HASHCU");
+				return true;
+			}
+			if (_node.memberName() == "checkSign") { // tvm.checkSign
+				acceptExpr(arguments[0].get());
+				push(+1, "NEWC");
+				acceptExpr(arguments[1].get());
+				push(-1, "STUR 256");
+				acceptExpr(arguments[2].get());
+				push(-1, "STUR 256");
+				push(0, "ENDC CTOS");
+				acceptExpr(arguments[3].get());
+				push(-3+1, "CHKSIGNU");
+				return true;
+			}
+			if (_node.memberName() == "setcode") { // tvm.setcode
+				push(-1, "SETCODE");
+				return true;
+			}
+			if (_node.memberName() == "commit") { // tvm.commit
+				pushPrivateFunctionOrMacroCall(0, "push_persistent_data_from_c7_to_c4_macro");
+				push(0, "COMMIT");
+				return true;
+			}
+			if (_node.memberName() == "log") { // tvm.log
+				auto logstr = arguments[0].get();
+				if (auto literal = to<Literal>(logstr)) {
+					if (literal->value().length() > 15)
+						cast_error(_node, "logtvm param should no more than 15 chars");
+					if (m_exprCompiler->isWithoutLogstr()) {
+						return true;
+					}
+					push(0, "PRINTSTR " + literal->value());
+				} else {
+					cast_error(_node, "logtvm param should be literal");
+				}
 				return true;
 			}
 		}
@@ -468,6 +533,21 @@ protected:
 			return false;
 
 		string iname = identifier->name();
+		
+		if (iname == "logtvm") {
+			auto logstr = arguments[0].get();
+			if (auto literal = to<Literal>(logstr)) {
+				if (literal->value().length() > 15)
+					cast_error(_functionCall, "logtvm param should no more than 15 chars");
+				if (m_exprCompiler->isWithoutLogstr()) {
+					return true;
+				}
+				push(0, "PRINTSTR " + literal->value());
+			} else {
+				cast_error(_functionCall, "logtvm param should be literal");
+			}
+			return true;
+		}
 		// TODO: Refactor this ugly function
 		for (const auto& arg : arguments) {
 			acceptExpr(arg.get());

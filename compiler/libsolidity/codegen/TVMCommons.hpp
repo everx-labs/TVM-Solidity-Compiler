@@ -130,8 +130,15 @@ public:
 
 };
 
+enum class OnEndContinuation {
+	DropStack,
+	FixStack,
+	Nothing
+};
+
 struct CodeLines {
 	vector<string> lines;
+	int tabQty{};
 	
 	string str(const string& indent) const {
 		std::ostringstream o;
@@ -140,14 +147,29 @@ struct CodeLines {
 		}
 		return o.str();
 	}
-	
+
+	void startContinuation() {
+		push("PUSHCONT {");
+		++tabQty;
+	}
+
+	void endContinuation() {
+		--tabQty;
+		push("}");
+		solAssert(tabQty >= 0, "");
+	}
+
 	void push(const string& cmd) {
-		if (cmd != "") {
-			// space means empty line
-			if (cmd == " ")
-				lines.emplace_back("");
-			else
-				lines.push_back(cmd);
+		if (cmd.empty()) {
+			return;
+		}
+
+		// space means empty line
+		if (cmd == " ")
+			lines.emplace_back("");
+		else {
+			solAssert(tabQty >= 0, "");
+			lines.push_back(std::string(tabQty, '\t') + cmd);
 		}
 	}
 	
@@ -190,7 +212,13 @@ struct ContInfo {
 	bool canBreak = false;
 	bool canContinue = false;
 	bool alwaysReturns = false;
+	bool alwaysBreak = false;
+	bool alwaysContinue = false;
 	ContInfo() = default;
+
+	bool doThatAlways() {
+		return alwaysReturns || alwaysBreak || alwaysContinue;
+	}
 };
 
 class TVMScanner: public ASTConstVisitor
@@ -280,6 +308,8 @@ ContInfo getInfo(const Statement& statement) {
 	TVMScanner scanner(statement);
 	ContInfo info = scanner.m_info;
 	info.alwaysReturns = doesAlways<Return>(&statement);
+	info.alwaysContinue = doesAlways<Continue>(&statement);
+	info.alwaysBreak = doesAlways<Break>(&statement);
 	return info;
 }
 
@@ -366,7 +396,7 @@ bool isTvmIntrinsic(const string& name) {
 }
 
 bool isInlineFunction(FunctionDefinition const* f) {
-	return ends_with(f->name(), "_inline");
+	return ends_with(f->name(), "_inline") || f->isInline();
 }
 
 const Type* getType(const Expression* expr) {
@@ -785,6 +815,8 @@ public:
 class IStackPusher {
 public:
 	virtual void push(int stackDiff, const string& cmd) = 0;
+	virtual void startContinuation() = 0;
+	virtual void endContinuation() = 0;
 	virtual TVMStack& getStack() = 0;
 };
 
@@ -801,7 +833,15 @@ struct StackPusherImpl : IStackPusher {
 		m_code.push(cmd);
 		m_stack.change(stackDiff);
 	}
-	
+
+	void startContinuation() override {
+		m_code.startContinuation();
+	}
+
+	void endContinuation() override {
+		m_code.endContinuation();
+	}
+
 	TVMStack& getStack() override {
 		return m_stack;
 	}
@@ -824,6 +864,14 @@ struct StackPusherImpl2 : IStackPusher {
 
 	TVMStack& getStack() override {
 		return m_stack;
+	}
+
+	void startContinuation() override {
+		solAssert(false, "");
+	}
+
+	void endContinuation() override {
+		solAssert(false, "");
 	}
 };
 
@@ -862,6 +910,11 @@ struct ABITypeSize {
 			minBits = 0;
 			maxBits = 0;
 			minRefs = 1;
+			maxRefs = 1;
+		} else if (to<MappingType>(type)) {
+			minBits = 1;
+			maxBits = 1;
+			minRefs = 0;
 			maxRefs = 1;
 		} else {
 			if (node)
@@ -923,7 +976,11 @@ public:
 
 	void pushS(int i) {
 		solAssert(i >= 0, "");
-		push(+1, "PUSH S" + toString(i));
+		if (i == 0) {
+			push(+1, "DUP");
+		} else {
+			push(+1, "PUSH S" + toString(i));
+		}
 	}
 
 	void pushInt(int i) {
@@ -1071,6 +1128,11 @@ PAIR
 				push(-cnt, "BLKDROP " + toString(cnt));
 			}
 		}
+	}
+
+	void popS(int i) {
+		solAssert(i >= 0, "");
+		push(-1, "POP S" + toString(i));
 	}
 
 	void blockSwap(int m, int n) {
@@ -1457,8 +1519,12 @@ PAIR
 			} else if (to<TvmCellType>(type)) {
 				pushParam();
 				push(-1, "STREFR");
+			} else if (to<MappingType>(type)) {
+				pushParam();
+				push(0, "SWAP");
+				push(-1, "STDICT");
 			} else {
-				cast_error(*node, "Unsupported type : " + type->toString());
+				cast_error(*node, "Unsupported type for encoding: " + type->toString());
 			}
 		}
 	}
@@ -1473,14 +1539,13 @@ PAIR
 class ITVMCompiler : public IStackPusher {
 public:
 	virtual const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess)	= 0;
-	virtual CodeLines proceedContinuationExpr(const Expression& expression)		= 0;
-	virtual void applyContinuation(const CodeLines& lines) 						= 0;
 };
 
 class IExpressionCompiler {
 public:
 	virtual void acceptExpr(const Expression* expr) = 0;
 	virtual void acceptExpr2(const Expression* expr, const bool isResultNeeded = true) = 0;
+	bool isWithoutLogstr();
 };
 
 }	// solidity

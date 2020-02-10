@@ -31,7 +31,7 @@ DICTUGETJMP
 ;; param: arraySize
 ;; param: dict
 ;; param: valueLength
-; for statement
+; for
 PUSHINT 0
 ;; decl: idx
 PUSHCONT {
@@ -41,8 +41,8 @@ PUSHCONT {
 	PUSH S4
 	;; <
 	LESS
-	NOT DUP IFRET DROP
-	;; m_isUntil = 1
+}
+PUSHCONT {
 	;; push identifier valueLength
 	PUSH S1
 	;; push identifier idx
@@ -73,12 +73,10 @@ PUSHCONT {
 	INC
 	; colValue
 	; end colValue
-	FALSE
 }
-UNTIL
-; erase idx
+WHILE
 DROP
-; for end
+; end for
 ;; return
 ;; push identifier builder
 PUSH S3
@@ -100,7 +98,7 @@ PUSH S3
 ;; push identifier remote_addr
 PUSH S5
 PUSHINT 0
-; make__CommonMsgInfoRelaxed__int_msg_info__inline
+; make__CommonMsgInfoRelaxed__int_msg_info
 ;; param: value
 ;; param: remote_addr
 ;; param: bounce
@@ -134,7 +132,7 @@ STUR 32
 ;; return
 XCHG s3
 BLKDROP 3
-; end make__CommonMsgInfoRelaxed__int_msg_info__inline
+; end make__CommonMsgInfoRelaxed__int_msg_info
 STBR
 PUSHINT 1
 STONES
@@ -142,7 +140,7 @@ STONES
 PUSH S5
 ;; push identifier msg_builder
 PUSH S1
-; store_either_for_cell_inline
+; store_either_for_cell
 ;; param: x
 ;; param: builder
 ;; push identifier x
@@ -185,12 +183,13 @@ PUSHCONT {
 	POP s2
 }
 IFELSE
+;; end if
 ;; return
 ;; push identifier builder
 PUSH S1
 XCHG s3
 BLKDROP 3
-; end store_either_for_cell_inline
+; end store_either_for_cell
 ; expValue
 ; end expValue
 ; colValue
@@ -208,7 +207,7 @@ STBR
 DUP
 ;; push identifier msg_builder
 PUSH S2
-; store_either_for_builder_inline
+; store_either_for_builder
 ;; param: x
 ;; param: builder
 ;; if
@@ -235,9 +234,10 @@ PUSHCONT {
 	STBREFR
 }
 IFELSE
+;; end if
 ;; return
 NIP
-; end store_either_for_builder_inline
+; end store_either_for_builder
 ; expValue
 ; end expValue
 ; colValue
@@ -264,7 +264,7 @@ PUSH S2
 ;; push identifier remote_addr
 PUSH S4
 PUSHINT 0
-; make__CommonMsgInfoRelaxed__int_msg_info__inline
+; make__CommonMsgInfoRelaxed__int_msg_info
 ;; param: value
 ;; param: remote_addr
 ;; param: bounce
@@ -298,7 +298,7 @@ STUR 32
 ;; return
 XCHG s3
 BLKDROP 3
-; end make__CommonMsgInfoRelaxed__int_msg_info__inline
+; end make__CommonMsgInfoRelaxed__int_msg_info
 STBR
 PUSHINT 1
 STONES
@@ -306,7 +306,7 @@ STONES
 PUSH S4
 ;; push identifier msg_builder
 PUSH S1
-; store_either_for_cell_inline
+; store_either_for_cell
 ;; param: x
 ;; param: builder
 ;; push identifier x
@@ -349,12 +349,13 @@ PUSHCONT {
 	POP s2
 }
 IFELSE
+;; end if
 ;; return
 ;; push identifier builder
 PUSH S1
 XCHG s3
 BLKDROP 3
-; end store_either_for_cell_inline
+; end store_either_for_cell
 ; expValue
 ; end expValue
 ; colValue
@@ -364,7 +365,7 @@ NIP
 PUSH S1
 ;; push identifier msg_builder
 PUSH S1
-; store_either_for_cell_inline
+; store_either_for_cell
 ;; param: x
 ;; param: builder
 ;; push identifier x
@@ -407,12 +408,13 @@ PUSHCONT {
 	POP s2
 }
 IFELSE
+;; end if
 ;; return
 ;; push identifier builder
 PUSH S1
 XCHG s3
 BLKDROP 3
-; end store_either_for_cell_inline
+; end store_either_for_cell
 ; expValue
 ; end expValue
 ; colValue
@@ -456,6 +458,7 @@ PUSHCONT {
 	STUR 32
 }
 IFELSE
+;; end if
 ;; if
 ;; push identifier slice
 PUSH S1
@@ -476,6 +479,7 @@ PUSHCONT {
 	STUR 2
 }
 IFELSE
+;; end if
 ;; if
 ;; push identifier slice
 PUSH S1
@@ -496,6 +500,7 @@ PUSHCONT {
 	STREFR
 }
 IFELSE
+;; end if
 ;; if
 ;; push identifier slice
 PUSH S1
@@ -507,6 +512,7 @@ PUSHCONT {
 	THROWANY
 }
 IF
+;; end if
 PUSHINT 1
 STONES
 NEWC
@@ -573,6 +579,7 @@ PUSHCONT {
 	POP s5
 }
 IFELSE
+;; end if
 ;; return
 ;; push identifier builder
 PUSH S4
@@ -621,7 +628,7 @@ PUSH S3
 ;; push identifier remote_addr
 PUSH S3
 PUSHINT -1
-; make__CommonMsgInfoRelaxed__int_msg_info__inline
+; make__CommonMsgInfoRelaxed__int_msg_info
 ;; param: value
 ;; param: remote_addr
 ;; param: bounce
@@ -655,7 +662,7 @@ STUR 32
 ;; return
 XCHG s3
 BLKDROP 3
-; end make__CommonMsgInfoRelaxed__int_msg_info__inline
+; end make__CommonMsgInfoRelaxed__int_msg_info
 STBR
 PUSHINT 0
 STUR 1
@@ -663,7 +670,7 @@ STUR 1
 PUSH S1
 ;; push identifier msg_builder
 PUSH S1
-; store_either_for_builder_inline
+; store_either_for_builder
 ;; param: x
 ;; param: builder
 ;; if
@@ -690,9 +697,10 @@ PUSHCONT {
 	STBREFR
 }
 IFELSE
+;; end if
 ;; return
 NIP
-; end store_either_for_builder_inline
+; end store_either_for_builder
 ; expValue
 ; end expValue
 ; colValue
@@ -832,7 +840,7 @@ STZEROES
 PUSH S1
 ;; push identifier builder
 PUSH S1
-; store_either_for_cell_inline
+; store_either_for_cell
 ;; param: x
 ;; param: builder
 ;; push identifier x
@@ -875,12 +883,13 @@ PUSHCONT {
 	POP s2
 }
 IFELSE
+;; end if
 ;; return
 ;; push identifier builder
 PUSH S1
 XCHG s3
 BLKDROP 3
-; end store_either_for_cell_inline
+; end store_either_for_cell
 ; expValue
 ; end expValue
 ; colValue
@@ -991,6 +1000,7 @@ PUSHCONT {
 	STBREFR
 }
 IFELSE
+;; end if
 ;; push identifier builder
 DUP
 ENDC
@@ -1040,6 +1050,7 @@ PUSHCONT {
 	STBREFR
 }
 IFELSE
+;; end if
 ;; push identifier builder
 DUP
 ENDC
@@ -1088,6 +1099,7 @@ PUSHCONT {
 	THROWANY
 }
 IF
+;; end if
 ;; return
 ;; push identifier tuple
 DUP
@@ -1156,11 +1168,13 @@ PUSHCONT {
 		RET
 	}
 	IFJMP
+	;; end if
 	;; return
 	BLKDROP 6
 	RET
 }
 IFJMP
+;; end if
 ;; push identifier msg_body_slice
 PUSH S2
 LDU 32
@@ -1180,6 +1194,7 @@ PUSHCONT {
 	RET
 }
 IFJMP
+;; end if
 ;; push identifier msg_body_slice
 PUSH S3
 ;; push identifier func_id
@@ -1231,7 +1246,7 @@ POP s5
 ;; if
 ;; push identifier msg_timestamp
 DUP
-; replay_prot_inline
+; replay_prot
 ;; param: msg_timestamp
 PUSHINT 0
 ;; decl: dict
@@ -1279,6 +1294,7 @@ PUSHCONT {
 	; end colValue
 }
 IFELSE
+;; end if
 FALSE
 ;; decl: result
 ;; if
@@ -1328,16 +1344,17 @@ PUSHCONT {
 		; colValue
 		POP s2
 		; end colValue
-		;; drop locals
 		DROP
 	}
 	IF
+	;; end if
 }
 IF
+;; end if
 ;; return
 XCHG s5
 BLKDROP 5
-; end replay_prot_inline
+; end replay_prot
 PUSHCONT {
 	;; push identifier msg_body_slice
 	PUSH S4
@@ -1349,6 +1366,7 @@ PUSHCONT {
 	RET
 }
 IFJMP
+;; end if
 PUSHINT 52
 THROWANY
 BLKDROP 10
@@ -1391,6 +1409,7 @@ PUSHCONT {
 	; end colValue
 }
 IF
+;; end if
 ;; return
 ; end sender_address_macro
 
@@ -1418,6 +1437,7 @@ PUSHCONT {
 	; end colValue
 }
 IF
+;; end if
 ;; return
 ; end sender_pubkey_macro
 
@@ -1443,6 +1463,7 @@ PUSHCONT {
 	; end colValue
 }
 IF
+;; end if
 ;; returning named params
 ; end message_balance_macro
 

@@ -346,6 +346,12 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::Message, "data"},
 			{MagicType::Kind::Message, "sig"},
 			{MagicType::Kind::Message, "pubkey"},
+			{MagicType::Kind::TVM, "accept"},
+			{MagicType::Kind::TVM, "hash"},
+			{MagicType::Kind::TVM, "checkSign"},
+			{MagicType::Kind::TVM, "transfer"},
+			{MagicType::Kind::TVM, "log"},
+			{MagicType::Kind::TVM, "setcode"},
 			{MagicType::Kind::MetaType, "creationCode"},
 			{MagicType::Kind::MetaType, "runtimeCode"}
 		};
@@ -360,6 +366,8 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			mutability = StateMutability::View;
 		if (payableMembers.count(magicMember))
 			mutability = StateMutability::Payable;
+		if (member == "commit")
+				mutability = StateMutability::NonPayable;
 		break;
 	}
 	case Type::Category::Struct:
