@@ -69,6 +69,8 @@ private:
 		Declaration::Visibility visibility = Declaration::Visibility::Default;
 		StateMutability stateMutability = StateMutability::NonPayable;
 		std::vector<ASTPointer<ModifierInvocation>> modifiers;
+		unsigned int functionID = 0;
+		bool isInline = false;
 	};
 
 	///@{

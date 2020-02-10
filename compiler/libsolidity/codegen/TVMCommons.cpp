@@ -226,7 +226,11 @@ std::vector<VariableDeclaration const *> StackPusherHelper::notConstantStateVari
 }
 
 void StackPusherHelper::pushLog(const std::string& str) {
-	if (TVMCompiler::g_with_logstr) {
+	if (!TVMCompiler::g_without_logstr) {
 		push(0, "PRINTSTR " + str);
 	}
+}
+bool IExpressionCompiler::isWithoutLogstr()
+{
+	return TVMCompiler::g_without_logstr;
 }

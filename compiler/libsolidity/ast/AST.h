@@ -610,7 +610,9 @@ public:
 		ASTPointer<ParameterList> const& _parameters,
 		std::vector<ASTPointer<ModifierInvocation>> const& _modifiers,
 		ASTPointer<ParameterList> const& _returnParameters,
-		ASTPointer<Block> const& _body
+		ASTPointer<Block> const& _body,
+		unsigned int _functionID = 0,
+		bool _isInline = false
 	):
 		CallableDeclaration(_location, _name, _visibility, _parameters, _returnParameters),
 		Documented(_documentation),
@@ -618,7 +620,9 @@ public:
 		m_stateMutability(_stateMutability),
 		m_isConstructor(_isConstructor),
 		m_functionModifiers(_modifiers),
-		m_body(_body)
+		m_body(_body),
+		m_functionID(_functionID),
+		m_isInline(_isInline)
 	{}
 
 	void accept(ASTVisitor& _visitor) override;
@@ -652,11 +656,16 @@ public:
 
 	FunctionDefinitionAnnotation& annotation() const override;
 
+	unsigned int functioID() const { return m_functionID; }
+	bool isInline() const { return m_isInline; }
+
 private:
 	StateMutability m_stateMutability;
 	bool m_isConstructor;
 	std::vector<ASTPointer<ModifierInvocation>> m_functionModifiers;
 	ASTPointer<Block> m_body;
+	unsigned int m_functionID;
+	bool m_isInline;
 };
 
 /**

@@ -578,6 +578,22 @@ MemberList::MemberMap AddressType::nativeMembers(ContractDefinition const*) cons
 	{
 		members.emplace_back(MemberList::Member{"send", make_shared<FunctionType>(strings{"uint"}, strings{"bool"}, FunctionType::Kind::Send)});
 		members.emplace_back(MemberList::Member{"transfer", make_shared<FunctionType>(strings{"uint"}, strings(), FunctionType::Kind::Transfer)});
+		members.emplace_back("transfer", make_shared<FunctionType>(
+				TypePointers{make_shared<IntegerType>(128), make_shared<BoolType>(), make_shared<IntegerType>(16)},
+				TypePointers{},
+				strings{string(), string(), string()},
+				strings{},
+				FunctionType::Kind::TVMTransfer,
+				false, StateMutability::Pure
+		));
+		members.emplace_back("transfer", make_shared<FunctionType>(
+				TypePointers{make_shared<IntegerType>(128), make_shared<BoolType>(), make_shared<IntegerType>(16), make_shared<TvmCellType>()},
+				TypePointers{},
+				strings{string(), string(), string(), string()},
+				strings{},
+				FunctionType::Kind::TVMTransfer,
+				false, StateMutability::Pure
+		));
 	}
 	return members;
 }
@@ -2722,6 +2738,12 @@ string FunctionType::richIdentifier() const
 	string id = "t_function_";
 	switch (m_kind)
 	{
+	case Kind::TVMSetcode: id += "tvmcommit"; break;
+	case Kind::TVMChecksign: id += "tvmchecksign"; break;
+	case Kind::TVMHash: id += "tvmhash"; break;
+	case Kind::TVMTransfer: id += "tvmtransfer"; break;
+	case Kind::TVMAccept: id += "tvmaccept"; break;
+	case Kind::TVMCommit: id += "tvmcommit"; break;
 	case Kind::TVMPubkey: id += "tvmpubkey"; break;
 	case Kind::MessagePubkey: id += "msgpubkey"; break;
 	case Kind::Internal: id += "internal"; break;
@@ -2751,6 +2773,7 @@ string FunctionType::richIdentifier() const
 	case Kind::Log2: id += "log2"; break;
 	case Kind::Log3: id += "log3"; break;
 	case Kind::Log4: id += "log4"; break;
+	case Kind::LogTVM: id += "logtvm"; break;
 	case Kind::GasLeft: id += "gasleft"; break;
 	case Kind::Event: id += "event"; break;
 	case Kind::SetGas: id += "setgas"; break;
@@ -3548,10 +3571,71 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"data", make_shared<ArrayType>(DataLocation::CallData)},
 			{"sig", make_shared<FixedBytesType>(4)}
 		});
-	case Kind::TVM:
-		return MemberList::MemberMap({
+	case Kind::TVM: {
+		MemberList::MemberMap members = {
 			{"pubkey", make_shared<FunctionType>(strings(), strings{"uint"}, FunctionType::Kind::TVMPubkey, false, StateMutability::Pure)},
-		});
+			{"accept", make_shared<FunctionType>(strings(), strings(), FunctionType::Kind::TVMAccept, false, StateMutability::Pure)},
+			{"commit", make_shared<FunctionType>(strings(), strings(), FunctionType::Kind::TVMCommit, false, StateMutability::NonPayable)},
+			{"log", make_shared<FunctionType>(strings{"bytes32"}, strings{}, FunctionType::Kind::LogTVM,false, StateMutability::Pure)}
+		};
+		members.emplace_back("transfer", make_shared<FunctionType>(
+				TypePointers{make_shared<AddressType>(StateMutability::NonPayable), make_shared<IntegerType>(128), make_shared<BoolType>(), make_shared<IntegerType>(16)},
+				TypePointers{},
+				strings{string(), string(), string(), string()},
+				strings{},
+				FunctionType::Kind::TVMTransfer,
+				false, StateMutability::Pure
+		));
+		members.emplace_back("transfer", make_shared<FunctionType>(
+				TypePointers{make_shared<AddressType>(StateMutability::NonPayable), make_shared<IntegerType>(128), make_shared<BoolType>(), make_shared<IntegerType>(16), make_shared<TvmCellType>()},
+				TypePointers{},
+				strings{string(), string(), string(), string(), string()},
+				strings{},
+				FunctionType::Kind::TVMTransfer,
+				false, StateMutability::Pure
+		));
+		members.emplace_back("setcode", make_shared<FunctionType>(
+				TypePointers{make_shared<TvmCellType>()},
+				TypePointers{},
+				strings{string()},
+				strings{},
+				FunctionType::Kind::TVMSetcode,
+				false, StateMutability::Pure
+		));
+		members.emplace_back("hash", make_shared<FunctionType>(
+				TypePointers{make_shared<TvmCellType>()},
+				TypePointers{make_shared<IntegerType>(256)},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMHash,
+				false, StateMutability::Pure
+		));
+		members.emplace_back("hash", make_shared<FunctionType>(
+				TypePointers{make_shared<ArrayType>(DataLocation::Memory)},
+				TypePointers{make_shared<IntegerType>(256)},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMHash,
+				false, StateMutability::Pure
+		));
+		members.emplace_back("hash", make_shared<FunctionType>(
+				TypePointers{make_shared<ArrayType>(DataLocation::Memory, true)},
+				TypePointers{make_shared<IntegerType>(256)},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMHash,
+				false, StateMutability::Pure
+		));
+		members.emplace_back("checkSign", make_shared<FunctionType>(
+				TypePointers{make_shared<IntegerType>(256), make_shared<IntegerType>(256), make_shared<IntegerType>(256), make_shared<IntegerType>(256)},
+				TypePointers{make_shared<BoolType>()},
+				strings{string(), string(), string(), string()},
+				strings{string()},
+				FunctionType::Kind::TVMChecksign,
+				false, StateMutability::Pure
+		));
+		return members;
+	}
 	case Kind::Transaction:
 		return MemberList::MemberMap({
 			{"origin", make_shared<AddressType>(StateMutability::Payable)},

@@ -22,26 +22,6 @@
 
 namespace dev::solidity {
 
-class FunctionIdFinder : public ASTConstVisitor {
-public:
-	bool visit(FunctionCall const& _node) override {
-		auto ident = to<Identifier>(&_node.expression());
-		if (ident && ident->name() == "tvm_methodID") {
-			auto literal = to<Literal>(_node.arguments()[0].get());
-			dev::u256 value = literal->annotation().type->literalValue(literal);
-			std::ostringstream oss;
-			oss << std::hex << std::showbase << value;
-			function_id = oss.str();
-		}
-		return visitNode(_node);
-	}
-
-	const std::string& functionId() const { return function_id; }
-
-private:
-	std::string function_id;
-};
-
 class TVMABI {
 public:
 	static void generateABI(ContractDefinition const* contract, const vector<ContractDefinition const*>& m_allContracts) {
@@ -78,7 +58,7 @@ public:
 					continue;
 				}
 				used.insert(fname);
-				functions.append(processFunction(fname, f->parameters(), f->returnParameters(), f->isImplemented()? &f->body() : nullptr));
+				functions.append(processFunction(fname, f->parameters(), f->returnParameters(), f));
 			}
 
 			if (used.count("constructor") == 0) {
@@ -181,18 +161,16 @@ private:
 		const string& fname,
 		const ptr_vec<VariableDeclaration>& params,
 		const ptr_vec<VariableDeclaration>& retParams,
-		Block const* body
+		FunctionDefinition const* funcDef = nullptr
 	) {
 		Json::Value function;
 		Json::Value inputs  = encodeParams(params);
 		Json::Value outputs = encodeParams(retParams);
 		function["name"] = fname;
-		if (body != nullptr) {
-			FunctionIdFinder functionIdFinder;
-			body->accept(functionIdFinder);
-			if (!functionIdFinder.functionId().empty()) {
-				function["id"] = functionIdFinder.functionId();
-			}
+		if (funcDef && (funcDef->functioID() != 0)) {
+			std::ostringstream oss;
+			oss << "0x" << std::hex << std::uppercase << funcDef->functioID();
+			function["id"] = oss.str();
 		}
 		function["inputs"] = inputs;
 		function["outputs"] = outputs;
@@ -227,20 +205,25 @@ private:
 				return "uint" + toString(ti.numBits);
 			}
 		} else if (auto arrayType = to<ArrayType>(type)) {
-            Type const *arrayBaseType = arrayType->baseType().get();
+			Type const *arrayBaseType = arrayType->baseType().get();
 			if (arrayType->isByteArray()) {
 				return "bytes";
 			}
-            if (isIntegralType(arrayBaseType) || isAddressType(arrayBaseType) ||
-                to<StructType>(arrayBaseType) || to<ArrayType>(arrayBaseType)) {
+			if (isIntegralType(arrayBaseType) || isAddressType(arrayBaseType) ||
+			    to<StructType>(arrayBaseType) || to<ArrayType>(arrayBaseType)) {
 
-                return getParamTypeString(arrayBaseType, node) +  "[]";
-            }
-            cast_error(node, "Unsupported param type " + type->toString(true));
+				return getParamTypeString(arrayBaseType, node) + "[]";
+			}
+			cast_error(node, "Unsupported param type " + type->toString(true));
 		} else if (to<StructType>(type)) {
 			return "tuple";
-		} else if (category == Type::Category::TvmCell) 
+		} else if (category == Type::Category::TvmCell) {
 			return "cell";
+		} else if (category == Type::Category::Mapping) {
+			auto mapping = to<MappingType>(type);
+			return "map(" + getParamTypeString(mapping->keyType().get(), node) + "," +
+					getParamTypeString(mapping->valueType().get(), node) + ")";
+		}
 		cast_error(node, "Unsupported param type " + type->toString(true));
     }
 	

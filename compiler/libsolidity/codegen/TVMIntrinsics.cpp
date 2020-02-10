@@ -72,7 +72,7 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		if (auto literal = to<Literal>(logstr)) {
 			if (literal->value().length() > 15)
 				cast_error(_functionCall, "tvm_logstr param should no more than 15 chars");
-			if (!TVMCompiler::g_with_logstr) {
+			if (TVMCompiler::g_without_logstr) {
 				return true;
 			}
 			push(0, "PRINTSTR " + literal->value());
@@ -309,12 +309,10 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		return true;
 	}
 	if (iname == "tvm_sender_pubkey") {
-		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
 		pushPrivateFunctionOrMacroCall(+1, "sender_pubkey_macro");
 		return true;
 	}
 	if (iname == "tvm_my_public_key") {
-		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
 		pushPrivateFunctionOrMacroCall(+1, "my_pubkey_macro");
 		return true;
 	}
@@ -611,13 +609,11 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		return true;
 	}
 	if (iname == "tvm_unpack_address") {
-		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
 		acceptExpr(arguments[0].get());
 		pushPrivateFunctionOrMacroCall(-1 + 2, "unpack_address_macro");
 		return true;
 	}
 	if (iname == "tvm_make_address") {
-		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
 		checkArgCount(2);
 		acceptExpr(arguments[0].get());
 		acceptExpr(arguments[1].get());
@@ -913,7 +909,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		return true;
 	}
 	if (iname == "tvm_is_zero_address") {
-		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
 		acceptExpr(arguments[0].get());
 		pushLines(R"(PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_
 SDEQ
@@ -921,12 +916,10 @@ SDEQ
 		return true;
 	}
 	if (iname == "tvm_zero_ext_address") {
-		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
 		push(+1, "PUSHSLICE x2_");
 		return true;
 	}
 	if (iname == "tvm_make_external_address") {
-		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
 		checkArgCount(2);
 		// addr_extern$01 len:(## 9) external_address:(bits len) = MsgAddressExt;
 		acceptExpr(arguments[0].get()); // numb
@@ -945,7 +938,6 @@ SDEQ
 		return true;
 	}
 	if (iname == "tvm_make_zero_address") {
-		cast_warning(_functionCall, "Function is deprecated it will be removed from compiler soon.");
 		pushZeroAddress();
 		return true;
 	}
@@ -1014,7 +1006,8 @@ DROP ; b r
 		push(-1, "POP C7");
 		return true;
 	}
-	if (iname == "tvm_methodID") {
+	if (iname == "tvm_stack") {
+		push(+1, "DEPTH");
 		return true;
 	}
 	return false;
