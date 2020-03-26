@@ -1,8 +1,8 @@
 pragma experimental SMTChecker;
 
-contract D
+abstract contract D
 {
-	function g(uint x) public;
+	function g(uint x) public virtual;
 }
 
 contract C
@@ -18,5 +18,4 @@ contract C
 	}
 }
 // ----
-// Warning: (146-149): Assertion checker does not yet support the type of this variable.
-// Warning: (338-362): Assertion violation happens here
+// Warning: (355-379): Assertion violation happens here

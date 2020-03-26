@@ -17,9 +17,9 @@
 
 #include <libsolidity/analysis/ControlFlowBuilder.h>
 
-using namespace dev;
-using namespace langutil;
 using namespace solidity;
+using namespace solidity::langutil;
+using namespace solidity::frontend;
 using namespace std;
 
 ControlFlowBuilder::ControlFlowBuilder(CFG::NodeContainer& _nodeContainer, FunctionFlow const& _functionFlow):
@@ -35,7 +35,7 @@ unique_ptr<FunctionFlow> ControlFlowBuilder::createFunctionFlow(
 	FunctionDefinition const& _function
 )
 {
-	auto functionFlow = unique_ptr<FunctionFlow>(new FunctionFlow());
+	auto functionFlow = make_unique<FunctionFlow>();
 	functionFlow->entry = _nodeContainer.newNode();
 	functionFlow->exit = _nodeContainer.newNode();
 	functionFlow->revert = _nodeContainer.newNode();
@@ -49,7 +49,7 @@ bool ControlFlowBuilder::visit(BinaryOperation const& _operation)
 {
 	solAssert(!!m_currentNode, "");
 
-	switch(_operation.getOperator())
+	switch (_operation.getOperator())
 	{
 		case Token::Or:
 		case Token::And:
@@ -80,6 +80,18 @@ bool ControlFlowBuilder::visit(Conditional const& _conditional)
 	nodes[0] = createFlow(nodes[0], _conditional.trueExpression());
 	nodes[1] = createFlow(nodes[1], _conditional.falseExpression());
 
+	mergeFlow(nodes);
+
+	return false;
+}
+
+bool ControlFlowBuilder::visit(TryStatement const& _tryStatement)
+{
+	appendControlFlow(_tryStatement.externalCall());
+
+	auto nodes = splitFlow(_tryStatement.clauses().size());
+	for (size_t i = 0; i < _tryStatement.clauses().size(); ++i)
+		nodes[i] = createFlow(nodes[i], _tryStatement.clauses()[i]->block());
 	mergeFlow(nodes);
 
 	return false;
@@ -235,7 +247,7 @@ bool ControlFlowBuilder::visit(FunctionCall const& _functionCall)
 	solAssert(!!m_currentNode, "");
 	solAssert(!!_functionCall.expression().annotation().type, "");
 
-	if (auto functionType = dynamic_pointer_cast<FunctionType const>(_functionCall.expression().annotation().type))
+	if (auto functionType = dynamic_cast<FunctionType const*>(_functionCall.expression().annotation().type))
 		switch (functionType->kind())
 		{
 			case FunctionType::Kind::Revert:
@@ -384,7 +396,7 @@ bool ControlFlowBuilder::visit(VariableDeclaration const& _variableDeclaration)
 			_variableDeclaration.value().get()
 		);
 	// Function arguments are considered to be immediately assigned as well (they are "externally assigned").
-	else if (_variableDeclaration.isCallableParameter() && !_variableDeclaration.isReturnParameter())
+	else if (_variableDeclaration.isCallableOrCatchParameter() && !_variableDeclaration.isReturnParameter())
 		m_currentNode->variableOccurrences.emplace_back(
 			_variableDeclaration,
 			VariableOccurrence::Kind::Assignment,

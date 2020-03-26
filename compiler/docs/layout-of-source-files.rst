@@ -3,8 +3,9 @@ Layout of a Solidity Source File
 ********************************
 
 Source files can contain an arbitrary number of
-:ref:`contract definitions<contract_structure>`, import_ directives
-and :ref:`pragma directives<pragma>`.
+:ref:`contract definitions<contract_structure>`, import_ directives,
+:ref:`pragma directives<pragma>` and
+:ref:`struct<structs>` and :ref:`enum<enums>` definitions.
 
 .. index:: ! pragma
 
@@ -13,11 +14,11 @@ and :ref:`pragma directives<pragma>`.
 Pragmas
 =======
 
-The ``pragma`` keyword can be used to enable certain compiler features
+The ``pragma`` keyword is used to enable certain compiler features
 or checks. A pragma directive is always local to a source file, so
 you have to add the pragma to all your files if you want enable it
-in all of your project. If you :ref:`import<import>` another file, the pragma
-from that file will not automatically apply to the importing file.
+in your whole project. If you :ref:`import<import>` another file, the pragma
+from that file does *not* automatically apply to the importing file.
 
 .. index:: ! pragma, version
 
@@ -26,34 +27,32 @@ from that file will not automatically apply to the importing file.
 Version Pragma
 --------------
 
-Source files can (and should) be annotated with a so-called version pragma to reject
-being compiled with future compiler versions that might introduce incompatible
-changes. We try to keep such changes to an absolute minimum and especially
-introduce changes in a way that changes in semantics will also require changes
-in the syntax, but this is of course not always possible. Because of that, it is always
+Source files can (and should) be annotated with a version pragma to reject
+compilation with future compiler versions that might introduce incompatible
+changes. We try to keep these to an absolute minimum and
+introduce them in a way that changes in semantics also require changes
+in the syntax, but this is not always possible. Because of this, it is always
 a good idea to read through the changelog at least for releases that contain
-breaking changes, those releases will always have versions of the form
+breaking changes. These releases always have versions of the form
 ``0.x.0`` or ``x.0.0``.
 
-The version pragma is used as follows::
+The version pragma is used as follows: ``pragma solidity ^0.5.2;``
 
-  pragma solidity ^0.5.2;
+A source file with the line above does not compile with a compiler earlier than version 0.5.2,
+and it also does not work on a compiler starting from version 0.6.0 (this
+second condition is added by using ``^``). Because
+there will be no breaking changes until version ``0.6.0``, you can
+be sure that your code compiles the way you intended. The exact version of the
+compiler is not fixed, so that bugfix releases are still possible.
 
-Such a source file will not compile with a compiler earlier than version 0.5.2
-and it will also not work on a compiler starting from version 0.6.0 (this
-second condition is added by using ``^``). The idea behind this is that
-there will be no breaking changes until version ``0.6.0``, so we can always
-be sure that our code will compile the way we intended it to. We do not fix
-the exact version of the compiler, so that bugfix releases are still possible.
-
-It is possible to specify much more complex rules for the compiler version,
-the expression follows those used by `npm <https://docs.npmjs.com/misc/semver>`_.
+It is possible to specify more complex rules for the compiler version,
+these follow the same syntax used by `npm <https://docs.npmjs.com/misc/semver>`_.
 
 .. note::
-  Using the version pragma will *not* change the version of the compiler.
-  It will also *not* enable or disable features of the compiler. It will just
-  instruct the compiler to check whether its version matches the one
-  required by the pragma. If it does not match, the compiler will issue
+  Using the version pragma *does not* change the version of the compiler.
+  It also *does not* enable or disable features of the compiler. It just
+  instructs the compiler to check whether its version matches the one
+  required by the pragma. If it does not match, the compiler issues
   an error.
 
 .. index:: ! pragma, experimental
@@ -72,10 +71,12 @@ ABIEncoderV2
 ~~~~~~~~~~~~
 
 The new ABI encoder is able to encode and decode arbitrarily nested
-arrays and structs. It produces less optimal code (the optimizer
-for this part of the code is still under development) and has not
-received as much testing as the old encoder. You can activate it
-using ``pragma experimental ABIEncoderV2;``.
+arrays and structs. It might produce less optimal code and has not
+received as much testing as the old encoder, but is considered
+non-experimental as of Solidity 0.6.0. You still have to explicitly
+activate it using ``pragma experimental ABIEncoderV2;`` - we kept
+the same pragma, even though it is not considered experimental
+anymore.
 
 .. _smt_checker:
 
@@ -86,17 +87,19 @@ This component has to be enabled when the Solidity compiler is built
 and therefore it is not available in all Solidity binaries.
 The :ref:`build instructions<smt_solvers_build>` explain how to activate this option.
 It is activated for the Ubuntu PPA releases in most versions,
-but not for solc-js, the Docker images, Windows binaries or the
-statically-built Linux binaries.
+but not for the Docker images, Windows binaries or the
+statically-built Linux binaries. It can be activated for solc-js via the
+`smtCallback <https://github.com/ethereum/solc-js#example-usage-with-smtsolver-callback>`_ if you have an SMT solver
+installed locally and run solc-js via node (not via the browser).
 
-If you use
-``pragma experimental SMTChecker;``, then you get additional
-safety warnings which are obtained by querying an SMT solver.
-The component does not yet support all features of the Solidity language
-and likely outputs many warnings. In case it reports unsupported
-features, the analysis may not be fully sound.
+If you use ``pragma experimental SMTChecker;``, then you get additional
+:ref:`safety warnings<formal_verification>` which are obtained by querying an
+SMT solver.
+The component does not yet support all features of the Solidity language and
+likely outputs many warnings. In case it reports unsupported features, the
+analysis may not be fully sound.
 
-.. index:: source file, ! import
+.. index:: source file, ! import, module
 
 .. _import:
 
@@ -106,8 +109,10 @@ Importing other Source Files
 Syntax and Semantics
 --------------------
 
-Solidity supports import statements that are very similar to those available in JavaScript
-(from ES6 on), although Solidity does not know the concept of a "default export".
+Solidity supports import statements to help modularise your code that
+are similar to those available in JavaScript
+(from ES6 on). However, Solidity does not support the concept of
+a `default export <https://developer.mozilla.org/en-US/docs/web/javascript/reference/statements/export#Description>`_.
 
 At a global level, you can use import statements of the following form:
 
@@ -117,29 +122,21 @@ At a global level, you can use import statements of the following form:
 
 This statement imports all global symbols from "filename" (and symbols imported there) into the
 current global scope (different than in ES6 but backwards-compatible for Solidity).
-This simple form is not recommended for use, because it pollutes the namespace in an
-unpredictable way: If you add new top-level items inside "filename", they will automatically
+This form is not recommended for use, because it unpredictably pollutes the namespace.
+If you add new top-level items inside "filename", they automatically
 appear in all files that import like this from "filename". It is better to import specific
 symbols explicitly.
 
 The following example creates a new global symbol ``symbolName`` whose members are all
-the global symbols from ``"filename"``.
+the global symbols from ``"filename"``:
 
 ::
 
   import * as symbolName from "filename";
 
-If there is a naming collision, you can also rename symbols while importing.
-This code
-creates new global symbols ``alias`` and ``symbol2`` which reference ``symbol1`` and ``symbol2`` from inside ``"filename"``, respectively.
+which results in all global symbols being available in the format ``symbolName.symbol``.
 
-::
-
-  import {symbol1 as alias, symbol2} from "filename";
-
-
-
-Another syntax is not part of ES6, but probably convenient:
+A variant of this syntax that is not part of ES6, but possibly useful is:
 
 ::
 
@@ -147,30 +144,36 @@ Another syntax is not part of ES6, but probably convenient:
 
 which is equivalent to ``import * as symbolName from "filename";``.
 
-.. note::
-  If you use `import "filename.sol" as moduleName;`, you access a contract called `C`
-  from inside `"filename.sol"` as `moduleName.C` and not by using `C` directly.
+If there is a naming collision, you can rename symbols while importing. For example,
+the code below creates new global symbols ``alias`` and ``symbol2`` which reference
+``symbol1`` and ``symbol2`` from inside ``"filename"``, respectively.
+
+::
+
+  import {symbol1 as alias, symbol2} from "filename";
 
 Paths
 -----
 
 In the above, ``filename`` is always treated as a path with ``/`` as directory separator,
-``.`` as the current and ``..`` as the parent directory.  When ``.`` or ``..`` is followed by a character except ``/``,
+and ``.`` as the current and ``..`` as the parent directory.  When ``.`` or ``..`` is followed by a character except ``/``,
 it is not considered as the current or the parent directory.
 All path names are treated as absolute paths unless they start with the current ``.`` or the parent directory ``..``.
 
-To import a file ``x`` from the same directory as the current file, use ``import "./x" as x;``.
-If you use ``import "x" as x;`` instead, a different file could be referenced
+To import a file ``filename`` from the same directory as the current file, use ``import "./filename" as symbolName;``.
+If you use ``import "filename" as symbolName;`` instead, a different file could be referenced
 (in a global "include directory").
 
-It depends on the compiler (see below) how to actually resolve the paths.
+It depends on the compiler (see :ref:`import-compiler`) how to actually resolve the paths.
 In general, the directory hierarchy does not need to strictly map onto your local
-filesystem, it can also map to resources discovered via e.g. ipfs, http or git.
+filesystem, and the path can also map to resources such as ipfs, http or git.
 
 .. note::
     Always use relative imports like ``import "./filename.sol";`` and avoid
     using ``..`` in path specifiers. In the latter case, it is probably better to use
     global paths and set up remappings as explained below.
+
+.. _import-compiler:
 
 Use in Actual Compilers
 -----------------------
@@ -240,6 +243,7 @@ GitHub and automatically retrieves the file over the network. You can import
 the iterable mapping as above,  e.g.
 
 ::
+
   import "github.com/ethereum/dapp-bin/library/iterable_mapping.sol" as it_mapping;
 
 Remix may add other source code providers in the future.
@@ -280,16 +284,15 @@ for the two function parameters and two return variables.
 
 ::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity >=0.4.0 <0.7.0;
 
     /** @title Shape calculator. */
     contract ShapeCalculator {
-        /** @dev Calculates a rectangle's surface and perimeter.
-          * @param w Width of the rectangle.
-          * @param h Height of the rectangle.
-          * @return s The calculated surface.
-          * @return p The calculated perimeter.
-          */
+        /// @dev Calculates a rectangle's surface and perimeter.
+        /// @param w Width of the rectangle.
+        /// @param h Height of the rectangle.
+        /// @return s The calculated surface.
+        /// @return p The calculated perimeter.
         function rectangle(uint w, uint h) public pure returns (uint s, uint p) {
             s = w * h;
             p = 2 * (w + h);

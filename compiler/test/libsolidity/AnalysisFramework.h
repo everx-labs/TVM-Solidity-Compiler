@@ -28,17 +28,15 @@
 #include <string>
 #include <memory>
 
-namespace dev
+namespace solidity::frontend
 {
-namespace solidity
-{
-
 class Type;
 class FunctionType;
-using TypePointer = std::shared_ptr<Type const>;
-using FunctionTypePointer = std::shared_ptr<FunctionType const>;
+using TypePointer = Type const*;
+using FunctionTypePointer = FunctionType const*;
+}
 
-namespace test
+namespace solidity::frontend::test
 {
 
 class AnalysisFramework
@@ -50,7 +48,8 @@ protected:
 		std::string const& _source,
 		bool _reportWarnings = false,
 		bool _insertVersionPragma = true,
-		bool _allowMultipleErrors = false
+		bool _allowMultipleErrors = false,
+		bool _allowRecoveryErrors = false
 	);
 	virtual ~AnalysisFramework() = default;
 
@@ -71,7 +70,25 @@ protected:
 	langutil::ErrorList filterErrors(langutil::ErrorList const& _errorList, bool _includeWarnings) const;
 
 	std::vector<std::string> m_warningsToFilter = {"This is a pre-release compiler version"};
-	dev::solidity::CompilerStack m_compiler;
+
+	/// @returns reference to lazy-instanciated CompilerStack.
+	solidity::frontend::CompilerStack& compiler()
+	{
+		if (!m_compiler)
+			m_compiler = std::make_unique<solidity::frontend::CompilerStack>();
+		return *m_compiler;
+	}
+
+	/// @returns reference to lazy-instanciated CompilerStack.
+	solidity::frontend::CompilerStack const& compiler() const
+	{
+		if (!m_compiler)
+			m_compiler = std::make_unique<solidity::frontend::CompilerStack>();
+		return *m_compiler;
+	}
+
+private:
+	mutable std::unique_ptr<solidity::frontend::CompilerStack> m_compiler;
 };
 
 // Asserts that the compilation down to typechecking
@@ -134,6 +151,4 @@ do \
 } \
 while(0)
 
-}
-}
 }

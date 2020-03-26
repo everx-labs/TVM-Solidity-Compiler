@@ -11,5 +11,6 @@ contract C {
 		assert(x == 2);
 	}
 }
+// ====
+// SMTSolvers: z3
 // ----
-// Warning: (158-172): Assertion violation happens here

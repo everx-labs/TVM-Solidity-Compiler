@@ -93,7 +93,7 @@ bool StructCompiler::FieldSizeInfo::tryMerge(const StructCompiler::FieldSizeInfo
 }
 
 StructCompiler::Field::Field(const int memberIndex, VariableDeclaration const* member) :
-		fieldSizeInfo{ member->type().get(), *member},
+		fieldSizeInfo{ member->type(), *member},
 		memberIndex{memberIndex},
 		member{member} {
 }
@@ -184,7 +184,7 @@ StructCompiler::StructCompiler(StackPusherHelper *pusher, std::vector<VariableDe
 		++memberIndex;
 	}
 
-	bool doSome = false;
+	bool doSome {};
 	do {
 		doSome = false;
 		for (int v = 1; v < static_cast<int>(nodes.size()); ++v) {
@@ -230,48 +230,100 @@ StructCompiler::StructCompiler(StackPusherHelper *pusher, std::vector<VariableDe
 }
 
 void StructCompiler::createDefaultStruct(bool resultIsBuilder) {
-	createDefaultStructDfs(0);
-	if (!resultIsBuilder) {
-		pusher->push(0, "ENDC");
-		pusher->push(0, "CTOS");
+	if (resultIsBuilder) {
+		createDefaultStructDfs(0);
+	} else {
+		for (VariableDeclaration const* var : variableDeclarations) {
+			pusher->pushDefaultValue(var->type(), false);
+		}
+		pusher->tuple(variableDeclarations.size());
 	}
 }
 
-void StructCompiler::pushMember(const std::string &memberName) {
+void StructCompiler::pushMember(const std::string &memberName, bool isStructTuple, bool returnStructAsSlice) {
 	// struct
-	const PathToStructMember &path = paths.at(memberName);
-	for (int childRef : path.childRef) {
-		pusher->push(0, "PLDREFIDX " + toString(childRef));
-		pusher->push(0, "CTOS");
-	}
+	if (isStructTuple) {
+		pusher->index(paths.at(memberName).field.memberIndex);
+		solAssert(!returnStructAsSlice, "");
+	} else {
+		const PathToStructMember &path = paths.at(memberName);
+		for (int childRef : path.childRef) {
+			if (childRef == 0) {
+				pusher->push(0, "PLDREF");
+			} else {
+				pusher->push(0, "PLDREFIDX " + toString(childRef));
+			}
+			pusher->push(0, "CTOS");
+		}
 
-	// TODO optimize for load one ref: struct, bytes by PLDREFIDX
-	const VariableDeclaration *vd = nameToVariableDeclarations.at(memberName);
-	skip(path.skippedFields);
-	preload(vd);
+		// TODO optimize for load one ref: struct, bytes by PLDREFIDX
+		const VariableDeclaration *vd = nameToVariableDeclarations.at(memberName);
+		skip(path.skippedFields);
+		preload(vd, returnStructAsSlice);
+	}
 }
 
-void StructCompiler::createStruct(const int argumentStackSize, std::vector<ASTPointer<ASTString>> const& names) {
-	std::map<std::string, int> argStackSize{};
-	if (!names.empty()) {
-		int shift = 0;
-		for (const ASTPointer<ASTString>& s : names) {
-			argStackSize[*s.get()] = argumentStackSize + shift;
-			++shift;
+void StructCompiler::setMemberForTuple(const std::string &memberName) {
+	pusher->set_index(paths.at(memberName).field.memberIndex);
+}
+
+void StructCompiler::structConstructor(std::vector<ASTPointer<ASTString>> const& names) {
+	std::vector<std::string> order;
+	if (names.empty()) {
+		// where args are located
+		int saveStackSize = pusher->getStack().size();
+		for (const VariableDeclaration *vd : variableDeclarations) {
+			if (vd->type()->category() != Type::Category::Mapping) {
+				--saveStackSize;
+			}
+		}
+
+		int i{};
+		for (const VariableDeclaration *vd : variableDeclarations) {
+			if (vd->type()->category() == Type::Category::Mapping) {
+				pusher->pushDefaultValue(vd->type(), false);
+				int topQty = pusher->getStack().size() - saveStackSize - 1 - i;
+				pusher->blockSwap(topQty, 1);
+			}
+			order.push_back(vd->name());
+			++i;
 		}
 	} else {
-		int shift = 0;
-		for (const VariableDeclaration* vd : variableDeclarations) {
-			if (vd->type()->category() != Type::Category::Mapping) {
-				argStackSize[vd->name()] = argumentStackSize + shift;
-				++shift;
+		for (const ASTPointer<ASTString> &n : names) {
+			order.push_back(*n.get());
+		}
+		for (const VariableDeclaration *vd : variableDeclarations) {
+			if (vd->type()->category() == Type::Category::Mapping) {
+				auto it = std::find(order.begin(), order.end(), vd->name());
+				solAssert(it == order.end(), "");
+				pusher->pushDefaultValue(vd->type());
+				order.push_back(vd->name());
 			}
 		}
 	}
-	createStructDfs(0, argStackSize);
-	pusher->push(0, "ENDC CTOS");
+
+	solAssert(order.size() == variableDeclarations.size(), "");
+	sortOnStack(order);
+	const int argQty = static_cast<int>(variableDeclarations.size());
+	pusher->tuple(argQty);
 }
 
+void StructCompiler::tupleToBuilder() {
+	const int argumentStackSize = pusher->getStack().size() - 1;
+	pusher->untuple(variableDeclarations.size());
+	std::map<std::string, int> argStackSize{};
+	int shift = 0;
+	for (const VariableDeclaration* vd : variableDeclarations) {
+		argStackSize[vd->name()] = argumentStackSize + shift;
+		++shift;
+	}
+	createStructDfs(0, argStackSize);
+	pusher->dropUnder(1, variableDeclarations.size());
+}
+
+void StructCompiler::stateVarsToBuilder() {
+	stateVarsToBuilderDfs(0);
+}
 
 void StructCompiler::expandStruct(const std::string &memberName, bool doPushMemberOnStack) {
 	// slice-struct
@@ -294,7 +346,7 @@ void StructCompiler::expandStruct(const std::string &memberName, bool doPushMemb
 		if (path.haveDataOrRefsAfterMember) {
 			load(path.field.member, true); // (suf, [pref])... [node-pref...] node-suf member
 		} else {
-			preload(path.field.member); // (suf, [pref])... [node-pref...] member
+			preload(path.field.member, true); // (suf, [pref])... [node-pref...] member
 		}
 		// (suf, [pref])... [node-pref...] [node-suf] member
 	} else {
@@ -307,7 +359,7 @@ void StructCompiler::expandStruct(const std::string &memberName, bool doPushMemb
 	}
 }
 
-void StructCompiler::collectStruct(const std::string &memberName, bool isValueBuilder, bool isResultBuilder) {
+void StructCompiler::collectStruct(const std::string &memberName, bool isValueBuilder) {
 	const PathToStructMember &path = paths.at(memberName);
 	int nodePrefQty = static_cast<int>(path.skippedFields.size());
 	// (suf, [pref])... [node-pref...] [node-suf] member
@@ -358,33 +410,38 @@ void StructCompiler::collectStruct(const std::string &memberName, bool isValueBu
 			pusher->push(-1, "STSLICE");// node-builder
 		}
 	}
-
-	if (!isResultBuilder) {
-		pusher->push(0, "ENDC");
-		pusher->push(0, "CTOS");
-	}
 }
 
-void StructCompiler::expandStruct(std::map<std::string, int> &memberToStackSize) {
-	expandStructDfs(0, "", memberToStackSize);
+void StructCompiler::convertSliceToTuple() {
+	std::vector<std::string> names;
+	convertSliceToTupleDfs(0, names);
+	sortOnStack(names);
+	pusher->tuple(names.size());
+}
+
+void StructCompiler::sliceToStateVarsToC7() {
+	sliceToStateVarsToC7Dfs(0);
 }
 
 bool StructCompiler::isCompatibleWithSDK(int keyLength, StructType const *structType) {
-	int size = 0;
+	int bitSize = 0;
+	int refSize = 0;
 	StructDefinition const& structDefinition = structType->structDefinition();
 	std::vector<ASTPointer<VariableDeclaration>> const& members = structDefinition.members();
 	for (const ASTPointer<VariableDeclaration>& member : members) {
-		if (isIntegralType(member->type().get())) {
-			TypeInfo ti{member->type().get()};
-			size += ti.numBits;
-		} else if (isAddressType(member->type().get())) {
-			size += AddressInfo::maxBitLength();
+		Type const* type = member->type();
+		if (isIntegralType(type)) {
+			TypeInfo ti{member->type()};
+			bitSize += ti.numBits;
+		} else if (isAddressOrContractType(type)) {
+			bitSize += AddressInfo::maxBitLength();
+		} else if (isStringOrStringLiteralOrBytes(type)) {
+			refSize++;
 		} else {
-			size = 1024;
-			break;
+			return false;
 		}
 	}
-	return 2 + keyLength + size <= TvmConst::CellBitLength; // 2 is gotten from hml_long$10
+	return 2 + keyLength + bitSize <= TvmConst::CellBitLength && refSize <= 3; // 2 is gotten from hml_long$10
 }
 
 void StructCompiler::dfs(int v, std::vector<int> &nodePath, std::vector<int> &refPath) {
@@ -436,7 +493,7 @@ void StructCompiler::createDefaultStructDfs(int v) {
 	auto onlyBitData = [](const Field& f) {
 		return f.fieldSizeInfo.isBitFixed &&
 					(f.fieldSizeInfo.maxRefLength == 0 ||
-						isUsualArray(f.member->type().get()) ||
+						isUsualArray(f.member->type()) ||
 						f.member->type()->category() == Type::Category::Mapping);
 	};
 
@@ -454,13 +511,13 @@ void StructCompiler::createDefaultStructDfs(int v) {
 			pusher->pushInt(size);
 			pusher->push(-2 + 1, "STZEROES");
 		} else {
-			auto structType = to<StructType>(f.member->type().get());
+			auto structType = to<StructType>(f.member->type());
 			if (structType) {
 				StructCompiler structCompiler{pusher, structType};
 				structCompiler.createDefaultStructDfs(0);
 				store(f.member, true, true);
 			} else {
-				pusher->pushDefaultValue(f.member->type().get());
+				pusher->pushDefaultValue(f.member->type());
 				store(f.member, true);
 			}
 		}
@@ -476,119 +533,158 @@ void StructCompiler::createStructDfs(const int v, const std::map<std::string, in
 	}
 
 	for (const Field &f : nodes[v].fields) {
-		if (f.member->type()->category() == Type::Category::Mapping) {
-			pusher->pushDefaultValue(f.member->type().get());
-		} else {
-			const int curStackSize = pusher->getStack().size();
-			const int index = curStackSize - 1 - argStackSize.at(f.member->name());
-			pusher->pushS(index);
-		}
+		const int curStackSize = pusher->getStack().size();
+		const int index = curStackSize - 1 - argStackSize.at(f.member->name());
+		pusher->pushS(index);
 		store(f.member, true);
 	}
 }
 
-void
-StructCompiler::expandStructDfs(const int v, const std::string &prefix, std::map<std::string, int> &memberToStackSize) {
-	// struct
-
-	const int stackSizeForStruct = pusher->getStack().size();
-	if (!nodes[v].children.empty()) {
-		split(0, nodes[v].children.size());
+void StructCompiler::stateVarsToBuilderDfs(const int v) {
+	int cntValues = 0;
+	for (const int to : nodes[v].children) {
+		pusher->push(+1, "NEWC");
+		++cntValues;
+		stateVarsToBuilderDfs(to);
 	}
-
-	for (Field &f : nodes[v].fields) {
-		if (isUsualStruct(f.member->type().get())) {
-			load(f.member, true); // slice field
-			const int stackSizeForSlice = pusher->getStack().size() - 1;
-			auto structType = to<StructType>(f.member->type().get());
-			StructCompiler structCompiler{pusher, structType};
-			structCompiler.expandStructDfs(0, prefix + "@" + f.member->name(), memberToStackSize);
-
-			const int newStackSize = pusher->getStack().size();
-			pusher->pushS(newStackSize - stackSizeForSlice);
+	for (const Field &f : nodes[v].fields) {
+		pusher->getGlob(f.member);
+		if (isUsualArray(f.member->type())) {
+			pusher->untuple(2); // size dict
+			cntValues += 2;
 		} else {
-			load(f.member, false); // field slice
-			const int stackSizeForMember = pusher->getStack().size() - 1;
-			memberToStackSize[prefix + "@" + f.member->name()] = stackSizeForMember;
+			cntValues++;
 		}
 	}
-	// fields-and-trash... struct
 
-
-	int idRef = 0;
+	if (cntValues + 1 >= 2) {
+		pusher->reverse(cntValues + 1, 0);
+	}
 	for (const int to : nodes[v].children) {
-		const int newStackSize = pusher->getStack().size();
-		pusher->pushS(newStackSize - stackSizeForStruct);
-		pusher->push(0, "PLDREFIDX " + toString(idRef));
-		pusher->push(0, "CTOS");
-		expandStructDfs(to, prefix, memberToStackSize);
+		(void) to;
+		pusher->push(-1, "STBREF");
+	}
+	for (const Field &f : nodes[v].fields) {
+		store(f.member, false, false, true);
+	}
+}
 
-		++idRef;
+void StructCompiler::convertSliceToTupleDfs(int v, std::vector<std::string>& names) {
+	// struct
+
+	for (const int to : nodes[v].children) {
+		// members... struct
+		int stackSizeForStruct = pusher->getStack().size();
+		pusher->push(+1, "LDREFRTOS"); // members... struct child
+		convertSliceToTupleDfs(to, names);
+		// members... struct members...
+
+		const int memberQty = pusher->getStack().size() - stackSizeForStruct;
+		pusher->blockSwap(1, memberQty);
+		// members... struct
+	}
+
+	// members... struct
+	std::size_t iter = 0;
+	for (Field &f : nodes[v].fields) {
+		if (iter + 1 == nodes[v].fields.size()) {
+			preload(f.member, false); // field
+		} else {
+			load(f.member, false); // field slice
+		}
+		names.push_back(f.member->name());
+		++iter;
+	}
+}
+
+void StructCompiler::sliceToStateVarsToC7Dfs(const int v) {
+	// slice
+	for (const int to : nodes[v].children) {
+		pusher->push(+1, "LDREFRTOS"); // slice child[i]
+		sliceToStateVarsToC7Dfs(to);
+	}
+
+	if (nodes[v].fields.empty()) {
+		pusher->push(-1, "ENDS");
+		return;
+	}
+
+	// slice
+	std::vector<Field> fields;
+	for (std::size_t i = 0; i < nodes[v].fields.size(); ++i) {
+		Field &f = nodes[v].fields[i];
+		if (i + 1 == nodes[v].fields.size()) {
+			preload(f.member, false); // field
+			pusher->setGlob(f.member);
+		} else {
+			bool directOrder = fastLoad(f.member);
+			if (directOrder) { // value slice
+				fields.push_back(f);
+			} else { // slice value
+				pusher->setGlob(f.member);
+			}
+		}
+	}
+	while (!fields.empty()) {
+		pusher->setGlob(fields.back().member);
+		fields.pop_back();
 	}
 }
 
 void StructCompiler::load(const VariableDeclaration *vd, bool reverseOrder) {
 	// slice
-	Type const *type = vd->type().get();
+	bool directOrder = fastLoad(vd);
+	if (directOrder == reverseOrder) {
+		pusher->exchange(0, 1);
+	}
+	// reverseOrder? slice member : member slice
+}
+
+bool StructCompiler::fastLoad(const VariableDeclaration *vd) {
+	Type const *type = vd->type();
 	switch (vd->type()->category()) {
 		case Type::Category::TvmCell:
 			pusher->push(-1 + 2, "LDREF");
-			if (reverseOrder) {
-				pusher->push(0, "SWAP");
-			}
-			break;
-		case Type::Category::Struct:
+			return true;
+		case Type::Category::Struct: {
 			pusher->push(+1, "LDREFRTOS");
-			if (!reverseOrder) {
-				pusher->push(0, "SWAP");
-			}
-			break;
+			// slice structAsSlice
+			auto st = to<StructType>(type);
+			StructCompiler sc{pusher, st};
+			sc.convertSliceToTuple();
+			return false;
+		}
 		case Type::Category::Address:
 		case Type::Category::Contract:
 			pusher->push(-1 + 2, "LDMSGADDR");
-			if (reverseOrder) {
-				pusher->push(0, "SWAP");
-			}
-			break;
+			return true;
 		case Type::Category::Enum:
 		case Type::Category::Integer:
 		case Type::Category::Bool:
 		case Type::Category::FixedBytes:
 			pusher->load(type);
-			if (reverseOrder) {
-				pusher->push(0, "SWAP");
-			}
-			break;
+			return true;
 		case Type::Category::Array: {
 			auto arrayType = to<ArrayType>(type);
 			if (arrayType->isByteArray()) {
 				pusher->push(-1 + 2, "LDREF");
-				if (reverseOrder) {
-					pusher->push(0, "SWAP");
-				}
+				return true;
 			} else {
-				pusher->loadArray();
-				if (reverseOrder) {
-					pusher->push(0, "SWAP");
-				}
+				pusher->loadArray(false);
+				return false;
 			}
-			break;
 		}
 		case Type::Category::Mapping:
 			pusher->push(-1 + 2, "LDDICT");
-			if (reverseOrder) {
-				pusher->push(0, "SWAP");
-			}
-			break;
+			return true;
 		default:
 			solAssert(false, "");
 	}
-	// reverseOrder? slice member : member slice
 }
 
-void StructCompiler::preload(const VariableDeclaration *vd) {
+void StructCompiler::preload(const VariableDeclaration *vd, bool returnStructAsSlice) {
 	// on stack there is slice
-	Type const *type = vd->type().get();
+	Type const *type = vd->type();
 	switch (vd->type()->category()) {
 		case Type::Category::Address:
 		case Type::Category::Contract:
@@ -603,6 +699,11 @@ void StructCompiler::preload(const VariableDeclaration *vd) {
 		case Type::Category::Struct:
 			pusher->push(-1 + 2, "LDREFRTOS");
 			pusher->push(-1, "NIP");
+			if (!returnStructAsSlice) {
+				auto structType = to<StructType>(type);
+				StructCompiler sc{pusher, structType};
+				sc.convertSliceToTuple();
+			}
 			break;
 		case Type::Category::Integer:
 		case Type::Category::Enum:
@@ -627,24 +728,29 @@ void StructCompiler::preload(const VariableDeclaration *vd) {
 	}
 }
 
-void StructCompiler::store(const VariableDeclaration *vd, bool reverse, bool isValueBuilder) {
+void StructCompiler::store(const VariableDeclaration *vd, bool reverse, bool isValueBuilder, bool isArrayUntupled) {
 	// value   builder
 	// builder value    - reverse order
-	Type const *type = vd->type().get();
+	Type const *type = vd->type();
 	switch (vd->type()->category()) {
 		case Type::Category::TvmCell:
 			pusher->push(-1, reverse? "STREFR" : "STREF"); // builder
 			break;
-		case Type::Category::Struct:
-			if (!reverse) {
-				pusher->push(0, "SWAP"); // builder slice-value
+		case Type::Category::Struct: {
+			if (isValueBuilder) {
+				pusher->push(-1, reverse? "STBREFR" : "STBREF"); // builder
+			} else {
+				if (!reverse) {
+					pusher->push(0, "SWAP"); // builder struct
+				}
+				// builder struct
+				auto st = to<StructType>(type);
+				StructCompiler sc{pusher, st};
+				sc.tupleToBuilder();
+				pusher->push(-1, "STBREFR"); // builder
 			}
-			if (!isValueBuilder) {
-				pusher->push(+1, "NEWC"); // builder slice-value builder
-				pusher->push(-1, "STSLICE"); // builder builder-value
-			}
-			pusher->push(-1, "STBREFR"); // builder
 			break;
+		}
 		case Type::Category::Address:
 		case Type::Category::Contract:
 			pusher->push(-1, reverse? "STSLICER" : "STSLICE"); // builder slice-value
@@ -667,21 +773,28 @@ void StructCompiler::store(const VariableDeclaration *vd, bool reverse, bool isV
 			pusher->push(-1, "STDICT"); // builder
 			break;
 		case Type::Category::Array: {
-			auto arrayType = to<ArrayType>(vd->type().get());
+			auto arrayType = to<ArrayType>(vd->type());
 			if (arrayType->isByteArray()) {
 				pusher->push(-1, reverse? "STREFR" : "STREF"); // builder
 			} else {
 				if (isValueBuilder) {
+					solAssert(!isArrayUntupled, "");
 					pusher->push(-1, reverse ? "STBR" : "STB");
-//					solAssert(false, "");
 				} else {
-					if (!reverse) {
-						pusher->push(0, "SWAP"); // builder arr
+					if (isArrayUntupled) {
+						solAssert(!reverse, "");
+						// dict size builder
+						pusher->push(-1, "STU 32");
+						pusher->push(-1, "STDICT");
+					} else {
+						if (!reverse) {
+							pusher->push(0, "SWAP"); // builder arr
+						}
+						pusher->push(-1 + 2, "UNPAIR"); // builder size dict
+						pusher->push(0, "ROTREV"); // dict builder size
+						pusher->push(-1, "STUR 32"); // dict builder'
+						pusher->push(-1, "STDICT"); // builder''
 					}
-					pusher->push(-1 + 2, "UNPAIR"); // builder size dict
-					pusher->push(0, "ROTREV"); // dict builder size
-					pusher->push(-1, "STUR 32"); // dict builder'
-					pusher->push(-1, "STDICT"); // builder''
 				}
 			}
 			break;
@@ -761,7 +874,6 @@ void StructCompiler::split(const StructCompiler::FieldSizeInfo &fieldSizeInfo) {
 				break;
 			case Type::Category::Array:
 				solAssert(isUsualArray(fieldSizeInfo.type), "");
-				//pusher->loadArray();
 				pusher->push(-1 + 2, "LDSLICE 32"); // sliceSize slice
 				pusher->push(-1 + 2, "LDDICTS"); // sliceSize dictSlice slice
 				pusher->push(0, "ROTREV"); // slice sliceSize dictSlice
@@ -811,5 +923,21 @@ std::vector<VariableDeclaration const *> StructCompiler::fVariableDeclarations(S
 		result.push_back(vd.get());
 	}
 	return result;
+}
+
+void StructCompiler::sortOnStack(std::vector<std::string> &order) {
+	const int n = static_cast<int>(order.size());
+	for (int i = 0; i < n; ++i) {
+		if (variableDeclarations[i]->name() != order[i]) {
+			for (int j = i + 1; j < n; ++j) {
+				if (variableDeclarations[i]->name() == order[j]) {
+					pusher->exchange(n - 1 - j, n - 1 - i);
+					swap(order[i], order[j]);
+					break;
+				}
+				solAssert(j + 1 != n, "");
+			}
+		}
+	}
 }
 

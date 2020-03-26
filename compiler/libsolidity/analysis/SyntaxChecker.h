@@ -23,14 +23,12 @@
 #include <libsolidity/ast/ASTForward.h>
 #include <libsolidity/ast/ASTVisitor.h>
 
-namespace langutil
+namespace solidity::langutil
 {
 class ErrorReporter;
 }
 
-namespace dev
-{
-namespace solidity
+namespace solidity::frontend
 {
 
 /**
@@ -39,12 +37,16 @@ namespace solidity
  *  - whether a modifier contains at least one '_'
  *  - issues deprecation warnings for unary '+'
  *  - issues deprecation warning for throw
+ *  - whether the msize instruction is used and the Yul optimizer is enabled at the same time.
  */
 class SyntaxChecker: private ASTConstVisitor
 {
 public:
 	/// @param _errorReporter provides the error logging functionality.
-	SyntaxChecker(langutil::ErrorReporter& _errorReporter): m_errorReporter(_errorReporter) {}
+	SyntaxChecker(langutil::ErrorReporter& _errorReporter, bool _useYulOptimizer):
+		m_errorReporter(_errorReporter),
+		m_useYulOptimizer(_useYulOptimizer)
+	{}
 
 	bool checkSyntax(ASTNode const& _astRoot);
 
@@ -75,6 +77,8 @@ private:
 
 	bool visit(UnaryOperation const& _operation) override;
 
+	bool visit(InlineAssembly const& _inlineAssembly) override;
+
 	bool visit(PlaceholderStatement const& _placeholderStatement) override;
 
 	bool visit(ContractDefinition const& _contract) override;
@@ -88,6 +92,8 @@ private:
 
 	langutil::ErrorReporter& m_errorReporter;
 
+	bool m_useYulOptimizer = false;
+
 	/// Flag that indicates whether a function modifier actually contains '_'.
 	bool m_placeholderFound = false;
 
@@ -100,5 +106,4 @@ private:
 	SourceUnit const* m_sourceUnit = nullptr;
 };
 
-}
 }

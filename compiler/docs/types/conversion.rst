@@ -8,29 +8,51 @@ Conversions between Elementary Types
 Implicit Conversions
 --------------------
 
-If an operator is applied to different types, the compiler tries to
-implicitly convert one of the operands to the type of the other (the same is
-true for assignments). In general, an implicit conversion between value-types
-is possible if it
-makes sense semantically and no information is lost: ``uint8`` is convertible to
-``uint16`` and ``int128`` to ``int256``, but ``int8`` is not convertible to ``uint256``
-(because ``uint256`` cannot hold e.g. ``-1``).
+An implicit type conversion is automatically applied by the compiler in some cases
+during assignments, when passing arguments to functions and when applying operators.
+In general, an implicit conversion between value-types is possible if it makes
+sense semantically and no information is lost.
 
-For more details, please consult the sections about the types themselves.
+For example, ``uint8`` is convertible to
+``uint16`` and ``int128`` to ``int256``, but ``int8`` is not convertible to ``uint256``,
+because ``uint256`` cannot hold values such as ``-1``.
+
+If an operator is applied to different types, the compiler tries to implicitly
+convert one of the operands to the type of the other (the same is true for assignments).
+This means that operations are always performed in the type of one of the operands.
+
+For more details about which implicit conversions are possible,
+please consult the sections about the types themselves.
+
+In the example below, ``y`` and ``z``, the operands of the addition,
+do not have the same type, but ``uint8`` can
+be implicitly converted to ``uint16`` and not vice-versa. Because of that,
+``y`` is converted to the type of ``z`` before the addition is performed
+in the ``uint16`` type. The resulting type of the expression ``y + z`` is ``uint16`.
+Because it is assigned to a variable of type ``uint32`` another implicit conversion
+is performed after the addition.
+
+::
+
+    uint8 y;
+    uint16 z;
+    uint32 x = y + z;
+
 
 Explicit Conversions
 --------------------
 
-If the compiler does not allow implicit conversion but you know what you are
-doing, an explicit type conversion is sometimes possible. Note that this may
-give you some unexpected behaviour and allows you to bypass some security
+If the compiler does not allow implicit conversion but you are confident a conversion will work,
+an explicit type conversion is sometimes possible. This may
+result in unexpected behaviour and allows you to bypass some security
 features of the compiler, so be sure to test that the
-result is what you want! Take the following example where you are converting
-a negative ``int8`` to a ``uint``:
+result is what you want and expect!
+
+Take the following example that converts a negative ``int`` to a ``uint``:
 
 ::
 
-    int8 y = -3;
+    int  y = -3;
     uint x = uint(y);
 
 At the end of this code snippet, ``x`` will have the value ``0xfffff..fd`` (64 hex
@@ -42,7 +64,7 @@ cut off::
     uint32 a = 0x12345678;
     uint16 b = uint16(a); // b will be 0x5678 now
 
-If an integer is explicitly converted to a larger type, it is padded on the left (i.e. at the higher order end).
+If an integer is explicitly converted to a larger type, it is padded on the left (i.e., at the higher order end).
 The result of the conversion will compare equal to the original integer::
 
     uint16 a = 0x1234;
@@ -125,3 +147,5 @@ As described in :ref:`address_literals`, hex literals of the correct size that p
 test are of ``address`` type. No other literals can be implicitly converted to the ``address`` type.
 
 Explicit conversions from ``bytes20`` or any integer type to ``address`` result in ``address payable``.
+
+An ``address a`` can be converted to ``address payable`` via ``payable(a)``.

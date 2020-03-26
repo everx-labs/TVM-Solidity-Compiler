@@ -29,9 +29,7 @@
 #include <ostream>
 #include <tuple>
 
-namespace dev
-{
-namespace eth
+namespace solidity::evmasm
 {
 
 class KnownState;
@@ -47,24 +45,34 @@ namespace GasCosts
 	static unsigned const tier5Gas = 10;
 	static unsigned const tier6Gas = 20;
 	static unsigned const tier7Gas = 0;
-	inline unsigned extCodeGas(EVMVersion _evmVersion)
+	inline unsigned extCodeGas(langutil::EVMVersion _evmVersion)
 	{
-		return _evmVersion >= EVMVersion::tangerineWhistle() ? 700 : 20;
+		return _evmVersion >= langutil::EVMVersion::tangerineWhistle() ? 700 : 20;
 	}
-	inline unsigned balanceGas(EVMVersion _evmVersion)
+	inline unsigned balanceGas(langutil::EVMVersion _evmVersion)
 	{
-		return _evmVersion >= EVMVersion::tangerineWhistle() ? 400 : 20;
+		if (_evmVersion >= langutil::EVMVersion::istanbul())
+			return 700;
+		else if (_evmVersion >= langutil::EVMVersion::tangerineWhistle())
+			return 400;
+		else
+			return 20;
 	}
 	static unsigned const expGas = 10;
-	inline unsigned expByteGas(EVMVersion _evmVersion)
+	inline unsigned expByteGas(langutil::EVMVersion _evmVersion)
 	{
-		return _evmVersion >= EVMVersion::spuriousDragon() ? 50 : 10;
+		return _evmVersion >= langutil::EVMVersion::spuriousDragon() ? 50 : 10;
 	}
 	static unsigned const keccak256Gas = 30;
 	static unsigned const keccak256WordGas = 6;
-	inline unsigned sloadGas(EVMVersion _evmVersion)
+	inline unsigned sloadGas(langutil::EVMVersion _evmVersion)
 	{
-		return _evmVersion >= EVMVersion::tangerineWhistle() ? 200 : 50;
+		if (_evmVersion >= langutil::EVMVersion::istanbul())
+			return 800;
+		else if (_evmVersion >= langutil::EVMVersion::tangerineWhistle())
+			return 200;
+		else
+			return 50;
 	}
 	static unsigned const sstoreSetGas = 20000;
 	static unsigned const sstoreResetGas = 5000;
@@ -74,16 +82,16 @@ namespace GasCosts
 	static unsigned const logDataGas = 8;
 	static unsigned const logTopicGas = 375;
 	static unsigned const createGas = 32000;
-	inline unsigned callGas(EVMVersion _evmVersion)
+	inline unsigned callGas(langutil::EVMVersion _evmVersion)
 	{
-		return _evmVersion >= EVMVersion::tangerineWhistle() ? 700 : 40;
+		return _evmVersion >= langutil::EVMVersion::tangerineWhistle() ? 700 : 40;
 	}
 	static unsigned const callStipend = 2300;
 	static unsigned const callValueTransferGas = 9000;
 	static unsigned const callNewAccountGas = 25000;
-	inline unsigned selfdestructGas(EVMVersion _evmVersion)
+	inline unsigned selfdestructGas(langutil::EVMVersion _evmVersion)
 	{
-		return _evmVersion >= EVMVersion::tangerineWhistle() ? 5000 : 0;
+		return _evmVersion >= langutil::EVMVersion::tangerineWhistle() ? 5000 : 0;
 	}
 	static unsigned const selfdestructRefundGas = 24000;
 	static unsigned const memoryGas = 3;
@@ -92,7 +100,10 @@ namespace GasCosts
 	static unsigned const txGas = 21000;
 	static unsigned const txCreateGas = 53000;
 	static unsigned const txDataZeroGas = 4;
-	static unsigned const txDataNonZeroGas = 68;
+	inline unsigned txDataNonZeroGas(langutil::EVMVersion _evmVersion)
+	{
+		return _evmVersion >= langutil::EVMVersion::istanbul() ? 16 : 68;
+	}
 	static unsigned const copyGas = 3;
 }
 
@@ -122,7 +133,7 @@ public:
 	};
 
 	/// Constructs a new gas meter given the current state.
-	GasMeter(std::shared_ptr<KnownState> const& _state, solidity::EVMVersion _evmVersion, u256 const& _largestMemoryAccess = 0):
+	GasMeter(std::shared_ptr<KnownState> const& _state, langutil::EVMVersion _evmVersion, u256 const& _largestMemoryAccess = 0):
 		m_state(_state), m_evmVersion(_evmVersion), m_largestMemoryAccess(_largestMemoryAccess) {}
 
 	/// @returns an upper bound on the gas consumed by the given instruction and updates
@@ -139,7 +150,7 @@ public:
 	/// @returns the gas cost of the supplied data, depending whether it is in creation code, or not.
 	/// In case of @a _inCreation, the data is only sent as a transaction and is not stored, whereas
 	/// otherwise code will be stored and have to pay "createDataGas" cost.
-	static u256 dataGas(bytes const& _data, bool _inCreation);
+	static u256 dataGas(bytes const& _data, bool _inCreation, langutil::EVMVersion _evmVersion);
 
 private:
 	/// @returns _multiplier * (_value + 31) / 32, if _value is a known constant and infinite otherwise.
@@ -152,7 +163,7 @@ private:
 	GasConsumption memoryGas(int _stackPosOffset, int _stackPosSize);
 
 	std::shared_ptr<KnownState> m_state;
-	EVMVersion m_evmVersion;
+	langutil::EVMVersion m_evmVersion;
 	/// Largest point where memory was accessed since the creation of this object.
 	u256 m_largestMemoryAccess;
 };
@@ -166,5 +177,4 @@ inline std::ostream& operator<<(std::ostream& _str, GasMeter::GasConsumption con
 }
 
 
-}
 }

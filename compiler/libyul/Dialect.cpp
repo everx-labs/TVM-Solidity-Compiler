@@ -20,10 +20,34 @@
 
 #include <libyul/Dialect.h>
 
-#include <libyul/Object.h>
-#include <libyul/backends/evm/AbstractAssembly.h>
-
-#include <map>
-
-using namespace yul;
+using namespace solidity::yul;
 using namespace std;
+
+Dialect const& Dialect::yulDeprecated()
+{
+	static unique_ptr<Dialect> dialect;
+	static YulStringRepository::ResetCallback callback{[&] { dialect.reset(); }};
+
+	if (!dialect)
+	{
+		// TODO will probably change, especially the list of types.
+		dialect = make_unique<Dialect>();
+		dialect->defaultType = "u256"_yulstring;
+		dialect->boolType = "bool"_yulstring;
+		dialect->types = {
+			"bool"_yulstring,
+			"u8"_yulstring,
+			"s8"_yulstring,
+			"u32"_yulstring,
+			"s32"_yulstring,
+			"u64"_yulstring,
+			"s64"_yulstring,
+			"u128"_yulstring,
+			"s128"_yulstring,
+			"u256"_yulstring,
+			"s256"_yulstring
+		};
+	};
+
+	return *dialect;
+}

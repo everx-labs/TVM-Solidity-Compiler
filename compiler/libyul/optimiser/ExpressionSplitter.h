@@ -27,12 +27,12 @@
 
 #include <vector>
 
-namespace yul
+namespace solidity::yul
 {
 
 class NameCollector;
 struct Dialect;
-
+struct OptimiserStepContext;
 
 /**
  * Optimiser component that modifies an AST in place, turning complex
@@ -58,11 +58,9 @@ struct Dialect;
 class ExpressionSplitter: public ASTModifier
 {
 public:
-	explicit ExpressionSplitter(Dialect const& _dialect, NameDispenser& _nameDispenser):
-		m_dialect(_dialect), m_nameDispenser(_nameDispenser)
-	{ }
+	static constexpr char const* name{"ExpressionSplitter"};
+	static void run(OptimiserStepContext&, Block& _ast);
 
-	void operator()(FunctionalInstruction&) override;
 	void operator()(FunctionCall&) override;
 	void operator()(If&) override;
 	void operator()(Switch&) override;
@@ -70,6 +68,10 @@ public:
 	void operator()(Block& _block) override;
 
 private:
+	explicit ExpressionSplitter(Dialect const& _dialect, NameDispenser& _nameDispenser):
+		m_dialect(_dialect), m_nameDispenser(_nameDispenser)
+	{ }
+
 	/// Replaces the expression by a variable if it is a function call or functional
 	/// instruction. The declaration of the variable is appended to m_statementsToPrefix.
 	/// Recurses via visit().

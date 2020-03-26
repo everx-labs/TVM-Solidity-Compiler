@@ -20,28 +20,45 @@
 
 #include <libyul/optimiser/UnusedPruner.h>
 
+#include <libyul/optimiser/CallGraphGenerator.h>
 #include <libyul/optimiser/NameCollector.h>
 #include <libyul/optimiser/Semantics.h>
 #include <libyul/optimiser/OptimizerUtilities.h>
 #include <libyul/Exceptions.h>
 #include <libyul/AsmData.h>
+#include <libyul/Dialect.h>
+#include <libyul/SideEffects.h>
 
 #include <boost/algorithm/cxx11/none_of.hpp>
 
 using namespace std;
-using namespace dev;
-using namespace yul;
+using namespace solidity;
+using namespace solidity::yul;
 
-UnusedPruner::UnusedPruner(Dialect const& _dialect, Block& _ast, set<YulString> const& _externallyUsedFunctions):
-	m_dialect(_dialect)
+UnusedPruner::UnusedPruner(
+	Dialect const& _dialect,
+	Block& _ast,
+	bool _allowMSizeOptimization,
+	map<YulString, SideEffects> const* _functionSideEffects,
+	set<YulString> const& _externallyUsedFunctions
+):
+	m_dialect(_dialect),
+	m_allowMSizeOptimization(_allowMSizeOptimization),
+	m_functionSideEffects(_functionSideEffects)
 {
 	m_references = ReferencesCounter::countReferences(_ast);
 	for (auto const& f: _externallyUsedFunctions)
 		++m_references[f];
 }
 
-UnusedPruner::UnusedPruner(Dialect const& _dialect, FunctionDefinition& _function, set<YulString> const& _externallyUsedFunctions):
-	m_dialect(_dialect)
+UnusedPruner::UnusedPruner(
+	Dialect const& _dialect,
+	FunctionDefinition& _function,
+	bool _allowMSizeOptimization,
+	set<YulString> const& _externallyUsedFunctions
+):
+	m_dialect(_dialect),
+	m_allowMSizeOptimization(_allowMSizeOptimization)
 {
 	m_references = ReferencesCounter::countReferences(_function);
 	for (auto const& f: _externallyUsedFunctions)
@@ -51,21 +68,21 @@ UnusedPruner::UnusedPruner(Dialect const& _dialect, FunctionDefinition& _functio
 void UnusedPruner::operator()(Block& _block)
 {
 	for (auto&& statement: _block.statements)
-		if (statement.type() == typeid(FunctionDefinition))
+		if (holds_alternative<FunctionDefinition>(statement))
 		{
-			FunctionDefinition& funDef = boost::get<FunctionDefinition>(statement);
+			FunctionDefinition& funDef = std::get<FunctionDefinition>(statement);
 			if (!used(funDef.name))
 			{
 				subtractReferences(ReferencesCounter::countReferences(funDef.body));
 				statement = Block{std::move(funDef.location), {}};
 			}
 		}
-		else if (statement.type() == typeid(VariableDeclaration))
+		else if (holds_alternative<VariableDeclaration>(statement))
 		{
-			VariableDeclaration& varDecl = boost::get<VariableDeclaration>(statement);
+			VariableDeclaration& varDecl = std::get<VariableDeclaration>(statement);
 			// Multi-variable declarations are special. We can only remove it
-			// if all vairables are unused and the right-hand-side is either
-			// movable or it return a single value. In the latter case, we
+			// if all variables are unused and the right-hand-side is either
+			// movable or it returns a single value. In the latter case, we
 			// replace `let a := f()` by `pop(f())` (in pure Yul, this will be
 			// `drop(f())`).
 			if (boost::algorithm::none_of(
@@ -75,27 +92,30 @@ void UnusedPruner::operator()(Block& _block)
 			{
 				if (!varDecl.value)
 					statement = Block{std::move(varDecl.location), {}};
-				else if (MovableChecker(m_dialect, *varDecl.value).movable())
+				else if (
+					SideEffectsCollector(m_dialect, *varDecl.value, m_functionSideEffects).
+					sideEffectFree(m_allowMSizeOptimization)
+				)
 				{
 					subtractReferences(ReferencesCounter::countReferences(*varDecl.value));
 					statement = Block{std::move(varDecl.location), {}};
 				}
-				else if (varDecl.variables.size() == 1)
-					// In pure Yul, this should be replaced by a function call to `drop`
-					// instead of `pop`.
-					statement = ExpressionStatement{varDecl.location, FunctionalInstruction{
+				else if (varDecl.variables.size() == 1 && m_dialect.discardFunction())
+					statement = ExpressionStatement{varDecl.location, FunctionCall{
 						varDecl.location,
-						solidity::Instruction::POP,
+						{varDecl.location, m_dialect.discardFunction()->name},
 						{*std::move(varDecl.value)}
 					}};
 			}
 		}
-		else if (statement.type() == typeid(ExpressionStatement))
+		else if (holds_alternative<ExpressionStatement>(statement))
 		{
-			ExpressionStatement& exprStmt = boost::get<ExpressionStatement>(statement);
-			if (MovableChecker(m_dialect, exprStmt.expression).movable())
+			ExpressionStatement& exprStmt = std::get<ExpressionStatement>(statement);
+			if (
+				SideEffectsCollector(m_dialect, exprStmt.expression, m_functionSideEffects).
+				sideEffectFree(m_allowMSizeOptimization)
+			)
 			{
-				// pop(x) should be movable!
 				subtractReferences(ReferencesCounter::countReferences(exprStmt.expression));
 				statement = Block{std::move(exprStmt.location), {}};
 			}
@@ -109,27 +129,44 @@ void UnusedPruner::operator()(Block& _block)
 void UnusedPruner::runUntilStabilised(
 	Dialect const& _dialect,
 	Block& _ast,
+	bool _allowMSizeOptimization,
+	map<YulString, SideEffects> const* _functionSideEffects,
 	set<YulString> const& _externallyUsedFunctions
 )
 {
 	while (true)
 	{
-		UnusedPruner pruner(_dialect, _ast, _externallyUsedFunctions);
+		UnusedPruner pruner(
+			_dialect, _ast, _allowMSizeOptimization, _functionSideEffects,
+							_externallyUsedFunctions);
 		pruner(_ast);
 		if (!pruner.shouldRunAgain())
 			return;
 	}
 }
 
+void UnusedPruner::runUntilStabilisedOnFullAST(
+	Dialect const& _dialect,
+	Block& _ast,
+	set<YulString> const& _externallyUsedFunctions
+)
+{
+	map<YulString, SideEffects> functionSideEffects =
+		SideEffectsPropagator::sideEffects(_dialect, CallGraphGenerator::callGraph(_ast));
+	bool allowMSizeOptimization = !MSizeFinder::containsMSize(_dialect, _ast);
+	runUntilStabilised(_dialect, _ast, allowMSizeOptimization, &functionSideEffects, _externallyUsedFunctions);
+}
+
 void UnusedPruner::runUntilStabilised(
 	Dialect const& _dialect,
 	FunctionDefinition& _function,
+	bool _allowMSizeOptimization,
 	set<YulString> const& _externallyUsedFunctions
 )
 {
 	while (true)
 	{
-		UnusedPruner pruner(_dialect, _function, _externallyUsedFunctions);
+		UnusedPruner pruner(_dialect, _function, _allowMSizeOptimization, _externallyUsedFunctions);
 		pruner(_function);
 		if (!pruner.shouldRunAgain())
 			return;

@@ -26,48 +26,56 @@
 #include <libsolidity/formal/SMTLib2Interface.h>
 
 using namespace std;
-using namespace dev;
-using namespace dev::solidity;
-using namespace dev::solidity::smt;
+using namespace solidity;
+using namespace solidity::util;
+using namespace solidity::frontend;
+using namespace solidity::frontend::smt;
 
-SMTPortfolio::SMTPortfolio(map<h256, string> const& _smtlib2Responses)
+SMTPortfolio::SMTPortfolio(
+	map<h256, string> const& _smtlib2Responses,
+	ReadCallback::Callback const& _smtCallback,
+	[[maybe_unused]] SMTSolverChoice _enabledSolvers
+)
 {
-	m_solvers.emplace_back(make_shared<smt::SMTLib2Interface>(_smtlib2Responses));
+	m_solvers.emplace_back(make_unique<smt::SMTLib2Interface>(_smtlib2Responses, _smtCallback));
 #ifdef HAVE_Z3
-	m_solvers.emplace_back(make_shared<smt::Z3Interface>());
+	if (_enabledSolvers.z3)
+		m_solvers.emplace_back(make_unique<smt::Z3Interface>());
 #endif
 #ifdef HAVE_CVC4
-	m_solvers.emplace_back(make_shared<smt::CVC4Interface>());
+	if (_enabledSolvers.cvc4)
+		m_solvers.emplace_back(make_unique<smt::CVC4Interface>());
 #endif
 }
 
 void SMTPortfolio::reset()
 {
-	for (auto s : m_solvers)
+	for (auto const& s: m_solvers)
 		s->reset();
 }
 
 void SMTPortfolio::push()
 {
-	for (auto s : m_solvers)
+	for (auto const& s: m_solvers)
 		s->push();
 }
 
 void SMTPortfolio::pop()
 {
-	for (auto s : m_solvers)
+	for (auto const& s: m_solvers)
 		s->pop();
 }
 
-void SMTPortfolio::declareVariable(string const& _name, Sort const& _sort)
+void SMTPortfolio::declareVariable(string const& _name, SortPointer const& _sort)
 {
-	for (auto s : m_solvers)
+	solAssert(_sort, "");
+	for (auto const& s: m_solvers)
 		s->declareVariable(_name, _sort);
 }
 
-void SMTPortfolio::addAssertion(Expression const& _expr)
+void SMTPortfolio::addAssertion(smt::Expression const& _expr)
 {
-	for (auto s : m_solvers)
+	for (auto const& s: m_solvers)
 		s->addAssertion(_expr);
 }
 
@@ -101,11 +109,11 @@ void SMTPortfolio::addAssertion(Expression const& _expr)
  *
  *   If all solvers return ERROR, the result is ERROR.
 */
-pair<CheckResult, vector<string>> SMTPortfolio::check(vector<Expression> const& _expressionsToEvaluate)
+pair<CheckResult, vector<string>> SMTPortfolio::check(vector<smt::Expression> const& _expressionsToEvaluate)
 {
 	CheckResult lastResult = CheckResult::ERROR;
 	vector<string> finalValues;
-	for (auto s : m_solvers)
+	for (auto const& s: m_solvers)
 	{
 		CheckResult result;
 		vector<string> values;
@@ -134,8 +142,8 @@ vector<string> SMTPortfolio::unhandledQueries()
 	// This code assumes that the constructor guarantees that
 	// SmtLib2Interface is in position 0.
 	solAssert(!m_solvers.empty(), "");
-	solAssert(dynamic_cast<smt::SMTLib2Interface*>(m_solvers.at(0).get()), "");
-	return m_solvers.at(0)->unhandledQueries();
+	solAssert(dynamic_cast<smt::SMTLib2Interface*>(m_solvers.front().get()), "");
+	return m_solvers.front()->unhandledQueries();
 }
 
 bool SMTPortfolio::solverAnswered(CheckResult result)

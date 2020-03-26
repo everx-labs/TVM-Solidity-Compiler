@@ -17,19 +17,58 @@
 
 #pragma once
 
+#include <libsolutil/Exceptions.h>
+#include <liblangutil/EVMVersion.h>
+
 #include <boost/filesystem/path.hpp>
+#include <boost/noncopyable.hpp>
+#include <boost/program_options.hpp>
 
-namespace dev
+namespace solidity::test
 {
-namespace test
+
+#ifdef _WIN32
+static constexpr auto evmoneFilename = "evmone.dll";
+static constexpr auto evmoneDownloadLink = "https://github.com/ethereum/evmone/releases/download/v0.3.0/evmone-0.3.0-windows-amd64.zip";
+#elif defined(__APPLE__)
+static constexpr auto evmoneFilename = "libevmone.dylib";
+static constexpr auto evmoneDownloadLink = "https://github.com/ethereum/evmone/releases/download/v0.3.0/evmone-0.3.0-darwin-x86_64.tar.gz";
+#else
+static constexpr auto evmoneFilename = "libevmone.so";
+static constexpr auto evmoneDownloadLink = "https://github.com/ethereum/evmone/releases/download/v0.3.0/evmone-0.3.0-linux-x86_64.tar.gz";
+#endif
+
+
+struct ConfigException : public util::Exception {};
+
+struct CommonOptions: boost::noncopyable
 {
+	boost::filesystem::path evmonePath;
+	boost::filesystem::path testPath;
+	bool optimize = false;
+	bool optimizeYul = false;
+	bool disableSMT = false;
+	bool useABIEncoderV2 = false;
+	bool showMessages = false;
 
-/// Tries to find a path that contains the directories "libsolidity/syntaxTests"
-/// and returns it if found.
-/// The routine searches in the current directory, and inside the "test" directory
-/// starting from the current directory and up to three levels up.
-/// @returns the path of the first match or an empty path if not found.
-boost::filesystem::path discoverTestPath();
+	langutil::EVMVersion evmVersion() const;
 
-}
+	virtual bool parse(int argc, char const* const* argv);
+	// Throws a ConfigException on error
+	virtual void validate() const;
+
+	static CommonOptions const& get();
+	static void setSingleton(std::unique_ptr<CommonOptions const>&& _instance);
+
+	CommonOptions(std::string caption = "");
+	virtual ~CommonOptions() {};
+protected:
+
+	boost::program_options::options_description options;
+
+private:
+	std::string evmVersionString;
+	static std::unique_ptr<CommonOptions const> m_singleton;
+};
+
 }

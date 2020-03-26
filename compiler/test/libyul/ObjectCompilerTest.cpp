@@ -17,7 +17,7 @@
 
 #include <test/libyul/ObjectCompilerTest.h>
 
-#include <libdevcore/AnsiColorized.h>
+#include <libsolutil/AnsiColorized.h>
 
 #include <libyul/AssemblyStack.h>
 
@@ -29,12 +29,13 @@
 
 #include <fstream>
 
-using namespace dev;
-using namespace langutil;
-using namespace yul;
-using namespace yul::test;
-using namespace dev::solidity;
-using namespace dev::solidity::test;
+using namespace solidity;
+using namespace solidity::util;
+using namespace solidity::langutil;
+using namespace solidity::yul;
+using namespace solidity::yul::test;
+using namespace solidity::frontend;
+using namespace solidity::frontend::test;
 using namespace std;
 
 ObjectCompilerTest::ObjectCompilerTest(string const& _filename)
@@ -46,33 +47,30 @@ ObjectCompilerTest::ObjectCompilerTest(string const& _filename)
 		BOOST_THROW_EXCEPTION(runtime_error("Cannot open test case: \"" + _filename + "\"."));
 	file.exceptions(ios::badbit);
 
-	string line;
-	while (getline(file, line))
+	m_source = parseSourceAndSettings(file);
+	if (m_settings.count("optimize"))
 	{
-		if (boost::algorithm::starts_with(line, "// ----"))
-			break;
-		if (m_source.empty() && boost::algorithm::starts_with(line, "// optimize"))
-			m_optimize = true;
-		m_source += line + "\n";
+		m_optimize = true;
+		m_validatedSettings["optimize"] = "true";
+		m_settings.erase("optimize");
 	}
-	while (getline(file, line))
-		if (boost::algorithm::starts_with(line, "//"))
-			m_expectation += line.substr((line.size() >= 3 && line[2] == ' ') ? 3 : 2) + "\n";
-		else
-			m_expectation += line + "\n";
+	m_expectation = parseSimpleExpectations(file);
 }
 
-bool ObjectCompilerTest::run(ostream& _stream, string const& _linePrefix, bool const _formatted)
+TestCase::TestResult ObjectCompilerTest::run(ostream& _stream, string const& _linePrefix, bool const _formatted)
 {
-	AssemblyStack stack(EVMVersion(), AssemblyStack::Language::StrictAssembly);
+	AssemblyStack stack(
+		EVMVersion(),
+		AssemblyStack::Language::StrictAssembly,
+		m_optimize ? OptimiserSettings::full() : OptimiserSettings::minimal()
+	);
 	if (!stack.parseAndAnalyze("source", m_source))
 	{
 		AnsiColorized(_stream, _formatted, {formatting::BOLD, formatting::RED}) << _linePrefix << "Error parsing source." << endl;
 		printErrors(_stream, stack.errors());
-		return false;
+		return TestResult::FatalError;
 	}
-	if (m_optimize)
-		stack.optimize();
+	stack.optimize();
 
 	MachineAssemblyObject obj = stack.assemble(AssemblyStack::Machine::EVM);
 	solAssert(obj.bytecode, "");
@@ -85,7 +83,7 @@ bool ObjectCompilerTest::run(ostream& _stream, string const& _linePrefix, bool c
 			"Bytecode: " +
 			toHex(obj.bytecode->bytecode) +
 			"\nOpcodes: " +
-			boost::trim_copy(solidity::disassemble(obj.bytecode->bytecode)) +
+			boost::trim_copy(evmasm::disassemble(obj.bytecode->bytecode)) +
 			"\n";
 
 	if (m_expectation != m_obtainedResult)
@@ -95,9 +93,9 @@ bool ObjectCompilerTest::run(ostream& _stream, string const& _linePrefix, bool c
 		printIndented(_stream, m_expectation, nextIndentLevel);
 		AnsiColorized(_stream, _formatted, {formatting::BOLD, formatting::CYAN}) << _linePrefix << "Obtained result:" << endl;
 		printIndented(_stream, m_obtainedResult, nextIndentLevel);
-		return false;
+		return TestResult::Failure;
 	}
-	return true;
+	return TestResult::Success;
 }
 
 void ObjectCompilerTest::printSource(ostream& _stream, string const& _linePrefix, bool const) const
@@ -127,8 +125,5 @@ void ObjectCompilerTest::printErrors(ostream& _stream, ErrorList const& _errors)
 	SourceReferenceFormatter formatter(_stream);
 
 	for (auto const& error: _errors)
-		formatter.printExceptionInformation(
-			*error,
-			(error->type() == Error::Type::Warning) ? "Warning" : "Error"
-		);
+		formatter.printErrorInformation(*error);
 }

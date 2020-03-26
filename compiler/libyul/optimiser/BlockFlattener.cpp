@@ -16,13 +16,14 @@
 */
 #include <libyul/optimiser/BlockFlattener.h>
 #include <libyul/AsmData.h>
-#include <libdevcore/Visitor.h>
-#include <libdevcore/CommonData.h>
+#include <libsolutil/Visitor.h>
+#include <libsolutil/CommonData.h>
 #include <functional>
 
 using namespace std;
-using namespace dev;
-using namespace yul;
+using namespace solidity;
+using namespace solidity::yul;
+using namespace solidity::util;
 
 void BlockFlattener::operator()(Block& _block)
 {
@@ -30,10 +31,10 @@ void BlockFlattener::operator()(Block& _block)
 
 	iterateReplacing(
 		_block.statements,
-		[](Statement& _s) -> boost::optional<vector<Statement>>
+		[](Statement& _s) -> std::optional<vector<Statement>>
 		{
-			if (_s.type() == typeid(Block))
-				return std::move(boost::get<Block>(_s).statements);
+			if (holds_alternative<Block>(_s))
+				return std::move(std::get<Block>(_s).statements);
 			else
 				return {};
 		}

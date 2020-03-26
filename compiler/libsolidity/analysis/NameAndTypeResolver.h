@@ -23,23 +23,24 @@
 #pragma once
 
 #include <libsolidity/analysis/DeclarationContainer.h>
+#include <libsolidity/analysis/GlobalContext.h>
 #include <libsolidity/analysis/ReferencesResolver.h>
 #include <libsolidity/ast/ASTAnnotations.h>
 #include <libsolidity/ast/ASTVisitor.h>
+
+#include <liblangutil/EVMVersion.h>
 
 #include <boost/noncopyable.hpp>
 
 #include <list>
 #include <map>
 
-namespace langutil
+namespace solidity::langutil
 {
 class ErrorReporter;
 }
 
-namespace dev
-{
-namespace solidity
+namespace solidity::frontend
 {
 
 /**
@@ -53,7 +54,8 @@ public:
 	/// @param _scopes mapping of scopes to be used (usually default constructed), these
 	/// are filled during the lifetime of this object.
 	NameAndTypeResolver(
-		std::vector<Declaration const*> const& _globals,
+		GlobalContext& _globalContext,
+		langutil::EVMVersion _evmVersion,
 		std::map<ASTNode const*, std::shared_ptr<DeclarationContainer>>& _scopes,
 		langutil::ErrorReporter& _errorReporter
 	);
@@ -129,8 +131,10 @@ private:
 	/// Aliases (for example `import "x" as y;`) create multiple pointers to the same scope.
 	std::map<ASTNode const*, std::shared_ptr<DeclarationContainer>>& m_scopes;
 
+	langutil::EVMVersion m_evmVersion;
 	DeclarationContainer* m_currentScope = nullptr;
 	langutil::ErrorReporter& m_errorReporter;
+	GlobalContext& m_globalContext;
 };
 
 /**
@@ -148,6 +152,7 @@ public:
 		std::map<ASTNode const*, std::shared_ptr<DeclarationContainer>>& _scopes,
 		ASTNode& _astRoot,
 		langutil::ErrorReporter& _errorReporter,
+		GlobalContext& _globalContext,
 		ASTNode const* _currentScope = nullptr
 	);
 
@@ -174,6 +179,8 @@ private:
 	bool visit(EnumValue& _value) override;
 	bool visit(FunctionDefinition& _function) override;
 	void endVisit(FunctionDefinition& _function) override;
+	bool visit(TryCatchClause& _tryCatchClause) override;
+	void endVisit(TryCatchClause& _tryCatchClause) override;
 	bool visit(ModifierDefinition& _modifier) override;
 	void endVisit(ModifierDefinition& _modifier) override;
 	bool visit(FunctionTypeName& _funTypeName) override;
@@ -199,8 +206,9 @@ private:
 	std::map<ASTNode const*, std::shared_ptr<DeclarationContainer>>& m_scopes;
 	ASTNode const* m_currentScope = nullptr;
 	VariableScope* m_currentFunction = nullptr;
+	ContractDefinition const* m_currentContract = nullptr;
 	langutil::ErrorReporter& m_errorReporter;
+	GlobalContext& m_globalContext;
 };
 
-}
 }

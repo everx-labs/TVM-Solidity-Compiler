@@ -21,16 +21,9 @@
 #include <libyul/AsmScope.h>
 
 using namespace std;
-using namespace dev;
-using namespace yul;
-
-bool Scope::registerLabel(YulString _name)
-{
-	if (exists(_name))
-		return false;
-	identifiers[_name] = Label();
-	return true;
-}
+using namespace solidity;
+using namespace solidity::yul;
+using namespace solidity::util;
 
 bool Scope::registerVariable(YulString _name, YulType const& _type)
 {
@@ -42,11 +35,11 @@ bool Scope::registerVariable(YulString _name, YulType const& _type)
 	return true;
 }
 
-bool Scope::registerFunction(YulString _name, std::vector<YulType> const& _arguments, std::vector<YulType> const& _returns)
+bool Scope::registerFunction(YulString _name, std::vector<YulType> _arguments, std::vector<YulType> _returns)
 {
 	if (exists(_name))
 		return false;
-	identifiers[_name] = Function{_arguments, _returns};
+	identifiers[_name] = Function{std::move(_arguments), std::move(_returns)};
 	return true;
 }
 
@@ -58,7 +51,7 @@ Scope::Identifier* Scope::lookup(YulString _name)
 		auto id = s->identifiers.find(_name);
 		if (id != s->identifiers.end())
 		{
-			if (crossedFunctionBoundary && id->second.type() == typeid(Scope::Variable))
+			if (crossedFunctionBoundary && holds_alternative<Scope::Variable>(id->second))
 				return nullptr;
 			else
 				return &id->second;
@@ -84,7 +77,7 @@ size_t Scope::numberOfVariables() const
 {
 	size_t count = 0;
 	for (auto const& identifier: identifiers)
-		if (identifier.second.type() == typeid(Scope::Variable))
+		if (holds_alternative<Scope::Variable>(identifier.second))
 			count++;
 	return count;
 }

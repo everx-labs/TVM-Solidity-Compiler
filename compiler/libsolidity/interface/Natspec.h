@@ -28,10 +28,9 @@
 #include <json/json.h>
 #include <memory>
 #include <string>
+#include <libsolidity/ast/AST.h>
 
-namespace dev
-{
-namespace solidity
+namespace solidity::frontend
 {
 
 // Forward declarations
@@ -60,7 +59,13 @@ private:
 	/// @return      A JSON representation
 	///              of the contract's developer documentation
 	static Json::Value devDocumentation(std::multimap<std::string, DocTag> const& _tags);
+
+	/// Helper-function that will create a json object for the "returns" field for a given function definition.
+	/// @param _tags docTags that are used.
+	/// @param _functionDef functionDefinition that is used to determine which return parameters are named.
+	/// @return      A JSON representation
+	///              of a method's return notice documentation
+	static Json::Value extractReturnParameterDocs(std::multimap<std::string, DocTag> const& _tags, FunctionDefinition const& _functionDef);
 };
 
-} //solidity NS
-} // dev NS
+}

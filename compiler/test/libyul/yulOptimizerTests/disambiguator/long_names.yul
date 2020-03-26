@@ -1,12 +1,13 @@
-// yul
 { { let aanteuhdaoneudbrgkjiuaothduiathudaoeuh:u256 } { let aanteuhdaoneudbrgkjiuaothduiathudaoeuh:u256 } }
+// ====
+// dialect: yul
+// step: disambiguator
 // ----
-// disambiguator
 // {
 //     {
-//         let aanteuhdaoneudbrgkjiuaothduiathudaoeuh:u256
+//         let aanteuhdaoneudbrgkjiuaothduiathudaoeuh
 //     }
 //     {
-//         let aanteuhdaoneudbrgkjiuaothduiathudaoeuh_1:u256
+//         let aanteuhdaoneudbrgkjiuaothduiathudaoeuh_1
 //     }
 // }

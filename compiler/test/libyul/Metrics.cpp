@@ -18,20 +18,19 @@
  * Unit tests for the code metrics.
  */
 
-#include <test/Options.h>
+#include <test/Common.h>
 
 #include <test/libyul/Common.h>
 
 #include <libyul/optimiser/Metrics.h>
 #include <libyul/AsmData.h>
 
+#include <boost/test/unit_test.hpp>
 
 using namespace std;
-using namespace langutil;
+using namespace solidity::langutil;
 
-namespace yul
-{
-namespace test
+namespace solidity::yul::test
 {
 
 namespace
@@ -110,7 +109,69 @@ BOOST_AUTO_TEST_CASE(assignment_complex)
 	BOOST_CHECK_EQUAL(codeSize("{ let a let x := mload(a) a := sload(x) }"), 2);
 }
 
+BOOST_AUTO_TEST_CASE(empty_for_loop)
+{
+	BOOST_CHECK_EQUAL(codeSize(
+		"{ for {} 1 {} {} }"
+	), 4);
+}
+
+BOOST_AUTO_TEST_CASE(break_statement)
+{
+	BOOST_CHECK_EQUAL(codeSize(
+		"{ for {} 1 {} { break } }"
+	), 6);
+}
+
+BOOST_AUTO_TEST_CASE(continue_statement)
+{
+	BOOST_CHECK_EQUAL(codeSize(
+		"{ for {} 1 {} { continue } }"
+	), 6);
+}
+
+BOOST_AUTO_TEST_CASE(regular_for_loop)
+{
+	BOOST_CHECK_EQUAL(codeSize(
+		"{ for { let x := 0 } lt(x, 10) { x := add(x, 1) } { mstore(x, 1) } }"
+	), 10);
+}
+
+BOOST_AUTO_TEST_CASE(if_statement)
+{
+	BOOST_CHECK_EQUAL(codeSize(
+		"{ if 1 {} }"
+	), 3);
+}
+
+BOOST_AUTO_TEST_CASE(switch_statement_tiny)
+{
+	BOOST_CHECK_EQUAL(codeSize(
+		"{ switch calldatasize() default {} }"
+	), 4);
+}
+
+BOOST_AUTO_TEST_CASE(switch_statement_small)
+{
+	BOOST_CHECK_EQUAL(codeSize(
+		"{ switch calldatasize() case 0 {} default {} }"
+	), 6);
+}
+
+BOOST_AUTO_TEST_CASE(switch_statement_medium)
+{
+	BOOST_CHECK_EQUAL(codeSize(
+		"{ switch calldatasize() case 0 {} case 1 {} case 2 {} }"
+	), 8);
+}
+
+BOOST_AUTO_TEST_CASE(switch_statement_large)
+{
+	BOOST_CHECK_EQUAL(codeSize(
+		"{ switch calldatasize() case 0 {} case 1 {} case 2 {} default {} }"
+	), 10);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
-}
 }

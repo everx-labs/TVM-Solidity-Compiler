@@ -24,10 +24,10 @@
 
 #include <libsolidity/interface/CompilerStack.h>
 
-namespace dev
-{
+#include <optional>
+#include <boost/variant.hpp>
 
-namespace solidity
+namespace solidity::frontend
 {
 
 /**
@@ -38,10 +38,10 @@ class StandardCompiler: boost::noncopyable
 {
 public:
 	/// Creates a new StandardCompiler.
-	/// @param _readFile callback to used to read files for import statements. Must return
+	/// @param _readFile callback used to read files for import statements. Must return
 	/// and must not emit exceptions.
-	explicit StandardCompiler(ReadCallback::Callback const& _readFile = ReadCallback::Callback())
-		: m_compilerStack(_readFile), m_readFile(_readFile)
+	explicit StandardCompiler(ReadCallback::Callback const& _readFile = ReadCallback::Callback()):
+		m_readFile(_readFile)
 	{
 	}
 
@@ -53,11 +53,31 @@ public:
 	std::string compile(std::string const& _input) noexcept;
 
 private:
-	Json::Value compileInternal(Json::Value const& _input);
+	struct InputsAndSettings
+	{
+		std::string language;
+		Json::Value errors;
+		bool parserErrorRecovery = false;
+		std::map<std::string, std::string> sources;
+		std::map<util::h256, std::string> smtLib2Responses;
+		langutil::EVMVersion evmVersion;
+		std::vector<CompilerStack::Remapping> remappings;
+		RevertStrings revertStrings = RevertStrings::Default;
+		OptimiserSettings optimiserSettings = OptimiserSettings::minimal();
+		std::map<std::string, util::h160> libraries;
+		bool metadataLiteralSources = false;
+		CompilerStack::MetadataHash metadataHash = CompilerStack::MetadataHash::IPFS;
+		Json::Value outputSelection;
+	};
 
-	CompilerStack m_compilerStack;
+	/// Parses the input json (and potentially invokes the read callback) and either returns
+	/// it in condensed form or an error as a json object.
+	boost::variant<InputsAndSettings, Json::Value> parseInput(Json::Value const& _input);
+
+	Json::Value compileSolidity(InputsAndSettings _inputsAndSettings);
+	Json::Value compileYul(InputsAndSettings _inputsAndSettings);
+
 	ReadCallback::Callback m_readFile;
 };
 
-}
 }

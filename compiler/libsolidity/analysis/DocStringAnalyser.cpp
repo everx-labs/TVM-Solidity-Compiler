@@ -28,9 +28,9 @@
 #include <liblangutil/ErrorReporter.h>
 
 using namespace std;
-using namespace dev;
-using namespace langutil;
-using namespace dev::solidity;
+using namespace solidity;
+using namespace solidity::langutil;
+using namespace solidity::frontend;
 
 bool DocStringAnalyser::analyseDocStrings(SourceUnit const& _sourceUnit)
 {
@@ -73,7 +73,7 @@ bool DocStringAnalyser::visit(EventDefinition const& _event)
 
 void DocStringAnalyser::checkParameters(
 	CallableDeclaration const& _callable,
-	DocumentedAnnotation& _annotation
+	StructurallyDocumentedAnnotation& _annotation
 )
 {
 	set<string> validParams;
@@ -95,8 +95,8 @@ void DocStringAnalyser::checkParameters(
 
 void DocStringAnalyser::handleConstructor(
 	CallableDeclaration const& _callable,
-	Documented const& _node,
-	DocumentedAnnotation& _annotation
+	StructurallyDocumented const& _node,
+	StructurallyDocumentedAnnotation& _annotation
 )
 {
 	static set<string> const validTags = set<string>{"author", "dev", "notice", "param"};
@@ -106,8 +106,8 @@ void DocStringAnalyser::handleConstructor(
 
 void DocStringAnalyser::handleCallable(
 	CallableDeclaration const& _callable,
-	Documented const& _node,
-	DocumentedAnnotation& _annotation
+	StructurallyDocumented const& _node,
+	StructurallyDocumentedAnnotation& _annotation
 )
 {
 	static set<string> const validTags = set<string>{"author", "dev", "notice", "return", "param"};
@@ -116,22 +116,49 @@ void DocStringAnalyser::handleCallable(
 }
 
 void DocStringAnalyser::parseDocStrings(
-	Documented const& _node,
-	DocumentedAnnotation& _annotation,
+	StructurallyDocumented const& _node,
+	StructurallyDocumentedAnnotation& _annotation,
 	set<string> const& _validTags,
 	string const& _nodeName
 )
 {
 	DocStringParser parser;
-	if (_node.documentation() && !_node.documentation()->empty())
+	if (_node.documentation() && !_node.documentation()->text()->empty())
 	{
-		if (!parser.parse(*_node.documentation(), m_errorReporter))
+		if (!parser.parse(*_node.documentation()->text(), m_errorReporter))
 			m_errorOccured = true;
 		_annotation.docTags = parser.tags();
 	}
+
+	size_t returnTagsVisited = 0;
 	for (auto const& docTag: _annotation.docTags)
+	{
 		if (!_validTags.count(docTag.first))
-			appendError("Doc tag @" + docTag.first + " not valid for " + _nodeName + ".");
+			appendError("Documentation tag @" + docTag.first + " not valid for " + _nodeName + ".");
+		else
+			if (docTag.first == "return")
+			{
+				returnTagsVisited++;
+				if (auto* function = dynamic_cast<FunctionDefinition const*>(&_node))
+				{
+					string content = docTag.second.content;
+					string firstWord = content.substr(0, content.find_first_of(" \t"));
+
+					if (returnTagsVisited > function->returnParameters().size())
+						appendError("Documentation tag \"@" + docTag.first + " " + docTag.second.content + "\"" +
+							" exceedes the number of return parameters."
+						);
+					else
+					{
+						auto parameter = function->returnParameters().at(returnTagsVisited - 1);
+						if (!parameter->name().empty() && parameter->name() != firstWord)
+							appendError("Documentation tag \"@" + docTag.first + " " + docTag.second.content + "\"" +
+								" does not contain the name of its return parameter."
+							);
+					}
+				}
+			}
+	}
 }
 
 void DocStringAnalyser::appendError(string const& _description)

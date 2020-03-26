@@ -22,20 +22,22 @@
 #pragma once
 
 #include <liblangutil/Exceptions.h>
+#include <libsolidity/ast/ASTForward.h>
 
 #include <string>
 
-namespace dev
-{
-namespace solidity
+namespace solidity::frontend
 {
 
 // How a function can mutate the EVM state.
 enum class StateMutability { Pure, View, NonPayable, Payable };
 
+/// Visibility ordered from restricted to unrestricted.
+enum class Visibility { Default, Private, Internal, Public, TvmGetter, External };
+
 inline std::string stateMutabilityToString(StateMutability const& _stateMutability)
 {
-	switch(_stateMutability)
+	switch (_stateMutability)
 	{
 	case StateMutability::Pure:
 		return "pure";
@@ -50,5 +52,21 @@ inline std::string stateMutabilityToString(StateMutability const& _stateMutabili
 	}
 }
 
-}
+class Type;
+
+/// Container for function call parameter types & names
+struct FuncCallArguments
+{
+	/// Types of arguments
+	std::vector<Type const*> types;
+	/// Names of the arguments if given, otherwise unset
+	std::vector<ASTPointer<ASTString>> names;
+
+	size_t numArguments() const { return types.size(); }
+	size_t numNames() const { return names.size(); }
+	bool hasNamedArguments() const { return !names.empty(); }
+};
+
+enum class ContractKind { Interface, Contract, Library };
+
 }

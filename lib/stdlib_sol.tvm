@@ -19,8 +19,7 @@ ROT         ; funId dict 32 1
 DROP        ; funId dict 32
 DICTUGETJMP
 
-.globl    ffffffff
-.type    ffffffff, @function
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; THE CODE BELOW IS GENERATED. DO NOT CHANGE IT!
@@ -109,26 +108,16 @@ STUR 2
 ;; push identifier bounce
 PUSH S1
 STIR 1
-PUSHINT 1
+PUSHINT 3
 STZEROES
-MYADDR
-STSLICER
 ;; push identifier remote_addr
 PUSH S2
 STSLICER
 ;; push identifier value
 PUSH S3
 STGRAMS
-PUSHINT 1
+PUSHINT 105
 STZEROES
-PUSHINT 0
-STGRAMS
-PUSHINT 0
-STGRAMS
-PUSHINT 64
-STZEROES
-NOW
-STUR 32
 ;; return
 XCHG s3
 BLKDROP 3
@@ -153,7 +142,7 @@ PUSH S1
 BREMBITS ; tvm_brembits
 ;; push identifier slice_x
 PUSH S1
-SBITS ; tvm_sbits
+SBITS
 ;; >
 GREATER
 PUSHCONT {
@@ -275,26 +264,16 @@ STUR 2
 ;; push identifier bounce
 PUSH S1
 STIR 1
-PUSHINT 1
+PUSHINT 3
 STZEROES
-MYADDR
-STSLICER
 ;; push identifier remote_addr
 PUSH S2
 STSLICER
 ;; push identifier value
 PUSH S3
 STGRAMS
-PUSHINT 1
+PUSHINT 105
 STZEROES
-PUSHINT 0
-STGRAMS
-PUSHINT 0
-STGRAMS
-PUSHINT 64
-STZEROES
-NOW
-STUR 32
 ;; return
 XCHG s3
 BLKDROP 3
@@ -319,7 +298,7 @@ PUSH S1
 BREMBITS ; tvm_brembits
 ;; push identifier slice_x
 PUSH S1
-SBITS ; tvm_sbits
+SBITS
 ;; >
 GREATER
 PUSHCONT {
@@ -378,7 +357,7 @@ PUSH S1
 BREMBITS ; tvm_brembits
 ;; push identifier slice_x
 PUSH S1
-SBITS ; tvm_sbits
+SBITS
 ;; >
 GREATER
 PUSHCONT {
@@ -639,26 +618,16 @@ STUR 2
 ;; push identifier bounce
 PUSH S1
 STIR 1
-PUSHINT 1
+PUSHINT 3
 STZEROES
-MYADDR
-STSLICER
 ;; push identifier remote_addr
 PUSH S2
 STSLICER
 ;; push identifier value
 PUSH S3
 STGRAMS
-PUSHINT 1
+PUSHINT 105
 STZEROES
-PUSHINT 0
-STGRAMS
-PUSHINT 0
-STGRAMS
-PUSHINT 64
-STZEROES
-NOW
-STUR 32
 ;; return
 XCHG s3
 BLKDROP 3
@@ -713,6 +682,96 @@ PUSHINT 1
 SENDRAWMSG
 BLKDROP 4
 ; end send_internal_message_macro
+
+.macro send_internal_message_with_flag_macro
+; send_internal_message_with_flag_macro
+;; param: senrawmsg_flag
+;; param: grams_value
+;; param: remote_addr
+;; param: body
+NEWC
+;; decl: msg_builder
+;; push identifier grams_value
+PUSH S3
+;; push identifier remote_addr
+PUSH S3
+PUSHINT -1
+; make__CommonMsgInfoRelaxed__int_msg_info
+;; param: value
+;; param: remote_addr
+;; param: bounce
+NEWC
+;; decl: builder
+PUSHINT 1
+STUR 2
+;; push identifier bounce
+PUSH S1
+STIR 1
+PUSHINT 3
+STZEROES
+;; push identifier remote_addr
+PUSH S2
+STSLICER
+;; push identifier value
+PUSH S3
+STGRAMS
+PUSHINT 105
+STZEROES
+;; return
+XCHG s3
+BLKDROP 3
+; end make__CommonMsgInfoRelaxed__int_msg_info
+STBR
+PUSHINT 0
+STUR 1
+;; push identifier body
+PUSH S1
+;; push identifier msg_builder
+PUSH S1
+; store_either_for_builder
+;; param: x
+;; param: builder
+;; if
+;; push identifier builder
+DUP
+BREMBITS ; tvm_brembits
+;; push identifier x
+PUSH S2
+BBITS
+;; >
+GREATER
+PUSHCONT {
+	PUSHINT 1
+	STZEROES
+	;; push identifier x
+	PUSH S1
+	STBR
+}
+PUSHCONT {
+	PUSHINT 1
+	STONES
+	;; push identifier x
+	PUSH S1
+	STBREFR
+}
+IFELSE
+;; end if
+;; return
+NIP
+; end store_either_for_builder
+; expValue
+; end expValue
+; colValue
+NIP
+; end colValue
+;; push identifier msg_builder
+DUP
+ENDC
+;; push identifier senrawmsg_flag
+PUSH S5
+SENDRAWMSG
+BLKDROP 5
+; end send_internal_message_with_flag_macro
 
 .macro make_std_address_with_wid_macro
 ; make_std_address_with_wid_macro
@@ -769,26 +828,16 @@ STUR 2
 ;; push identifier bounce
 PUSH S2
 STIR 1
-PUSHINT 1
+PUSHINT 3
 STZEROES
-MYADDR
-STSLICER
 ;; push identifier remote_addr
 PUSH S4
 STSLICER
 ;; push identifier grams_value
 PUSH S3
 STGRAMS
-PUSHINT 1
+PUSHINT 105
 STZEROES
-PUSHINT 0
-STGRAMS
-PUSHINT 0
-STGRAMS
-PUSHINT 64
-STZEROES
-NOW
-STUR 32
 PUSHINT 2
 STZEROES
 ;; push identifier builder
@@ -814,26 +863,16 @@ STUR 2
 ;; push identifier bounce
 PUSH S3
 STIR 1
-PUSHINT 1
+PUSHINT 3
 STZEROES
-MYADDR
-STSLICER
 ;; push identifier remote_addr
 PUSH S5
 STSLICER
 ;; push identifier grams_value
 PUSH S4
 STGRAMS
-PUSHINT 1
+PUSHINT 105
 STZEROES
-PUSHINT 0
-STGRAMS
-PUSHINT 0
-STGRAMS
-PUSHINT 64
-STZEROES
-NOW
-STUR 32
 PUSHINT 1
 STZEROES
 ;; push identifier body
@@ -853,7 +892,7 @@ PUSH S1
 BREMBITS ; tvm_brembits
 ;; push identifier slice_x
 PUSH S1
-SBITS ; tvm_sbits
+SBITS
 ;; >
 GREATER
 PUSHCONT {
@@ -903,63 +942,6 @@ PUSH S3
 SENDRAWMSG
 BLKDROP 6
 ; end send_accurate_internal_message_with_body_macro
-
-.macro push_persistent_data_from_c4_to_c7_macro
-; push_persistent_data_from_c4_to_c7_macro
-PUSHINT 0
-;; decl: dict
-PUSHROOT
-CTOS
-;; decl: cellTree
-LDDICT
-SWAP
-; expValue
-; end expValue
-; colValue
-POP s2
-; end colValue
-;; push identifier cellTree
-DUP
-LDSLICE 129
-POP s2
-;; decl: time_int_flag
-PUSHCTR c7
-;; decl: c7
-;; push identifier cellTree
-PUSH S2
-TPUSH
-;; push identifier dict
-PUSH S3
-TPUSH
-;; push identifier time_int_flag
-PUSH S1
-TPUSH
-;; push identifier c7
-DUP
-POPCTR c7
-BLKDROP 4
-; end push_persistent_data_from_c4_to_c7_macro
-
-.macro push_persistent_data_from_c7_to_c4_macro
-; push_persistent_data_from_c7_to_c4_macro
-NEWC
-;; decl: c4_builder
-PUSHCTR c7
-INDEX 2
-SWAP
-STDICT
-PUSHCTR c7
-INDEX 3
-STSLICER
-PUSHCTR c7
-INDEX 1
-STSLICER
-;; push identifier c4_builder
-DUP
-ENDC
-POPROOT
-DROP
-; end push_persistent_data_from_c7_to_c4_macro
 
 .macro send_external_message_macro
 ; send_external_message_macro
@@ -1125,263 +1107,45 @@ GETPARAM 7
 FIRST
 ; end get_contract_balance_macro
 
-.internal-alias :main_internal,        0
-.internal	:main_internal
-PUSHINT 0 ; selector
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Function: main_internal
-;; param: 
-;; param: 
-;; param: inbound_message
-;; param: msg_body_slice
-;; param: 
-;; push identifier inbound_message
-PUSH S2
-CTOS
-; expValue
-; end expValue
-; colValue
-POP s3
-; end colValue
-;; push identifier inbound_message
-PUSH S2
-PUSHINT 3
-SDSKIPFIRST
-PLDU 1
-;; decl: bounced
-;; if
-;; push identifier msg_body_slice
-PUSH S2
-SEMPTY
-PUSHCONT {
-	;; if
-	;; push identifier bounced
-	DUP
-	EQINT 0
-	PUSHCONT {
-		;; push identifier msg_body_slice
-		PUSH S2
-		PUSHINT $fallback$
-		JMP 1
-		;; return
-		BLKDROP 6
-		RET
-	}
-	IFJMP
-	;; end if
-	;; return
-	BLKDROP 6
-	RET
-}
-IFJMP
-;; end if
-;; push identifier msg_body_slice
-PUSH S2
-LDU 32
-POP s4
-;; decl: func_id
-;; if
-;; push identifier bounced
-PUSH S1
-EQINT 1
-PUSHCONT {
-	;; push identifier func_id
-	DUP
-	PUSHINT $onBounce$
-	JMP 1
-	;; return
-	BLKDROP 7
-	RET
-}
-IFJMP
-;; end if
-;; push identifier msg_body_slice
-PUSH S3
-;; push identifier func_id
-PUSH S1
-JMP 1
-BLKDROP 7
-
-.internal-alias :main_external,        -1
-.internal	:main_external
-
-PUSHINT -1 ; main_external trans id
-PUSH s1    ; originMsgBodySlice
-LDREFRTOS  ; msgBodySlice signSlice
-DUP        ; msgBodySlice signSlice signSlice
-SDEMPTY    ; msgBodySlice signSlice isSignSliceEmpty
-PUSHCONT {
-	PUSHINT 0; msgBodySlice signSlice pubKey
-}
-PUSHCONT {
-	DUP          ; msgBodySlice signSlice signSlice
-	PUSHINT 512  ; msgBodySlice signSlice signSlice 512
-	SDSKIPFIRST  ; msgBodySlice signSlice signSlice'
-	PLDU 256     ; msgBodySlice signSlice pubKey
-	PUSH s2      ; msgBodySlice signSlice pubKey msgBodySlice
-	HASHSU       ; msgBodySlice signSlice pubKey msgHash
-	PUSH2 s2,s1  ; msgBodySlice signSlice pubKey msgHash signSlice pubKey
-	CHKSIGNU     ; msgBodySlice signSlice pubKey isSigned
-	THROWIFNOT 40
-}
-IFELSE
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Function: main_external
-;; param: 
-;; param: 
-;; param: 
-;; param: 
-;; param: 
-;; param: msg_body_slice
-;; param: 
-;; param: 
-;; push identifier msg_body_slice
-PUSH S2
-LDU 32
-LDU 64
-POP s5
-;; decl: func_id
-;; decl: msg_timestamp
-;; if
-;; push identifier msg_timestamp
-DUP
-; replay_prot
+.macro replay_protection_macro
+; replay_protection_macro
 ;; param: msg_timestamp
-PUSHINT 0
-;; decl: dict
-PUSHINT 0
-;; decl: previous_message_timestamp
-PUSHINT 0
-;; decl: interval
-PUSHROOT
-CTOS
-;; decl: c4
-LDDICT
-SWAP
-; expValue
-; end expValue
-; colValue
-POP s4
-; end colValue
 ;; if
-;; push identifier c4
-DUP
-PUSHINT 128
-SCHKBITSQ
-PUSHCONT {
-	LDU 64
-	SWAP
-	; expValue
-	; end expValue
-	; colValue
-	POP s3
-	; end colValue
-	LDU 64
-	SWAP
-	; expValue
-	; end expValue
-	; colValue
-	POP s2
-	; end colValue
-}
-PUSHCONT {
-	PUSHINT 1800000
-	; expValue
-	; end expValue
-	; colValue
-	POP s2
-	; end colValue
-}
-IFELSE
-;; end if
-FALSE
-;; decl: result
-;; if
-;; push identifier previous_message_timestamp
-PUSH S3
+GETGLOB 3
 ;; push identifier msg_timestamp
-PUSH S6
+PUSH S1
 ;; <
 LESS
+;; short-circuiting &&
+DUP
 PUSHCONT {
-	;; if
+	DROP
 	;; push identifier msg_timestamp
-	PUSH S5
+	DUP
 	NOW
 	PUSHINT 1000
 	;; *
 	MUL
-	;; push identifier interval
-	PUSH S4
+	PUSHINT 1800000
 	;; +
 	ADD
 	;; <
 	LESS
-	PUSHCONT {
-		NEWC
-		;; decl: c4_builder
-		;; push identifier dict
-		PUSH S5
-		SWAP
-		STDICT
-		;; push identifier msg_timestamp
-		PUSH S6
-		STUR 64
-		;; push identifier interval
-		PUSH S3
-		STUR 64
-		;; push identifier c4
-		PUSH S2
-		STSLICER
-		;; push identifier c4_builder
-		DUP
-		ENDC
-		POPROOT
-		TRUE
-		; expValue
-		; end expValue
-		; colValue
-		POP s2
-		; end colValue
-		DROP
-	}
-	IF
-	;; end if
 }
 IF
-;; end if
-;; return
-XCHG s5
-BLKDROP 5
-; end replay_prot
 PUSHCONT {
-	;; push identifier msg_body_slice
-	PUSH S4
-	;; push identifier func_id
-	PUSH S2
-	JMP 1
-	;; return
-	BLKDROP 10
-	RET
+	;; push identifier msg_timestamp
+	DUP
+	SETGLOB 3
 }
-IFJMP
+PUSHCONT {
+	PUSHINT 52
+	THROWANY
+}
+IFELSE
 ;; end if
-PUSHINT 52
-THROWANY
-BLKDROP 10
-
-.macro my_pubkey_macro
-; my_pubkey_macro
-;; return
-PUSHINT 0
-PUSHCTR c7
-INDEX 2
-PUSHINT 64
-DICTUGET
-THROWIFNOT 10
-PLDU 256
-; end my_pubkey_macro
+DROP
+; end replay_protection_macro
 
 .macro sender_address_macro
 ; sender_address_macro
@@ -1398,6 +1162,7 @@ PUSHCONT {
 	PUSHINT 3
 	SUB
 	PICK
+	CTOS
 	PUSHINT 4
 	SDSKIPFIRST
 	LDMSGADDR
@@ -1412,34 +1177,6 @@ IF
 ;; end if
 ;; return
 ; end sender_address_macro
-
-.macro sender_pubkey_macro
-; sender_pubkey_macro
-PUSHINT 0
-;; decl: pubkey
-;; if
-DEPTH
-PUSHINT 5
-SUB
-PICK
-PUSHINT -1
-;; ==
-EQUAL
-PUSHCONT {
-	DEPTH
-	PUSHINT 8
-	SUB
-	PICK
-	; expValue
-	; end expValue
-	; colValue
-	NIP
-	; end colValue
-}
-IF
-;; end if
-;; return
-; end sender_pubkey_macro
 
 .macro message_balance_macro
 ; message_balance_macro
@@ -1480,7 +1217,7 @@ INDEX 3
 DUP
 ;; push identifier addr
 PUSH S1
-SBITS ; tvm_sbits
+SBITS
 PLDUX
 NIP
 NIP

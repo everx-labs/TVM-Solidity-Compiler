@@ -211,6 +211,7 @@
     },
     "0.3.0": {
         "bugs": [
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -231,6 +232,7 @@
     },
     "0.3.1": {
         "bugs": [
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -250,6 +252,7 @@
     },
     "0.3.2": {
         "bugs": [
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -269,6 +272,7 @@
     },
     "0.3.3": {
         "bugs": [
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -287,6 +291,7 @@
     },
     "0.3.4": {
         "bugs": [
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -305,6 +310,7 @@
     },
     "0.3.5": {
         "bugs": [
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -323,6 +329,7 @@
     },
     "0.3.6": {
         "bugs": [
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -339,6 +346,7 @@
     },
     "0.4.0": {
         "bugs": [
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -355,6 +363,7 @@
     },
     "0.4.1": {
         "bugs": [
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -371,6 +380,9 @@
     },
     "0.4.10": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -383,6 +395,9 @@
     },
     "0.4.11": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -394,6 +409,9 @@
     },
     "0.4.12": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -404,6 +422,9 @@
     },
     "0.4.13": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -414,6 +435,9 @@
     },
     "0.4.14": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -423,6 +447,9 @@
     },
     "0.4.15": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector"
@@ -431,6 +458,11 @@
     },
     "0.4.16": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector"
@@ -439,6 +471,11 @@
     },
     "0.4.17": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "EventStructWrongData",
             "NestedArrayFunctionCallDecoder",
@@ -448,6 +485,11 @@
     },
     "0.4.18": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "EventStructWrongData",
             "NestedArrayFunctionCallDecoder"
@@ -456,6 +498,12 @@
     },
     "0.4.19": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
+            "ABIEncoderV2PackedStorage_0.4.x",
             "ExpExponentCleanup",
             "EventStructWrongData",
             "NestedArrayFunctionCallDecoder"
@@ -464,6 +512,7 @@
     },
     "0.4.2": {
         "bugs": [
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -479,6 +528,12 @@
     },
     "0.4.20": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
+            "ABIEncoderV2PackedStorage_0.4.x",
             "ExpExponentCleanup",
             "EventStructWrongData",
             "NestedArrayFunctionCallDecoder"
@@ -487,6 +542,12 @@
     },
     "0.4.21": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
+            "ABIEncoderV2PackedStorage_0.4.x",
             "ExpExponentCleanup",
             "EventStructWrongData",
             "NestedArrayFunctionCallDecoder"
@@ -495,6 +556,12 @@
     },
     "0.4.22": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
+            "ABIEncoderV2PackedStorage_0.4.x",
             "ExpExponentCleanup",
             "EventStructWrongData",
             "OneOfTwoConstructorsSkipped"
@@ -503,6 +570,12 @@
     },
     "0.4.23": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
+            "ABIEncoderV2PackedStorage_0.4.x",
             "ExpExponentCleanup",
             "EventStructWrongData"
         ],
@@ -510,17 +583,39 @@
     },
     "0.4.24": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
+            "ABIEncoderV2PackedStorage_0.4.x",
             "ExpExponentCleanup",
             "EventStructWrongData"
         ],
         "released": "2018-05-16"
     },
     "0.4.25": {
-        "bugs": [],
+        "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
+            "ABIEncoderV2PackedStorage_0.4.x"
+        ],
         "released": "2018-09-12"
+    },
+    "0.4.26": {
+        "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2"
+        ],
+        "released": "2019-04-29"
     },
     "0.4.3": {
         "bugs": [
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -535,6 +630,7 @@
     },
     "0.4.4": {
         "bugs": [
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -548,6 +644,8 @@
     },
     "0.4.5": {
         "bugs": [
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -562,6 +660,8 @@
     },
     "0.4.6": {
         "bugs": [
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -575,6 +675,9 @@
     },
     "0.4.7": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -587,6 +690,9 @@
     },
     "0.4.8": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -599,6 +705,9 @@
     },
     "0.4.9": {
         "bugs": [
+            "SignedArrayStorageCopy",
+            "UninitializedFunctionPointerInConstructor_0.4.x",
+            "IncorrectEventSignatureInLibraries_0.4.x",
             "ExpExponentCleanup",
             "NestedArrayFunctionCallDecoder",
             "ZeroFunctionSelector",
@@ -610,23 +719,170 @@
         "released": "2017-01-31"
     },
     "0.5.0": {
-        "bugs": [],
+        "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor",
+            "IncorrectEventSignatureInLibraries",
+            "ABIEncoderV2PackedStorage"
+        ],
         "released": "2018-11-13"
     },
     "0.5.1": {
-        "bugs": [],
+        "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor",
+            "IncorrectEventSignatureInLibraries",
+            "ABIEncoderV2PackedStorage"
+        ],
         "released": "2018-12-03"
     },
-    "0.5.2": {
+    "0.5.10": {
+        "bugs": [
+            "YulOptimizerRedundantAssignmentBreakContinue0.5",
+            "ABIEncoderV2CalldataStructsWithStaticallySizedAndDynamicallyEncodedMembers"
+        ],
+        "released": "2019-06-25"
+    },
+    "0.5.11": {
+        "bugs": [
+            "YulOptimizerRedundantAssignmentBreakContinue0.5"
+        ],
+        "released": "2019-08-12"
+    },
+    "0.5.12": {
+        "bugs": [
+            "YulOptimizerRedundantAssignmentBreakContinue0.5"
+        ],
+        "released": "2019-10-01"
+    },
+    "0.5.13": {
+        "bugs": [
+            "YulOptimizerRedundantAssignmentBreakContinue0.5"
+        ],
+        "released": "2019-11-14"
+    },
+    "0.5.14": {
+        "bugs": [
+            "YulOptimizerRedundantAssignmentBreakContinue0.5",
+            "ABIEncoderV2LoopYulOptimizer"
+        ],
+        "released": "2019-12-09"
+    },
+    "0.5.15": {
+        "bugs": [
+            "YulOptimizerRedundantAssignmentBreakContinue0.5"
+        ],
+        "released": "2019-12-17"
+    },
+    "0.5.16": {
         "bugs": [],
+        "released": "2020-01-02"
+    },
+    "0.5.2": {
+        "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor",
+            "IncorrectEventSignatureInLibraries",
+            "ABIEncoderV2PackedStorage"
+        ],
         "released": "2018-12-19"
     },
     "0.5.3": {
-        "bugs": [],
+        "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor",
+            "IncorrectEventSignatureInLibraries",
+            "ABIEncoderV2PackedStorage"
+        ],
         "released": "2019-01-22"
     },
     "0.5.4": {
-        "bugs": [],
+        "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor",
+            "IncorrectEventSignatureInLibraries",
+            "ABIEncoderV2PackedStorage"
+        ],
         "released": "2019-02-12"
+    },
+    "0.5.5": {
+        "bugs": [
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor",
+            "IncorrectEventSignatureInLibraries",
+            "ABIEncoderV2PackedStorage",
+            "IncorrectByteInstructionOptimization",
+            "DoubleShiftSizeOverflow"
+        ],
+        "released": "2019-03-05"
+    },
+    "0.5.6": {
+        "bugs": [
+            "ABIEncoderV2CalldataStructsWithStaticallySizedAndDynamicallyEncodedMembers",
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor",
+            "IncorrectEventSignatureInLibraries",
+            "ABIEncoderV2PackedStorage",
+            "IncorrectByteInstructionOptimization"
+        ],
+        "released": "2019-03-13"
+    },
+    "0.5.7": {
+        "bugs": [
+            "ABIEncoderV2CalldataStructsWithStaticallySizedAndDynamicallyEncodedMembers",
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2",
+            "UninitializedFunctionPointerInConstructor",
+            "IncorrectEventSignatureInLibraries"
+        ],
+        "released": "2019-03-26"
+    },
+    "0.5.8": {
+        "bugs": [
+            "YulOptimizerRedundantAssignmentBreakContinue0.5",
+            "ABIEncoderV2CalldataStructsWithStaticallySizedAndDynamicallyEncodedMembers",
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement",
+            "DynamicConstructorArgumentsClippedABIV2"
+        ],
+        "released": "2019-04-30"
+    },
+    "0.5.9": {
+        "bugs": [
+            "YulOptimizerRedundantAssignmentBreakContinue0.5",
+            "ABIEncoderV2CalldataStructsWithStaticallySizedAndDynamicallyEncodedMembers",
+            "SignedArrayStorageCopy",
+            "ABIEncoderV2StorageArrayWithMultiSlotElement"
+        ],
+        "released": "2019-05-28"
+    },
+    "0.6.0": {
+        "bugs": [
+            "YulOptimizerRedundantAssignmentBreakContinue"
+        ],
+        "released": "2019-12-17"
+    },
+    "0.6.1": {
+        "bugs": [],
+        "released": "2020-01-02"
+    },
+    "0.6.2": {
+        "bugs": [],
+        "released": "2020-01-27"
     }
 }

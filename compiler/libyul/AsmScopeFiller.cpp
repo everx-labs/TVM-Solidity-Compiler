@@ -23,11 +23,11 @@
 #include <libyul/AsmData.h>
 #include <libyul/AsmScope.h>
 #include <libyul/AsmAnalysisInfo.h>
+#include <libyul/Exceptions.h>
 
 #include <liblangutil/ErrorReporter.h>
-#include <liblangutil/Exceptions.h>
 
-#include <libdevcore/CommonData.h>
+#include <libsolutil/CommonData.h>
 
 #include <boost/range/adaptor/reversed.hpp>
 
@@ -35,10 +35,10 @@
 #include <functional>
 
 using namespace std;
-using namespace dev;
-using namespace langutil;
-using namespace yul;
-using namespace dev::solidity;
+using namespace solidity;
+using namespace solidity::yul;
+using namespace solidity::util;
+using namespace solidity::langutil;
 
 ScopeFiller::ScopeFiller(AsmAnalysisInfo& _info, ErrorReporter& _errorReporter):
 	m_info(_info), m_errorReporter(_errorReporter)
@@ -48,21 +48,7 @@ ScopeFiller::ScopeFiller(AsmAnalysisInfo& _info, ErrorReporter& _errorReporter):
 
 bool ScopeFiller::operator()(ExpressionStatement const& _expr)
 {
-	return boost::apply_visitor(*this, _expr.expression);
-}
-
-bool ScopeFiller::operator()(Label const& _item)
-{
-	if (!m_currentScope->registerLabel(_item.name))
-	{
-		//@TODO secondary location
-		m_errorReporter.declarationError(
-			_item.location,
-			"Label name " + _item.name.str() + " already taken in this scope."
-		);
-		return false;
-	}
-	return true;
+	return std::visit(*this, _expr.expression);
 }
 
 bool ScopeFiller::operator()(VariableDeclaration const& _varDecl)
@@ -75,28 +61,13 @@ bool ScopeFiller::operator()(VariableDeclaration const& _varDecl)
 
 bool ScopeFiller::operator()(FunctionDefinition const& _funDef)
 {
-	bool success = true;
-	vector<Scope::YulType> arguments;
-	for (auto const& _argument: _funDef.parameters)
-		arguments.emplace_back(_argument.type.str());
-	vector<Scope::YulType> returns;
-	for (auto const& _return: _funDef.returnVariables)
-		returns.emplace_back(_return.type.str());
-	if (!m_currentScope->registerFunction(_funDef.name, arguments, returns))
-	{
-		//@TODO secondary location
-		m_errorReporter.declarationError(
-			_funDef.location,
-			"Function name " + _funDef.name.str() + " already taken in this scope."
-		);
-		success = false;
-	}
-
 	auto virtualBlock = m_info.virtualBlocks[&_funDef] = make_shared<Block>();
 	Scope& varScope = scope(virtualBlock.get());
 	varScope.superScope = m_currentScope;
 	m_currentScope = &varScope;
 	varScope.functionScope = true;
+
+	bool success = true;
 	for (auto const& var: _funDef.parameters + _funDef.returnVariables)
 		if (!registerVariable(var, _funDef.location, varScope))
 			success = false;
@@ -104,7 +75,7 @@ bool ScopeFiller::operator()(FunctionDefinition const& _funDef)
 	if (!(*this)(_funDef.body))
 		success = false;
 
-	solAssert(m_currentScope == &varScope, "");
+	yulAssert(m_currentScope == &varScope, "");
 	m_currentScope = m_currentScope->superScope;
 
 	return success;
@@ -132,7 +103,7 @@ bool ScopeFiller::operator()(ForLoop const& _forLoop)
 	if (!(*this)(_forLoop.pre))
 		success = false;
 	m_currentScope = &scope(&_forLoop.pre);
-	if (!boost::apply_visitor(*this, *_forLoop.condition))
+	if (!std::visit(*this, *_forLoop.condition))
 		success = false;
 	if (!(*this)(_forLoop.body))
 		success = false;
@@ -153,13 +124,12 @@ bool ScopeFiller::operator()(Block const& _block)
 	// First visit all functions to make them create
 	// an entry in the scope according to their visibility.
 	for (auto const& s: _block.statements)
-		if (s.type() == typeid(FunctionDefinition))
-			if (!boost::apply_visitor(*this, s))
+		if (holds_alternative<FunctionDefinition>(s))
+			if (!registerFunction(std::get<FunctionDefinition>(s)))
 				success = false;
 	for (auto const& s: _block.statements)
-		if (s.type() != typeid(FunctionDefinition))
-			if (!boost::apply_visitor(*this, s))
-				success = false;
+		if (!std::visit(*this, s))
+			success = false;
 
 	m_currentScope = m_currentScope->superScope;
 	return success;
@@ -173,6 +143,26 @@ bool ScopeFiller::registerVariable(TypedName const& _name, SourceLocation const&
 		m_errorReporter.declarationError(
 			_location,
 			"Variable name " + _name.name.str() + " already taken in this scope."
+		);
+		return false;
+	}
+	return true;
+}
+
+bool ScopeFiller::registerFunction(FunctionDefinition const& _funDef)
+{
+	vector<Scope::YulType> arguments;
+	for (auto const& _argument: _funDef.parameters)
+		arguments.emplace_back(_argument.type.str());
+	vector<Scope::YulType> returns;
+	for (auto const& _return: _funDef.returnVariables)
+		returns.emplace_back(_return.type.str());
+	if (!m_currentScope->registerFunction(_funDef.name, std::move(arguments), std::move(returns)))
+	{
+		//@TODO secondary location
+		m_errorReporter.declarationError(
+			_funDef.location,
+			"Function name " + _funDef.name.str() + " already taken in this scope."
 		);
 		return false;
 	}

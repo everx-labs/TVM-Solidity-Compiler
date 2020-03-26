@@ -20,42 +20,23 @@
 #include "TVMStructCompiler.hpp"
 #include "TVMCompiler.hpp"
 
-void StackPusherHelper::f(const StructDefinition &structDefinition, const string &pref,
-		const std::map<std::string, int> &memberToStackSize,
-		EncodePosition& position, ASTNode const* node) {
-	for (const ASTPointer<VariableDeclaration> &member : structDefinition.members()) {
-		Type const* type = member->type().get();
-		if (isUsualStruct(type)) {
-			auto structType = to<StructType>(type);
-			f(structType->structDefinition(), pref + "@" + member->name(), memberToStackSize, position, node);
-		} else {
-			encodeParameter(type, position, [this, &memberToStackSize, &member, &pref](){
-				int stackSize = getStack().size();
-				const std::string memberName = pref + "@" + member->name();
-				pushS(stackSize - memberToStackSize.at(memberName));
-			}, node);
-		}
-	}
-}
-
 void StackPusherHelper::encodeStruct(const StructType* structType, ASTNode const* node, EncodePosition& position) {
 	// builder... builder struct
 	const int saveStackSize0 = getStack().size() - 2;
+	std::vector<ASTPointer<VariableDeclaration>> const& members = structType->structDefinition().members();
+	const int memberQty = members.size();
+	untuple(memberQty); // builder... builder values...
+	blockSwap(1, memberQty); // builder... values... builder
+	for (int i = 0; i < memberQty; ++i) {
+		encodeParameter(members[i]->type(), position, [&]() {
+			const int index = getStack().size() - saveStackSize0 - 1 - i;
+			pushS(index);
+		}, node);
+	}
 
-	std::map<std::string, int> memberToStackSize;
-	StructCompiler structCompiler{this, structType};
-	structCompiler.expandStruct(memberToStackSize);
-
-	// builder... builder data...
-	const int saveStackSize1 = getStack().size();
-	const int builderIndex = saveStackSize1 - (saveStackSize0 + 1);
-	pushS(builderIndex); // builder... builder data... builder
-
-	const StructDefinition& structDefinition = structType->structDefinition();
-	f(structDefinition, "", memberToStackSize, position, node);
-	// builder data... builder...
-	const int saveStackSize2 = getStack().size();
-	dropUnder(saveStackSize2 - saveStackSize1, saveStackSize1 - saveStackSize0);
+	// builder... values... builder...
+	const int builderQty = getStack().size() - saveStackSize0 - memberQty;
+	dropUnder(builderQty, memberQty);
 }
 
 void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder) {
@@ -116,13 +97,12 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 		case Type::Category::Function: {
 			solAssert(!isResultBuilder, "");
 			auto functionType = to<FunctionType>(type);
-			StackPusherImpl2 pusher;
-			StackPusherHelper pusherHelper(&pusher, &ctx());
+			StackPusherHelper pusherHelper(&ctx());
 			pusherHelper.drop(functionType->parameterTypes().size());
 			for (const TypePointer &param : functionType->returnParameterTypes()) {
-				pusherHelper.pushDefaultValue(param.get());
+				pusherHelper.pushDefaultValue(param);
 			}
-			pushCont(pusher.codeLines());
+			pushCont(pusherHelper.code());
 			break;
 		}
 		default:
@@ -130,53 +110,173 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 	}
 }
 
-void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, ASTNode const& node, const bool pushDefaultValue) {
+void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, ASTNode const& node,
+									const DictOperation op,
+									const bool resultAsSliceForStruct) {
 	// stack: index dict
 	const Type::Category valueCategory = valueType.category();
 	prepareKeyForDictOperations(&keyType);
 	int keyLength = lengthOfDictKey(&keyType);
 	pushInt(keyLength); // stack: index dict nbits
 
-	auto pushDefaultDictValue = [&](){
-		StackPusherImpl2 pusher;
-		StackPusherHelper pusherHelper(&pusher, &ctx());
-		pusherHelper.pushDefaultValue(&valueType);
-		pushCont(pusher.codeLines());
+	StackPusherHelper haveValue(&ctx()); // for Fetch
+	haveValue.push(0, "SWAP");
+
+	StackPusherHelper pusherMoveC7(&ctx()); // for MoveToC7
+
+	auto pushContinuationWithDefaultDictValue = [&](){
+		StackPusherHelper pusherHelper(&ctx());
+		if (valueCategory == Type::Category::Struct) {
+			if (resultAsSliceForStruct) {
+				pusherHelper.pushDefaultValue(&valueType, true);
+				pusherHelper.push(0, "ENDC");
+				pusherHelper.push(0, "CTOS");
+			} else {
+				pusherHelper.pushDefaultValue(&valueType, false);
+			}
+		} else {
+			pusherHelper.pushDefaultValue(&valueType);
+		}
+		pushCont(pusherHelper.code());
+	};
+
+	auto fetchValue = [&](){
+		StackPusherHelper noValue(&ctx());
+		noValue.pushDefaultValue(&valueType, false);
+
+		push(0, "DUP");
+		pushCont(haveValue.code());
+		pushCont(noValue.code());
+		push(-2, "IFELSE");
+	};
+
+	auto checkExist = [&](){
+		StackPusherHelper deleteValue(&ctx());
+		deleteValue.push(-1, "NIP"); // delete value
+
+		push(0, "DUP");
+		pushCont(deleteValue.code());
+		push(-2, "IF");
+	};
+
+	auto moveToC7 = [&](){
+		startContinuation();
+		append(pusherMoveC7.code());
+		auto vd = to<VariableDeclaration>(&node);
+		solAssert(vd, "");
+		setGlob(vd);
+		endContinuation();
+		push(-2, "IF"); // drop value and flag
 	};
 
 	std::string dictOpcode = "DICT" + typeToDictChar(&keyType);
 	if (valueCategory == Type::Category::TvmCell) {
 		push(-3 + 2, dictOpcode + "GETREF");
-		if (pushDefaultValue) {
-			pushDefaultDictValue();
-			push(-2, "IFNOT");
-		} else {
-			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+		switch (op) {
+			case DictOperation::GetFromMapping:
+				pushContinuationWithDefaultDictValue();
+				push(-2, "IFNOT");
+				break;
+			case DictOperation::GetFromArray:
+				push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+				break;
+			case DictOperation::Fetch:
+				fetchValue();
+				break;
+			case DictOperation::Exist:
+				checkExist();
+				break;
+			case DictOperation::MoveToC7:
+				moveToC7();
+				break;
 		}
-	} else if (valueCategory == Type::Category::Mapping) {
-		push(-3 + 1, dictOpcode + "GETOPTREF");
 	} else if (valueCategory == Type::Category::Struct) {
 		if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(&valueType))) {
 			push(-3 + 2, dictOpcode + "GET");
-			if (pushDefaultValue) {
-				pushDefaultDictValue();
-				push(-2, "IFNOT");
-			} else {
-				push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+			switch (op) {
+				case DictOperation::GetFromMapping:
+					if (resultAsSliceForStruct) {
+						pushContinuationWithDefaultDictValue();
+						push(-2, "IFNOT");
+					} else {
+						// if ok
+						{
+							startContinuation();
+							StructCompiler sc{this, to<StructType>(&valueType)};
+							sc.convertSliceToTuple();
+							endContinuation();
+						}
+						// if fail
+						{
+							startContinuation();
+							StructCompiler sc{this, to<StructType>(&valueType)};
+							sc.createDefaultStruct(false);
+							endContinuation();
+						}
+						push(-2, "IFELSE");
+					}
+					break;
+				case DictOperation::GetFromArray:
+					push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+					if (!resultAsSliceForStruct) {
+						StructCompiler sc{this, to<StructType>(&valueType)};
+						sc.convertSliceToTuple();
+					}
+					break;
+				case DictOperation::Fetch: {
+					StructCompiler sc{&haveValue, to<StructType>(&valueType)};
+					sc.convertSliceToTuple();
+					fetchValue();
+					break;
+				}
+				case DictOperation::Exist:
+					checkExist();
+					break;
+				case DictOperation::MoveToC7:
+					StructCompiler sc{&pusherMoveC7, to<StructType>(&valueType)};
+					sc.convertSliceToTuple();
+					moveToC7();
+					break;
 			}
 		} else {
 			push(-3 + 2, dictOpcode + "GETREF");
-			if (pushDefaultValue) {
-				StackPusherImpl2 pusher;
-				StackPusherHelper pusherHelper(&pusher, &ctx());
-				pusher.push(-1 + 1, "CTOS");
-				pushCont(pusher.codeLines());
-
-				pushDefaultDictValue();
-				push(-3, "IFELSE");
-			} else {
-				push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-				push(-1 + 1, "CTOS");
+			switch (op) {
+				case DictOperation::GetFromMapping: {
+					StackPusherHelper pusherHelper(&ctx());
+					pusherHelper.push(-1 + 1, "CTOS");
+					if (!resultAsSliceForStruct) {
+						StructCompiler sc{&pusherHelper, to<StructType>(&valueType)};
+						sc.convertSliceToTuple();
+					}
+					pushCont(pusherHelper.code());
+					pushContinuationWithDefaultDictValue();
+					push(-3, "IFELSE");
+					break;
+				}
+				case DictOperation::GetFromArray:
+					push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+					push(-1 + 1, "CTOS");
+					if (!resultAsSliceForStruct) {
+						StructCompiler sc{this, to<StructType>(&valueType)};
+						sc.convertSliceToTuple();
+					}
+					break;
+				case DictOperation::Fetch: {
+					haveValue.push(0, "CTOS");
+					StructCompiler sc{&haveValue, to<StructType>(&valueType)};
+					sc.convertSliceToTuple();
+					fetchValue();
+					break;
+				}
+				case DictOperation::Exist:
+					checkExist();
+					break;
+				case DictOperation::MoveToC7:
+					pusherMoveC7.push(0, "CTOS");
+					StructCompiler sc{&pusherMoveC7, to<StructType>(&valueType)};
+					sc.convertSliceToTuple();
+					moveToC7();
+					break;
 			}
 		}
 	} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract) || isByteArrayOrString(&valueType)) {
@@ -186,43 +286,58 @@ void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, 
 			push(-3 + 2, dictOpcode + "GET");
 		}
 
-		if (pushDefaultValue) {
-			pushDefaultDictValue();
-			push(-2, "IFNOT");
-		} else {
-			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+		switch (op) {
+			case DictOperation::GetFromMapping:
+				pushContinuationWithDefaultDictValue();
+				push(-2, "IFNOT");
+				break;
+			case DictOperation::GetFromArray:
+				push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+				break;
+			case DictOperation::Fetch: {
+				fetchValue();
+				break;
+			}
+			case DictOperation::Exist:
+				checkExist();
+				break;
+			case DictOperation::MoveToC7:
+				moveToC7();
+				break;
 		}
-	} else if (isIntegralType(&valueType) || isUsualArray(&valueType)) {
+	} else if (isIntegralType(&valueType) || isUsualArray(&valueType) || valueCategory == Type::Category::Mapping) {
 		push(-3 + 2, dictOpcode + "GET");
-		if (pushDefaultValue) {
-			StackPusherImpl2 pusher;
-			StackPusherHelper pusherHelper(&pusher, &ctx());
+		switch (op) {
+			case DictOperation::GetFromMapping: {
+				StackPusherHelper pusherHelper(&ctx());
 
-			pusherHelper.preload(&valueType);
-			pushCont(pusher.codeLines());
+				pusherHelper.preload(&valueType);
+				pushCont(pusherHelper.code());
 
-			pushDefaultDictValue();
-			push(-3, "IFELSE");
-		} else {
-			push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-			preload(&valueType);
+				pushContinuationWithDefaultDictValue();
+				push(-3, "IFELSE");
+				break;
+			}
+			case DictOperation::GetFromArray:
+				push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+				preload(&valueType);
+				break;
+			case DictOperation::Fetch: {
+				haveValue.preload(&valueType);
+				fetchValue();
+				break;
+			}
+			case DictOperation::Exist:
+				checkExist();
+				break;
+			case DictOperation::MoveToC7:
+				pusherMoveC7.preload(&valueType);
+				moveToC7();
+				break;
 		}
 	} else {
 		cast_error(node, "Unsupported value type: " + valueType.toString());
 	}
-}
-
-std::vector<VariableDeclaration const *> StackPusherHelper::notConstantStateVariables() {
-	std::vector<VariableDeclaration const*> variableDeclarations;
-	std::vector<ContractDefinition const*> mainChain = getContractsChain(ctx().getContract());
-	for (ContractDefinition const* contract : mainChain) {
-		for (VariableDeclaration const *variable: contract->stateVariables()) {
-			if (!variable->isConstant()) {
-				variableDeclarations.push_back(variable);
-			}
-		}
-	}
-	return variableDeclarations;
 }
 
 void StackPusherHelper::pushLog(const std::string& str) {

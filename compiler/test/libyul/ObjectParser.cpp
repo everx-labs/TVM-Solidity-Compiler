@@ -19,24 +19,26 @@
  * Unit tests for the Yul object parser.
  */
 
-#include <test/Options.h>
+#include <test/Common.h>
 
 #include <test/libsolidity/ErrorCheck.h>
 
 #include <libyul/AssemblyStack.h>
 
-#include <boost/optional.hpp>
-#include <boost/algorithm/string/replace.hpp>
+#include <libsolidity/interface/OptimiserSettings.h>
 
-#include <string>
+#include <boost/algorithm/string/replace.hpp>
+#include <boost/test/unit_test.hpp>
+
 #include <memory>
+#include <optional>
+#include <string>
 
 using namespace std;
-using namespace langutil;
+using namespace solidity::frontend;
+using namespace solidity::langutil;
 
-namespace yul
-{
-namespace test
+namespace solidity::yul::test
 {
 
 namespace
@@ -47,8 +49,9 @@ std::pair<bool, ErrorList> parse(string const& _source)
 	try
 	{
 		AssemblyStack asmStack(
-			dev::test::Options::get().evmVersion(),
-			AssemblyStack::Language::StrictAssembly
+			solidity::test::CommonOptions::get().evmVersion(),
+			AssemblyStack::Language::StrictAssembly,
+			solidity::frontend::OptimiserSettings::none()
 		);
 		bool success = asmStack.parseAndAnalyze("source", _source);
 		return {success, asmStack.errors()};
@@ -60,7 +63,7 @@ std::pair<bool, ErrorList> parse(string const& _source)
 	return {false, {}};
 }
 
-boost::optional<Error> parseAndReturnFirstError(string const& _source, bool _allowWarnings = true)
+std::optional<Error> parseAndReturnFirstError(string const& _source, bool _allowWarnings = true)
 {
 	bool success;
 	ErrorList errors;
@@ -105,7 +108,7 @@ do \
 { \
 	Error err = expectError((text), false); \
 	BOOST_CHECK(err.type() == (Error::Type::typ)); \
-	BOOST_CHECK(dev::solidity::searchErrorMessage(err, (substring))); \
+	BOOST_CHECK(::solidity::frontend::test::searchErrorMessage(err, (substring))); \
 } while(0)
 
 BOOST_AUTO_TEST_SUITE(YulObjectParser)
@@ -225,14 +228,10 @@ BOOST_AUTO_TEST_CASE(to_string)
 	string expectation = R"(object "O" {
 	code {
 		let x := mload(0)
-		if x
-		{
-			sstore(0, 1)
-		}
+		if x { sstore(0, 1) }
 	}
 	object "i" {
-		code {
-		}
+		code { }
 		data "j" hex"646566"
 	}
 	data "j" hex"616263"
@@ -241,8 +240,9 @@ BOOST_AUTO_TEST_CASE(to_string)
 )";
 	expectation = boost::replace_all_copy(expectation, "\t", "    ");
 	AssemblyStack asmStack(
-		dev::test::Options::get().evmVersion(),
-		AssemblyStack::Language::StrictAssembly
+		solidity::test::CommonOptions::get().evmVersion(),
+		AssemblyStack::Language::StrictAssembly,
+		solidity::frontend::OptimiserSettings::none()
 	);
 	BOOST_REQUIRE(asmStack.parseAndAnalyze("source", code));
 	BOOST_CHECK_EQUAL(asmStack.print(), expectation);
@@ -278,7 +278,19 @@ BOOST_AUTO_TEST_CASE(args_to_datacopy_are_arbitrary)
 	BOOST_CHECK(successParse(code));
 }
 
+
+BOOST_AUTO_TEST_CASE(non_existing_objects)
+{
+	BOOST_CHECK(successParse(
+		"object \"main\" { code { pop(datasize(\"main\")) } }"
+	));
+	CHECK_ERROR(
+		"object \"main\" { code { pop(datasize(\"abc\")) } }",
+		TypeError,
+		"Unknown data object"
+	);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
-}
 }

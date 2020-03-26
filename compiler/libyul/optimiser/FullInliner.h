@@ -24,16 +24,15 @@
 #include <libyul/optimiser/ASTCopier.h>
 #include <libyul/optimiser/ASTWalker.h>
 #include <libyul/optimiser/NameDispenser.h>
+#include <libyul/optimiser/OptimiserStep.h>
 #include <libyul/Exceptions.h>
 
 #include <liblangutil/SourceLocation.h>
 
-#include <boost/variant.hpp>
-#include <boost/optional.hpp>
-
+#include <optional>
 #include <set>
 
-namespace yul
+namespace solidity::yul
 {
 
 class NameCollector;
@@ -69,9 +68,8 @@ class NameCollector;
 class FullInliner: public ASTModifier
 {
 public:
-	explicit FullInliner(Block& _ast, NameDispenser& _dispenser);
-
-	void run();
+	static constexpr char const* name{"FullInliner"};
+	static void run(OptimiserStepContext&, Block& _ast);
 
 	/// Inlining heuristic.
 	/// @param _callSite the name of the function in which the function call is located.
@@ -91,13 +89,19 @@ public:
 	void tentativelyUpdateCodeSize(YulString _function, YulString _callSite);
 
 private:
+	FullInliner(Block& _ast, NameDispenser& _dispenser);
+	void run();
+
 	void updateCodeSize(FunctionDefinition const& _fun);
 	void handleBlock(YulString _currentFunctionName, Block& _block);
+	bool recursive(FunctionDefinition const& _fun) const;
 
 	/// The AST to be modified. The root block itself will not be modified, because
 	/// we store pointers to functions.
 	Block& m_ast;
 	std::map<YulString, FunctionDefinition*> m_functions;
+	/// Functions not to be inlined (because they contain the ``leave`` statement).
+	std::set<YulString> m_noInlineFunctions;
 	/// Names of functions to always inline.
 	std::set<YulString> m_singleUse;
 	/// Variables that are constants (used for inlining heuristic)
@@ -122,7 +126,7 @@ public:
 	void operator()(Block& _block) override;
 
 private:
-	boost::optional<std::vector<Statement>> tryInlineStatement(Statement& _statement);
+	std::optional<std::vector<Statement>> tryInlineStatement(Statement& _statement);
 	std::vector<Statement> performInline(Statement& _statement, FunctionCall& _funCall);
 
 	YulString m_currentFunction;
@@ -140,11 +144,9 @@ class BodyCopier: public ASTCopier
 public:
 	BodyCopier(
 		NameDispenser& _nameDispenser,
-		YulString _varNamePrefix,
 		std::map<YulString, YulString> const& _variableReplacements
 	):
 		m_nameDispenser(_nameDispenser),
-		m_varNamePrefix(_varNamePrefix),
 		m_variableReplacements(_variableReplacements)
 	{}
 
@@ -156,7 +158,6 @@ public:
 	YulString translateIdentifier(YulString _name) override;
 
 	NameDispenser& m_nameDispenser;
-	YulString m_varNamePrefix;
 	std::map<YulString, YulString> m_variableReplacements;
 };
 

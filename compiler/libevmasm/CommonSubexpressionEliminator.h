@@ -28,8 +28,8 @@
 #include <set>
 #include <tuple>
 #include <ostream>
-#include <libdevcore/CommonIO.h>
-#include <libdevcore/Exceptions.h>
+#include <libsolutil/CommonIO.h>
+#include <libsolutil/Exceptions.h>
 #include <libevmasm/ExpressionClasses.h>
 #include <libevmasm/SemanticInformation.h>
 #include <libevmasm/KnownState.h>
@@ -39,9 +39,7 @@ namespace langutil
 struct SourceLocation;
 }
 
-namespace dev
-{
-namespace eth
+namespace solidity::evmasm
 {
 
 class AssemblyItem;
@@ -161,7 +159,7 @@ private:
 	/// Current positions of equivalence classes, equal to the empty set if already deleted.
 	std::map<Id, std::set<int>> m_classPositions;
 
-	/// The actual eqivalence class items and how to compute them.
+	/// The actual equivalence class items and how to compute them.
 	ExpressionClasses& m_expressionClasses;
 	/// Keeps information about which storage or memory slots were written to by which operations.
 	/// The operations are sorted ascendingly by sequence number.
@@ -186,5 +184,4 @@ _AssemblyItemIterator CommonSubexpressionEliminator::feedItems(
 	return _iterator;
 }
 
-}
 }

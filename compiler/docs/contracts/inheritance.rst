@@ -6,13 +6,28 @@ Inheritance
 
 Solidity supports multiple inheritance including polymorphism.
 
-All function calls are virtual, which means that the most derived function
-is called, except when the contract name is explicitly given or the
-``super`` keyword is used.
+Polymorphism means that a function call (internal and external)
+always executes the function of the same name (and parameter types)
+in the most derived contract in the inheritance hierarchy.
+This has to be explicitly enabled on each function in the
+hierarchy using the ``virtual`` and ``override`` keywords.
+See :ref:`Function Overriding <function-overriding>` for more details.
+
+It is possible to call functions further up in the inheritance
+hierarchy internally by explicitly specifying the contract
+using ``ContractName.functionName()`` or using ``super.functionName()``
+if you want to call the function one level higher up in
+the flattened inheritance hierarchy (see below).
 
 When a contract inherits from other contracts, only a single
 contract is created on the blockchain, and the code from all the base contracts
-is compiled into the created contract.
+is compiled into the created contract. This means that all internal calls
+to functions of base contracts also just use internal function calls
+(``super.f(..)`` will use JUMP and not a message call).
+
+State variable shadowing is considered as an error.  A derived contract can
+only declare a state variable ``x``, if there is no visible state variable
+with the same name in any of its bases.
 
 The general inheritance system is very similar to
 `Python's <https://docs.python.org/3/tutorial/classes.html#inheritance>`_,
@@ -23,40 +38,47 @@ Details are given in the following example.
 
 ::
 
-    pragma solidity ^0.5.0;
+    pragma solidity ^0.6.0;
 
-    contract owned {
+
+    contract Owned {
         constructor() public { owner = msg.sender; }
         address payable owner;
     }
+
 
     // Use `is` to derive from another contract. Derived
     // contracts can access all non-private members including
     // internal functions and state variables. These cannot be
     // accessed externally via `this`, though.
-    contract mortal is owned {
-        function kill() public {
+    contract Destructible is Owned {
+        // The keyword `virtual` means that the function can change
+        // its behaviour in derived classes ("overriding").
+        function destroy() virtual public {
             if (msg.sender == owner) selfdestruct(owner);
         }
     }
+
 
     // These abstract contracts are only provided to make the
     // interface known to the compiler. Note the function
     // without body. If a contract does not implement all
     // functions it can only be used as an interface.
-    contract Config {
-        function lookup(uint id) public returns (address adr);
+    abstract contract Config {
+        function lookup(uint id) public virtual returns (address adr);
     }
 
-    contract NameReg {
-        function register(bytes32 name) public;
-        function unregister() public;
-     }
+
+    abstract contract NameReg {
+        function register(bytes32 name) public virtual;
+        function unregister() public virtual;
+    }
+
 
     // Multiple inheritance is possible. Note that `owned` is
-    // also a base class of `mortal`, yet there is only a single
+    // also a base class of `Destructible`, yet there is only a single
     // instance of `owned` (as for virtual inheritance in C++).
-    contract named is owned, mortal {
+    contract Named is Owned, Destructible {
         constructor(bytes32 name) public {
             Config config = Config(0xD5f9D8D94886E70b06E474c3fB14Fd43E2f23970);
             NameReg(config.lookup(1)).register(name);
@@ -67,98 +89,277 @@ Details are given in the following example.
         // types of output parameters, that causes an error.
         // Both local and message-based function calls take these overrides
         // into account.
-        function kill() public {
+        // If you want the function to override, you need to use the
+        // `override` keyword. You need to specify the `virtual` keyword again
+        // if you want this function to be overridden again.
+        function destroy() public virtual override {
             if (msg.sender == owner) {
                 Config config = Config(0xD5f9D8D94886E70b06E474c3fB14Fd43E2f23970);
                 NameReg(config.lookup(1)).unregister();
                 // It is still possible to call a specific
                 // overridden function.
-                mortal.kill();
+                Destructible.destroy();
             }
         }
     }
 
+
     // If a constructor takes an argument, it needs to be
     // provided in the header (or modifier-invocation-style at
     // the constructor of the derived contract (see below)).
-    contract PriceFeed is owned, mortal, named("GoldFeed") {
-       function updateInfo(uint newInfo) public {
-          if (msg.sender == owner) info = newInfo;
-       }
+    contract PriceFeed is Owned, Destructible, Named("GoldFeed") {
+        function updateInfo(uint newInfo) public {
+            if (msg.sender == owner) info = newInfo;
+        }
 
-       function get() public view returns(uint r) { return info; }
+        // Here, we only specify `override` and not `virtual`.
+        // This means that contracts deriving from `PriceFeed`
+        // cannot change the behaviour of `destroy` anymore.
+        function destroy() public override(Destructible, Named) { Named.destroy(); }
+        function get() public view returns(uint r) { return info; }
 
-       uint info;
+        uint info;
     }
 
-Note that above, we call ``mortal.kill()`` to "forward" the
+Note that above, we call ``Destructible.destroy()`` to "forward" the
 destruction request. The way this is done is problematic, as
 seen in the following example::
 
-    pragma solidity >=0.4.22 <0.6.0;
+    pragma solidity ^0.6.0;
 
     contract owned {
         constructor() public { owner = msg.sender; }
         address payable owner;
     }
 
-    contract mortal is owned {
-        function kill() public {
+    contract Destructible is owned {
+        function destroy() public virtual {
             if (msg.sender == owner) selfdestruct(owner);
         }
     }
 
-    contract Base1 is mortal {
-        function kill() public { /* do cleanup 1 */ mortal.kill(); }
+    contract Base1 is Destructible {
+        function destroy() public virtual override { /* do cleanup 1 */ Destructible.destroy(); }
     }
 
-    contract Base2 is mortal {
-        function kill() public { /* do cleanup 2 */ mortal.kill(); }
+    contract Base2 is Destructible {
+        function destroy() public virtual override { /* do cleanup 2 */ Destructible.destroy(); }
     }
 
     contract Final is Base1, Base2 {
+        function destroy() public override(Base1, Base2) { Base2.destroy(); }
     }
 
-A call to ``Final.kill()`` will call ``Base2.kill`` as the most
-derived override, but this function will bypass
-``Base1.kill``, basically because it does not even know about
-``Base1``.  The way around this is to use ``super``::
+A call to ``Final.destroy()`` will call ``Base2.destroy`` because we specify it
+explicitly in the final override, but this function will bypass
+``Base1.destroy``. The way around this is to use ``super``::
 
-    pragma solidity >=0.4.22 <0.6.0;
+    pragma solidity >=0.4.22 <0.7.0;
 
     contract owned {
         constructor() public { owner = msg.sender; }
         address payable owner;
     }
 
-    contract mortal is owned {
-        function kill() public {
+    contract Destructible is owned {
+        function destroy() virtual public {
             if (msg.sender == owner) selfdestruct(owner);
         }
     }
 
-    contract Base1 is mortal {
-        function kill() public { /* do cleanup 1 */ super.kill(); }
+    contract Base1 is Destructible {
+        function destroy() public virtual override { /* do cleanup 1 */ super.destroy(); }
     }
 
 
-    contract Base2 is mortal {
-        function kill() public { /* do cleanup 2 */ super.kill(); }
+    contract Base2 is Destructible {
+        function destroy() public virtual override { /* do cleanup 2 */ super.destroy(); }
     }
 
     contract Final is Base1, Base2 {
+        function destroy() public override(Base1, Base2) { super.destroy(); }
     }
 
 If ``Base2`` calls a function of ``super``, it does not simply
 call this function on one of its base contracts.  Rather, it
 calls this function on the next base contract in the final
-inheritance graph, so it will call ``Base1.kill()`` (note that
+inheritance graph, so it will call ``Base1.destroy()`` (note that
 the final inheritance sequence is -- starting with the most
-derived contract: Final, Base2, Base1, mortal, owned).
+derived contract: Final, Base2, Base1, Destructible, owned).
 The actual function that is called when using super is
 not known in the context of the class where it is used,
 although its type is known. This is similar for ordinary
 virtual method lookup.
+
+.. _function-overriding:
+
+.. index:: ! overriding;function
+
+Function Overriding
+===================
+
+Base functions can be overridden by inheriting contracts to change their
+behavior if they are marked as ``virtual``. The overriding function must then
+use the ``override`` keyword in the function header as shown in this example:
+
+::
+
+    pragma solidity >=0.5.0 <0.7.0;
+
+    contract Base
+    {
+        function foo() virtual public {}
+    }
+
+    contract Middle is Base {}
+
+    contract Inherited is Middle
+    {
+        function foo() public override {}
+    }
+
+For multiple inheritance, the most derived base contracts that define the same
+function must be specified explicitly after the ``override`` keyword.
+In other words, you have to specify all base contracts that define the same function
+and have not yet been overridden by another base contract (on some path through the inheritance graph).
+Additionally, if a contract inherits the same function from multiple (unrelated)
+bases, it has to explicitly override it:
+
+::
+
+    pragma solidity >=0.5.0 <0.7.0;
+
+    contract Base1
+    {
+        function foo() virtual public {}
+    }
+
+    contract Base2
+    {
+        function foo() virtual public {}
+    }
+
+    contract Inherited is Base1, Base2
+    {
+        // Derives from multiple bases defining foo(), so we must explicitly
+        // override it
+        function foo() public override(Base1, Base2) {}
+    }
+
+An explicit override specifier is not required if
+the function is defined in a common base contract
+or if there is a unique function in a common base contract
+that already overrides all other functions.
+
+::
+
+    pragma solidity >=0.5.0 <0.7.0;
+
+    contract A { function f() public pure{} }
+    contract B is A {}
+    contract C is A {}
+    // No explicit override required
+    contract D is B, C {}
+
+More formally, it is not required to override a function (directly or
+indirectly) inherited from multiple bases if there is a base contract
+that is part of all override paths for the signature, and (1) that
+base implements the function and no paths from the current contract
+to the base mentions a function with that signature or (2) that base
+does not implement the function and there is at most one mention of
+the function in all paths from the current contract to that base.
+
+In this sense, an override path for a signature is a path through
+the inheritance graph that starts at the contract under consideration
+and ends at a contract mentioning a function with that signature
+that does not override.
+
+If you do not mark a function that overrides as ``virtual``, derived
+contracts can no longer change the behaviour of that function.
+
+.. note::
+
+  Functions with the ``private`` visibility cannot be ``virtual``.
+
+.. note::
+
+  Functions without implementation have to be marked ``virtual``
+  outside of interfaces. In interfaces, all functions are
+  automatically considered ``virtual``.
+
+Public state variables can override external functions if the
+parameter and return types of the function matches the getter function
+of the variable:
+
+::
+
+    pragma solidity >=0.5.0 <0.7.0;
+
+    contract A
+    {
+        function f() external pure virtual returns(uint) { return 5; }
+    }
+
+    contract B is A
+    {
+        uint public override f;
+    }
+
+.. note::
+
+  While public state variables can override external functions, they themselves cannot
+  be overridden.
+
+.. _modifier-overriding:
+
+.. index:: ! overriding;modifier
+
+Modifier Overriding
+===================
+
+Function modifiers can override each other. This works in the same way as
+`function overriding <function-overriding>`_ (except that there is no overloading for modifiers). The
+``virtual`` keyword must be used on the overridden modifier
+and the ``override`` keyword must be used in the overriding modifier:
+
+::
+
+    pragma solidity >=0.5.0 <0.7.0;
+
+    contract Base
+    {
+        modifier foo() virtual {_;}
+    }
+
+    contract Inherited is Base
+    {
+        modifier foo() override {_;}
+    }
+
+
+In case of multiple inheritance, all direct base contracts must be specified
+explicitly:
+
+::
+
+    pragma solidity >=0.5.0 <0.7.0;
+
+    contract Base1
+    {
+        modifier foo() virtual {_;}
+    }
+
+    contract Base2
+    {
+        modifier foo() virtual {_;}
+    }
+
+    contract Inherited is Base1, Base2
+    {
+        modifier foo() override(Base1, Base2) {_;}
+    }
+
+
 
 .. index:: ! constructor
 
@@ -188,7 +389,7 @@ equivalent to ``constructor() public {}``. For example:
 
 ::
 
-    pragma solidity ^0.5.0;
+    pragma solidity >=0.5.0 <0.7.0;
 
     contract A {
         uint public a;
@@ -218,7 +419,7 @@ The constructors of all the base contracts will be called following the
 linearization rules explained below. If the base constructors have arguments,
 derived contracts need to specify all of them. This can be done in two ways::
 
-    pragma solidity >=0.4.22 <0.6.0;
+    pragma solidity >=0.4.22 <0.7.0;
 
     contract Base {
         uint x;
@@ -277,7 +478,7 @@ error "Linearization of inheritance graph impossible".
 
 ::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity >=0.4.0 <0.7.0;
 
     contract X {}
     contract A is X {}
@@ -289,11 +490,55 @@ The reason for this is that ``C`` requests ``X`` to override ``A``
 requests to override ``X``, which is a contradiction that
 cannot be resolved.
 
+Due to the fact that you have to explicitly override a function
+that is inherited from multiple bases without a unique override,
+C3 linearization is not too important in practice.
+
+One area where inheritance linearization is especially important and perhaps not as clear is when there are multiple constructors in the inheritance hierarchy. The constructors will always be executed in the linearized order, regardless of the order in which their arguments are provided in the inheriting contract's constructor.  For example:
+
+::
+
+    pragma solidity >=0.4.0 <0.7.0;
+
+    contract Base1 {
+        constructor() public {}
+    }
+
+    contract Base2 {
+        constructor() public {}
+    }
+
+    // Constructors are executed in the following order:
+    //  1 - Base1
+    //  2 - Base2
+    //  3 - Derived1
+    contract Derived1 is Base1, Base2 {
+        constructor() public Base1() Base2() {}
+    }
+
+    // Constructors are executed in the following order:
+    //  1 - Base2
+    //  2 - Base1
+    //  3 - Derived2
+    contract Derived2 is Base2, Base1 {
+        constructor() public Base2() Base1() {}
+    }
+
+    // Constructors are still executed in the following order:
+    //  1 - Base2
+    //  2 - Base1
+    //  3 - Derived3
+    contract Derived3 is Base2, Base1 {
+        constructor() public Base1() Base2() {}
+    }
 
 
 Inheriting Different Kinds of Members of the Same Name
 ======================================================
 
-When the inheritance results in a contract with a function and a modifier of the same name, it is considered as an error.
-This error is produced also by an event and a modifier of the same name, and a function and an event of the same name.
-As an exception, a state variable getter can override a public function.
+It is an error when any of the following pairs in a contract have the same name due to inheritance:
+  - a function and a modifier
+  - a function and an event
+  - an event and a modifier
+
+As an exception, a state variable getter can override an external function.

@@ -7,7 +7,8 @@ Using For
 *********
 
 The directive ``using A for B;`` can be used to attach library
-functions (from the library ``A``) to any type (``B``).
+functions (from the library ``A``) to any type (``B``)
+in the context of a contract.
 These functions will receive the object they are called on
 as their first parameter (like the ``self`` variable in Python).
 
@@ -25,53 +26,52 @@ contract, including within all of its functions, and has no effect
 outside of the contract in which it is used. The directive
 may only be used inside a contract, not inside any of its functions.
 
-By including a library, its data types including library functions are
-available without having to add further code.
-
 Let us rewrite the set example from the
 :ref:`libraries` in this way::
 
-    pragma solidity >=0.4.16 <0.6.0;
+    pragma solidity >=0.4.16 <0.7.0;
+
 
     // This is the same code as before, just without comments
+    struct Data { mapping(uint => bool) flags; }
+
     library Set {
-      struct Data { mapping(uint => bool) flags; }
+        function insert(Data storage self, uint value)
+            public
+            returns (bool)
+        {
+            if (self.flags[value])
+                return false; // already there
+            self.flags[value] = true;
+            return true;
+        }
 
-      function insert(Data storage self, uint value)
-          public
-          returns (bool)
-      {
-          if (self.flags[value])
-            return false; // already there
-          self.flags[value] = true;
-          return true;
-      }
+        function remove(Data storage self, uint value)
+            public
+            returns (bool)
+        {
+            if (!self.flags[value])
+                return false; // not there
+            self.flags[value] = false;
+            return true;
+        }
 
-      function remove(Data storage self, uint value)
-          public
-          returns (bool)
-      {
-          if (!self.flags[value])
-              return false; // not there
-          self.flags[value] = false;
-          return true;
-      }
-
-      function contains(Data storage self, uint value)
-          public
-          view
-          returns (bool)
-      {
-          return self.flags[value];
-      }
+        function contains(Data storage self, uint value)
+            public
+            view
+            returns (bool)
+        {
+            return self.flags[value];
+        }
     }
 
+
     contract C {
-        using Set for Set.Data; // this is the crucial change
-        Set.Data knownValues;
+        using Set for Data; // this is the crucial change
+        Data knownValues;
 
         function register(uint value) public {
-            // Here, all variables of type Set.Data have
+            // Here, all variables of type Data have
             // corresponding member functions.
             // The following function call is identical to
             // `Set.insert(knownValues, value)`
@@ -81,7 +81,7 @@ Let us rewrite the set example from the
 
 It is also possible to extend elementary types in that way::
 
-    pragma solidity >=0.4.16 <0.6.0;
+    pragma solidity >=0.4.16 <0.7.0;
 
     library Search {
         function indexOf(uint[] storage self, uint value)
@@ -113,7 +113,8 @@ It is also possible to extend elementary types in that way::
         }
     }
 
-Note that all library calls are actual EVM function calls. This means that
+Note that all external library calls are actual EVM function calls. This means that
 if you pass memory or value types, a copy will be performed, even of the
 ``self`` variable. The only situation where no copy will be performed
-is when storage reference variables are used.
+is when storage reference variables are used or when internal library
+functions are called.

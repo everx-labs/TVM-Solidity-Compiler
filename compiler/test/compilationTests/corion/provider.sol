@@ -9,14 +9,14 @@ contract provider is module, safeMath, announcementTypes {
     /*
         module callbacks
     */
-    function connectModule() external returns (bool success) {
+    function connectModule() external override returns (bool success) {
         require( super.isModuleHandler(msg.sender) );
         super._connectModule();
         (bool _success, uint256 currentSchellingRound) = moduleHandler(moduleHandlerAddress).getCurrentSchellingRoundID();
         require( _success );
         return true;
     }
-    function transferEvent(address payable from, address payable to, uint256 value) external returns (bool success) {
+    function transferEvent(address payable from, address payable to, uint256 value) external override returns (bool success) {
         /*
             Transaction completed. This function is only available for the modulehandler.
             It should be checked if the sender or the acceptor does not connect to the provider or it is not a provider itself if so than the change should be recorded.
@@ -31,7 +31,7 @@ contract provider is module, safeMath, announcementTypes {
         transferEvent_(to, value, false);
         return true;
     }
-    function newSchellingRoundEvent(uint256 roundID, uint256 reward) external returns (bool success) {
+    function newSchellingRoundEvent(uint256 roundID, uint256 reward) external override returns (bool success) {
         /*
             New schelling round. This function is only available for the moduleHandler.
             We are recording the new schelling round and we are storing the whole current quantity of the tokens.
@@ -149,7 +149,7 @@ contract provider is module, safeMath, announcementTypes {
     }
     function getUserDetails(address payable addr, uint256 schellingRound) public view returns (address ProviderAddress, uint256 ProviderHeight, uint256 ConnectedOn, uint256 value) {
         /*
-            Collecting the datas of the client.
+            Collecting the data of the client.
 
             @addr               Address of the client.
             @schellingRound     Number of the schelling round. If it is not defined then the current one.
@@ -272,7 +272,7 @@ contract provider is module, safeMath, announcementTypes {
     }
     function setProviderDetails(address payable addr, string calldata website, string calldata country, string calldata info, uint8 rate, address payable admin) isReady external {
         /*
-            Modifying the datas of the provider.
+            Modifying the data of the provider.
             This can only be invited by the provider’s admin.
             The emission rate is only valid for the next schelling round for this one it is not.
             The admin can only be changed by the address of the provider.
@@ -323,7 +323,7 @@ contract provider is module, safeMath, announcementTypes {
     }
     function getProviderDetails(address payable addr, uint256 height) public view returns (uint8 rate, bool isForRent, uint256 clientsCount, bool priv, bool getInterest, bool valid) {
         /*
-            Asking for the datas of the provider.
+            Asking for the data of the provider.
             In case the height is unknown then the system will use the last known height.
 
             @addr           Address of the provider
@@ -371,7 +371,7 @@ contract provider is module, safeMath, announcementTypes {
     }
     function allowUsers(address provider, address[] calldata addr) isReady external {
         /*
-            Permition of the user to be able to connect to the provider.
+            Permission of the user to be able to connect to the provider.
             This can only be invited by the provider’s admin.
             With this kind of call only 100 address can be permitted.
 

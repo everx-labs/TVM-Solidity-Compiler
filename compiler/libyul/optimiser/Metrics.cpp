@@ -22,14 +22,19 @@
 
 #include <libyul/AsmData.h>
 #include <libyul/Exceptions.h>
+#include <libyul/Utilities.h>
+#include <libyul/backends/evm/EVMDialect.h>
 
 #include <libevmasm/Instruction.h>
+#include <libevmasm/GasMeter.h>
 
-#include <libdevcore/Visitor.h>
+#include <libsolutil/Visitor.h>
+#include <libsolutil/CommonData.h>
 
 using namespace std;
-using namespace dev;
-using namespace yul;
+using namespace solidity;
+using namespace solidity::yul;
+using namespace solidity::util;
 
 size_t CodeSize::codeSize(Statement const& _statement)
 {
@@ -52,15 +57,33 @@ size_t CodeSize::codeSize(Block const& _block)
 	return cs.m_size;
 }
 
+size_t CodeSize::codeSizeIncludingFunctions(Block const& _block)
+{
+	CodeSize cs(false);
+	cs(_block);
+	return cs.m_size;
+}
+
 void CodeSize::visit(Statement const& _statement)
 {
-	if (_statement.type() == typeid(FunctionDefinition))
+	if (holds_alternative<FunctionDefinition>(_statement) && m_ignoreFunctions)
 		return;
+	else if (
+		holds_alternative<If>(_statement) ||
+		holds_alternative<Break>(_statement) ||
+		holds_alternative<Continue>(_statement) ||
+		holds_alternative<Leave>(_statement)
+	)
+		m_size += 2;
+	else if (holds_alternative<ForLoop>(_statement))
+		m_size += 3;
+	else if (holds_alternative<Switch>(_statement))
+		m_size += 1 + 2 * std::get<Switch>(_statement).cases.size();
 	else if (!(
-		_statement.type() == typeid(Block) ||
-		_statement.type() == typeid(ExpressionStatement) ||
-		_statement.type() == typeid(Assignment) ||
-		_statement.type() == typeid(VariableDeclaration)
+		holds_alternative<Block>(_statement) ||
+		holds_alternative<ExpressionStatement>(_statement) ||
+		holds_alternative<Assignment>(_statement) ||
+		holds_alternative<VariableDeclaration>(_statement)
 	))
 		++m_size;
 
@@ -69,15 +92,15 @@ void CodeSize::visit(Statement const& _statement)
 
 void CodeSize::visit(Expression const& _expression)
 {
-	if (_expression.type() != typeid(Identifier))
+	if (!holds_alternative<Identifier>(_expression))
 		++m_size;
 	ASTWalker::visit(_expression);
 }
 
 
-size_t CodeCost::codeCost(Expression const& _expr)
+size_t CodeCost::codeCost(Dialect const& _dialect, Expression const& _expr)
 {
-	CodeCost cc;
+	CodeCost cc(_dialect);
 	cc.visit(_expr);
 	return cc.m_cost;
 }
@@ -85,24 +108,19 @@ size_t CodeCost::codeCost(Expression const& _expr)
 
 void CodeCost::operator()(FunctionCall const& _funCall)
 {
-	yulAssert(m_cost >= 1, "Should assign cost one in visit(Expression).");
-	m_cost += 49;
 	ASTWalker::operator()(_funCall);
+
+	if (EVMDialect const* dialect = dynamic_cast<EVMDialect const*>(&m_dialect))
+		if (BuiltinFunctionForEVM const* f = dialect->builtin(_funCall.functionName.name))
+			if (f->instruction)
+			{
+				addInstructionCost(*f->instruction);
+				return;
+			}
+
+	m_cost += 49;
 }
 
-void CodeCost::operator()(FunctionalInstruction const& _instr)
-{
-	using namespace dev::solidity;
-	yulAssert(m_cost >= 1, "Should assign cost one in visit(Expression).");
-	Tier gasPriceTier = instructionInfo(_instr.instruction).gasPriceTier;
-	if (gasPriceTier < Tier::VeryLow)
-		m_cost -= 1;
-	else if (gasPriceTier < Tier::High)
-		m_cost += 1;
-	else
-		m_cost += 49;
-	ASTWalker::operator()(_instr);
-}
 void CodeCost::operator()(Literal const& _literal)
 {
 	yulAssert(m_cost >= 1, "Should assign cost one in visit(Expression).");
@@ -133,6 +151,17 @@ void CodeCost::visit(Expression const& _expression)
 {
 	++m_cost;
 	ASTWalker::visit(_expression);
+}
+
+void CodeCost::addInstructionCost(evmasm::Instruction _instruction)
+{
+	evmasm::Tier gasPriceTier = evmasm::instructionInfo(_instruction).gasPriceTier;
+	if (gasPriceTier < evmasm::Tier::VeryLow)
+		m_cost -= 1;
+	else if (gasPriceTier < evmasm::Tier::High)
+		m_cost += 1;
+	else
+		m_cost += 49;
 }
 
 void AssignmentCounter::operator()(Assignment const& _assignment)

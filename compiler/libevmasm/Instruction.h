@@ -21,18 +21,13 @@
 
 #pragma once
 
+#include <libevmasm/Exceptions.h>
+#include <libsolutil/Common.h>
+#include <libsolutil/Assertions.h>
 #include <functional>
-#include <libdevcore/Common.h>
-#include <libdevcore/Assertions.h>
-#include "Exceptions.h"
 
-namespace dev
+namespace solidity::evmasm
 {
-namespace solidity
-{
-
-DEV_SIMPLE_EXCEPTION(InvalidDeposit);
-DEV_SIMPLE_EXCEPTION(InvalidOpcode);
 
 /// Virtual machine bytecode instruction.
 enum class Instruction: uint8_t
@@ -90,6 +85,8 @@ enum class Instruction: uint8_t
 	NUMBER,				///< get the block's number
 	DIFFICULTY,			///< get the block's difficulty
 	GASLIMIT,			///< get the block's gas limit
+	CHAINID,			///< get the config's chainid param
+	SELFBALANCE,		///< get balance of the current account
 
 	POP = 0x50,			///< remove item from stack
 	MLOAD,				///< load word from memory
@@ -318,5 +315,4 @@ void eachInstruction(bytes const& _mem, std::function<void(Instruction,u256 cons
 /// Convert from EVM code to simple EVM assembly language.
 std::string disassemble(bytes const& _mem);
 
-}
 }

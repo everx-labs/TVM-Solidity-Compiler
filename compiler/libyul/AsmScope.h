@@ -24,40 +24,34 @@
 
 #include <libyul/YulString.h>
 
-#include <libdevcore/Visitor.h>
-
-#include <boost/variant.hpp>
-#include <boost/optional.hpp>
+#include <libsolutil/Visitor.h>
 
 #include <functional>
 #include <memory>
+#include <optional>
+#include <variant>
 
-namespace yul
+namespace solidity::yul
 {
 
 struct Scope
 {
 	using YulType = YulString;
-	using LabelID = size_t;
 
 	struct Variable { YulType type; };
-	struct Label { };
 	struct Function
 	{
 		std::vector<YulType> arguments;
 		std::vector<YulType> returns;
 	};
 
-	using Identifier = boost::variant<Variable, Label, Function>;
-	using Visitor = dev::GenericVisitor<Variable const, Label const, Function const>;
-	using NonconstVisitor = dev::GenericVisitor<Variable, Label, Function>;
+	using Identifier = std::variant<Variable, Function>;
 
 	bool registerVariable(YulString _name, YulType const& _type);
-	bool registerLabel(YulString _name);
 	bool registerFunction(
 		YulString _name,
-		std::vector<YulType> const& _arguments,
-		std::vector<YulType> const& _returns
+		std::vector<YulType> _arguments,
+		std::vector<YulType> _returns
 	);
 
 	/// Looks up the identifier in this or super scopes and returns a valid pointer if found
@@ -74,7 +68,7 @@ struct Scope
 	{
 		if (Identifier* id = lookup(_name))
 		{
-			boost::apply_visitor(_visitor, *id);
+			std::visit(_visitor, *id);
 			return true;
 		}
 		else

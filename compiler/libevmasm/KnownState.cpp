@@ -21,15 +21,16 @@
  * Contains knowledge about the state of the virtual machine at a specific instruction.
  */
 
-#include "KnownState.h"
-#include <functional>
-#include <libdevcore/Keccak256.h>
+#include <libevmasm/KnownState.h>
 #include <libevmasm/AssemblyItem.h>
+#include <libsolutil/Keccak256.h>
+
+#include <functional>
 
 using namespace std;
-using namespace dev;
-using namespace dev::eth;
-using namespace langutil;
+using namespace solidity;
+using namespace solidity::evmasm;
+using namespace solidity::langutil;
 
 ostream& KnownState::stream(ostream& _out) const
 {
@@ -53,17 +54,17 @@ ostream& KnownState::stream(ostream& _out) const
 
 	_out << "=== State ===" << endl;
 	_out << "Stack height: " << dec << m_stackHeight << endl;
-	_out << "Equivalence classes: " << endl;
+	_out << "Equivalence classes:" << endl;
 	for (Id eqClass = 0; eqClass < m_expressionClasses->size(); ++eqClass)
 		streamExpressionClass(_out, eqClass);
 
-	_out << "Stack: " << endl;
+	_out << "Stack:" << endl;
 	for (auto const& it: m_stackElements)
 	{
 		_out << "  " << dec << it.first << ": ";
 		streamExpressionClass(_out, it.second);
 	}
-	_out << "Storage: " << endl;
+	_out << "Storage:" << endl;
 	for (auto const& it: m_storageContent)
 	{
 		_out << "  ";
@@ -71,7 +72,7 @@ ostream& KnownState::stream(ostream& _out) const
 		_out << ": ";
 		streamExpressionClass(_out, it.second);
 	}
-	_out << "Memory: " << endl;
+	_out << "Memory:" << endl;
 	for (auto const& it: m_memoryContent)
 	{
 		_out << "  ";
@@ -382,9 +383,9 @@ KnownState::Id KnownState::applyKeccak256(
 	{
 		bytes data;
 		for (Id a: arguments)
-			data += toBigEndian(*m_expressionClasses->knownConstant(a));
+			data += util::toBigEndian(*m_expressionClasses->knownConstant(a));
 		data.resize(size_t(*l));
-		v = m_expressionClasses->find(AssemblyItem(u256(dev::keccak256(data)), _location));
+		v = m_expressionClasses->find(AssemblyItem(u256(util::keccak256(data)), _location));
 	}
 	else
 		v = m_expressionClasses->find(keccak256Item, {_start, _length}, true, m_sequenceNumber);

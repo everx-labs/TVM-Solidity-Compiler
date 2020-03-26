@@ -9,5 +9,5 @@ contract C {
         assert(y < 4);
     }
 }
-// ----
-// Warning: (213-226): Assertion violation happens here
+// ====
+// SMTSolvers: z3

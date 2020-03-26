@@ -17,12 +17,15 @@
 
 #include <libsolidity/analysis/SyntaxChecker.h>
 
-#include <libsolidity/analysis/SemVerHandler.h>
 #include <libsolidity/ast/AST.h>
 #include <libsolidity/ast/ExperimentalFeatures.h>
 #include <libsolidity/interface/Version.h>
 
+#include <libyul/optimiser/Semantics.h>
+#include <libyul/AsmData.h>
+
 #include <liblangutil/ErrorReporter.h>
+#include <liblangutil/SemVerHandler.h>
 
 #include <boost/algorithm/cxx11/all_of.hpp>
 #include <boost/algorithm/string.hpp>
@@ -31,9 +34,9 @@
 #include <string>
 
 using namespace std;
-using namespace dev;
-using namespace langutil;
-using namespace dev::solidity;
+using namespace solidity;
+using namespace solidity::langutil;
+using namespace solidity::frontend;
 
 
 bool SyntaxChecker::checkSyntax(ASTNode const& _astRoot)
@@ -65,7 +68,8 @@ void SyntaxChecker::endVisit(SourceUnit const& _sourceUnit)
 				to_string(recommendedVersion.patch()) +
 				string(";\"");
 
-		m_errorReporter.warning(_sourceUnit.location(), errorString);
+		// when reporting the warning, print the source name only
+		m_errorReporter.warning({-1, -1, _sourceUnit.location().source}, errorString);
 	}
 	m_sourceUnit = nullptr;
 }
@@ -103,8 +107,8 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 			{
 				auto feature = ExperimentalFeatureNames.at(literal);
 				m_sourceUnit->annotation().experimentalFeatures.insert(feature);
-				// if (!ExperimentalFeatureOnlyAnalysis.count(feature))
-					// m_errorReporter.warning(_pragma.location(), "Experimental features are turned on. Do not use experimental features on live deployments.");
+//				if (!ExperimentalFeatureWithoutWarning.count(feature))
+//					m_errorReporter.warning(_pragma.location(), "Experimental features are turned on. Do not use experimental features on live deployments.");
 			}
 		}
 	}
@@ -123,6 +127,17 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 				"strictly less than the released version"
 			);
 		m_versionPragmaFound = true;
+	}
+	else if (_pragma.literals()[0] == "AbiHeader")
+	{
+		if (_pragma.literals().size() != 2 ||
+				(_pragma.literals()[1] != "time" && _pragma.literals()[1] != "pubkey" && _pragma.literals()[1] != "expire" && _pragma.literals()[1] != "v1")) {
+			m_errorReporter.syntaxError(_pragma.location(), "Correct format: pragma AbiHeader [time|pubkey|expire|v1]");
+		}
+	}
+	else if (_pragma.literals()[0] == "ignoreIntOverflow")
+	{
+		return true;
 	}
 	else
 		m_errorReporter.syntaxError(_pragma.location(), "Unknown pragma \"" + _pragma.literals()[0] + "\"");
@@ -254,6 +269,20 @@ bool SyntaxChecker::visit(UnaryOperation const& _operation)
 	return true;
 }
 
+bool SyntaxChecker::visit(InlineAssembly const& _inlineAssembly)
+{
+	if (!m_useYulOptimizer)
+		return false;
+
+	if (yul::MSizeFinder::containsMSize(_inlineAssembly.dialect(), _inlineAssembly.operations()))
+		m_errorReporter.syntaxError(
+			_inlineAssembly.location(),
+			"The msize instruction cannot be used when the Yul optimizer is activated because "
+			"it can change its semantics. Either disable the Yul optimizer or do not use the instruction."
+		);
+	return false;
+}
+
 bool SyntaxChecker::visit(PlaceholderStatement const&)
 {
 	m_placeholderFound = true;
@@ -278,7 +307,7 @@ bool SyntaxChecker::visit(FunctionDefinition const& _function)
 {
 	if (_function.noVisibilitySpecified())
 	{
-		string suggestedVisibility = _function.isFallback() || m_isInterface ? "external" : "public";
+		string suggestedVisibility = _function.isFallback() || _function.isReceive() || m_isInterface ? "external" : "public";
 		m_errorReporter.syntaxError(
 			_function.location(),
 			"No visibility specified. Did you intend to add \"" + suggestedVisibility + "\"?"

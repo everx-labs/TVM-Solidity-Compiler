@@ -20,7 +20,7 @@
  * Tests for the Solidity optimizer.
  */
 
-#include <test/Options.h>
+#include <test/Common.h>
 
 #include <libevmasm/CommonSubexpressionEliminator.h>
 #include <libevmasm/PeepholeOptimiser.h>
@@ -36,14 +36,10 @@
 #include <memory>
 
 using namespace std;
-using namespace langutil;
-using namespace dev::eth;
+using namespace solidity::langutil;
+using namespace solidity::evmasm;
 
-namespace dev
-{
-namespace solidity
-{
-namespace test
+namespace solidity::frontend::test
 {
 
 namespace
@@ -57,26 +53,26 @@ namespace
 		return input;
 	}
 
-	eth::KnownState createInitialState(AssemblyItems const& _input)
+	evmasm::KnownState createInitialState(AssemblyItems const& _input)
 	{
-		eth::KnownState state;
+		evmasm::KnownState state;
 		for (auto const& item: addDummyLocations(_input))
 			state.feedItem(item, true);
 		return state;
 	}
 
-	AssemblyItems CSE(AssemblyItems const& _input, eth::KnownState const& _state = eth::KnownState())
+	AssemblyItems CSE(AssemblyItems const& _input, evmasm::KnownState const& _state = evmasm::KnownState())
 	{
 		AssemblyItems input = addDummyLocations(_input);
 
 		bool usesMsize = (find(_input.begin(), _input.end(), AssemblyItem{Instruction::MSIZE}) != _input.end());
-		eth::CommonSubexpressionEliminator cse(_state);
+		evmasm::CommonSubexpressionEliminator cse(_state);
 		BOOST_REQUIRE(cse.feedItems(input.begin(), input.end(), usesMsize) == input.end());
 		AssemblyItems output = cse.getOptimizedItems();
 
 		for (AssemblyItem const& item: output)
 		{
-			BOOST_CHECK(item == Instruction::POP || !item.location().isEmpty());
+			BOOST_CHECK(item == Instruction::POP || item.location().isValid());
 		}
 		return output;
 	}
@@ -84,7 +80,7 @@ namespace
 	void checkCSE(
 		AssemblyItems const& _input,
 		AssemblyItems const& _expectation,
-		KnownState const& _state = eth::KnownState()
+		KnownState const& _state = evmasm::KnownState()
 	)
 	{
 		AssemblyItems output = CSE(_input, _state);
@@ -118,8 +114,8 @@ BOOST_AUTO_TEST_SUITE(Optimiser)
 
 BOOST_AUTO_TEST_CASE(cse_intermediate_swap)
 {
-	eth::KnownState state;
-	eth::CommonSubexpressionEliminator cse(state);
+	evmasm::KnownState state;
+	evmasm::CommonSubexpressionEliminator cse(state);
 	AssemblyItems input{
 		Instruction::SWAP1, Instruction::POP, Instruction::ADD, u256(0), Instruction::SWAP1,
 		Instruction::SLOAD, Instruction::SWAP1, u256(100), Instruction::EXP, Instruction::SWAP1,
@@ -236,6 +232,56 @@ BOOST_AUTO_TEST_CASE(cse_associativity2)
 		Instruction::ADD
 	};
 	checkCSE(input, {Instruction::DUP2, Instruction::DUP2, Instruction::ADD, u256(5), Instruction::ADD});
+}
+
+BOOST_AUTO_TEST_CASE(cse_double_shift_right_overflow)
+{
+	if (solidity::test::CommonOptions::get().evmVersion().hasBitwiseShifting())
+	{
+		AssemblyItems input{
+			Instruction::CALLVALUE,
+			u256(2),
+			Instruction::SHR,
+			u256(-1),
+			Instruction::SHR
+		};
+		checkCSE(input, {u256(0)});
+	}
+}
+
+BOOST_AUTO_TEST_CASE(cse_double_shift_left_overflow)
+{
+	if (solidity::test::CommonOptions::get().evmVersion().hasBitwiseShifting())
+	{
+		AssemblyItems input{
+			Instruction::DUP1,
+			u256(2),
+			Instruction::SHL,
+			u256(-1),
+			Instruction::SHL
+		};
+		checkCSE(input, {u256(0)});
+	}
+}
+
+BOOST_AUTO_TEST_CASE(cse_byte_ordering_bug)
+{
+	AssemblyItems input{
+		u256(31),
+		Instruction::CALLVALUE,
+		Instruction::BYTE
+	};
+	checkCSE(input, {u256(31), Instruction::CALLVALUE, Instruction::BYTE});
+}
+
+BOOST_AUTO_TEST_CASE(cse_byte_ordering_fix)
+{
+	AssemblyItems input{
+		Instruction::CALLVALUE,
+		u256(31),
+		Instruction::BYTE
+	};
+	checkCSE(input, {u256(0xff), Instruction::CALLVALUE, Instruction::AND});
 }
 
 BOOST_AUTO_TEST_CASE(cse_storage)
@@ -458,7 +504,7 @@ BOOST_AUTO_TEST_CASE(cse_empty_keccak256)
 		Instruction::KECCAK256
 	};
 	checkCSE(input, {
-		u256(dev::keccak256(bytesConstRef()))
+		u256(util::keccak256(bytesConstRef()))
 	});
 }
 
@@ -476,7 +522,7 @@ BOOST_AUTO_TEST_CASE(cse_partial_keccak256)
 		u256(0xabcd) << (256 - 16),
 		u256(0),
 		Instruction::MSTORE,
-		u256(dev::keccak256(bytes{0xab, 0xcd}))
+		u256(util::keccak256(bytes{0xab, 0xcd}))
 	});
 }
 
@@ -601,7 +647,7 @@ BOOST_AUTO_TEST_CASE(cse_keccak256_twice_same_content_noninterfering_store_in_be
 
 BOOST_AUTO_TEST_CASE(cse_with_initially_known_stack)
 {
-	eth::KnownState state = createInitialState(AssemblyItems{
+	evmasm::KnownState state = createInitialState(AssemblyItems{
 		u256(0x12),
 		u256(0x20),
 		Instruction::ADD
@@ -614,7 +660,7 @@ BOOST_AUTO_TEST_CASE(cse_with_initially_known_stack)
 
 BOOST_AUTO_TEST_CASE(cse_equality_on_initially_known_stack)
 {
-	eth::KnownState state = createInitialState(AssemblyItems{Instruction::DUP1});
+	evmasm::KnownState state = createInitialState(AssemblyItems{Instruction::DUP1});
 	AssemblyItems input{
 		Instruction::EQ
 	};
@@ -627,7 +673,7 @@ BOOST_AUTO_TEST_CASE(cse_access_previous_sequence)
 {
 	// Tests that the code generator detects whether it tries to access SLOAD instructions
 	// from a sequenced expression which is not in its scope.
-	eth::KnownState state = createInitialState(AssemblyItems{
+	evmasm::KnownState state = createInitialState(AssemblyItems{
 		u256(0),
 		Instruction::SLOAD,
 		u256(1),
@@ -969,27 +1015,60 @@ BOOST_AUTO_TEST_CASE(peephole_swap_comparison)
 
 BOOST_AUTO_TEST_CASE(peephole_truthy_and)
 {
-  AssemblyItems items{
-    AssemblyItem(Tag, 1),
-    Instruction::BALANCE,
-    u256(0),
-    Instruction::NOT,
-    Instruction::AND,
-    AssemblyItem(PushTag, 1),
-    Instruction::JUMPI
-  };
-  AssemblyItems expectation{
-    AssemblyItem(Tag, 1),
-    Instruction::BALANCE,
-    AssemblyItem(PushTag, 1),
-    Instruction::JUMPI
-  };
-  PeepholeOptimiser peepOpt(items);
-  BOOST_REQUIRE(peepOpt.optimise());
-  BOOST_CHECK_EQUAL_COLLECTIONS(
-    items.begin(), items.end(),
-    expectation.begin(), expectation.end()
-  );
+	AssemblyItems items{
+		AssemblyItem(Tag, 1),
+		Instruction::BALANCE,
+		u256(0),
+		Instruction::NOT,
+		Instruction::AND,
+		AssemblyItem(PushTag, 1),
+		Instruction::JUMPI
+	};
+	AssemblyItems expectation{
+		AssemblyItem(Tag, 1),
+		Instruction::BALANCE,
+		AssemblyItem(PushTag, 1),
+		Instruction::JUMPI
+	};
+	PeepholeOptimiser peepOpt(items);
+	BOOST_REQUIRE(peepOpt.optimise());
+	BOOST_CHECK_EQUAL_COLLECTIONS(
+		items.begin(), items.end(),
+		expectation.begin(), expectation.end()
+	);
+}
+
+
+BOOST_AUTO_TEST_CASE(peephole_iszero_iszero_jumpi)
+{
+	AssemblyItems items{
+		AssemblyItem(Tag, 1),
+		u256(0),
+		Instruction::CALLDATALOAD,
+		Instruction::ISZERO,
+		Instruction::ISZERO,
+		AssemblyItem(PushTag, 1),
+		Instruction::JUMPI,
+		u256(0),
+		u256(0x20),
+		Instruction::RETURN
+	};
+	AssemblyItems expectation{
+		AssemblyItem(Tag, 1),
+		u256(0),
+		Instruction::CALLDATALOAD,
+		AssemblyItem(PushTag, 1),
+		Instruction::JUMPI,
+		u256(0),
+		u256(0x20),
+		Instruction::RETURN
+	};
+	PeepholeOptimiser peepOpt(items);
+	BOOST_REQUIRE(peepOpt.optimise());
+	BOOST_CHECK_EQUAL_COLLECTIONS(
+	  items.begin(), items.end(),
+	  expectation.begin(), expectation.end()
+	);
 }
 
 BOOST_AUTO_TEST_CASE(jumpdest_removal)
@@ -1053,7 +1132,7 @@ BOOST_AUTO_TEST_CASE(jumpdest_removal_subassemblies)
 	main.append(t1.toSubAssemblyTag(subId));
 	main.append(u256(8));
 
-	main.optimise(true, dev::test::Options::get().evmVersion());
+	main.optimise(true, solidity::test::CommonOptions::get().evmVersion(), false, 200);
 
 	AssemblyItems expectationMain{
 		AssemblyItem(PushSubSize, 0),
@@ -1094,6 +1173,84 @@ BOOST_AUTO_TEST_CASE(cse_sub_zero)
 		Instruction::DUP2,
 		Instruction::SWAP1,
 		Instruction::SUB
+	});
+}
+
+BOOST_AUTO_TEST_CASE(cse_remove_redundant_shift_masking)
+{
+	if (!solidity::test::CommonOptions::get().evmVersion().hasBitwiseShifting())
+		return;
+
+	for (int i = 1; i < 256; i++)
+	{
+		checkCSE({
+			u256(boost::multiprecision::pow(u256(2), i)-1),
+			Instruction::CALLVALUE,
+			u256(256-i),
+			Instruction::SHR,
+			Instruction::AND
+		}, {
+			Instruction::CALLVALUE,
+			u256(256-i),
+			Instruction::SHR,
+		});
+
+		checkCSE({
+			Instruction::CALLVALUE,
+			u256(256-i),
+			Instruction::SHR,
+			u256(boost::multiprecision::pow(u256(2), i)-1),
+			Instruction::AND
+		}, {
+			Instruction::CALLVALUE,
+			u256(256-i),
+			Instruction::SHR,
+		});
+	}
+
+	// Check that opt. does NOT trigger
+	for (int i = 1; i < 255; i++)
+	{
+		checkCSE({
+			u256(boost::multiprecision::pow(u256(2), i)-1),
+			Instruction::CALLVALUE,
+			u256(255-i),
+			Instruction::SHR,
+			Instruction::AND
+		}, { // Opt. did some reordering
+			Instruction::CALLVALUE,
+			u256(255-i),
+			Instruction::SHR,
+			u256(boost::multiprecision::pow(u256(2), i)-1),
+			Instruction::AND
+		});
+
+		checkCSE({
+			Instruction::CALLVALUE,
+			u256(255-i),
+			Instruction::SHR,
+			u256(boost::multiprecision::pow(u256(2), i)-1),
+			Instruction::AND
+		}, { // Opt. did some reordering
+			u256(boost::multiprecision::pow(u256(2), i)-1),
+			Instruction::CALLVALUE,
+			u256(255-i),
+			Instruction::SHR,
+			Instruction::AND
+		});
+	}
+
+	//(x >> (31*8)) & 0xffffffff
+	checkCSE({
+		Instruction::CALLVALUE,
+		u256(31*8),
+		Instruction::SHR,
+		u256(0xffffffff),
+		Instruction::AND
+	}, {
+		Instruction::CALLVALUE,
+		u256(31*8),
+		Instruction::SHR
 	});
 }
 
@@ -1167,8 +1324,48 @@ BOOST_AUTO_TEST_CASE(cse_remove_unwanted_masking_of_address)
 	});
 }
 
+BOOST_AUTO_TEST_CASE(cse_replace_too_large_shift)
+{
+	if (!solidity::test::CommonOptions::get().evmVersion().hasBitwiseShifting())
+		return;
+
+	checkCSE({
+		Instruction::CALLVALUE,
+		u256(299),
+		Instruction::SHL
+	}, {
+		u256(0)
+	});
+
+	checkCSE({
+		Instruction::CALLVALUE,
+		u256(299),
+		Instruction::SHR
+	}, {
+		u256(0)
+	});
+
+	checkCSE({
+		Instruction::CALLVALUE,
+		u256(255),
+		Instruction::SHL
+	}, {
+		Instruction::CALLVALUE,
+		u256(255),
+		Instruction::SHL
+	});
+
+	checkCSE({
+		Instruction::CALLVALUE,
+		u256(255),
+		Instruction::SHR
+	}, {
+		Instruction::CALLVALUE,
+		u256(255),
+		Instruction::SHR
+	});
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
-}
-}
 } // end namespaces

@@ -19,21 +19,45 @@
  */
 
 #include <test/libsolidity/SolidityExecutionFramework.h>
+#include <liblangutil/EVMVersion.h>
+#include <libsolutil/IpfsHash.h>
+#include <libevmasm/GasMeter.h>
 
 #include <cmath>
 
 using namespace std;
-using namespace langutil;
-using namespace dev::eth;
-using namespace dev::solidity;
-using namespace dev::test;
+using namespace solidity::langutil;
+using namespace solidity::langutil;
+using namespace solidity::evmasm;
+using namespace solidity::frontend;
+using namespace solidity::test;
 
-namespace dev
+namespace solidity::frontend::test
 {
-namespace solidity
-{
-namespace test
-{
+
+#define CHECK_DEPLOY_GAS(_gasNoOpt, _gasOpt, _evmVersion) \
+	do \
+	{ \
+		u256 ipfsCost = GasMeter::dataGas(util::ipfsHash(m_compiler.metadata(m_compiler.lastContractName())), true, _evmVersion); \
+		u256 gasOpt{_gasOpt}; \
+		u256 gasNoOpt{_gasNoOpt}; \
+		u256 gas = m_optimiserSettings == OptimiserSettings::minimal() ? gasNoOpt : gasOpt; \
+		BOOST_CHECK_MESSAGE( \
+			m_gasUsed >= ipfsCost, \
+			"Gas used: " + \
+			m_gasUsed.str() + \
+			" is less than the data cost for the IPFS hash: " + \
+			u256(ipfsCost).str() \
+		); \
+		u256 gasUsed = m_gasUsed - ipfsCost; \
+		BOOST_CHECK_MESSAGE( \
+			gas == gasUsed, \
+			"Gas used: " + \
+			gasUsed.str() + \
+			" - expected: " + \
+			gas.str() \
+		); \
+	} while(0)
 
 #define CHECK_GAS(_gasNoOpt, _gasOpt, _tolerance) \
 	do \
@@ -41,7 +65,7 @@ namespace test
 		u256 gasOpt{_gasOpt}; \
 		u256 gasNoOpt{_gasNoOpt}; \
 		u256 tolerance{_tolerance}; \
-		u256 gas = m_optimize ? gasOpt : gasNoOpt; \
+		u256 gas = m_optimiserSettings == OptimiserSettings::minimal() ? gasNoOpt : gasOpt; \
 		u256 diff = gas < m_gasUsed ? m_gasUsed - gas : gas - m_gasUsed; \
 		BOOST_CHECK_MESSAGE( \
 			diff <= tolerance, \
@@ -66,19 +90,64 @@ BOOST_AUTO_TEST_CASE(string_storage)
 			}
 		}
 	)";
+	m_compiler.overwriteReleaseFlag(true);
 	compileAndRun(sourceCode);
 
-	if (Options::get().evmVersion() <= EVMVersion::byzantium())
-		CHECK_GAS(134435, 130591, 100);
+	auto evmVersion = solidity::test::CommonOptions::get().evmVersion();
+
+	if (evmVersion <= EVMVersion::byzantium())
+		CHECK_DEPLOY_GAS(134209, 130895, evmVersion);
+	// This is only correct on >=Constantinople.
+	else if (CommonOptions::get().useABIEncoderV2)
+	{
+		if (CommonOptions::get().optimizeYul)
+		{
+			// Costs with 0 are cases which cannot be triggered in tests.
+			if (evmVersion < EVMVersion::istanbul())
+				CHECK_DEPLOY_GAS(0, 124033, evmVersion);
+			else
+				CHECK_DEPLOY_GAS(0, 110981, evmVersion);
+		}
+		else
+		{
+			if (evmVersion < EVMVersion::istanbul())
+				CHECK_DEPLOY_GAS(147835, 131687, evmVersion);
+			else
+				CHECK_DEPLOY_GAS(131871, 117231, evmVersion);
+		}
+	}
+	else if (evmVersion < EVMVersion::istanbul())
+		CHECK_DEPLOY_GAS(126993, 119723, evmVersion);
 	else
-		CHECK_GAS(127225, 124873, 100);
-	if (Options::get().evmVersion() >= EVMVersion::byzantium())
+		CHECK_DEPLOY_GAS(114357, 107347, evmVersion);
+
+	if (evmVersion >= EVMVersion::byzantium())
 	{
 		callContractFunction("f()");
-		if (Options::get().evmVersion() == EVMVersion::byzantium())
-			CHECK_GAS(21551, 21526, 20);
-		else
+		if (evmVersion == EVMVersion::byzantium())
+			CHECK_GAS(21545, 21526, 20);
+		// This is only correct on >=Constantinople.
+		else if (CommonOptions::get().useABIEncoderV2)
+		{
+			if (CommonOptions::get().optimizeYul)
+			{
+				if (evmVersion < EVMVersion::istanbul())
+					CHECK_GAS(0, 21567, 20);
+				else
+					CHECK_GAS(0, 21351, 20);
+			}
+			else
+			{
+				if (evmVersion < EVMVersion::istanbul())
+					CHECK_GAS(21707, 21635, 20);
+				else
+					CHECK_GAS(21499, 21431, 20);
+			}
+		}
+		else if (evmVersion < EVMVersion::istanbul())
 			CHECK_GAS(21546, 21526, 20);
+		else
+			CHECK_GAS(21332, 21322, 20);
 	}
 }
 
@@ -127,6 +196,4 @@ BOOST_AUTO_TEST_CASE(single_callvaluecheck)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-}
-}
 }

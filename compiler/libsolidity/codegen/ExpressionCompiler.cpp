@@ -23,14 +23,15 @@
 #include <libsolidity/codegen/ExpressionCompiler.h>
 
 #include <libsolidity/ast/AST.h>
+#include <libsolidity/ast/TypeProvider.h>
 #include <libsolidity/codegen/CompilerContext.h>
 #include <libsolidity/codegen/CompilerUtils.h>
 #include <libsolidity/codegen/LValue.h>
 
 #include <libevmasm/GasMeter.h>
-#include <libdevcore/Common.h>
-#include <libdevcore/Keccak256.h>
-#include <libdevcore/Whiskers.h>
+#include <libsolutil/Common.h>
+#include <libsolutil/Keccak256.h>
+#include <libsolutil/Whiskers.h>
 
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/range/adaptor/reversed.hpp>
@@ -38,12 +39,12 @@
 #include <utility>
 
 using namespace std;
-using namespace langutil;
+using namespace solidity;
+using namespace solidity::evmasm;
+using namespace solidity::frontend;
+using namespace solidity::langutil;
+using namespace solidity::util;
 
-namespace dev
-{
-namespace solidity
-{
 
 void ExpressionCompiler::compile(Expression const& _expression)
 {
@@ -78,12 +79,11 @@ void ExpressionCompiler::appendStateVariableInitialization(VariableDeclaration c
 void ExpressionCompiler::appendConstStateVariableAccessor(VariableDeclaration const& _varDecl)
 {
 	solAssert(_varDecl.isConstant(), "");
-	_varDecl.value()->accept(*this);
-	utils().convertType(*_varDecl.value()->annotation().type, *_varDecl.annotation().type);
+	acceptAndConvert(*_varDecl.value(), *_varDecl.annotation().type);
 
 	// append return
 	m_context << dupInstruction(_varDecl.annotation().type->sizeOnStack() + 1);
-	m_context.appendJump(eth::AssemblyItem::JumpType::OutOfFunction);
+	m_context.appendJump(evmasm::AssemblyItem::JumpType::OutOfFunction);
 }
 
 void ExpressionCompiler::appendStateVariableAccessor(VariableDeclaration const& _varDecl)
@@ -103,26 +103,57 @@ void ExpressionCompiler::appendStateVariableAccessor(VariableDeclaration const& 
 
 	for (size_t i = 0; i < paramTypes.size(); ++i)
 	{
-		if (auto mappingType = dynamic_cast<MappingType const*>(returnType.get()))
+		if (auto mappingType = dynamic_cast<MappingType const*>(returnType))
 		{
 			solAssert(CompilerUtils::freeMemoryPointer >= 0x40, "");
-			solUnimplementedAssert(
-				!paramTypes[i]->isDynamicallySized(),
-				"Accessors for mapping with dynamically-sized keys not yet implemented."
-			);
+
 			// pop offset
 			m_context << Instruction::POP;
-			// move storage offset to memory.
-			utils().storeInMemory(32);
-			// move key to memory.
-			utils().copyToStackTop(paramTypes.size() - i, 1);
-			utils().storeInMemory(0);
-			m_context << u256(64) << u256(0) << Instruction::KECCAK256;
+			if (paramTypes[i]->isDynamicallySized())
+			{
+				solAssert(
+					dynamic_cast<ArrayType const&>(*paramTypes[i]).isByteArray(),
+					"Expected string or byte array for mapping key type"
+				);
+
+				// stack: <keys..> <slot position>
+
+				// copy key[i] to top.
+				utils().copyToStackTop(paramTypes.size() - i + 1, 1);
+
+				m_context.appendInlineAssembly(R"({
+					let key_len := mload(key_ptr)
+					// Temp. use the memory after the array data for the slot
+					// position
+					let post_data_ptr := add(key_ptr, add(key_len, 0x20))
+					let orig_data := mload(post_data_ptr)
+					mstore(post_data_ptr, slot_pos)
+					let hash := keccak256(add(key_ptr, 0x20), add(key_len, 0x20))
+					mstore(post_data_ptr, orig_data)
+					slot_pos := hash
+				})", {"slot_pos", "key_ptr"});
+
+				m_context << Instruction::POP;
+			}
+			else
+			{
+				solAssert(paramTypes[i]->isValueType(), "Expected value type for mapping key");
+
+				// move storage offset to memory.
+				utils().storeInMemory(32);
+
+				// move key to memory.
+				utils().copyToStackTop(paramTypes.size() - i, 1);
+				utils().storeInMemory(0);
+				m_context << u256(64) << u256(0);
+				m_context << Instruction::KECCAK256;
+			}
+
 			// push offset
 			m_context << u256(0);
 			returnType = mappingType->valueType();
 		}
-		else if (auto arrayType = dynamic_cast<ArrayType const*>(returnType.get()))
+		else if (auto arrayType = dynamic_cast<ArrayType const*>(returnType))
 		{
 			// pop offset
 			m_context << Instruction::POP;
@@ -146,7 +177,7 @@ void ExpressionCompiler::appendStateVariableAccessor(VariableDeclaration const& 
 	unsigned retSizeOnStack = 0;
 	auto returnTypes = accessorType.returnParameterTypes();
 	solAssert(returnTypes.size() >= 1, "");
-	if (StructType const* structType = dynamic_cast<StructType const*>(returnType.get()))
+	if (StructType const* structType = dynamic_cast<StructType const*>(returnType))
 	{
 		// remove offset
 		m_context << Instruction::POP;
@@ -156,7 +187,7 @@ void ExpressionCompiler::appendStateVariableAccessor(VariableDeclaration const& 
 		{
 			if (returnTypes[i]->category() == Type::Category::Mapping)
 				continue;
-			if (auto arrayType = dynamic_cast<ArrayType const*>(returnTypes[i].get()))
+			if (auto arrayType = dynamic_cast<ArrayType const*>(returnTypes[i]))
 				if (!arrayType->isByteArray())
 					continue;
 			pair<u256, unsigned> const& offsets = structType->storageOffsetsOfMember(names[i]);
@@ -186,22 +217,20 @@ void ExpressionCompiler::appendStateVariableAccessor(VariableDeclaration const& 
 			errinfo_comment("Stack too deep.")
 		);
 	m_context << dupInstruction(retSizeOnStack + 1);
-	m_context.appendJump(eth::AssemblyItem::JumpType::OutOfFunction);
+	m_context.appendJump(evmasm::AssemblyItem::JumpType::OutOfFunction);
 }
 
 bool ExpressionCompiler::visit(Conditional const& _condition)
 {
 	CompilerContext::LocationSetter locationSetter(m_context, _condition);
 	_condition.condition().accept(*this);
-	eth::AssemblyItem trueTag = m_context.appendConditionalJump();
-	_condition.falseExpression().accept(*this);
-	utils().convertType(*_condition.falseExpression().annotation().type, *_condition.annotation().type);
-	eth::AssemblyItem endTag = m_context.appendJumpToNew();
+	evmasm::AssemblyItem trueTag = m_context.appendConditionalJump();
+	acceptAndConvert(_condition.falseExpression(), *_condition.annotation().type);
+	evmasm::AssemblyItem endTag = m_context.appendJumpToNew();
 	m_context << trueTag;
 	int offset = _condition.annotation().type->sizeOnStack();
 	m_context.adjustStackOffset(-offset);
-	_condition.trueExpression().accept(*this);
-	utils().convertType(*_condition.trueExpression().annotation().type, *_condition.annotation().type);
+	acceptAndConvert(_condition.trueExpression(), *_condition.annotation().type);
 	m_context << endTag;
 	return false;
 }
@@ -286,14 +315,12 @@ bool ExpressionCompiler::visit(TupleExpression const& _tuple)
 		ArrayType const& arrayType = dynamic_cast<ArrayType const&>(*_tuple.annotation().type);
 
 		solAssert(!arrayType.isDynamicallySized(), "Cannot create dynamically sized inline array.");
-		m_context << max(u256(32u), arrayType.memorySize());
-		utils().allocateMemory();
+		utils().allocateMemory(max(u256(32u), arrayType.memoryDataSize()));
 		m_context << Instruction::DUP1;
 
 		for (auto const& component: _tuple.components())
 		{
-			component->accept(*this);
-			utils().convertType(*component->annotation().type, *arrayType.baseType(), true);
+			acceptAndConvert(*component, *arrayType.baseType(), true);
 			utils().storeInMemoryDynamic(*arrayType.baseType(), true);
 		}
 
@@ -319,7 +346,7 @@ bool ExpressionCompiler::visit(TupleExpression const& _tuple)
 			if (_tuple.components().size() == 1)
 				m_currentLValue = move(lvalues[0]);
 			else
-				m_currentLValue.reset(new TupleObject(m_context, move(lvalues)));
+				m_currentLValue = make_unique<TupleObject>(m_context, move(lvalues));
 		}
 	}
 	return false;
@@ -418,20 +445,16 @@ bool ExpressionCompiler::visit(BinaryOperation const& _binaryOperation)
 		{
 			return dynamic_cast<Literal const*>(&_e) || _e.annotation().type->category() == Type::Category::RationalNumber;
 		};
-		bool swap = m_optimize && TokenTraits::isCommutativeOp(c_op) && isLiteral(rightExpression) && !isLiteral(leftExpression);
+		bool swap = m_optimiseOrderLiterals && TokenTraits::isCommutativeOp(c_op) && isLiteral(rightExpression) && !isLiteral(leftExpression);
 		if (swap)
 		{
-			leftExpression.accept(*this);
-			utils().convertType(*leftExpression.annotation().type, *leftTargetType, cleanupNeeded);
-			rightExpression.accept(*this);
-			utils().convertType(*rightExpression.annotation().type, *rightTargetType, cleanupNeeded);
+			acceptAndConvert(leftExpression, *leftTargetType, cleanupNeeded);
+			acceptAndConvert(rightExpression, *rightTargetType, cleanupNeeded);
 		}
 		else
 		{
-			rightExpression.accept(*this);
-			utils().convertType(*rightExpression.annotation().type, *rightTargetType, cleanupNeeded);
-			leftExpression.accept(*this);
-			utils().convertType(*leftExpression.annotation().type, *leftTargetType, cleanupNeeded);
+			acceptAndConvert(rightExpression, *rightTargetType, cleanupNeeded);
+			acceptAndConvert(leftExpression, *leftTargetType, cleanupNeeded);
 		}
 		if (TokenTraits::isShiftOp(c_op))
 			// shift only cares about the signedness of both sides
@@ -453,9 +476,22 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 	{
 		solAssert(_functionCall.arguments().size() == 1, "");
 		solAssert(_functionCall.names().empty(), "");
-		Expression const& firstArgument = *_functionCall.arguments().front();
-		firstArgument.accept(*this);
-		utils().convertType(*firstArgument.annotation().type, *_functionCall.annotation().type);
+		auto const& expression = *_functionCall.arguments().front();
+		auto const& targetType = *_functionCall.annotation().type;
+		if (auto const* typeType = dynamic_cast<TypeType const*>(expression.annotation().type))
+			if (auto const* addressType = dynamic_cast<AddressType const*>(&targetType))
+			{
+				auto const* contractType = dynamic_cast<ContractType const*>(typeType->actualType());
+				solAssert(
+					contractType &&
+					contractType->contractDefinition().isLibrary() &&
+					addressType->stateMutability() == StateMutability::NonPayable,
+					""
+				);
+				m_context.appendLibraryAddress(contractType->contractDefinition().fullyQualifiedName());
+				return false;
+			}
+		acceptAndConvert(expression, targetType);
 		return false;
 	}
 
@@ -467,7 +503,7 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 		functionType = structType.constructorType();
 	}
 	else
-		functionType = dynamic_pointer_cast<FunctionType const>(_functionCall.expression().annotation().type);
+		functionType = dynamic_cast<FunctionType const*>(_functionCall.expression().annotation().type);
 
 	TypePointers parameterTypes = functionType->parameterTypes();
 	vector<ASTPointer<Expression const>> const& callArguments = _functionCall.arguments();
@@ -496,14 +532,12 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 		TypeType const& type = dynamic_cast<TypeType const&>(*_functionCall.expression().annotation().type);
 		auto const& structType = dynamic_cast<StructType const&>(*type.actualType());
 
-		m_context << max(u256(32u), structType.memorySize());
-		utils().allocateMemory();
+		utils().allocateMemory(max(u256(32u), structType.memoryDataSize()));
 		m_context << Instruction::DUP1;
 
 		for (unsigned i = 0; i < arguments.size(); ++i)
 		{
-			arguments[i]->accept(*this);
-			utils().convertType(*arguments[i]->annotation().type, *functionType->parameterTypes()[i]);
+			acceptAndConvert(*arguments[i], *functionType->parameterTypes()[i]);
 			utils().storeInMemoryDynamic(*functionType->parameterTypes()[i]);
 		}
 		m_context << Instruction::POP;
@@ -516,17 +550,52 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			solAssert(function.kind() == FunctionType::Kind::DelegateCall || function.kind() == FunctionType::Kind::Internal, "");
 		switch (function.kind())
 		{
+		case FunctionType::Kind::LogTVM:
+		case FunctionType::Kind::AddressType:
+		case FunctionType::Kind::AddressIsZero:
+		case FunctionType::Kind::AddressUnpack:
+		case FunctionType::Kind::AddressMakeAddrExtern:
+		case FunctionType::Kind::AddressMakeAddrNone:
+		case FunctionType::Kind::AddressMakeAddrStd:
+		case FunctionType::Kind::MessagePubkey:
+		case FunctionType::Kind::TVMPubkey:
+		case FunctionType::Kind::TVMAccept:
+		case FunctionType::Kind::TVMCommit:
+		case FunctionType::Kind::TVMHash:
+		case FunctionType::Kind::TVMTransfer:
+		case FunctionType::Kind::TVMChecksign:
+		case FunctionType::Kind::TVMSendMsg:
+		case FunctionType::Kind::TVMTransLT:
+		case FunctionType::Kind::TVMResetStorage:
+		case FunctionType::Kind::TVMConfigParam:
+		case FunctionType::Kind::MappingDelMin:
+		case FunctionType::Kind::MappingGetMinKey:
+		case FunctionType::Kind::MappingGetNextKey:
+		case FunctionType::Kind::MappingFetch:
+		case FunctionType::Kind::MappingExists:
+		case FunctionType::Kind::MappingEmpty:
+		case FunctionType::Kind::TVMSetcode:
+		case FunctionType::Kind::TVMcdatasize:
+		case FunctionType::Kind::SetFlag:
+		case FunctionType::Kind::TVMSliceDecode:
+		case FunctionType::Kind::TVMSliceSize:
+		case FunctionType::Kind::TVMCellToSlice:
+		case FunctionType::Kind::TVMLoadRef:
+		{
+			solAssert(false, "");
+			break;
+		}
+		case FunctionType::Kind::Declaration:
+			solAssert(false, "Attempted to generate code for calling a function definition.");
+			break;
 		case FunctionType::Kind::Internal:
 		{
 			// Calling convention: Caller pushes return address and arguments
 			// Callee removes them and pushes return values
 
-			eth::AssemblyItem returnLabel = m_context.pushNewTag();
+			evmasm::AssemblyItem returnLabel = m_context.pushNewTag();
 			for (unsigned i = 0; i < arguments.size(); ++i)
-			{
-				arguments[i]->accept(*this);
-				utils().convertType(*arguments[i]->annotation().type, *function.parameterTypes()[i]);
-			}
+				acceptAndConvert(*arguments[i], *function.parameterTypes()[i]);
 
 			{
 				bool shortcutTaken = false;
@@ -563,7 +632,7 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 				// Extract the runtime part.
 				m_context << ((u256(1) << 32) - 1) << Instruction::AND;
 
-			m_context.appendJump(eth::AssemblyItem::JumpType::IntoFunction);
+			m_context.appendJump(evmasm::AssemblyItem::JumpType::IntoFunction);
 			m_context << returnLabel;
 
 			unsigned returnParametersSize = CompilerUtils::sizeOnStack(function.returnParameterTypes());
@@ -571,19 +640,23 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			m_context.adjustStackOffset(returnParametersSize - parameterSize - 1);
 			break;
 		}
-		case FunctionType::Kind::External:
-		case FunctionType::Kind::DelegateCall:
 		case FunctionType::Kind::BareCall:
 		case FunctionType::Kind::BareDelegateCall:
 		case FunctionType::Kind::BareStaticCall:
+			solAssert(!_functionCall.annotation().tryCall, "");
+			[[fallthrough]];
+		case FunctionType::Kind::External:
+		case FunctionType::Kind::DelegateCall:
 			_functionCall.expression().accept(*this);
-			appendExternalFunctionCall(function, arguments);
+			appendExternalFunctionCall(function, arguments, _functionCall.annotation().tryCall);
 			break;
 		case FunctionType::Kind::BareCallCode:
 			solAssert(false, "Callcode has been removed.");
 		case FunctionType::Kind::Creation:
 		{
 			_functionCall.expression().accept(*this);
+			// Stack: [salt], [value]
+
 			solAssert(!function.gasSet(), "Gas limit set for contract creation.");
 			solAssert(function.returnParameterTypes().size() == 1, "");
 			TypePointers argumentTypes;
@@ -597,20 +670,49 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			utils().fetchFreeMemoryPointer();
 			utils().copyContractCodeToMemory(*contract, true);
 			utils().abiEncode(argumentTypes, function.parameterTypes());
-			// now on stack: memory_end_ptr
-			// need: size, offset, endowment
+			// now on stack: [salt], [value], memory_end_ptr
+			// need: [salt], size, offset, value
+
+			if (function.saltSet())
+			{
+				m_context << dupInstruction(2 + (function.valueSet() ? 1 : 0));
+				m_context << Instruction::SWAP1;
+			}
+
+			// now: [salt], [value], [salt], memory_end_ptr
 			utils().toSizeAfterFreeMemoryPointer();
+
+			// now: [salt], [value], [salt], size, offset
 			if (function.valueSet())
-				m_context << dupInstruction(3);
+				m_context << dupInstruction(3 + (function.saltSet() ? 1 : 0));
 			else
 				m_context << u256(0);
-			m_context << Instruction::CREATE;
-			// Check if zero (out of stack or not enough balance).
-			m_context << Instruction::DUP1 << Instruction::ISZERO;
-			// TODO: Can we bubble up here? There might be different reasons for failure, I think.
-			m_context.appendConditionalRevert(true);
+
+			// now: [salt], [value], [salt], size, offset, value
+			if (function.saltSet())
+				m_context << Instruction::CREATE2;
+			else
+				m_context << Instruction::CREATE;
+
+			// now: [salt], [value], address
+
 			if (function.valueSet())
 				m_context << swapInstruction(1) << Instruction::POP;
+			if (function.saltSet())
+				m_context << swapInstruction(1) << Instruction::POP;
+
+			// Check if zero (reverted)
+			m_context << Instruction::DUP1 << Instruction::ISZERO;
+			if (_functionCall.annotation().tryCall)
+			{
+				// If this is a try call, return "<address> 1" in the success case and
+				// "0" in the error case.
+				AssemblyItem errorCase = m_context.appendConditionalJump();
+				m_context << u256(1);
+				m_context << errorCase;
+			}
+			else
+				m_context.appendConditionalRevert(true);
 			break;
 		}
 		case FunctionType::Kind::SetGas:
@@ -618,8 +720,7 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			// stack layout: contract_address function_id [gas] [value]
 			_functionCall.expression().accept(*this);
 
-			arguments.front()->accept(*this);
-			utils().convertType(*arguments.front()->annotation().type, IntegerType::uint256(), true);
+			acceptAndConvert(*arguments.front(), *TypeProvider::uint256(), true);
 			// Note that function is not the original function, but the ".gas" function.
 			// Its values of gasSet and valueSet is equal to the original function's though.
 			unsigned stackDepth = (function.gasSet() ? 1 : 0) + (function.valueSet() ? 1 : 0);
@@ -643,12 +744,8 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			_functionCall.expression().accept(*this);
 			// Provide the gas stipend manually at first because we may send zero ether.
 			// Will be zeroed if we send more than zero ether.
-			m_context << u256(eth::GasCosts::callStipend);
-			arguments.front()->accept(*this);
-			utils().convertType(
-				*arguments.front()->annotation().type,
-				*function.parameterTypes().front(), true
-			);
+			m_context << u256(evmasm::GasCosts::callStipend);
+			acceptAndConvert(*arguments.front(), *function.parameterTypes().front(), true);
 			// gas <- gas * !value
 			m_context << Instruction::SWAP1 << Instruction::DUP2;
 			m_context << Instruction::ISZERO << Instruction::MUL << Instruction::SWAP1;
@@ -665,33 +762,45 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 					true,
 					true
 				),
-				{}
+				{},
+				false
 			);
 			if (function.kind() == FunctionType::Kind::Transfer)
 			{
 				// Check if zero (out of stack or not enough balance).
-				// TODO: bubble up here, but might also be different error.
 				m_context << Instruction::ISZERO;
+				// Revert message bubbles up.
 				m_context.appendConditionalRevert(true);
 			}
 			break;
 		case FunctionType::Kind::Selfdestruct:
-			arguments.front()->accept(*this);
-			utils().convertType(*arguments.front()->annotation().type, *function.parameterTypes().front(), true);
+			acceptAndConvert(*arguments.front(), *function.parameterTypes().front(), true);
 			m_context << Instruction::SELFDESTRUCT;
 			break;
 		case FunctionType::Kind::Revert:
 		{
-			if (!arguments.empty())
+			if (arguments.empty())
+				m_context.appendRevert();
+			else
 			{
 				// function-sel(Error(string)) + encoding
 				solAssert(arguments.size() == 1, "");
 				solAssert(function.parameterTypes().size() == 1, "");
-				arguments.front()->accept(*this);
-				utils().revertWithStringData(*arguments.front()->annotation().type);
+				if (m_context.revertStrings() == RevertStrings::Strip)
+				{
+					if (!arguments.front()->annotation().isPure)
+					{
+						arguments.front()->accept(*this);
+						utils().popStackElement(*arguments.front()->annotation().type);
+					}
+					m_context.appendRevert();
+				}
+				else
+				{
+					arguments.front()->accept(*this);
+					utils().revertWithStringData(*arguments.front()->annotation().type);
+				}
 			}
-			else
-				m_context.appendRevert();
 			break;
 		}
 		case FunctionType::Kind::KECCAK256:
@@ -703,9 +812,9 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			arguments.front()->accept(*this);
 			// Optimization: If type is bytes or string, then do not encode,
 			// but directly compute keccak256 on memory.
-			if (*argType == ArrayType::bytesMemory() || *argType == ArrayType::stringMemory())
+			if (*argType == *TypeProvider::bytesMemory() || *argType == *TypeProvider::stringMemory())
 			{
-				ArrayUtils(m_context).retrieveLength(ArrayType::bytesMemory());
+				ArrayUtils(m_context).retrieveLength(*TypeProvider::bytesMemory());
 				m_context << Instruction::SWAP1 << u256(0x20) << Instruction::ADD;
 			}
 			else
@@ -725,10 +834,7 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 		{
 			unsigned logNumber = int(function.kind()) - int(FunctionType::Kind::Log0);
 			for (unsigned arg = logNumber; arg > 0; --arg)
-			{
-				arguments[arg]->accept(*this);
-				utils().convertType(*arguments[arg]->annotation().type, *function.parameterTypes()[arg], true);
-			}
+				acceptAndConvert(*arguments[arg], *function.parameterTypes()[arg], true);
 			arguments.front()->accept(*this);
 			utils().fetchFreeMemoryPointer();
 			solAssert(function.parameterTypes().front()->isValueType(), "");
@@ -752,7 +858,7 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 				{
 					++numIndexed;
 					arguments[arg - 1]->accept(*this);
-					if (auto const& referenceType = dynamic_pointer_cast<ReferenceType const>(paramTypes[arg - 1]))
+					if (auto const& referenceType = dynamic_cast<ReferenceType const*>(paramTypes[arg - 1]))
 					{
 						utils().fetchFreeMemoryPointer();
 						utils().packedEncode(
@@ -774,7 +880,7 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 				}
 			if (!event.isAnonymous())
 			{
-				m_context << u256(h256::Arith(dev::keccak256(function.externalSignature())));
+				m_context << u256(h256::Arith(keccak256(function.externalSignature())));
 				++numIndexed;
 			}
 			solAssert(numIndexed <= 4, "Too many indexed arguments.");
@@ -798,23 +904,18 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 		}
 		case FunctionType::Kind::BlockHash:
 		{
-			arguments[0]->accept(*this);
-			utils().convertType(*arguments[0]->annotation().type, *function.parameterTypes()[0], true);
+			acceptAndConvert(*arguments[0], *function.parameterTypes()[0], true);
 			m_context << Instruction::BLOCKHASH;
 			break;
 		}
 		case FunctionType::Kind::AddMod:
 		case FunctionType::Kind::MulMod:
 		{
-			arguments[2]->accept(*this);
-			utils().convertType(*arguments[2]->annotation().type, IntegerType::uint256());
+			acceptAndConvert(*arguments[2], *TypeProvider::uint256());
 			m_context << Instruction::DUP1 << Instruction::ISZERO;
 			m_context.appendConditionalInvalid();
 			for (unsigned i = 1; i < 3; i ++)
-			{
-				arguments[2 - i]->accept(*this);
-				utils().convertType(*arguments[2 - i]->annotation().type, IntegerType::uint256());
-			}
+				acceptAndConvert(*arguments[2 - i], *TypeProvider::uint256());
 			if (function.kind() == FunctionType::Kind::AddMod)
 				m_context << Instruction::ADDMOD;
 			else
@@ -834,73 +935,74 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			m_context << contractAddresses.at(function.kind());
 			for (unsigned i = function.sizeOnStack(); i > 0; --i)
 				m_context << swapInstruction(i);
-			appendExternalFunctionCall(function, arguments);
-			break;
-		}
-		case FunctionType::Kind::LogTVM:
-		case FunctionType::Kind::AddressType:
-		case FunctionType::Kind::AddressIsZero:
-		case FunctionType::Kind::AddressUnpack:
-		case FunctionType::Kind::AddressMakeAddrExtern:
-		case FunctionType::Kind::AddressMakeAddrNone:
-		case FunctionType::Kind::AddressMakeAddrStd:
-		case FunctionType::Kind::MessagePubkey:
-		case FunctionType::Kind::TVMPubkey:
-		case FunctionType::Kind::TVMAccept:
-		case FunctionType::Kind::TVMCommit:
-		case FunctionType::Kind::TVMHash:
-		case FunctionType::Kind::TVMTransfer:
-		case FunctionType::Kind::TVMChecksign:
-		case FunctionType::Kind::MappingDelMin:
-		case FunctionType::Kind::MappingGetMinKey:
-		case FunctionType::Kind::MappingGetNextKey:
-		case FunctionType::Kind::MappingFetch:
-		case FunctionType::Kind::MappingExists:
-		case FunctionType::Kind::MappingEmpty:
-		case FunctionType::Kind::TVMSetcode:
-		{
-			solAssert(false, "");
+			solAssert(!_functionCall.annotation().tryCall, "");
+			appendExternalFunctionCall(function, arguments, false);
 			break;
 		}
 		case FunctionType::Kind::ByteArrayPush:
 		case FunctionType::Kind::ArrayPush:
 		{
 			_functionCall.expression().accept(*this);
-			solAssert(function.parameterTypes().size() == 1, "");
-			solAssert(!!function.parameterTypes()[0], "");
-			TypePointer paramType = function.parameterTypes()[0];
-			shared_ptr<ArrayType> arrayType =
-				function.kind() == FunctionType::Kind::ArrayPush ?
-				make_shared<ArrayType>(DataLocation::Storage, paramType) :
-				make_shared<ArrayType>(DataLocation::Storage);
 
-			// stack: ArrayReference
-			arguments[0]->accept(*this);
-			TypePointer const& argType = arguments[0]->annotation().type;
-			// stack: ArrayReference argValue
-			utils().moveToStackTop(argType->sizeOnStack(), 1);
-			// stack: argValue ArrayReference
-			m_context << Instruction::DUP1;
-			ArrayUtils(m_context).incrementDynamicArraySize(*arrayType);
-			// stack: argValue ArrayReference newLength
-			m_context << Instruction::SWAP1;
-			// stack: argValue newLength ArrayReference
-			m_context << u256(1) << Instruction::DUP3 << Instruction::SUB;
-			// stack: argValue newLength ArrayReference (newLength-1)
-			ArrayUtils(m_context).accessIndex(*arrayType, false);
-			// stack: argValue newLength storageSlot slotOffset
-			utils().moveToStackTop(3, argType->sizeOnStack());
-			// stack: newLength storageSlot slotOffset argValue
-			TypePointer type = arguments[0]->annotation().type->closestTemporaryType(arrayType->baseType());
-			solAssert(type, "");
-			utils().convertType(*argType, *type);
-			utils().moveToStackTop(1 + type->sizeOnStack());
-			utils().moveToStackTop(1 + type->sizeOnStack());
-			// stack: newLength argValue storageSlot slotOffset
-			if (function.kind() == FunctionType::Kind::ArrayPush)
-				StorageItem(m_context, *paramType).storeValue(*type, _functionCall.location(), true);
+			if (function.parameterTypes().size() == 0)
+			{
+				auto paramType = function.returnParameterTypes().at(0);
+				solAssert(paramType, "");
+
+				ArrayType const* arrayType =
+					function.kind() == FunctionType::Kind::ArrayPush ?
+					TypeProvider::array(DataLocation::Storage, paramType) :
+					TypeProvider::bytesStorage();
+
+				// stack: ArrayReference
+				m_context << u256(1) << Instruction::DUP2;
+				ArrayUtils(m_context).incrementDynamicArraySize(*arrayType);
+				// stack: ArrayReference 1 newLength
+				m_context << Instruction::SUB;
+				// stack: ArrayReference (newLength-1)
+				ArrayUtils(m_context).accessIndex(*arrayType, false);
+
+				if (arrayType->isByteArray())
+					setLValue<StorageByteArrayElement>(_functionCall);
+				else
+					setLValueToStorageItem(_functionCall);
+			}
 			else
-				StorageByteArrayElement(m_context).storeValue(*type, _functionCall.location(), true);
+			{
+				solAssert(function.parameterTypes().size() == 1, "");
+				solAssert(!!function.parameterTypes()[0], "");
+				TypePointer paramType = function.parameterTypes()[0];
+				ArrayType const* arrayType =
+					function.kind() == FunctionType::Kind::ArrayPush ?
+					TypeProvider::array(DataLocation::Storage, paramType) :
+					TypeProvider::bytesStorage();
+
+				// stack: ArrayReference
+				arguments[0]->accept(*this);
+				TypePointer const& argType = arguments[0]->annotation().type;
+				// stack: ArrayReference argValue
+				utils().moveToStackTop(argType->sizeOnStack(), 1);
+				// stack: argValue ArrayReference
+				m_context << Instruction::DUP1;
+				ArrayUtils(m_context).incrementDynamicArraySize(*arrayType);
+				// stack: argValue ArrayReference newLength
+				m_context << u256(1) << Instruction::SWAP1 << Instruction::SUB;
+				// stack: argValue ArrayReference (newLength-1)
+				ArrayUtils(m_context).accessIndex(*arrayType, false);
+				// stack: argValue storageSlot slotOffset
+				utils().moveToStackTop(2, argType->sizeOnStack());
+				// stack: storageSlot slotOffset argValue
+				TypePointer type = arguments[0]->annotation().type->closestTemporaryType(arrayType->baseType());
+				solAssert(type, "");
+				utils().convertType(*argType, *type);
+				utils().moveToStackTop(1 + type->sizeOnStack());
+				utils().moveToStackTop(1 + type->sizeOnStack());
+				// stack: argValue storageSlot slotOffset
+				if (function.kind() == FunctionType::Kind::ArrayPush)
+					StorageItem(m_context, *paramType).storeValue(*type, _functionCall.location(), true);
+				else
+					StorageByteArrayElement(m_context).storeValue(*type, _functionCall.location(), true);
+			}
 			break;
 		}
 		case FunctionType::Kind::ArrayPop:
@@ -923,8 +1025,7 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			solAssert(arguments.size() == 1, "");
 
 			// Fetch requested length.
-			arguments[0]->accept(*this);
-			utils().convertType(*arguments[0]->annotation().type, IntegerType::uint256());
+			acceptAndConvert(*arguments[0], *TypeProvider::uint256());
 
 			// Stack: requested_length
 			utils().fetchFreeMemoryPointer();
@@ -963,11 +1064,13 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 		case FunctionType::Kind::Assert:
 		case FunctionType::Kind::Require:
 		{
-			arguments.front()->accept(*this);
-			utils().convertType(*arguments.front()->annotation().type, *function.parameterTypes().front(), false);
+			acceptAndConvert(*arguments.front(), *function.parameterTypes().front(), false);
+
+			bool haveReasonString = arguments.size() > 1 && m_context.revertStrings() != RevertStrings::Strip;
+
 			bool secArgIsNum = (arguments.size() > 1) ?
-						(arguments.at(1)->annotation().type->category() == Type::Category::RationalNumber) :
-						false;
+					(arguments.at(1)->annotation().type->category() == Type::Category::RationalNumber) :
+					false;
 			if ((arguments.size() > 1) && !secArgIsNum)
 			{
 				// Users probably expect the second argument to be evaluated
@@ -975,8 +1078,19 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 				// function call.
 				solAssert(arguments.size() == 2, "");
 				solAssert(function.kind() == FunctionType::Kind::Require, "");
-				arguments.at(1)->accept(*this);
-				utils().moveIntoStack(1, arguments.at(1)->annotation().type->sizeOnStack());
+				if (m_context.revertStrings() == RevertStrings::Strip)
+				{
+					if (!arguments.at(1)->annotation().isPure)
+					{
+						arguments.at(1)->accept(*this);
+						utils().popStackElement(*arguments.at(1)->annotation().type);
+					}
+				}
+				else
+				{
+					arguments.at(1)->accept(*this);
+					utils().moveIntoStack(1, arguments.at(1)->annotation().type->sizeOnStack());
+				}
 			}
 			// Stack: <error string (unconverted)> <condition>
 			// jump if condition was met
@@ -985,7 +1099,7 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			if (function.kind() == FunctionType::Kind::Assert)
 				// condition was not met, flag an error
 				m_context.appendInvalid();
-			else if ((arguments.size() > 1) && !secArgIsNum)
+			else if (haveReasonString && !secArgIsNum)
 			{
 				utils().revertWithStringData(*arguments.at(1)->annotation().type);
 				// Here, the argument is consumed, but in the other branch, it is still there.
@@ -995,7 +1109,7 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 				m_context.appendRevert();
 			// the success branch
 			m_context << success;
-			if ((arguments.size() > 1) && !secArgIsNum)
+			if (haveReasonString && !secArgIsNum)
 				utils().popStackElement(*arguments.at(1)->annotation().type);
 			break;
 		}
@@ -1057,11 +1171,11 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 				if (function.kind() == FunctionType::Kind::ABIEncodeWithSignature)
 				{
 					// hash the signature
-					if (auto const* stringType = dynamic_cast<StringLiteralType const*>(selectorType.get()))
+					if (auto const* stringType = dynamic_cast<StringLiteralType const*>(selectorType))
 					{
-						FixedHash<4> hash(dev::keccak256(stringType->value()));
+						FixedHash<4> hash(keccak256(stringType->value()));
 						m_context << (u256(FixedHash<4>::Arith(hash)) << (256 - 32));
-						dataOnStack = make_shared<FixedBytesType>(4);
+						dataOnStack = TypeProvider::fixedBytes(4);
 					}
 					else
 					{
@@ -1072,7 +1186,7 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 						m_context << Instruction::KECCAK256;
 						// stack: <memory pointer> <hash>
 
-						dataOnStack = make_shared<FixedBytesType>(32);
+						dataOnStack = TypeProvider::fixedBytes(32);
 					}
 				}
 				else
@@ -1103,18 +1217,22 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			arguments.front()->accept(*this);
 			TypePointer firstArgType = arguments.front()->annotation().type;
 			TypePointers targetTypes;
-			if (TupleType const* targetTupleType = dynamic_cast<TupleType const*>(_functionCall.annotation().type.get()))
+			if (TupleType const* targetTupleType = dynamic_cast<TupleType const*>(_functionCall.annotation().type))
 				targetTypes = targetTupleType->components();
 			else
 				targetTypes = TypePointers{_functionCall.annotation().type};
 			if (
-				*firstArgType == ArrayType(DataLocation::CallData) ||
-				*firstArgType == ArrayType(DataLocation::CallData, true)
+				auto referenceType = dynamic_cast<ReferenceType const*>(firstArgType);
+				referenceType && referenceType->dataStoredIn(DataLocation::CallData)
 			)
+			{
+				solAssert(referenceType->isImplicitlyConvertibleTo(*TypeProvider::bytesCalldata()), "");
+				utils().convertType(*referenceType, *TypeProvider::bytesCalldata());
 				utils().abiDecode(targetTypes, false);
+			}
 			else
 			{
-				utils().convertType(*firstArgType, ArrayType::bytesMemory());
+				utils().convertType(*firstArgType, *TypeProvider::bytesMemory());
 				m_context << Instruction::DUP1 << u256(32) << Instruction::ADD;
 				m_context << Instruction::SWAP1 << Instruction::MLOAD;
 				// stack now: <mem_pos> <length>
@@ -1134,6 +1252,49 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 	return false;
 }
 
+bool ExpressionCompiler::visit(FunctionCallOptions const& _functionCallOptions)
+{
+	_functionCallOptions.expression().accept(*this);
+
+	// Desired Stack: [salt], [gas], [value]
+	enum Option { Salt, Gas, Value };
+
+	vector<Option> presentOptions;
+	FunctionType const& funType = dynamic_cast<FunctionType const&>(
+		*_functionCallOptions.expression().annotation().type
+	);
+	if (funType.saltSet()) presentOptions.emplace_back(Salt);
+	if (funType.gasSet()) presentOptions.emplace_back(Gas);
+	if (funType.valueSet()) presentOptions.emplace_back(Value);
+
+	for (size_t i = 0; i < _functionCallOptions.options().size(); ++i)
+	{
+		string const& name = *_functionCallOptions.names()[i];
+		Type const* requiredType = TypeProvider::uint256();
+		Option newOption;
+		if (name == "salt")
+		{
+			newOption = Salt;
+			requiredType = TypeProvider::fixedBytes(32);
+		}
+		else if (name == "gas")
+			newOption = Gas;
+		else if (name == "value")
+			newOption = Value;
+		else
+			solAssert(false, "Unexpected option name!");
+		acceptAndConvert(*_functionCallOptions.options()[i], *requiredType);
+
+		solAssert(!contains(presentOptions, newOption), "");
+		size_t insertPos = presentOptions.end() - lower_bound(presentOptions.begin(), presentOptions.end(), newOption);
+
+		utils().moveIntoStack(insertPos, 1);
+		presentOptions.insert(presentOptions.end() - insertPos, newOption);
+	}
+
+	return false;
+}
+
 bool ExpressionCompiler::visit(NewExpression const&)
 {
 	// code is created for the function call (CREATION) only
@@ -1145,15 +1306,10 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 	CompilerContext::LocationSetter locationSetter(m_context, _memberAccess);
 	// Check whether the member is a bound function.
 	ASTString const& member = _memberAccess.memberName();
-	if (auto funType = dynamic_cast<FunctionType const*>(_memberAccess.annotation().type.get()))
+	if (auto funType = dynamic_cast<FunctionType const*>(_memberAccess.annotation().type))
 		if (funType->bound())
 		{
-			_memberAccess.expression().accept(*this);
-			utils().convertType(
-				*_memberAccess.expression().annotation().type,
-				*funType->selfType(),
-				true
-			);
+			acceptAndConvert(_memberAccess.expression(), *funType->selfType(), true);
 			if (funType->kind() == FunctionType::Kind::Internal)
 			{
 				FunctionDefinition const& funDef = dynamic_cast<decltype(funDef)>(funType->declaration());
@@ -1174,14 +1330,14 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 
 	// Special processing for TypeType because we do not want to visit the library itself
 	// for internal functions, or enum/struct definitions.
-	if (TypeType const* type = dynamic_cast<TypeType const*>(_memberAccess.expression().annotation().type.get()))
+	if (TypeType const* type = dynamic_cast<TypeType const*>(_memberAccess.expression().annotation().type))
 	{
-		if (dynamic_cast<ContractType const*>(type->actualType().get()))
+		if (dynamic_cast<ContractType const*>(type->actualType()))
 		{
 			solAssert(_memberAccess.annotation().type, "_memberAccess has no type");
 			if (auto variable = dynamic_cast<VariableDeclaration const*>(_memberAccess.annotation().referencedDeclaration))
 				appendVariable(*variable, static_cast<Expression const&>(_memberAccess));
-			else if (auto funType = dynamic_cast<FunctionType const*>(_memberAccess.annotation().type.get()))
+			else if (auto funType = dynamic_cast<FunctionType const*>(_memberAccess.annotation().type))
 			{
 				switch (funType->kind())
 				{
@@ -1223,14 +1379,14 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 					solAssert(false, "unsupported member function");
 				}
 			}
-			else if (dynamic_cast<TypeType const*>(_memberAccess.annotation().type.get()))
+			else if (dynamic_cast<TypeType const*>(_memberAccess.annotation().type))
 			{
 				// no-op
 			}
 			else
 				_memberAccess.expression().accept(*this);
 		}
-		else if (auto enumType = dynamic_cast<EnumType const*>(type->actualType().get()))
+		else if (auto enumType = dynamic_cast<EnumType const*>(type->actualType()))
 		{
 			_memberAccess.expression().accept(*this);
 			m_context << enumType->memberValue(_memberAccess.memberName());
@@ -1239,14 +1395,22 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 			_memberAccess.expression().accept(*this);
 		return false;
 	}
-	// Another special case for `this.f.selector` which does not need the address.
-	// There are other uses of `.selector` which do need the address, but we want this
-	// specific use to be a pure expression.
+	// Another special case for `this.f.selector` and for ``C.f.selector`` which do not need the address.
+	// There are other uses of `.selector` which do need the address, but we want these
+	// specific uses to be pure expressions.
 	if (
-		_memberAccess.expression().annotation().type->category() == Type::Category::Function &&
-		member == "selector"
+		auto const* functionType = dynamic_cast<FunctionType const*>(_memberAccess.expression().annotation().type);
+		functionType && member == "selector"
 	)
-		if (auto const* expr = dynamic_cast<MemberAccess const*>(&_memberAccess.expression()))
+	{
+		if (functionType->hasDeclaration())
+		{
+			m_context << functionType->externalIdentifier();
+			/// need to store it as bytes4
+			utils().leftShiftNumberOnStack(224);
+			return false;
+		}
+		else if (auto const* expr = dynamic_cast<MemberAccess const*>(&_memberAccess.expression()))
 			if (auto const* exprInt = dynamic_cast<Identifier const*>(&expr->expression()))
 				if (exprInt->name() == "this")
 					if (Declaration const* declaration = expr->annotation().referencedDeclaration)
@@ -1263,6 +1427,29 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 						utils().leftShiftNumberOnStack(224);
 						return false;
 					}
+	}
+	// Another special case for `address(this).balance`. Post-Istanbul, we can use the selfbalance
+	// opcode.
+	if (
+		m_context.evmVersion().hasSelfBalance() &&
+		member == "balance" &&
+		_memberAccess.expression().annotation().type->category() == Type::Category::Address
+	)
+		if (FunctionCall const* funCall = dynamic_cast<FunctionCall const*>(&_memberAccess.expression()))
+			if (auto const* addr = dynamic_cast<ElementaryTypeNameExpression const*>(&funCall->expression()))
+				if (
+					addr->type().typeName().token() == Token::Address &&
+					funCall->arguments().size() == 1
+				)
+					if (auto arg = dynamic_cast<Identifier const*>( funCall->arguments().front().get()))
+						if (
+							arg->name() == "this" &&
+							dynamic_cast<MagicVariableDeclaration const*>(arg->annotation().referencedDeclaration)
+						)
+						{
+							m_context << Instruction::SELFBALANCE;
+							return false;
+						}
 
 	_memberAccess.expression().accept(*this);
 	switch (_memberAccess.expression().annotation().type->category())
@@ -1288,7 +1475,7 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 				identifier = FunctionType(*function).externalIdentifier();
 			else
 				solAssert(false, "Contract member is neither variable nor function.");
-			utils().convertType(type, type.isPayable() ? AddressType::addressPayable() : AddressType::address(), true);
+			utils().convertType(type, type.isPayable() ? *TypeProvider::payableAddress() : *TypeProvider::address(), true);
 			m_context << identifier;
 		}
 		else
@@ -1306,7 +1493,7 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 		{
 			utils().convertType(
 				*_memberAccess.expression().annotation().type,
-				AddressType::address(),
+				*TypeProvider::address(),
 				true
 			);
 			m_context << Instruction::BALANCE;
@@ -1323,7 +1510,7 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 		else if ((set<string>{"call", "callcode", "delegatecall", "staticcall"}).count(member))
 			utils().convertType(
 				*_memberAccess.expression().annotation().type,
-				AddressType::address(),
+				*TypeProvider::address(),
 				true
 			);
 		else
@@ -1336,6 +1523,13 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 			m_context << Instruction::SWAP1 << Instruction::POP;
 			/// need to store it as bytes4
 			utils().leftShiftNumberOnStack(224);
+		}
+		else if (member == "address")
+		{
+			auto const& functionType = dynamic_cast<FunctionType const&>(*_memberAccess.expression().annotation().type);
+			solAssert(functionType.kind() == FunctionType::Kind::External, "");
+			// stack: <address> <function_id>
+			m_context << Instruction::POP;
 		}
 		else
 			solAssert(
@@ -1389,12 +1583,28 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 			);
 			m_context << Instruction::POP;
 		}
+		else if (member == "name")
+		{
+			TypePointer arg = dynamic_cast<MagicType const&>(*_memberAccess.expression().annotation().type).typeArgument();
+			ContractDefinition const& contract = dynamic_cast<ContractType const&>(*arg).contractDefinition();
+			utils().allocateMemory(((contract.name().length() + 31) / 32) * 32 + 32);
+			// store string length
+			m_context << u256(contract.name().length()) << Instruction::DUP2 << Instruction::MSTORE;
+			// adjust pointer
+			m_context << Instruction::DUP1 << u256(32) << Instruction::ADD;
+			utils().storeStringData(contract.name());
+		}
+		else if ((set<string>{"encode", "encodePacked", "encodeWithSelector", "encodeWithSignature", "decode"}).count(member))
+		{
+			// no-op
+		}
 		else
 			solAssert(false, "Unknown magic member.");
 		break;
 	case Type::Category::Struct:
 	{
 		StructType const& type = dynamic_cast<StructType const&>(*_memberAccess.expression().annotation().type);
+		TypePointer const& memberType = _memberAccess.annotation().type;
 		switch (type.location())
 		{
 		case DataLocation::Storage:
@@ -1407,25 +1617,40 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 		case DataLocation::Memory:
 		{
 			m_context << type.memoryOffsetOfMember(member) << Instruction::ADD;
-			setLValue<MemoryItem>(_memberAccess, *_memberAccess.annotation().type);
+			setLValue<MemoryItem>(_memberAccess, *memberType);
 			break;
 		}
 		case DataLocation::CallData:
 		{
-			solUnimplementedAssert(!type.isDynamicallyEncoded(), "");
-			m_context << type.calldataOffsetOfMember(member) << Instruction::ADD;
-			// For non-value types the calldata offset is returned directly.
-			if (_memberAccess.annotation().type->isValueType())
+			if (_memberAccess.annotation().type->isDynamicallyEncoded())
 			{
-				solAssert(_memberAccess.annotation().type->calldataEncodedSize(false) > 0, "");
-				CompilerUtils(m_context).loadFromMemoryDynamic(*_memberAccess.annotation().type, true, true, false);
+				m_context << Instruction::DUP1;
+				m_context << type.calldataOffsetOfMember(member) << Instruction::ADD;
+				CompilerUtils(m_context).accessCalldataTail(*memberType);
 			}
 			else
-				solAssert(
-					_memberAccess.annotation().type->category() == Type::Category::Array ||
-					_memberAccess.annotation().type->category() == Type::Category::Struct,
-					""
-				);
+			{
+				m_context << type.calldataOffsetOfMember(member) << Instruction::ADD;
+				// For non-value types the calldata offset is returned directly.
+				if (memberType->isValueType())
+				{
+					solAssert(memberType->calldataEncodedSize() > 0, "");
+					solAssert(memberType->storageBytes() <= 32, "");
+					if (memberType->storageBytes() < 32 && m_context.experimentalFeatureActive(ExperimentalFeature::ABIEncoderV2))
+					{
+						m_context << u256(32);
+						CompilerUtils(m_context).abiDecodeV2({memberType}, false);
+					}
+					else
+						CompilerUtils(m_context).loadFromMemoryDynamic(*memberType, true, true, false);
+				}
+				else
+					solAssert(
+						memberType->category() == Type::Category::Array ||
+						memberType->category() == Type::Category::Struct,
+						""
+					);
+			}
 			break;
 		}
 		default:
@@ -1461,7 +1686,8 @@ bool ExpressionCompiler::visit(MemberAccess const& _memberAccess)
 					m_context << Instruction::SWAP1 << Instruction::POP;
 					break;
 				case DataLocation::Storage:
-					setLValue<StorageArrayLength>(_memberAccess, type);
+					ArrayUtils(m_context).retrieveLength(type);
+					m_context << Instruction::SWAP1 << Instruction::POP;
 					break;
 				case DataLocation::Memory:
 					m_context << Instruction::MLOAD;
@@ -1504,99 +1730,153 @@ bool ExpressionCompiler::visit(IndexAccess const& _indexAccess)
 
 	Type const& baseType = *_indexAccess.baseExpression().annotation().type;
 
-	if (baseType.category() == Type::Category::Mapping)
+	switch (baseType.category())
 	{
-		// stack: storage_base_ref
-		TypePointer keyType = dynamic_cast<MappingType const&>(baseType).keyType();
-		solAssert(_indexAccess.indexExpression(), "Index expression expected.");
-		if (keyType->isDynamicallySized())
+		case Type::Category::Mapping:
 		{
-			_indexAccess.indexExpression()->accept(*this);
-			utils().fetchFreeMemoryPointer();
-			// stack: base index mem
-			// note: the following operations must not allocate memory!
-			utils().packedEncode(
-				TypePointers{_indexAccess.indexExpression()->annotation().type},
-				TypePointers{keyType}
-			);
-			m_context << Instruction::SWAP1;
-			utils().storeInMemoryDynamic(IntegerType::uint256());
-			utils().toSizeAfterFreeMemoryPointer();
-		}
-		else
-		{
-			m_context << u256(0); // memory position
-			appendExpressionCopyToMemory(*keyType, *_indexAccess.indexExpression());
-			m_context << Instruction::SWAP1;
-			solAssert(CompilerUtils::freeMemoryPointer >= 0x40, "");
-			utils().storeInMemoryDynamic(IntegerType::uint256());
-			m_context << u256(0);
-		}
-		m_context << Instruction::KECCAK256;
-		m_context << u256(0);
-		setLValueToStorageItem(_indexAccess);
-	}
-	else if (baseType.category() == Type::Category::Array)
-	{
-		ArrayType const& arrayType = dynamic_cast<ArrayType const&>(baseType);
-		solAssert(_indexAccess.indexExpression(), "Index expression expected.");
-
-		_indexAccess.indexExpression()->accept(*this);
-		utils().convertType(*_indexAccess.indexExpression()->annotation().type, IntegerType::uint256(), true);
-		// stack layout: <base_ref> [<length>] <index>
-		ArrayUtils(m_context).accessIndex(arrayType);
-		switch (arrayType.location())
-		{
-		case DataLocation::Storage:
-			if (arrayType.isByteArray())
+			// stack: storage_base_ref
+			TypePointer keyType = dynamic_cast<MappingType const&>(baseType).keyType();
+			solAssert(_indexAccess.indexExpression(), "Index expression expected.");
+			if (keyType->isDynamicallySized())
 			{
-				solAssert(!arrayType.isString(), "Index access to string is not allowed.");
-				setLValue<StorageByteArrayElement>(_indexAccess);
+				_indexAccess.indexExpression()->accept(*this);
+				utils().fetchFreeMemoryPointer();
+				// stack: base index mem
+				// note: the following operations must not allocate memory!
+				utils().packedEncode(
+					TypePointers{_indexAccess.indexExpression()->annotation().type},
+					TypePointers{keyType}
+				);
+				m_context << Instruction::SWAP1;
+				utils().storeInMemoryDynamic(*TypeProvider::uint256());
+				utils().toSizeAfterFreeMemoryPointer();
 			}
 			else
-				setLValueToStorageItem(_indexAccess);
-			break;
-		case DataLocation::Memory:
-			setLValue<MemoryItem>(_indexAccess, *_indexAccess.annotation().type, !arrayType.isByteArray());
-			break;
-		case DataLocation::CallData:
-			//@todo if we implement this, the value in calldata has to be added to the base offset
-			solUnimplementedAssert(!arrayType.baseType()->isDynamicallySized(), "Nested arrays not yet implemented.");
-			if (arrayType.baseType()->isValueType())
-				CompilerUtils(m_context).loadFromMemoryDynamic(
-					*arrayType.baseType(),
-					true,
-					!arrayType.isByteArray(),
-					false
-				);
+			{
+				m_context << u256(0); // memory position
+				appendExpressionCopyToMemory(*keyType, *_indexAccess.indexExpression());
+				m_context << Instruction::SWAP1;
+				solAssert(CompilerUtils::freeMemoryPointer >= 0x40, "");
+				utils().storeInMemoryDynamic(*TypeProvider::uint256());
+				m_context << u256(0);
+			}
+			m_context << Instruction::KECCAK256;
+			m_context << u256(0);
+			setLValueToStorageItem(_indexAccess);
 			break;
 		}
-	}
-	else if (baseType.category() == Type::Category::FixedBytes)
-	{
-		FixedBytesType const& fixedBytesType = dynamic_cast<FixedBytesType const&>(baseType);
-		solAssert(_indexAccess.indexExpression(), "Index expression expected.");
+		case Type::Category::ArraySlice:
+		{
+			auto const& arrayType = dynamic_cast<ArraySliceType const&>(baseType).arrayType();
+			solAssert(arrayType.location() == DataLocation::CallData && arrayType.isDynamicallySized(), "");
+			solAssert(_indexAccess.indexExpression(), "Index expression expected.");
 
-		_indexAccess.indexExpression()->accept(*this);
-		utils().convertType(*_indexAccess.indexExpression()->annotation().type, IntegerType::uint256(), true);
-		// stack layout: <value> <index>
-		// check out-of-bounds access
-		m_context << u256(fixedBytesType.numBytes());
-		m_context << Instruction::DUP2 << Instruction::LT << Instruction::ISZERO;
-		// out-of-bounds access throws exception
-		m_context.appendConditionalInvalid();
+			acceptAndConvert(*_indexAccess.indexExpression(), *TypeProvider::uint256(), true);
+			ArrayUtils(m_context).accessCallDataArrayElement(arrayType);
+			break;
 
-		m_context << Instruction::BYTE;
-		utils().leftShiftNumberOnStack(256 - 8);
+		}
+		case Type::Category::Array:
+		{
+			ArrayType const& arrayType = dynamic_cast<ArrayType const&>(baseType);
+			solAssert(_indexAccess.indexExpression(), "Index expression expected.");
+
+			acceptAndConvert(*_indexAccess.indexExpression(), *TypeProvider::uint256(), true);
+			// stack layout: <base_ref> [<length>] <index>
+			switch (arrayType.location())
+			{
+				case DataLocation::Storage:
+					ArrayUtils(m_context).accessIndex(arrayType);
+					if (arrayType.isByteArray())
+					{
+						solAssert(!arrayType.isString(), "Index access to string is not allowed.");
+						setLValue<StorageByteArrayElement>(_indexAccess);
+					}
+					else
+						setLValueToStorageItem(_indexAccess);
+					break;
+				case DataLocation::Memory:
+					ArrayUtils(m_context).accessIndex(arrayType);
+					setLValue<MemoryItem>(_indexAccess, *_indexAccess.annotation().type, !arrayType.isByteArray());
+					break;
+				case DataLocation::CallData:
+					ArrayUtils(m_context).accessCallDataArrayElement(arrayType);
+					break;
+			}
+			break;
+		}
+		case Type::Category::FixedBytes:
+		{
+			FixedBytesType const& fixedBytesType = dynamic_cast<FixedBytesType const&>(baseType);
+			solAssert(_indexAccess.indexExpression(), "Index expression expected.");
+
+			acceptAndConvert(*_indexAccess.indexExpression(), *TypeProvider::uint256(), true);
+			// stack layout: <value> <index>
+			// check out-of-bounds access
+			m_context << u256(fixedBytesType.numBytes());
+			m_context << Instruction::DUP2 << Instruction::LT << Instruction::ISZERO;
+			// out-of-bounds access throws exception
+			m_context.appendConditionalInvalid();
+
+			m_context << Instruction::BYTE;
+			utils().leftShiftNumberOnStack(256 - 8);
+			break;
+		}
+		case Type::Category::TypeType:
+		{
+			solAssert(baseType.sizeOnStack() == 0, "");
+			solAssert(_indexAccess.annotation().type->sizeOnStack() == 0, "");
+			// no-op - this seems to be a lone array type (`structType[];`)
+			break;
+		}
+		default:
+			solAssert(false, "Index access only allowed for mappings or arrays.");
+			break;
 	}
-	else if (baseType.category() == Type::Category::TypeType)
-	{
-		solAssert(baseType.sizeOnStack() == 0, "");
-		solAssert(_indexAccess.annotation().type->sizeOnStack() == 0, "");
-		// no-op - this seems to be a lone array type (`structType[];`)
-	}
+
+	return false;
+}
+
+bool ExpressionCompiler::visit(IndexRangeAccess const& _indexAccess)
+{
+	CompilerContext::LocationSetter locationSetter(m_context, _indexAccess);
+	_indexAccess.baseExpression().accept(*this);
+
+	Type const& baseType = *_indexAccess.baseExpression().annotation().type;
+
+	ArrayType const *arrayType = dynamic_cast<ArrayType const*>(&baseType);
+	if (!arrayType)
+		if (ArraySliceType const* sliceType = dynamic_cast<ArraySliceType const*>(&baseType))
+			arrayType = &sliceType->arrayType();
+
+	solAssert(arrayType, "");
+	solUnimplementedAssert(arrayType->location() == DataLocation::CallData && arrayType->isDynamicallySized(), "");
+
+	if (_indexAccess.startExpression())
+		acceptAndConvert(*_indexAccess.startExpression(), *TypeProvider::uint256());
 	else
-		solAssert(false, "Index access only allowed for mappings or arrays.");
+		m_context << u256(0);
+	if (_indexAccess.endExpression())
+		acceptAndConvert(*_indexAccess.endExpression(), *TypeProvider::uint256());
+	else
+		m_context << Instruction::DUP2;
+
+	m_context.appendInlineAssembly(
+		Whiskers(R"({
+					if gt(sliceStart, sliceEnd) { <revertStringStartEnd> }
+					if gt(sliceEnd, length) { <revertStringEndLength> }
+
+					offset := add(offset, mul(sliceStart, <stride>))
+					length := sub(sliceEnd, sliceStart)
+				})")
+		("stride", toString(arrayType->calldataStride()))
+		("revertStringStartEnd", m_context.revertReasonIfDebug("Slice starts after end"))
+		("revertStringEndLength", m_context.revertReasonIfDebug("Slice is greater than length"))
+		.render(),
+		{"offset", "length", "sliceStart", "sliceEnd"}
+	);
+
+	m_context << Instruction::POP << Instruction::POP;
 
 	return false;
 }
@@ -1681,7 +1961,7 @@ void ExpressionCompiler::appendAndOrOperatorCode(BinaryOperation const& _binaryO
 	m_context << Instruction::DUP1;
 	if (c_op == Token::And)
 		m_context << Instruction::ISZERO;
-	eth::AssemblyItem endLabel = m_context.appendConditionalJump();
+	evmasm::AssemblyItem endLabel = m_context.appendConditionalJump();
 	m_context << Instruction::POP;
 	_binaryOperation.rightExpression().accept(*this);
 	m_context << endLabel;
@@ -1886,7 +2166,8 @@ void ExpressionCompiler::appendShiftOperatorCode(Token _operator, Type const& _v
 
 void ExpressionCompiler::appendExternalFunctionCall(
 	FunctionType const& _functionType,
-	vector<ASTPointer<Expression const>> const& _arguments
+	vector<ASTPointer<Expression const>> const& _arguments,
+	bool _tryCall
 )
 {
 	solAssert(
@@ -1921,6 +2202,12 @@ void ExpressionCompiler::appendExternalFunctionCall(
 	bool returnSuccessConditionAndReturndata = funKind == FunctionType::Kind::BareCall || funKind == FunctionType::Kind::BareDelegateCall || funKind == FunctionType::Kind::BareStaticCall;
 	bool isDelegateCall = funKind == FunctionType::Kind::BareDelegateCall || funKind == FunctionType::Kind::DelegateCall;
 	bool useStaticCall = funKind == FunctionType::Kind::BareStaticCall || (_functionType.stateMutability() <= StateMutability::View && m_context.evmVersion().hasStaticCall());
+
+	if (_tryCall)
+	{
+		solAssert(!returnSuccessConditionAndReturndata, "");
+		solAssert(!_functionType.isBareCall(), "");
+	}
 
 	bool haveReturndatacopy = m_context.evmVersion().supportsReturndata();
 	unsigned retSize = 0;
@@ -2000,12 +2287,17 @@ void ExpressionCompiler::appendExternalFunctionCall(
 	// If the function takes arbitrary parameters or is a bare call, copy dynamic length data in place.
 	// Move arguments to memory, will not update the free memory pointer (but will update the memory
 	// pointer on the stack).
+	bool encodeInPlace = _functionType.takesArbitraryParameters() || _functionType.isBareCall();
+	if (_functionType.kind() == FunctionType::Kind::ECRecover)
+		// This would be the only combination of padding and in-place encoding,
+		// but all parameters of ecrecover are value types anyway.
+		encodeInPlace = false;
 	bool encodeForLibraryCall = funKind == FunctionType::Kind::DelegateCall;
 	utils().encodeToMemory(
 		argumentTypes,
 		parameterTypes,
 		_functionType.padArguments(),
-		_functionType.takesArbitraryParameters() || _functionType.isBareCall(),
+		encodeInPlace,
 		encodeForLibraryCall
 	);
 
@@ -2053,8 +2345,7 @@ void ExpressionCompiler::appendExternalFunctionCall(
 	if (funKind == FunctionType::Kind::External || funKind == FunctionType::Kind::DelegateCall)
 	{
 		m_context << Instruction::DUP1 << Instruction::EXTCODESIZE << Instruction::ISZERO;
-		// TODO: error message?
-		m_context.appendConditionalRevert();
+		m_context.appendConditionalRevert(false, "Target contract does not contain code");
 		existenceChecked = true;
 	}
 
@@ -2067,11 +2358,11 @@ void ExpressionCompiler::appendExternalFunctionCall(
 	{
 		// send all gas except the amount needed to execute "SUB" and "CALL"
 		// @todo this retains too much gas for now, needs to be fine-tuned.
-		u256 gasNeededByCaller = eth::GasCosts::callGas(m_context.evmVersion()) + 10;
+		u256 gasNeededByCaller = evmasm::GasCosts::callGas(m_context.evmVersion()) + 10;
 		if (_functionType.valueSet())
-			gasNeededByCaller += eth::GasCosts::callValueTransferGas;
+			gasNeededByCaller += evmasm::GasCosts::callValueTransferGas;
 		if (!existenceChecked)
-			gasNeededByCaller += eth::GasCosts::callNewAccountGas; // we never know
+			gasNeededByCaller += evmasm::GasCosts::callNewAccountGas; // we never know
 		m_context << gasNeededByCaller << Instruction::GAS << Instruction::SUB;
 	}
 	// Order is important here, STATICCALL might overlap with DELEGATECALL.
@@ -2088,16 +2379,26 @@ void ExpressionCompiler::appendExternalFunctionCall(
 		(_functionType.gasSet() ? 1 : 0) +
 		(!_functionType.isBareCall() ? 1 : 0);
 
-	if (returnSuccessConditionAndReturndata)
-		m_context << swapInstruction(remainsSize);
-	else
+	evmasm::AssemblyItem endTag = m_context.newTag();
+
+	if (!returnSuccessConditionAndReturndata && !_tryCall)
 	{
-		//Propagate error condition (if CALL pushes 0 on stack).
+		// Propagate error condition (if CALL pushes 0 on stack).
 		m_context << Instruction::ISZERO;
 		m_context.appendConditionalRevert(true);
 	}
-
+	else
+		m_context << swapInstruction(remainsSize);
 	utils().popStackSlots(remainsSize);
+
+	// Only success flag is remaining on stack.
+
+	if (_tryCall)
+	{
+		m_context << Instruction::DUP1 << Instruction::ISZERO;
+		m_context.appendConditionalJumpTo(endTag);
+		m_context << Instruction::POP;
+	}
 
 	if (returnSuccessConditionAndReturndata)
 	{
@@ -2106,24 +2407,7 @@ void ExpressionCompiler::appendExternalFunctionCall(
 		// an internal helper function e.g. for ``send`` and ``transfer``. In that
 		// case we're only interested in the success condition, not the return data.
 		if (!_functionType.returnParameterTypes().empty())
-		{
-			if (haveReturndatacopy)
-			{
-				m_context << Instruction::RETURNDATASIZE;
-				m_context.appendInlineAssembly(R"({
-					switch v case 0 {
-						v := 0x60
-					} default {
-						v := mload(0x40)
-						mstore(0x40, add(v, and(add(returndatasize(), 0x3f), not(0x1f))))
-						mstore(v, returndatasize())
-						returndatacopy(add(v, 0x20), 0, returndatasize())
-					}
-				})", {"v"});
-			}
-			else
-				utils().pushZeroPointer();
-		}
+			utils().returnDataToArray();
 	}
 	else if (funKind == FunctionType::Kind::RIPEMD160)
 	{
@@ -2153,7 +2437,7 @@ void ExpressionCompiler::appendExternalFunctionCall(
 			needToUpdateFreeMemoryPtr = true;
 		else
 			for (auto const& retType: returnTypes)
-				if (dynamic_cast<ReferenceType const*>(retType.get()))
+				if (dynamic_cast<ReferenceType const*>(retType))
 					needToUpdateFreeMemoryPtr = true;
 
 		// Stack: return_data_start
@@ -2166,7 +2450,7 @@ void ExpressionCompiler::appendExternalFunctionCall(
 			solAssert(retSize > 0, "");
 		// Always use the actual return length, and not our calculated expected length, if returndatacopy is supported.
 		// This ensures it can catch badly formatted input from external calls.
-		m_context << (haveReturndatacopy ? eth::AssemblyItem(Instruction::RETURNDATASIZE) : u256(retSize));
+		m_context << (haveReturndatacopy ? evmasm::AssemblyItem(Instruction::RETURNDATASIZE) : u256(retSize));
 		// Stack: return_data_start return_data_size
 		if (needToUpdateFreeMemoryPtr)
 			m_context.appendInlineAssembly(R"({
@@ -2177,13 +2461,19 @@ void ExpressionCompiler::appendExternalFunctionCall(
 
 		utils().abiDecode(returnTypes, true);
 	}
+
+	if (_tryCall)
+	{
+		// Success branch will reach this, failure branch will directly jump to endTag.
+		m_context << u256(1);
+		m_context << endTag;
+	}
 }
 
 void ExpressionCompiler::appendExpressionCopyToMemory(Type const& _expectedType, Expression const& _expression)
 {
 	solUnimplementedAssert(_expectedType.isValueType(), "Not implemented for non-value types.");
-	_expression.accept(*this);
-	utils().convertType(*_expression.annotation().type, _expectedType, true);
+	acceptAndConvert(_expression, _expectedType, true);
 	utils().storeInMemoryDynamic(_expectedType);
 }
 
@@ -2192,10 +2482,7 @@ void ExpressionCompiler::appendVariable(VariableDeclaration const& _variable, Ex
 	if (!_variable.isConstant())
 		setLValueFromDeclaration(_variable, _expression);
 	else
-	{
-		_variable.value()->accept(*this);
-		utils().convertType(*_variable.value()->annotation().type, *_variable.annotation().type);
-	}
+		acceptAndConvert(*_variable.value(), *_variable.annotation().type);
 }
 
 void ExpressionCompiler::setLValueFromDeclaration(Declaration const& _declaration, Expression const& _expression)
@@ -2227,10 +2514,13 @@ bool ExpressionCompiler::cleanupNeededForOp(Type::Category _type, Token _op)
 		return false;
 }
 
+void ExpressionCompiler::acceptAndConvert(Expression const& _expression, Type const& _type, bool _cleanupNeeded)
+{
+	_expression.accept(*this);
+	utils().convertType(*_expression.annotation().type, _type, _cleanupNeeded);
+}
+
 CompilerUtils ExpressionCompiler::utils()
 {
 	return CompilerUtils(m_context);
-}
-
-}
 }

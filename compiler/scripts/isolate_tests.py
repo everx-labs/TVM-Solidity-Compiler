@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 #
 # This script reads C++ or RST source files and writes all
 # multi-line strings into individual files.
@@ -13,7 +13,7 @@ import hashlib
 from os.path import join, isfile
 
 def extract_test_cases(path):
-    lines = open(path, 'rb').read().splitlines()
+    lines = open(path, mode='r', encoding='utf8').read().splitlines()
 
     inside = False
     delimiter = ''
@@ -39,35 +39,47 @@ def extract_test_cases(path):
 # and abort a line not indented properly.
 def extract_docs_cases(path):
     inside = False
+    extractedLines = []
     tests = []
 
     # Collect all snippets of indented blocks
-    for l in open(path, 'rb').read().splitlines():
+    for l in open(path, mode='r', encoding='utf8').read().splitlines():
         if l != '':
             if not inside and l.startswith(' '):
                 # start new test
-                tests += ['']
+                extractedLines += ['']
             inside = l.startswith(' ')
         if inside:
-            tests[-1] += l + '\n'
-    # Filter all tests that do not contain Solidity
-    return [
-        test for test in tests
-        if re.search(r'^    [ ]*(pragma solidity|contract |library |interface )', test, re.MULTILINE)
-    ]
+            extractedLines[-1] += l + '\n'
+
+    codeStart = "(pragma solidity|contract.*{|library.*{|interface.*{)"
+
+    # Filter all tests that do not contain Solidity or are intended incorrectly.
+    for lines in extractedLines:
+        if re.search(r'^\s{0,3}' + codeStart, lines, re.MULTILINE):
+            print("Intendation error in " + path + ":")
+            print(lines)
+            exit(1)
+        if re.search(r'^\s{4}' + codeStart, lines, re.MULTILINE):
+            tests.append(lines)
+
+    return tests
 
 def write_cases(f, tests):
     cleaned_filename = f.replace(".","_").replace("-","_").replace(" ","_").lower()
     for test in tests:
-        open('test_%s_%s.sol' % (hashlib.sha256(test).hexdigest(), cleaned_filename), 'wb').write(test)
-
+        # When code examples are extracted they indented by 8 spaces, which violates the style guide,
+        # so before checking remove 4 spaces from each line.
+        remainder = re.sub(r'^ {4}', '', test, 0, re.MULTILINE)
+        sol_filename = 'test_%s_%s.sol' % (hashlib.sha256(test.encode("utf-8")).hexdigest(), cleaned_filename)
+        open(sol_filename, mode='w', encoding='utf8').write(remainder)
 
 def extract_and_write(f, path):
         if docs:
             cases = extract_docs_cases(path)
         else:
             if f.endswith('.sol'):
-                cases = [open(path, 'r').read()]
+                cases = [open(path, mode='r', encoding='utf8').read()]
             else:
                 cases = extract_test_cases(path)
         write_cases(f, cases)

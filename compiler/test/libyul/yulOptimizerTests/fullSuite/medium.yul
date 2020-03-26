@@ -16,13 +16,15 @@
         for { switch mul(1,2) case 2 { mstore(0x40, 0x20) } } sub(1,1) {} { mstore(0x80, 0x40) }
     }
 }
+// ====
+// step: fullSuite
 // ----
-// fullSuite
 // {
-//     let allocate__19 := 0x40
-//     mstore(allocate__19, add(mload(allocate__19), 0x20))
-//     let allocate_p_33_37 := mload(allocate__19)
-//     mstore(allocate__19, add(allocate_p_33_37, allocate__19))
-//     mstore(add(allocate_p_33_37, 96), 2)
-//     mstore(allocate__19, 0x20)
+//     {
+//         let p := mload(0x40)
+//         mstore(0x40, add(p, 0x20))
+//         mstore(0x40, add(p, 96))
+//         mstore(add(p, 128), 2)
+//         mstore(0x40, 0x20)
+//     }
 // }

@@ -52,7 +52,7 @@ Surround top level declarations in solidity source with two blank lines.
 
 Yes::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity >=0.4.0 <0.7.0;
 
     contract A {
         // ...
@@ -70,7 +70,7 @@ Yes::
 
 No::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity >=0.4.0 <0.7.0;
 
     contract A {
         // ...
@@ -89,33 +89,39 @@ Blank lines may be omitted between groups of related one-liners (such as stub fu
 
 Yes::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity ^0.6.0;
 
-    contract A {
-        function spam() public pure;
-        function ham() public pure;
+    abstract contract A {
+        function spam() public virtual pure;
+        function ham() public virtual pure;
     }
 
 
     contract B is A {
-        function spam() public pure {
+        function spam() public pure override {
             // ...
         }
 
-        function ham() public pure {
+        function ham() public pure override {
             // ...
         }
     }
 
 No::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity >=0.4.0 <0.7.0;
 
-    contract A {
-        function spam() public pure {
+    abstract contract A {
+        function spam() virtual pure public;
+        function ham() public virtual pure;
+    }
+
+
+    contract B is A {
+        function spam() public pure override {
             // ...
         }
-        function ham() public pure {
+        function ham() public pure override {
             // ...
         }
     }
@@ -237,7 +243,7 @@ Import statements should always be placed at the top of the file.
 
 Yes::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity >=0.4.0 <0.7.0;
 
     import "./Owned.sol";
 
@@ -251,7 +257,7 @@ Yes::
 
 No::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity >=0.4.0 <0.7.0;
 
     contract A {
         // ...
@@ -273,6 +279,7 @@ Ordering helps readers identify which functions they can call and to find the co
 Functions should be grouped according to their visibility and ordered:
 
 - constructor
+- receive function (if exists)
 - fallback function (if exists)
 - external
 - public
@@ -283,14 +290,18 @@ Within a grouping, place the ``view`` and ``pure`` functions last.
 
 Yes::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity ^0.6.0;
 
     contract A {
         constructor() public {
             // ...
         }
 
-        function() external {
+        receive() external payable {
+            // ...
+        }
+
+        fallback() external {
             // ...
         }
 
@@ -315,14 +326,17 @@ Yes::
 
 No::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity >=0.4.0 <0.7.0;
 
     contract A {
 
         // External functions
         // ...
 
-        function() external {
+        fallback() external {
+            // ...
+        }
+        receive() external payable {
             // ...
         }
 
@@ -384,19 +398,28 @@ No::
     y             = 2;
     long_variable = 3;
 
-Don't include a whitespace in the fallback function:
+Don't include a whitespace in the receive and fallback functions:
 
 Yes::
 
-    function() external {
+    receive() external payable {
+        ...
+    }
+
+    fallback() external {
         ...
     }
 
 No::
 
-    function () external {
+    receive () external payable {
         ...
     }
+
+    fallback () external {
+        ...
+    }
+
 
 Control Structures
 ==================
@@ -407,11 +430,11 @@ should:
 * open on the same line as the declaration
 * close on their own line at the same indentation level as the beginning of the
   declaration.
-* The opening brace should be proceeded by a single space.
+* The opening brace should be preceded by a single space.
 
 Yes::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity >=0.4.0 <0.7.0;
 
     contract Coin {
         struct Bank {
@@ -422,7 +445,7 @@ Yes::
 
 No::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity >=0.4.0 <0.7.0;
 
     contract Coin
     {
@@ -547,32 +570,31 @@ No::
     function increment(uint x) public pure returns (uint) {
         return x + 1;}
 
-You should explicitly label the visibility of all functions, including constructors.
+The modifier order for a function should be:
+
+1. Visibility
+2. Mutability
+3. Virtual
+4. Override
+5. Custom modifiers
 
 Yes::
 
-    function explicitlyPublic(uint val) public {
-        doSomething();
+    function balance(uint from) public view override returns (uint)  {
+        return balanceOf[from];
     }
 
-No::
-
-    function implicitlyPublic(uint val) {
-        doSomething();
-    }
-
-The visibility modifier for a function should come before any custom
-modifiers.
-
-Yes::
-
-    function kill() public onlyowner {
+    function shutdown() public onlyowner {
         selfdestruct(owner);
     }
 
 No::
 
-    function kill() onlyowner public {
+    function balance(uint from) public override view returns (uint)  {
+        return balanceOf[from];
+    }
+
+    function shutdown() onlyowner public {
         selfdestruct(owner);
     }
 
@@ -723,7 +745,7 @@ manner as modifiers if the function declaration is long or hard to read.
 
 Yes::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity >=0.4.0 <0.7.0;
 
     // Base contracts just to make this compile
     contract B {
@@ -755,21 +777,27 @@ Yes::
 
 No::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity >=0.4.0 <0.7.0;
+
 
     // Base contracts just to make this compile
     contract B {
         constructor(uint) public {
         }
     }
+
+
     contract C {
         constructor(uint, uint) public {
         }
     }
+
+
     contract D {
         constructor(uint) public {
         }
     }
+
 
     contract A is B, C, D {
         uint x;
@@ -778,11 +806,11 @@ No::
         B(param1)
         C(param2, param3)
         D(param4)
-        public
-        {
+        public {
             x = param5;
         }
     }
+
 
     contract X is B, C, D {
         uint x;
@@ -792,9 +820,10 @@ No::
             C(param2, param3)
             D(param4)
             public {
-            x = param5;
-        }
+                x = param5;
+            }
     }
+
 
 When declaring short functions with a single statement, it is permissible to do it on a single line.
 
@@ -946,7 +975,7 @@ naming styles.
 * ``mixedCase`` (differs from CapitalizedWords by initial lowercase character!)
 * ``Capitalized_Words_With_Underscores``
 
-.. note:: When using initialisms in CapWords, capitalize all the letters of the initialisms. Thus HTTPServerError is better than HttpServerError. When using initialisms is mixedCase, capitalize all the letters of the initialisms, except keep the first one lower case if it is the beginning of the name. Thus xmlHTTPRequest is better than XMLHTTPRequest.
+.. note:: When using initialisms in CapWords, capitalize all the letters of the initialisms. Thus HTTPServerError is better than HttpServerError. When using initialisms in mixedCase, capitalize all the letters of the initialisms, except keep the first one lower case if it is the beginning of the name. Thus xmlHTTPRequest is better than XMLHTTPRequest.
 
 
 Names to Avoid
@@ -971,28 +1000,33 @@ As shown in the example below, if the contract name is `Congress` and the librar
 
 Yes::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity >=0.4.0 <0.7.0;
+
 
     // Owned.sol
     contract Owned {
-         address public owner;
+        address public owner;
 
-         constructor() public {
-             owner = msg.sender;
-         }
+        constructor() public {
+            owner = msg.sender;
+        }
 
-         modifier onlyOwner {
-             require(msg.sender == owner);
-             _;
-         }
+        modifier onlyOwner {
+            require(msg.sender == owner);
+            _;
+        }
 
-         function transferOwnership(address newOwner) public onlyOwner {
-             owner = newOwner;
-         }
+        function transferOwnership(address newOwner) public onlyOwner {
+            owner = newOwner;
+        }
     }
 
-    // Congress.sol
+and in ``Congress.sol``::
+
+    pragma solidity >=0.4.0 <0.7.0;
+
     import "./Owned.sol";
+
 
     contract Congress is Owned, TokenRecipient {
         //...
@@ -1000,33 +1034,35 @@ Yes::
 
 No::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity >=0.4.0 <0.7.0;
+
 
     // owned.sol
     contract owned {
-         address public owner;
+        address public owner;
 
-         constructor() public {
-             owner = msg.sender;
-         }
+        constructor() public {
+            owner = msg.sender;
+        }
 
-         modifier onlyOwner {
-             require(msg.sender == owner);
-             _;
-         }
+        modifier onlyOwner {
+            require(msg.sender == owner);
+            _;
+        }
 
-         function transferOwnership(address newOwner) public onlyOwner {
-             owner = newOwner;
-         }
+        function transferOwnership(address newOwner) public onlyOwner {
+            owner = newOwner;
+        }
     }
 
-    // Congress.sol
+and in ``Congress.sol``::
+
     import "./owned.sol";
+
 
     contract Congress is owned, tokenRecipient {
         //...
     }
-
 
 Struct Names
 ==========================
@@ -1088,14 +1124,6 @@ Avoiding Naming Collisions
 This convention is suggested when the desired name collides with that of a
 built-in or otherwise reserved name.
 
-
-General Recommendations
-=======================
-
-TODO
-
-.. _natspec:
-
 *******
 NatSpec
 *******
@@ -1110,7 +1138,8 @@ multiline comment starting with `/**` and ending with `*/`.
 For example, the contract from `a simple smart contract <simple-smart-contract>`_ with the comments
 added looks like the one below::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity >=0.4.0 <0.7.0;
+
 
     /// @author The Solidity Team
     /// @title A simple storage example
@@ -1132,25 +1161,6 @@ added looks like the one below::
         }
     }
 
-Natspec uses doxygen style tags with some special meaning.
-If no tag is used, then the comment applies to ``@notice``.
-The ``@notice`` tag is the main NatSpec tag and its audience is
-users of the contract who have never seen the source code, so it should make
-as little assumptions about the inner details as possible.
-All tags are optional.
+It is recommended that Solidity contracts are fully annotated using `NatSpec <natspec>`_ for all public interfaces (everything in the ABI).
 
-+-------------+-------------------------------------------+-------------------------------+
-| Tag         | Description                               | Context                       |
-+=============+===========================================+===============================+
-| ``@title``  | A title that describes the contract       | contract, interface           |
-+-------------+-------------------------------------------+-------------------------------+
-| ``@author`` | The name of the author                    | contract, interface, function |
-+-------------+-------------------------------------------+-------------------------------+
-| ``@notice`` | Explanation of functionality              | contract, interface, function |
-+-------------+-------------------------------------------+-------------------------------+
-| ``@dev``    | Any extra details                         | contract, interface, function |
-+-------------+-------------------------------------------+-------------------------------+
-| ``@param``  | Parameter type followed by parameter name | function                      |
-+-------------+-------------------------------------------+-------------------------------+
-| ``@return`` | The return value of a contract's function | function                      |
-+-------------+-------------------------------------------+-------------------------------+
+Please see the section about `NatSpec <natspec>`_ for a detailed explanation.

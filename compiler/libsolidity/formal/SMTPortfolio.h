@@ -20,17 +20,13 @@
 
 #include <libsolidity/formal/SolverInterface.h>
 #include <libsolidity/interface/ReadFile.h>
-#include <libdevcore/FixedHash.h>
+#include <libsolutil/FixedHash.h>
 
 #include <boost/noncopyable.hpp>
 #include <map>
 #include <vector>
 
-namespace dev
-{
-namespace solidity
-{
-namespace smt
+namespace solidity::frontend::smt
 {
 
 /**
@@ -42,26 +38,31 @@ namespace smt
 class SMTPortfolio: public SolverInterface, public boost::noncopyable
 {
 public:
-	SMTPortfolio(std::map<h256, std::string> const& _smtlib2Responses);
+	SMTPortfolio(
+		std::map<util::h256, std::string> const& _smtlib2Responses,
+		ReadCallback::Callback const& _smtCallback,
+		SMTSolverChoice _enabledSolvers
+	);
 
 	void reset() override;
 
 	void push() override;
 	void pop() override;
 
-	void declareVariable(std::string const&, Sort const&) override;
+	void declareVariable(std::string const&, SortPointer const&) override;
 
-	void addAssertion(Expression const& _expr) override;
-	std::pair<CheckResult, std::vector<std::string>> check(std::vector<Expression> const& _expressionsToEvaluate) override;
+	void addAssertion(smt::Expression const& _expr) override;
+
+	std::pair<CheckResult, std::vector<std::string>> check(std::vector<smt::Expression> const& _expressionsToEvaluate) override;
 
 	std::vector<std::string> unhandledQueries() override;
 	unsigned solvers() override { return m_solvers.size(); }
 private:
 	static bool solverAnswered(CheckResult result);
 
-	std::vector<std::shared_ptr<smt::SolverInterface>> m_solvers;
+	std::vector<std::unique_ptr<smt::SolverInterface>> m_solvers;
+
+	std::vector<smt::Expression> m_assertions;
 };
 
-}
-}
 }

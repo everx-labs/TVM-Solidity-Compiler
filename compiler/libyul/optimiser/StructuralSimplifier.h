@@ -18,34 +18,40 @@
 
 #include <libyul/optimiser/ASTWalker.h>
 #include <libyul/optimiser/DataFlowAnalyzer.h>
+#include <libyul/optimiser/OptimiserStep.h>
+#include <libsolutil/Common.h>
 
-namespace yul
+namespace solidity::yul
 {
 
 /**
  * Structural simplifier. Performs the following simplification steps:
- * - replace if with empty body with pop(condition)
  * - replace if with true condition with its body
  * - remove if with false condition
- * - turn switch with single case into if
- * - replace switch with only default case with pop(expression) and body
- * - remove for with false condition
+ * - replace switch with const expr with matching case body
+ * - replace for with false condition by its initialization part
  *
- * Prerequisites: Disambiguator
+ * The LiteralRematerialiser should be run before this.
+ *
+ * Prerequisite: Disambiguator.
  *
  * Important: Can only be used on EVM code.
  */
-class StructuralSimplifier: public DataFlowAnalyzer
+class StructuralSimplifier: public ASTModifier
 {
 public:
-	explicit StructuralSimplifier(Dialect const& _dialect): DataFlowAnalyzer(_dialect) {}
+	static constexpr char const* name{"StructuralSimplifier"};
+	static void run(OptimiserStepContext&, Block& _ast);
 
-	using DataFlowAnalyzer::operator();
+	using ASTModifier::operator();
 	void operator()(Block& _block) override;
 private:
+	StructuralSimplifier() = default;
+
 	void simplify(std::vector<Statement>& _statements);
 	bool expressionAlwaysTrue(Expression const& _expression);
 	bool expressionAlwaysFalse(Expression const& _expression);
+	std::optional<u256> hasLiteralValue(Expression const& _expression) const;
 };
 
 }

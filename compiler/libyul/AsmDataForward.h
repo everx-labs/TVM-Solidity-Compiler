@@ -22,31 +22,31 @@
 
 #pragma once
 
-#include <boost/variant.hpp>
+#include <variant>
 
-namespace yul
+namespace solidity::yul
 {
 
-struct Instruction;
 struct Literal;
 struct Label;
-struct StackAssignment;
 struct Identifier;
 struct Assignment;
 struct VariableDeclaration;
-struct FunctionalInstruction;
 struct FunctionDefinition;
 struct FunctionCall;
 struct If;
 struct Switch;
 struct Case;
 struct ForLoop;
+struct Break;
+struct Continue;
+struct Leave;
 struct ExpressionStatement;
 struct Block;
 
 struct TypedName;
 
-using Expression = boost::variant<FunctionalInstruction, FunctionCall, Identifier, Literal>;
-using Statement = boost::variant<ExpressionStatement, Instruction, Label, StackAssignment, Assignment, VariableDeclaration, FunctionDefinition, If, Switch, ForLoop, Block>;
+using Expression = std::variant<FunctionCall, Identifier, Literal>;
+using Statement = std::variant<ExpressionStatement, Assignment, VariableDeclaration, FunctionDefinition, If, Switch, ForLoop, Break, Continue, Leave, Block>;
 
 }

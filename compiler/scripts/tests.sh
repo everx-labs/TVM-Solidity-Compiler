@@ -28,56 +28,18 @@
 
 set -e
 
-REPO_ROOT="$(dirname "$0")"/..
+REPO_ROOT="$(dirname "$0")/.."
+SOLIDITY_BUILD_DIR="${SOLIDITY_BUILD_DIR:-build}"
+
+source "${REPO_ROOT}/scripts/common.sh"
 
 WORKDIR=`mktemp -d`
-IPC_ENABLED=true
-ALETH_PID=
 CMDLINE_PID=
 
-if [[ "$OSTYPE" == "darwin"* ]]
-then
-    SMT_FLAGS="--no-smt"
-    if [ "$CIRCLECI" ]
-    then
-        IPC_ENABLED=false
-        IPC_FLAGS="--no-ipc"
-    fi
-fi
-
-safe_kill() {
-    local PID=${1}
-    local NAME=${2:-${1}}
-    local n=1
-
-    # only proceed if $PID does exist
-    kill -0 $PID 2>/dev/null || return
-
-    echo "Sending SIGTERM to ${NAME} (${PID}) ..."
-    kill $PID
-
-    # wait until process terminated gracefully
-    while kill -0 $PID 2>/dev/null && [[ $n -le 4 ]]; do
-        echo "Waiting ($n) ..."
-        sleep 1
-        n=$[n + 1]
-    done
-
-    # process still alive? then hard-kill
-    if kill -0 $PID 2>/dev/null; then
-        echo "Sending SIGKILL to ${NAME} (${PID}) ..."
-        kill -9 $PID
-    fi
-}
-
 cleanup() {
-	# ensure failing commands don't cause termination during cleanup (especially within safe_kill)
-	set +e
+    # ensure failing commands don't cause termination during cleanup (especially within safe_kill)
+    set +e
 
-    if [[ "$IPC_ENABLED" = true ]] && [[ -n "${ALETH_PID}" ]]
-    then
-        safe_kill $ALETH_PID $ALETH_PATH
-    fi
     if [[ -n "$CMDLINE_PID" ]]
     then
         safe_kill $CMDLINE_PID "Commandline tests"
@@ -100,15 +62,6 @@ else
     log_directory=""
 fi
 
-if [ "$CIRCLECI" ]
-then
-    function printTask() { echo "$(tput bold)$(tput setaf 2)$1$(tput setaf 7)"; }
-    function printError() { echo "$(tput setaf 1)$1$(tput setaf 7)"; }
-else
-    function printTask() { echo "$(tput bold)$(tput setaf 2)$1$(tput sgr0)"; }
-    function printError() { echo "$(tput setaf 1)$1$(tput sgr0)"; }
-fi
-
 printTask "Running commandline tests..."
 # Only run in parallel if this is run on CI infrastructure
 if [[ -n "$CI" ]]
@@ -123,85 +76,54 @@ else
     fi
 fi
 
-function download_aleth()
-{
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        ALETH_PATH="$REPO_ROOT/aleth"
-    elif [ -z $CI ]; then
-        ALETH_PATH="aleth"
-    else
-        mkdir -p /tmp/test
-        # Any time the hash is updated here, the "Running compiler tests" section should also be updated.
-        ALETH_HASH="a6a9884bf3e5d8b3e01b55d4f6e9fe6dce5b5db7"
-        ALETH_VERSION=1.5.2
-        wget -q -O /tmp/test/aleth.tar.gz https://github.com/ethereum/aleth/releases/download/v${ALETH_VERSION}/aleth-${ALETH_VERSION}-linux-x86_64.tar.gz
-        test "$(shasum /tmp/test/aleth.tar.gz)" = "$ALETH_HASH  /tmp/test/aleth.tar.gz"
-        tar -xf /tmp/test/aleth.tar.gz -C /tmp/test
-        ALETH_PATH="/tmp/test/bin/aleth"
-        sync
-        chmod +x $ALETH_PATH
-        sync # Otherwise we might get a "text file busy" error
-    fi
-
-}
-
-# $1: data directory
-# echos the PID
-function run_aleth()
-{
-    $ALETH_PATH --db memorydb --test -d "${WORKDIR}" >/dev/null 2>&1 &
-    echo $!
-    # Wait until the IPC endpoint is available.
-    while [ ! -S "${WORKDIR}/geth.ipc" ] ; do sleep 1; done
-    sleep 2
-}
-
-function check_aleth() {
-    printTask "Running IPC tests with $ALETH_PATH..."
-    if ! hash $ALETH_PATH 2>/dev/null; then
-      printError "$ALETH_PATH not found"
-      exit 1
-    fi
-}
-
-if [ "$IPC_ENABLED" = true ];
-then
-    download_aleth
-    check_aleth
-    ALETH_PID=$(run_aleth)
-fi
-
-progress="--show-progress"
-if [ "$CIRCLECI" ]
-then
-    progress=""
-fi
 
 EVM_VERSIONS="homestead byzantium"
 
-if [ "$CIRCLECI" ] || [ -z "$CI" ]
+if [ -z "$CI" ]
 then
-EVM_VERSIONS+=" constantinople"
+    EVM_VERSIONS+=" constantinople petersburg istanbul"
 fi
 
 # And then run the Solidity unit-tests in the matrix combination of optimizer / no optimizer
-# and homestead / byzantium VM, # pointing to that IPC endpoint.
+# and homestead / byzantium VM
 for optimize in "" "--optimize"
 do
   for vm in $EVM_VERSIONS
   do
-    printTask "--> Running tests using "$optimize" --evm-version "$vm"..."
-    log=""
-    if [ -n "$log_directory" ]
+    FORCE_ABIV2_RUNS="no"
+    if [[ "$vm" == "istanbul" ]]
     then
-      if [ -n "$optimize" ]
-      then
-        log=--logger=JUNIT,test_suite,$log_directory/opt_$vm.xml $testargs
-      else
-        log=--logger=JUNIT,test_suite,$log_directory/noopt_$vm.xml $testargs_no_opt
-      fi
+      FORCE_ABIV2_RUNS="no yes" # run both in istanbul
     fi
-    "$REPO_ROOT"/build/test/soltest $progress $log -- --testpath "$REPO_ROOT"/test "$optimize" --evm-version "$vm" $SMT_FLAGS $IPC_FLAGS  --ipcpath "${WORKDIR}/geth.ipc"
+    for abiv2 in $FORCE_ABIV2_RUNS
+    do
+        force_abiv2_flag=""
+        if [[ "$abiv2" == "yes" ]]
+        then
+            force_abiv2_flag="--abiencoderv2 --optimize-yul"
+        fi
+        printTask "--> Running tests using "$optimize" --evm-version "$vm" $force_abiv2_flag..."
+
+        log=""
+        if [ -n "$log_directory" ]
+        then
+			if [ -n "$optimize" ]
+			then
+				log=--logger=JUNIT,error,$log_directory/opt_$vm.xml $testargs
+			else
+				log=--logger=JUNIT,error,$log_directory/noopt_$vm.xml $testargs_no_opt
+			fi
+        fi
+
+        set +e
+        "$REPO_ROOT"/${SOLIDITY_BUILD_DIR}/test/soltest --show-progress $log -- --testpath "$REPO_ROOT"/test "$optimize" --evm-version "$vm" $SMT_FLAGS $force_abiv2_flag
+
+        if test "0" -ne "$?"; then
+            exit 1
+        fi
+        set -e
+
+    done
   done
 done
 

@@ -27,17 +27,19 @@
 #include <liblangutil/Exceptions.h>
 
 #include <json/json.h>
+
+#include <algorithm>
+#include <optional>
 #include <ostream>
 #include <stack>
+#include <vector>
 
-namespace langutil
+namespace solidity::langutil
 {
 struct SourceLocation;
 }
 
-namespace dev
-{
-namespace solidity
+namespace solidity::frontend
 {
 
 /**
@@ -77,6 +79,7 @@ public:
 	bool visit(EnumDefinition const& _node) override;
 	bool visit(EnumValue const& _node) override;
 	bool visit(ParameterList const& _node) override;
+	bool visit(OverrideSpecifier const& _node) override;
 	bool visit(FunctionDefinition const& _node) override;
 	bool visit(VariableDeclaration const& _node) override;
 	bool visit(ModifierDefinition const& _node) override;
@@ -91,6 +94,8 @@ public:
 	bool visit(Block const& _node) override;
 	bool visit(PlaceholderStatement const& _node) override;
 	bool visit(IfStatement const& _node) override;
+	bool visit(TryCatchClause const& _node) override;
+	bool visit(TryStatement const& _node) override;
 	bool visit(WhileStatement const& _node) override;
 	bool visit(ForStatement const& _node) override;
 	bool visit(Continue const& _node) override;
@@ -106,12 +111,15 @@ public:
 	bool visit(UnaryOperation const& _node) override;
 	bool visit(BinaryOperation const& _node) override;
 	bool visit(FunctionCall const& _node) override;
+	bool visit(FunctionCallOptions const& _node) override;
 	bool visit(NewExpression const& _node) override;
 	bool visit(MemberAccess const& _node) override;
 	bool visit(IndexAccess const& _node) override;
+	bool visit(IndexRangeAccess const& _node) override;
 	bool visit(Identifier const& _node) override;
 	bool visit(ElementaryTypeNameExpression const& _node) override;
 	bool visit(Literal const& _node) override;
+	bool visit(StructuredDocumentation const& _node) override;
 
 	void endVisit(EventDefinition const&) override;
 
@@ -126,6 +134,7 @@ private:
 		std::string const& _nodeName,
 		std::vector<std::pair<std::string, Json::Value>>&& _attributes
 	);
+	size_t sourceIndexFromLocation(langutil::SourceLocation const& _location) const;
 	std::string sourceLocationToString(langutil::SourceLocation const& _location) const;
 	static std::string namePathToString(std::vector<ASTString> const& _namePath);
 	static Json::Value idOrNull(ASTNode const* _pt)
@@ -138,7 +147,7 @@ private:
 	}
 	Json::Value inlineAssemblyIdentifierToJson(std::pair<yul::Identifier const* , InlineAssemblyAnnotation::ExternalIdentifierInfo> _info) const;
 	static std::string location(VariableDeclaration::Location _location);
-	static std::string contractKind(ContractDefinition::ContractKind _kind);
+	static std::string contractKind(ContractKind _kind);
 	static std::string functionCallKind(FunctionCallKind _kind);
 	static std::string literalTokenKind(Token _token);
 	static std::string type(Expression const& _expression);
@@ -148,18 +157,26 @@ private:
 		return _node.id();
 	}
 	template<class Container>
-	static Json::Value getContainerIds(Container const& container)
+	static Json::Value getContainerIds(Container const& _container, bool _order = false)
 	{
-		Json::Value tmp(Json::arrayValue);
-		for (auto const& element: container)
+		std::vector<int> tmp;
+
+		for (auto const& element: _container)
 		{
 			solAssert(element, "");
-			tmp.append(nodeId(*element));
+			tmp.push_back(nodeId(*element));
 		}
-		return tmp;
+		if (_order)
+			std::sort(tmp.begin(), tmp.end());
+		Json::Value json(Json::arrayValue);
+
+		for (int val: tmp)
+			json.append(val);
+
+		return json;
 	}
 	static Json::Value typePointerToJson(TypePointer _tp, bool _short = false);
-	static Json::Value typePointerToJson(std::shared_ptr<std::vector<TypePointer>> _tps);
+	static Json::Value typePointerToJson(std::optional<FuncCallArguments> const& _tps);
 	void appendExpressionAttributes(
 		std::vector<std::pair<std::string, Json::Value>> &_attributes,
 		ExpressionAnnotation const& _annotation
@@ -176,5 +193,4 @@ private:
 	std::map<std::string, unsigned> m_sourceIndices;
 };
 
-}
 }

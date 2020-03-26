@@ -1,9 +1,9 @@
-// yul
 {}
+// ====
+// step: mainFunction
+// dialect: yul
 // ----
-// mainFunction
 // {
 //     function main()
-//     {
-//     }
+//     { }
 // }

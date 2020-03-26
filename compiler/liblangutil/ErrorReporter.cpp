@@ -25,8 +25,8 @@
 #include <memory>
 
 using namespace std;
-using namespace dev;
-using namespace langutil;
+using namespace solidity;
+using namespace solidity::langutil;
 
 ErrorReporter& ErrorReporter::operator=(ErrorReporter const& _errorReporter)
 {
@@ -37,9 +37,9 @@ ErrorReporter& ErrorReporter::operator=(ErrorReporter const& _errorReporter)
 }
 
 
-void ErrorReporter::warning(string const& _description, SourceLocation const& _location)
+void ErrorReporter::warning(string const& _description)
 {
-	error(Error::Type::Warning, _location, _description);
+	error(Error::Type::Warning, SourceLocation(), _description);
 }
 
 void ErrorReporter::warning(
@@ -67,7 +67,7 @@ void ErrorReporter::error(Error::Type _type, SourceLocation const& _location, st
 	auto err = make_shared<Error>(_type);
 	*err <<
 		errinfo_sourceLocation(_location) <<
-		errinfo_comment(_description);
+		util::errinfo_comment(_description);
 
 	m_errorList.push_back(err);
 }
@@ -81,9 +81,14 @@ void ErrorReporter::error(Error::Type _type, SourceLocation const& _location, Se
 	*err <<
 		errinfo_sourceLocation(_location) <<
 		errinfo_secondarySourceLocation(_secondaryLocation) <<
-		errinfo_comment(_description);
+		util::errinfo_comment(_description);
 
 	m_errorList.push_back(err);
+}
+
+bool ErrorReporter::hasExcessiveErrors() const
+{
+	return m_errorCount > c_maxErrorsAllowed;
 }
 
 bool ErrorReporter::checkForExcessiveErrors(Error::Type _type)
@@ -95,7 +100,7 @@ bool ErrorReporter::checkForExcessiveErrors(Error::Type _type)
 		if (m_warningCount == c_maxWarningsAllowed)
 		{
 			auto err = make_shared<Error>(Error::Type::Warning);
-			*err << errinfo_comment("There are more than 256 warnings. Ignoring the rest.");
+			*err << util::errinfo_comment("There are more than 256 warnings. Ignoring the rest.");
 			m_errorList.push_back(err);
 		}
 
@@ -109,13 +114,19 @@ bool ErrorReporter::checkForExcessiveErrors(Error::Type _type)
 		if (m_errorCount > c_maxErrorsAllowed)
 		{
 			auto err = make_shared<Error>(Error::Type::Warning);
-			*err << errinfo_comment("There are more than 256 errors. Aborting.");
+			*err << util::errinfo_comment("There are more than 256 errors. Aborting.");
 			m_errorList.push_back(err);
 			BOOST_THROW_EXCEPTION(FatalError());
 		}
 	}
 
 	return false;
+}
+
+void ErrorReporter::fatalError(Error::Type _type, SourceLocation const& _location, SecondarySourceLocation const& _secondaryLocation, string const& _description)
+{
+	error(_type, _location, _secondaryLocation, _description);
+	BOOST_THROW_EXCEPTION(FatalError());
 }
 
 void ErrorReporter::fatalError(Error::Type _type, SourceLocation const& _location, string const& _description)
@@ -207,6 +218,15 @@ void ErrorReporter::typeError(SourceLocation const& _location, string const& _de
 	);
 }
 
+void ErrorReporter::fatalTypeError(SourceLocation const& _location, SecondarySourceLocation const& _secondaryLocation, string const& _description)
+{
+	fatalError(
+		Error::Type::TypeError,
+		_location,
+		_secondaryLocation,
+		_description
+	);
+}
 
 void ErrorReporter::fatalTypeError(SourceLocation const& _location, string const& _description)
 {

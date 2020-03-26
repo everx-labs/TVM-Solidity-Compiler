@@ -1,4 +1,3 @@
-// yul
 {
     { let a:u256, b:u256, c:u256 }
     {
@@ -8,20 +7,16 @@
         default { let c:u256 := a }
     }
 }
+// ====
+// dialect: yul
+// step: disambiguator
 // ----
-// disambiguator
 // {
+//     { let a, b, c }
 //     {
-//         let a:u256, b:u256, c:u256
-//     }
-//     {
-//         let a_1:u256
+//         let a_1
 //         switch a_1
-//         case 0:u256 {
-//             let b_2:u256 := a_1
-//         }
-//         default {
-//             let c_3:u256 := a_1
-//         }
+//         case 0 { let b_2 := a_1 }
+//         default { let c_3 := a_1 }
 //     }
 // }

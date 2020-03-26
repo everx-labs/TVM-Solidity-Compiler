@@ -6,5 +6,4 @@ contract C {
   }
 }
 // ----
-// ParserError: (72-73): Literal, identifier or instruction expected.
-// ParserError: (72-73): Octal numbers not allowed.
+// ParserError: (72-73): Literal or identifier expected.

@@ -26,23 +26,24 @@
 
 #include <libyul/YulString.h>
 
-#include <boost/variant.hpp>
-
-namespace yul
+namespace solidity::yul
 {
+struct Dialect;
 
-class AsmPrinter: public boost::static_visitor<std::string>
+/**
+ * Converts a parsed Yul AST into readable string representation.
+ * Ignores source locations.
+ * If a dialect is provided, the dialect's default type is omitted.
+ */
+class AsmPrinter
 {
 public:
-	explicit AsmPrinter(bool _yul = false): m_yul(_yul) {}
+	AsmPrinter() {}
+	explicit AsmPrinter(Dialect const& _dialect): m_dialect(&_dialect) {}
 
-	std::string operator()(Instruction const& _instruction) const;
 	std::string operator()(Literal const& _literal) const;
 	std::string operator()(Identifier const& _identifier) const;
-	std::string operator()(FunctionalInstruction const& _functionalInstruction) const;
 	std::string operator()(ExpressionStatement const& _expr) const;
-	std::string operator()(Label const& _label) const;
-	std::string operator()(StackAssignment const& _assignment) const;
 	std::string operator()(Assignment const& _assignment) const;
 	std::string operator()(VariableDeclaration const& _variableDeclaration) const;
 	std::string operator()(FunctionDefinition const& _functionDefinition) const;
@@ -50,13 +51,16 @@ public:
 	std::string operator()(If const& _if) const;
 	std::string operator()(Switch const& _switch) const;
 	std::string operator()(ForLoop const& _forLoop) const;
+	std::string operator()(Break const& _break) const;
+	std::string operator()(Continue const& _continue) const;
+	std::string operator()(Leave const& _continue) const;
 	std::string operator()(Block const& _block) const;
 
 private:
 	std::string formatTypedName(TypedName _variable) const;
-	std::string appendTypeName(YulString _type) const;
+	std::string appendTypeName(YulString _type, bool _isBoolLiteral = false) const;
 
-	bool m_yul = false;
+	Dialect const* m_dialect = nullptr;
 };
 
 }

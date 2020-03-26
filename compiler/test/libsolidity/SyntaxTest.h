@@ -19,71 +19,42 @@
 
 #include <test/libsolidity/AnalysisFramework.h>
 #include <test/TestCase.h>
+#include <test/CommonSyntaxTest.h>
 #include <liblangutil/Exceptions.h>
-#include <libdevcore/AnsiColorized.h>
+#include <libsolutil/AnsiColorized.h>
 
 #include <iosfwd>
 #include <string>
 #include <vector>
 #include <utility>
 
-namespace dev
-{
-namespace solidity
-{
-namespace test
+namespace solidity::frontend::test
 {
 
-struct SyntaxTestError
-{
-	std::string type;
-	std::string message;
-	int locationStart;
-	int locationEnd;
-	bool operator==(SyntaxTestError const& _rhs) const
-	{
-		return type == _rhs.type &&
-			message == _rhs.message &&
-			locationStart == _rhs.locationStart &&
-			locationEnd == _rhs.locationEnd;
-	}
-};
+using solidity::test::SyntaxTestError;
 
-
-class SyntaxTest: AnalysisFramework, public TestCase
+class SyntaxTest: public AnalysisFramework, public solidity::test::CommonSyntaxTest
 {
 public:
 	static std::unique_ptr<TestCase> create(Config const& _config)
-	{ return std::unique_ptr<TestCase>(new SyntaxTest(_config.filename)); }
-	SyntaxTest(std::string const& _filename);
-
-	bool run(std::ostream& _stream, std::string const& _linePrefix = "", bool const _formatted = false) override;
-
-	void printSource(std::ostream &_stream, std::string const &_linePrefix = "", bool const _formatted = false) const override;
-	void printUpdatedExpectations(std::ostream& _stream, std::string const& _linePrefix) const override
 	{
-		if (!m_errorList.empty())
-			printErrorList(_stream, m_errorList, _linePrefix, false);
+		return std::make_unique<SyntaxTest>(_config.filename, _config.evmVersion, false);
 	}
+	static std::unique_ptr<TestCase> createErrorRecovery(Config const& _config)
+	{
+		return std::make_unique<SyntaxTest>(_config.filename, _config.evmVersion, true);
+	}
+	SyntaxTest(std::string const& _filename, langutil::EVMVersion _evmVersion, bool _parserErrorRecovery = false);
 
-	static std::string errorMessage(Exception const& _e);
+	TestResult run(std::ostream& _stream, std::string const& _linePrefix = "", bool _formatted = false) override;
+
 protected:
-	static void printErrorList(
-		std::ostream& _stream,
-		std::vector<SyntaxTestError> const& _errors,
-		std::string const& _linePrefix,
-		bool const _formatted = false
-	);
+	void setupCompiler();
+	void parseAndAnalyze() override;
+	void filterObtainedErrors();
 
-	virtual bool printExpectationAndError(std::ostream& _stream, std::string const& _linePrefix = "", bool const _formatted = false);
-
-	static std::vector<SyntaxTestError> parseExpectations(std::istream& _stream);
-
-	std::string m_source;
-	std::vector<SyntaxTestError> m_expectations;
-	std::vector<SyntaxTestError> m_errorList;
+	bool m_optimiseYul = true;
+	bool m_parserErrorRecovery = false;
 };
 
-}
-}
 }

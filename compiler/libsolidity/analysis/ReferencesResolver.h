@@ -24,20 +24,20 @@
 
 #include <libsolidity/ast/ASTVisitor.h>
 #include <libsolidity/ast/ASTAnnotations.h>
+#include <liblangutil/EVMVersion.h>
+#include <libyul/optimiser/ASTWalker.h>
 
 #include <boost/noncopyable.hpp>
 #include <list>
 #include <map>
 
-namespace langutil
+namespace solidity::langutil
 {
 class ErrorReporter;
 struct SourceLocation;
 }
 
-namespace dev
-{
-namespace solidity
+namespace solidity::frontend
 {
 
 class NameAndTypeResolver;
@@ -46,16 +46,18 @@ class NameAndTypeResolver;
  * Resolves references to declarations (of variables and types) and also establishes the link
  * between a return statement and the return parameter list.
  */
-class ReferencesResolver: private ASTConstVisitor
+class ReferencesResolver: private ASTConstVisitor, private yul::ASTWalker
 {
 public:
 	ReferencesResolver(
 		langutil::ErrorReporter& _errorReporter,
 		NameAndTypeResolver& _resolver,
+		langutil::EVMVersion _evmVersion,
 		bool _resolveInsideCode = false
 	):
 		m_errorReporter(_errorReporter),
 		m_resolver(_resolver),
+		m_evmVersion(_evmVersion),
 		m_resolveInsideCode(_resolveInsideCode)
 	{}
 
@@ -63,6 +65,9 @@ public:
 	bool resolve(ASTNode const& _root);
 
 private:
+	using yul::ASTWalker::visit;
+	using yul::ASTWalker::operator();
+
 	bool visit(Block const& _block) override;
 	void endVisit(Block const& _block) override;
 	bool visit(ForStatement const& _for) override;
@@ -82,6 +87,10 @@ private:
 	bool visit(Return const& _return) override;
 	void endVisit(VariableDeclaration const& _variable) override;
 
+	void operator()(yul::FunctionDefinition const& _function) override;
+	void operator()(yul::Identifier const& _identifier) override;
+	void operator()(yul::VariableDeclaration const& _varDecl) override;
+
 	/// Adds a new error to the list of errors.
 	void typeError(langutil::SourceLocation const& _location, std::string const& _description);
 
@@ -91,16 +100,22 @@ private:
 	/// Adds a new error to the list of errors.
 	void declarationError(langutil::SourceLocation const& _location, std::string const& _description);
 
+	/// Adds a new error to the list of errors.
+	void declarationError(langutil::SourceLocation const& _location, langutil::SecondarySourceLocation const& _ssl, std::string const& _description);
+
 	/// Adds a new error to the list of errors and throws to abort reference resolving.
 	void fatalDeclarationError(langutil::SourceLocation const& _location, std::string const& _description);
 
 	langutil::ErrorReporter& m_errorReporter;
 	NameAndTypeResolver& m_resolver;
+	langutil::EVMVersion m_evmVersion;
 	/// Stack of return parameters.
 	std::vector<ParameterList const*> m_returnParameters;
 	bool const m_resolveInsideCode;
 	bool m_errorOccurred = false;
+
+	InlineAssemblyAnnotation* m_yulAnnotation = nullptr;
+	bool m_yulInsideFunction = false;
 };
 
-}
 }

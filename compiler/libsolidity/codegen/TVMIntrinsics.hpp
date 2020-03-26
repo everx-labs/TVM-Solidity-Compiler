@@ -23,22 +23,27 @@
 #include <libsolidity/ast/Types.h>
 
 
-namespace dev::solidity {
+namespace solidity::frontend {
 
-class IntrinsicsCompiler : public StackPusherHelper {
-	IExpressionCompiler* const m_exprCompiler;
+class IntrinsicsCompiler {
+public:
+	// TODO remove exprCompiler
+	IntrinsicsCompiler(StackPusherHelper& pusher, IExpressionCompiler* exprCompiler) :
+		m_pusher{pusher},
+		m_exprCompiler(exprCompiler) {
+
+	}
+
+	bool checkTvmIntrinsic(FunctionCall const& _functionCall);
 
 protected:
 	void acceptExpr(const Expression* expr) {
-		m_exprCompiler->acceptExpr(expr);
+		m_exprCompiler->compileNewExpr(expr);
 	}
-	
-public:
-	IntrinsicsCompiler(IStackPusher* pusher, IExpressionCompiler* exprCompiler, const TVMCompilerContext& ctx)
-		: StackPusherHelper(pusher, &ctx)
-		, m_exprCompiler(exprCompiler) {}
-		
-	bool checkTvmIntrinsic(FunctionCall const& _functionCall);
+
+private:
+	StackPusherHelper& m_pusher;
+	IExpressionCompiler* const m_exprCompiler;
 };
-	
-} // end dev::solidity
+
+} // end solidity::frontend

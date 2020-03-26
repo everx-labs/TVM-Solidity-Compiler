@@ -1,8 +1,166 @@
 [
     {
+        "name": "YulOptimizerRedundantAssignmentBreakContinue",
+        "summary": "The Yul optimizer can remove essential assignments to variables declared inside for loops when Yul's continue or break statement is used. You are unlikely to be affected if you do not use inline assembly with for loops and continue and break statements.",
+        "description": "The Yul optimizer has a stage that removes assignments to variables that are overwritten again or are not used in all following control-flow branches. This logic incorrectly removes such assignments to variables declared inside a for loop if they can be removed in a control-flow branch that ends with ``break`` or ``continue`` even though they cannot be removed in other control-flow branches. Variables declared outside of the respective for loop are not affected.",
+        "introduced": "0.6.0",
+        "fixed": "0.6.1",
+        "severity": "medium",
+        "conditions": {
+            "yulOptimizer": true
+        }
+    },
+    {
+        "name": "YulOptimizerRedundantAssignmentBreakContinue0.5",
+        "summary": "The Yul optimizer can remove essential assignments to variables declared inside for loops when Yul's continue or break statement is used. You are unlikely to be affected if you do not use inline assembly with for loops and continue and break statements.",
+        "description": "The Yul optimizer has a stage that removes assignments to variables that are overwritten again or are not used in all following control-flow branches. This logic incorrectly removes such assignments to variables declared inside a for loop if they can be removed in a control-flow branch that ends with ``break`` or ``continue`` even though they cannot be removed in other control-flow branches. Variables declared outside of the respective for loop are not affected.",
+        "introduced": "0.5.8",
+        "fixed": "0.5.16",
+        "severity": "low",
+        "conditions": {
+            "yulOptimizer": true
+        }
+    },
+    {
+        "name": "ABIEncoderV2LoopYulOptimizer",
+        "summary": "If both the experimental ABIEncoderV2 and the experimental Yul optimizer are activated, one component of the Yul optimizer may reuse data in memory that has been changed in the meantime.",
+        "description": "The Yul optimizer incorrectly replaces ``mload`` and ``sload`` calls with values that have been previously written to the load location (and potentially changed in the meantime) if all of the following conditions are met: (1) there is a matching ``mstore`` or ``sstore`` call before; (2) the contents of memory or storage is only changed in a function that is called (directly or indirectly) in between the first store and the load call; (3) called function contains a for loop where the same memory location is changed in the condition or the post or body block. When used in Solidity mode, this can only happen if the experimental ABIEncoderV2 is activated and the experimental Yul optimizer has been activated manually in addition to the regular optimizer in the compiler settings.",
+        "introduced": "0.5.14",
+        "fixed": "0.5.15",
+        "severity": "low",
+        "conditions": {
+            "ABIEncoderV2": true,
+            "optimizer": true,
+            "yulOptimizer": true
+        }
+    },
+    {
+        "name": "ABIEncoderV2CalldataStructsWithStaticallySizedAndDynamicallyEncodedMembers",
+        "summary": "Reading from calldata structs that contain dynamically encoded, but statically-sized members can result in incorrect values.",
+        "description": "When a calldata struct contains a dynamically encoded, but statically-sized member, the offsets for all subsequent struct members are calculated incorrectly. All reads from such members will result in invalid values. Only calldata structs are affected, i.e. this occurs in external functions with such structs as argument. Using affected structs in storage or memory or as arguments to public functions on the other hand works correctly.",
+        "introduced": "0.5.6",
+        "fixed": "0.5.11",
+        "severity": "low",
+        "conditions": {
+            "ABIEncoderV2": true
+        }
+    },
+    {
+        "name": "SignedArrayStorageCopy",
+        "summary": "Assigning an array of signed integers to a storage array of different type can lead to data corruption in that array.",
+        "description": "In two's complement, negative integers have their higher order bits set. In order to fit into a shared storage slot, these have to be set to zero. When a conversion is done at the same time, the bits to set to zero were incorrectly determined from the source and not the target type. This means that such copy operations can lead to incorrect values being stored.",
+        "introduced": "0.4.7",
+        "fixed": "0.5.10",
+        "severity": "low/medium"
+    },
+    {
+        "name": "ABIEncoderV2StorageArrayWithMultiSlotElement",
+        "summary": "Storage arrays containing structs or other statically-sized arrays are not read properly when directly encoded in external function calls or in abi.encode*.",
+        "description": "When storage arrays whose elements occupy more than a single storage slot are directly encoded in external function calls or using abi.encode*, their elements are read in an overlapping manner, i.e. the element pointer is not properly advanced between reads. This is not a problem when the storage data is first copied to a memory variable or if the storage array only contains value types or dynamically-sized arrays.",
+        "introduced": "0.4.16",
+        "fixed": "0.5.10",
+        "severity": "low",
+        "conditions": {
+            "ABIEncoderV2": true
+        }
+    },
+    {
+        "name": "DynamicConstructorArgumentsClippedABIV2",
+        "summary": "A contract's constructor that takes structs or arrays that contain dynamically-sized arrays reverts or decodes to invalid data.",
+        "description": "During construction of a contract, constructor parameters are copied from the code section to memory for decoding. The amount of bytes to copy was calculated incorrectly in case all parameters are statically-sized but contain dynamically-sized arrays as struct members or inner arrays. Such types are only available if ABIEncoderV2 is activated.",
+        "introduced": "0.4.16",
+        "fixed": "0.5.9",
+        "severity": "very low",
+        "conditions": {
+            "ABIEncoderV2": true
+        }
+    },
+    {
+        "name": "UninitializedFunctionPointerInConstructor",
+        "summary": "Calling uninitialized internal function pointers created in the constructor does not always revert and can cause unexpected behaviour.",
+        "description": "Uninitialized internal function pointers point to a special piece of code that causes a revert when called. Jump target positions are different during construction and after deployment, but the code for setting this special jump target only considered the situation after deployment.",
+        "introduced": "0.5.0",
+        "fixed": "0.5.8",
+        "severity": "very low"
+    },
+    {
+        "name": "UninitializedFunctionPointerInConstructor_0.4.x",
+        "summary": "Calling uninitialized internal function pointers created in the constructor does not always revert and can cause unexpected behaviour.",
+        "description": "Uninitialized internal function pointers point to a special piece of code that causes a revert when called. Jump target positions are different during construction and after deployment, but the code for setting this special jump target only considered the situation after deployment.",
+        "introduced": "0.4.5",
+        "fixed": "0.4.26",
+        "severity": "very low"
+    },
+    {
+        "name": "IncorrectEventSignatureInLibraries",
+        "summary": "Contract types used in events in libraries cause an incorrect event signature hash",
+        "description": "Instead of using the type `address` in the hashed signature, the actual contract name was used, leading to a wrong hash in the logs.",
+        "introduced": "0.5.0",
+        "fixed": "0.5.8",
+        "severity": "very low"
+    },
+    {
+        "name": "IncorrectEventSignatureInLibraries_0.4.x",
+        "summary": "Contract types used in events in libraries cause an incorrect event signature hash",
+        "description": "Instead of using the type `address` in the hashed signature, the actual contract name was used, leading to a wrong hash in the logs.",
+        "introduced": "0.3.0",
+        "fixed": "0.4.26",
+        "severity": "very low"
+    },
+    {
+        "name": "ABIEncoderV2PackedStorage",
+        "summary": "Storage structs and arrays with types shorter than 32 bytes can cause data corruption if encoded directly from storage using the experimental ABIEncoderV2.",
+        "description": "Elements of structs and arrays that are shorter than 32 bytes are not properly decoded from storage when encoded directly (i.e. not via a memory type) using ABIEncoderV2. This can cause corruption in the values themselves but can also overwrite other parts of the encoded data.",
+        "link": "https://blog.ethereum.org/2019/03/26/solidity-optimizer-and-abiencoderv2-bug/",
+        "introduced": "0.5.0",
+        "fixed": "0.5.7",
+        "severity": "low",
+        "conditions": {
+            "ABIEncoderV2": true
+        }
+    },
+    {
+        "name": "ABIEncoderV2PackedStorage_0.4.x",
+        "summary": "Storage structs and arrays with types shorter than 32 bytes can cause data corruption if encoded directly from storage using the experimental ABIEncoderV2.",
+        "description": "Elements of structs and arrays that are shorter than 32 bytes are not properly decoded from storage when encoded directly (i.e. not via a memory type) using ABIEncoderV2. This can cause corruption in the values themselves but can also overwrite other parts of the encoded data.",
+        "link": "https://blog.ethereum.org/2019/03/26/solidity-optimizer-and-abiencoderv2-bug/",
+        "introduced": "0.4.19",
+        "fixed": "0.4.26",
+        "severity": "low",
+        "conditions": {
+            "ABIEncoderV2": true
+        }
+    },
+    {
+        "name": "IncorrectByteInstructionOptimization",
+        "summary": "The optimizer incorrectly handles byte opcodes whose second argument is 31 or a constant expression that evaluates to 31. This can result in unexpected values.",
+        "description": "The optimizer incorrectly handles byte opcodes that use the constant 31 as second argument. This can happen when performing index access on bytesNN types with a compile-time constant value (not index) of 31 or when using the byte opcode in inline assembly.",
+        "link": "https://blog.ethereum.org/2019/03/26/solidity-optimizer-and-abiencoderv2-bug/",
+        "introduced": "0.5.5",
+        "fixed": "0.5.7",
+        "severity": "very low",
+        "conditions": {
+            "optimizer": true
+        }
+    },
+    {
+        "name": "DoubleShiftSizeOverflow",
+        "summary": "Double bitwise shifts by large constants whose sum overflows 256 bits can result in unexpected values.",
+        "description": "Nested logical shift operations whose total shift size is 2**256 or more are incorrectly optimized. This only applies to shifts by numbers of bits that are compile-time constant expressions.",
+        "link": "https://blog.ethereum.org/2019/03/26/solidity-optimizer-and-abiencoderv2-bug/",
+        "introduced": "0.5.5",
+        "fixed": "0.5.6",
+        "severity": "low",
+        "conditions": {
+            "optimizer": true,
+            "evmVersion": ">=constantinople"
+        }
+    },
+    {
         "name": "ExpExponentCleanup",
         "summary": "Using the ** operator with an exponent of type shorter than 256 bits can result in unexpected values.",
         "description": "Higher order bits in the exponent are not properly cleaned before the EXP opcode is applied if the type of the exponent expression is smaller than 256 bits and not smaller than the type of the base. In that case, the result might be larger than expected if the exponent is assumed to lie within the value range of the type. Literal numbers as exponents are unaffected as are exponents or bases of type uint256.",
+        "link": "https://blog.ethereum.org/2018/09/13/solidity-bugfix-release/",
         "fixed": "0.4.25",
         "severity": "medium/high",
         "check": {"regex-source": "[^/]\\*\\* *[^/0-9 ]"}
@@ -11,6 +169,7 @@
         "name": "EventStructWrongData",
         "summary": "Using structs in events logged wrong data.",
         "description": "If a struct is used in an event, the address of the struct is logged instead of the actual data.",
+        "link": "https://blog.ethereum.org/2018/09/13/solidity-bugfix-release/",
         "introduced": "0.4.17",
         "fixed": "0.4.25",
         "severity": "very low",
@@ -20,6 +179,7 @@
         "name": "NestedArrayFunctionCallDecoder",
         "summary": "Calling functions that return multi-dimensional fixed-size arrays can result in memory corruption.",
         "description": "If Solidity code calls a function that returns a multi-dimensional fixed-size array, array elements are incorrectly interpreted as memory pointers and thus can cause memory corruption if the return values are accessed. Calling functions with multi-dimensional fixed-size arrays is unaffected as is returning fixed-size arrays from function calls. The regular expression only checks if such functions are present, not if they are called, which is required for the contract to be affected.",
+        "link": "https://blog.ethereum.org/2018/09/13/solidity-bugfix-release/",
         "introduced": "0.1.4",
         "fixed": "0.4.22",
         "severity": "medium",

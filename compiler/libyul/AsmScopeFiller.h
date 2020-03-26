@@ -22,18 +22,16 @@
 
 #include <libyul/AsmDataForward.h>
 
-#include <boost/variant.hpp>
-
 #include <functional>
 #include <memory>
 
-namespace langutil
+namespace solidity::langutil
 {
 class ErrorReporter;
 struct SourceLocation;
 }
 
-namespace yul
+namespace solidity::yul
 {
 
 struct TypedName;
@@ -44,18 +42,14 @@ struct AsmAnalysisInfo;
  * Fills scopes with identifiers and checks for name clashes.
  * Does not resolve references.
  */
-class ScopeFiller: public boost::static_visitor<bool>
+class ScopeFiller
 {
 public:
 	ScopeFiller(AsmAnalysisInfo& _info, langutil::ErrorReporter& _errorReporter);
 
-	bool operator()(Instruction const&) { return true; }
 	bool operator()(Literal const&) { return true; }
 	bool operator()(Identifier const&) { return true; }
-	bool operator()(FunctionalInstruction const&) { return true; }
 	bool operator()(ExpressionStatement const& _expr);
-	bool operator()(Label const& _label);
-	bool operator()(StackAssignment const&) { return true; }
 	bool operator()(Assignment const&) { return true; }
 	bool operator()(VariableDeclaration const& _variableDeclaration);
 	bool operator()(FunctionDefinition const& _functionDefinition);
@@ -63,6 +57,9 @@ public:
 	bool operator()(If const& _if);
 	bool operator()(Switch const& _switch);
 	bool operator()(ForLoop const& _forLoop);
+	bool operator()(Break const&) { return true; }
+	bool operator()(Continue const&) { return true; }
+	bool operator()(Leave const&) { return true; }
 	bool operator()(Block const& _block);
 
 private:
@@ -71,6 +68,7 @@ private:
 		langutil::SourceLocation const& _location,
 		Scope& _scope
 	);
+	bool registerFunction(FunctionDefinition const& _funDef);
 
 	Scope& scope(Block const* _block);
 

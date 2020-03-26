@@ -7,5 +7,5 @@ contract C {
         assert(x != 2);
     }
 }
-// ----
-// Warning: (199-213): Assertion violation happens here
+// ====
+// SMTSolvers: z3

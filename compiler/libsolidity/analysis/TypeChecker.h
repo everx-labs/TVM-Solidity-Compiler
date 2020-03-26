@@ -29,14 +29,12 @@
 #include <libsolidity/ast/ASTVisitor.h>
 #include <libsolidity/ast/Types.h>
 
-namespace langutil
+namespace solidity::langutil
 {
 class ErrorReporter;
 }
 
-namespace dev
-{
-namespace solidity
+namespace solidity::frontend
 {
 
 /**
@@ -48,7 +46,7 @@ class TypeChecker: private ASTConstVisitor
 {
 public:
 	/// @param _errorReporter provides the error logging functionality.
-	TypeChecker(EVMVersion _evmVersion, langutil::ErrorReporter& _errorReporter):
+	TypeChecker(langutil::EVMVersion _evmVersion, langutil::ErrorReporter& _errorReporter):
 		m_evmVersion(_evmVersion),
 		m_errorReporter(_errorReporter)
 	{}
@@ -62,6 +60,8 @@ public:
 	/// @returns the type of the given variable and throws if the type is not present
 	/// (this can happen for variables with non-explicit types before their types are resolved)
 	TypePointer const& type(VariableDeclaration const& _variable) const;
+
+	static bool typeSupportedByOldABIEncoder(Type const& _type, bool _isLibraryCall);
 
 private:
 
@@ -81,6 +81,10 @@ private:
 		bool _abiEncoderV2
 	);
 
+	TypePointers typeCheckTVMSliceDecodeAndRetrieveReturnType(FunctionCall const& _functionCall);
+
+	TypePointers getReturnTypesForTVMConfig(FunctionCall const& _functionCall);
+
 	TypePointers typeCheckMetaTypeFunctionAndRetrieveReturnType(FunctionCall const& _functionCall);
 
 	/// Performs type checks and determines result types for type conversion FunctionCall nodes.
@@ -93,6 +97,10 @@ private:
 		FunctionCall const& _functionCall,
 		FunctionTypePointer _functionType
 	);
+
+	void typeCheckFallbackFunction(FunctionDefinition const& _function);
+	void typeCheckReceiveFunction(FunctionDefinition const& _function);
+	void typeCheckConstructor(FunctionDefinition const& _function);
 
 	/// Performs general number and type checks of arguments against function call and struct ctor FunctionCall node parameters.
 	void typeCheckFunctionGeneralChecks(
@@ -118,10 +126,10 @@ private:
 	void endVisit(FunctionTypeName const& _funType) override;
 	bool visit(InlineAssembly const& _inlineAssembly) override;
 	bool visit(IfStatement const& _ifStatement) override;
+	void endVisit(TryStatement const& _tryStatement) override;
 	bool visit(WhileStatement const& _whileStatement) override;
 	bool visit(ForStatement const& _forStatement) override;
 	void endVisit(Return const& _return) override;
-	bool visit(EmitStatement const&) override { m_insideEmitStatement = true; return true; }
 	void endVisit(EmitStatement const& _emit) override;
 	bool visit(VariableDeclarationStatement const& _variable) override;
 	void endVisit(ExpressionStatement const& _statement) override;
@@ -131,12 +139,15 @@ private:
 	void endVisit(BinaryOperation const& _operation) override;
 	bool visit(UnaryOperation const& _operation) override;
 	bool visit(FunctionCall const& _functionCall) override;
+	bool visit(FunctionCallOptions const& _functionCallOptions) override;
 	void endVisit(NewExpression const& _newExpression) override;
 	bool visit(MemberAccess const& _memberAccess) override;
 	bool visit(IndexAccess const& _indexAccess) override;
+	bool visit(IndexRangeAccess const& _indexRangeAccess) override;
 	bool visit(Identifier const& _identifier) override;
 	void endVisit(ElementaryTypeNameExpression const& _expr) override;
 	void endVisit(Literal const& _literal) override;
+	bool visit(Mapping const& _mapping) override;
 
 	bool contractDependenciesAreCyclic(
 		ContractDefinition const& _contract,
@@ -156,16 +167,10 @@ private:
 
 	ContractDefinition const* m_scope = nullptr;
 
-	EVMVersion m_evmVersion;
-
-	/// Flag indicating whether we are currently inside an EmitStatement.
-	bool m_insideEmitStatement = false;
-
-	/// Flag indicating whether we are currently inside a StructDefinition.
-	bool m_insideStruct = false;
+	langutil::EVMVersion m_evmVersion;
 
 	langutil::ErrorReporter& m_errorReporter;
+	std::map<std::string, StructType const*> m_structs;
 };
 
-}
 }

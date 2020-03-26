@@ -24,8 +24,8 @@
 #include <libyul/AsmData.h>
 
 using namespace std;
-using namespace dev;
-using namespace yul;
+using namespace solidity;
+using namespace solidity::yul;
 
 void SSAValueTracker::operator()(Assignment const& _assignment)
 {
@@ -49,6 +49,16 @@ void SSAValueTracker::operator()(VariableDeclaration const& _varDecl)
 		setValue(_varDecl.variables.front().name, _varDecl.value.get());
 }
 
+set<YulString> SSAValueTracker::ssaVariables(Block const& _ast)
+{
+	SSAValueTracker t;
+	t(_ast);
+	set<YulString> ssaVars;
+	for (auto const& value: t.values())
+		ssaVars.insert(value.first);
+	return ssaVars;
+}
+
 void SSAValueTracker::setValue(YulString _name, Expression const* _value)
 {
 	assertThrow(
@@ -56,8 +66,7 @@ void SSAValueTracker::setValue(YulString _name, Expression const* _value)
 		OptimizerException,
 		"Source needs to be disambiguated."
 	);
-	static Expression const zero{Literal{{}, LiteralKind::Number, YulString{"0"}, {}}};
 	if (!_value)
-		_value = &zero;
+		_value = &m_zero;
 	m_values[_name] = _value;
 }

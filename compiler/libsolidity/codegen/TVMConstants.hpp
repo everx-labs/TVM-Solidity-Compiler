@@ -22,7 +22,7 @@ namespace TvmConst {
 	namespace C4 {
 		// length of key in dict c4
 		const int KeyLength = 64;
-		const int PersistenceMembersStartIndex = 100;
+		const int PersistenceMembersStartIndex = 1;
 	}
 	namespace SENDRAWMSG {
 		const int CarryAllMoney  = 128;
@@ -31,7 +31,7 @@ namespace TvmConst {
 		const int functionIdLength = 32;
 		const int timestampLength = 64;
 		namespace ReplayProtection {
-			const int Interval = 30 * 60 * 1000; // 30 min = 30 * 60 * 1000 milisec;
+			const int Interval = 30 * 60 * 1000; // 30 min = 30 * 60 * 1000 millisecond;
 		}
 		namespace Exception {
 			const int ConstructorIsCalledTwice  = 51;
@@ -47,10 +47,15 @@ namespace TvmConst {
 		const int ArrayIndexOutOfRange = 50;
 		const int PopFromEmptyArray = 54;
 		const int DelMinFromEmptyMap = 56;
-		const int MinFromEmptyMap = 57;
+		const int MessageIsExpired = 57;
 	}
 
 	namespace C7 {
 		const int ExtDestAddrIndex = 4;
+	}
+
+	namespace FunctionId {
+		const int First = 3;
+		const int64_t Last = 0xFFFFFFFD;
 	}
 }

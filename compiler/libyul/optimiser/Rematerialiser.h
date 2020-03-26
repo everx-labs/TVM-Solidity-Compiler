@@ -21,23 +21,31 @@
 #pragma once
 
 #include <libyul/optimiser/DataFlowAnalyzer.h>
+#include <libyul/optimiser/OptimiserStep.h>
 
-namespace yul
+namespace solidity::yul
 {
 
 /**
- * Optimisation stage that replaces variables by their most recently assigned expressions,
+ * Optimisation stage that replaces variable references by those expressions
+ * that are most recently assigned to the referenced variables,
  * but only if the expression is movable and one of the following holds:
- *  - the variable is referenced exactly once
+ *  - the variable is referenced exactly once (and definition-to-reference does not cross a loop boundary)
  *  - the value is extremely cheap ("cost" of zero like ``caller()``)
  *  - the variable is referenced at most 5 times and the value is rather cheap
- *    ("cost" of at most 1 like a constant up to 0xff)
+ *    ("cost" of at most 1 like a constant up to 0xff) and we are not in a loop
  *
- * Prerequisite: Disambiguator
+ * Prerequisite: Disambiguator, ForLoopInitRewriter.
  */
 class Rematerialiser: public DataFlowAnalyzer
 {
 public:
+	static constexpr char const* name{"Rematerialiser"};
+	static void run(
+		OptimiserStepContext& _context,
+		Block& _ast
+	) { run(_context.dialect, _ast); }
+
 	static void run(
 		Dialect const& _dialect,
 		Block& _ast,
@@ -61,11 +69,41 @@ protected:
 		std::set<YulString> _varsToAlwaysRematerialize = {}
 	);
 
+	using DataFlowAnalyzer::operator();
+
 	using ASTModifier::visit;
 	void visit(Expression& _e) override;
 
 	std::map<YulString, size_t> m_referenceCounts;
 	std::set<YulString> m_varsToAlwaysRematerialize;
 };
+
+/**
+ * If a variable is referenced that is known to have a literal
+ * value at that point, replace it by a literal.
+ *
+ * This is mostly used so that other components do not have to rely
+ * on the data flow analyzer.
+ *
+ * Prerequisite: Disambiguator, ForLoopInitRewriter.
+ */
+class LiteralRematerialiser: public DataFlowAnalyzer
+{
+public:
+	static constexpr char const* name{"LiteralRematerialiser"};
+	static void run(
+		OptimiserStepContext& _context,
+		Block& _ast
+	) { LiteralRematerialiser{_context.dialect}(_ast); }
+
+	using ASTModifier::visit;
+	void visit(Expression& _e) override;
+
+private:
+	LiteralRematerialiser(Dialect const& _dialect):
+		DataFlowAnalyzer(_dialect)
+	{}
+};
+
 
 }
