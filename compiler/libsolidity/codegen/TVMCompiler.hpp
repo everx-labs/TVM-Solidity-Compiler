@@ -373,16 +373,24 @@ PUSHCONT {
 )");
 			m_pusher.addTabs();
 			int shift = 0;
-			for (VariableDeclaration const* v : m_pusher.ctx().getContract()->stateVariables()) {
+			for (VariableDeclaration const* v : m_pusher.ctx().getContract()->stateVariablesIncludingInherited()) {
+				if (v->isConstant()) {
+					continue;
+				}
+				m_pusher.push(0, "; init " + v->name());
 				if (v->isPublic()) {
 					m_pusher.pushInt(TvmConst::C4::PersistenceMembersStartIndex + shift++); // index
 					m_pusher.pushS(1); // index dict
-					m_pusher.getFromDict(getKeyTypeOfC4(), *v->type(), *v, StackPusherHelper::DictOperation::MoveToC7,
+					m_pusher.getFromDict(getKeyTypeOfC4(), *v->type(), *v, StackPusherHelper::DictOperation::GetFromMapping,
 					                         false);
+				} else {
+					m_pusher.pushDefaultValue(v->type());
 				}
+				m_pusher.setGlob(v);
 			}
 			m_pusher.subTabs();
 			m_pusher.pushLines(R"(
+	; set contract pubkey
 	PUSHINT 0
 	SWAP
 	PUSHINT 64
@@ -396,9 +404,6 @@ PUSHCONT {
 	PUSHINT 0 ; constructor_flag
 	SETGLOB 6
 )");
-			m_pusher.addTabs();
-			m_pusher.resetAllStateVars();
-			m_pusher.subTabs();
 			m_pusher.pushLines(R"(
 	TRUE
 	SETGLOB 1
