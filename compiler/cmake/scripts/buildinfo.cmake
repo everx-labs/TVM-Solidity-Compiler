@@ -34,11 +34,11 @@ if (EXISTS ${ETH_SOURCE_DIR}/commit_hash.txt)
 	string(STRIP ${SOL_COMMIT_HASH} SOL_COMMIT_HASH)
 else()
 	execute_process(
-		COMMAND git --git-dir=${ETH_SOURCE_DIR}/../../.git --work-tree=${ETH_SOURCE_DIR} rev-parse --short=8 HEAD
+		COMMAND git --git-dir=${ETH_SOURCE_DIR}/../.git --work-tree=${ETH_SOURCE_DIR} rev-parse --short=8 HEAD
 		OUTPUT_VARIABLE SOL_COMMIT_HASH OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET
 	)
 	execute_process(
-		COMMAND git --git-dir=${ETH_SOURCE_DIR}/../../.git --work-tree=${ETH_SOURCE_DIR} diff HEAD --shortstat
+		COMMAND git --git-dir=${ETH_SOURCE_DIR}/../.git --work-tree=${ETH_SOURCE_DIR} diff HEAD --shortstat
 		OUTPUT_VARIABLE SOL_LOCAL_CHANGES OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET
 	)
 endif()
