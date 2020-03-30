@@ -1635,8 +1635,7 @@ POP C4
 		GetFromArray,
 		GetFromMapping,
 		Fetch,
-		Exist,
-		MoveToC7
+		Exist
 	};
 
 	void getFromDict(const Type& keyType, const Type& valueType, ASTNode const& node, const DictOperation op,

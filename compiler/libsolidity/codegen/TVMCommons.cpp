@@ -159,16 +159,6 @@ void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, 
 		push(-2, "IF");
 	};
 
-	auto moveToC7 = [&](){
-		startContinuation();
-		append(pusherMoveC7.code());
-		auto vd = to<VariableDeclaration>(&node);
-		solAssert(vd, "");
-		setGlob(vd);
-		endContinuation();
-		push(-2, "IF"); // drop value and flag
-	};
-
 	std::string dictOpcode = "DICT" + typeToDictChar(&keyType);
 	if (valueCategory == Type::Category::TvmCell) {
 		push(-3 + 2, dictOpcode + "GETREF");
@@ -185,9 +175,6 @@ void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, 
 				break;
 			case DictOperation::Exist:
 				checkExist();
-				break;
-			case DictOperation::MoveToC7:
-				moveToC7();
 				break;
 		}
 	} else if (valueCategory == Type::Category::Struct) {
@@ -232,11 +219,6 @@ void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, 
 				case DictOperation::Exist:
 					checkExist();
 					break;
-				case DictOperation::MoveToC7:
-					StructCompiler sc{&pusherMoveC7, to<StructType>(&valueType)};
-					sc.convertSliceToTuple();
-					moveToC7();
-					break;
 			}
 		} else {
 			push(-3 + 2, dictOpcode + "GETREF");
@@ -271,12 +253,6 @@ void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, 
 				case DictOperation::Exist:
 					checkExist();
 					break;
-				case DictOperation::MoveToC7:
-					pusherMoveC7.push(0, "CTOS");
-					StructCompiler sc{&pusherMoveC7, to<StructType>(&valueType)};
-					sc.convertSliceToTuple();
-					moveToC7();
-					break;
 			}
 		}
 	} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract) || isByteArrayOrString(&valueType)) {
@@ -300,9 +276,6 @@ void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, 
 			}
 			case DictOperation::Exist:
 				checkExist();
-				break;
-			case DictOperation::MoveToC7:
-				moveToC7();
 				break;
 		}
 	} else if (isIntegralType(&valueType) || isUsualArray(&valueType) || valueCategory == Type::Category::Mapping) {
@@ -329,10 +302,6 @@ void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, 
 			}
 			case DictOperation::Exist:
 				checkExist();
-				break;
-			case DictOperation::MoveToC7:
-				pusherMoveC7.preload(&valueType);
-				moveToC7();
 				break;
 		}
 	} else {

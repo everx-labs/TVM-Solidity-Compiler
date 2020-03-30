@@ -954,6 +954,52 @@ protected:
 				}
 			}
 		}
+		if (auto functionOptions = to<FunctionCallOptions>(&_functionCall.expression())) {
+			if (isCurrentResultNeeded())
+				cast_error(_functionCall, "Calls to remote contract do not return result.");
+			
+			// parse options they are stored in two vectors: names and options
+			auto optionNames = functionOptions->names();
+			
+			for(auto option: optionNames)
+				if(!isIn(*option,"flag","value"))
+					cast_error(_functionCall, "Unsupported function call option: " + *option);
+			
+			// Search for flag option
+			auto flagIt = std::find_if(optionNames.begin(), optionNames.end(),
+				 [](auto el) { return *el == "flag";});
+			
+			if (flagIt != optionNames.end()) {
+				size_t index = flagIt - optionNames.begin();
+				acceptExpr(functionOptions->options()[index].get());
+			} else {
+				m_pusher.pushInt(1);		// if there is no option, push default value
+			}
+			
+			// Search for value option
+			auto valueIt = std::find_if(optionNames.begin(), optionNames.end(),
+				 [](auto el) { return *el == "value";});
+			
+			if (valueIt != optionNames.end()) {
+				size_t index = valueIt - optionNames.begin();
+				acceptExpr(functionOptions->options()[index].get());
+			} else {
+				m_pusher.pushInt(10'000'000);	// if there is no option, push default value
+			}
+			
+			if (auto memberAccess = to<MemberAccess>(&functionOptions->expression())) {
+				acceptExpr(&memberAccess->expression());
+				if (const FunctionDefinition* fdef = getRemoteFunctionDefinition(memberAccess)) {
+					auto fn = TVMCompilerContext::getFunctionExternalName(memberAccess->memberName());
+					encodeOutboundMessageBody(fn, arguments, fdef->parameters(), StackPusherHelper::ReasonOfOutboundMessage::RemoteCallInternal);
+					m_pusher.pushPrivateFunctionOrMacroCall(-4, "send_internal_message_with_flag_macro");
+					return true;
+				}
+			} else {
+				cast_error(_functionCall, "Unsupported usage of function call options.");
+			}
+			
+		}
 		return false;
 	}
 
