@@ -25,7 +25,7 @@
 #include <map>
 #include <set>
 
-namespace yul
+namespace solidity::yul
 {
 
 /**
@@ -54,16 +54,23 @@ private:
 class ReferencesCounter: public ASTWalker
 {
 public:
+	enum CountWhat { VariablesAndFunctions, OnlyVariables };
+
+	explicit ReferencesCounter(CountWhat _countWhat = VariablesAndFunctions):
+		m_countWhat(_countWhat)
+	{}
+
 	using ASTWalker::operator ();
 	virtual void operator()(Identifier const& _identifier);
 	virtual void operator()(FunctionCall const& _funCall);
 
-	static std::map<YulString, size_t> countReferences(Block const& _block);
-	static std::map<YulString, size_t> countReferences(FunctionDefinition const& _function);
-	static std::map<YulString, size_t> countReferences(Expression const& _expression);
+	static std::map<YulString, size_t> countReferences(Block const& _block, CountWhat _countWhat = VariablesAndFunctions);
+	static std::map<YulString, size_t> countReferences(FunctionDefinition const& _function, CountWhat _countWhat = VariablesAndFunctions);
+	static std::map<YulString, size_t> countReferences(Expression const& _expression, CountWhat _countWhat = VariablesAndFunctions);
 
 	std::map<YulString, size_t> const& references() const { return m_references; }
 private:
+	CountWhat m_countWhat = CountWhat::VariablesAndFunctions;
 	std::map<YulString, size_t> m_references;
 };
 
@@ -78,6 +85,31 @@ public:
 
 	std::set<YulString> const& names() const { return m_names; }
 private:
+	std::set<YulString> m_names;
+};
+
+/**
+ * Collects all names from a given continue statement on onwards.
+ *
+ * It makes only sense to be invoked from within a body of an outer for loop, that is,
+ * it will only collect all names from the beginning of the first continue statement
+ * of the outer-most ForLoop.
+ */
+class AssignmentsSinceContinue: public ASTWalker
+{
+public:
+	using ASTWalker::operator();
+	void operator()(ForLoop const& _forLoop) override;
+	void operator()(Continue const&) override;
+	void operator()(Assignment const& _assignment) override;
+	void operator()(FunctionDefinition const& _funDef) override;
+
+	std::set<YulString> const& names() const { return m_names; }
+	bool empty() const noexcept { return m_names.empty(); }
+
+private:
+	size_t m_forLoopDepth = 0;
+	bool m_continueFound = false;
 	std::set<YulString> m_names;
 };
 

@@ -22,24 +22,24 @@
 #include <libyul/optimiser/ExpressionSplitter.h>
 
 #include <libyul/optimiser/ASTWalker.h>
+#include <libyul/optimiser/OptimiserStep.h>
 
 #include <libyul/AsmData.h>
 #include <libyul/Dialect.h>
 
-#include <libdevcore/CommonData.h>
+#include <libsolutil/CommonData.h>
 
 #include <boost/range/adaptor/reversed.hpp>
 
 using namespace std;
-using namespace dev;
-using namespace langutil;
-using namespace yul;
-using namespace dev::solidity;
+using namespace solidity;
+using namespace solidity::yul;
+using namespace solidity::util;
+using namespace solidity::langutil;
 
-void ExpressionSplitter::operator()(FunctionalInstruction& _instruction)
+void ExpressionSplitter::run(OptimiserStepContext& _context, Block& _ast)
 {
-	for (auto& arg: _instruction.arguments | boost::adaptors::reversed)
-		outlineExpression(arg);
+	ExpressionSplitter{_context.dialect, _context.dispenser}(_ast);
 }
 
 void ExpressionSplitter::operator()(FunctionCall& _funCall)
@@ -80,8 +80,8 @@ void ExpressionSplitter::operator()(Block& _block)
 	vector<Statement> saved;
 	swap(saved, m_statementsToPrefix);
 
-	function<boost::optional<vector<Statement>>(Statement&)> f =
-			[&](Statement& _statement) -> boost::optional<vector<Statement>> {
+	function<std::optional<vector<Statement>>(Statement&)> f =
+			[&](Statement& _statement) -> std::optional<vector<Statement>> {
 		m_statementsToPrefix.clear();
 		visit(_statement);
 		if (m_statementsToPrefix.empty())
@@ -96,7 +96,7 @@ void ExpressionSplitter::operator()(Block& _block)
 
 void ExpressionSplitter::outlineExpression(Expression& _expr)
 {
-	if (_expr.type() == typeid(Identifier))
+	if (holds_alternative<Identifier>(_expr))
 		return;
 
 	visit(_expr);

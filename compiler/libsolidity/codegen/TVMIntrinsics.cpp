@@ -21,7 +21,7 @@
 #include "TVMIntrinsics.hpp"
 
 
-namespace dev::solidity {
+namespace solidity::frontend {
 
 
 bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
@@ -40,12 +40,12 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		for (const ASTPointer<Expression const> &arg : arguments) {
 			acceptExpr(arg.get());
 		}
-		push(-static_cast<int>(arguments.size()) + delta, opcode);
+		m_pusher.push(-static_cast<int>(arguments.size()) + delta, opcode);
 	};
 
 	auto ensureParamIsIdentifier = [&] (int idx) -> Identifier const* {
 		auto param = to<Identifier>(arguments[idx].get());
-		solAssert(param && getStack().isParam(param->name()), "");
+		solAssert(param && m_pusher.getStack().isParam(param->name()), "");
 		return param;
 	};
 
@@ -71,11 +71,11 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		auto logstr = arguments[0].get();
 		if (auto literal = to<Literal>(logstr)) {
 			if (literal->value().length() > 15)
-				cast_error(_functionCall, "tvm_logstr param should no more than 15 chars");
+				cast_error(_functionCall, "tvm_logstr param should be no more than 15 chars");
 			if (TVMCompiler::g_without_logstr) {
 				return true;
 			}
-			push(0, "PRINTSTR " + literal->value());
+			m_pusher.push(0, "PRINTSTR " + literal->value());
 		} else {
 			cast_error(_functionCall, "tvm_logstr param should be literal");
 		}
@@ -91,24 +91,24 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 				if (!literal) {
 					cast_error(*arguments[i].get(), "Should be literal");
 				}
-				push(+1, opcode + " " + literal->value());
+				m_pusher.push(+1, opcode + " " + literal->value());
 			}
-			solAssert(tryAssignParam(slice->name()), "");
+			solAssert(m_pusher.tryAssignParam(slice->name()), "");
 		} else {
 			auto bits = arguments[1].get();
 			auto literal = to<Literal>(bits);
-			if (getStack().getOffset(slice->name()) == 0 && literal) {
-				push(+1, opcode + " " + literal->value());
-				push(0, "SWAP");
+			if (m_pusher.getStack().getOffset(slice->name()) == 0 && literal) {
+				m_pusher.push(+1, opcode + " " + literal->value());
+				m_pusher.push(0, "SWAP");
 			} else {
 				acceptExpr(slice);
 				if (literal) {
-					push(+1, opcode + " " + literal->value());
+					m_pusher.push(+1, opcode + " " + literal->value());
 				} else {
 					acceptExpr(bits);
-					push(0, opcode + "X");
+					m_pusher.push(0, opcode + "X");
 				}
-				solAssert(tryAssignParam(slice->name()), "");
+				solAssert(m_pusher.tryAssignParam(slice->name()), "");
 			}
 		}
 		return true;
@@ -117,25 +117,25 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		checkArgCount(2);
 		if (auto literal = to<Literal>(arguments[1].get())) {
 			acceptExpr(arguments[0].get());
-			push(-1 + 1, opcode + " " + literal->value());
+			m_pusher.push(-1 + 1, opcode + " " + literal->value());
 		} else {
 			acceptExpr(arguments[0].get());
 			acceptExpr(arguments[1].get());
-			push(-2 + 1, opcode + "X");
+			m_pusher.push(-2 + 1, opcode + "X");
 		}
 		return true;
 	}
 	if (iname == "tvm_ldmsgaddr") {
 		auto slice = ensureParamIsIdentifier(0);
 		acceptExpr(slice);
-		push(-1 + 2, opcode);
-		solAssert(tryAssignParam(slice->name()), "");
+		m_pusher.push(-1 + 2, opcode);
+		solAssert(m_pusher.tryAssignParam(slice->name()), "");
 		return true;
 	}
 	if (iname == "tvm_pldmsgaddr") {
 		acceptExpr(arguments[0].get());
-		push(-1 + 2, "LDMSGADDR");
-		push(-1, "DROP");
+		m_pusher.push(-1 + 2, "LDMSGADDR");
+		m_pusher.push(-1, "DROP");
 		return true;
 	}
 	if (iname == "tvm_ldslice") {
@@ -143,32 +143,34 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		acceptExpr(slice);
 		auto bits = arguments[1].get();
 		if (auto literal = to<Literal>(bits)) {
-			push(+1, "LDSLICE " + literal->value());
+			m_pusher.push(+1, "LDSLICE " + literal->value());
 		} else {
 			acceptExpr(bits);
-			push(0, "LDSLICEX");
+			m_pusher.push(0, "LDSLICEX");
 		}
-		solAssert(tryAssignParam(slice->name()), "");
+		solAssert(m_pusher.tryAssignParam(slice->name()), "");
 		return true;
 	}
 	if (isIn(iname, "tvm_ldref", "tvm_lddict")) {
 		Identifier const* slice = ensureParamIsIdentifier(0);
-		if (getStack().getOffset(slice->name()) == 0) {
-			push(+1, opcode);
-			push(0, "SWAP");
+		if (m_pusher.getStack().getOffset(slice->name()) == 0) {
+			m_pusher.push(+1, opcode);
+			m_pusher.push(0, "SWAP");
 		} else {
 			acceptExpr(slice);
-			push(+1, opcode);
-			solAssert(tryAssignParam(slice->name()), "");
+			m_pusher.push(+1, opcode);
+			solAssert(m_pusher.tryAssignParam(slice->name()), "");
 		}
 		return true;
 	}
 	if (iname == "tvm_setindex") {
 		const Identifier* tuple = ensureParamIsIdentifier(0);
 		auto literal = to<Literal>(arguments[1].get());
-		if (getStack().getOffset(tuple->name()) == 0) {
+		if (!literal)
+			cast_error(*arguments[1].get(),"Should be literal.");
+		if (m_pusher.getStack().getOffset(tuple->name()) == 0) {
 			acceptExpr(arguments[2].get());
-			push(-2 + 1, "SETINDEX " + literal->value());
+			m_pusher.push(-2 + 1, "SETINDEX " + literal->value());
 		} else {
 			cast_error(_functionCall, "");
 		}
@@ -178,24 +180,24 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		const Identifier* builder = ensureParamIsIdentifier(0);
 		auto bitLen = arguments[1].get();
 		auto literal = to<Literal>(bitLen);
-		if (getStack().getOffset(builder->name()) == 0) {
+		if (m_pusher.getStack().getOffset(builder->name()) == 0) {
 			acceptExpr(arguments[2].get());
 			if (literal) {
-				push(-1, opcode + "R " + literal->value());
+				m_pusher.push(-1, opcode + "R " + literal->value());
 			} else {
 				acceptExpr(bitLen);
-				push(-2, opcode + "XR");
+				m_pusher.push(-2, opcode + "XR");
 			}
 		} else {
 			acceptExpr(arguments[2].get());
 			acceptExpr(builder);
 			if (literal) {
-				push(-1, opcode + " " + literal->value());
+				m_pusher.push(-1, opcode + " " + literal->value());
 			} else {
 				acceptExpr(bitLen);
-				push(-2, opcode + "X");
+				m_pusher.push(-2, opcode + "X");
 			}
-			solAssert(tryAssignParam(builder->name()), "");
+			solAssert(m_pusher.tryAssignParam(builder->name()), "");
 		}
 		return true;
 	}
@@ -203,14 +205,14 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		// function(builder, arg)
 		checkArgCount(2);
 		auto builder = ensureParamIsIdentifier(0);
-		if (getStack().getOffset(builder->name()) == 0) {
+		if (m_pusher.getStack().getOffset(builder->name()) == 0) {
 			acceptExpr(arguments[1].get());
-			push(- 1, opcode + "R");
+			m_pusher.push(- 1, opcode + "R");
 		} else {
 			acceptExpr(arguments[1].get());
 			acceptExpr(builder);
-			push(-1, opcode);
-			solAssert(tryAssignParam(builder->name()), "");
+			m_pusher.push(-1, opcode);
+			solAssert(m_pusher.tryAssignParam(builder->name()), "");
 		}
 		return true;
 	}
@@ -221,38 +223,38 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		acceptExpr(arguments[1].get());
 		acceptExpr(dict);
 		acceptExpr(arguments[3].get());
-		push(-4 + 1, opcode);
-		solAssert(tryAssignParam(dict->name()), "");
+		m_pusher.push(-4 + 1, opcode);
+		solAssert(m_pusher.tryAssignParam(dict->name()), "");
 		return true;
 	}
 	if (iname == "tvm_bchkbitsq" || iname == "tvm_schkbitsq") {
 		// function(uint builderOrSlice, uint nbits) returns (bool)
 		acceptExpr(arguments[0].get());
 		acceptExpr(arguments[1].get());
-		push(-2 + 1, opcode);
+		m_pusher.push(-2 + 1, opcode);
 		return true;
 	}
 	if (iname == "tvm_sbitrefs") {
 		acceptExpr(arguments[0].get());
-		push(-1 + 2, opcode);
+		m_pusher.push(-1 + 2, opcode);
 		return true;
 	}
 	if (iname == "tvm_sbits") {
 		// function tvm_sbits(uint slice) private pure returns (uint /*the number of data bits in slice*/)
 		acceptExpr(arguments[0].get());
-		push(-1 + 1, "SBITS ; tvm_sbits");
+		m_pusher.push(-1 + 1, "SBITS");
 		return true;
 	}
 	if (iname == "tvm_srefs") {
 		acceptExpr(arguments[0].get());
-		push(-1+1, "SREFS ; tvm_srefs");
+		m_pusher.push(-1+1, "SREFS ; tvm_srefs");
 		return true;
 	}
 	if (iname == "tvm_brembits")
 	{
 		// function tvm_brembits(uint builder) private pure returns (uint /*the number of data bits that can still be stored in b*/)
 		acceptExpr(arguments[0].get());
-		push(-1+1, "BREMBITS ; tvm_brembits");
+		m_pusher.push(-1+1, "BREMBITS ; tvm_brembits");
 		return true;
 	}
 	if (iname == "tvm_getfromdict") {
@@ -261,8 +263,8 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		acceptExpr(arguments[2].get());
 		acceptExpr(arguments[0].get());
 		acceptExpr(arguments[1].get());
-		push(-3+2, "DICTUGET");
-		push(-1, "THROWIFNOT 10");		// TODO!
+		m_pusher.push(-3+2, "DICTUGET");
+		m_pusher.push(-1, "THROWIFNOT 10");		// TODO!
 		return true;
 	}
 	if (iname == "tvm_get_slice_from_integer_dict") {
@@ -270,124 +272,114 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		acceptExpr(arguments[1].get());
 		acceptExpr(arguments[2].get());
 		acceptExpr(arguments[3].get()); // bitSizeOfArrayElement, idx, array, 32
-		push(-4+1, "DICTUGET");
-		push(0,    "PUSHCONT { ");
-		push(0,    "\tNIP");
-		push(0,    "}");
-		push(0,    "PUSHCONT {");
-		push(0,    "\tNEWC      ; valueBits builder");
-		push(0,    "\tPUSHINT 0 ; valueBits builder 0");
-		push(0,    "\tXCHG S2   ; 0 builder valueBits");
-		push(0,    "\tSTUX      ; builder");
-		push(0,    "\tENDC      ; cell");
-		push(0,    "\tCTOS      ; default_value");
-		push(0,    "}");
-		push(0,    "IFELSE");
+		m_pusher.push(-4+1, "DICTUGET");
+		m_pusher.push(0,    "PUSHCONT { ");
+		m_pusher.push(0,    "\tNIP");
+		m_pusher.push(0,    "}");
+		m_pusher.push(0,    "PUSHCONT {");
+		m_pusher.push(0,    "\tNEWC      ; valueBits builder");
+		m_pusher.push(0,    "\tPUSHINT 0 ; valueBits builder 0");
+		m_pusher.push(0,    "\tXCHG S2   ; 0 builder valueBits");
+		m_pusher.push(0,    "\tSTUX      ; builder");
+		m_pusher.push(0,    "\tENDC      ; cell");
+		m_pusher.push(0,    "\tCTOS      ; default_value");
+		m_pusher.push(0,    "}");
+		m_pusher.push(0,    "IFELSE");
 		return true;
 	}
 	if (isIn(iname, "tvm_ctos", "tvm_tlen")) {
 		acceptExpr(arguments[0].get());
-		push(0, opcode);
+		m_pusher.push(0, opcode);
 		return true;
 	}
 	if (iname == "tvm_ends") {
 		auto slice = ensureParamIsIdentifier(0);
 		acceptExpr(slice);
-		push(-1, "ENDS");
-		push(+1, "NULL");
-		solAssert(tryAssignParam(slice->name()), "");
+		m_pusher.push(-1, "ENDS");
+		m_pusher.push(+1, "NULL");
+		solAssert(m_pusher.tryAssignParam(slice->name()), "");
 		return true;
 	}
 	if (iname == "tvm_newc") {
-		push(+1, "NEWC");
+		m_pusher.push(+1, "NEWC");
 		return true;
 	}
 	if (iname == "tvm_endc") {
 		// tvm_endc(uint slice) returns (uint /* cell */)
 		acceptExpr(arguments[0].get());
-		push( 0, "ENDC");
-		return true;
-	}
-	if (iname == "tvm_sender_pubkey") {
-		pushPrivateFunctionOrMacroCall(+1, "sender_pubkey_macro");
+		m_pusher.push( 0, "ENDC");
 		return true;
 	}
 	if (iname == "tvm_my_public_key") {
-		pushPrivateFunctionOrMacroCall(+1, "my_pubkey_macro");
+		m_pusher.pushPrivateFunctionOrMacroCall(+1, "my_pubkey_macro");
 		return true;
 	}
 	if (iname == "tvm_c4_key_length") {
-		push(+1,   "PUSHINT " + toString(TvmConst::C4::KeyLength));
+		m_pusher.push(+1,   "PUSHINT " + toString(TvmConst::C4::KeyLength));
 		return true;
 	}
 	if (iname == "tvm_exception_constructoriscalledtwice") {
-		push(+1, "PUSHINT " + toString(TvmConst::Message::Exception::ConstructorIsCalledTwice));
+		m_pusher.push(+1, "PUSHINT " + toString(TvmConst::Message::Exception::ConstructorIsCalledTwice));
 		return true;
 	}
 	if (iname == "tvm_exception_replayprotection") {
-		push(+1, "PUSHINT " + toString(TvmConst::Message::Exception::ReplayProtection));
+		m_pusher.push(+1, "PUSHINT " + toString(TvmConst::Message::Exception::ReplayProtection));
 		return true;
 	}
 	if (iname == "tvm_exception_unpackaddress") {
-		push(+1, "PUSHINT " + toString(TvmConst::Message::Exception::AddressUnpackException));
+		m_pusher.push(+1, "PUSHINT " + toString(TvmConst::Message::Exception::AddressUnpackException));
 		return true;
 	}
 	if (iname == "tvm_exception_insertpubkey") {
-		push(+1, "PUSHINT " + toString(TvmConst::Message::Exception::InsertPubkeyException));
+		m_pusher.push(+1, "PUSHINT " + toString(TvmConst::Message::Exception::InsertPubkeyException));
 		return true;
 	}
 	if (iname == "tvm_default_replay_protection_interval"){
-		push(+1, "PUSHINT " + toString(TvmConst::Message::ReplayProtection::Interval));
+		m_pusher.push(+1, "PUSHINT " + toString(TvmConst::Message::ReplayProtection::Interval));
 		return true;
 	}
 	if (iname == "tvm_now") {
-		push(+1, "NOW");
+		m_pusher.push(+1, "NOW");
 		return true;
 	}
 	if (iname == "tvm_block_lt") {
-		push(+1,   "BLOCKLT");
+		m_pusher.push(+1,   "BLOCKLT");
 		return true;
 	}
 	if (iname == "tvm_trans_lt") {
-		push(+1,   "LTIME");
+		m_pusher.push(+1,   "LTIME");
 		return true;
 	}
 	if (iname == "tvm_rand_seed") {
-		pushPrivateFunctionOrMacroCall(+1, "get_rand_seed_macro");
+		m_pusher.pushPrivateFunctionOrMacroCall(+1, "get_rand_seed_macro");
 		return true;
 	}
 	if (iname == "tvm_balance") {
-		pushPrivateFunctionOrMacroCall(+1, "get_balance");
+		m_pusher.pushPrivateFunctionOrMacroCall(+1, "get_balance");
 		return true;
 	}
-	/*
-	if (iname == "tvm_address") {
-		pushPrivateFunctionCall(+1,   "get_self_address");
-		return true;
-	}
-	*/
 	if (iname == "tvm_newdict") {
-		push(+1, "NEWDICT");
+		m_pusher.push(+1, "NEWDICT");
 		return true;
 	}
 	if (iname == "tvm_c4") {
-		push(+1, "PUSHROOT");
+		m_pusher.push(+1, "PUSHROOT");
 		return true;
 	}
 	if (iname == "tvm_c7") {
-		push(+1, "PUSHCTR c7");
+		m_pusher.push(+1, "PUSHCTR c7");
 		return true;
 	}
 	if (iname == "tvm_first" || iname == "tvm_second" || iname == "tvm_third") {
 		acceptExpr(arguments[0].get());
-		push(0, opcode);
+		m_pusher.push(0, opcode);
 		return true;
 	}
 	if (iname == "tvm_index") {
 		acceptExpr(arguments[0].get());
 		auto elementNum = arguments[1].get();
 		if (auto literal = to<Literal>(elementNum)) {
-			push(0, "INDEX " + literal->value());
+			m_pusher.push(0, "INDEX " + literal->value());
 		} else {
 			cast_error(_functionCall, "tvm_index param should be integer");
 		}
@@ -396,26 +388,26 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 	if (iname == "tvm_sendrawmsg") {
 		acceptExpr(arguments[0].get());
 		acceptExpr(arguments[1].get());
-		push(-2, "SENDRAWMSG");
+		m_pusher.push(-2, "SENDRAWMSG");
 		return true;
 	}
 	if (iname == "tvm_ubitsize") {
 		acceptExpr(arguments[0].get());
-		push(0, "UBITSIZE");
+		m_pusher.push(0, "UBITSIZE");
 		return true;
 	}
 	if (iname == "tvm_stdict") {
 		Identifier const* builder = ensureParamIsIdentifier(0);
-		if (getStack().getOffset(builder->name()) == 0) {
+		if (m_pusher.getStack().getOffset(builder->name()) == 0) {
 			// there is no stdictr. Using swap
 			acceptExpr(arguments[1].get());
-			push(0, "SWAP");
-			push(-1, "STDICT");
+			m_pusher.push(0, "SWAP");
+			m_pusher.push(-1, "STDICT");
 		} else {
 			acceptExpr(arguments[1].get());
 			acceptExpr(builder);
-			push(-1, "STDICT");
-			solAssert(tryAssignParam(builder->name()), "");
+			m_pusher.push(-1, "STDICT");
+			solAssert(m_pusher.tryAssignParam(builder->name()), "");
 		}
 		return true;
 	}
@@ -425,25 +417,25 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		// function(container, value)
 		checkArgCount(2);
 		Identifier const* holder = ensureParamIsIdentifier(0);
-		if (getStack().getOffset(holder->name()) == 0) {
+		if (m_pusher.getStack().getOffset(holder->name()) == 0) {
 			acceptExpr(arguments[1].get());
-			push(-1, opcode);
+			m_pusher.push(-1, opcode);
 		} else {
 			acceptExpr(holder);
 			acceptExpr(arguments[1].get());
-			push(-1, opcode);
-			solAssert(tryAssignParam(holder->name()), "");
+			m_pusher.push(-1, opcode);
+			solAssert(m_pusher.tryAssignParam(holder->name()), "");
 		}
 		return true;
 	}
 	if (iname == "tvm_tuple0") {
-		push(+1, "TUPLE 0");
+		m_pusher.push(+1, "TUPLE 0");
 		return true;
 	}
 	if (iname == "tvm_popctr") {
 		acceptExpr(arguments[1].get());
 		if (auto literal = to<Literal>(arguments[0].get())) {
-			push(-1, "POPCTR c" + literal->value());
+			m_pusher.push(-1, "POPCTR c" + literal->value());
 		} else {
 			cast_error(_functionCall, "tvm_popctr first param should be integer");
 		}
@@ -451,36 +443,36 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 	}
 	if (isIn(iname, "tvm_sdskipfirst")) {
 		checkArgCount(2);
-		for (std::size_t i = 0; i < arguments.size(); ++i) {
-			acceptExpr(arguments[i].get());
+		for (auto & argument : arguments) {
+			acceptExpr(argument.get());
 		}
-		push(-static_cast<int>(arguments.size()) + 1, opcode);
+		m_pusher.push(-static_cast<int>(arguments.size()) + 1, opcode);
 		return true;
 	}
 	if (iname == "tvm_dictudel") {
 		acceptExpr(arguments[1].get());
 		acceptExpr(arguments[0].get());
 		acceptExpr(arguments[2].get());
-		push(-1, "DICTUDEL");
-		push(-1, "DROP");
+		m_pusher.push(-1, "DICTUDEL");
+		m_pusher.push(-1, "DROP");
 		return true;
 	}
 	if (iname == "tvm_isnull") {
 		checkArgCount(1);
 		acceptExpr(arguments[0].get());
-		push(0, "ISNULL");
+		m_pusher.push(0, "ISNULL");
 		return true;
 	}
 	if (iname == "tvm_srempty") {
 		checkArgCount(1);
 		acceptExpr(arguments[0].get());
-		push(0, "SREMPTY");
+		m_pusher.push(0, "SREMPTY");
 		return true;
 	}
 	if (iname == "tvm_sdempty") {
 		checkArgCount(1);
 		acceptExpr(arguments[0].get());
-		push(0, "SDEMPTY");
+		m_pusher.push(0, "SDEMPTY");
 		return true;
 	}
 	if (iname == "tvm_chksignu") {
@@ -488,28 +480,28 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 			acceptExpr(arguments[0].get());
 			acceptExpr(arguments[1].get());
 			acceptExpr(arguments[2].get());
-			push(-3 + 1, "CHKSIGNU");
+			m_pusher.push(-3 + 1, "CHKSIGNU");
 			return true;
 		} else if (arguments.size() == 4) {
 			acceptExpr(arguments[0].get());
 
-			push(+1, "NEWC");
+			m_pusher.push(+1, "NEWC");
 			acceptExpr(arguments[1].get());
-			push(-1, "STUR 256");
+			m_pusher.push(-1, "STUR 256");
 			acceptExpr(arguments[2].get());
-			push(-1, "STUR 256");
-			push(0, "ENDC CTOS");
+			m_pusher.push(-1, "STUR 256");
+			m_pusher.push(0, "ENDC CTOS");
 
 			acceptExpr(arguments[3].get());
-			push(-3+1, "CHKSIGNU");
+			m_pusher.push(-3+1, "CHKSIGNU");
 			return true;
 		}
 	}
 	if (iname == "tvm_ldrefrtos") {
 		checkArgCount(1);
 		auto builder = ensureParamIsIdentifier(0);
-		if (getStack().getOffset(builder->name()) == 0) {
-			push(+1, "LDREFRTOS");
+		if (m_pusher.getStack().getOffset(builder->name()) == 0) {
+			m_pusher.push(+1, "LDREFRTOS");
 		} else {
 			cast_error(_functionCall, R"(Use "tvm_ldrefrtos" only if)" + builder->name() + " is on stack top");
 		}
@@ -518,20 +510,20 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 	if (iname == "tvm_pldref_and_to_slice") {
 		checkArgCount(1);
 		acceptExpr(arguments[0].get());
-		push(+1, "LDREFRTOS");
-		push(-1, "NIP");
+		m_pusher.push(+1, "LDREFRTOS");
+		m_pusher.push(-1, "NIP");
 		return true;
 	}
 	if (iname == "tvm_hashsu") {
 		checkArgCount(1);
 		acceptExpr(arguments[0].get());
-		push(0, "HASHSU");
+		m_pusher.push(0, "HASHSU");
 		return true;
 	}
 	if (iname == "tvm_hashcu") {
 		checkArgCount(1);
 		acceptExpr(arguments[0].get());
-		push(0, "HASHCU");
+		m_pusher.push(0, "HASHCU");
 		return true;
 	}
 	if (iname == "tvm_subslice") {
@@ -541,8 +533,10 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 	if (iname == "tvm_pldslice") {
 		acceptExpr(arguments[0].get());
 		auto literal = to<Literal>(arguments[1].get());
+		if (!literal)
+			cast_error(*arguments[1].get(), "Should be literal");
 		u256 value = arguments[1]->annotation().type->literalValue(literal);
-		push(-1 + 1, "PLDSLICE " + toString(value));
+		m_pusher.push(-1 + 1, "PLDSLICE " + toString(value));
 		return true;
 	}
 	if (iname == "tvm_deploy_contract") {
@@ -552,14 +546,14 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		acceptExpr(arguments[2].get());
 		acceptExpr(arguments[3].get());
 
-		Type const * type3 = arguments[3].get()->annotation().type.get();
+		Type const * type3 = arguments[3].get()->annotation().type;
 		if (to<TvmCellType>(type3)){
 			if (arguments.size() != 4) {
 				cast_error(_functionCall,
 				           "Correct argument types: (TvmCell my_contract, address addr, uint128 grams, TvmCell payload) "
 				           "or (TvmCell my_contract, address addr, uint128 gram, uint constuctor_id, some_type0 constuctor_param0, some_type1 constuctor_param1, ...)");
 			}
-			pushPrivateFunctionOrMacroCall(-4, "deploy_contract2_macro");
+			m_pusher.pushPrivateFunctionOrMacroCall(-4, "deploy_contract2_macro");
 		} else {
 //			pushLog("insr");
 			auto identifierAnnotation = to<IdentifierAnnotation>(&_functionCall.expression().annotation());
@@ -567,16 +561,16 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 			std::vector<Type const*> types;
 			std::vector<ASTNode const*> nodes;
 			for (std::size_t i = 4; i < functionDefinition->parameters().size(); ++i) {
-				types.push_back(functionDefinition->parameters()[i]->annotation().type.get());
+				types.push_back(functionDefinition->parameters()[i]->annotation().type);
 				nodes.push_back(arguments[i].get());
 			}
-			push(+1, "NEWC");
-			EncodePosition position{0};
-			encodeParameters(types, nodes, [&](std::size_t index) {
+			m_pusher.push(+1, "NEWC");
+			StackPusherHelper::EncodePosition position{0};
+			m_pusher.encodeParameters(types, nodes, [&](std::size_t index) {
 				acceptExpr(arguments[index + 4].get());
 			}, position);
 //			pushLog("insr1");
-			pushPrivateFunctionOrMacroCall(-5, "deploy_contract_macro");
+			m_pusher.pushPrivateFunctionOrMacroCall(-5, "deploy_contract_macro");
 		}
 		return true;
 	}
@@ -584,74 +578,64 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		checkArgCount(2);
 		acceptExpr(arguments[0].get());
 		acceptExpr(arguments[1].get());
-		push(-2, "JMP 1");
+		m_pusher.push(-2, "JMP 1");
 		return true;
 	}
 	if (iname == "tvm_sempty") {
 		acceptExpr(arguments[0].get());
-		push(0, "SEMPTY");
+		m_pusher.push(0, "SEMPTY");
 		return true;
 	}
 	if (iname == "tvm_bremrefs" || iname == "tvm_sbits" || iname == "tvm_bbits") {
 		acceptExpr(arguments[0].get());
-		push(-1+1, opcode);
+		m_pusher.push(-1+1, opcode);
 		return true;
 	}
 	if (iname == "tvm_pldrefvar") {
 		acceptExpr(arguments[0].get());
 		acceptExpr(arguments[1].get());
-		push(-1, "PLDREFVAR");
+		m_pusher.push(-1, "PLDREFVAR");
 		return true;
 	}
 	if (iname == "tvm_setcode") {
 		acceptExpr(arguments[0].get());
-		push(-1, "SETCODE");
+		m_pusher.push(-1, "SETCODE");
 		return true;
 	}
 	if (iname == "tvm_unpack_address") {
 		acceptExpr(arguments[0].get());
-		pushPrivateFunctionOrMacroCall(-1 + 2, "unpack_address_macro");
+		m_pusher.pushPrivateFunctionOrMacroCall(-1 + 2, "unpack_address_macro");
 		return true;
 	}
 	if (iname == "tvm_make_address") {
 		checkArgCount(2);
 		acceptExpr(arguments[0].get());
 		acceptExpr(arguments[1].get());
-		pushPrivateFunctionOrMacroCall(-2 + 1, "make_address_macro");
-		return true;
-	}
-	if (iname == "tvm_push_callback_func_id") {
-		checkArgCount(0);
-		pushFunctionIndex("fallback");
-		return true;
-	}
-	if (iname == "tvm_push_on_bounce_id") {
-		checkArgCount(0);
-		pushFunctionIndex("onBounce");
+		m_pusher.pushPrivateFunctionOrMacroCall(-2 + 1, "make_address_macro");
 		return true;
 	}
 	if (iname == "tvm_push_minus_one") {
 		checkArgCount(0);
-		push(+1, "PUSHINT -1");
+		m_pusher.push(+1, "PUSHINT -1");
 		return true;
 	}
 	if (iname == "tvm_myaddr") {
 		checkArgCount(0);
-		push(+1, "MYADDR");
+		m_pusher.push(+1, "MYADDR");
 		return true;
 	}
 	if (iname == "tvm_stzeroes" || iname == "tvm_stones" || iname == "tvm_stgrams") {
 		// function(builder, argument)
 		checkArgCount(2);
 		Identifier const* builder = ensureParamIsIdentifier(0);
-		if (getStack().getOffset(builder->name()) == 0) {
+		if (m_pusher.getStack().getOffset(builder->name()) == 0) {
 			acceptExpr(arguments[1].get());
-			push(- 1, opcode);
+			m_pusher.push(- 1, opcode);
 		} else {
 			acceptExpr(builder);
 			acceptExpr(arguments[1].get());
-			push(-2 + 1, opcode);
-			solAssert(tryAssignParam(builder->name()), "");
+			m_pusher.push(-2 + 1, opcode);
+			solAssert(m_pusher.tryAssignParam(builder->name()), "");
 		}
 		return true;
 	}
@@ -659,43 +643,43 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		// tvm_skipdict(uint slice)
 		checkArgCount(1);
 		Identifier const* slice = ensureParamIsIdentifier(0);
-		if (getStack().getOffset(slice->name()) == 0) {
-			push(0, opcode);
+		if (m_pusher.getStack().getOffset(slice->name()) == 0) {
+			m_pusher.push(0, opcode);
 		} else {
 			acceptExpr(slice);
-			push(0, opcode);
-			solAssert(tryAssignParam(slice->name()), "");
+			m_pusher.push(0, opcode);
+			solAssert(m_pusher.tryAssignParam(slice->name()), "");
 		}
 		return true;
 	}
 	if (isIn(iname, "tvm_plddict", "tvm_plddicts")) {
 		checkArgCount(1);
 		acceptExpr(arguments[0].get());
-		push(-1 + 1, opcode);
+		m_pusher.push(-1 + 1, opcode);
 		return true;
 	}
 	if (iname == "tvm_insert_pubkey") {
 		checkArgCount(2);
 		acceptExpr(arguments[0].get());
 		acceptExpr(arguments[1].get());
-		pushPrivateFunctionOrMacroCall(-2 + 1, "insert_pubkey_macro");
+		m_pusher.pushPrivateFunctionOrMacroCall(-2 + 1, "insert_pubkey_macro");
 		return true;
 	}
 	if (iname == "tvm_getparam") {
 		if (auto literal = to<Literal>(arguments[0].get())) {
-			push(+1, "GETPARAM " + literal->value());
+			m_pusher.push(+1, "GETPARAM " + literal->value());
 		} else {
-			cast_error(_functionCall, "First param should be integer");
+			cast_error(_functionCall, "First param should be integer literal");
 		}
 		return true;
 	}
 	if (iname == "require") {
 		acceptExpr(arguments[0].get());
 		if (arguments.size() == 1)
-			push(-1, "THROWIFNOT 100");
+			m_pusher.push(-1, "THROWIFNOT 100");
 		else {
 			if (auto literal = to<Literal>(arguments[1].get())) {
-				push(-1, "THROWIFNOT " + literal->value());
+				m_pusher.push(-1, "THROWIFNOT " + literal->value());
 			} else {
 				cast_error(_functionCall, "tvm_throwifnot second param should be integer");
 			}
@@ -705,7 +689,7 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 	if (iname == "tvm_plddict" || iname == "tvm_iszero") {
 		checkArgCount(1);
 		acceptExpr(arguments[0].get());
-		push(-1+1, opcode);
+		m_pusher.push(-1+1, opcode);
 		return true;
 	}
 	if (iname == "tvm_transfer") {
@@ -714,14 +698,14 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 			acceptExpr(arguments[1].get());
 			acceptExpr(arguments[2].get());
 			acceptExpr(arguments[3].get());
-			pushPrivateFunctionOrMacroCall(-4, "send_accurate_internal_message_macro");
+			m_pusher.pushPrivateFunctionOrMacroCall(-4, "send_accurate_internal_message_macro");
 		} else if (arguments.size() == 5) {
 			acceptExpr(arguments[0].get());
 			acceptExpr(arguments[1].get());
 			acceptExpr(arguments[2].get());
 			acceptExpr(arguments[3].get());
 			acceptExpr(arguments[4].get());
-			pushPrivateFunctionOrMacroCall(-5, "send_accurate_internal_message_with_body_macro");
+			m_pusher.pushPrivateFunctionOrMacroCall(-5, "send_accurate_internal_message_with_body_macro");
 		} else {
 			cast_error(_functionCall, iname + " should have 4 or 5 arguments");
 		}
@@ -730,30 +714,24 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 	if (iname == "tvm_poproot") {
 		checkArgCount(1);
 		acceptExpr(arguments[0].get());
-		push(-1, "POPROOT");
+		m_pusher.push(-1, "POPROOT");
 		return true;
 	}
 	if (iname == "tvm_throwany") {
 		checkArgCount(1);
 		acceptExpr(arguments[0].get());
-		push(-1, "THROWANY");
+		m_pusher.push(-1, "THROWANY");
 		return true;
 	}
 	if (iname == "tvm_accept") {
 		checkArgCount(0);
-		push(0, opcode);
-		return true;
-	}
-	if (iname == "tvm_commit") {
-		checkArgCount(0);
-		pushPrivateFunctionOrMacroCall(0, "push_persistent_data_from_c7_to_c4_macro");
-		push(0, opcode);
+		m_pusher.push(0, opcode);
 		return true;
 	}
 	if (iname == "tvm_parsemsgaddr") {
 		checkArgCount(1);
 		acceptExpr(arguments[0].get());
-		push(-1 + 1, opcode);
+		m_pusher.push(-1 + 1, opcode);
 		return true;
 	}
 	if (iname == "tvm_skip_and_load_uint256_in_slice_copy"){
@@ -761,22 +739,22 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		checkArgCount(2);
 		acceptExpr(arguments[0].get());
 		acceptExpr(arguments[1].get());
-		push(-1, "SDSKIPFIRST");
-		push(0, "PLDU 256");
+		m_pusher.push(-1, "SDSKIPFIRST");
+		m_pusher.push(0, "PLDU 256");
 		return true;
 	}
 	if (iname == "tvm_build_state_init") {
 		checkArgCount(2);
 		acceptExpr(arguments[0].get());
 		acceptExpr(arguments[1].get());
-		pushPrivateFunctionOrMacroCall(-2 + 1, "build_state_init_macro");
+		m_pusher.pushPrivateFunctionOrMacroCall(-2 + 1, "build_state_init_macro");
 		return true;
 	}
 	if (iname == "tvm_config_param1") {
 		//_ elector_addr:bits256 = ConfigParam 1;
 //		pushLog("config_param1");
-		push(0, "PUSHINT 1");
-		push(0, "CONFIGPARAM");
+		m_pusher.push(0, "PUSHINT 1");
+		m_pusher.push(0, "CONFIGPARAM");
 
 		CodeLines contOk;
 		contOk.push("CTOS");
@@ -788,10 +766,10 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		contFail.push("PUSHINT 0");
 		contFail.push("PUSHINT 0");
 
-		pushCont(contOk);
-		pushCont(contFail);
+		m_pusher.pushCont(contOk);
+		m_pusher.pushCont(contFail);
 
-		push(-2 + 2, "IFELSE");
+		m_pusher.push(-2 + 2, "IFELSE");
 
 		return true;
 	}
@@ -800,8 +778,8 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		//  elections_end_before:uint32 stake_held_for:uint32
 		//  = ConfigParam 15;
 //		pushLog("config_param15");
-		push(0, "PUSHINT 15");
-		push(0, "CONFIGPARAM");
+		m_pusher.push(0, "PUSHINT 15");
+		m_pusher.push(0, "CONFIGPARAM");
 
 		CodeLines contOk;
 		contOk.push("CTOS");
@@ -819,18 +797,18 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		contFail.push("PUSHINT 0");
 		contFail.push("PUSHINT 0");
 
-		pushCont(contOk);
-		pushCont(contFail);
+		m_pusher.pushCont(contOk);
+		m_pusher.pushCont(contFail);
 
-		push(-2 + 5, "IFELSE");
+		m_pusher.push(-2 + 5, "IFELSE");
 
 		return true;
 	}
 	if (iname == "tvm_config_param17") {
 		//_    min_stake:Grams    max_stake:Grams    min_total_stake:Grams    max_stake_factor:uint32 = ConfigParam 17;
 //		pushLog("config_param17");
-		push(0, "PUSHINT 17");
-		push(0, "CONFIGPARAM");
+		m_pusher.push(0, "PUSHINT 17");
+		m_pusher.push(0, "CONFIGPARAM");
 
 		CodeLines contOk;
 		contOk.push("CTOS");
@@ -848,10 +826,10 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		contFail.push("PUSHINT 0");
 		contFail.push("PUSHINT 0");
 
-		pushCont(contOk);
-		pushCont(contFail);
+		m_pusher.pushCont(contOk);
+		m_pusher.pushCont(contFail);
 
-		push(-2 + 5, "IFELSE");
+		m_pusher.push(-2 + 5, "IFELSE");
 
 		return true;
 	}
@@ -872,11 +850,10 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 
 		// ed25519_pubkey#8e81278a pubkey:bits256 = SigPubKey;  // 288 bits
 
-		push(0, "PUSHINT 34");
-		push(0, "CONFIGPARAM");
+		m_pusher.push(0, "PUSHINT 34");
+		m_pusher.push(0, "CONFIGPARAM");
 
-		StackPusherImpl2 pusher;
-		StackPusherHelper pusherHelper(&pusher, &ctx());
+		StackPusherHelper pusherHelper(&m_pusher.ctx());
 		pusherHelper.push(0, "CTOS");
 
 		pusherHelper.push(0, "LDU 8"); // constructor
@@ -884,7 +861,9 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		pusherHelper.push(0, "LDU 32"); // utime_until
 		pusherHelper.push(0, "LDU 16"); // total
 		pusherHelper.push(0, "LDU 16"); // main
-		pusherHelper.push(0, "DROP");
+		pusherHelper.push(0, "LDU 64"); // total_weight
+		pusherHelper.push(0, "LDDICT"); // ValidatorDescr
+		pusherHelper.push(0, "ENDS");
 		pusherHelper.push(0, "PUSHINT -1");
 
 		CodeLines contFail;
@@ -893,30 +872,32 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		contFail.push("PUSHINT 0"); // utime_until
 		contFail.push("PUSHINT 0"); // total
 		contFail.push("PUSHINT 0"); // main
+		contFail.push("PUSHINT 0"); // total_weight
+		contFail.push("NEWDICT"); // ValidatorDescr
 		contFail.push("PUSHINT 0"); //
 
-		pushCont(pusher.m_code);
-		pushCont(contFail);
-		push(-2 + 6, "IFELSE");
+		m_pusher.pushCont(pusherHelper.code());
+		m_pusher.pushCont(contFail);
+		m_pusher.push(-2 + 8, "IFELSE");
 
 		return true;
 	}
 	if (iname == "tvm_reverse_push") { // index is staring from one
-		push(+1, "DEPTH");
+		m_pusher.push(+1, "DEPTH");
 		acceptExpr(arguments[0].get());
-		push(-2 + 1, "SUB");
-		push(-1 + 1, "PICK");
+		m_pusher.push(-2 + 1, "SUB");
+		m_pusher.push(-1 + 1, "PICK");
 		return true;
 	}
 	if (iname == "tvm_is_zero_address") {
 		acceptExpr(arguments[0].get());
-		pushLines(R"(PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_
+		m_pusher.pushLines(R"(PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_
 SDEQ
 )");
 		return true;
 	}
 	if (iname == "tvm_zero_ext_address") {
-		push(+1, "PUSHSLICE x2_");
+		m_pusher.push(+1, "PUSHSLICE x2_");
 		return true;
 	}
 	if (iname == "tvm_make_external_address") {
@@ -924,31 +905,31 @@ SDEQ
 		// addr_extern$01 len:(## 9) external_address:(bits len) = MsgAddressExt;
 		acceptExpr(arguments[0].get()); // numb
 		acceptExpr(arguments[1].get()); // numb cntBit
-		push(+1, "DUP"); // numb cntBit cntBit
-		pushInt(1); // numb cntBit cntBit 1
+		m_pusher.push(+1, "DUP"); // numb cntBit cntBit
+		m_pusher.pushInt(1); // numb cntBit cntBit 1
 
-		push(+1, "NEWC"); // numb cntBit cntBit 1 builder
-		push(-1, "STU 2"); // numb cntBit cntBit builder'
-		push(-1, "STU 9"); // numb cntBit builder''
-		push(0, "SWAP"); // numb builder'' cntBit
-		push(-3 + 1, "STUX"); // builder'''
-		push(0, "ENDC");
-		push(0, "CTOS"); // extAddress
+		m_pusher.push(+1, "NEWC"); // numb cntBit cntBit 1 builder
+		m_pusher.push(-1, "STU 2"); // numb cntBit cntBit builder'
+		m_pusher.push(-1, "STU 9"); // numb cntBit builder''
+		m_pusher.push(0, "SWAP"); // numb builder'' cntBit
+		m_pusher.push(-3 + 1, "STUX"); // builder'''
+		m_pusher.push(0, "ENDC");
+		m_pusher.push(0, "CTOS"); // extAddress
 
 		return true;
 	}
 	if (iname == "tvm_make_zero_address") {
-		pushZeroAddress();
+		m_pusher.pushZeroAddress();
 		return true;
 	}
 	if (iname == "tvm_unpackfirst4") {
 		acceptExpr(arguments[0].get());
-		push(-1 + 4, "UNPACKFIRST 4");
+		m_pusher.push(-1 + 4, "UNPACKFIRST 4");
 		return true;
 	}
 	if (iname == "tvm_tree_cell_size") {
 		acceptExpr(arguments[0].get());
-		pushLines(R"(NULL
+		m_pusher.pushLines(R"(NULL
 SWAP
 PUSHINT 0
 PUSHINT 1 ; null s b r
@@ -979,38 +960,72 @@ UNTIL
 ROT  ; b r null
 DROP ; b r
 )");
-		push(-1 + 2, ""); // fix stack
+		m_pusher.push(-1 + 2, ""); // fix stack
 		return true;
 	}
 	if (iname == "tvm_reset_storage") {
-		push(+1, "PUSH C7");
-		structCompiler().createDefaultStruct();
-		push(-2 + 1, "SETINDEX 1");
-		push(-1, "POP C7");
+		m_pusher.resetAllStateVars();
 		return true;
 	}
 	if (iname == "tvm_pop_c3") {
 		acceptExpr(arguments[0].get());
-		push(-1, "POP c3");
+		m_pusher.push(-1, "POP c3");
 		return true;
 	}
 	if (iname == "tvm_bless") {
 		acceptExpr(arguments[0].get());
-		push(0, "BLESS");
+		m_pusher.push(0, "BLESS");
 		return true;
 	}
 	if (iname == "tvm_set_ext_dest_address") {
-		push(+1, "PUSH C7");
 		acceptExpr(arguments[0].get());
-		push(-1, "SETINDEXQ " + toString(TvmConst::C7::ExtDestAddrIndex));
-		push(-1, "POP C7");
+		m_pusher.push(-1, "SETGLOB " + toString(TvmConst::C7::ExtDestAddrIndex));
 		return true;
 	}
 	if (iname == "tvm_stack") {
-		push(+1, "DEPTH");
+		m_pusher.push(+1, "DEPTH");
+		return true;
+	}
+	if (iname == "tvm_sender_pubkey") {
+		m_pusher.pushLines(R"(
+PUSH C7
+INDEXQ 5
+DUP
+ISNULL
+PUSHCONT {
+	DROP
+	PUSHINT 0
+}
+IF
+)");
+		m_pusher.push(+1, ""); // fix stack
+		return true;
+	}
+
+	if (iname == "tvm_commit") {
+		checkArgCount(0);
+		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
+		m_pusher.push(0, opcode);
+		return true;
+	}
+	if (iname == "tvm_getglob") {
+		auto literal = to<Literal>(arguments[0].get());
+		if (!literal) {
+			cast_error(*arguments[0].get(), "Must be string");
+		}
+		m_pusher.push(+1, "GETGLOB " + literal->value());
+		return true;
+	}
+	if (iname == "tvm_setglob") {
+		auto literal = to<Literal>(arguments[1].get());
+		if (!literal) {
+			cast_error(*arguments[1].get(), "Must be string");
+		}
+		acceptExpr(arguments[0].get());
+		m_pusher.push(-1, "SETGLOB " + literal->value());
 		return true;
 	}
 	return false;
 }
 
-} // end dev::solidity
+} // end solidity::frontend

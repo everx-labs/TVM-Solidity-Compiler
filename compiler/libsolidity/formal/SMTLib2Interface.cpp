@@ -17,9 +17,7 @@
 
 #include <libsolidity/formal/SMTLib2Interface.h>
 
-#include <libsolidity/interface/ReadFile.h>
-#include <liblangutil/Exceptions.h>
-#include <libdevcore/Keccak256.h>
+#include <libsolutil/Keccak256.h>
 
 #include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string/predicate.hpp>
@@ -30,15 +28,19 @@
 #include <iostream>
 #include <memory>
 #include <stdexcept>
-#include <string>
 
 using namespace std;
-using namespace dev;
-using namespace dev::solidity;
-using namespace dev::solidity::smt;
+using namespace solidity;
+using namespace solidity::util;
+using namespace solidity::frontend;
+using namespace solidity::frontend::smt;
 
-SMTLib2Interface::SMTLib2Interface(map<h256, string> const& _queryResponses):
-	m_queryResponses(_queryResponses)
+SMTLib2Interface::SMTLib2Interface(
+	map<h256, string> const& _queryResponses,
+	ReadCallback::Callback const& _smtCallback
+):
+	m_queryResponses(_queryResponses),
+	m_smtCallback(_smtCallback)
 {
 	reset();
 }
@@ -49,7 +51,7 @@ void SMTLib2Interface::reset()
 	m_accumulatedOutput.emplace_back();
 	m_variables.clear();
 	write("(set-option :produce-models true)");
-	write("(set-logic QF_UFLIA)");
+	write("(set-logic ALL)");
 }
 
 void SMTLib2Interface::push()
@@ -63,27 +65,29 @@ void SMTLib2Interface::pop()
 	m_accumulatedOutput.pop_back();
 }
 
-void SMTLib2Interface::declareVariable(string const& _name, Sort const& _sort)
+void SMTLib2Interface::declareVariable(string const& _name, SortPointer const& _sort)
 {
-	if (_sort.kind == Kind::Function)
+	solAssert(_sort, "");
+	if (_sort->kind == Kind::Function)
 		declareFunction(_name, _sort);
 	else if (!m_variables.count(_name))
 	{
-		m_variables.insert(_name);
-		write("(declare-fun |" + _name + "| () " + toSmtLibSort(_sort) + ')');
+		m_variables.emplace(_name, _sort);
+		write("(declare-fun |" + _name + "| () " + toSmtLibSort(*_sort) + ')');
 	}
 }
 
-void SMTLib2Interface::declareFunction(string const& _name, Sort const& _sort)
+void SMTLib2Interface::declareFunction(string const& _name, SortPointer const& _sort)
 {
-	solAssert(_sort.kind == smt::Kind::Function, "");
+	solAssert(_sort, "");
+	solAssert(_sort->kind == smt::Kind::Function, "");
 	// TODO Use domain and codomain as key as well
 	if (!m_variables.count(_name))
 	{
-		FunctionSort fSort = dynamic_cast<FunctionSort const&>(_sort);
-		string domain = toSmtLibSort(fSort.domain);
-		string codomain = toSmtLibSort(*fSort.codomain);
-		m_variables.insert(_name);
+		auto const& fSort = dynamic_pointer_cast<FunctionSort>(_sort);
+		string domain = toSmtLibSort(fSort->domain);
+		string codomain = toSmtLibSort(*fSort->codomain);
+		m_variables.emplace(_name, _sort);
 		write(
 			"(declare-fun |" +
 			_name +
@@ -96,12 +100,12 @@ void SMTLib2Interface::declareFunction(string const& _name, Sort const& _sort)
 	}
 }
 
-void SMTLib2Interface::addAssertion(Expression const& _expr)
+void SMTLib2Interface::addAssertion(smt::Expression const& _expr)
 {
 	write("(assert " + toSExpr(_expr) + ")");
 }
 
-pair<CheckResult, vector<string>> SMTLib2Interface::check(vector<Expression> const& _expressionsToEvaluate)
+pair<CheckResult, vector<string>> SMTLib2Interface::check(vector<smt::Expression> const& _expressionsToEvaluate)
 {
 	string response = querySolver(
 		boost::algorithm::join(m_accumulatedOutput, "\n") +
@@ -125,13 +129,28 @@ pair<CheckResult, vector<string>> SMTLib2Interface::check(vector<Expression> con
 	return make_pair(result, values);
 }
 
-string SMTLib2Interface::toSExpr(Expression const& _expr)
+string SMTLib2Interface::toSExpr(smt::Expression const& _expr)
 {
 	if (_expr.arguments.empty())
 		return _expr.name;
-	std::string sexpr = "(" + _expr.name;
-	for (auto const& arg: _expr.arguments)
-		sexpr += " " + toSExpr(arg);
+
+	std::string sexpr = "(";
+	if (_expr.name == "const_array")
+	{
+		solAssert(_expr.arguments.size() == 2, "");
+		auto sortSort = std::dynamic_pointer_cast<SortSort>(_expr.arguments.at(0).sort);
+		solAssert(sortSort, "");
+		auto arraySort = dynamic_pointer_cast<ArraySort>(sortSort->inner);
+		solAssert(arraySort, "");
+		sexpr += "(as const " + toSmtLibSort(*arraySort) + ") ";
+		sexpr += toSExpr(_expr.arguments.at(1));
+	}
+	else
+	{
+		sexpr += _expr.name;
+		for (auto const& arg: _expr.arguments)
+			sexpr += " " + toSExpr(arg);
+	}
 	sexpr += ")";
 	return sexpr;
 }
@@ -147,6 +166,7 @@ string SMTLib2Interface::toSmtLibSort(Sort const& _sort)
 	case Kind::Array:
 	{
 		auto const& arraySort = dynamic_cast<ArraySort const&>(_sort);
+		solAssert(arraySort.domain && arraySort.range, "");
 		return "(Array " + toSmtLibSort(*arraySort.domain) + ' ' + toSmtLibSort(*arraySort.range) + ')';
 	}
 	default:
@@ -169,7 +189,7 @@ void SMTLib2Interface::write(string _data)
 	m_accumulatedOutput.back() += move(_data) + "\n";
 }
 
-string SMTLib2Interface::checkSatAndGetValuesCommand(vector<Expression> const& _expressionsToEvaluate)
+string SMTLib2Interface::checkSatAndGetValuesCommand(vector<smt::Expression> const& _expressionsToEvaluate)
 {
 	string command;
 	if (_expressionsToEvaluate.empty())
@@ -212,12 +232,15 @@ vector<string> SMTLib2Interface::parseValues(string::const_iterator _start, stri
 
 string SMTLib2Interface::querySolver(string const& _input)
 {
-	h256 inputHash = dev::keccak256(_input);
+	h256 inputHash = keccak256(_input);
 	if (m_queryResponses.count(inputHash))
 		return m_queryResponses.at(inputHash);
-	else
+	if (m_smtCallback)
 	{
-		m_unhandledQueries.push_back(_input);
-		return "unknown\n";
+		auto result = m_smtCallback(ReadCallback::kindString(ReadCallback::Kind::SMTQuery), _input);
+		if (result.success)
+			return result.responseOrErrorMessage;
 	}
+	m_unhandledQueries.push_back(_input);
+	return "unknown\n";
 }

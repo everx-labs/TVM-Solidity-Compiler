@@ -28,40 +28,53 @@
 #include "TVMStructCompiler.cpp"
 #include "TVMTypeChecker.hpp"
 #include "TVMInlineFunctionChecker.cpp"
+#include "TVMABI.cpp"
 
 
 bool TVMCompiler::m_optionsEnabled = false;
 TvmOption TVMCompiler::m_tvmOption = TvmOption::Code;
-bool TVMCompiler::m_dbg = false;
 bool TVMCompiler::m_outputProduced = false;
 bool TVMCompiler::g_without_logstr = false;
 std::string TVMCompiler::m_outputWarnings;
 std::vector<ContractDefinition const*> TVMCompiler::m_allContracts;
 
-void TVMCompilerProceedContract(ContractDefinition const& _contract) {
-	if (!TVMCompiler::m_optionsEnabled) 
+static string getLastContractName() {
+	string name;
+	for (auto c : TVMCompiler::m_allContracts) {
+		if (c->canBeDeployed()) {
+			name = c->name();
+		}
+	}
+	return name;
+}
+
+void TVMCompilerProceedContract(ContractDefinition const& _contract, std::vector<PragmaDirective const *> const* pragmaDirectives) {
+	if (!TVMCompiler::m_optionsEnabled)
+		return;
+
+	if (_contract.name() != getLastContractName())
 		return;
 
 	for (ContractDefinition const* c : TVMCompiler::m_allContracts) {
-		TVMTypeChecker::check(c);
+		TVMTypeChecker::check(c, *pragmaDirectives);
 	}
 
+	PragmaDirectiveHelper pragmaHelper{*pragmaDirectives};
 	switch (TVMCompiler::m_tvmOption) {
 		case TvmOption::Code:
-			TVMCompiler::proceedContract(&_contract);
+			TVMCompiler::proceedContract(&_contract, pragmaHelper);
 			break;
 		case TvmOption::Abi:
-			TVMCompiler::generateABI(&_contract);
+			TVMCompiler::generateABI(&_contract, *pragmaDirectives);
 			break;
 		case TvmOption::DumpStorage:
-			TVMCompiler::proceedDumpStorage(&_contract);
+			TVMCompiler::proceedDumpStorage(&_contract, pragmaHelper);
 			break;
 	}
 }
 
-void TVMCompilerEnable(const TvmOption tvmOption, bool dbg, bool without_logstr) {
+void TVMCompilerEnable(const TvmOption tvmOption, bool without_logstr) {
 	TVMCompiler::m_optionsEnabled = true;
-	TVMCompiler::m_dbg = dbg;
 	TVMCompiler::m_tvmOption = tvmOption;
 	TVMCompiler::g_without_logstr = without_logstr;
 }

@@ -23,15 +23,17 @@
 
 #include <test/libsolidity/SolidityExecutionFramework.h>
 
-#include <test/Options.h>
+#include <test/Common.h>
+#include <test/EVMHost.h>
 
 #include <liblangutil/Exceptions.h>
 #include <liblangutil/EVMVersion.h>
 
 #include <libevmasm/Assembly.h>
 
-#include <libdevcore/Keccak256.h>
+#include <libsolutil/Keccak256.h>
 
+#include <boost/range/adaptor/transformed.hpp>
 #include <boost/test/unit_test.hpp>
 
 #include <functional>
@@ -40,54 +42,26 @@
 
 using namespace std;
 using namespace std::placeholders;
-using namespace dev::test;
+using namespace solidity;
+using namespace solidity::util;
+using namespace solidity::test;
+using namespace solidity::langutil;
 
-namespace dev
-{
-namespace solidity
-{
-namespace test
+#define ALSO_VIA_YUL(CODE) \
+{ \
+	{ CODE } \
+	m_compileViaYul = true; \
+	{ CODE } \
+}
+
+namespace solidity::frontend::test
 {
 
 BOOST_FIXTURE_TEST_SUITE(SolidityEndToEndTest, SolidityExecutionFramework)
 
-BOOST_AUTO_TEST_CASE(transaction_status)
+int constexpr roundTo32(int _num)
 {
-	char const* sourceCode = R"(
-		contract test {
-			function f() public { }
-			function g() public { revert(); }
-			function h() public { assert(false); }
-		}
-	)";
-	compileAndRun(sourceCode);
-	callContractFunction("f()");
-	BOOST_CHECK(m_transactionSuccessful);
-	callContractFunction("g()");
-	BOOST_CHECK(!m_transactionSuccessful);
-	callContractFunction("h()");
-	BOOST_CHECK(!m_transactionSuccessful);
-}
-
-
-BOOST_AUTO_TEST_CASE(smoke_test)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function f(uint a) public returns(uint d) { return a * 7; }
-		}
-	)";
-	compileAndRun(sourceCode);
-	testContractAgainstCppOnRange("f(uint256)", [](u256 const& a) -> u256 { return a * 7; }, 0, 100);
-}
-
-BOOST_AUTO_TEST_CASE(empty_contract)
-{
-	char const* sourceCode = R"(
-		contract test { }
-	)";
-	compileAndRun(sourceCode);
-	BOOST_CHECK(callContractFunction("i_am_not_there()", bytes()).empty());
+	return (_num + 31) / 32 * 32;
 }
 
 BOOST_AUTO_TEST_CASE(exp_operator)
@@ -101,28 +75,6 @@ BOOST_AUTO_TEST_CASE(exp_operator)
 	testContractAgainstCppOnRange("f(uint256)", [](u256 const& a) -> u256 { return u256(1 << a.convert_to<int>()); }, 0, 16);
 }
 
-BOOST_AUTO_TEST_CASE(exp_operator_const)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function f() public returns(uint d) { return 2 ** 3; }
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()", bytes()), toBigEndian(u256(8)));
-}
-
-BOOST_AUTO_TEST_CASE(exp_operator_const_signed)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function f() public returns(int d) { return (-2) ** 3; }
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()", bytes()), toBigEndian(u256(-8)));
-}
-
 BOOST_AUTO_TEST_CASE(exp_zero)
 {
 	char const* sourceCode = R"(
@@ -134,161 +86,7 @@ BOOST_AUTO_TEST_CASE(exp_zero)
 	testContractAgainstCppOnRange("f(uint256)", [](u256 const&) -> u256 { return u256(1); }, 0, 16);
 }
 
-BOOST_AUTO_TEST_CASE(exp_zero_literal)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function f() public returns(uint d) { return 0 ** 0; }
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()", bytes()), toBigEndian(u256(1)));
-}
-
-
-BOOST_AUTO_TEST_CASE(conditional_expression_true_literal)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function f() public returns(uint d) {
-				return true ? 5 : 10;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()", bytes()), toBigEndian(u256(5)));
-}
-
-BOOST_AUTO_TEST_CASE(conditional_expression_false_literal)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function f() public returns(uint d) {
-				return false ? 5 : 10;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()", bytes()), toBigEndian(u256(10)));
-}
-
-BOOST_AUTO_TEST_CASE(conditional_expression_multiple)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function f(uint x) public returns(uint d) {
-				return x > 100 ?
-							x > 1000 ? 1000 : 100
-							:
-							x > 50 ? 50 : 10;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f(uint256)", u256(1001)), toBigEndian(u256(1000)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(500)), toBigEndian(u256(100)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(80)), toBigEndian(u256(50)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(40)), toBigEndian(u256(10)));
-}
-
-BOOST_AUTO_TEST_CASE(conditional_expression_with_return_values)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function f(bool cond, uint v) public returns (uint a, uint b) {
-				cond ? a = v : b = v;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f(bool,uint256)", true, u256(20)), encodeArgs(u256(20), u256(0)));
-	ABI_CHECK(callContractFunction("f(bool,uint256)", false, u256(20)), encodeArgs(u256(0), u256(20)));
-}
-
-BOOST_AUTO_TEST_CASE(conditional_expression_storage_memory_1)
-{
-	char const* sourceCode = R"(
-		contract test {
-			bytes2[2] data1;
-			function f(bool cond) public returns (uint) {
-				bytes2[2] memory x;
-				x[0] = "aa";
-				bytes2[2] memory y;
-				y[0] = "bb";
-
-				data1 = cond ? x : y;
-
-				uint ret = 0;
-				if (data1[0] == "aa")
-				{
-					ret = 1;
-				}
-
-				if (data1[0] == "bb")
-				{
-					ret = 2;
-				}
-
-				return ret;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f(bool)", true), encodeArgs(u256(1)));
-	ABI_CHECK(callContractFunction("f(bool)", false), encodeArgs(u256(2)));
-}
-
-BOOST_AUTO_TEST_CASE(conditional_expression_storage_memory_2)
-{
-	char const* sourceCode = R"(
-		contract test {
-			bytes2[2] data1;
-			function f(bool cond) public returns (uint) {
-				data1[0] = "cc";
-
-				bytes2[2] memory x;
-				bytes2[2] memory y;
-				y[0] = "bb";
-
-				x = cond ? y : data1;
-
-				uint ret = 0;
-				if (x[0] == "bb")
-				{
-					ret = 1;
-				}
-
-				if (x[0] == "cc")
-				{
-					ret = 2;
-				}
-
-				return ret;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f(bool)", true), encodeArgs(u256(1)));
-	ABI_CHECK(callContractFunction("f(bool)", false), encodeArgs(u256(2)));
-}
-
-BOOST_AUTO_TEST_CASE(conditional_expression_different_types)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function f(bool cond) public returns (uint) {
-				uint8 x = 0xcd;
-				uint16 y = 0xabab;
-				return cond ? x : y;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f(bool)", true), encodeArgs(u256(0xcd)));
-	ABI_CHECK(callContractFunction("f(bool)", false), encodeArgs(u256(0xabab)));
-}
-
-/* let's add this back when I figure out the correct type conversion.
+/* TODO let's add this back when I figure out the correct type conversion.
 BOOST_AUTO_TEST_CASE(conditional_expression_string_literal)
 {
 	char const* sourceCode = R"(
@@ -304,85 +102,6 @@ BOOST_AUTO_TEST_CASE(conditional_expression_string_literal)
 }
 */
 
-BOOST_AUTO_TEST_CASE(conditional_expression_tuples)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function f(bool cond) public returns (uint, uint) {
-				return cond ? (1, 2) : (3, 4);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f(bool)", true), encodeArgs(u256(1), u256(2)));
-	ABI_CHECK(callContractFunction("f(bool)", false), encodeArgs(u256(3), u256(4)));
-}
-
-BOOST_AUTO_TEST_CASE(conditional_expression_functions)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function x() public returns (uint) { return 1; }
-			function y() public returns (uint) { return 2; }
-
-			function f(bool cond) public returns (uint) {
-				function () returns (uint) z = cond ? x : y;
-				return z();
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f(bool)", true), encodeArgs(u256(1)));
-	ABI_CHECK(callContractFunction("f(bool)", false), encodeArgs(u256(2)));
-}
-
-BOOST_AUTO_TEST_CASE(c99_scoping_activation)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function f() pure public returns (uint) {
-				uint x = 7;
-				{
-					x = 3; // This should still assign to the outer variable
-					uint x;
-					x = 4; // This should assign to the new one
-				}
-				return x;
-			}
-			function g() pure public returns (uint x) {
-				x = 7;
-				{
-					x = 3;
-					uint x;
-					return x; // This returns the new variable, i.e. 0
-				}
-			}
-			function h() pure public returns (uint x, uint a, uint b) {
-				x = 7;
-				{
-					x = 3;
-					a = x; // This should read from the outer
-					uint x = 4;
-					b = x;
-				}
-			}
-			function i() pure public returns (uint x, uint a) {
-				x = 7;
-				{
-					x = 3;
-					uint x = x; // This should read from the outer and assign to the inner
-					a = x;
-				}
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(3));
-	ABI_CHECK(callContractFunction("g()"), encodeArgs(0));
-	ABI_CHECK(callContractFunction("h()"), encodeArgs(3, 3, 4));
-	ABI_CHECK(callContractFunction("i()"), encodeArgs(3, 3));
-}
-
 BOOST_AUTO_TEST_CASE(recursive_calls)
 {
 	char const* sourceCode = R"(
@@ -393,58 +112,18 @@ BOOST_AUTO_TEST_CASE(recursive_calls)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	function<u256(u256)> recursive_calls_cpp = [&recursive_calls_cpp](u256 const& n) -> u256
-	{
-		if (n <= 1)
-			return 1;
-		else
-			return n * recursive_calls_cpp(n - 1);
-	};
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		function<u256(u256)> recursive_calls_cpp = [&recursive_calls_cpp](u256 const& n) -> u256
+		{
+			if (n <= 1)
+				return 1;
+			else
+				return n * recursive_calls_cpp(n - 1);
+		};
 
-	testContractAgainstCppOnRange("f(uint256)", recursive_calls_cpp, 0, 5);
-}
-
-BOOST_AUTO_TEST_CASE(multiple_functions)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function a() public returns(uint n) { return 0; }
-			function b() public returns(uint n) { return 1; }
-			function c() public returns(uint n) { return 2; }
-			function f() public returns(uint n) { return 3; }
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("a()", bytes()), toBigEndian(u256(0)));
-	ABI_CHECK(callContractFunction("b()", bytes()), toBigEndian(u256(1)));
-	ABI_CHECK(callContractFunction("c()", bytes()), toBigEndian(u256(2)));
-	ABI_CHECK(callContractFunction("f()", bytes()), toBigEndian(u256(3)));
-	ABI_CHECK(callContractFunction("i_am_not_there()", bytes()), bytes());
-}
-
-BOOST_AUTO_TEST_CASE(named_args)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function a(uint a, uint b, uint c) public returns (uint r) { r = a * 100 + b * 10 + c * 1; }
-			function b() public returns (uint r) { r = a({a: 1, b: 2, c: 3}); }
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("b()", bytes()), toBigEndian(u256(123)));
-}
-
-BOOST_AUTO_TEST_CASE(disorder_named_args)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function a(uint a, uint b, uint c) public returns (uint r) { r = a * 100 + b * 10 + c * 1; }
-			function b() public returns (uint r) { r = a({c: 3, a: 1, b: 2}); }
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("b()", bytes()), toBigEndian(u256(123)));
+		testContractAgainstCppOnRange("f(uint256)", recursive_calls_cpp, 0, 5);
+	)
 }
 
 BOOST_AUTO_TEST_CASE(while_loop)
@@ -458,19 +137,21 @@ BOOST_AUTO_TEST_CASE(while_loop)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
 
-	auto while_loop_cpp = [](u256 const& n) -> u256
-	{
-		u256 nfac = 1;
-		u256 i = 2;
-		while (i <= n)
-			nfac *= i++;
+		auto while_loop_cpp = [](u256 const& n) -> u256
+		{
+			u256 nfac = 1;
+			u256 i = 2;
+			while (i <= n)
+				nfac *= i++;
 
-		return nfac;
-	};
+			return nfac;
+		};
 
-	testContractAgainstCppOnRange("f(uint256)", while_loop_cpp, 0, 5);
+		testContractAgainstCppOnRange("f(uint256)", while_loop_cpp, 0, 5);
+	)
 }
 
 
@@ -485,83 +166,25 @@ BOOST_AUTO_TEST_CASE(do_while_loop)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
 
-	auto do_while_loop_cpp = [](u256 const& n) -> u256
-	{
-		u256 nfac = 1;
-		u256 i = 2;
-		do
+		auto do_while_loop_cpp = [](u256 const& n) -> u256
 		{
-			nfac *= i++;
-		}
-		while (i <= n);
-
-		return nfac;
-	};
-
-	testContractAgainstCppOnRange("f(uint256)", do_while_loop_cpp, 0, 5);
-}
-
-BOOST_AUTO_TEST_CASE(do_while_loop_continue)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function f() public pure returns(uint r) {
-				uint i = 0;
-				do
-				{
-					if (i > 0) return 0;
-					i++;
-					continue;
-				} while (false);
-				return 42;
+			u256 nfac = 1;
+			u256 i = 2;
+			do
+			{
+				nfac *= i++;
 			}
-		}
-	)";
-	compileAndRun(sourceCode);
+			while (i <= n);
 
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(42));
+			return nfac;
+		};
+
+		testContractAgainstCppOnRange("f(uint256)", do_while_loop_cpp, 0, 5);
+	)
 }
-
-BOOST_AUTO_TEST_CASE(array_multiple_local_vars)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function f(uint256[] calldata seq) external pure returns (uint256) {
-				uint i = 0;
-				uint sum = 0;
-				while (i < seq.length)
-				{
-					uint idx = i;
-					if (idx >= 10) break;
-					uint x = seq[idx];
-					if (x >= 1000) {
-						uint n = i + 1;
-						i = n;
-						continue;
-					}
-					else {
-						uint y = sum + x;
-						sum = y;
-					}
-					if (sum >= 500) return sum;
-					i++;
-				}
-				return sum;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-
-	ABI_CHECK(callContractFunction("f(uint256[])", 32, 3, u256(1000), u256(1), u256(2)), encodeArgs(3));
-	ABI_CHECK(callContractFunction("f(uint256[])", 32, 3, u256(100), u256(500), u256(300)), encodeArgs(600));
-	ABI_CHECK(callContractFunction(
-		"f(uint256[])", 32, 11,
-		u256(1), u256(2), u256(3), u256(4), u256(5), u256(6), u256(7), u256(8), u256(9), u256(10), u256(111)
-		), encodeArgs(55));
-}
-
 
 BOOST_AUTO_TEST_CASE(do_while_loop_multiple_local_vars)
 {
@@ -588,30 +211,32 @@ BOOST_AUTO_TEST_CASE(do_while_loop_multiple_local_vars)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
 
-	auto do_while = [](u256 n) -> u256
-	{
-		u256 i = 0;
-		do
+		auto do_while = [](u256 n) -> u256
 		{
-			u256 z = n * 2;
-			if (z < 4) break;
-			else {
-				u256 k = z + 1;
-				if (k < 8) {
-					n++;
-					continue;
+			u256 i = 0;
+			do
+			{
+				u256 z = n * 2;
+				if (z < 4) break;
+				else {
+					u256 k = z + 1;
+					if (k < 8) {
+						n++;
+						continue;
+					}
 				}
-			}
-			if (z > 12) return 0;
-			n++;
-			i++;
-		} while (true);
-		return 42;
-	};
+				if (z > 12) return 0;
+				n++;
+				i++;
+			} while (true);
+			return 42;
+		};
 
-	testContractAgainstCppOnRange("f(uint256)", do_while, 0, 12);
+		testContractAgainstCppOnRange("f(uint256)", do_while, 0, 12);
+	)
 }
 
 BOOST_AUTO_TEST_CASE(nested_loops)
@@ -636,33 +261,35 @@ BOOST_AUTO_TEST_CASE(nested_loops)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
 
-	auto nested_loops_cpp = [](u256 n) -> u256
-	{
-		while (n > 1)
+		auto nested_loops_cpp = [](u256 n) -> u256
 		{
-			if (n == 10)
-				break;
-			while (n > 5)
+			while (n > 1)
 			{
-				if (n == 8)
+				if (n == 10)
 					break;
+				while (n > 5)
+				{
+					if (n == 8)
+						break;
+					n--;
+					if (n == 6)
+						continue;
+					return n;
+				}
 				n--;
-				if (n == 6)
+				if (n == 3)
 					continue;
-				return n;
+				break;
 			}
-			n--;
-			if (n == 3)
-				continue;
-			break;
-		}
 
-		return n;
-	};
+			return n;
+		};
 
-	testContractAgainstCppOnRange("f(uint256)", nested_loops_cpp, 0, 12);
+		testContractAgainstCppOnRange("f(uint256)", nested_loops_cpp, 0, 12);
+	)
 }
 
 BOOST_AUTO_TEST_CASE(nested_loops_multiple_local_vars)
@@ -700,33 +327,35 @@ BOOST_AUTO_TEST_CASE(nested_loops_multiple_local_vars)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
 
-	auto nested_loops_cpp = [](u256 n) -> u256
-	{
-		while (n > 0)
+		auto nested_loops_cpp = [](u256 n) -> u256
 		{
-			u256 z = n + 10;
-			u256 k = z + 1;
-			if (k > 20) break;
-			if (k > 15) {
-				n--;
-				continue;
-			}
-			while (k > 10)
+			while (n > 0)
 			{
-				u256 m = k - 1;
-				if (m == 10) return n;
-				return k;
+				u256 z = n + 10;
+				u256 k = z + 1;
+				if (k > 20) break;
+				if (k > 15) {
+					n--;
+					continue;
+				}
+				while (k > 10)
+				{
+					u256 m = k - 1;
+					if (m == 10) return n;
+					return k;
+				}
+				n--;
+				break;
 			}
-			n--;
-			break;
-		}
 
-		return n;
-	};
+			return n;
+		};
 
-	testContractAgainstCppOnRange("f(uint256)", nested_loops_cpp, 0, 12);
+		testContractAgainstCppOnRange("f(uint256)", nested_loops_cpp, 0, 12);
+	)
 }
 
 BOOST_AUTO_TEST_CASE(for_loop_multiple_local_vars)
@@ -752,28 +381,30 @@ BOOST_AUTO_TEST_CASE(for_loop_multiple_local_vars)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
 
-	auto for_loop = [](u256 n) -> u256
-	{
-		for (u256 i = 0; i < 12; i++)
+		auto for_loop = [](u256 n) -> u256
 		{
-			u256 z = n + 1;
-			if (z < 4) break;
-			else {
-				u256 k = z * 2;
-				if (i + k < 10) {
-					n++;
-					continue;
+			for (u256 i = 0; i < 12; i++)
+			{
+				u256 z = n + 1;
+				if (z < 4) break;
+				else {
+					u256 k = z * 2;
+					if (i + k < 10) {
+						n++;
+						continue;
+					}
 				}
+				if (z > 8) return 0;
+				n++;
 			}
-			if (z > 8) return 0;
-			n++;
-		}
-		return 42;
-	};
+			return 42;
+		};
 
-	testContractAgainstCppOnRange("f(uint256)", for_loop, 0, 12);
+		testContractAgainstCppOnRange("f(uint256)", for_loop, 0, 12);
+	)
 }
 
 BOOST_AUTO_TEST_CASE(nested_for_loop_multiple_local_vars)
@@ -811,30 +442,32 @@ BOOST_AUTO_TEST_CASE(nested_for_loop_multiple_local_vars)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
 
-	auto for_loop = [](u256 n) -> u256
-	{
-		for (u256 i = 0; i < 5; i++)
+		auto for_loop = [](u256 n) -> u256
 		{
-			u256 z = n + 1;
-			if (z < 3) break;
-			for (u256 j = 0; j < 5; j++)
+			for (u256 i = 0; i < 5; i++)
 			{
-				u256 k = z * 2;
-				if (j + k < 8) {
+				u256 z = n + 1;
+				if (z < 3) break;
+				for (u256 j = 0; j < 5; j++)
+				{
+					u256 k = z * 2;
+					if (j + k < 8) {
+						n++;
+						continue;
+					}
 					n++;
-					continue;
+					if (n > 20) return 84;
 				}
-				n++;
-				if (n > 20) return 84;
+				if (n > 30) return 42;
 			}
-			if (n > 30) return 42;
-		}
-		return 42;
-	};
+			return 42;
+		};
 
-	testContractAgainstCppOnRange("f(uint256)", for_loop, 0, 12);
+		testContractAgainstCppOnRange("f(uint256)", for_loop, 0, 12);
+	)
 }
 
 BOOST_AUTO_TEST_CASE(for_loop)
@@ -849,17 +482,19 @@ BOOST_AUTO_TEST_CASE(for_loop)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
 
-	auto for_loop_cpp = [](u256 const& n) -> u256
-	{
-		u256 nfac = 1;
-		for (auto i = 2; i <= n; i++)
-			nfac *= i;
-		return nfac;
-	};
+		auto for_loop_cpp = [](u256 const& n) -> u256
+		{
+			u256 nfac = 1;
+			for (auto i = 2; i <= n; i++)
+				nfac *= i;
+			return nfac;
+		};
 
-	testContractAgainstCppOnRange("f(uint256)", for_loop_cpp, 0, 5);
+		testContractAgainstCppOnRange("f(uint256)", for_loop_cpp, 0, 5);
+	)
 }
 
 BOOST_AUTO_TEST_CASE(for_loop_empty)
@@ -875,20 +510,22 @@ BOOST_AUTO_TEST_CASE(for_loop_empty)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
 
-	auto for_loop_empty_cpp = []() -> u256
-	{
-		u256 ret = 1;
-		for (;;)
+		auto for_loop_empty_cpp = []() -> u256
 		{
-			ret += 1;
-			if (ret >= 10) break;
-		}
-		return ret;
-	};
+			u256 ret = 1;
+			for (;;)
+			{
+				ret += 1;
+				if (ret >= 10) break;
+			}
+			return ret;
+		};
 
-	testContractAgainstCpp("f()", for_loop_empty_cpp);
+		testContractAgainstCpp("f()", for_loop_empty_cpp);
+	)
 }
 
 BOOST_AUTO_TEST_CASE(for_loop_simple_init_expr)
@@ -903,18 +540,20 @@ BOOST_AUTO_TEST_CASE(for_loop_simple_init_expr)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
 
-	auto for_loop_simple_init_expr_cpp = [](u256 const& n) -> u256
-	{
-		u256 nfac = 1;
-		u256 i;
-		for (i = 2; i <= n; i++)
-			nfac *= i;
-		return nfac;
-	};
+		auto for_loop_simple_init_expr_cpp = [](u256 const& n) -> u256
+		{
+			u256 nfac = 1;
+			u256 i;
+			for (i = 2; i <= n; i++)
+				nfac *= i;
+			return nfac;
+		};
 
-	testContractAgainstCppOnRange("f(uint256)", for_loop_simple_init_expr_cpp, 0, 5);
+		testContractAgainstCppOnRange("f(uint256)", for_loop_simple_init_expr_cpp, 0, 5);
+	)
 }
 
 BOOST_AUTO_TEST_CASE(for_loop_break_continue)
@@ -1024,64 +663,18 @@ BOOST_AUTO_TEST_CASE(many_local_variables)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	auto f = [](u256 const& x1, u256 const& x2, u256 const& x3) -> u256
-	{
-		u256 a = 0x1;
-		u256 b = 0x10;
-		u256 c = 0x100;
-		u256 y = a + b + c + x1 + x2 + x3;
-		return y + b + x2;
-	};
-	testContractAgainstCpp("run(uint256,uint256,uint256)", f, u256(0x1000), u256(0x10000), u256(0x100000));
-}
-
-BOOST_AUTO_TEST_CASE(packing_unpacking_types)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function run(bool a, uint32 b, uint64 c) public returns(uint256 y) {
-				if (a) y = 1;
-				y = y * 0x100000000 | ~b;
-				y = y * 0x10000000000000000 | ~c;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(
-		callContractFunction("run(bool,uint32,uint64)", true, fromHex("0f0f0f0f"), fromHex("f0f0f0f0f0f0f0f0")),
-		fromHex("00000000000000000000000000000000000000""01""f0f0f0f0""0f0f0f0f0f0f0f0f")
-	);
-}
-
-BOOST_AUTO_TEST_CASE(packing_signed_types)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function run() public returns(int8 y) {
-				uint8 x = 0xfa;
-				return int8(x);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(
-		callContractFunction("run()"),
-		fromHex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa")
-	);
-}
-
-BOOST_AUTO_TEST_CASE(multiple_return_values)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function run(bool x1, uint x2) public returns(uint y1, bool y2, uint y3) {
-				y1 = x2; y2 = x1;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("run(bool,uint256)", true, 0xcd), encodeArgs(0xcd, true, 0));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		auto f = [](u256 const& x1, u256 const& x2, u256 const& x3) -> u256
+		{
+			u256 a = 0x1;
+			u256 b = 0x10;
+			u256 c = 0x100;
+			u256 y = a + b + c + x1 + x2 + x3;
+			return y + b + x2;
+		};
+		testContractAgainstCpp("run(uint256,uint256,uint256)", f, u256(0x1000), u256(0x10000), u256(0x100000));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(short_circuiting)
@@ -1094,15 +687,17 @@ BOOST_AUTO_TEST_CASE(short_circuiting)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
 
-	auto short_circuiting_cpp = [](u256 n) -> u256
-	{
-		(void)(n == 0 || (n = 8) > 0);
-		return n;
-	};
+		auto short_circuiting_cpp = [](u256 n) -> u256
+		{
+			(void)(n == 0 || (n = 8) > 0);
+			return n;
+		};
 
-	testContractAgainstCppOnRange("run(uint256)", short_circuiting_cpp, 0, 2);
+		testContractAgainstCppOnRange("run(uint256)", short_circuiting_cpp, 0, 2);
+	)
 }
 
 BOOST_AUTO_TEST_CASE(high_bits_cleaning)
@@ -1189,88 +784,6 @@ BOOST_AUTO_TEST_CASE(small_signed_types)
 	testContractAgainstCpp("run()", small_signed_types_cpp);
 }
 
-BOOST_AUTO_TEST_CASE(strings)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function fixedBytes() public returns(bytes32 ret) {
-				return "abc\x00\xff__";
-			}
-			function pipeThrough(bytes2 small, bool one) public returns(bytes16 large, bool oneRet) {
-				oneRet = one;
-				large = small;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("fixedBytes()"), encodeArgs(string("abc\0\xff__", 7)));
-	ABI_CHECK(callContractFunction("pipeThrough(bytes2,bool)", string("\0\x02", 2), true), encodeArgs(string("\0\x2", 2), true));
-}
-
-BOOST_AUTO_TEST_CASE(inc_dec_operators)
-{
-	char const* sourceCode = R"(
-		contract test {
-			uint8 x;
-			uint v;
-			function f() public returns (uint r) {
-				uint a = 6;
-				r = a;
-				r += (a++) * 0x10;
-				r += (++a) * 0x100;
-				v = 3;
-				r += (v++) * 0x1000;
-				r += (++v) * 0x10000;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(0x53866));
-}
-
-BOOST_AUTO_TEST_CASE(bytes_comparison)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function f() public returns (bool) {
-				bytes2 a = "a";
-				bytes2 x = "aa";
-				bytes2 b = "b";
-				return a < x && x < b;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(true));
-}
-
-BOOST_AUTO_TEST_CASE(state_smoke_test)
-{
-	char const* sourceCode = R"(
-		contract test {
-			uint256 value1;
-			uint256 value2;
-			function get(uint8 which) public returns (uint256 value) {
-				if (which == 0) return value1;
-				else return value2;
-			}
-			function set(uint8 which, uint256 value) public {
-				if (which == 0) value1 = value;
-				else value2 = value;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0x00)), encodeArgs(0));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0x01)), encodeArgs(0));
-	ABI_CHECK(callContractFunction("set(uint8,uint256)", uint8_t(0x00), 0x1234), encodeArgs());
-	ABI_CHECK(callContractFunction("set(uint8,uint256)", uint8_t(0x01), 0x8765), encodeArgs());
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t( 0x00)), encodeArgs(0x1234));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0x01)), encodeArgs(0x8765));
-	ABI_CHECK(callContractFunction("set(uint8,uint256)", uint8_t(0x00), 0x3), encodeArgs());
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0x00)), encodeArgs(0x3));
-}
-
 BOOST_AUTO_TEST_CASE(compound_assign)
 {
 	char const* sourceCode = R"(
@@ -1286,58 +799,28 @@ BOOST_AUTO_TEST_CASE(compound_assign)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
 
-	u256 value1;
-	u256 value2;
-	auto f = [&](u256 const& _x, u256 const& _y) -> u256
-	{
-		u256 value3 = _y;
-		value1 += _x;
-		value3 *= _x;
-		value2 *= value3 + value1;
-		return value2 += 7;
-	};
-	testContractAgainstCpp("f(uint256,uint256)", f, u256(0), u256(6));
-	testContractAgainstCpp("f(uint256,uint256)", f, u256(1), u256(3));
-	testContractAgainstCpp("f(uint256,uint256)", f, u256(2), u256(25));
-	testContractAgainstCpp("f(uint256,uint256)", f, u256(3), u256(69));
-	testContractAgainstCpp("f(uint256,uint256)", f, u256(4), u256(84));
-	testContractAgainstCpp("f(uint256,uint256)", f, u256(5), u256(2));
-	testContractAgainstCpp("f(uint256,uint256)", f, u256(6), u256(51));
-	testContractAgainstCpp("f(uint256,uint256)", f, u256(7), u256(48));
-}
-
-BOOST_AUTO_TEST_CASE(simple_mapping)
-{
-	char const* sourceCode = R"(
-		contract test {
-			mapping(uint8 => uint8) table;
-			function get(uint8 k) public returns (uint8 v) {
-				return table[k];
-			}
-			function set(uint8 k, uint8 v) public {
-				table[k] = v;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0)), encodeArgs(uint8_t(0x00)));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0x01)), encodeArgs(uint8_t(0x00)));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0xa7)), encodeArgs(uint8_t(0x00)));
-	callContractFunction("set(uint8,uint8)", uint8_t(0x01), uint8_t(0xa1));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0x00)), encodeArgs(uint8_t(0x00)));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0x01)), encodeArgs(uint8_t(0xa1)));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0xa7)), encodeArgs(uint8_t(0x00)));
-	callContractFunction("set(uint8,uint8)", uint8_t(0x00), uint8_t(0xef));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0x00)), encodeArgs(uint8_t(0xef)));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0x01)), encodeArgs(uint8_t(0xa1)));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0xa7)), encodeArgs(uint8_t(0x00)));
-	callContractFunction("set(uint8,uint8)", uint8_t(0x01), uint8_t(0x05));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0x00)), encodeArgs(uint8_t(0xef)));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0x01)), encodeArgs(uint8_t(0x05)));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(0xa7)), encodeArgs(uint8_t(0x00)));
+		u256 value1;
+		u256 value2;
+		auto f = [&](u256 const& _x, u256 const& _y) -> u256
+		{
+			u256 value3 = _y;
+			value1 += _x;
+			value3 *= _x;
+			value2 *= value3 + value1;
+			return value2 += 7;
+		};
+		testContractAgainstCpp("f(uint256,uint256)", f, u256(0), u256(6));
+		testContractAgainstCpp("f(uint256,uint256)", f, u256(1), u256(3));
+		testContractAgainstCpp("f(uint256,uint256)", f, u256(2), u256(25));
+		testContractAgainstCpp("f(uint256,uint256)", f, u256(3), u256(69));
+		testContractAgainstCpp("f(uint256,uint256)", f, u256(4), u256(84));
+		testContractAgainstCpp("f(uint256,uint256)", f, u256(5), u256(2));
+		testContractAgainstCpp("f(uint256,uint256)", f, u256(6), u256(51));
+		testContractAgainstCpp("f(uint256,uint256)", f, u256(7), u256(48));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(mapping_state)
@@ -1361,7 +844,6 @@ BOOST_AUTO_TEST_CASE(mapping_state)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
 	class Ballot
 	{
 	public:
@@ -1378,43 +860,47 @@ BOOST_AUTO_TEST_CASE(mapping_state)
 		map<u160, bool> m_canVote;
 		map<u160, u256> m_voteCount;
 		map<u160, bool> m_voted;
-	} ballot;
+	};
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		Ballot ballot;
 
-	auto getVoteCount = bind(&Ballot::getVoteCount, &ballot, _1);
-	auto grantVoteRight = bind(&Ballot::grantVoteRight, &ballot, _1);
-	auto vote = bind(&Ballot::vote, &ballot, _1, _2);
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(0));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(1));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(2));
-	// voting without vote right should be rejected
-	testContractAgainstCpp("vote(address,address)", vote, u160(0), u160(2));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(0));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(1));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(2));
-	// grant vote rights
-	testContractAgainstCpp("grantVoteRight(address)", grantVoteRight, u160(0));
-	testContractAgainstCpp("grantVoteRight(address)", grantVoteRight, u160(1));
-	// vote, should increase 2's vote count
-	testContractAgainstCpp("vote(address,address)", vote, u160(0), u160(2));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(0));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(1));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(2));
-	// vote again, should be rejected
-	testContractAgainstCpp("vote(address,address)", vote, u160(0), u160(1));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(0));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(1));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(2));
-	// vote without right to vote
-	testContractAgainstCpp("vote(address,address)", vote, u160(2), u160(1));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(0));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(1));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(2));
-	// grant vote right and now vote again
-	testContractAgainstCpp("grantVoteRight(address)", grantVoteRight, u160(2));
-	testContractAgainstCpp("vote(address,address)", vote, u160(2), u160(1));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(0));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(1));
-	testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(2));
+		auto getVoteCount = bind(&Ballot::getVoteCount, &ballot, _1);
+		auto grantVoteRight = bind(&Ballot::grantVoteRight, &ballot, _1);
+		auto vote = bind(&Ballot::vote, &ballot, _1, _2);
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(0));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(1));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(2));
+		// voting without vote right should be rejected
+		testContractAgainstCpp("vote(address,address)", vote, u160(0), u160(2));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(0));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(1));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(2));
+		// grant vote rights
+		testContractAgainstCpp("grantVoteRight(address)", grantVoteRight, u160(0));
+		testContractAgainstCpp("grantVoteRight(address)", grantVoteRight, u160(1));
+		// vote, should increase 2's vote count
+		testContractAgainstCpp("vote(address,address)", vote, u160(0), u160(2));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(0));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(1));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(2));
+		// vote again, should be rejected
+		testContractAgainstCpp("vote(address,address)", vote, u160(0), u160(1));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(0));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(1));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(2));
+		// vote without right to vote
+		testContractAgainstCpp("vote(address,address)", vote, u160(2), u160(1));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(0));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(1));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(2));
+		// grant vote right and now vote again
+		testContractAgainstCpp("grantVoteRight(address)", grantVoteRight, u160(2));
+		testContractAgainstCpp("vote(address,address)", vote, u160(2), u160(1));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(0));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(1));
+		testContractAgainstCpp("getVoteCount(address)", getVoteCount, u160(2));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(mapping_state_inc_dec)
@@ -1428,13 +914,13 @@ BOOST_AUTO_TEST_CASE(mapping_state_inc_dec)
 				if (x > 0) table[++value] = 8;
 				if (x > 1) value--;
 				if (x > 2) table[value]++;
+				table[value] += 10;
 				return --table[value++];
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
 
-	u256 value = 0;
+	u256 value;
 	map<u256, u256> table;
 	auto f = [&](u256 const& _x) -> u256
 	{
@@ -1445,9 +931,16 @@ BOOST_AUTO_TEST_CASE(mapping_state_inc_dec)
 			value --;
 		if (_x > 2)
 			table[value]++;
+		table[value] += 10;
 		return --table[value++];
 	};
-	testContractAgainstCppOnRange("f(uint256)", f, 0, 5);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		value = 0;
+		table.clear();
+
+		testContractAgainstCppOnRange("f(uint256)", f, 0, 5);
+	)
 }
 
 BOOST_AUTO_TEST_CASE(multi_level_mapping)
@@ -1461,350 +954,25 @@ BOOST_AUTO_TEST_CASE(multi_level_mapping)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-
 	map<u256, map<u256, u256>> table;
 	auto f = [&](u256 const& _x, u256 const& _y, u256 const& _z) -> u256
 	{
 		if (_z == 0) return table[_x][_y];
 		else return table[_x][_y] = _z;
 	};
-	testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(4), u256(5), u256(0));
-	testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(5), u256(4), u256(0));
-	testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(4), u256(5), u256(9));
-	testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(4), u256(5), u256(0));
-	testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(5), u256(4), u256(0));
-	testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(5), u256(4), u256(7));
-	testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(4), u256(5), u256(0));
-	testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(5), u256(4), u256(0));
-}
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		table.clear();
 
-BOOST_AUTO_TEST_CASE(mapping_local_assignment)
-{
-	char const* sourceCode = R"(
-		contract test {
-			mapping(uint8 => uint8) m1;
-			mapping(uint8 => uint8) m2;
-			function f() public returns (uint8, uint8, uint8, uint8) {
-				mapping(uint8 => uint8) storage m = m1;
-				m[1] = 42;
-
-				m = m2;
-				m[2] = 21;
-
-				return (m1[1], m1[2], m2[1], m2[2]);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(uint8_t(42), uint8_t(0), uint8_t(0), uint8_t(21)));
-}
-
-BOOST_AUTO_TEST_CASE(mapping_local_tuple_assignment)
-{
-	char const* sourceCode = R"(
-		contract test {
-			mapping(uint8 => uint8) m1;
-			mapping(uint8 => uint8) m2;
-			function f() public returns (uint8, uint8, uint8, uint8) {
-				mapping(uint8 => uint8) storage m = m1;
-				m[1] = 42;
-
-				uint8 v;
-				(m, v) = (m2, 21);
-				m[2] = v;
-
-				return (m1[1], m1[2], m2[1], m2[2]);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(uint8_t(42), uint8_t(0), uint8_t(0), uint8_t(21)));
-}
-
-BOOST_AUTO_TEST_CASE(mapping_local_compound_assignment)
-{
-	char const* sourceCode = R"(
-		contract test {
-			mapping(uint8 => uint8) m1;
-			mapping(uint8 => uint8) m2;
-			function f() public returns (uint8, uint8, uint8, uint8) {
-				mapping(uint8 => uint8) storage m = m1;
-				m[1] = 42;
-
-				(m = m2)[2] = 21;
-
-				return (m1[1], m1[2], m2[1], m2[2]);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(uint8_t(42), uint8_t(0), uint8_t(0), uint8_t(21)));
-}
-
-BOOST_AUTO_TEST_CASE(mapping_internal_argument)
-{
-	char const* sourceCode = R"(
-		contract test {
-			mapping(uint8 => uint8) a;
-			mapping(uint8 => uint8) b;
-			function set_internal(mapping(uint8 => uint8) storage m, uint8 key, uint8 value) internal returns (uint8) {
-				uint8 oldValue = m[key];
-				m[key] = value;
-				return oldValue;
-			}
-			function set(uint8 key, uint8 value_a, uint8 value_b) public returns (uint8 old_a, uint8 old_b) {
-				old_a = set_internal(a, key, value_a);
-				old_b = set_internal(b, key, value_b);
-			}
-			function get(uint8 key) public returns (uint8, uint8) {
-				return (a[key], b[key]);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-
-	ABI_CHECK(callContractFunction("set(uint8,uint8,uint8)", uint8_t(1), uint8_t(21), uint8_t(42)), encodeArgs(uint8_t(0), uint8_t(0)));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(1)), encodeArgs(uint8_t(21), uint8_t(42)));
-	ABI_CHECK(callContractFunction("set(uint8,uint8,uint8)", uint8_t(1), uint8_t(10), uint8_t(11)), encodeArgs(uint8_t(21), uint8_t(42)));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(1)), encodeArgs(uint8_t(10), uint8_t(11)));
-}
-
-BOOST_AUTO_TEST_CASE(mapping_array_internal_argument)
-{
-	char const* sourceCode = R"(
-		contract test {
-			mapping(uint8 => uint8)[2] a;
-			mapping(uint8 => uint8)[2] b;
-			function set_internal(mapping(uint8 => uint8)[2] storage m, uint8 key, uint8 value1, uint8 value2) internal returns (uint8, uint8) {
-				uint8 oldValue1 = m[0][key];
-				uint8 oldValue2 = m[1][key];
-				m[0][key] = value1;
-				m[1][key] = value2;
-				return (oldValue1, oldValue2);
-			}
-			function set(uint8 key, uint8 value_a1, uint8 value_a2, uint8 value_b1, uint8 value_b2) public returns (uint8 old_a1, uint8 old_a2, uint8 old_b1, uint8 old_b2) {
-				(old_a1, old_a2) = set_internal(a, key, value_a1, value_a2);
-				(old_b1, old_b2) = set_internal(b, key, value_b1, value_b2);
-			}
-			function get(uint8 key) public returns (uint8, uint8, uint8, uint8) {
-				return (a[0][key], a[1][key], b[0][key], b[1][key]);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-
-	ABI_CHECK(callContractFunction("set(uint8,uint8,uint8,uint8,uint8)", uint8_t(1), uint8_t(21), uint8_t(22), uint8_t(42), uint8_t(43)), encodeArgs(uint8_t(0), uint8_t(0), uint8_t(0), uint8_t(0)));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(1)), encodeArgs(uint8_t(21), uint8_t(22), uint8_t(42), uint8_t(43)));
-	ABI_CHECK(callContractFunction("set(uint8,uint8,uint8,uint8,uint8)", uint8_t(1), uint8_t(10), uint8_t(30), uint8_t(11), uint8_t(31)), encodeArgs(uint8_t(21), uint8_t(22), uint8_t(42), uint8_t(43)));
-	ABI_CHECK(callContractFunction("get(uint8)", uint8_t(1)), encodeArgs(uint8_t(10), uint8_t(30), uint8_t(11), uint8_t(31)));
-}
-
-BOOST_AUTO_TEST_CASE(mapping_internal_return)
-{
-	char const* sourceCode = R"(
-		contract test {
-			mapping(uint8 => uint8) a;
-			mapping(uint8 => uint8) b;
-			function f() internal returns (mapping(uint8 => uint8) storage r) {
-				r = a;
-				r[1] = 42;
-				r = b;
-				r[1] = 84;
-			}
-			function g() public returns (uint8, uint8, uint8, uint8, uint8, uint8) {
-				f()[2] = 21;
-				return (a[0], a[1], a[2], b[0], b[1], b[2]);
-			}
-			function h() public returns (uint8, uint8, uint8, uint8, uint8, uint8) {
-				mapping(uint8 => uint8) storage m = f();
-				m[2] = 17;
-				return (a[0], a[1], a[2], b[0], b[1], b[2]);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-
-	ABI_CHECK(callContractFunction("g()"), encodeArgs(uint8_t(0), uint8_t(42), uint8_t(0), uint8_t(0), uint8_t(84), uint8_t (21)));
-	ABI_CHECK(callContractFunction("h()"), encodeArgs(uint8_t(0), uint8_t(42), uint8_t(0), uint8_t(0), uint8_t(84), uint8_t (17)));
-}
-
-BOOST_AUTO_TEST_CASE(structs)
-{
-	char const* sourceCode = R"(
-		contract test {
-			struct s1 {
-				uint8 x;
-				bool y;
-			}
-			struct s2 {
-				uint32 z;
-				s1 s1data;
-				mapping(uint8 => s2) recursive;
-			}
-			s2 data;
-			function check() public returns (bool ok) {
-				return data.z == 1 && data.s1data.x == 2 &&
-					data.s1data.y == true &&
-					data.recursive[3].recursive[4].z == 5 &&
-					data.recursive[4].recursive[3].z == 6 &&
-					data.recursive[0].s1data.y == false &&
-					data.recursive[4].z == 9;
-			}
-			function set() public {
-				data.z = 1;
-				data.s1data.x = 2;
-				data.s1data.y = true;
-				data.recursive[3].recursive[4].z = 5;
-				data.recursive[4].recursive[3].z = 6;
-				data.recursive[0].s1data.y = false;
-				data.recursive[4].z = 9;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("check()"), encodeArgs(false));
-	ABI_CHECK(callContractFunction("set()"), bytes());
-	ABI_CHECK(callContractFunction("check()"), encodeArgs(true));
-}
-
-BOOST_AUTO_TEST_CASE(struct_reference)
-{
-	char const* sourceCode = R"(
-		contract test {
-			struct s2 {
-				uint32 z;
-				mapping(uint8 => s2) recursive;
-			}
-			s2 data;
-			function check() public returns (bool ok) {
-				return data.z == 2 &&
-					data.recursive[0].z == 3 &&
-					data.recursive[0].recursive[1].z == 0 &&
-					data.recursive[0].recursive[0].z == 1;
-			}
-			function set() public {
-				data.z = 2;
-				mapping(uint8 => s2) storage map = data.recursive;
-				s2 storage inner = map[0];
-				inner.z = 3;
-				inner.recursive[0].z = inner.recursive[1].z + 1;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("check()"), encodeArgs(false));
-	ABI_CHECK(callContractFunction("set()"), bytes());
-	ABI_CHECK(callContractFunction("check()"), encodeArgs(true));
-}
-
-BOOST_AUTO_TEST_CASE(deleteStruct)
-{
-	char const* sourceCode = R"(
-		contract test {
-			struct topStruct {
-				nestedStruct nstr;
-				uint topValue;
-				mapping (uint => uint) topMapping;
-			}
-			uint toDelete;
-			topStruct str;
-			struct nestedStruct {
-				uint nestedValue;
-				mapping (uint => bool) nestedMapping;
-			}
-			constructor() public {
-				toDelete = 5;
-				str.topValue = 1;
-				str.topMapping[0] = 1;
-				str.topMapping[1] = 2;
-
-				str.nstr.nestedValue = 2;
-				str.nstr.nestedMapping[0] = true;
-				str.nstr.nestedMapping[1] = false;
-				delete str;
-				delete toDelete;
-			}
-			function getToDelete() public returns (uint res){
-				res = toDelete;
-			}
-			function getTopValue() public returns(uint topValue){
-				topValue = str.topValue;
-			}
-			function getNestedValue() public returns(uint nestedValue){
-				nestedValue = str.nstr.nestedValue;
-			}
-			function getTopMapping(uint index) public returns(uint ret) {
-				ret = str.topMapping[index];
-			}
-			function getNestedMapping(uint index) public returns(bool ret) {
-				return str.nstr.nestedMapping[index];
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("getToDelete()"), encodeArgs(0));
-	ABI_CHECK(callContractFunction("getTopValue()"), encodeArgs(0));
-	ABI_CHECK(callContractFunction("getNestedValue()"), encodeArgs(0));
-	// mapping values should be the same
-	ABI_CHECK(callContractFunction("getTopMapping(uint256)", 0), encodeArgs(1));
-	ABI_CHECK(callContractFunction("getTopMapping(uint256)", 1), encodeArgs(2));
-	ABI_CHECK(callContractFunction("getNestedMapping(uint256)", 0), encodeArgs(true));
-	ABI_CHECK(callContractFunction("getNestedMapping(uint256)", 1), encodeArgs(false));
-}
-
-BOOST_AUTO_TEST_CASE(deleteLocal)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function delLocal() public returns (uint res){
-				uint v = 5;
-				delete v;
-				res = v;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("delLocal()"), encodeArgs(0));
-}
-
-BOOST_AUTO_TEST_CASE(deleteLocals)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function delLocal() public returns (uint res1, uint res2){
-				uint v = 5;
-				uint w = 6;
-				uint x = 7;
-				delete v;
-				res1 = w;
-				res2 = x;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("delLocal()"), encodeArgs(6, 7));
-}
-
-BOOST_AUTO_TEST_CASE(deleteLength)
-{
-	char const* sourceCode = R"(
-		contract test {
-			uint[] x;
-			function f() public returns (uint){
-				x.length = 1;
-				x[0] = 1;
-				delete x.length;
-				return x.length;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(0));
-	BOOST_CHECK(storageEmpty(m_contractAddress));
+		testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(4), u256(5), u256(0));
+		testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(5), u256(4), u256(0));
+		testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(4), u256(5), u256(9));
+		testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(4), u256(5), u256(0));
+		testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(5), u256(4), u256(0));
+		testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(5), u256(4), u256(7));
+		testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(4), u256(5), u256(0));
+		testContractAgainstCpp("f(uint256,uint256,uint256)", f, u256(5), u256(4), u256(0));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(constructor)
@@ -1820,150 +988,19 @@ BOOST_AUTO_TEST_CASE(constructor)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
+
 	map<u256, uint8_t> data;
 	data[7] = 8;
 	auto get = [&](u256 const& _x) -> u256
 	{
 		return data[_x];
 	};
-	testContractAgainstCpp("get(uint256)", get, u256(6));
-	testContractAgainstCpp("get(uint256)", get, u256(7));
-}
 
-BOOST_AUTO_TEST_CASE(simple_accessor)
-{
-	char const* sourceCode = R"(
-		contract test {
-			uint256 public data;
-			constructor() public {
-				data = 8;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("data()"), encodeArgs(8));
-}
-
-BOOST_AUTO_TEST_CASE(array_accessor)
-{
-	char const* sourceCode = R"(
-		contract test {
-			uint[8] public data;
-			uint[] public dynamicData;
-			uint24[] public smallTypeData;
-			struct st { uint a; uint[] finalArray; }
-			mapping(uint256 => mapping(uint256 => st[5])) public multiple_map;
-
-			constructor() public {
-				data[0] = 8;
-				dynamicData.length = 3;
-				dynamicData[2] = 8;
-				smallTypeData.length = 128;
-				smallTypeData[1] = 22;
-				smallTypeData[127] = 2;
-				multiple_map[2][1][2].a = 3;
-				multiple_map[2][1][2].finalArray.length = 4;
-				multiple_map[2][1][2].finalArray[3] = 5;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("data(uint256)", 0), encodeArgs(8));
-	ABI_CHECK(callContractFunction("data(uint256)", 8), encodeArgs());
-	ABI_CHECK(callContractFunction("dynamicData(uint256)", 2), encodeArgs(8));
-	ABI_CHECK(callContractFunction("dynamicData(uint256)", 8), encodeArgs());
-	ABI_CHECK(callContractFunction("smallTypeData(uint256)", 1), encodeArgs(22));
-	ABI_CHECK(callContractFunction("smallTypeData(uint256)", 127), encodeArgs(2));
-	ABI_CHECK(callContractFunction("smallTypeData(uint256)", 128), encodeArgs());
-	ABI_CHECK(callContractFunction("multiple_map(uint256,uint256,uint256)", 2, 1, 2), encodeArgs(3));
-}
-
-BOOST_AUTO_TEST_CASE(accessors_mapping_for_array)
-{
-	char const* sourceCode = R"(
-		contract test {
-			mapping(uint => uint[8]) public data;
-			mapping(uint => uint[]) public dynamicData;
-			constructor() public {
-				data[2][2] = 8;
-				dynamicData[2].length = 3;
-				dynamicData[2][2] = 8;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("data(uint256,uint256)", 2, 2), encodeArgs(8));
-	ABI_CHECK(callContractFunction("data(uint256, 256)", 2, 8), encodeArgs());
-	ABI_CHECK(callContractFunction("dynamicData(uint256,uint256)", 2, 2), encodeArgs(8));
-	ABI_CHECK(callContractFunction("dynamicData(uint256,uint256)", 2, 8), encodeArgs());
-}
-
-BOOST_AUTO_TEST_CASE(multiple_elementary_accessors)
-{
-	char const* sourceCode = R"(
-		contract test {
-			uint256 public data;
-			bytes6 public name;
-			bytes32 public a_hash;
-			address public an_address;
-			constructor() public {
-				data = 8;
-				name = "Celina";
-				a_hash = keccak256("\x7b");
-				an_address = address(0x1337);
-				super_secret_data = 42;
-			}
-			uint256 super_secret_data;
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("data()"), encodeArgs(8));
-	ABI_CHECK(callContractFunction("name()"), encodeArgs("Celina"));
-	ABI_CHECK(callContractFunction("a_hash()"), encodeArgs(dev::keccak256(bytes(1, 0x7b))));
-	ABI_CHECK(callContractFunction("an_address()"), encodeArgs(toBigEndian(u160(0x1337))));
-	ABI_CHECK(callContractFunction("super_secret_data()"), bytes());
-}
-
-BOOST_AUTO_TEST_CASE(complex_accessors)
-{
-	char const* sourceCode = R"(
-		contract test {
-			mapping(uint256 => bytes4) public to_string_map;
-			mapping(uint256 => bool) public to_bool_map;
-			mapping(uint256 => uint256) public to_uint_map;
-			mapping(uint256 => mapping(uint256 => uint256)) public to_multiple_map;
-			constructor() public {
-				to_string_map[42] = "24";
-				to_bool_map[42] = false;
-				to_uint_map[42] = 12;
-				to_multiple_map[42][23] = 31;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("to_string_map(uint256)", 42), encodeArgs("24"));
-	ABI_CHECK(callContractFunction("to_bool_map(uint256)", 42), encodeArgs(false));
-	ABI_CHECK(callContractFunction("to_uint_map(uint256)", 42), encodeArgs(12));
-	ABI_CHECK(callContractFunction("to_multiple_map(uint256,uint256)", 42, 23), encodeArgs(31));
-}
-
-BOOST_AUTO_TEST_CASE(struct_accessor)
-{
-	char const* sourceCode = R"(
-		contract test {
-			struct Data { uint a; uint8 b; mapping(uint => uint) c; bool d; }
-			mapping(uint => Data) public data;
-			constructor() public {
-				data[7].a = 1;
-				data[7].b = 2;
-				data[7].c[0] = 3;
-				data[7].d = true;
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("data(uint256)", 7), encodeArgs(1, 2, true));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		testContractAgainstCpp("get(uint256)", get, u256(6));
+		testContractAgainstCpp("get(uint256)", get, u256(7));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(balance)
@@ -1976,8 +1013,10 @@ BOOST_AUTO_TEST_CASE(balance)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 23);
-	ABI_CHECK(callContractFunction("getBalance()"), encodeArgs(23));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 23);
+		ABI_CHECK(callContractFunction("getBalance()"), encodeArgs(23));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(blockchain)
@@ -1992,8 +1031,12 @@ BOOST_AUTO_TEST_CASE(blockchain)
 			}
 		}
 	)";
-	BOOST_CHECK(m_rpc.rpcCall("miner_setEtherbase", {"\"0x1212121212121212121212121212121212121212\""}).asBool() == true);
-	m_rpc.test_mineBlocks(5);
+	m_evmHost->tx_context.block_coinbase = EVMHost::convertToEVMC(Address("0x1212121212121212121212121212121212121212"));
+	m_evmHost->newBlock();
+	m_evmHost->newBlock();
+	m_evmHost->newBlock();
+	m_evmHost->newBlock();
+	m_evmHost->newBlock();
 	compileAndRun(sourceCode, 27);
 	ABI_CHECK(callContractFunctionWithValue("someInfo()", 28), encodeArgs(28, u256("0x1212121212121212121212121212121212121212"), 7));
 }
@@ -2007,8 +1050,10 @@ BOOST_AUTO_TEST_CASE(msg_sig)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("foo(uint256)", 0), encodeArgs(asString(FixedHash<4>(dev::keccak256("foo(uint256)")).asBytes())));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("foo(uint256)", 0), encodeArgs(asString(FixedHash<4>(util::keccak256("foo(uint256)")).asBytes())));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(msg_sig_after_internal_call_is_same)
@@ -2023,8 +1068,10 @@ BOOST_AUTO_TEST_CASE(msg_sig_after_internal_call_is_same)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("foo(uint256)", 0), encodeArgs(asString(FixedHash<4>(dev::keccak256("foo(uint256)")).asBytes())));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("foo(uint256)", 0), encodeArgs(asString(FixedHash<4>(util::keccak256("foo(uint256)")).asBytes())));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(now)
@@ -2037,197 +1084,17 @@ BOOST_AUTO_TEST_CASE(now)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	u256 startBlock = m_blockNumber;
-	size_t startTime = blockTimestamp(startBlock);
-	auto ret = callContractFunction("someInfo()");
-	u256 endBlock = m_blockNumber;
-	size_t endTime = blockTimestamp(endBlock);
-	BOOST_CHECK(startBlock != endBlock);
-	BOOST_CHECK(startTime != endTime);
-	ABI_CHECK(ret, encodeArgs(true, endTime));
-}
-
-BOOST_AUTO_TEST_CASE(type_conversions_cleanup)
-{
-	// 22-byte integer converted to a contract (i.e. address, 20 bytes), converted to a 32 byte
-	// integer should drop the first two bytes
-	char const* sourceCode = R"(
-		contract Test {
-			function test() public returns (uint ret) { return uint(address(Test(address(0x11223344556677889900112233445566778899001122)))); }
-		}
-	)";
-	compileAndRun(sourceCode);
-	BOOST_REQUIRE(callContractFunction("test()") == bytes({0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-														   0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00, 0x11, 0x22,
-														   0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00, 0x11, 0x22}));
-}
-// fixed bytes to fixed bytes conversion tests
-BOOST_AUTO_TEST_CASE(convert_fixed_bytes_to_fixed_bytes_smaller_size)
-{
-	char const* sourceCode = R"(
-		contract Test {
-			function bytesToBytes(bytes4 input) public returns (bytes2 ret) {
-				return bytes2(input);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("bytesToBytes(bytes4)", "abcd"), encodeArgs("ab"));
-}
-
-BOOST_AUTO_TEST_CASE(convert_fixed_bytes_to_fixed_bytes_greater_size)
-{
-	char const* sourceCode = R"(
-		contract Test {
-			function bytesToBytes(bytes2 input) public returns (bytes4 ret) {
-				return bytes4(input);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("bytesToBytes(bytes2)", "ab"), encodeArgs("ab"));
-}
-
-BOOST_AUTO_TEST_CASE(convert_fixed_bytes_to_fixed_bytes_same_size)
-{
-	char const* sourceCode = R"(
-		contract Test {
-			function bytesToBytes(bytes4 input) public returns (bytes4 ret) {
-				return bytes4(input);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("bytesToBytes(bytes4)", "abcd"), encodeArgs("abcd"));
-}
-
-// fixed bytes to uint conversion tests
-BOOST_AUTO_TEST_CASE(convert_fixed_bytes_to_uint_same_size)
-{
-	char const* sourceCode = R"(
-		contract Test {
-			function bytesToUint(bytes32 s) public returns (uint256 h) {
-				return uint(s);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(
-		callContractFunction("bytesToUint(bytes32)", string("abc2")),
-		encodeArgs(u256("0x6162633200000000000000000000000000000000000000000000000000000000"))
-	);
-}
-
-BOOST_AUTO_TEST_CASE(convert_fixed_bytes_to_uint_same_min_size)
-{
-	char const* sourceCode = R"(
-		contract Test {
-			function bytesToUint(bytes1 s) public returns (uint8 h) {
-				return uint8(s);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(
-		callContractFunction("bytesToUint(bytes1)", string("a")),
-		encodeArgs(u256("0x61"))
-	);
-}
-
-BOOST_AUTO_TEST_CASE(convert_fixed_bytes_to_uint_smaller_size)
-{
-	char const* sourceCode = R"(
-		contract Test {
-			function bytesToUint(bytes4 s) public returns (uint16 h) {
-				return uint16(uint32(s));
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(
-		callContractFunction("bytesToUint(bytes4)", string("abcd")),
-		encodeArgs(u256("0x6364"))
-	);
-}
-
-BOOST_AUTO_TEST_CASE(convert_fixed_bytes_to_uint_greater_size)
-{
-	char const* sourceCode = R"(
-		contract Test {
-			function bytesToUint(bytes4 s) public returns (uint64 h) {
-				return uint64(uint32(s));
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(
-		callContractFunction("bytesToUint(bytes4)", string("abcd")),
-		encodeArgs(u256("0x61626364"))
-	);
-}
-
-// uint fixed bytes conversion tests
-BOOST_AUTO_TEST_CASE(convert_uint_to_fixed_bytes_same_size)
-{
-	char const* sourceCode = R"(
-		contract Test {
-			function uintToBytes(uint256 h) public returns (bytes32 s) {
-				return bytes32(h);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	u256 a("0x6162630000000000000000000000000000000000000000000000000000000000");
-	ABI_CHECK(callContractFunction("uintToBytes(uint256)", a), encodeArgs(a));
-}
-
-BOOST_AUTO_TEST_CASE(convert_uint_to_fixed_bytes_same_min_size)
-{
-	char const* sourceCode = R"(
-		contract Test {
-			function UintToBytes(uint8 h) public returns (bytes1 s) {
-				return bytes1(h);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(
-		callContractFunction("UintToBytes(uint8)", u256("0x61")),
-		encodeArgs(string("a"))
-	);
-}
-
-BOOST_AUTO_TEST_CASE(convert_uint_to_fixed_bytes_smaller_size)
-{
-	char const* sourceCode = R"(
-		contract Test {
-			function uintToBytes(uint32 h) public returns (bytes2 s) {
-				return bytes2(uint16(h));
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(
-		callContractFunction("uintToBytes(uint32)", u160("0x61626364")),
-		encodeArgs(string("cd"))
-	);
-}
-
-BOOST_AUTO_TEST_CASE(convert_uint_to_fixed_bytes_greater_size)
-{
-	char const* sourceCode = R"(
-		contract Test {
-			function UintToBytes(uint16 h) public returns (bytes8 s) {
-				return bytes8(uint64(h));
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(
-		callContractFunction("UintToBytes(uint16)", u256("0x6162")),
-		encodeArgs(string("\0\0\0\0\0\0ab", 8))
-	);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		u256 startBlock = blockNumber();
+		size_t startTime = blockTimestamp(startBlock);
+		auto ret = callContractFunction("someInfo()");
+		u256 endBlock = blockNumber();
+		size_t endTime = blockTimestamp(endBlock);
+		BOOST_CHECK(startBlock != endBlock);
+		BOOST_CHECK(startTime != endTime);
+		ABI_CHECK(ret, encodeArgs(true, endTime));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(send_ether)
@@ -2266,7 +1133,7 @@ BOOST_AUTO_TEST_CASE(transfer_ether)
 		}
 
 		contract C {
-			function () external payable {
+			receive () external payable {
 				revert();
 			}
 		}
@@ -2300,18 +1167,6 @@ BOOST_AUTO_TEST_CASE(uncalled_blockhash)
 	BOOST_CHECK(result[0] != 0 || result[1] != 0 || result[2] != 0);
 }
 
-BOOST_AUTO_TEST_CASE(blockhash_shadow_resolution)
-{
-	char const* code = R"(
-		contract C {
-			function blockhash(uint256 blockNumber) public returns(bytes32) { bytes32 x; return x; }
-			function f() public returns(bytes32) { return blockhash(3); }
-		}
-	)";
-	compileAndRun(code, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(0));
-}
-
 BOOST_AUTO_TEST_CASE(log0)
 {
 	char const* sourceCode = R"(
@@ -2323,10 +1178,10 @@ BOOST_AUTO_TEST_CASE(log0)
 	)";
 	compileAndRun(sourceCode);
 	callContractFunction("a()");
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK_EQUAL(h256(m_logs[0].data), h256(u256(1)));
-	BOOST_CHECK_EQUAL(m_logs[0].topics.size(), 0);
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK_EQUAL(h256(logData(0)), h256(u256(1)));
+	BOOST_CHECK_EQUAL(numLogTopics(0), 0);
 }
 
 BOOST_AUTO_TEST_CASE(log1)
@@ -2340,11 +1195,11 @@ BOOST_AUTO_TEST_CASE(log1)
 	)";
 	compileAndRun(sourceCode);
 	callContractFunction("a()");
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK_EQUAL(h256(m_logs[0].data), h256(u256(1)));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], h256(u256(2)));
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK_EQUAL(h256(logData(0)), h256(u256(1)));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), h256(u256(2)));
 }
 
 BOOST_AUTO_TEST_CASE(log2)
@@ -2358,12 +1213,12 @@ BOOST_AUTO_TEST_CASE(log2)
 	)";
 	compileAndRun(sourceCode);
 	callContractFunction("a()");
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK_EQUAL(h256(m_logs[0].data), h256(u256(1)));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 2);
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK_EQUAL(h256(logData(0)), h256(u256(1)));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 2);
 	for (unsigned i = 0; i < 2; ++i)
-		BOOST_CHECK_EQUAL(m_logs[0].topics[i], h256(u256(i + 2)));
+		BOOST_CHECK_EQUAL(logTopic(0, i), h256(u256(i + 2)));
 }
 
 BOOST_AUTO_TEST_CASE(log3)
@@ -2377,12 +1232,12 @@ BOOST_AUTO_TEST_CASE(log3)
 	)";
 	compileAndRun(sourceCode);
 	callContractFunction("a()");
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK_EQUAL(h256(m_logs[0].data), h256(u256(1)));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 3);
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK_EQUAL(h256(logData(0)), h256(u256(1)));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 3);
 	for (unsigned i = 0; i < 3; ++i)
-		BOOST_CHECK_EQUAL(m_logs[0].topics[i], h256(u256(i + 2)));
+		BOOST_CHECK_EQUAL(logTopic(0, i), h256(u256(i + 2)));
 }
 
 BOOST_AUTO_TEST_CASE(log4)
@@ -2396,12 +1251,12 @@ BOOST_AUTO_TEST_CASE(log4)
 	)";
 	compileAndRun(sourceCode);
 	callContractFunction("a()");
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK_EQUAL(h256(m_logs[0].data), h256(u256(1)));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 4);
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK_EQUAL(h256(logData(0)), h256(u256(1)));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 4);
 	for (unsigned i = 0; i < 4; ++i)
-		BOOST_CHECK_EQUAL(m_logs[0].topics[i], h256(u256(i + 2)));
+		BOOST_CHECK_EQUAL(logTopic(0, i), h256(u256(i + 2)));
 }
 
 BOOST_AUTO_TEST_CASE(log_in_constructor)
@@ -2414,11 +1269,11 @@ BOOST_AUTO_TEST_CASE(log_in_constructor)
 		}
 	)";
 	compileAndRun(sourceCode);
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK_EQUAL(h256(m_logs[0].data), h256(u256(1)));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], h256(u256(2)));
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK_EQUAL(h256(logData(0)), h256(u256(1)));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), h256(u256(2)));
 }
 
 BOOST_AUTO_TEST_CASE(selfdestruct)
@@ -2452,7 +1307,7 @@ BOOST_AUTO_TEST_CASE(keccak256)
 	compileAndRun(sourceCode);
 	auto f = [&](u256 const& _x) -> u256
 	{
-		return dev::keccak256(toBigEndian(_x));
+		return util::keccak256(toBigEndian(_x));
 	};
 	testContractAgainstCpp("a(bytes32)", f, u256(4));
 	testContractAgainstCpp("a(bytes32)", f, u256(5));
@@ -2523,7 +1378,7 @@ BOOST_AUTO_TEST_CASE(packed_keccak256)
 	compileAndRun(sourceCode);
 	auto f = [&](u256 const& _x) -> u256
 	{
-		return dev::keccak256(
+		return util::keccak256(
 			toCompactBigEndian(unsigned(8)) +
 			toBigEndian(_x) +
 			toCompactBigEndian(unsigned(65536)) +
@@ -2555,9 +1410,9 @@ BOOST_AUTO_TEST_CASE(packed_keccak256_complex_types)
 	compileAndRun(sourceCode);
 	// Strangely, arrays are encoded with intra-element padding.
 	ABI_CHECK(callContractFunction("f()"), encodeArgs(
-		dev::keccak256(encodeArgs(u256("0xfffffffffffffffffffffffffffffe"), u256("0xfffffffffffffffffffffffffffffd"), u256("0xfffffffffffffffffffffffffffffc"))),
-		dev::keccak256(encodeArgs(u256("0xfffffffffffffffffffffffffffffe"), u256("0xfffffffffffffffffffffffffffffd"), u256("0xfffffffffffffffffffffffffffffc"))),
-		dev::keccak256(fromHex(m_contractAddress.hex() + "26121ff0"))
+		util::keccak256(encodeArgs(u256("0xfffffffffffffffffffffffffffffe"), u256("0xfffffffffffffffffffffffffffffd"), u256("0xfffffffffffffffffffffffffffffc"))),
+		util::keccak256(encodeArgs(u256("0xfffffffffffffffffffffffffffffe"), u256("0xfffffffffffffffffffffffffffffd"), u256("0xfffffffffffffffffffffffffffffc"))),
+		util::keccak256(fromHex(m_contractAddress.hex() + "26121ff0"))
 	));
 }
 
@@ -2613,24 +1468,6 @@ BOOST_AUTO_TEST_CASE(packed_ripemd160)
 	testContractAgainstCpp("a(bytes32)", f, u256(4));
 	testContractAgainstCpp("a(bytes32)", f, u256(5));
 	testContractAgainstCpp("a(bytes32)", f, u256(-1));
-}
-
-BOOST_AUTO_TEST_CASE(ecrecover)
-{
-	char const* sourceCode = R"(
-		contract test {
-			function a(bytes32 h, uint8 v, bytes32 r, bytes32 s) public returns (address addr) {
-				return ecrecover(h, v, r, s);
-			}
-		}
-	)";
-	compileAndRun(sourceCode);
-	u256 h("0x18c547e4f7b0f325ad1e56f57e26c745b09a3e503d86e00e5255ff7f715d3d1c");
-	uint8_t v = 28;
-	u256 r("0x73b1693892219d736caba55bdb67216e485557ea6b6af75f37096c9aa6a5a75f");
-	u256 s("0xeeb940b1d03b21e36b0e47e79769f095fe2ab855bd91e3a38756b7d75a9c4549");
-	u160 addr("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b");
-	ABI_CHECK(callContractFunction("a(bytes32,uint8,bytes32,bytes32)", h, v, r, s), encodeArgs(addr));
 }
 
 BOOST_AUTO_TEST_CASE(inter_contract_calls)
@@ -2950,15 +1787,17 @@ BOOST_AUTO_TEST_CASE(functions_called_by_constructor)
 			function setName(bytes3 _name) private { name = _name; }
 		}
 	)";
-	compileAndRun(sourceCode);
-	BOOST_REQUIRE(callContractFunction("getName()") == encodeArgs("abc"));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		BOOST_REQUIRE(callContractFunction("getName()") == encodeArgs("abc"));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(contracts_as_addresses)
 {
 	char const* sourceCode = R"(
 		contract helper {
-			function() external payable { } // can receive ether
+			receive() external payable { } // can receive ether
 		}
 		contract test {
 			helper h;
@@ -3008,6 +1847,40 @@ BOOST_AUTO_TEST_CASE(gas_and_value_basic)
 	BOOST_REQUIRE(callContractFunction("checkState()") == encodeArgs(false, 20 - 5));
 }
 
+BOOST_AUTO_TEST_CASE(gas_and_value_brace_syntax)
+{
+	char const* sourceCode = R"(
+		contract helper {
+			bool flag;
+			function getBalance() payable public returns (uint256 myBalance) {
+				return address(this).balance;
+			}
+			function setFlag() public { flag = true; }
+			function getFlag() public returns (bool fl) { return flag; }
+		}
+		contract test {
+			helper h;
+			constructor() public payable { h = new helper(); }
+			function sendAmount(uint amount) public payable returns (uint256 bal) {
+				return h.getBalance{value: amount}();
+			}
+			function outOfGas() public returns (bool ret) {
+				h.setFlag{gas: 2}(); // should fail due to OOG
+				return true;
+			}
+			function checkState() public returns (bool flagAfter, uint myBal) {
+				flagAfter = h.getFlag();
+				myBal = address(this).balance;
+			}
+		}
+	)";
+	compileAndRun(sourceCode, 20);
+	BOOST_REQUIRE(callContractFunction("sendAmount(uint256)", 5) == encodeArgs(5));
+	// call to helper should not succeed but amount should be transferred anyway
+	BOOST_REQUIRE(callContractFunction("outOfGas()") == bytes());
+	BOOST_REQUIRE(callContractFunction("checkState()") == encodeArgs(false, 20 - 5));
+}
+
 BOOST_AUTO_TEST_CASE(gasleft_decrease)
 {
 	char const* sourceCode = R"(
@@ -3040,9 +1913,11 @@ BOOST_AUTO_TEST_CASE(gaslimit)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	auto result = callContractFunction("f()");
-	ABI_CHECK(result, encodeArgs(gasLimit()));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		auto result = callContractFunction("f()");
+		ABI_CHECK(result, encodeArgs(gasLimit()));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(gasprice)
@@ -3054,43 +1929,41 @@ BOOST_AUTO_TEST_CASE(gasprice)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(gasPrice()));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(gasPrice()));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(blockhash)
 {
-	// depending on the aleth version, this test only works for pre-constantinople
-	if (Options::get().evmVersion() < EVMVersion::constantinople())
-	{
-		char const* sourceCode = R"(
-			contract C {
-				uint256 counter;
-				function g() public returns (bool) { counter++; return true; }
-				function f() public returns (bytes32[] memory r) {
-					r = new bytes32[](259);
-					for (uint i = 0; i < 259; i++)
-						r[i] = blockhash(block.number - 257 + i);
-				}
+	char const* sourceCode = R"(
+		contract C {
+			uint256 counter;
+			function g() public returns (bool) { counter++; return true; }
+			function f() public returns (bytes32[] memory r) {
+				r = new bytes32[](259);
+				for (uint i = 0; i < 259; i++)
+					r[i] = blockhash(block.number - 257 + i);
 			}
-		)";
-		compileAndRun(sourceCode);
-		// generate a sufficient amount of blocks
-		while (blockNumber() < u256(255))
-			ABI_CHECK(callContractFunction("g()"), encodeArgs(true));
+		}
+	)";
+	compileAndRun(sourceCode);
+	// generate a sufficient amount of blocks
+	while (blockNumber() < u256(255))
+		ABI_CHECK(callContractFunction("g()"), encodeArgs(true));
 
-		vector<u256> hashes;
-		// ``blockhash()`` is only valid for the last 256 blocks, otherwise zero
-		hashes.emplace_back(0);
-		for (u256 i = blockNumber() - u256(255); i <= blockNumber(); i++)
-			hashes.emplace_back(blockHash(i));
-		// the current block hash is not yet known at execution time and therefore zero
-		hashes.emplace_back(0);
-		// future block hashes are zero
-		hashes.emplace_back(0);
+	vector<u256> hashes;
+	// ``blockhash()`` is only valid for the last 256 blocks, otherwise zero
+	hashes.emplace_back(0);
+	for (u256 i = blockNumber() - u256(255); i <= blockNumber(); i++)
+		hashes.emplace_back(blockHash(i));
+	// the current block hash is not yet known at execution time and therefore zero
+	hashes.emplace_back(0);
+	// future block hashes are zero
+	hashes.emplace_back(0);
 
-		ABI_CHECK(callContractFunction("f()"), encodeDyn(hashes));
-	}
+	ABI_CHECK(callContractFunction("f()"), encodeDyn(hashes));
 }
 
 BOOST_AUTO_TEST_CASE(value_complex)
@@ -3168,15 +2041,17 @@ BOOST_AUTO_TEST_CASE(virtual_function_calls)
 	char const* sourceCode = R"(
 		contract Base {
 			function f() public returns (uint i) { return g(); }
-			function g() public returns (uint i) { return 1; }
+			function g() public virtual returns (uint i) { return 1; }
 		}
 		contract Derived is Base {
-			function g() public returns (uint i) { return 2; }
+			function g() public override returns (uint i) { return 2; }
 		}
 	)";
-	compileAndRun(sourceCode, 0, "Derived");
-	ABI_CHECK(callContractFunction("g()"), encodeArgs(2));
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(2));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "Derived");
+		ABI_CHECK(callContractFunction("g()"), encodeArgs(2));
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(2));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(access_base_storage)
@@ -3199,10 +2074,12 @@ BOOST_AUTO_TEST_CASE(access_base_storage)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "Derived");
-	ABI_CHECK(callContractFunction("setData(uint256,uint256)", 1, 2), encodeArgs(true));
-	ABI_CHECK(callContractFunction("getViaBase()"), encodeArgs(1));
-	ABI_CHECK(callContractFunction("getViaDerived()"), encodeArgs(1, 2));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "Derived");
+		ABI_CHECK(callContractFunction("setData(uint256,uint256)", 1, 2), encodeArgs(true));
+		ABI_CHECK(callContractFunction("getViaBase()"), encodeArgs(1));
+		ABI_CHECK(callContractFunction("getViaDerived()"), encodeArgs(1, 2));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(single_copy_with_multiple_inheritance)
@@ -3217,20 +2094,22 @@ BOOST_AUTO_TEST_CASE(single_copy_with_multiple_inheritance)
 		contract B is Base { function getViaB() public returns (uint i) { return getViaBase(); } }
 		contract Derived is Base, B, A { }
 	)";
-	compileAndRun(sourceCode, 0, "Derived");
-	ABI_CHECK(callContractFunction("getViaB()"), encodeArgs(0));
-	ABI_CHECK(callContractFunction("setViaA(uint256)", 23), encodeArgs());
-	ABI_CHECK(callContractFunction("getViaB()"), encodeArgs(23));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "Derived");
+		ABI_CHECK(callContractFunction("getViaB()"), encodeArgs(0));
+		ABI_CHECK(callContractFunction("setViaA(uint256)", 23), encodeArgs());
+		ABI_CHECK(callContractFunction("getViaB()"), encodeArgs(23));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(explicit_base_class)
 {
 	char const* sourceCode = R"(
-		contract BaseBase { function g() public returns (uint r) { return 1; } }
-		contract Base is BaseBase { function g() public returns (uint r) { return 2; } }
+		contract BaseBase { function g() public virtual returns (uint r) { return 1; } }
+		contract Base is BaseBase { function g() public virtual override returns (uint r) { return 2; } }
 		contract Derived is Base {
 			function f() public returns (uint r) { return BaseBase.g(); }
-			function g() public returns (uint r) { return 3; }
+			function g() public override returns (uint r) { return 3; }
 		}
 	)";
 	compileAndRun(sourceCode, 0, "Derived");
@@ -3288,14 +2167,14 @@ BOOST_AUTO_TEST_CASE(virtual_function_usage_in_constructor_arguments)
 			constructor(uint a) public {
 				m_a = a;
 			}
-			function overridden() public returns (uint r) { return 1; }
+			function overridden() public virtual returns (uint r) { return 1; }
 			function g() public returns (uint r) { return overridden(); }
 		}
 		contract Base is BaseBase(BaseBase.g()) {
 		}
 		contract Derived is Base() {
 			function getA() public returns (uint r) { return m_a; }
-			function overridden() public returns (uint r) { return 2; }
+			function overridden() public override returns (uint r) { return 2; }
 		}
 	)";
 	compileAndRun(sourceCode, 0, "Derived");
@@ -3384,10 +2263,10 @@ BOOST_AUTO_TEST_CASE(function_modifier_overriding)
 	char const* sourceCode = R"(
 		contract A {
 			function f() mod public returns (bool r) { return true; }
-			modifier mod { _; }
+			modifier mod virtual { _; }
 		}
 		contract C is A {
-			modifier mod { if (false) _; }
+			modifier mod override { if (false) _; }
 		}
 	)";
 	compileAndRun(sourceCode);
@@ -3402,14 +2281,14 @@ BOOST_AUTO_TEST_CASE(function_modifier_calling_functions_in_creation_context)
 			constructor() mod1 public { f1(); }
 			function f1() mod2 public { data |= 0x1; }
 			function f2() public { data |= 0x20; }
-			function f3() public { }
-			modifier mod1 { f2(); _; }
+			function f3() public virtual { }
+			modifier mod1 virtual { f2(); _; }
 			modifier mod2 { f3(); if (false) _; }
 			function getData() public returns (uint r) { return data; }
 		}
 		contract C is A {
-			modifier mod1 { f4(); _; }
-			function f3() public { data |= 0x300; }
+			modifier mod1 override { f4(); _; }
+			function f3() public override { data |= 0x300; }
 			function f4() public { data |= 0x4000; }
 		}
 	)";
@@ -3423,11 +2302,11 @@ BOOST_AUTO_TEST_CASE(function_modifier_for_constructor)
 		contract A {
 			uint data;
 			constructor() mod1 public { data |= 2; }
-			modifier mod1 { data |= 1; _; }
+			modifier mod1 virtual { data |= 1; _; }
 			function getData() public returns (uint r) { return data; }
 		}
 		contract C is A {
-			modifier mod1 { data |= 4; _; }
+			modifier mod1 override { data |= 4; _; }
 		}
 	)";
 	compileAndRun(sourceCode);
@@ -3525,17 +2404,19 @@ BOOST_AUTO_TEST_CASE(crazy_elementary_typenames_on_stack)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(-7)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(-7)));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(super)
 {
 	char const* sourceCode = R"(
-		contract A { function f() public returns (uint r) { return 1; } }
-		contract B is A { function f() public returns (uint r) { return super.f() | 2; } }
-		contract C is A { function f() public returns (uint r) { return super.f() | 4; } }
-		contract D is B, C { function f() public returns (uint r) { return super.f() | 8; } }
+		contract A { function f() public virtual returns (uint r) { return 1; } }
+		contract B is A { function f() public virtual override returns (uint r) { return super.f() | 2; } }
+		contract C is A { function f() public virtual override returns (uint r) { return super.f() | 4; } }
+		contract D is B, C { function f() public override(B, C) returns (uint r) { return super.f() | 8; } }
 	)";
 	compileAndRun(sourceCode, 0, "D");
 	ABI_CHECK(callContractFunction("f()"), encodeArgs(1 | 2 | 4 | 8));
@@ -3544,10 +2425,10 @@ BOOST_AUTO_TEST_CASE(super)
 BOOST_AUTO_TEST_CASE(super_in_constructor)
 {
 	char const* sourceCode = R"(
-		contract A { function f() public returns (uint r) { return 1; } }
-		contract B is A { function f() public returns (uint r) { return super.f() | 2; } }
-		contract C is A { function f() public returns (uint r) { return super.f() | 4; } }
-		contract D is B, C { uint data; constructor() public { data = super.f() | 8; } function f() public returns (uint r) { return data; } }
+		contract A { function f() public virtual returns (uint r) { return 1; } }
+		contract B is A { function f() public virtual override returns (uint r) { return super.f() | 2; } }
+		contract C is A { function f() public virtual override returns (uint r) { return super.f() | 4; } }
+		contract D is B, C { uint data; constructor() public { data = super.f() | 8; } function f() public override (B, C) returns (uint r) { return data; } }
 	)";
 	compileAndRun(sourceCode, 0, "D");
 	ABI_CHECK(callContractFunction("f()"), encodeArgs(1 | 2 | 4 | 8));
@@ -3558,39 +2439,10 @@ BOOST_AUTO_TEST_CASE(super_alone)
 	char const* sourceCode = R"(
 		contract A { function f() public { super; } }
 	)";
-	compileAndRun(sourceCode, 0, "A");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs());
-}
-
-BOOST_AUTO_TEST_CASE(fallback_function)
-{
-	char const* sourceCode = R"(
-		contract A {
-			uint data;
-			function() external { data = 1; }
-			function getData() public returns (uint r) { return data; }
-		}
-	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("getData()"), encodeArgs(0));
-	ABI_CHECK(callContractFunction(""), encodeArgs());
-	ABI_CHECK(callContractFunction("getData()"), encodeArgs(1));
-}
-
-BOOST_AUTO_TEST_CASE(inherited_fallback_function)
-{
-	char const* sourceCode = R"(
-		contract A {
-			uint data;
-			function() external { data = 1; }
-			function getData() public returns (uint r) { return data; }
-		}
-		contract B is A {}
-	)";
-	compileAndRun(sourceCode, 0, "B");
-	ABI_CHECK(callContractFunction("getData()"), encodeArgs(0));
-	ABI_CHECK(callContractFunction(""), encodeArgs());
-	ABI_CHECK(callContractFunction("getData()"), encodeArgs(1));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "A");
+		ABI_CHECK(callContractFunction("f()"), encodeArgs());
+	)
 }
 
 BOOST_AUTO_TEST_CASE(default_fallback_throws)
@@ -3606,7 +2458,7 @@ BOOST_AUTO_TEST_CASE(default_fallback_throws)
 	compileAndRun(sourceCode);
 	ABI_CHECK(callContractFunction("f()"), encodeArgs(0));
 
-	if (dev::test::Options::get().evmVersion().hasStaticCall())
+	if (solidity::test::CommonOptions::get().evmVersion().hasStaticCall())
 	{
 		char const* sourceCode = R"YY(
 			contract A {
@@ -3620,27 +2472,6 @@ BOOST_AUTO_TEST_CASE(default_fallback_throws)
 		compileAndRun(sourceCode);
 		ABI_CHECK(callContractFunction("f()"), encodeArgs(0));
 	}
-}
-
-BOOST_AUTO_TEST_CASE(short_data_calls_fallback)
-{
-	char const* sourceCode = R"(
-		contract A {
-			uint public x;
-			// Signature is d88e0b00
-			function fow() public { x = 3; }
-			function () external { x = 2; }
-		}
-	)";
-	compileAndRun(sourceCode);
-	// should call fallback
-	sendMessage(asBytes("\xd8\x8e\x0b"), false, 0);
-	BOOST_CHECK(m_transactionSuccessful);
-	ABI_CHECK(callContractFunction("x()"), encodeArgs(2));
-	// should call function
-	sendMessage(asBytes(string("\xd8\x8e\x0b") + string(1, 0)), false, 0);
-	BOOST_CHECK(m_transactionSuccessful);
-	ABI_CHECK(callContractFunction("x()"), encodeArgs(3));
 }
 
 BOOST_AUTO_TEST_CASE(event)
@@ -3664,13 +2495,13 @@ BOOST_AUTO_TEST_CASE(event)
 	for (bool manually: {true, false})
 	{
 		callContractFunctionWithValue("deposit(bytes32,bool)", value, id, manually);
-		BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-		BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-		BOOST_CHECK_EQUAL(h256(m_logs[0].data), h256(u256(value)));
-		BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 3);
-		BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Deposit(address,bytes32,uint256)")));
-		BOOST_CHECK_EQUAL(m_logs[0].topics[1], h256(m_sender, h256::AlignRight));
-		BOOST_CHECK_EQUAL(m_logs[0].topics[2], h256(id));
+		BOOST_REQUIRE_EQUAL(numLogs(), 1);
+		BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+		BOOST_CHECK_EQUAL(h256(logData(0)), h256(u256(value)));
+		BOOST_REQUIRE_EQUAL(numLogTopics(0), 3);
+		BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Deposit(address,bytes32,uint256)")));
+		BOOST_CHECK_EQUAL(logTopic(0, 1), h256(m_sender, h256::AlignRight));
+		BOOST_CHECK_EQUAL(logTopic(0, 2), h256(id));
 	}
 }
 
@@ -3684,17 +2515,19 @@ BOOST_AUTO_TEST_CASE(event_emit)
 			}
 		}
 	)";
+	ALSO_VIA_YUL(
 	compileAndRun(sourceCode);
-	u256 value(18);
-	u256 id(0x1234);
-	callContractFunctionWithValue("deposit(bytes32)", value, id);
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK_EQUAL(h256(m_logs[0].data), h256(u256(value)));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 3);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Deposit(address,bytes32,uint256)")));
-	BOOST_CHECK_EQUAL(m_logs[0].topics[1], h256(m_sender, h256::AlignRight));
-	BOOST_CHECK_EQUAL(m_logs[0].topics[2], h256(id));
+		u256 value(18);
+		u256 id(0x1234);
+		callContractFunctionWithValue("deposit(bytes32)", value, id);
+		BOOST_REQUIRE_EQUAL(numLogs(), 1);
+		BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+		BOOST_CHECK_EQUAL(h256(logData(0)), h256(u256(value)));
+		BOOST_REQUIRE_EQUAL(numLogTopics(0), 3);
+		BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Deposit(address,bytes32,uint256)")));
+		BOOST_CHECK_EQUAL(logTopic(0, 1), h256(m_sender, h256::AlignRight));
+		BOOST_CHECK_EQUAL(logTopic(0, 2), h256(id));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(event_no_arguments)
@@ -3708,13 +2541,15 @@ BOOST_AUTO_TEST_CASE(event_no_arguments)
 		}
 	)";
 
-	compileAndRun(sourceCode);
-	callContractFunction("deposit()");
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data.empty());
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Deposit()")));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		callContractFunction("deposit()");
+		BOOST_REQUIRE_EQUAL(numLogs(), 1);
+		BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+		BOOST_CHECK(logData(0).empty());
+		BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+		BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Deposit()")));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(event_access_through_base_name_emit)
@@ -3732,11 +2567,11 @@ BOOST_AUTO_TEST_CASE(event_access_through_base_name_emit)
 	)";
 	compileAndRun(sourceCode);
 	callContractFunction("f()");
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data.empty());
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("x()")));
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK(logData(0).empty());
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("x()")));
 }
 
 BOOST_AUTO_TEST_CASE(events_with_same_name)
@@ -3767,34 +2602,36 @@ BOOST_AUTO_TEST_CASE(events_with_same_name)
 	)";
 	u160 const c_loggedAddress = m_contractAddress;
 
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("deposit()"), encodeArgs(u256(1)));
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data.empty());
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Deposit()")));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("deposit()"), encodeArgs(u256(1)));
+		BOOST_REQUIRE_EQUAL(numLogs(), 1);
+		BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+		BOOST_CHECK(logData(0).empty());
+		BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+		BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Deposit()")));
 
-	ABI_CHECK(callContractFunction("deposit(address)", c_loggedAddress), encodeArgs(u256(2)));
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs(c_loggedAddress));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Deposit(address)")));
+		ABI_CHECK(callContractFunction("deposit(address)", c_loggedAddress), encodeArgs(u256(2)));
+		BOOST_REQUIRE_EQUAL(numLogs(), 1);
+		BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+		ABI_CHECK(logData(0), encodeArgs(c_loggedAddress));
+		BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+		BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Deposit(address)")));
 
-	ABI_CHECK(callContractFunction("deposit(address,uint256)", c_loggedAddress, u256(100)), encodeArgs(u256(3)));
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs(c_loggedAddress, 100));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Deposit(address,uint256)")));
+		ABI_CHECK(callContractFunction("deposit(address,uint256)", c_loggedAddress, u256(100)), encodeArgs(u256(3)));
+		BOOST_REQUIRE_EQUAL(numLogs(), 1);
+		BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+		ABI_CHECK(logData(0), encodeArgs(c_loggedAddress, 100));
+		BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+		BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Deposit(address,uint256)")));
 
-	ABI_CHECK(callContractFunction("deposit(address,bool)", c_loggedAddress, false), encodeArgs(u256(4)));
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs(c_loggedAddress, false));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Deposit(address,bool)")));
+		ABI_CHECK(callContractFunction("deposit(address,bool)", c_loggedAddress, false), encodeArgs(u256(4)));
+		BOOST_REQUIRE_EQUAL(numLogs(), 1);
+		BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+		ABI_CHECK(logData(0), encodeArgs(c_loggedAddress, false));
+		BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+		BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Deposit(address,bool)")));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(events_with_same_name_inherited_emit)
@@ -3826,27 +2663,29 @@ BOOST_AUTO_TEST_CASE(events_with_same_name_inherited_emit)
 	)";
 	u160 const c_loggedAddress = m_contractAddress;
 
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("deposit()"), encodeArgs(u256(1)));
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data.empty());
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Deposit()")));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("deposit()"), encodeArgs(u256(1)));
+		BOOST_REQUIRE_EQUAL(numLogs(), 1);
+		BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+		BOOST_CHECK(logData(0).empty());
+		BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+		BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Deposit()")));
 
-	ABI_CHECK(callContractFunction("deposit(address)", c_loggedAddress), encodeArgs(u256(1)));
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs(c_loggedAddress));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Deposit(address)")));
+		ABI_CHECK(callContractFunction("deposit(address)", c_loggedAddress), encodeArgs(u256(1)));
+		BOOST_REQUIRE_EQUAL(numLogs(), 1);
+		BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+		BOOST_CHECK(logData(0) == encodeArgs(c_loggedAddress));
+		BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+		BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Deposit(address)")));
 
-	ABI_CHECK(callContractFunction("deposit(address,uint256)", c_loggedAddress, u256(100)), encodeArgs(u256(1)));
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs(c_loggedAddress, 100));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Deposit(address,uint256)")));
+		ABI_CHECK(callContractFunction("deposit(address,uint256)", c_loggedAddress, u256(100)), encodeArgs(u256(1)));
+		BOOST_REQUIRE_EQUAL(numLogs(), 1);
+		BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+		ABI_CHECK(logData(0), encodeArgs(c_loggedAddress, 100));
+		BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+		BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Deposit(address,uint256)")));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(event_anonymous)
@@ -3859,9 +2698,11 @@ BOOST_AUTO_TEST_CASE(event_anonymous)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	callContractFunction("deposit()");
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 0);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		callContractFunction("deposit()");
+		BOOST_REQUIRE_EQUAL(numLogTopics(0), 0);
+	)
 }
 
 BOOST_AUTO_TEST_CASE(event_anonymous_with_topics)
@@ -3874,18 +2715,20 @@ BOOST_AUTO_TEST_CASE(event_anonymous_with_topics)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	u256 value(18);
-	u256 id(0x1234);
-	callContractFunctionWithValue("deposit(bytes32)", value, id);
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs("abc"));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 4);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], h256(m_sender, h256::AlignRight));
-	BOOST_CHECK_EQUAL(m_logs[0].topics[1], h256(id));
-	BOOST_CHECK_EQUAL(m_logs[0].topics[2], h256(value));
-	BOOST_CHECK_EQUAL(m_logs[0].topics[3], h256(2));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		u256 value(18);
+		u256 id(0x1234);
+		callContractFunctionWithValue("deposit(bytes32)", value, id);
+		BOOST_REQUIRE_EQUAL(numLogs(), 1);
+		BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+		BOOST_CHECK(logData(0) == encodeArgs("abc"));
+		BOOST_REQUIRE_EQUAL(numLogTopics(0), 4);
+		BOOST_CHECK_EQUAL(logTopic(0, 0), h256(m_sender, h256::AlignRight));
+		BOOST_CHECK_EQUAL(logTopic(0, 1), h256(id));
+		BOOST_CHECK_EQUAL(logTopic(0, 2), h256(value));
+		BOOST_CHECK_EQUAL(logTopic(0, 3), h256(2));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(event_lots_of_data)
@@ -3898,15 +2741,17 @@ BOOST_AUTO_TEST_CASE(event_lots_of_data)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	u256 value(18);
-	u256 id(0x1234);
-	callContractFunctionWithValue("deposit(bytes32)", value, id);
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs((u160)m_sender, id, value, true));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Deposit(address,bytes32,uint256,bool)")));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		u256 value(18);
+		u256 id(0x1234);
+		callContractFunctionWithValue("deposit(bytes32)", value, id);
+		BOOST_REQUIRE_EQUAL(numLogs(), 1);
+		BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+		BOOST_CHECK(logData(0) == encodeArgs((u160)m_sender, id, value, true));
+		BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+		BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Deposit(address,bytes32,uint256,bool)")));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(event_really_lots_of_data)
@@ -3921,11 +2766,11 @@ BOOST_AUTO_TEST_CASE(event_really_lots_of_data)
 	)";
 	compileAndRun(sourceCode);
 	callContractFunction("deposit()");
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK_EQUAL(toHex(m_logs[0].data), toHex(encodeArgs(10, 0x60, 15, 4, asString(FixedHash<4>(dev::keccak256("deposit()")).asBytes()))));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Deposit(uint256,bytes,uint256)")));
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK_EQUAL(toHex(logData(0)), toHex(encodeArgs(10, 0x60, 15, 4, asString(FixedHash<4>(util::keccak256("deposit()")).asBytes()))));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Deposit(uint256,bytes,uint256)")));
 }
 
 BOOST_AUTO_TEST_CASE(event_really_lots_of_data_from_storage)
@@ -3935,21 +2780,20 @@ BOOST_AUTO_TEST_CASE(event_really_lots_of_data_from_storage)
 			bytes x;
 			event Deposit(uint fixeda, bytes dynx, uint fixedb);
 			function deposit() public {
-				x.length = 3;
-				x[0] = "A";
-				x[1] = "B";
-				x[2] = "C";
+				x.push("A");
+				x.push("B");
+				x.push("C");
 				emit Deposit(10, x, 15);
 			}
 		}
 	)";
 	compileAndRun(sourceCode);
 	callContractFunction("deposit()");
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK_EQUAL(toHex(m_logs[0].data), toHex(encodeArgs(10, 0x60, 15, 3, string("ABC"))));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Deposit(uint256,bytes,uint256)")));
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK_EQUAL(toHex(logData(0)), toHex(encodeArgs(10, 0x60, 15, 3, string("ABC"))));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Deposit(uint256,bytes,uint256)")));
 }
 
 BOOST_AUTO_TEST_CASE(event_really_really_lots_of_data_from_storage)
@@ -3959,7 +2803,7 @@ BOOST_AUTO_TEST_CASE(event_really_really_lots_of_data_from_storage)
 			bytes x;
 			event Deposit(uint fixeda, bytes dynx, uint fixedb);
 			function deposit() public {
-				x.length = 31;
+				x = new bytes(31);
 				x[0] = "A";
 				x[1] = "B";
 				x[2] = "C";
@@ -3970,11 +2814,11 @@ BOOST_AUTO_TEST_CASE(event_really_really_lots_of_data_from_storage)
 	)";
 	compileAndRun(sourceCode);
 	callContractFunction("deposit()");
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs(10, 0x60, 15, 31, string("ABC") + string(27, 0) + "Z"));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Deposit(uint256,bytes,uint256)")));
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK(logData(0) == encodeArgs(10, 0x60, 15, 31, string("ABC") + string(27, 0) + "Z"));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Deposit(uint256,bytes,uint256)")));
 }
 
 BOOST_AUTO_TEST_CASE(event_struct_memory_v2)
@@ -3992,11 +2836,11 @@ BOOST_AUTO_TEST_CASE(event_struct_memory_v2)
 	compileAndRun(sourceCode);
 	u256 x(42);
 	callContractFunction("createEvent(uint256)", x);
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs(x));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("E((uint256))")));
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK(logData(0) == encodeArgs(x));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("E((uint256))")));
 }
 
 BOOST_AUTO_TEST_CASE(event_struct_storage_v2)
@@ -4016,11 +2860,11 @@ BOOST_AUTO_TEST_CASE(event_struct_storage_v2)
 	compileAndRun(sourceCode);
 	u256 x(42);
 	callContractFunction("createEvent(uint256)", x);
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs(x));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("E((uint256))")));
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK(logData(0) == encodeArgs(x));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("E((uint256))")));
 }
 
 BOOST_AUTO_TEST_CASE(event_dynamic_array_memory)
@@ -4040,11 +2884,11 @@ BOOST_AUTO_TEST_CASE(event_dynamic_array_memory)
 	compileAndRun(sourceCode);
 	u256 x(42);
 	callContractFunction("createEvent(uint256)", x);
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs(0x20, 3, x, x + 1, x + 2));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("E(uint256[])")));
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK(logData(0) == encodeArgs(0x20, 3, x, x + 1, x + 2));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("E(uint256[])")));
 }
 
 BOOST_AUTO_TEST_CASE(event_dynamic_array_memory_v2)
@@ -4065,11 +2909,11 @@ BOOST_AUTO_TEST_CASE(event_dynamic_array_memory_v2)
 	compileAndRun(sourceCode);
 	u256 x(42);
 	callContractFunction("createEvent(uint256)", x);
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs(0x20, 3, x, x + 1, x + 2));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("E(uint256[])")));
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK(logData(0) == encodeArgs(0x20, 3, x, x + 1, x + 2));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("E(uint256[])")));
 }
 
 BOOST_AUTO_TEST_CASE(event_dynamic_nested_array_memory_v2)
@@ -4093,11 +2937,11 @@ BOOST_AUTO_TEST_CASE(event_dynamic_nested_array_memory_v2)
 	compileAndRun(sourceCode);
 	u256 x(42);
 	callContractFunction("createEvent(uint256)", x);
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs(0x20, 2, 0x40, 0xa0, 2, x, x + 1, 2, x + 2, x + 3));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("E(uint256[][])")));
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK(logData(0) == encodeArgs(0x20, 2, 0x40, 0xa0, 2, x, x + 1, 2, x + 2, x + 3));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("E(uint256[][])")));
 }
 
 BOOST_AUTO_TEST_CASE(event_dynamic_array_storage)
@@ -4107,7 +2951,8 @@ BOOST_AUTO_TEST_CASE(event_dynamic_array_storage)
 			event E(uint[]);
 			uint[] arr;
 			function createEvent(uint x) public {
-				arr.length = 3;
+				while (arr.length < 3)
+					arr.push();
 				arr[0] = x;
 				arr[1] = x + 1;
 				arr[2] = x + 2;
@@ -4115,14 +2960,16 @@ BOOST_AUTO_TEST_CASE(event_dynamic_array_storage)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	u256 x(42);
-	callContractFunction("createEvent(uint256)", x);
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs(0x20, 3, x, x + 1, x + 2));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("E(uint256[])")));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		u256 x(42);
+		callContractFunction("createEvent(uint256)", x);
+		BOOST_REQUIRE_EQUAL(numLogs(), 1);
+		BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+		BOOST_CHECK(logData(0) == encodeArgs(0x20, 3, x, x + 1, x + 2));
+		BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+		BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("E(uint256[])")));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(event_dynamic_array_storage_v2)
@@ -4133,7 +2980,8 @@ BOOST_AUTO_TEST_CASE(event_dynamic_array_storage_v2)
 			event E(uint[]);
 			uint[] arr;
 			function createEvent(uint x) public {
-				arr.length = 3;
+				while (arr.length < 3)
+					arr.push();
 				arr[0] = x;
 				arr[1] = x + 1;
 				arr[2] = x + 2;
@@ -4141,14 +2989,16 @@ BOOST_AUTO_TEST_CASE(event_dynamic_array_storage_v2)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	u256 x(42);
-	callContractFunction("createEvent(uint256)", x);
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs(0x20, 3, x, x + 1, x + 2));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("E(uint256[])")));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		u256 x(42);
+		callContractFunction("createEvent(uint256)", x);
+		BOOST_REQUIRE_EQUAL(numLogs(), 1);
+		BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+		BOOST_CHECK(logData(0) == encodeArgs(0x20, 3, x, x + 1, x + 2));
+		BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+		BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("E(uint256[])")));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(event_dynamic_nested_array_storage_v2)
@@ -4159,9 +3009,8 @@ BOOST_AUTO_TEST_CASE(event_dynamic_nested_array_storage_v2)
 			event E(uint[][]);
 			uint[][] arr;
 			function createEvent(uint x) public {
-				arr.length = 2;
-				arr[0].length = 2;
-				arr[1].length = 2;
+				arr.push(new uint[](2));
+				arr.push(new uint[](2));
 				arr[0][0] = x;
 				arr[0][1] = x + 1;
 				arr[1][0] = x + 2;
@@ -4170,14 +3019,16 @@ BOOST_AUTO_TEST_CASE(event_dynamic_nested_array_storage_v2)
 			}
 		}
 	)";
+	/// TODO enable again after push(..) via yul is implemented for nested arrays.
+	/// ALSO_VIA_YUL()
 	compileAndRun(sourceCode);
 	u256 x(42);
 	callContractFunction("createEvent(uint256)", x);
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs(0x20, 2, 0x40, 0xa0, 2, x, x + 1, 2, x + 2, x + 3));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("E(uint256[][])")));
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK(logData(0) == encodeArgs(0x20, 2, 0x40, 0xa0, 2, x, x + 1, 2, x + 2, x + 3));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("E(uint256[][])")));
 }
 
 BOOST_AUTO_TEST_CASE(event_indexed_string)
@@ -4188,7 +3039,8 @@ BOOST_AUTO_TEST_CASE(event_indexed_string)
 			uint[4] y;
 			event E(string indexed r, uint[4] indexed t);
 			function deposit() public {
-				bytes(x).length = 90;
+				for (uint i = 0; i < 90; i++)
+					bytes(x).push(0);
 				for (uint8 i = 0; i < 90; i++)
 					bytes(x)[i] = byte(i);
 				y[0] = 4;
@@ -4201,18 +3053,18 @@ BOOST_AUTO_TEST_CASE(event_indexed_string)
 	)";
 	compileAndRun(sourceCode);
 	callContractFunction("deposit()");
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
 	string dynx(90, 0);
 	for (size_t i = 0; i < dynx.size(); ++i)
 		dynx[i] = i;
-	BOOST_CHECK(m_logs[0].data == bytes());
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 3);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[1], dev::keccak256(dynx));
-	BOOST_CHECK_EQUAL(m_logs[0].topics[2], dev::keccak256(
+	BOOST_CHECK(logData(0) == bytes());
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 3);
+	BOOST_CHECK_EQUAL(logTopic(0, 1), util::keccak256(dynx));
+	BOOST_CHECK_EQUAL(logTopic(0, 2), util::keccak256(
 		encodeArgs(u256(4), u256(5), u256(6), u256(7))
 	));
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("E(string,uint256[4])")));
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("E(string,uint256[4])")));
 }
 
 BOOST_AUTO_TEST_CASE(empty_name_input_parameter_with_named_one)
@@ -4226,9 +3078,11 @@ BOOST_AUTO_TEST_CASE(empty_name_input_parameter_with_named_one)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	BOOST_CHECK(callContractFunction("f(uint256,uint256)", 5, 9) != encodeArgs(5, 8));
-	ABI_CHECK(callContractFunction("f(uint256,uint256)", 5, 9), encodeArgs(9, 8));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		BOOST_CHECK(callContractFunction("f(uint256,uint256)", 5, 9) != encodeArgs(5, 8));
+		ABI_CHECK(callContractFunction("f(uint256,uint256)", 5, 9), encodeArgs(9, 8));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(empty_name_return_parameter)
@@ -4240,8 +3094,10 @@ BOOST_AUTO_TEST_CASE(empty_name_return_parameter)
 		}
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f(uint256)", 9), encodeArgs(9));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("f(uint256)", 9), encodeArgs(9));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(sha256_empty)
@@ -4279,8 +3135,10 @@ BOOST_AUTO_TEST_CASE(keccak256_empty)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()"), fromHex("0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("f()"), fromHex("0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(keccak256_multiple_arguments)
@@ -4296,7 +3154,7 @@ BOOST_AUTO_TEST_CASE(keccak256_multiple_arguments)
 	compileAndRun(sourceCode);
 
 	ABI_CHECK(callContractFunction("foo(uint256,uint256,uint256)", 10, 12, 13), encodeArgs(
-		dev::keccak256(
+		util::keccak256(
 			toBigEndian(u256(10)) +
 			toBigEndian(u256(12)) +
 			toBigEndian(u256(13))
@@ -4317,7 +3175,7 @@ BOOST_AUTO_TEST_CASE(keccak256_multiple_arguments_with_numeric_literals)
 	compileAndRun(sourceCode);
 
 	ABI_CHECK(callContractFunction("foo(uint256,uint16)", 10, 12), encodeArgs(
-		dev::keccak256(
+		util::keccak256(
 			toBigEndian(u256(10)) +
 			bytes{0x0, 0xc} +
 			bytes(1, 0x91)
@@ -4341,10 +3199,10 @@ BOOST_AUTO_TEST_CASE(keccak256_multiple_arguments_with_string_literals)
 	)";
 	compileAndRun(sourceCode);
 
-	ABI_CHECK(callContractFunction("foo()"), encodeArgs(dev::keccak256("foo")));
+	ABI_CHECK(callContractFunction("foo()"), encodeArgs(util::keccak256("foo")));
 
 	ABI_CHECK(callContractFunction("bar(uint256,uint16)", 10, 12), encodeArgs(
-		dev::keccak256(
+		util::keccak256(
 			toBigEndian(u256(10)) +
 			bytes{0x0, 0xc} +
 			bytes(1, 0x91) +
@@ -4360,10 +3218,9 @@ BOOST_AUTO_TEST_CASE(keccak256_with_bytes)
 			bytes data;
 			function foo() public returns (bool)
 			{
-				data.length = 3;
-				data[0] = "f";
-				data[1] = "o";
-				data[2] = "o";
+				data.push("f");
+				data.push("o");
+				data.push("o");
 				return keccak256(data) == keccak256("foo");
 			}
 		}
@@ -4379,17 +3236,16 @@ BOOST_AUTO_TEST_CASE(iterated_keccak256_with_bytes)
 			bytes data;
 			function foo() public returns (bytes32)
 			{
-				data.length = 3;
-				data[0] = "x";
-				data[1] = "y";
-				data[2] = "z";
+				data.push("x");
+				data.push("y");
+				data.push("z");
 				return keccak256(abi.encodePacked("b", keccak256(data), "a"));
 			}
 		}
 	)ABC";
 	compileAndRun(sourceCode);
 	ABI_CHECK(callContractFunction("foo()"), encodeArgs(
-		u256(dev::keccak256(bytes{'b'} + dev::keccak256("xyz").asBytes() + bytes{'a'}))
+		u256(util::keccak256(bytes{'b'} + util::keccak256("xyz").asBytes() + bytes{'a'}))
 	));
 }
 
@@ -4398,13 +3254,13 @@ BOOST_AUTO_TEST_CASE(generic_call)
 	char const* sourceCode = R"**(
 			contract receiver {
 				uint public received;
-				function receive(uint256 x) public payable { received = x; }
+				function recv(uint256 x) public payable { received = x; }
 			}
 			contract sender {
 				constructor() public payable {}
 				function doSend(address rec) public returns (uint d)
 				{
-					bytes4 signature = bytes4(bytes32(keccak256("receive(uint256)")));
+					bytes4 signature = bytes4(bytes32(keccak256("recv(uint256)")));
 					rec.call.value(2)(abi.encodeWithSelector(signature, 23));
 					return receiver(rec).received();
 				}
@@ -4425,7 +3281,7 @@ BOOST_AUTO_TEST_CASE(generic_delegatecall)
 				address public sender;
 				uint public value;
 				constructor() public payable {}
-				function receive(uint256 x) public payable { received = x; sender = msg.sender; value = msg.value; }
+				function recv(uint256 x) public payable { received = x; sender = msg.sender; value = msg.value; }
 			}
 			contract Sender {
 				uint public received;
@@ -4434,7 +3290,7 @@ BOOST_AUTO_TEST_CASE(generic_delegatecall)
 				constructor() public payable {}
 				function doSend(address rec) public payable
 				{
-					bytes4 signature = bytes4(bytes32(keccak256("receive(uint256)")));
+					bytes4 signature = bytes4(bytes32(keccak256("recv(uint256)")));
 					(bool success,) = rec.delegatecall(abi.encodeWithSelector(signature, 23));
 					success;
 				}
@@ -4467,7 +3323,7 @@ BOOST_AUTO_TEST_CASE(generic_delegatecall)
 
 BOOST_AUTO_TEST_CASE(generic_staticcall)
 {
-	if (dev::test::Options::get().evmVersion().hasStaticCall())
+	if (solidity::test::CommonOptions::get().evmVersion().hasStaticCall())
 	{
 		char const* sourceCode = R"**(
 				contract A {
@@ -4612,10 +3468,10 @@ BOOST_AUTO_TEST_CASE(bytes_from_calldata_to_memory)
 		}
 	)";
 	compileAndRun(sourceCode);
-	bytes calldata1 = FixedHash<4>(dev::keccak256("f()")).asBytes() + bytes(61, 0x22) + bytes(12, 0x12);
+	bytes calldata1 = FixedHash<4>(util::keccak256("f()")).asBytes() + bytes(61, 0x22) + bytes(12, 0x12);
 	sendMessage(calldata1, false);
 	BOOST_CHECK(m_transactionSuccessful);
-	BOOST_CHECK(m_output == encodeArgs(dev::keccak256(bytes{'a', 'b', 'c'} + calldata1)));
+	BOOST_CHECK(m_output == encodeArgs(util::keccak256(bytes{'a', 'b', 'c'} + calldata1)));
 }
 
 BOOST_AUTO_TEST_CASE(call_forward_bytes)
@@ -4623,12 +3479,12 @@ BOOST_AUTO_TEST_CASE(call_forward_bytes)
 	char const* sourceCode = R"(
 		contract receiver {
 			uint public received;
-			function receive(uint x) public { received += x + 1; }
-			function() external { received = 0x80; }
+			function recv(uint x) public { received += x + 1; }
+			fallback() external { received = 0x80; }
 		}
 		contract sender {
 			constructor() public { rec = new receiver(); }
-			function() external { savedData = msg.data; }
+			fallback() external { savedData = msg.data; }
 			function forward() public returns (bool) { address(rec).call(savedData); return true; }
 			function clear() public returns (bool) { delete savedData; return true; }
 			function val() public returns (uint) { return rec.received(); }
@@ -4637,7 +3493,7 @@ BOOST_AUTO_TEST_CASE(call_forward_bytes)
 		}
 	)";
 	compileAndRun(sourceCode, 0, "sender");
-	ABI_CHECK(callContractFunction("receive(uint256)", 7), bytes());
+	ABI_CHECK(callContractFunction("recv(uint256)", 7), bytes());
 	ABI_CHECK(callContractFunction("val()"), encodeArgs(0));
 	ABI_CHECK(callContractFunction("forward()"), encodeArgs(true));
 	ABI_CHECK(callContractFunction("val()"), encodeArgs(8));
@@ -4652,7 +3508,7 @@ BOOST_AUTO_TEST_CASE(call_forward_bytes_length)
 	char const* sourceCode = R"(
 		contract receiver {
 			uint public calledLength;
-			function() external { calledLength = msg.data.length; }
+			fallback() external { calledLength = msg.data.length; }
 		}
 		contract sender {
 			receiver rec;
@@ -4696,12 +3552,12 @@ BOOST_AUTO_TEST_CASE(copying_bytes_multiassign)
 	char const* sourceCode = R"(
 		contract receiver {
 			uint public received;
-			function receive(uint x) public { received += x + 1; }
-			function() external { received = 0x80; }
+			function recv(uint x) public { received += x + 1; }
+			fallback() external { received = 0x80; }
 		}
 		contract sender {
 			constructor() public { rec = new receiver(); }
-			function() external { savedData1 = savedData2 = msg.data; }
+			fallback() external { savedData1 = savedData2 = msg.data; }
 			function forward(bool selector) public returns (bool) {
 				if (selector) { address(rec).call(savedData1); delete savedData1; }
 				else { address(rec).call(savedData2); delete savedData2; }
@@ -4714,7 +3570,7 @@ BOOST_AUTO_TEST_CASE(copying_bytes_multiassign)
 		}
 	)";
 	compileAndRun(sourceCode, 0, "sender");
-	ABI_CHECK(callContractFunction("receive(uint256)", 7), bytes());
+	ABI_CHECK(callContractFunction("recv(uint256)", 7), bytes());
 	ABI_CHECK(callContractFunction("val()"), encodeArgs(0));
 	ABI_CHECK(callContractFunction("forward(bool)", true), encodeArgs(true));
 	ABI_CHECK(callContractFunction("val()"), encodeArgs(8));
@@ -4728,7 +3584,7 @@ BOOST_AUTO_TEST_CASE(delete_removes_bytes_data)
 {
 	char const* sourceCode = R"(
 		contract c {
-			function() external { data = msg.data; }
+			fallback() external { data = msg.data; }
 			function del() public returns (bool) { delete data; return true; }
 			bytes data;
 		}
@@ -4745,7 +3601,7 @@ BOOST_AUTO_TEST_CASE(copy_from_calldata_removes_bytes_data)
 	char const* sourceCode = R"(
 		contract c {
 			function set() public returns (bool) { data = msg.data; return true; }
-			function() external { data = msg.data; }
+			fallback() external { data = msg.data; }
 			bytes data;
 		}
 	)";
@@ -4956,14 +3812,16 @@ BOOST_AUTO_TEST_CASE(enum_explicit_overflow)
 				ActionChoices choice;
 			}
 	)";
-	compileAndRun(sourceCode);
-	// These should throw
-	ABI_CHECK(callContractFunction("getChoiceExp(uint256)", 3), encodeArgs());
-	ABI_CHECK(callContractFunction("getChoiceFromSigned(int256)", -1), encodeArgs());
-	ABI_CHECK(callContractFunction("getChoiceFromNegativeLiteral()"), encodeArgs());
-	// These should work
-	ABI_CHECK(callContractFunction("getChoiceExp(uint256)", 2), encodeArgs(2));
-	ABI_CHECK(callContractFunction("getChoiceExp(uint256)", 0), encodeArgs(0));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		// These should throw
+		ABI_CHECK(callContractFunction("getChoiceExp(uint256)", 3), encodeArgs());
+		ABI_CHECK(callContractFunction("getChoiceFromSigned(int256)", -1), encodeArgs());
+		ABI_CHECK(callContractFunction("getChoiceFromNegativeLiteral()"), encodeArgs());
+		// These should work
+		ABI_CHECK(callContractFunction("getChoiceExp(uint256)", 2), encodeArgs(2));
+		ABI_CHECK(callContractFunction("getChoiceExp(uint256)", 0), encodeArgs(0));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(storing_invalid_boolean)
@@ -5002,11 +3860,11 @@ BOOST_AUTO_TEST_CASE(storing_invalid_boolean)
 	ABI_CHECK(callContractFunction("perm()"), encodeArgs(1));
 	ABI_CHECK(callContractFunction("ret()"), encodeArgs(1));
 	ABI_CHECK(callContractFunction("ev()"), encodeArgs(1));
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_CHECK(m_logs[0].data == encodeArgs(1));
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Ev(bool)")));
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_CHECK(logData(0) == encodeArgs(1));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Ev(bool)")));
 }
 
 
@@ -5072,8 +3930,10 @@ BOOST_AUTO_TEST_CASE(constructing_enums_from_ints)
 				}
 			}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("test()"), encodeArgs(1));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("test()"), encodeArgs(1));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(struct_referencing)
@@ -5203,7 +4063,6 @@ BOOST_AUTO_TEST_CASE(inline_member_init)
 	compileAndRun(sourceCode);
 	ABI_CHECK(callContractFunction("get()"), encodeArgs(5, 6, 8));
 }
-
 BOOST_AUTO_TEST_CASE(inline_member_init_inheritence)
 {
 	char const* sourceCode = R"(
@@ -5251,8 +4110,10 @@ BOOST_AUTO_TEST_CASE(external_function)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("test(uint256,uint256)", 2, 3), encodeArgs(2+7, 3));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("test(uint256,uint256)", 2, 3), encodeArgs(2+7, 3));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(bytes_in_arguments)
@@ -5274,8 +4135,8 @@ BOOST_AUTO_TEST_CASE(bytes_in_arguments)
 	)";
 	compileAndRun(sourceCode);
 
-	string innercalldata1 = asString(FixedHash<4>(dev::keccak256("f(uint256,uint256)")).asBytes() + encodeArgs(8, 9));
-	string innercalldata2 = asString(FixedHash<4>(dev::keccak256("g(uint256)")).asBytes() + encodeArgs(3));
+	string innercalldata1 = asString(FixedHash<4>(util::keccak256("f(uint256,uint256)")).asBytes() + encodeArgs(8, 9));
+	string innercalldata2 = asString(FixedHash<4>(util::keccak256("g(uint256)")).asBytes() + encodeArgs(3));
 	bytes calldata = encodeArgs(
 		12, 32 * 4, u256(32 * 4 + 32 + (innercalldata1.length() + 31) / 32 * 32), 13,
 		u256(innercalldata1.length()), innercalldata1,
@@ -5326,7 +4187,12 @@ BOOST_AUTO_TEST_CASE(dynamic_arrays_in_storage)
 			function getID(uint index) public returns (uint) { return ids[index]; }
 			function getData(uint index) public returns (uint x, uint y) { x = data[index].x; y = data[index].y; }
 			function getLengths() public returns (uint l1, uint l2) { l1 = data.length; l2 = ids.length; }
-			function setLengths(uint l1, uint l2) public { data.length = l1; ids.length = l2; }
+			function setLengths(uint l1, uint l2) public {
+				while (data.length < l1)
+					data.push();
+				while (ids.length < l2)
+					ids.push();
+			}
 		}
 	)";
 	compileAndRun(sourceCode);
@@ -5353,15 +4219,17 @@ BOOST_AUTO_TEST_CASE(fixed_out_of_bounds_array_access)
 			function length() public returns (uint) { return data.length; }
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("length()"), encodeArgs(4));
-	ABI_CHECK(callContractFunction("set(uint256,uint256)", 3, 4), encodeArgs(true));
-	ABI_CHECK(callContractFunction("set(uint256,uint256)", 4, 5), bytes());
-	ABI_CHECK(callContractFunction("set(uint256,uint256)", 400, 5), bytes());
-	ABI_CHECK(callContractFunction("get(uint256)", 3), encodeArgs(4));
-	ABI_CHECK(callContractFunction("get(uint256)", 4), bytes());
-	ABI_CHECK(callContractFunction("get(uint256)", 400), bytes());
-	ABI_CHECK(callContractFunction("length()"), encodeArgs(4));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("length()"), encodeArgs(4));
+		ABI_CHECK(callContractFunction("set(uint256,uint256)", 3, 4), encodeArgs(true));
+		ABI_CHECK(callContractFunction("set(uint256,uint256)", 4, 5), bytes());
+		ABI_CHECK(callContractFunction("set(uint256,uint256)", 400, 5), bytes());
+		ABI_CHECK(callContractFunction("get(uint256)", 3), encodeArgs(4));
+		ABI_CHECK(callContractFunction("get(uint256)", 4), bytes());
+		ABI_CHECK(callContractFunction("get(uint256)", 400), bytes());
+		ABI_CHECK(callContractFunction("length()"), encodeArgs(4));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(dynamic_out_of_bounds_array_access)
@@ -5369,22 +4237,28 @@ BOOST_AUTO_TEST_CASE(dynamic_out_of_bounds_array_access)
 	char const* sourceCode = R"(
 		contract c {
 			uint[] data;
-			function enlarge(uint amount) public returns (uint) { return data.length += amount; }
+			function enlarge(uint amount) public returns (uint) {
+				while (data.length < amount)
+					data.push();
+				return data.length;
+			}
 			function set(uint index, uint value) public returns (bool) { data[index] = value; return true; }
 			function get(uint index) public returns (uint) { return data[index]; }
 			function length() public returns (uint) { return data.length; }
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("length()"), encodeArgs(0));
-	ABI_CHECK(callContractFunction("get(uint256)", 3), bytes());
-	ABI_CHECK(callContractFunction("enlarge(uint256)", 4), encodeArgs(4));
-	ABI_CHECK(callContractFunction("length()"), encodeArgs(4));
-	ABI_CHECK(callContractFunction("set(uint256,uint256)", 3, 4), encodeArgs(true));
-	ABI_CHECK(callContractFunction("get(uint256)", 3), encodeArgs(4));
-	ABI_CHECK(callContractFunction("length()"), encodeArgs(4));
-	ABI_CHECK(callContractFunction("set(uint256,uint256)", 4, 8), bytes());
-	ABI_CHECK(callContractFunction("length()"), encodeArgs(4));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("length()"), encodeArgs(0));
+		ABI_CHECK(callContractFunction("get(uint256)", 3), bytes());
+		ABI_CHECK(callContractFunction("enlarge(uint256)", 4), encodeArgs(4));
+		ABI_CHECK(callContractFunction("length()"), encodeArgs(4));
+		ABI_CHECK(callContractFunction("set(uint256,uint256)", 3, 4), encodeArgs(true));
+		ABI_CHECK(callContractFunction("get(uint256)", 3), encodeArgs(4));
+		ABI_CHECK(callContractFunction("length()"), encodeArgs(4));
+		ABI_CHECK(callContractFunction("set(uint256,uint256)", 4, 8), bytes());
+		ABI_CHECK(callContractFunction("length()"), encodeArgs(4));
+	);
 }
 
 BOOST_AUTO_TEST_CASE(fixed_array_cleanup)
@@ -5400,12 +4274,14 @@ BOOST_AUTO_TEST_CASE(fixed_array_cleanup)
 			function clear() public { delete data; }
 		}
 	)";
-	compileAndRun(sourceCode);
-	BOOST_CHECK(storageEmpty(m_contractAddress));
-	ABI_CHECK(callContractFunction("fill()"), bytes());
-	BOOST_CHECK(!storageEmpty(m_contractAddress));
-	ABI_CHECK(callContractFunction("clear()"), bytes());
-	BOOST_CHECK(storageEmpty(m_contractAddress));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		BOOST_CHECK(storageEmpty(m_contractAddress));
+		ABI_CHECK(callContractFunction("fill()"), bytes());
+		BOOST_CHECK(!storageEmpty(m_contractAddress));
+		ABI_CHECK(callContractFunction("clear()"), bytes());
+		BOOST_CHECK(storageEmpty(m_contractAddress));
+	);
 }
 
 BOOST_AUTO_TEST_CASE(short_fixed_array_cleanup)
@@ -5421,12 +4297,14 @@ BOOST_AUTO_TEST_CASE(short_fixed_array_cleanup)
 			function clear() public { delete data; }
 		}
 	)";
-	compileAndRun(sourceCode);
-	BOOST_CHECK(storageEmpty(m_contractAddress));
-	ABI_CHECK(callContractFunction("fill()"), bytes());
-	BOOST_CHECK(!storageEmpty(m_contractAddress));
-	ABI_CHECK(callContractFunction("clear()"), bytes());
-	BOOST_CHECK(storageEmpty(m_contractAddress));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		BOOST_CHECK(storageEmpty(m_contractAddress));
+		ABI_CHECK(callContractFunction("fill()"), bytes());
+		BOOST_CHECK(!storageEmpty(m_contractAddress));
+		ABI_CHECK(callContractFunction("clear()"), bytes());
+		BOOST_CHECK(storageEmpty(m_contractAddress));
+	);
 }
 
 BOOST_AUTO_TEST_CASE(dynamic_array_cleanup)
@@ -5436,21 +4314,26 @@ BOOST_AUTO_TEST_CASE(dynamic_array_cleanup)
 			uint[20] spacer;
 			uint[] dynamic;
 			function fill() public {
-				dynamic.length = 21;
-				for (uint i = 0; i < dynamic.length; ++i) dynamic[i] = i+1;
+				for (uint i = 0; i < 21; ++i)
+					dynamic.push(i + 1);
 			}
-			function halfClear() public { dynamic.length = 5; }
+			function halfClear() public {
+				while (dynamic.length > 5)
+					dynamic.pop();
+			}
 			function fullClear() public { delete dynamic; }
 		}
 	)";
-	compileAndRun(sourceCode);
-	BOOST_CHECK(storageEmpty(m_contractAddress));
-	ABI_CHECK(callContractFunction("fill()"), bytes());
-	BOOST_CHECK(!storageEmpty(m_contractAddress));
-	ABI_CHECK(callContractFunction("halfClear()"), bytes());
-	BOOST_CHECK(!storageEmpty(m_contractAddress));
-	ABI_CHECK(callContractFunction("fullClear()"), bytes());
-	BOOST_CHECK(storageEmpty(m_contractAddress));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		BOOST_CHECK(storageEmpty(m_contractAddress));
+		ABI_CHECK(callContractFunction("fill()"), bytes());
+		BOOST_CHECK(!storageEmpty(m_contractAddress));
+		ABI_CHECK(callContractFunction("halfClear()"), bytes());
+		BOOST_CHECK(!storageEmpty(m_contractAddress));
+		ABI_CHECK(callContractFunction("fullClear()"), bytes());
+		BOOST_CHECK(storageEmpty(m_contractAddress));
+	);
 }
 
 BOOST_AUTO_TEST_CASE(dynamic_multi_array_cleanup)
@@ -5460,9 +4343,12 @@ BOOST_AUTO_TEST_CASE(dynamic_multi_array_cleanup)
 			struct s { uint[][] d; }
 			s[] data;
 			function fill() public returns (uint) {
-				data.length = 3;
-				data[2].d.length = 4;
-				data[2].d[3].length = 5;
+				while (data.length < 3)
+					data.push();
+				while (data[2].d.length < 4)
+					data[2].d.push();
+				while (data[2].d[3].length < 5)
+					data[2].d[3].push();
 				data[2].d[3][4] = 8;
 				return data[2].d[3][4];
 			}
@@ -5484,7 +4370,9 @@ BOOST_AUTO_TEST_CASE(array_copy_storage_storage_dyn_dyn)
 			uint[] data1;
 			uint[] data2;
 			function setData1(uint length, uint index, uint value) public {
-				data1.length = length; if (index < length) data1[index] = value;
+				data1 = new uint[](length);
+				if (index < length)
+					data1[index] = value;
 			}
 			function copyStorageStorage() public { data2 = data1; }
 			function getData2(uint index) public returns (uint len, uint val) {
@@ -5548,7 +4436,7 @@ BOOST_AUTO_TEST_CASE(array_copy_different_packing)
 			bytes8[] data1; // 4 per slot
 			bytes10[] data2; // 3 per slot
 			function test() public returns (bytes10 a, bytes10 b, bytes10 c, bytes10 d, bytes10 e) {
-				data1.length = 9;
+				data1 = new bytes8[](9);
 				for (uint i = 0; i < data1.length; ++i)
 					data1[i] = bytes8(uint64(i));
 				data2 = data1;
@@ -5667,13 +4555,15 @@ BOOST_AUTO_TEST_CASE(array_copy_storage_storage_struct)
 			Data[] data1;
 			Data[] data2;
 			function test() public returns (uint x, uint y) {
-				data1.length = 9;
+				while (data1.length < 9)
+					data1.push();
 				data1[8].x = 4;
 				data1[8].y = 5;
 				data2 = data1;
 				x = data2[8].x;
 				y = data2[8].y;
-				data1.length = 0;
+				while (data1.length > 0)
+					data1.pop();
 				data2 = data1;
 			}
 		}
@@ -5710,7 +4600,7 @@ BOOST_AUTO_TEST_CASE(array_copy_storage_abi)
 				return z;
 			}
 			function test4() public returns (uint24[][] memory) {
-				w.length = 5;
+				w = new uint24[][](5);
 				for (uint i = 0; i < 5; ++i)
 					for (uint j = 0; j < 101; ++j)
 						w[i].push(uint24(j));
@@ -5779,7 +4669,8 @@ BOOST_AUTO_TEST_CASE(array_push)
 				x = data[0];
 				data.push(4);
 				y = data[1];
-				l = data.push(3);
+				data.push(3);
+				l = data.length;
 				z = data[2];
 			}
 		}
@@ -5821,7 +4712,7 @@ BOOST_AUTO_TEST_CASE(array_push_packed_array)
 				x.push(3);
 				x.push(4);
 				x.push(5);
-				x.length = 4;
+				x.pop();
 				return (x[0], x[1], x[2], x[3]);
 			}
 		}
@@ -5836,11 +4727,13 @@ BOOST_AUTO_TEST_CASE(byte_array_push)
 		contract c {
 			bytes data;
 			function test() public returns (bool x) {
-				if (data.push(0x05) != 1)  return true;
+				data.push(0x05);
+				if (data.length != 1)  return true;
 				if (data[0] != 0x05) return true;
 				data.push(0x04);
 				if (data[1] != 0x04) return true;
-				uint l = data.push(0x03);
+				data.push(0x03);
+				uint l = data.length;
 				if (data[2] != 0x03) return true;
 				if (l != 0x03) return true;
 			}
@@ -5880,7 +4773,8 @@ BOOST_AUTO_TEST_CASE(array_pop)
 			uint[] data;
 			function test() public returns (uint x, uint l) {
 				data.push(7);
-				x = data.push(3);
+				data.push(3);
+				x = data.length;
 				data.pop();
 				x = data.length;
 				data.pop();
@@ -6016,10 +4910,12 @@ BOOST_AUTO_TEST_CASE(byte_array_pop)
 			bytes data;
 			function test() public returns (uint x, uint y, uint l) {
 				data.push(0x07);
-				x = data.push(0x03);
+				data.push(0x03);
+				x = data.length;
 				data.pop();
 				data.pop();
-				y = data.push(0x02);
+				data.push(0x02);
+				y = data.length;
 				l = data.length;
 			}
 		}
@@ -6230,7 +5126,7 @@ BOOST_AUTO_TEST_CASE(bytes_index_access)
 				return uint(uint8(data[index]));
 			}
 			function storageWrite() external returns (uint) {
-				data.length = 35;
+				data = new bytes(35);
 				data[31] = 0x77;
 				data[32] = 0x14;
 
@@ -6259,7 +5155,7 @@ BOOST_AUTO_TEST_CASE(bytes_delete_element)
 		contract c {
 			bytes data;
 			function test1() external returns (bool) {
-				data.length = 100;
+				data = new bytes(100);
 				for (uint i = 0; i < data.length; i++)
 					data[i] = byte(uint8(i));
 				delete data[94];
@@ -6343,7 +5239,10 @@ BOOST_AUTO_TEST_CASE(array_copy_including_mapping)
 			mapping(uint=>uint)[90][] large;
 			mapping(uint=>uint)[3][] small;
 			function test() public returns (uint r) {
-				large.length = small.length = 7;
+				for (uint i = 0; i < 7; i++) {
+					large.push();
+					small.push();
+				}
 				large[3][2][0] = 2;
 				large[1] = large[3];
 				small[3][2][0] = 2;
@@ -6355,13 +5254,20 @@ BOOST_AUTO_TEST_CASE(array_copy_including_mapping)
 					large[1][2][0];
 				delete small;
 				delete large;
+
 			}
-			function clear() public returns (uint r) {
-				large.length = small.length = 7;
+			function clear() public returns (uint, uint) {
+				for (uint i = 0; i < 7; i++) {
+					large.push();
+					small.push();
+				}
 				small[3][2][0] = 0;
 				large[3][2][0] = 0;
-				small.length = large.length = 0;
-				return 7;
+				while (small.length > 0)
+					small.pop();
+				while (large.length > 0)
+					large.pop();
+				return (small.length, large.length);
 			}
 		}
 	)";
@@ -6369,7 +5275,7 @@ BOOST_AUTO_TEST_CASE(array_copy_including_mapping)
 	ABI_CHECK(callContractFunction("test()"), encodeArgs(0x02000200));
 	// storage is not empty because we cannot delete the mappings
 	BOOST_CHECK(!storageEmpty(m_contractAddress));
-	ABI_CHECK(callContractFunction("clear()"), encodeArgs(7));
+	ABI_CHECK(callContractFunction("clear()"), encodeArgs(0, 0));
 	BOOST_CHECK(storageEmpty(m_contractAddress));
 }
 
@@ -6460,7 +5366,7 @@ BOOST_AUTO_TEST_CASE(pass_dynamic_arguments_to_the_base_base_with_gap)
 			}
 			uint public m_i;
 		}
-		contract Base1 is Base {
+		abstract contract Base1 is Base {
 			constructor(uint k) public {}
 		}
 		contract Derived is Base, Base1 {
@@ -6495,7 +5401,9 @@ BOOST_AUTO_TEST_CASE(constant_variables)
 			bytes32 constant st = "abc\x00\xff__";
 		}
 	)";
-	compileAndRun(sourceCode);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+	)
 }
 
 BOOST_AUTO_TEST_CASE(assignment_to_const_var_involving_expression)
@@ -6519,7 +5427,7 @@ BOOST_AUTO_TEST_CASE(assignment_to_const_var_involving_keccak)
 		}
 	)";
 	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(dev::keccak256("abc")));
+	ABI_CHECK(callContractFunction("f()"), encodeArgs(util::keccak256("abc")));
 }
 
 // Disabled until https://github.com/ethereum/solidity/issues/715 is implemented
@@ -6682,8 +5590,10 @@ BOOST_AUTO_TEST_CASE(overloaded_function_call_resolve_to_first)
 			function g() public returns(uint d) { return f(3); }
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("g()"), encodeArgs(3));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("g()"), encodeArgs(3));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(overloaded_function_call_resolve_to_second)
@@ -6695,8 +5605,10 @@ BOOST_AUTO_TEST_CASE(overloaded_function_call_resolve_to_second)
 			function g() public returns(uint d) { return f(3, 7); }
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("g()"), encodeArgs(10));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("g()"), encodeArgs(10));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(overloaded_function_call_with_if_else)
@@ -6713,9 +5625,11 @@ BOOST_AUTO_TEST_CASE(overloaded_function_call_with_if_else)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("g(bool)", true), encodeArgs(3));
-	ABI_CHECK(callContractFunction("g(bool)", false), encodeArgs(10));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("g(bool)", true), encodeArgs(3));
+		ABI_CHECK(callContractFunction("g(bool)", false), encodeArgs(10));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(derived_overload_base_function_direct)
@@ -6727,8 +5641,10 @@ BOOST_AUTO_TEST_CASE(derived_overload_base_function_direct)
 			function g() public returns(uint) { return f(1); }
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("g()"), encodeArgs(2));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("g()"), encodeArgs(2));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(derived_overload_base_function_indirect)
@@ -6741,9 +5657,11 @@ BOOST_AUTO_TEST_CASE(derived_overload_base_function_indirect)
 			function h() public returns(uint) { return f(1); }
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("g()"), encodeArgs(10));
-	ABI_CHECK(callContractFunction("h()"), encodeArgs(2));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("g()"), encodeArgs(10));
+		ABI_CHECK(callContractFunction("h()"), encodeArgs(2));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(super_overload)
@@ -6769,8 +5687,10 @@ BOOST_AUTO_TEST_CASE(gasleft_shadow_resolution)
 			function f() public returns(uint256) { return gasleft(); }
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(0));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(0));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(bool_conversion)
@@ -6789,16 +5709,17 @@ BOOST_AUTO_TEST_CASE(bool_conversion)
 		}
 	)";
 	compileAndRun(sourceCode, 0, "C");
+	bool v2 = solidity::test::CommonOptions::get().useABIEncoderV2;
 	ABI_CHECK(callContractFunction("f(bool)", 0), encodeArgs(0));
 	ABI_CHECK(callContractFunction("f(bool)", 1), encodeArgs(1));
-	ABI_CHECK(callContractFunction("f(bool)", 2), encodeArgs(1));
-	ABI_CHECK(callContractFunction("f(bool)", 3), encodeArgs(1));
-	ABI_CHECK(callContractFunction("f(bool)", 255), encodeArgs(1));
+	ABI_CHECK(callContractFunction("f(bool)", 2), v2 ? encodeArgs() : encodeArgs(1));
+	ABI_CHECK(callContractFunction("f(bool)", 3), v2 ? encodeArgs() : encodeArgs(1));
+	ABI_CHECK(callContractFunction("f(bool)", 255), v2 ? encodeArgs() : encodeArgs(1));
 	ABI_CHECK(callContractFunction("g(bool)", 0), encodeArgs(0));
 	ABI_CHECK(callContractFunction("g(bool)", 1), encodeArgs(1));
-	ABI_CHECK(callContractFunction("g(bool)", 2), encodeArgs(1));
-	ABI_CHECK(callContractFunction("g(bool)", 3), encodeArgs(1));
-	ABI_CHECK(callContractFunction("g(bool)", 255), encodeArgs(1));
+	ABI_CHECK(callContractFunction("g(bool)", 2), v2 ? encodeArgs() : encodeArgs(1));
+	ABI_CHECK(callContractFunction("g(bool)", 3), v2 ? encodeArgs() : encodeArgs(1));
+	ABI_CHECK(callContractFunction("g(bool)", 255), v2 ? encodeArgs() : encodeArgs(1));
 }
 
 BOOST_AUTO_TEST_CASE(packed_storage_signed)
@@ -6900,11 +5821,11 @@ BOOST_AUTO_TEST_CASE(invalid_enum_logged)
 		)";
 	compileAndRun(sourceCode, 0, "C");
 	ABI_CHECK(callContractFunction("test_log_ok()"), encodeArgs(u256(1)));
-	BOOST_REQUIRE_EQUAL(m_logs.size(), 1);
-	BOOST_CHECK_EQUAL(m_logs[0].address, m_contractAddress);
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 1);
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics[0], dev::keccak256(string("Log(uint8)")));
-	BOOST_CHECK_EQUAL(h256(m_logs[0].data), h256(u256(0)));
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 1);
+	BOOST_REQUIRE_EQUAL(logTopic(0, 0), util::keccak256(string("Log(uint8)")));
+	BOOST_CHECK_EQUAL(h256(logData(0)), h256(u256(0)));
 
 	// should throw
 	ABI_CHECK(callContractFunction("test_log()"), encodeArgs());
@@ -6966,11 +5887,13 @@ BOOST_AUTO_TEST_CASE(invalid_enum_as_external_ret)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	// both should throw
-	ABI_CHECK(callContractFunction("test_return()"), encodeArgs());
-	ABI_CHECK(callContractFunction("test_inline_assignment()"), encodeArgs());
-	ABI_CHECK(callContractFunction("test_assignment()"), encodeArgs());
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		// both should throw
+		ABI_CHECK(callContractFunction("test_return()"), encodeArgs());
+		ABI_CHECK(callContractFunction("test_inline_assignment()"), encodeArgs());
+		ABI_CHECK(callContractFunction("test_assignment()"), encodeArgs());
+	)
 }
 
 BOOST_AUTO_TEST_CASE(invalid_enum_as_external_arg)
@@ -6997,36 +5920,6 @@ BOOST_AUTO_TEST_CASE(invalid_enum_as_external_arg)
 	compileAndRun(sourceCode, 0, "C");
 	// should throw
 	ABI_CHECK(callContractFunction("test()"), encodeArgs());
-}
-
-
-BOOST_AUTO_TEST_CASE(proper_order_of_overwriting_of_attributes)
-{
-	// bug #1798
-	char const* sourceCode = R"(
-		contract init {
-			function isOk() public returns (bool) { return false; }
-			bool public ok = false;
-		}
-		contract fix {
-			function isOk() public returns (bool) { return true; }
-			bool public ok = true;
-		}
-
-		contract init_fix is init, fix {
-			function checkOk() public returns (bool) { return ok; }
-		}
-		contract fix_init is fix, init {
-			function checkOk() public returns (bool) { return ok; }
-		}
-	)";
-	compileAndRun(sourceCode, 0, "init_fix");
-	ABI_CHECK(callContractFunction("isOk()"), encodeArgs(true));
-	ABI_CHECK(callContractFunction("ok()"), encodeArgs(true));
-
-	compileAndRun(sourceCode, 0, "fix_init");
-	ABI_CHECK(callContractFunction("isOk()"), encodeArgs(false));
-	ABI_CHECK(callContractFunction("ok()"), encodeArgs(false));
 }
 
 BOOST_AUTO_TEST_CASE(struct_assign_reference_to_struct)
@@ -7200,7 +6093,7 @@ BOOST_AUTO_TEST_CASE(failing_send)
 	char const* sourceCode = R"(
 		contract Helper {
 			uint[] data;
-			function () external {
+			fallback () external {
 				data[9]; // trigger exception
 			}
 		}
@@ -7220,11 +6113,11 @@ BOOST_AUTO_TEST_CASE(failing_send)
 
 BOOST_AUTO_TEST_CASE(send_zero_ether)
 {
-	// Sending zero ether to a contract should still invoke the fallback function
+	// Sending zero ether to a contract should still invoke the receive ether function
 	// (it previously did not because the gas stipend was not provided by the EVM)
 	char const* sourceCode = R"(
 		contract Receiver {
-			function () external payable {
+			receive () external payable {
 			}
 		}
 		contract Main {
@@ -7262,7 +6155,7 @@ BOOST_AUTO_TEST_CASE(reusing_memory)
 		}
 	)";
 	compileAndRun(sourceCode, 0, "Main");
-	BOOST_REQUIRE(callContractFunction("f(uint256)", 0x34) == encodeArgs(dev::keccak256(dev::toBigEndian(u256(0x34)))));
+	BOOST_REQUIRE(callContractFunction("f(uint256)", 0x34) == encodeArgs(util::keccak256(util::toBigEndian(u256(0x34)))));
 }
 
 BOOST_AUTO_TEST_CASE(return_string)
@@ -7346,7 +6239,8 @@ BOOST_AUTO_TEST_CASE(accessor_involving_strings)
 			struct stringData { string a; uint b; string c; }
 			mapping(uint => stringData[]) public data;
 			function set(uint x, uint y, string calldata a, uint b, string calldata c) external returns (bool) {
-				data[x].length = y + 1;
+				while (data[x].length < y + 1)
+					data[x].push();
 				data[x][y].a = a;
 				data[x][y].b = b;
 				data[x][y].c = c;
@@ -7650,17 +6544,19 @@ BOOST_AUTO_TEST_CASE(arrays_complex_memory_index_access)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "Test");
-
 	vector<u256> data{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18};
-	BOOST_REQUIRE(callContractFunction(
-			"set(uint24[3][],uint256,uint256)",
-			u256(0x60),
-			u256(3),
-			u256(2),
-			u256(data.size() / 3),
-			data
-	) == encodeArgs(u256(data.size() / 3), u256(data[3 * 3 + 2])));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "Test");
+
+		BOOST_REQUIRE(callContractFunction(
+				"set(uint24[3][],uint256,uint256)",
+				u256(0x60),
+				u256(3),
+				u256(2),
+				u256(data.size() / 3),
+				data
+		) == encodeArgs(u256(data.size() / 3), u256(data[3 * 3 + 2])));
+	);
 }
 
 BOOST_AUTO_TEST_CASE(bytes_memory_index_access)
@@ -7673,16 +6569,19 @@ BOOST_AUTO_TEST_CASE(bytes_memory_index_access)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "Test");
-
 	string data("abcdefgh");
-	BOOST_REQUIRE(callContractFunction(
-			"set(bytes,uint256)",
-			u256(0x40),
-			u256(3),
-			u256(data.size()),
-			data
-	) == encodeArgs(u256(data.size()), string("d")));
+
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "Test");
+
+		BOOST_REQUIRE(callContractFunction(
+				"set(bytes,uint256)",
+				u256(0x40),
+				u256(3),
+				u256(data.size()),
+				data
+		) == encodeArgs(u256(data.size()), string("d")));
+	);
 }
 
 BOOST_AUTO_TEST_CASE(storage_array_ref)
@@ -7711,7 +6610,7 @@ BOOST_AUTO_TEST_CASE(storage_array_ref)
 		contract Store is BinarySearch {
 			uint[] data;
 			function add(uint v) public {
-				data.length++;
+				data.push(0);
 				data[data.length - 1] = v;
 			}
 			function find(uint v) public returns (uint) {
@@ -7719,23 +6618,25 @@ BOOST_AUTO_TEST_CASE(storage_array_ref)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "Store");
-	BOOST_REQUIRE(callContractFunction("find(uint256)", u256(7)) == encodeArgs(u256(-1)));
-	BOOST_REQUIRE(callContractFunction("add(uint256)", u256(7)) == encodeArgs());
-	BOOST_REQUIRE(callContractFunction("find(uint256)", u256(7)) == encodeArgs(u256(0)));
-	ABI_CHECK(callContractFunction("add(uint256)", u256(11)), encodeArgs());
-	ABI_CHECK(callContractFunction("add(uint256)", u256(17)), encodeArgs());
-	ABI_CHECK(callContractFunction("add(uint256)", u256(27)), encodeArgs());
-	ABI_CHECK(callContractFunction("add(uint256)", u256(31)), encodeArgs());
-	ABI_CHECK(callContractFunction("add(uint256)", u256(32)), encodeArgs());
-	ABI_CHECK(callContractFunction("add(uint256)", u256(66)), encodeArgs());
-	ABI_CHECK(callContractFunction("add(uint256)", u256(177)), encodeArgs());
-	ABI_CHECK(callContractFunction("find(uint256)", u256(7)), encodeArgs(u256(0)));
-	ABI_CHECK(callContractFunction("find(uint256)", u256(27)), encodeArgs(u256(3)));
-	ABI_CHECK(callContractFunction("find(uint256)", u256(32)), encodeArgs(u256(5)));
-	ABI_CHECK(callContractFunction("find(uint256)", u256(176)), encodeArgs(u256(-1)));
-	ABI_CHECK(callContractFunction("find(uint256)", u256(0)), encodeArgs(u256(-1)));
-	ABI_CHECK(callContractFunction("find(uint256)", u256(400)), encodeArgs(u256(-1)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "Store");
+		BOOST_REQUIRE(callContractFunction("find(uint256)", u256(7)) == encodeArgs(u256(-1)));
+		BOOST_REQUIRE(callContractFunction("add(uint256)", u256(7)) == encodeArgs());
+		BOOST_REQUIRE(callContractFunction("find(uint256)", u256(7)) == encodeArgs(u256(0)));
+		ABI_CHECK(callContractFunction("add(uint256)", u256(11)), encodeArgs());
+		ABI_CHECK(callContractFunction("add(uint256)", u256(17)), encodeArgs());
+		ABI_CHECK(callContractFunction("add(uint256)", u256(27)), encodeArgs());
+		ABI_CHECK(callContractFunction("add(uint256)", u256(31)), encodeArgs());
+		ABI_CHECK(callContractFunction("add(uint256)", u256(32)), encodeArgs());
+		ABI_CHECK(callContractFunction("add(uint256)", u256(66)), encodeArgs());
+		ABI_CHECK(callContractFunction("add(uint256)", u256(177)), encodeArgs());
+		ABI_CHECK(callContractFunction("find(uint256)", u256(7)), encodeArgs(u256(0)));
+		ABI_CHECK(callContractFunction("find(uint256)", u256(27)), encodeArgs(u256(3)));
+		ABI_CHECK(callContractFunction("find(uint256)", u256(32)), encodeArgs(u256(5)));
+		ABI_CHECK(callContractFunction("find(uint256)", u256(176)), encodeArgs(u256(-1)));
+		ABI_CHECK(callContractFunction("find(uint256)", u256(0)), encodeArgs(u256(-1)));
+		ABI_CHECK(callContractFunction("find(uint256)", u256(400)), encodeArgs(u256(-1)));
+	);
 }
 
 BOOST_AUTO_TEST_CASE(memory_types_initialisation)
@@ -7823,7 +6724,8 @@ BOOST_AUTO_TEST_CASE(memory_arrays_dynamic_index_access_write)
 				return x;
 			}
 			function f() public returns (uint24[3][] memory) {
-				data[1].length = 4;
+				while (data[1].length < 4)
+					data[1].push();
 				return set(data)[1];
 			}
 		}
@@ -8034,11 +6936,11 @@ BOOST_AUTO_TEST_CASE(struct_named_constructor)
 BOOST_AUTO_TEST_CASE(calldata_array)
 {
 	char const* sourceCode = R"(
-	    pragma experimental ABIEncoderV2;
+		pragma experimental ABIEncoderV2;
 		contract C {
 			function f(uint[2] calldata s) external pure returns (uint256 a, uint256 b) {
-			    a = s[0];
-			    b = s[1];
+				a = s[0];
+				b = s[1];
 			}
 		}
 	)";
@@ -8050,12 +6952,12 @@ BOOST_AUTO_TEST_CASE(calldata_array)
 BOOST_AUTO_TEST_CASE(calldata_struct)
 {
 	char const* sourceCode = R"(
-	    pragma experimental ABIEncoderV2;
+		pragma experimental ABIEncoderV2;
 		contract C {
 			struct S { uint256 a; uint256 b; }
 			function f(S calldata s) external pure returns (uint256 a, uint256 b) {
-			    a = s.a;
-			    b = s.b;
+				a = s.a;
+				b = s.b;
 			}
 		}
 	)";
@@ -8067,11 +6969,11 @@ BOOST_AUTO_TEST_CASE(calldata_struct)
 BOOST_AUTO_TEST_CASE(calldata_struct_and_ints)
 {
 	char const* sourceCode = R"(
-	    pragma experimental ABIEncoderV2;
+		pragma experimental ABIEncoderV2;
 		contract C {
 			struct S { uint256 a; uint256 b; }
 			function f(uint256 a, S calldata s, uint256 b) external pure returns (uint256, uint256, uint256, uint256) {
-			    return (a, s.a, s.b, b);
+				return (a, s.a, s.b, b);
 			}
 		}
 	)";
@@ -8084,17 +6986,17 @@ BOOST_AUTO_TEST_CASE(calldata_struct_and_ints)
 BOOST_AUTO_TEST_CASE(calldata_structs)
 {
 	char const* sourceCode = R"(
-	    pragma experimental ABIEncoderV2;
+		pragma experimental ABIEncoderV2;
 		contract C {
 			struct S1 { uint256 a; uint256 b; }
 			struct S2 { uint256 a; }
 			function f(S1 calldata s1, S2 calldata s2, S1 calldata s3)
-			    external pure returns (uint256 a, uint256 b, uint256 c, uint256 d, uint256 e) {
-			    a = s1.a;
-			    b = s1.b;
-			    c = s2.a;
-			    d = s3.a;
-			    e = s3.b;
+				external pure returns (uint256 a, uint256 b, uint256 c, uint256 d, uint256 e) {
+				a = s1.a;
+				b = s1.b;
+				c = s2.a;
+				d = s3.a;
+				e = s3.b;
 			}
 		}
 	)";
@@ -8106,14 +7008,14 @@ BOOST_AUTO_TEST_CASE(calldata_structs)
 BOOST_AUTO_TEST_CASE(calldata_struct_array_member)
 {
 	char const* sourceCode = R"(
-	    pragma experimental ABIEncoderV2;
+		pragma experimental ABIEncoderV2;
 		contract C {
 			struct S { uint256 a; uint256[2] b; uint256 c; }
 			function f(S calldata s) external pure returns (uint256 a, uint256 b0, uint256 b1, uint256 c) {
-			    a = s.a;
-			    b0 = s.b[0];
-			    b1 = s.b[1];
-			    c = s.c;
+				a = s.a;
+				b0 = s.b[0];
+				b1 = s.b[1];
+				c = s.c;
 			}
 		}
 	)";
@@ -8125,15 +7027,15 @@ BOOST_AUTO_TEST_CASE(calldata_struct_array_member)
 BOOST_AUTO_TEST_CASE(calldata_array_of_struct)
 {
 	char const* sourceCode = R"(
-	    pragma experimental ABIEncoderV2;
+		pragma experimental ABIEncoderV2;
 		contract C {
 			struct S { uint256 a; uint256 b; }
 			function f(S[] calldata s) external pure returns (uint256 l, uint256 a, uint256 b, uint256 c, uint256 d) {
-			    l = s.length;
-			    a = s[0].a;
-			    b = s[0].b;
-			    c = s[1].a;
-			    d = s[1].b;
+				l = s.length;
+				a = s[0].a;
+				b = s[0].b;
+				c = s[1].a;
+				d = s[1].b;
 			}
 		}
 	)";
@@ -8145,16 +7047,16 @@ BOOST_AUTO_TEST_CASE(calldata_array_of_struct)
 BOOST_AUTO_TEST_CASE(calldata_array_of_struct_to_memory)
 {
 	char const* sourceCode = R"(
-	    pragma experimental ABIEncoderV2;
+		pragma experimental ABIEncoderV2;
 		contract C {
 			struct S { uint256 a; uint256 b; }
 			function f(S[] calldata s) external pure returns (uint256 l, uint256 a, uint256 b, uint256 c, uint256 d) {
-			    S[] memory m = s;
-			    l = m.length;
-			    a = m[0].a;
-			    b = m[0].b;
-			    c = m[1].a;
-			    d = m[1].b;
+				S[] memory m = s;
+				l = m.length;
+				a = m[0].a;
+				b = m[0].b;
+				c = m[1].a;
+				d = m[1].b;
 			}
 		}
 	)";
@@ -8167,12 +7069,12 @@ BOOST_AUTO_TEST_CASE(calldata_array_of_struct_to_memory)
 BOOST_AUTO_TEST_CASE(calldata_struct_to_memory)
 {
 	char const* sourceCode = R"(
-	    pragma experimental ABIEncoderV2;
+		pragma experimental ABIEncoderV2;
 		contract C {
 			struct S { uint256 a; uint256 b; }
 			function f(S calldata s) external pure returns (uint256, uint256) {
-			    S memory m = s;
-			    return (m.a, m.b);
+				S memory m = s;
+				return (m.a, m.b);
 			}
 		}
 	)";
@@ -8184,12 +7086,12 @@ BOOST_AUTO_TEST_CASE(calldata_struct_to_memory)
 BOOST_AUTO_TEST_CASE(nested_calldata_struct)
 {
 	char const* sourceCode = R"(
-	    pragma experimental ABIEncoderV2;
+		pragma experimental ABIEncoderV2;
 		contract C {
 			struct S1 { uint256 a; uint256 b; }
 			struct S2 { uint256 a; uint256 b; S1 s; uint256 c; }
 			function f(S2 calldata s) external pure returns (uint256 a, uint256 b, uint256 sa, uint256 sb, uint256 c) {
-			    return (s.a, s.b, s.s.a, s.s.b, s.c);
+				return (s.a, s.b, s.s.a, s.s.b, s.c);
 			}
 		}
 	)";
@@ -8201,13 +7103,13 @@ BOOST_AUTO_TEST_CASE(nested_calldata_struct)
 BOOST_AUTO_TEST_CASE(nested_calldata_struct_to_memory)
 {
 	char const* sourceCode = R"(
-	    pragma experimental ABIEncoderV2;
+		pragma experimental ABIEncoderV2;
 		contract C {
 			struct S1 { uint256 a; uint256 b; }
 			struct S2 { uint256 a; uint256 b; S1 s; uint256 c; }
 			function f(S2 calldata s) external pure returns (uint256 a, uint256 b, uint256 sa, uint256 sb, uint256 c) {
-			    S2 memory m = s;
-			    return (m.a, m.b, m.s.a, m.s.b, m.c);
+				S2 memory m = s;
+				return (m.a, m.b, m.s.a, m.s.b, m.c);
 			}
 		}
 	)";
@@ -8219,11 +7121,11 @@ BOOST_AUTO_TEST_CASE(nested_calldata_struct_to_memory)
 BOOST_AUTO_TEST_CASE(calldata_struct_short)
 {
 	char const* sourceCode = R"(
-	    pragma experimental ABIEncoderV2;
+		pragma experimental ABIEncoderV2;
 		contract C {
 			struct S { uint256 a; uint256 b; }
 			function f(S calldata) external pure returns (uint256) {
-			    return msg.data.length;
+				return msg.data.length;
 			}
 		}
 	)";
@@ -8242,12 +7144,12 @@ BOOST_AUTO_TEST_CASE(calldata_struct_short)
 BOOST_AUTO_TEST_CASE(calldata_struct_cleaning)
 {
 	char const* sourceCode = R"(
-	    pragma experimental ABIEncoderV2;
+		pragma experimental ABIEncoderV2;
 		contract C {
 			struct S { uint8 a; bytes1 b; }
 			function f(S calldata s) external pure returns (uint256 a, bytes32 b) {
-			    uint8 tmp1 = s.a;
-			    bytes1 tmp2 = s.b;
+				uint8 tmp1 = s.a;
+				bytes1 tmp2 = s.b;
 				assembly {
 					a := tmp1
 					b := tmp2
@@ -8258,10 +7160,10 @@ BOOST_AUTO_TEST_CASE(calldata_struct_cleaning)
 	)";
 	compileAndRun(sourceCode, 0, "C");
 
-    // double check that the valid case goes through
+	// double check that the valid case goes through
 	ABI_CHECK(callContractFunction("f((uint8,bytes1))", u256(0x12), bytes{0x34} + bytes(31,0)), encodeArgs(0x12, bytes{0x34} + bytes(31,0)));
-	ABI_CHECK(callContractFunction("f((uint8,bytes1))", u256(0x1234), bytes{0x56, 0x78} + bytes(30,0)), encodeArgs(0x34, bytes{0x56} + bytes(31,0)));
-	ABI_CHECK(callContractFunction("f((uint8,bytes1))", u256(-1), u256(-1)), encodeArgs(0xFF, bytes{0xFF} + bytes(31,0)));
+	ABI_CHECK(callContractFunction("f((uint8,bytes1))", u256(0x1234), bytes{0x56, 0x78} + bytes(30,0)), encodeArgs());
+	ABI_CHECK(callContractFunction("f((uint8,bytes1))", u256(-1), u256(-1)), encodeArgs());
 }
 
 BOOST_AUTO_TEST_CASE(calldata_struct_function_type)
@@ -8274,19 +7176,373 @@ BOOST_AUTO_TEST_CASE(calldata_struct_function_type)
 				return s.fn(42);
 			}
 			function g(uint256 a) external returns (uint256) {
-			    return a * 3;
+				return a * 3;
 			}
 			function h(uint256 a) external returns (uint256) {
-			    return 23;
+				return 23;
 			}
 		}
 	)";
 	compileAndRun(sourceCode, 0, "C");
 
-	bytes fn_C_g = m_contractAddress.asBytes() + FixedHash<4>(dev::keccak256("g(uint256)")).asBytes() + bytes(8,0);
-	bytes fn_C_h = m_contractAddress.asBytes() + FixedHash<4>(dev::keccak256("h(uint256)")).asBytes() + bytes(8,0);
+	bytes fn_C_g = m_contractAddress.asBytes() + FixedHash<4>(util::keccak256("g(uint256)")).asBytes() + bytes(8,0);
+	bytes fn_C_h = m_contractAddress.asBytes() + FixedHash<4>(util::keccak256("h(uint256)")).asBytes() + bytes(8,0);
 	ABI_CHECK(callContractFunctionNoEncoding("f((function))", fn_C_g), encodeArgs(42 * 3));
 	ABI_CHECK(callContractFunctionNoEncoding("f((function))", fn_C_h), encodeArgs(23));
+}
+
+BOOST_AUTO_TEST_CASE(calldata_array_dynamic_bytes)
+{
+	char const* sourceCode = R"(
+		pragma experimental ABIEncoderV2;
+		contract C {
+			function f1(bytes[1] calldata a) external returns (uint256, uint256, uint256, uint256) {
+				return (a[0].length, uint8(a[0][0]), uint8(a[0][1]), uint8(a[0][2]));
+			}
+			function f2(bytes[1] calldata a, bytes[1] calldata b) external returns (uint256, uint256, uint256, uint256, uint256, uint256, uint256) {
+				return (a[0].length, uint8(a[0][0]), uint8(a[0][1]), uint8(a[0][2]), b[0].length, uint8(b[0][0]), uint8(b[0][1]));
+			}
+			function g1(bytes[2] calldata a) external returns (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256) {
+				return (a[0].length, uint8(a[0][0]), uint8(a[0][1]), uint8(a[0][2]), a[1].length, uint8(a[1][0]), uint8(a[1][1]), uint8(a[1][2]));
+			}
+			function g2(bytes[] calldata a) external returns (uint256[8] memory) {
+				return [a.length, a[0].length, uint8(a[0][0]), uint8(a[0][1]), a[1].length, uint8(a[1][0]), uint8(a[1][1]), uint8(a[1][2])];
+			}
+		}
+	)";
+	compileAndRun(sourceCode, 0, "C");
+
+	bytes bytes010203 = bytes{1,2,3}+bytes(29,0);
+	bytes bytes040506 = bytes{4,5,6}+bytes(29,0);
+	bytes bytes0102 = bytes{1,2}+bytes(30,0);
+	ABI_CHECK(
+		callContractFunction("f1(bytes[1])", 0x20, 0x20, 3, bytes010203),
+		encodeArgs(3, 1, 2, 3)
+	);
+	ABI_CHECK(
+		callContractFunction("f2(bytes[1],bytes[1])", 0x40, 0xA0, 0x20, 3, bytes010203, 0x20, 2, bytes0102),
+		encodeArgs(3, 1, 2, 3, 2, 1, 2)
+	);
+	ABI_CHECK(
+		callContractFunction("g1(bytes[2])", 0x20, 0x40, 0x80, 3, bytes010203, 3, bytes040506),
+		encodeArgs(3, 1, 2, 3, 3, 4, 5, 6)
+	);
+	// same offset for both arrays
+	ABI_CHECK(
+		callContractFunction("g1(bytes[2])", 0x20, 0x40, 0x40, 3, bytes010203),
+		encodeArgs(3, 1, 2, 3, 3, 1, 2, 3)
+	);
+	ABI_CHECK(
+		callContractFunction("g2(bytes[])", 0x20, 2, 0x40, 0x80, 2, bytes0102, 3, bytes040506),
+		encodeArgs(2, 2, 1, 2, 3, 4, 5, 6)
+	);
+}
+
+BOOST_AUTO_TEST_CASE(calldata_dynamic_array_to_memory)
+{
+	char const* sourceCode = R"(
+		pragma experimental ABIEncoderV2;
+		contract C {
+			function f(uint256[][] calldata a) external returns (uint, uint256[] memory) {
+				uint256[] memory m = a[0];
+				return (a.length, m);
+			}
+		}
+	)";
+	compileAndRun(sourceCode, 0, "C");
+
+	ABI_CHECK(
+		callContractFunction("f(uint256[][])", 0x20, 1, 0x20, 2, 23, 42),
+		encodeArgs(1, 0x40, 2, 23, 42)
+	);
+}
+
+BOOST_AUTO_TEST_CASE(calldata_bytes_array_to_memory)
+{
+	char const* sourceCode = R"(
+		pragma experimental ABIEncoderV2;
+		contract C {
+			function f(bytes[] calldata a) external returns (uint, uint, bytes memory) {
+				bytes memory m = a[0];
+				return (a.length, m.length, m);
+			}
+		}
+	)";
+	compileAndRun(sourceCode, 0, "C");
+
+	ABI_CHECK(
+		callContractFunction("f(bytes[])", 0x20, 1, 0x20, 2, bytes{'a', 'b'} + bytes(30, 0)),
+		encodeArgs(1, 2, 0x60, 2, bytes{'a','b'} + bytes(30, 0))
+	);
+
+	ABI_CHECK(
+		callContractFunction("f(bytes[])", 0x20, 1, 0x20, 32, bytes(32, 'x')),
+		encodeArgs(1, 32, 0x60, 32, bytes(32, 'x'))
+	);
+	bytes x_zero_a = bytes{'x'} + bytes(30, 0) + bytes{'a'};
+	bytes a_zero_x = bytes{'a'} + bytes(30, 0) + bytes{'x'};
+	bytes a_m_x = bytes{'a'} + bytes(30, 'm') + bytes{'x'};
+	ABI_CHECK(
+		callContractFunction("f(bytes[])", 0x20, 1, 0x20, 32, x_zero_a),
+		encodeArgs(1, 32, 0x60, 32, x_zero_a)
+	);
+	ABI_CHECK(
+		callContractFunction("f(bytes[])", 0x20, 1, 0x20, 32, a_zero_x),
+		encodeArgs(1, 32, 0x60, 32, a_zero_x)
+	);
+	ABI_CHECK(
+		callContractFunction("f(bytes[])", 0x20, 1, 0x20, 32, a_m_x),
+		encodeArgs(1, 32, 0x60, 32, a_m_x)
+	);
+}
+
+BOOST_AUTO_TEST_CASE(calldata_bytes_array_bounds)
+{
+	char const* sourceCode = R"(
+		pragma experimental ABIEncoderV2;
+		contract C {
+			function f(bytes[] calldata a, uint256 i) external returns (uint) {
+				return uint8(a[0][i]);
+			}
+		}
+	)";
+	compileAndRun(sourceCode, 0, "C");
+
+	ABI_CHECK(
+		callContractFunction("f(bytes[],uint256)", 0x40, 0, 1, 0x20, 2, bytes{'a', 'b'} + bytes(30, 0)),
+		encodeArgs('a')
+	);
+	ABI_CHECK(
+		callContractFunction("f(bytes[],uint256)", 0x40, 1, 1, 0x20, 2, bytes{'a', 'b'} + bytes(30, 0)),
+		encodeArgs('b')
+	);
+	ABI_CHECK(
+		callContractFunction("f(bytes[],uint256)", 0x40, 2, 1, 0x20, 2, bytes{'a', 'b'} + bytes(30, 0)),
+		encodeArgs()
+	);
+}
+
+BOOST_AUTO_TEST_CASE(calldata_string_array)
+{
+	char const* sourceCode = R"(
+		pragma experimental ABIEncoderV2;
+		contract C {
+			function f(string[] calldata a) external returns (uint, uint, uint, string memory) {
+				string memory s1 = a[0];
+				bytes memory m1 = bytes(s1);
+				return (a.length, m1.length, uint8(m1[0]), s1);
+			}
+		}
+	)";
+	compileAndRun(sourceCode, 0, "C");
+
+	ABI_CHECK(
+		callContractFunction("f(string[])", 0x20, 1, 0x20, 2, bytes{'a', 'b'} + bytes(30, 0)),
+		encodeArgs(1, 2, 'a', 0x80, 2, bytes{'a', 'b'} + bytes(30, 0))
+	);
+}
+
+BOOST_AUTO_TEST_CASE(calldata_array_two_dimensional)
+{
+	vector<vector<u256>> data {
+		{ 0x0A01, 0x0A02, 0x0A03 },
+		{ 0x0B01, 0x0B02, 0x0B03, 0x0B04 }
+	};
+
+	for (bool outerDynamicallySized: { true, false })
+	{
+		string arrayType = outerDynamicallySized ? "uint256[][]" : "uint256[][2]";
+		string sourceCode = R"(
+			pragma experimental ABIEncoderV2;
+			contract C {
+				function test()" + arrayType + R"( calldata a) external returns (uint256) {
+					return a.length;
+				}
+				function test()" + arrayType + R"( calldata a, uint256 i) external returns (uint256) {
+					return a[i].length;
+				}
+				function test()" + arrayType + R"( calldata a, uint256 i, uint256 j) external returns (uint256) {
+					return a[i][j];
+				}
+				function reenc()" + arrayType + R"( calldata a, uint256 i, uint256 j) external returns (uint256) {
+					return this.test(a, i, j);
+				}
+			}
+		)";
+		compileAndRun(sourceCode, 0, "C");
+
+		bytes encoding = encodeArray(
+			outerDynamicallySized,
+			true,
+			data | boost::adaptors::transformed([&](vector<u256> const& _values) {
+				return encodeArray(true, false, _values);
+			})
+		);
+
+		ABI_CHECK(callContractFunction("test(" + arrayType + ")", 0x20, encoding), encodeArgs(data.size()));
+		for (size_t i = 0; i < data.size(); i++)
+		{
+			ABI_CHECK(callContractFunction("test(" + arrayType + ",uint256)", 0x40, i, encoding), encodeArgs(data[i].size()));
+			for (size_t j = 0; j < data[i].size(); j++)
+			{
+				ABI_CHECK(callContractFunction("test(" + arrayType + ",uint256,uint256)", 0x60, i, j, encoding), encodeArgs(data[i][j]));
+				ABI_CHECK(callContractFunction("reenc(" + arrayType + ",uint256,uint256)", 0x60, i, j, encoding), encodeArgs(data[i][j]));
+			}
+			// out of bounds access
+			ABI_CHECK(callContractFunction("test(" + arrayType + ",uint256,uint256)", 0x60, i, data[i].size(), encoding), encodeArgs());
+		}
+		// out of bounds access
+		ABI_CHECK(callContractFunction("test(" + arrayType + ",uint256)", 0x40, data.size(), encoding), encodeArgs());
+	}
+}
+
+BOOST_AUTO_TEST_CASE(calldata_array_dynamic_three_dimensional)
+{
+	vector<vector<vector<u256>>> data {
+		{
+			{ 0x010A01, 0x010A02, 0x010A03 },
+			{ 0x010B01, 0x010B02, 0x010B03 }
+		},
+		{
+			{ 0x020A01, 0x020A02, 0x020A03 },
+			{ 0x020B01, 0x020B02, 0x020B03 }
+		}
+	};
+
+	for (bool outerDynamicallySized: { true, false })
+	for (bool middleDynamicallySized: { true, false })
+	for (bool innerDynamicallySized: { true, false })
+	{
+		// only test dynamically encoded arrays
+		if (!outerDynamicallySized && !middleDynamicallySized && !innerDynamicallySized)
+			continue;
+
+		string arrayType = "uint256";
+		arrayType += innerDynamicallySized ? "[]" : "[3]";
+		arrayType += middleDynamicallySized ? "[]" : "[2]";
+		arrayType += outerDynamicallySized ? "[]" : "[2]";
+
+		string sourceCode = R"(
+			pragma experimental ABIEncoderV2;
+			contract C {
+				function test()" + arrayType + R"( calldata a) external returns (uint256) {
+					return a.length;
+				}
+				function test()" + arrayType + R"( calldata a, uint256 i) external returns (uint256) {
+					return a[i].length;
+				}
+				function test()" + arrayType + R"( calldata a, uint256 i, uint256 j) external returns (uint256) {
+					return a[i][j].length;
+				}
+				function test()" + arrayType + R"( calldata a, uint256 i, uint256 j, uint256 k) external returns (uint256) {
+					return a[i][j][k];
+				}
+				function reenc()" + arrayType + R"( calldata a, uint256 i, uint256 j, uint256 k) external returns (uint256) {
+					return this.test(a, i, j, k);
+				}
+			}
+		)";
+		compileAndRun(sourceCode, 0, "C");
+
+		bytes encoding = encodeArray(
+			outerDynamicallySized,
+			middleDynamicallySized || innerDynamicallySized,
+			data | boost::adaptors::transformed([&](auto const& _middleData) {
+				return encodeArray(
+					middleDynamicallySized,
+					innerDynamicallySized,
+					_middleData | boost::adaptors::transformed([&](auto const& _values) {
+						return encodeArray(innerDynamicallySized, false, _values);
+					})
+				);
+			})
+		);
+
+		ABI_CHECK(callContractFunction("test(" + arrayType + ")", 0x20, encoding), encodeArgs(data.size()));
+		for (size_t i = 0; i < data.size(); i++)
+		{
+			ABI_CHECK(callContractFunction("test(" + arrayType + ",uint256)", 0x40, i, encoding), encodeArgs(data[i].size()));
+			for (size_t j = 0; j < data[i].size(); j++)
+			{
+				ABI_CHECK(callContractFunction("test(" + arrayType + ",uint256,uint256)", 0x60, i, j, encoding), encodeArgs(data[i][j].size()));
+				for (size_t k = 0; k < data[i][j].size(); k++)
+				{
+					ABI_CHECK(callContractFunction("test(" + arrayType + ",uint256,uint256,uint256)", 0x80, i, j, k, encoding), encodeArgs(data[i][j][k]));
+					ABI_CHECK(callContractFunction("reenc(" + arrayType + ",uint256,uint256,uint256)", 0x80, i, j, k, encoding), encodeArgs(data[i][j][k]));
+				}
+				// out of bounds access
+				ABI_CHECK(callContractFunction("test(" + arrayType + ",uint256,uint256,uint256)", 0x80, i, j, data[i][j].size(), encoding), encodeArgs());
+			}
+			// out of bounds access
+			ABI_CHECK(callContractFunction("test(" + arrayType + ",uint256,uint256)", 0x60, i, data[i].size(), encoding), encodeArgs());
+		}
+		// out of bounds access
+		ABI_CHECK(callContractFunction("test(" + arrayType + ",uint256)", 0x40, data.size(), encoding), encodeArgs());
+	}
+}
+
+BOOST_AUTO_TEST_CASE(calldata_array_dynamic_invalid)
+{
+	char const* sourceCode = R"(
+		pragma experimental ABIEncoderV2;
+		contract C {
+			function f(uint256[][] calldata a) external returns (uint) {
+				return 42;
+			}
+			function g(uint256[][] calldata a) external returns (uint) {
+				a[0];
+				return 42;
+			}
+		}
+	)";
+	compileAndRun(sourceCode, 0, "C");
+
+	// valid access stub
+	ABI_CHECK(callContractFunction("f(uint256[][])", 0x20, 0), encodeArgs(42));
+	// invalid on argument decoding
+	ABI_CHECK(callContractFunction("f(uint256[][])", 0x20, 1), encodeArgs());
+	// invalid on outer access
+	ABI_CHECK(callContractFunction("f(uint256[][])", 0x20, 1, 0x20), encodeArgs(42));
+	ABI_CHECK(callContractFunction("g(uint256[][])", 0x20, 1, 0x20), encodeArgs());
+	// invalid on inner access
+	ABI_CHECK(callContractFunction("f(uint256[][])", 0x20, 1, 0x20, 2, 0x42), encodeArgs(42));
+	ABI_CHECK(callContractFunction("g(uint256[][])", 0x20, 1, 0x20, 2, 0x42), encodeArgs());
+}
+
+BOOST_AUTO_TEST_CASE(calldata_array_dynamic_invalid_static_middle)
+{
+	char const* sourceCode = R"(
+		pragma experimental ABIEncoderV2;
+		contract C {
+			function f(uint256[][1][] calldata a) external returns (uint) {
+				return 42;
+			}
+			function g(uint256[][1][] calldata a) external returns (uint) {
+				a[0];
+				return 42;
+			}
+			function h(uint256[][1][] calldata a) external returns (uint) {
+				a[0][0];
+				return 42;
+			}
+		}
+	)";
+	compileAndRun(sourceCode, 0, "C");
+
+	// valid access stub
+	ABI_CHECK(callContractFunction("f(uint256[][1][])", 0x20, 0), encodeArgs(42));
+	// invalid on argument decoding
+	ABI_CHECK(callContractFunction("f(uint256[][1][])", 0x20, 1), encodeArgs());
+	// invalid on outer access
+	ABI_CHECK(callContractFunction("f(uint256[][1][])", 0x20, 1, 0x20), encodeArgs(42));
+	ABI_CHECK(callContractFunction("g(uint256[][1][])", 0x20, 1, 0x20), encodeArgs());
+	// invalid on inner access
+	ABI_CHECK(callContractFunction("f(uint256[][1][])", 0x20, 1, 0x20, 0x20), encodeArgs(42));
+	ABI_CHECK(callContractFunction("g(uint256[][1][])", 0x20, 1, 0x20, 0x20), encodeArgs(42));
+	ABI_CHECK(callContractFunction("h(uint256[][1][])", 0x20, 1, 0x20, 0x20), encodeArgs());
+	ABI_CHECK(callContractFunction("f(uint256[][1][])", 0x20, 1, 0x20, 0x20, 1), encodeArgs(42));
+	ABI_CHECK(callContractFunction("g(uint256[][1][])", 0x20, 1, 0x20, 0x20, 1), encodeArgs(42));
+	ABI_CHECK(callContractFunction("h(uint256[][1][])", 0x20, 1, 0x20, 0x20, 1), encodeArgs());
 }
 
 BOOST_AUTO_TEST_CASE(literal_strings)
@@ -8392,6 +7648,42 @@ BOOST_AUTO_TEST_CASE(string_as_mapping_key)
 			function get(string memory _s) public returns (uint) { return data[_s]; }
 		}
 	)";
+
+	vector<string> strings{
+		"Hello, World!",
+		"Hello,                            World!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1111",
+		"",
+		"1"
+	};
+
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "Test");
+		for (unsigned i = 0; i < strings.size(); i++)
+			ABI_CHECK(callContractFunction(
+				"set(string,uint256)",
+				u256(0x40),
+				u256(7 + i),
+				u256(strings[i].size()),
+				strings[i]
+			), encodeArgs());
+		for (unsigned i = 0; i < strings.size(); i++)
+			ABI_CHECK(callContractFunction(
+				"get(string)",
+				u256(0x20),
+				u256(strings[i].size()),
+				strings[i]
+			), encodeArgs(u256(7 + i)));
+	)
+}
+
+BOOST_AUTO_TEST_CASE(string_as_public_mapping_key)
+{
+	char const* sourceCode = R"(
+		contract Test {
+			mapping(string => uint) public data;
+			function set(string memory _s, uint _v) public { data[_s] = _v; }
+		}
+	)";
 	compileAndRun(sourceCode, 0, "Test");
 	vector<string> strings{
 		"Hello, World!",
@@ -8409,11 +7701,117 @@ BOOST_AUTO_TEST_CASE(string_as_mapping_key)
 		), encodeArgs());
 	for (unsigned i = 0; i < strings.size(); i++)
 		ABI_CHECK(callContractFunction(
-			"get(string)",
+			"data(string)",
 			u256(0x20),
 			u256(strings[i].size()),
 			strings[i]
 		), encodeArgs(u256(7 + i)));
+}
+
+BOOST_AUTO_TEST_CASE(nested_string_as_public_mapping_key)
+{
+	char const* sourceCode = R"(
+		contract Test {
+			mapping(string => mapping(string => uint)) public data;
+			function set(string memory _s, string memory _s2, uint _v) public {
+				data[_s][_s2] = _v; }
+		}
+	)";
+	compileAndRun(sourceCode, 0, "Test");
+	vector<string> strings{
+		"Hello, World!",
+		"Hello,                            World!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1111",
+		"",
+		"1",
+		"last one"
+	};
+	for (unsigned i = 0; i + 1 < strings.size(); i++)
+		ABI_CHECK(callContractFunction(
+			"set(string,string,uint256)",
+			u256(0x60),
+			u256(roundTo32(0x80 + strings[i].size())),
+			u256(7 + i),
+			u256(strings[i].size()),
+			strings[i],
+			u256(strings[i+1].size()),
+			strings[i+1]
+		), encodeArgs());
+	for (unsigned i = 0; i + 1 < strings.size(); i++)
+		ABI_CHECK(callContractFunction(
+			"data(string,string)",
+			u256(0x40),
+			u256(roundTo32(0x60 + strings[i].size())),
+			u256(strings[i].size()),
+			strings[i],
+			u256(strings[i+1].size()),
+			strings[i+1]
+		), encodeArgs(u256(7 + i)));
+}
+
+BOOST_AUTO_TEST_CASE(nested_mixed_string_as_public_mapping_key)
+{
+	char const* sourceCode = R"(
+		contract Test {
+			mapping(string =>
+				mapping(int =>
+					mapping(address =>
+						mapping(bytes => int)))) public data;
+
+			function set(
+				string memory _s1,
+				int _s2,
+				address _s3,
+				bytes memory _s4,
+				int _value
+			) public
+			{
+				data[_s1][_s2][_s3][_s4] = _value;
+			}
+		}
+	)";
+	compileAndRun(sourceCode, 0, "Test");
+
+	struct Index
+	{
+		string s1;
+		int s2;
+		int s3;
+		string s4;
+	};
+
+	vector<Index> data{
+		{ "aabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcbc", 4, 23, "efg" },
+		{ "tiaron", 456, 63245, "908apzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapzapz" },
+		{ "", 2345, 12934, "665i65i65i65i65i65i65i65i65i65i65i65i65i65i65i65i65i65i5iart" },
+		{ "¡¿…", 9781, 8148, "" },
+		{ "ρν♀♀ω₂₃♀", 929608, 303030, "" }
+	};
+
+	for (size_t i = 0; i + 1 < data.size(); i++)
+		ABI_CHECK(callContractFunction(
+			"set(string,int256,address,bytes,int256)",
+			u256(0xA0),
+			u256(data[i].s2),
+			u256(data[i].s3),
+			u256(roundTo32(0xC0 + data[i].s1.size())),
+			u256(i - 3),
+			u256(data[i].s1.size()),
+			data[i].s1,
+			u256(data[i].s4.size()),
+			data[i].s4
+		), encodeArgs());
+	for (size_t i = 0; i + 1 < data.size(); i++)
+		ABI_CHECK(callContractFunction(
+			"data(string,int256,address,bytes)",
+			u256(0x80),
+			u256(data[i].s2),
+			u256(data[i].s3),
+			u256(roundTo32(0xA0 + data[i].s1.size())),
+			u256(data[i].s1.size()),
+			data[i].s1,
+			u256(data[i].s4.size()),
+			data[i].s4
+		), encodeArgs(u256(i - 3)));
 }
 
 BOOST_AUTO_TEST_CASE(accessor_for_state_variable)
@@ -8424,8 +7822,10 @@ BOOST_AUTO_TEST_CASE(accessor_for_state_variable)
 		}
 	)";
 
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("ticketPrice()"), encodeArgs(u256(500)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("ticketPrice()"), encodeArgs(u256(500)));
+	);
 }
 
 BOOST_AUTO_TEST_CASE(accessor_for_const_state_variable)
@@ -8473,9 +7873,9 @@ BOOST_AUTO_TEST_CASE(state_variable_local_variable_mixture)
 
 BOOST_AUTO_TEST_CASE(inherited_function) {
 	char const* sourceCode = R"(
-		contract A { function f() internal returns (uint) { return 1; } }
+		contract A { function f() virtual internal returns (uint) { return 1; } }
 		contract B is A {
-			function f() internal returns (uint) { return 2; }
+			function f() internal override returns (uint) { return 2; }
 			function g() public returns (uint) {
 				return A.f();
 			}
@@ -8488,9 +7888,9 @@ BOOST_AUTO_TEST_CASE(inherited_function) {
 
 BOOST_AUTO_TEST_CASE(inherited_function_calldata_memory) {
 	char const* sourceCode = R"(
-		contract A { function f(uint[] calldata a) external returns (uint) { return a[0]; } }
+		contract A { function f(uint[] calldata a) virtual external returns (uint) { return a[0]; } }
 		contract B is A {
-			function f(uint[] memory a) public returns (uint) { return a[1]; }
+			function f(uint[] memory a) public override returns (uint) { return a[1]; }
 			function g() public returns (uint) {
 				uint[] memory m = new uint[](2);
 				m[0] = 42;
@@ -8507,7 +7907,7 @@ BOOST_AUTO_TEST_CASE(inherited_function_calldata_memory) {
 BOOST_AUTO_TEST_CASE(inherited_function_calldata_memory_interface) {
 	char const* sourceCode = R"(
 		interface I { function f(uint[] calldata a) external returns (uint); }
-		contract A is I { function f(uint[] memory a) public returns (uint) { return 42; } }
+		contract A is I { function f(uint[] memory a) public override returns (uint) { return 42; } }
 		contract B {
 			function f(uint[] memory a) public returns (uint) { return a[1]; }
 			function g() public returns (uint) {
@@ -8524,7 +7924,7 @@ BOOST_AUTO_TEST_CASE(inherited_function_calldata_memory_interface) {
 BOOST_AUTO_TEST_CASE(inherited_function_calldata_calldata_interface) {
 	char const* sourceCode = R"(
 		interface I { function f(uint[] calldata a) external returns (uint); }
-		contract A is I { function f(uint[] calldata a) external returns (uint) { return 42; } }
+		contract A is I { function f(uint[] calldata a) external override returns (uint) { return 42; } }
 		contract B {
 			function f(uint[] memory a) public returns (uint) { return a[1]; }
 			function g() public returns (uint) {
@@ -8568,42 +7968,6 @@ BOOST_AUTO_TEST_CASE(inherited_constant_state_var)
 
 	compileAndRun(sourceCode, 0, "B");
 	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(7)));
-}
-
-BOOST_AUTO_TEST_CASE(multiple_inherited_state_vars)
-{
-	char const* sourceCode = R"(
-		contract A {
-			uint x = 7;
-		}
-		contract B {
-			uint x = 9;
-		}
-		contract C is A, B {
-			function a() public returns (uint) {
-				return A.x;
-			}
-			function b() public returns (uint) {
-				return B.x;
-			}
-			function a_set(uint _x) public returns (uint) {
-				A.x = _x;
-				return 1;
-			}
-			function b_set(uint _x) public returns (uint) {
-				B.x = _x;
-				return 1;
-			}
-		}
-	)";
-
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("a()"), encodeArgs(u256(7)));
-	ABI_CHECK(callContractFunction("b()"), encodeArgs(u256(9)));
-	ABI_CHECK(callContractFunction("a_set(uint256)", u256(1)), encodeArgs(u256(1)));
-	ABI_CHECK(callContractFunction("b_set(uint256)", u256(3)), encodeArgs(u256(1)));
-	ABI_CHECK(callContractFunction("a()"), encodeArgs(u256(1)));
-	ABI_CHECK(callContractFunction("b()"), encodeArgs(u256(3)));
 }
 
 BOOST_AUTO_TEST_CASE(constant_string_literal)
@@ -8820,7 +8184,8 @@ BOOST_AUTO_TEST_CASE(internal_types_in_library)
 			mapping(string => uint16[]) data;
 			function f() public returns (uint a, uint b)
 			{
-				data["abc"].length = 20;
+				while (data["abc"].length < 20)
+					data["abc"].push();
 				data["abc"][4] = 9;
 				data["abc"][17] = 3;
 				a = Lib.find(data["abc"], 9);
@@ -9028,7 +8393,7 @@ BOOST_AUTO_TEST_CASE(using_library_mappings_external)
 		)";
 	char const* sourceCode = R"(
 			library Lib {
-				function set(mapping(uint => uint) storage m, uint key, uint value) external;
+				function set(mapping(uint => uint) storage m, uint key, uint value) external {}
 			}
 			contract Test {
 				mapping(uint => uint) m1;
@@ -9085,7 +8450,8 @@ BOOST_AUTO_TEST_CASE(using_library_structs)
 			function set(Data storage _s) public
 			{
 				_s.a = 7;
-				_s.b.length = 20;
+				while (_s.b.length < 20)
+					_s.b.push();
 				_s.b[19] = 8;
 			}
 		}
@@ -9164,15 +8530,18 @@ BOOST_AUTO_TEST_CASE(short_strings)
 				if (data2.length != 51) return 4;
 				if (data2[data2.length - 1] != "a") return 5;
 				// change length: short -> short
-				data1.length = 5;
+				while (data1.length < 5)
+					data1.push();
 				if (data1.length != 5) return 6;
 				data1[4] = "4";
 				if (data1[0] != "1") return 7;
 				if (data1[4] != "4") return 8;
 				// change length: short -> long
-				data1.length = 80;
+				while (data1.length < 80)
+					data1.push();
 				if (data1.length != 80) return 9;
-				data1.length = 70;
+				while (data1.length > 70)
+					data1.pop();
 				if (data1.length != 70) return 9;
 				if (data1[0] != "1") return 10;
 				if (data1[4] != "4") return 11;
@@ -9181,20 +8550,25 @@ BOOST_AUTO_TEST_CASE(short_strings)
 				if (uint8(data1[4]) != 4 * 3) return 12;
 				if (uint8(data1[67]) != 67 * 3) return 13;
 				// change length: long -> short
-				data1.length = 22;
+				while (data1.length > 22)
+					data1.pop();
 				if (data1.length != 22) return 14;
 				if (uint8(data1[21]) != 21 * 3) return 15;
 				if (uint8(data1[2]) != 2 * 3) return 16;
 				// change length: short -> shorter
-				data1.length = 19;
+				while (data1.length > 19)
+					data1.pop();
 				if (data1.length != 19) return 17;
 				if (uint8(data1[7]) != 7 * 3) return 18;
 				// and now again to original size
-				data1.length = 22;
+				while (data1.length < 22)
+					data1.push();
 				if (data1.length != 22) return 19;
 				if (data1[21] != 0) return 20;
-				data1.length = 0;
-				data2.length = 0;
+				while (data1.length > 0)
+					data1.pop();
+				while (data2.length > 0)
+					data2.pop();
 			}
 			function copy() public returns (uint) {
 				bytes memory x = "123";
@@ -9271,7 +8645,7 @@ BOOST_AUTO_TEST_CASE(calldata_offset)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "CB", encodeArgs(u256(0x20)));
+	compileAndRun(sourceCode, 0, "CB", encodeArgs(u256(0x20), u256(0x00)));
 	ABI_CHECK(callContractFunction("last()", encodeArgs()), encodeDyn(string("nd")));
 }
 
@@ -9294,7 +8668,7 @@ BOOST_AUTO_TEST_CASE(reject_ether_sent_to_library)
 			function f(address payable x) public returns (bool) {
 				return x.send(1);
 			}
-			function () external payable {}
+			receive () external payable {}
 		}
 	)";
 	compileAndRun(sourceCode, 0, "lib");
@@ -9393,8 +8767,7 @@ BOOST_AUTO_TEST_CASE(tuples)
 				return (5, 6);
 			}
 			function f() public returns (uint) {
-				data.length = 1;
-				data[0] = 3;
+				data.push(3);
 				uint a; uint b;
 				(a, b) = this.h();
 				if (a != 5 || b != 6) return 1;
@@ -9470,7 +8843,7 @@ BOOST_AUTO_TEST_CASE(destructuring_assignment)
 			uint[] y;
 			uint[] arrayData;
 			function returnsArray() public returns (uint[] memory) {
-				arrayData.length = 9;
+				arrayData = new uint[](9);
 				arrayData[2] = 5;
 				arrayData[7] = 4;
 				return arrayData;
@@ -9511,8 +8884,10 @@ BOOST_AUTO_TEST_CASE(lone_struct_array_type)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(3)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(3)));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(create_memory_array)
@@ -9557,8 +8932,11 @@ BOOST_AUTO_TEST_CASE(create_memory_array_allocation_size)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(0x40, 0x40, 0x20 + 256, 0x260));
+	if (!m_optimiserSettings.runYulOptimiser)
+	{
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(0x40, 0x40, 0x20 + 256, 0x260));
+	}
 }
 
 BOOST_AUTO_TEST_CASE(memory_arrays_of_various_sizes)
@@ -10031,6 +9409,29 @@ BOOST_AUTO_TEST_CASE(fixed_bytes_length_access)
 	ABI_CHECK(callContractFunction("f(bytes32)", "789"), encodeArgs(u256(32), u256(16), u256(8)));
 }
 
+BOOST_AUTO_TEST_CASE(byte_optimization_bug)
+{
+	char const* sourceCode = R"(
+		contract C {
+			function f(uint x) public returns (uint a) {
+				assembly {
+					a := byte(x, 31)
+				}
+			}
+			function g(uint x) public returns (uint a) {
+				assembly {
+					a := byte(31, x)
+				}
+			}
+		}
+	)";
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f(uint256)", u256(2)), encodeArgs(u256(0)));
+		ABI_CHECK(callContractFunction("g(uint256)", u256(2)), encodeArgs(u256(2)));
+	)
+}
+
 BOOST_AUTO_TEST_CASE(inline_assembly_write_to_stack)
 {
 	char const* sourceCode = R"(
@@ -10040,8 +9441,10 @@ BOOST_AUTO_TEST_CASE(inline_assembly_write_to_stack)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(7), string("abcdef")));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(7), string("abcdef")));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(inline_assembly_read_and_write_stack)
@@ -10054,8 +9457,10 @@ BOOST_AUTO_TEST_CASE(inline_assembly_read_and_write_stack)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(45)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(45)));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(inline_assembly_memory_access)
@@ -10175,8 +9580,10 @@ BOOST_AUTO_TEST_CASE(inline_assembly_function_call)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(1), u256(2), u256(7)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(1), u256(2), u256(7)));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(inline_assembly_function_call_assignment)
@@ -10200,8 +9607,10 @@ BOOST_AUTO_TEST_CASE(inline_assembly_function_call_assignment)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(1), u256(2), u256(7)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(1), u256(2), u256(7)));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(inline_assembly_function_call2)
@@ -10226,8 +9635,10 @@ BOOST_AUTO_TEST_CASE(inline_assembly_function_call2)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(1), u256(2), u256(7), u256(0x10)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(1), u256(2), u256(7), u256(0x10)));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(inline_assembly_embedded_function_call)
@@ -10253,8 +9664,10 @@ BOOST_AUTO_TEST_CASE(inline_assembly_embedded_function_call)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(1), u256(4), u256(7), u256(0x10)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(1), u256(4), u256(7), u256(0x10)));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(inline_assembly_if)
@@ -10268,11 +9681,13 @@ BOOST_AUTO_TEST_CASE(inline_assembly_if)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f(uint256)", u256(0)), encodeArgs(u256(0)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(1)), encodeArgs(u256(0)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(2)), encodeArgs(u256(2)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(3)), encodeArgs(u256(2)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f(uint256)", u256(0)), encodeArgs(u256(0)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(1)), encodeArgs(u256(0)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(2)), encodeArgs(u256(2)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(3)), encodeArgs(u256(2)));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(inline_assembly_switch)
@@ -10289,11 +9704,13 @@ BOOST_AUTO_TEST_CASE(inline_assembly_switch)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f(uint256)", u256(0)), encodeArgs(u256(2)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(1)), encodeArgs(u256(8)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(2)), encodeArgs(u256(9)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(3)), encodeArgs(u256(2)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f(uint256)", u256(0)), encodeArgs(u256(2)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(1)), encodeArgs(u256(8)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(2)), encodeArgs(u256(9)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(3)), encodeArgs(u256(2)));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(inline_assembly_recursion)
@@ -10313,12 +9730,14 @@ BOOST_AUTO_TEST_CASE(inline_assembly_recursion)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f(uint256)", u256(0)), encodeArgs(u256(1)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(1)), encodeArgs(u256(1)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(2)), encodeArgs(u256(2)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(3)), encodeArgs(u256(6)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(4)), encodeArgs(u256(24)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f(uint256)", u256(0)), encodeArgs(u256(1)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(1)), encodeArgs(u256(1)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(2)), encodeArgs(u256(2)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(3)), encodeArgs(u256(6)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(4)), encodeArgs(u256(24)));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(inline_assembly_for)
@@ -10338,12 +9757,14 @@ BOOST_AUTO_TEST_CASE(inline_assembly_for)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f(uint256)", u256(0)), encodeArgs(u256(1)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(1)), encodeArgs(u256(1)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(2)), encodeArgs(u256(2)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(3)), encodeArgs(u256(6)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(4)), encodeArgs(u256(24)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f(uint256)", u256(0)), encodeArgs(u256(1)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(1)), encodeArgs(u256(1)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(2)), encodeArgs(u256(2)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(3)), encodeArgs(u256(6)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(4)), encodeArgs(u256(24)));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(inline_assembly_for2)
@@ -10364,10 +9785,12 @@ BOOST_AUTO_TEST_CASE(inline_assembly_for2)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f(uint256)", u256(0)), encodeArgs(u256(0), u256(2), u256(0)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(1)), encodeArgs(u256(1), u256(4), u256(3)));
-	ABI_CHECK(callContractFunction("f(uint256)", u256(2)), encodeArgs(u256(0), u256(2), u256(0)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f(uint256)", u256(0)), encodeArgs(u256(0), u256(2), u256(0)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(1)), encodeArgs(u256(1), u256(4), u256(3)));
+		ABI_CHECK(callContractFunction("f(uint256)", u256(2)), encodeArgs(u256(0), u256(2), u256(0)));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(index_access_with_type_conversion)
@@ -10394,9 +9817,10 @@ BOOST_AUTO_TEST_CASE(delete_on_array_of_structs)
 			struct S { uint x; uint[] y; }
 			S[] data;
 			function f() public returns (bool) {
-				data.length = 2;
-				data[0].x = 2**200;
-				data[1].x = 2**200;
+				S storage s1 = data.push();
+				s1.x = 2**200;
+				S storage s2 = data.push();
+				s2.x = 2**200;
 				delete data;
 				return true;
 			}
@@ -10546,9 +9970,9 @@ BOOST_AUTO_TEST_CASE(cleanup_bytes_types)
 	)";
 	compileAndRun(sourceCode, 0, "C");
 	// We input longer data on purpose.
-	ABI_CHECK(callContractFunction("f(bytes2,uint16)", string("abc"), u256(0x040102)), encodeArgs(0));
+	bool v2 = solidity::test::CommonOptions::get().useABIEncoderV2;
+	ABI_CHECK(callContractFunction("f(bytes2,uint16)", string("abc"), u256(0x040102)), v2 ? encodeArgs() : encodeArgs(0));
 }
-
 BOOST_AUTO_TEST_CASE(cleanup_bytes_types_shortening)
 {
 	char const* sourceCode = R"(
@@ -10566,7 +9990,6 @@ BOOST_AUTO_TEST_CASE(cleanup_bytes_types_shortening)
 	compileAndRun(sourceCode, 0, "C");
 	ABI_CHECK(callContractFunction("f()"), encodeArgs("\xff\xff\xff\xff"));
 }
-
 BOOST_AUTO_TEST_CASE(cleanup_address_types)
 {
 	// Checks that address types are properly cleaned before they are compared.
@@ -10583,9 +10006,11 @@ BOOST_AUTO_TEST_CASE(cleanup_address_types)
 		}
 	)";
 	compileAndRun(sourceCode, 0, "C");
+
+	bool v2 = solidity::test::CommonOptions::get().useABIEncoderV2;
 	// We input longer data on purpose.
-	ABI_CHECK(callContractFunction("f(address)", u256("0xFFFF1234567890123456789012345678901234567890")), encodeArgs(0));
-	ABI_CHECK(callContractFunction("g(address)", u256("0xFFFF1234567890123456789012345678901234567890")), encodeArgs(0));
+	ABI_CHECK(callContractFunction("f(address)", u256("0xFFFF1234567890123456789012345678901234567890")), v2 ? encodeArgs() : encodeArgs(0));
+	ABI_CHECK(callContractFunction("g(address)", u256("0xFFFF1234567890123456789012345678901234567890")), v2 ? encodeArgs() : encodeArgs(0));
 }
 
 BOOST_AUTO_TEST_CASE(cleanup_address_types_shortening)
@@ -10610,9 +10035,11 @@ BOOST_AUTO_TEST_CASE(cleanup_address_types_shortening)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256("0x1122334455667788990011223344556677889900")));
-	ABI_CHECK(callContractFunction("g()"), encodeArgs(u256("0x1122334455667788990011223344556677889900")));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(u256("0x1122334455667788990011223344556677889900")));
+		ABI_CHECK(callContractFunction("g()"), encodeArgs(u256("0x1122334455667788990011223344556677889900")));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(skip_dynamic_types)
@@ -10704,7 +10131,7 @@ BOOST_AUTO_TEST_CASE(create_dynamic_array_with_zero_length)
 
 BOOST_AUTO_TEST_CASE(correctly_initialize_memory_array_in_constructor)
 {
-	// Memory arrays are initialized using codecopy past the size of the code.
+	// Memory arrays are initialized using calldatacopy past the size of the calldata.
 	// This test checks that it also works in the constructor context.
 	char const* sourceCode = R"(
 		contract C {
@@ -10713,7 +10140,7 @@ BOOST_AUTO_TEST_CASE(correctly_initialize_memory_array_in_constructor)
 				// Make memory dirty.
 				assembly {
 					for { let i := 0 } lt(i, 64) { i := add(i, 1) } {
-						mstore(msize, not(0))
+						mstore(msize(), not(0))
 					}
 				}
 				uint16[3] memory c;
@@ -10724,8 +10151,12 @@ BOOST_AUTO_TEST_CASE(correctly_initialize_memory_array_in_constructor)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("success()"), encodeArgs(u256(1)));
+	// Cannot run against yul optimizer because of msize
+	if (!m_optimiserSettings.runYulOptimiser)
+	{
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("success()"), encodeArgs(u256(1)));
+	}
 }
 
 BOOST_AUTO_TEST_CASE(return_does_not_skip_modifier)
@@ -10894,7 +10325,7 @@ BOOST_AUTO_TEST_CASE(mutex)
 				else
 					return fund.withdrawUnprotected(10);
 			}
-			function() external payable {
+			fallback() external payable {
 				callDepth++;
 				if (callDepth < 4)
 					attackInternal();
@@ -10913,73 +10344,10 @@ BOOST_AUTO_TEST_CASE(mutex)
 	BOOST_CHECK_EQUAL(balanceAt(fund), 460);
 }
 
-BOOST_AUTO_TEST_CASE(failing_ecrecover_invalid_input)
-{
-	// ecrecover should return zero for malformed input
-	// (v should be 27 or 28, not 1)
-	// Note that the precompile does not return zero but returns nothing.
-	char const* sourceCode = R"(
-		contract C {
-			function f() public returns (address) {
-				return ecrecover(bytes32(uint(-1)), 1, bytes32(uint(2)), bytes32(uint(3)));
-			}
-		}
-	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(0)));
-}
-
-BOOST_AUTO_TEST_CASE(failing_ecrecover_invalid_input_proper)
-{
-	char const* sourceCode = R"(
-		contract C {
-			function f() public returns (address) {
-				return recover(
-					0x77e5189111eb6557e8a637b27ef8fbb15bc61d61c2f00cc48878f3a296e5e0ca,
-					0, // invalid v value
-					0x6944c77849b18048f6abe0db8084b0d0d0689cdddb53d2671c36967b58691ad4,
-					0xef4f06ba4f78319baafd0424365777241af4dfd3da840471b4b4b087b7750d0d,
-					0x000000000000000000000000ca35b7d915458ef540ade6068dfe2f44e8fa733c,
-					0x000000000000000000000000ca35b7d915458ef540ade6068dfe2f44e8fa733c
-				);
-			}
-			function recover(bytes32 hash, uint8 v, bytes32 r, bytes32 s, uint blockExpired, bytes32 salt)
-				public returns (address)
-			{
-				require(hash == keccak256(abi.encodePacked(blockExpired, salt)));
-				return ecrecover(hash, v, r, s);
-			}
-		}
-	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(0)));
-}
-
-BOOST_AUTO_TEST_CASE(failing_ecrecover_invalid_input_asm)
-{
-	char const* sourceCode = R"(
-		contract C {
-			function f() public returns (address) {
-				assembly {
-					mstore(mload(0x40), 0xca35b7d915458ef540ade6068dfe2f44e8fa733c)
-				}
-				return ecrecover(
-					0x77e5189111eb6557e8a637b27ef8fbb15bc61d61c2f00cc48878f3a296e5e0ca,
-					0, // invalid v value
-					0x6944c77849b18048f6abe0db8084b0d0d0689cdddb53d2671c36967b58691ad4,
-					0xef4f06ba4f78319baafd0424365777241af4dfd3da840471b4b4b087b7750d0d
-				);
-			}
-		}
-	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(0)));
-}
-
 BOOST_AUTO_TEST_CASE(calling_nonexisting_contract_throws)
 {
 	char const* sourceCode = R"YY(
-		contract D { function g() public; }
+		abstract contract D { function g() public virtual; }
 		contract C {
 			D d = D(0x1212);
 			function f() public returns (uint) {
@@ -11009,7 +10377,9 @@ BOOST_AUTO_TEST_CASE(payable_constructor)
 			constructor() public payable { }
 		}
 	)";
-	compileAndRun(sourceCode, 27, "C");
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 27, "C");
+	)
 }
 
 BOOST_AUTO_TEST_CASE(payable_function)
@@ -11020,7 +10390,7 @@ BOOST_AUTO_TEST_CASE(payable_function)
 			function f() payable public returns (uint) {
 				return msg.value;
 			}
-			function() external payable {
+			fallback() external payable {
 				a = msg.value + 1;
 			}
 		}
@@ -11062,7 +10432,7 @@ BOOST_AUTO_TEST_CASE(non_payable_throw)
 			function msgvalue() internal returns (uint) {
 				return msg.value;
 			}
-			function() external {
+			fallback() external {
 				update();
 			}
 			function update() internal {
@@ -11098,9 +10468,11 @@ BOOST_AUTO_TEST_CASE(no_nonpayable_circumvention_by_modifier)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunctionWithValue("f()", 27), encodeArgs());
-	BOOST_CHECK_EQUAL(balanceAt(m_contractAddress), 0);
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunctionWithValue("f()", 27), encodeArgs());
+		BOOST_CHECK_EQUAL(balanceAt(m_contractAddress), 0);
+	)
 }
 
 BOOST_AUTO_TEST_CASE(mem_resize_is_not_paid_at_call)
@@ -11243,7 +10615,7 @@ BOOST_AUTO_TEST_CASE(receive_external_function_type)
 	compileAndRun(sourceCode, 0, "C");
 	ABI_CHECK(callContractFunction(
 		"f(function)",
-		m_contractAddress.asBytes() + FixedHash<4>(dev::keccak256("g()")).asBytes() + bytes(32 - 4 - 20, 0)
+		m_contractAddress.asBytes() + FixedHash<4>(util::keccak256("g()")).asBytes() + bytes(32 - 4 - 20, 0)
 	), encodeArgs(u256(7)));
 }
 
@@ -11261,7 +10633,7 @@ BOOST_AUTO_TEST_CASE(return_external_function_type)
 	compileAndRun(sourceCode, 0, "C");
 	ABI_CHECK(
 		callContractFunction("f()"),
-		m_contractAddress.asBytes() + FixedHash<4>(dev::keccak256("g()")).asBytes() + bytes(32 - 4 - 20, 0)
+		m_contractAddress.asBytes() + FixedHash<4>(util::keccak256("g()")).asBytes() + bytes(32 - 4 - 20, 0)
 	);
 }
 
@@ -11452,8 +10824,10 @@ BOOST_AUTO_TEST_CASE(call_function_returning_function)
 		}
 	)";
 
-	compileAndRun(sourceCode, 0, "test");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(2)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "test");
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(2)));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(mapping_of_functions)
@@ -11615,8 +10989,10 @@ BOOST_AUTO_TEST_CASE(function_delete_stack)
 		}
 	)";
 
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("test()"), encodeArgs());
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("test()"), encodeArgs());
+	)
 }
 
 BOOST_AUTO_TEST_CASE(copy_function_storage_array)
@@ -11626,7 +11002,7 @@ BOOST_AUTO_TEST_CASE(copy_function_storage_array)
 			function() internal returns (uint)[] x;
 			function() internal returns (uint)[] y;
 			function test() public returns (uint) {
-				x.length = 10;
+				x = new function() internal returns (uint)[](10);
 				x[9] = a;
 				y = x;
 				return y[9]();
@@ -11679,25 +11055,6 @@ BOOST_AUTO_TEST_CASE(function_array_cross_calls)
 	compileAndRun(sourceCode, 0, "C");
 	ABI_CHECK(callContractFunction("test()"), encodeArgs(u256(5), u256(6), u256(7)));
 }
-
-BOOST_AUTO_TEST_CASE(external_function_to_address)
-{
-	char const* sourceCode = R"(
-		contract C {
-			function f() public returns (bool) {
-				return address(this.f) == address(this);
-			}
-			function g(function() external cb) public returns (address) {
-				return address(cb);
-			}
-		}
-	)";
-
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(true));
-	ABI_CHECK(callContractFunction("g(function)", fromHex("00000000000000000000000000000000000004226121ff00000000000000000")), encodeArgs(u160(0x42)));
-}
-
 
 BOOST_AUTO_TEST_CASE(copy_internal_function_array_to_storage)
 {
@@ -11903,8 +11260,9 @@ BOOST_AUTO_TEST_CASE(shift_right_garbled)
 		}
 	)";
 	compileAndRun(sourceCode, 0, "C");
+	bool v2 = solidity::test::CommonOptions::get().useABIEncoderV2;
 	ABI_CHECK(callContractFunction("f(uint8,uint8)", u256(0x0), u256(4)), encodeArgs(u256(0xf)));
-	ABI_CHECK(callContractFunction("f(uint8,uint8)", u256(0x0), u256(0x1004)), encodeArgs(u256(0xf)));
+	ABI_CHECK(callContractFunction("f(uint8,uint8)", u256(0x0), u256(0x1004)), v2 ? encodeArgs() : encodeArgs(u256(0xf)));
 }
 
 BOOST_AUTO_TEST_CASE(shift_right_garbled_signed)
@@ -11928,16 +11286,17 @@ BOOST_AUTO_TEST_CASE(shift_right_garbled_signed)
 			}
 		)";
 	compileAndRun(sourceCode, 0, "C");
+	bool v2 = solidity::test::CommonOptions::get().useABIEncoderV2;
 	ABI_CHECK(callContractFunction("f(int8,uint8)", u256(0x0), u256(3)), encodeArgs(u256(-2)));
 	ABI_CHECK(callContractFunction("f(int8,uint8)", u256(0x0), u256(4)), encodeArgs(u256(-1)));
 	ABI_CHECK(callContractFunction("f(int8,uint8)", u256(0x0), u256(0xFF)), encodeArgs(u256(-1)));
-	ABI_CHECK(callContractFunction("f(int8,uint8)", u256(0x0), u256(0x1003)), encodeArgs(u256(-2)));
-	ABI_CHECK(callContractFunction("f(int8,uint8)", u256(0x0), u256(0x1004)), encodeArgs(u256(-1)));
+	ABI_CHECK(callContractFunction("f(int8,uint8)", u256(0x0), u256(0x1003)), v2 ? encodeArgs() : encodeArgs(u256(-2)));
+	ABI_CHECK(callContractFunction("f(int8,uint8)", u256(0x0), u256(0x1004)), v2 ? encodeArgs() : encodeArgs(u256(-1)));
 	ABI_CHECK(callContractFunction("g(int8,uint8)", u256(0x0), u256(3)), encodeArgs(u256(-2)));
 	ABI_CHECK(callContractFunction("g(int8,uint8)", u256(0x0), u256(4)), encodeArgs(u256(-1)));
 	ABI_CHECK(callContractFunction("g(int8,uint8)", u256(0x0), u256(0xFF)), encodeArgs(u256(-1)));
-	ABI_CHECK(callContractFunction("g(int8,uint8)", u256(0x0), u256(0x1003)), encodeArgs(u256(-2)));
-	ABI_CHECK(callContractFunction("g(int8,uint8)", u256(0x0), u256(0x1004)), encodeArgs(u256(-1)));
+	ABI_CHECK(callContractFunction("g(int8,uint8)", u256(0x0), u256(0x1003)), v2 ? encodeArgs() : encodeArgs(u256(-2)));
+	ABI_CHECK(callContractFunction("g(int8,uint8)", u256(0x0), u256(0x1004)), v2 ? encodeArgs() : encodeArgs(u256(-1)));
 }
 
 BOOST_AUTO_TEST_CASE(shift_right_uint32)
@@ -12070,19 +11429,21 @@ BOOST_AUTO_TEST_CASE(shift_right_negative_literal)
 				}
 			}
 		)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f1()"), encodeArgs(true));
-	ABI_CHECK(callContractFunction("f2()"), encodeArgs(true));
-	ABI_CHECK(callContractFunction("f3()"), encodeArgs(true));
-	ABI_CHECK(callContractFunction("f4()"), encodeArgs(true));
-	ABI_CHECK(callContractFunction("f5()"), encodeArgs(true));
-	ABI_CHECK(callContractFunction("f6()"), encodeArgs(true));
-	ABI_CHECK(callContractFunction("g1()"), encodeArgs(true));
-	ABI_CHECK(callContractFunction("g2()"), encodeArgs(true));
-	ABI_CHECK(callContractFunction("g3()"), encodeArgs(true));
-	ABI_CHECK(callContractFunction("g4()"), encodeArgs(true));
-	ABI_CHECK(callContractFunction("g5()"), encodeArgs(true));
-	ABI_CHECK(callContractFunction("g6()"), encodeArgs(true));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f1()"), encodeArgs(true));
+		ABI_CHECK(callContractFunction("f2()"), encodeArgs(true));
+		ABI_CHECK(callContractFunction("f3()"), encodeArgs(true));
+		ABI_CHECK(callContractFunction("f4()"), encodeArgs(true));
+		ABI_CHECK(callContractFunction("f5()"), encodeArgs(true));
+		ABI_CHECK(callContractFunction("f6()"), encodeArgs(true));
+		ABI_CHECK(callContractFunction("g1()"), encodeArgs(true));
+		ABI_CHECK(callContractFunction("g2()"), encodeArgs(true));
+		ABI_CHECK(callContractFunction("g3()"), encodeArgs(true));
+		ABI_CHECK(callContractFunction("g4()"), encodeArgs(true));
+		ABI_CHECK(callContractFunction("g5()"), encodeArgs(true));
+		ABI_CHECK(callContractFunction("g6()"), encodeArgs(true));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(shift_right_negative_lvalue_int8)
@@ -12119,11 +11480,12 @@ BOOST_AUTO_TEST_CASE(shift_right_negative_lvalue_signextend_int8)
 			}
 		)";
 	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f(int8,int8)", u256(0x99u), u256(0)), encodeArgs(u256(-103)));
-	ABI_CHECK(callContractFunction("f(int8,int8)", u256(0x99u), u256(1)), encodeArgs(u256(-52)));
-	ABI_CHECK(callContractFunction("f(int8,int8)", u256(0x99u), u256(2)), encodeArgs(u256(-26)));
-	ABI_CHECK(callContractFunction("f(int8,int8)", u256(0x99u), u256(4)), encodeArgs(u256(-7)));
-	ABI_CHECK(callContractFunction("f(int8,int8)", u256(0x99u), u256(8)), encodeArgs(u256(-1)));
+	bool v2 = solidity::test::CommonOptions::get().useABIEncoderV2;
+	ABI_CHECK(callContractFunction("f(int8,int8)", u256(0x99u), u256(0)), v2 ? encodeArgs() : encodeArgs(u256(-103)));
+	ABI_CHECK(callContractFunction("f(int8,int8)", u256(0x99u), u256(1)), v2 ? encodeArgs() : encodeArgs(u256(-52)));
+	ABI_CHECK(callContractFunction("f(int8,int8)", u256(0x99u), u256(2)), v2 ? encodeArgs() : encodeArgs(u256(-26)));
+	ABI_CHECK(callContractFunction("f(int8,int8)", u256(0x99u), u256(4)), v2 ? encodeArgs() : encodeArgs(u256(-7)));
+	ABI_CHECK(callContractFunction("f(int8,int8)", u256(0x99u), u256(8)), v2 ? encodeArgs() : encodeArgs(u256(-1)));
 }
 
 BOOST_AUTO_TEST_CASE(shift_right_negative_lvalue_signextend_int16)
@@ -12136,11 +11498,12 @@ BOOST_AUTO_TEST_CASE(shift_right_negative_lvalue_signextend_int16)
 			}
 		)";
 	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f(int16,int16)", u256(0xFF99u), u256(0)), encodeArgs(u256(-103)));
-	ABI_CHECK(callContractFunction("f(int16,int16)", u256(0xFF99u), u256(1)), encodeArgs(u256(-52)));
-	ABI_CHECK(callContractFunction("f(int16,int16)", u256(0xFF99u), u256(2)), encodeArgs(u256(-26)));
-	ABI_CHECK(callContractFunction("f(int16,int16)", u256(0xFF99u), u256(4)), encodeArgs(u256(-7)));
-	ABI_CHECK(callContractFunction("f(int16,int16)", u256(0xFF99u), u256(8)), encodeArgs(u256(-1)));
+	bool v2 = solidity::test::CommonOptions::get().useABIEncoderV2;
+	ABI_CHECK(callContractFunction("f(int16,int16)", u256(0xFF99u), u256(0)), v2 ? encodeArgs() : encodeArgs(u256(-103)));
+	ABI_CHECK(callContractFunction("f(int16,int16)", u256(0xFF99u), u256(1)), v2 ? encodeArgs() : encodeArgs(u256(-52)));
+	ABI_CHECK(callContractFunction("f(int16,int16)", u256(0xFF99u), u256(2)), v2 ? encodeArgs() : encodeArgs(u256(-26)));
+	ABI_CHECK(callContractFunction("f(int16,int16)", u256(0xFF99u), u256(4)), v2 ? encodeArgs() : encodeArgs(u256(-7)));
+	ABI_CHECK(callContractFunction("f(int16,int16)", u256(0xFF99u), u256(8)), v2 ? encodeArgs() : encodeArgs(u256(-1)));
 }
 
 BOOST_AUTO_TEST_CASE(shift_right_negative_lvalue_signextend_int32)
@@ -12153,11 +11516,12 @@ BOOST_AUTO_TEST_CASE(shift_right_negative_lvalue_signextend_int32)
 			}
 		)";
 	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f(int32,int32)", u256(0xFFFFFF99u), u256(0)), encodeArgs(u256(-103)));
-	ABI_CHECK(callContractFunction("f(int32,int32)", u256(0xFFFFFF99u), u256(1)), encodeArgs(u256(-52)));
-	ABI_CHECK(callContractFunction("f(int32,int32)", u256(0xFFFFFF99u), u256(2)), encodeArgs(u256(-26)));
-	ABI_CHECK(callContractFunction("f(int32,int32)", u256(0xFFFFFF99u), u256(4)), encodeArgs(u256(-7)));
-	ABI_CHECK(callContractFunction("f(int32,int32)", u256(0xFFFFFF99u), u256(8)), encodeArgs(u256(-1)));
+	bool v2 = solidity::test::CommonOptions::get().useABIEncoderV2;
+	ABI_CHECK(callContractFunction("f(int32,int32)", u256(0xFFFFFF99u), u256(0)), v2 ? encodeArgs() : encodeArgs(u256(-103)));
+	ABI_CHECK(callContractFunction("f(int32,int32)", u256(0xFFFFFF99u), u256(1)), v2 ? encodeArgs() : encodeArgs(u256(-52)));
+	ABI_CHECK(callContractFunction("f(int32,int32)", u256(0xFFFFFF99u), u256(2)), v2 ? encodeArgs() : encodeArgs(u256(-26)));
+	ABI_CHECK(callContractFunction("f(int32,int32)", u256(0xFFFFFF99u), u256(4)), v2 ? encodeArgs() : encodeArgs(u256(-7)));
+	ABI_CHECK(callContractFunction("f(int32,int32)", u256(0xFFFFFF99u), u256(8)), v2 ? encodeArgs() : encodeArgs(u256(-1)));
 }
 
 
@@ -12466,8 +11830,10 @@ BOOST_AUTO_TEST_CASE(inline_assembly_in_modifiers)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(true));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(true));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(packed_storage_overflow)
@@ -12498,8 +11864,10 @@ BOOST_AUTO_TEST_CASE(contracts_separated_with_comment)
 		**/
 		contract C2 {}
 	)";
-	compileAndRun(sourceCode, 0, "C1");
-	compileAndRun(sourceCode, 0, "C2");
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C1");
+		compileAndRun(sourceCode, 0, "C2");
+	)
 }
 
 
@@ -12544,7 +11912,8 @@ BOOST_AUTO_TEST_CASE(recursive_structs)
 				S memory s;
 				s.x = new S[](10);
 				delete s;
-				sstorage.x.length++;
+				// TODO Uncomment after implemented.
+				// sstorage.x.push();
 				delete sstorage;
 				return 1;
 			}
@@ -12565,8 +11934,10 @@ BOOST_AUTO_TEST_CASE(invalid_instruction)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs());
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f()"), encodeArgs());
+	)
 }
 
 BOOST_AUTO_TEST_CASE(assert_require)
@@ -12586,12 +11957,14 @@ BOOST_AUTO_TEST_CASE(assert_require)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs());
-	ABI_CHECK(callContractFunction("g(bool)", false), encodeArgs());
-	ABI_CHECK(callContractFunction("g(bool)", true), encodeArgs(true));
-	ABI_CHECK(callContractFunction("h(bool)", false), encodeArgs());
-	ABI_CHECK(callContractFunction("h(bool)", true), encodeArgs(true));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f()"), encodeArgs());
+		ABI_CHECK(callContractFunction("g(bool)", false), encodeArgs());
+		ABI_CHECK(callContractFunction("g(bool)", true), encodeArgs(true));
+		ABI_CHECK(callContractFunction("h(bool)", false), encodeArgs());
+		ABI_CHECK(callContractFunction("h(bool)", true), encodeArgs(true));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(revert)
@@ -12671,14 +12044,16 @@ BOOST_AUTO_TEST_CASE(revert_with_cause)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	bool const haveReturndata = dev::test::Options::get().evmVersion().supportsReturndata();
-	bytes const errorSignature = bytes{0x08, 0xc3, 0x79, 0xa0};
-	ABI_CHECK(callContractFunction("f()"), haveReturndata ? encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 7, "test123") + bytes(28, 0) : bytes());
-	ABI_CHECK(callContractFunction("g()"), haveReturndata ? encodeArgs(0, 0x40, 0x84) + errorSignature + encodeArgs(0x20, 44, "test1234567890123456789012345678901234567890") + bytes(28, 0): bytes());
-	ABI_CHECK(callContractFunction("h()"), haveReturndata ? encodeArgs(0, 0x40, 0x84) + errorSignature + encodeArgs(0x20, 44, "test1234567890123456789012345678901234567890") + bytes(28, 0): bytes());
-	ABI_CHECK(callContractFunction("i()"), haveReturndata ? encodeArgs(0, 0x40, 0x84) + errorSignature + encodeArgs(0x20, 44, "test1234567890123456789012345678901234567890") + bytes(28, 0): bytes());
-	ABI_CHECK(callContractFunction("j()"), haveReturndata ? encodeArgs(0, 0x40, 0x84) + errorSignature + encodeArgs(0x20, 44, "test1234567890123456789012345678901234567890") + bytes(28, 0): bytes());
+	if (solidity::test::CommonOptions::get().evmVersion().supportsReturndata())
+	{
+		compileAndRun(sourceCode, 0, "C");
+		bytes const errorSignature = bytes{0x08, 0xc3, 0x79, 0xa0};
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 7, "test123") + bytes(28, 0));
+		ABI_CHECK(callContractFunction("g()"), encodeArgs(0, 0x40, 0x84) + errorSignature + encodeArgs(0x20, 44, "test1234567890123456789012345678901234567890") + bytes(28, 0));
+		ABI_CHECK(callContractFunction("h()"), encodeArgs(0, 0x40, 0x84) + errorSignature + encodeArgs(0x20, 44, "test1234567890123456789012345678901234567890") + bytes(28, 0));
+		ABI_CHECK(callContractFunction("i()"), encodeArgs(0, 0x40, 0x84) + errorSignature + encodeArgs(0x20, 44, "test1234567890123456789012345678901234567890") + bytes(28, 0));
+		ABI_CHECK(callContractFunction("j()"), encodeArgs(0, 0x40, 0x84) + errorSignature + encodeArgs(0x20, 44, "test1234567890123456789012345678901234567890") + bytes(28, 0));
+	}
 }
 
 BOOST_AUTO_TEST_CASE(require_with_message)
@@ -12743,16 +12118,18 @@ BOOST_AUTO_TEST_CASE(require_with_message)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	bool const haveReturndata = dev::test::Options::get().evmVersion().supportsReturndata();
-	bytes const errorSignature = bytes{0x08, 0xc3, 0x79, 0xa0};
-	ABI_CHECK(callContractFunction("f(uint256)", 8), haveReturndata ? encodeArgs(1, 0x40, 0) : bytes());
-	ABI_CHECK(callContractFunction("f(uint256)", 5), haveReturndata ? encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 6, "failed") + bytes(28, 0) : bytes());
-	ABI_CHECK(callContractFunction("g()"), haveReturndata ? encodeArgs(1, 0x40, 0) : bytes());
-	ABI_CHECK(callContractFunction("g()"), haveReturndata ? encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 18, "only on second run") + bytes(28, 0) : bytes());
-	ABI_CHECK(callContractFunction("h()"), haveReturndata ? encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 3, "abc") + bytes(28, 0): bytes());
-	ABI_CHECK(callContractFunction("i()"), haveReturndata ? encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 3, "abc") + bytes(28, 0): bytes());
-	ABI_CHECK(callContractFunction("j()"), haveReturndata ? encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 3, "msg") + bytes(28, 0): bytes());
+	if (solidity::test::CommonOptions::get().evmVersion().supportsReturndata())
+	{
+		compileAndRun(sourceCode, 0, "C");
+		bytes const errorSignature = bytes{0x08, 0xc3, 0x79, 0xa0};
+		ABI_CHECK(callContractFunction("f(uint256)", 8), encodeArgs(1, 0x40, 0));
+		ABI_CHECK(callContractFunction("f(uint256)", 5), encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 6, "failed") + bytes(28, 0));
+		ABI_CHECK(callContractFunction("g()"), encodeArgs(1, 0x40, 0));
+		ABI_CHECK(callContractFunction("g()"), encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 18, "only on second run") + bytes(28, 0));
+		ABI_CHECK(callContractFunction("h()"), encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 3, "abc") + bytes(28, 0));
+		ABI_CHECK(callContractFunction("i()"), encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 3, "abc") + bytes(28, 0));
+		ABI_CHECK(callContractFunction("j()"), encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 3, "msg") + bytes(28, 0));
+	}
 }
 
 BOOST_AUTO_TEST_CASE(bubble_up_error_messages)
@@ -12787,18 +12164,20 @@ BOOST_AUTO_TEST_CASE(bubble_up_error_messages)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	bool const haveReturndata = dev::test::Options::get().evmVersion().supportsReturndata();
-	bytes const errorSignature = bytes{0x08, 0xc3, 0x79, 0xa0};
-	ABI_CHECK(callContractFunction("f()"), haveReturndata ? encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 7, "message") + bytes(28, 0) : bytes());
-	ABI_CHECK(callContractFunction("g()"), haveReturndata ? encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 7, "message") + bytes(28, 0) : bytes());
+	if (solidity::test::CommonOptions::get().evmVersion().supportsReturndata())
+	{
+		compileAndRun(sourceCode, 0, "C");
+		bytes const errorSignature = bytes{0x08, 0xc3, 0x79, 0xa0};
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 7, "message") + bytes(28, 0));
+		ABI_CHECK(callContractFunction("g()"), encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 7, "message") + bytes(28, 0));
+	}
 }
 
 BOOST_AUTO_TEST_CASE(bubble_up_error_messages_through_transfer)
 {
 	char const* sourceCode = R"(
 		contract D {
-			function() external payable {
+			receive() external payable {
 				revert("message");
 			}
 			function f() public {
@@ -12823,10 +12202,12 @@ BOOST_AUTO_TEST_CASE(bubble_up_error_messages_through_transfer)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	bool const haveReturndata = dev::test::Options::get().evmVersion().supportsReturndata();
-	bytes const errorSignature = bytes{0x08, 0xc3, 0x79, 0xa0};
-	ABI_CHECK(callContractFunction("f()"), haveReturndata ? encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 7, "message") + bytes(28, 0) : bytes());
+	if (solidity::test::CommonOptions::get().evmVersion().supportsReturndata())
+	{
+		compileAndRun(sourceCode, 0, "C");
+		bytes const errorSignature = bytes{0x08, 0xc3, 0x79, 0xa0};
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 7, "message") + bytes(28, 0));
+	}
 }
 
 BOOST_AUTO_TEST_CASE(bubble_up_error_messages_through_create)
@@ -12860,10 +12241,12 @@ BOOST_AUTO_TEST_CASE(bubble_up_error_messages_through_create)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	bool const haveReturndata = dev::test::Options::get().evmVersion().supportsReturndata();
-	bytes const errorSignature = bytes{0x08, 0xc3, 0x79, 0xa0};
-	ABI_CHECK(callContractFunction("f()"), haveReturndata ? encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 7, "message") + bytes(28, 0) : bytes());
+	if (solidity::test::CommonOptions::get().evmVersion().supportsReturndata())
+	{
+		compileAndRun(sourceCode, 0, "C");
+		bytes const errorSignature = bytes{0x08, 0xc3, 0x79, 0xa0};
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(0, 0x40, 0x64) + errorSignature + encodeArgs(0x20, 7, "message") + bytes(28, 0));
+	}
 }
 
 BOOST_AUTO_TEST_CASE(negative_stack_height)
@@ -12934,13 +12317,15 @@ BOOST_AUTO_TEST_CASE(scientific_notation)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(20000000000)));
-	ABI_CHECK(callContractFunction("g()"), encodeArgs(u256(2)));
-	ABI_CHECK(callContractFunction("h()"), encodeArgs(u256(25)));
-	ABI_CHECK(callContractFunction("i()"), encodeArgs(u256(-20000000000)));
-	ABI_CHECK(callContractFunction("j()"), encodeArgs(u256(-2)));
-	ABI_CHECK(callContractFunction("k()"), encodeArgs(u256(-25)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(20000000000)));
+		ABI_CHECK(callContractFunction("g()"), encodeArgs(u256(2)));
+		ABI_CHECK(callContractFunction("h()"), encodeArgs(u256(25)));
+		ABI_CHECK(callContractFunction("i()"), encodeArgs(u256(-20000000000)));
+		ABI_CHECK(callContractFunction("j()"), encodeArgs(u256(-2)));
+		ABI_CHECK(callContractFunction("k()"), encodeArgs(u256(-25)));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(interface_contract)
@@ -12949,11 +12334,11 @@ BOOST_AUTO_TEST_CASE(interface_contract)
 		interface I {
 			event A();
 			function f() external returns (bool);
-			function() external payable;
+			fallback() external payable;
 		}
 
 		contract A is I {
-			function f() public returns (bool) {
+			function f() public override returns (bool) {
 				return g();
 			}
 
@@ -12961,7 +12346,7 @@ BOOST_AUTO_TEST_CASE(interface_contract)
 				return true;
 			}
 
-			function() external payable {
+			fallback() override external payable {
 			}
 		}
 
@@ -12989,8 +12374,10 @@ BOOST_AUTO_TEST_CASE(keccak256_assembly)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), fromHex("0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f()"), fromHex("0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(multi_modifiers)
@@ -13034,15 +12421,17 @@ BOOST_AUTO_TEST_CASE(inlineasm_empty_let)
 			}
 		}
 	)";
-	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(0), u256(0)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode, 0, "C");
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(0), u256(0)));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(bare_call_invalid_address)
 {
 	char const* sourceCode = R"YY(
 		contract C {
-			/// Calling into non-existant account is successful (creates the account)
+			/// Calling into non-existent account is successful (creates the account)
 			function f() external returns (bool) {
 				(bool success,) = address(0x4242).call("");
 				return success;
@@ -13057,7 +12446,7 @@ BOOST_AUTO_TEST_CASE(bare_call_invalid_address)
 	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(1)));
 	ABI_CHECK(callContractFunction("h()"), encodeArgs(u256(1)));
 
-	if (dev::test::Options::get().evmVersion().hasStaticCall())
+	if (solidity::test::CommonOptions::get().evmVersion().hasStaticCall())
 	{
 		char const* sourceCode = R"YY(
 			contract C {
@@ -13073,10 +12462,10 @@ BOOST_AUTO_TEST_CASE(bare_call_invalid_address)
 
 BOOST_AUTO_TEST_CASE(bare_call_return_data)
 {
-	if (dev::test::Options::get().evmVersion().supportsReturndata())
+	if (solidity::test::CommonOptions::get().evmVersion().supportsReturndata())
 	{
 		vector<string> calltypes = {"call", "delegatecall"};
-		if (dev::test::Options::get().evmVersion().hasStaticCall())
+		if (solidity::test::CommonOptions::get().evmVersion().hasStaticCall())
 			calltypes.emplace_back("staticcall");
 		for (string const& calltype: calltypes)
 		{
@@ -13200,7 +12589,7 @@ BOOST_AUTO_TEST_CASE(bare_call_return_data)
 
 BOOST_AUTO_TEST_CASE(delegatecall_return_value)
 {
-	if (dev::test::Options::get().evmVersion().supportsReturndata())
+	if (solidity::test::CommonOptions::get().evmVersion().supportsReturndata())
 	{
 		char const* sourceCode = R"DELIMITER(
 			contract C {
@@ -13296,10 +12685,10 @@ BOOST_AUTO_TEST_CASE(function_types_sig)
 		}
 	)";
 	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(asString(FixedHash<4>(dev::keccak256("f()")).asBytes())));
-	ABI_CHECK(callContractFunction("g()"), encodeArgs(asString(FixedHash<4>(dev::keccak256("f()")).asBytes())));
-	ABI_CHECK(callContractFunction("h()"), encodeArgs(asString(FixedHash<4>(dev::keccak256("f()")).asBytes())));
-	ABI_CHECK(callContractFunction("i()"), encodeArgs(asString(FixedHash<4>(dev::keccak256("x()")).asBytes())));
+	ABI_CHECK(callContractFunction("f()"), encodeArgs(asString(FixedHash<4>(util::keccak256("f()")).asBytes())));
+	ABI_CHECK(callContractFunction("g()"), encodeArgs(asString(FixedHash<4>(util::keccak256("f()")).asBytes())));
+	ABI_CHECK(callContractFunction("h()"), encodeArgs(asString(FixedHash<4>(util::keccak256("f()")).asBytes())));
+	ABI_CHECK(callContractFunction("i()"), encodeArgs(asString(FixedHash<4>(util::keccak256("x()")).asBytes())));
 }
 
 BOOST_AUTO_TEST_CASE(constant_string)
@@ -13349,307 +12738,6 @@ BOOST_AUTO_TEST_CASE(address_overload_resolution)
 	compileAndRun(sourceCode, 0, "D");
 	BOOST_CHECK(callContractFunction("f()") == encodeArgs(u256(1)));
 	BOOST_CHECK(callContractFunction("g()") == encodeArgs(u256(5)));
-}
-
-BOOST_AUTO_TEST_CASE(snark)
-{
-	char const* sourceCode = R"(
-	library Pairing {
-		struct G1Point {
-			uint X;
-			uint Y;
-		}
-		// Encoding of field elements is: X[0] * z + X[1]
-		struct G2Point {
-			uint[2] X;
-			uint[2] Y;
-		}
-
-		/// @return the generator of G1
-		function P1() internal returns (G1Point memory) {
-			return G1Point(1, 2);
-		}
-
-		/// @return the generator of G2
-		function P2() internal returns (G2Point memory) {
-			return G2Point(
-				[11559732032986387107991004021392285783925812861821192530917403151452391805634,
-				 10857046999023057135944570762232829481370756359578518086990519993285655852781],
-				[4082367875863433681332203403145435568316851327593401208105741076214120093531,
-				 8495653923123431417604973247489272438418190587263600148770280649306958101930]
-			);
-		}
-
-		/// @return the negation of p, i.e. p.add(p.negate()) should be zero.
-		function negate(G1Point memory p) internal returns (G1Point memory) {
-			// The prime q in the base field F_q for G1
-			uint q = 21888242871839275222246405745257275088696311157297823662689037894645226208583;
-			if (p.X == 0 && p.Y == 0)
-				return G1Point(0, 0);
-			return G1Point(p.X, q - (p.Y % q));
-		}
-
-		/// @return the sum of two points of G1
-		function add(G1Point memory p1, G1Point memory p2) internal returns (G1Point memory r) {
-			uint[4] memory input;
-			input[0] = p1.X;
-			input[1] = p1.Y;
-			input[2] = p2.X;
-			input[3] = p2.Y;
-			bool success;
-			assembly {
-				success := call(sub(gas, 2000), 6, 0, input, 0xc0, r, 0x60)
-				// Use "invalid" to make gas estimation work
-				switch success case 0 { invalid() }
-			}
-			require(success);
-		}
-
-		/// @return the product of a point on G1 and a scalar, i.e.
-		/// p == p.mul(1) and p.add(p) == p.mul(2) for all points p.
-		function mul(G1Point memory p, uint s) internal returns (G1Point memory r) {
-			uint[3] memory input;
-			input[0] = p.X;
-			input[1] = p.Y;
-			input[2] = s;
-			bool success;
-			assembly {
-				success := call(sub(gas, 2000), 7, 0, input, 0x80, r, 0x60)
-				// Use "invalid" to make gas estimation work
-				switch success case 0 { invalid() }
-			}
-			require(success);
-		}
-
-		/// @return the result of computing the pairing check
-		/// e(p1[0], p2[0]) *  .... * e(p1[n], p2[n]) == 1
-		/// For example pairing([P1(), P1().negate()], [P2(), P2()]) should
-		/// return true.
-		function pairing(G1Point[] memory p1, G2Point[] memory p2) internal returns (bool) {
-			require(p1.length == p2.length);
-			uint elements = p1.length;
-			uint inputSize = p1.length * 6;
-			uint[] memory input = new uint[](inputSize);
-			for (uint i = 0; i < elements; i++)
-			{
-				input[i * 6 + 0] = p1[i].X;
-				input[i * 6 + 1] = p1[i].Y;
-				input[i * 6 + 2] = p2[i].X[0];
-				input[i * 6 + 3] = p2[i].X[1];
-				input[i * 6 + 4] = p2[i].Y[0];
-				input[i * 6 + 5] = p2[i].Y[1];
-			}
-			uint[1] memory out;
-			bool success;
-			assembly {
-				success := call(sub(gas, 2000), 8, 0, add(input, 0x20), mul(inputSize, 0x20), out, 0x20)
-				// Use "invalid" to make gas estimation work
-				switch success case 0 { invalid() }
-			}
-			require(success);
-			return out[0] != 0;
-		}
-		function pairingProd2(G1Point memory a1, G2Point memory a2, G1Point memory b1, G2Point memory b2) internal returns (bool) {
-			G1Point[] memory p1 = new G1Point[](2);
-			G2Point[] memory p2 = new G2Point[](2);
-			p1[0] = a1;
-			p1[1] = b1;
-			p2[0] = a2;
-			p2[1] = b2;
-			return pairing(p1, p2);
-		}
-		function pairingProd3(
-				G1Point memory a1, G2Point memory a2,
-				G1Point memory b1, G2Point memory b2,
-				G1Point memory c1, G2Point memory c2
-		) internal returns (bool) {
-			G1Point[] memory p1 = new G1Point[](3);
-			G2Point[] memory p2 = new G2Point[](3);
-			p1[0] = a1;
-			p1[1] = b1;
-			p1[2] = c1;
-			p2[0] = a2;
-			p2[1] = b2;
-			p2[2] = c2;
-			return pairing(p1, p2);
-		}
-		function pairingProd4(
-				G1Point memory a1, G2Point memory a2,
-				G1Point memory b1, G2Point memory b2,
-				G1Point memory c1, G2Point memory c2,
-				G1Point memory d1, G2Point memory d2
-		) internal returns (bool) {
-			G1Point[] memory p1 = new G1Point[](4);
-			G2Point[] memory p2 = new G2Point[](4);
-			p1[0] = a1;
-			p1[1] = b1;
-			p1[2] = c1;
-			p1[3] = d1;
-			p2[0] = a2;
-			p2[1] = b2;
-			p2[2] = c2;
-			p2[3] = d2;
-			return pairing(p1, p2);
-		}
-	}
-
-	contract Test {
-		using Pairing for *;
-		struct VerifyingKey {
-			Pairing.G2Point A;
-			Pairing.G1Point B;
-			Pairing.G2Point C;
-			Pairing.G2Point gamma;
-			Pairing.G1Point gammaBeta1;
-			Pairing.G2Point gammaBeta2;
-			Pairing.G2Point Z;
-			Pairing.G1Point[] IC;
-		}
-		struct Proof {
-			Pairing.G1Point A;
-			Pairing.G1Point A_p;
-			Pairing.G2Point B;
-			Pairing.G1Point B_p;
-			Pairing.G1Point C;
-			Pairing.G1Point C_p;
-			Pairing.G1Point K;
-			Pairing.G1Point H;
-		}
-		function f() public returns (bool) {
-			Pairing.G1Point memory p1;
-			Pairing.G1Point memory p2;
-			p1.X = 1; p1.Y = 2;
-			p2.X = 1; p2.Y = 2;
-			Pairing.G1Point memory explict_sum = Pairing.add(p1, p2);
-			Pairing.G1Point memory scalar_prod = Pairing.mul(p1, 2);
-			return (explict_sum.X == scalar_prod.X &&
-					explict_sum.Y == scalar_prod.Y);
-		}
-		function g() public returns (bool) {
-			Pairing.G1Point memory x = Pairing.add(Pairing.P1(), Pairing.negate(Pairing.P1()));
-			// should be zero
-			return (x.X == 0 && x.Y == 0);
-		}
-		function testMul() public returns (bool) {
-			Pairing.G1Point memory p;
-			// @TODO The points here are reported to be not well-formed
-			p.X = 14125296762497065001182820090155008161146766663259912659363835465243039841726;
-			p.Y = 16229134936871442251132173501211935676986397196799085184804749187146857848057;
-			p = Pairing.mul(p, 13986731495506593864492662381614386532349950841221768152838255933892789078521);
-			return
-				p.X == 18256332256630856740336504687838346961237861778318632856900758565550522381207 &&
-				p.Y == 6976682127058094634733239494758371323697222088503263230319702770853579280803;
-		}
-		function pair() public returns (bool) {
-			Pairing.G2Point memory fiveTimesP2 = Pairing.G2Point(
-				[4540444681147253467785307942530223364530218361853237193970751657229138047649, 20954117799226682825035885491234530437475518021362091509513177301640194298072],
-				[11631839690097995216017572651900167465857396346217730511548857041925508482915, 21508930868448350162258892668132814424284302804699005394342512102884055673846]
-			);
-			// The prime p in the base field F_p for G1
-			uint p = 21888242871839275222246405745257275088696311157297823662689037894645226208583;
-			Pairing.G1Point[] memory g1points = new Pairing.G1Point[](2);
-			Pairing.G2Point[] memory g2points = new Pairing.G2Point[](2);
-			// check e(5 P1, P2)e(-P1, 5 P2) == 1
-			g1points[0] = Pairing.P1().mul(5);
-			g1points[1] = Pairing.P1().negate();
-			g2points[0] = Pairing.P2();
-			g2points[1] = fiveTimesP2;
-			if (!Pairing.pairing(g1points, g2points))
-				return false;
-			// check e(P1, P2)e(-P1, P2) == 1
-			g1points[0] = Pairing.P1();
-			g1points[1] = Pairing.P1();
-			g1points[1].Y = p - g1points[1].Y;
-			g2points[0] = Pairing.P2();
-			g2points[1] = Pairing.P2();
-			if (!Pairing.pairing(g1points, g2points))
-				return false;
-			return true;
-		}
-		function verifyingKey() internal returns (VerifyingKey memory vk) {
-			vk.A = Pairing.G2Point([0x209dd15ebff5d46c4bd888e51a93cf99a7329636c63514396b4a452003a35bf7, 0x04bf11ca01483bfa8b34b43561848d28905960114c8ac04049af4b6315a41678], [0x2bb8324af6cfc93537a2ad1a445cfd0ca2a71acd7ac41fadbf933c2a51be344d, 0x120a2a4cf30c1bf9845f20c6fe39e07ea2cce61f0c9bb048165fe5e4de877550]);
-			vk.B = Pairing.G1Point(0x2eca0c7238bf16e83e7a1e6c5d49540685ff51380f309842a98561558019fc02, 0x03d3260361bb8451de5ff5ecd17f010ff22f5c31cdf184e9020b06fa5997db84);
-			vk.C = Pairing.G2Point([0x2e89718ad33c8bed92e210e81d1853435399a271913a6520736a4729cf0d51eb, 0x01a9e2ffa2e92599b68e44de5bcf354fa2642bd4f26b259daa6f7ce3ed57aeb3], [0x14a9a87b789a58af499b314e13c3d65bede56c07ea2d418d6874857b70763713, 0x178fb49a2d6cd347dc58973ff49613a20757d0fcc22079f9abd10c3baee24590]);
-			vk.gamma = Pairing.G2Point([0x25f83c8b6ab9de74e7da488ef02645c5a16a6652c3c71a15dc37fe3a5dcb7cb1, 0x22acdedd6308e3bb230d226d16a105295f523a8a02bfc5e8bd2da135ac4c245d], [0x065bbad92e7c4e31bf3757f1fe7362a63fbfee50e7dc68da116e67d600d9bf68, 0x06d302580dc0661002994e7cd3a7f224e7ddc27802777486bf80f40e4ca3cfdb]);
-			vk.gammaBeta1 = Pairing.G1Point(0x15794ab061441e51d01e94640b7e3084a07e02c78cf3103c542bc5b298669f21, 0x14db745c6780e9df549864cec19c2daf4531f6ec0c89cc1c7436cc4d8d300c6d);
-			vk.gammaBeta2 = Pairing.G2Point([0x1f39e4e4afc4bc74790a4a028aff2c3d2538731fb755edefd8cb48d6ea589b5e, 0x283f150794b6736f670d6a1033f9b46c6f5204f50813eb85c8dc4b59db1c5d39], [0x140d97ee4d2b36d99bc49974d18ecca3e7ad51011956051b464d9e27d46cc25e, 0x0764bb98575bd466d32db7b15f582b2d5c452b36aa394b789366e5e3ca5aabd4]);
-			vk.Z = Pairing.G2Point([0x217cee0a9ad79a4493b5253e2e4e3a39fc2df38419f230d341f60cb064a0ac29, 0x0a3d76f140db8418ba512272381446eb73958670f00cf46f1d9e64cba057b53c], [0x26f64a8ec70387a13e41430ed3ee4a7db2059cc5fc13c067194bcc0cb49a9855, 0x2fd72bd9edb657346127da132e5b82ab908f5816c826acb499e22f2412d1a2d7]);
-			vk.IC = new Pairing.G1Point[](10);
-			vk.IC[0] = Pairing.G1Point(0x0aee46a7ea6e80a3675026dfa84019deee2a2dedb1bbe11d7fe124cb3efb4b5a, 0x044747b6e9176e13ede3a4dfd0d33ccca6321b9acd23bf3683a60adc0366ebaf);
-			vk.IC[1] = Pairing.G1Point(0x1e39e9f0f91fa7ff8047ffd90de08785777fe61c0e3434e728fce4cf35047ddc, 0x2e0b64d75ebfa86d7f8f8e08abbe2e7ae6e0a1c0b34d028f19fa56e9450527cb);
-			vk.IC[2] = Pairing.G1Point(0x1c36e713d4d54e3a9644dffca1fc524be4868f66572516025a61ca542539d43f, 0x042dcc4525b82dfb242b09cb21909d5c22643dcdbe98c4d082cc2877e96b24db);
-			vk.IC[3] = Pairing.G1Point(0x17d5d09b4146424bff7e6fb01487c477bbfcd0cdbbc92d5d6457aae0b6717cc5, 0x02b5636903efbf46db9235bbe74045d21c138897fda32e079040db1a16c1a7a1);
-			vk.IC[4] = Pairing.G1Point(0x0f103f14a584d4203c27c26155b2c955f8dfa816980b24ba824e1972d6486a5d, 0x0c4165133b9f5be17c804203af781bcf168da7386620479f9b885ecbcd27b17b);
-			vk.IC[5] = Pairing.G1Point(0x232063b584fb76c8d07995bee3a38fa7565405f3549c6a918ddaa90ab971e7f8, 0x2ac9b135a81d96425c92d02296322ad56ffb16299633233e4880f95aafa7fda7);
-			vk.IC[6] = Pairing.G1Point(0x09b54f111d3b2d1b2fe1ae9669b3db3d7bf93b70f00647e65c849275de6dc7fe, 0x18b2e77c63a3e400d6d1f1fbc6e1a1167bbca603d34d03edea231eb0ab7b14b4);
-			vk.IC[7] = Pairing.G1Point(0x0c54b42137b67cc268cbb53ac62b00ecead23984092b494a88befe58445a244a, 0x18e3723d37fae9262d58b548a0575f59d9c3266db7afb4d5739555837f6b8b3e);
-			vk.IC[8] = Pairing.G1Point(0x0a6de0e2240aa253f46ce0da883b61976e3588146e01c9d8976548c145fe6e4a, 0x04fbaa3a4aed4bb77f30ebb07a3ec1c7d77a7f2edd75636babfeff97b1ea686e);
-			vk.IC[9] = Pairing.G1Point(0x111e2e2a5f8828f80ddad08f9f74db56dac1cc16c1cb278036f79a84cf7a116f, 0x1d7d62e192b219b9808faa906c5ced871788f6339e8d91b83ac1343e20a16b30);
-		}
-		function verify(uint[] memory input, Proof memory proof) internal returns (uint) {
-			VerifyingKey memory vk = verifyingKey();
-			require(input.length + 1 == vk.IC.length);
-			// Compute the linear combination vk_x
-			Pairing.G1Point memory vk_x = Pairing.G1Point(0, 0);
-			for (uint i = 0; i < input.length; i++)
-				vk_x = Pairing.add(vk_x, Pairing.mul(vk.IC[i + 1], input[i]));
-			vk_x = Pairing.add(vk_x, vk.IC[0]);
-			if (!Pairing.pairingProd2(proof.A, vk.A, Pairing.negate(proof.A_p), Pairing.P2())) return 1;
-			if (!Pairing.pairingProd2(vk.B, proof.B, Pairing.negate(proof.B_p), Pairing.P2())) return 2;
-			if (!Pairing.pairingProd2(proof.C, vk.C, Pairing.negate(proof.C_p), Pairing.P2())) return 3;
-			if (!Pairing.pairingProd3(
-				proof.K, vk.gamma,
-				Pairing.negate(Pairing.add(vk_x, Pairing.add(proof.A, proof.C))), vk.gammaBeta2,
-				Pairing.negate(vk.gammaBeta1), proof.B
-			)) return 4;
-			if (!Pairing.pairingProd3(
-					Pairing.add(vk_x, proof.A), proof.B,
-					Pairing.negate(proof.H), vk.Z,
-					Pairing.negate(proof.C), Pairing.P2()
-			)) return 5;
-			return 0;
-		}
-		event Verified(string);
-		function verifyTx() public returns (bool) {
-			uint[] memory input = new uint[](9);
-			Proof memory proof;
-			proof.A = Pairing.G1Point(12873740738727497448187997291915224677121726020054032516825496230827252793177, 21804419174137094775122804775419507726154084057848719988004616848382402162497);
-			proof.A_p = Pairing.G1Point(7742452358972543465462254569134860944739929848367563713587808717088650354556, 7324522103398787664095385319014038380128814213034709026832529060148225837366);
-			proof.B = Pairing.G2Point(
-				[8176651290984905087450403379100573157708110416512446269839297438960217797614, 15588556568726919713003060429893850972163943674590384915350025440408631945055],
-				[15347511022514187557142999444367533883366476794364262773195059233657571533367, 4265071979090628150845437155927259896060451682253086069461962693761322642015]);
-			proof.B_p = Pairing.G1Point(2979746655438963305714517285593753729335852012083057917022078236006592638393, 6470627481646078059765266161088786576504622012540639992486470834383274712950);
-			proof.C = Pairing.G1Point(6851077925310461602867742977619883934042581405263014789956638244065803308498, 10336382210592135525880811046708757754106524561907815205241508542912494488506);
-			proof.C_p = Pairing.G1Point(12491625890066296859584468664467427202390981822868257437245835716136010795448, 13818492518017455361318553880921248537817650587494176379915981090396574171686);
-			proof.H = Pairing.G1Point(12091046215835229523641173286701717671667447745509192321596954139357866668225, 14446807589950902476683545679847436767890904443411534435294953056557941441758);
-			proof.K = Pairing.G1Point(21341087976609916409401737322664290631992568431163400450267978471171152600502, 2942165230690572858696920423896381470344658299915828986338281196715687693170);
-			input[0] = 13986731495506593864492662381614386532349950841221768152838255933892789078521;
-			input[1] = 622860516154313070522697309645122400675542217310916019527100517240519630053;
-			input[2] = 11094488463398718754251685950409355128550342438297986977413505294941943071569;
-			input[3] = 6627643779954497813586310325594578844876646808666478625705401786271515864467;
-			input[4] = 2957286918163151606545409668133310005545945782087581890025685458369200827463;
-			input[5] = 1384290496819542862903939282897996566903332587607290986044945365745128311081;
-			input[6] = 5613571677741714971687805233468747950848449704454346829971683826953541367271;
-			input[7] = 9643208548031422463313148630985736896287522941726746581856185889848792022807;
-			input[8] = 18066496933330839731877828156604;
-			if (verify(input, proof) == 0) {
-				emit Verified("Transaction successfully verified.");
-				return true;
-			} else {
-				return false;
-			}
-		}
-
-	}
-	)";
-	compileAndRun(sourceCode, 0, "Pairing");
-	compileAndRun(sourceCode, 0, "Test", bytes(), map<string, Address>{{"Pairing", m_contractAddress}});
-	// Disabled because the point seems to be not well-formed, we need to find another example.
-	//BOOST_CHECK(callContractFunction("testMul()") == encodeArgs(true));
-	BOOST_CHECK(callContractFunction("f()") == encodeArgs(true));
-	BOOST_CHECK(callContractFunction("g()") == encodeArgs(true));
-	BOOST_CHECK(callContractFunction("pair()") == encodeArgs(true));
-	BOOST_CHECK(callContractFunction("verifyTx()") == encodeArgs(true));
 }
 
 BOOST_AUTO_TEST_CASE(abi_encode)
@@ -13807,11 +12895,15 @@ BOOST_AUTO_TEST_CASE(abi_encodePacked_from_storage)
 				return abi.encodePacked(uint8(0x01), small_fixed, uint8(0x02));
 			}
 			function sd() public returns (bytes memory) {
-				small_dyn.length = 9;
-				small_dyn[0] = 0xfffff1;
-				small_dyn[2] = 0xfffff2;
-				small_dyn[5] = 0xfffff3;
-				small_dyn[8] = 0xfffff4;
+				small_dyn.push(0xfffff1);
+				small_dyn.push(0x00);
+				small_dyn.push(0xfffff2);
+				small_dyn.push(0x00);
+				small_dyn.push(0x00);
+				small_dyn.push(0xfffff3);
+				small_dyn.push(0x00);
+				small_dyn.push(0x00);
+				small_dyn.push(0xfffff4);
 				return abi.encodePacked(uint8(0x01), small_dyn, uint8(0x02));
 			}
 			function sfs() public returns (bytes memory) {
@@ -13829,11 +12921,11 @@ BOOST_AUTO_TEST_CASE(abi_encodePacked_from_storage)
 				return abi.encodePacked(uint8(0x01), large_fixed, uint8(0x02));
 			}
 			function ld() public returns (bytes memory) {
-				large_dyn.length = 5;
-				large_dyn[0] = 2**248-1;
-				large_dyn[1] = 0xfffff2;
-				large_dyn[2] = 2**248-2;
-				large_dyn[4] = 0xfffff4;
+				large_dyn.push(2**248-1);
+				large_dyn.push(0xfffff2);
+				large_dyn.push(2**248-2);
+				large_dyn.push(0);
+				large_dyn.push(0xfffff4);
 				return abi.encodePacked(uint8(0x01), large_dyn, uint8(0x02));
 			}
 			function bytes_short() public returns (bytes memory) {
@@ -13991,9 +13083,8 @@ BOOST_AUTO_TEST_CASE(abi_encodePackedV2_structs)
 				s.b = -7;
 				s.c[0] = 2;
 				s.c[1] = 3;
-				s.d.length = 2;
-				s.d[0] = -7;
-				s.d[1] = -8;
+				s.d.push(-7);
+				s.d.push(-8);
 			}
 			function testStorage() public {
 				emit E(s);
@@ -14007,13 +13098,13 @@ BOOST_AUTO_TEST_CASE(abi_encodePackedV2_structs)
 	compileAndRun(sourceCode, 0, "C");
 	bytes structEnc = encodeArgs(int(0x12), u256(-7), int(2), int(3), u256(-7), u256(-8));
 	ABI_CHECK(callContractFunction("testStorage()"), encodeArgs());
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 2);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("E((uint8,int16,uint8[2],int16[]))")));
-	BOOST_CHECK_EQUAL(m_logs[0].topics[1], dev::keccak256(asString(structEnc)));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 2);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("E((uint8,int16,uint8[2],int16[]))")));
+	BOOST_CHECK_EQUAL(logTopic(0, 1), util::keccak256(asString(structEnc)));
 	ABI_CHECK(callContractFunction("testMemory()"), encodeArgs());
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 2);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("E((uint8,int16,uint8[2],int16[]))")));
-	BOOST_CHECK_EQUAL(m_logs[0].topics[1], dev::keccak256(asString(structEnc)));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 2);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("E((uint8,int16,uint8[2],int16[]))")));
+	BOOST_CHECK_EQUAL(logTopic(0, 1), util::keccak256(asString(structEnc)));
 }
 
 BOOST_AUTO_TEST_CASE(abi_encodePackedV2_nestedArray)
@@ -14040,9 +13131,9 @@ BOOST_AUTO_TEST_CASE(abi_encodePackedV2_nestedArray)
 	compileAndRun(sourceCode, 0, "C");
 	bytes structEnc = encodeArgs(1, 2, 3, 0, 0, 0, 0, 4);
 	ABI_CHECK(callContractFunction("testNestedArrays()"), encodeArgs());
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 2);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("E((uint8,int16)[2][][3])")));
-	BOOST_CHECK_EQUAL(m_logs[0].topics[1], dev::keccak256(asString(structEnc)));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 2);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("E((uint8,int16)[2][][3])")));
+	BOOST_CHECK_EQUAL(logTopic(0, 1), util::keccak256(asString(structEnc)));
 }
 
 BOOST_AUTO_TEST_CASE(abi_encodePackedV2_arrayOfStrings)
@@ -14053,9 +13144,8 @@ BOOST_AUTO_TEST_CASE(abi_encodePackedV2_arrayOfStrings)
 			string[] x;
 			event E(string[] indexed);
 			constructor() public {
-				x.length = 2;
-				x[0] = "abc";
-				x[1] = "0123456789012345678901234567890123456789";
+				x.push("abc");
+				x.push("0123456789012345678901234567890123456789");
 			}
 			function testStorage() public {
 				emit E(x);
@@ -14069,14 +13159,43 @@ BOOST_AUTO_TEST_CASE(abi_encodePackedV2_arrayOfStrings)
 	compileAndRun(sourceCode, 0, "C");
 	bytes arrayEncoding = encodeArgs("abc", "0123456789012345678901234567890123456789");
 	ABI_CHECK(callContractFunction("testStorage()"), encodeArgs());
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 2);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("E(string[])")));
-	BOOST_CHECK_EQUAL(m_logs[0].topics[1], dev::keccak256(asString(arrayEncoding)));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 2);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("E(string[])")));
+	BOOST_CHECK_EQUAL(logTopic(0, 1), util::keccak256(asString(arrayEncoding)));
 	ABI_CHECK(callContractFunction("testMemory()"), encodeArgs());
-	BOOST_REQUIRE_EQUAL(m_logs[0].topics.size(), 2);
-	BOOST_CHECK_EQUAL(m_logs[0].topics[0], dev::keccak256(string("E(string[])")));
-	BOOST_CHECK_EQUAL(m_logs[0].topics[1], dev::keccak256(asString(arrayEncoding)));
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 2);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("E(string[])")));
+	BOOST_CHECK_EQUAL(logTopic(0, 1), util::keccak256(asString(arrayEncoding)));
 }
+
+BOOST_AUTO_TEST_CASE(event_signature_in_library)
+{
+	// This tests a bug that was present where the "internal signature"
+	// for structs was also used for events.
+	char const* sourceCode = R"(
+		pragma experimental ABIEncoderV2;
+		library L {
+			struct S {
+				uint8 a;
+				int16 b;
+			}
+			event E(S indexed, S);
+			function f() internal {
+				S memory s;
+				emit E(s, s);
+			}
+		}
+		contract C {
+			constructor() public {
+				L.f();
+			}
+		}
+	)";
+	compileAndRun(sourceCode, 0, "C");
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 2);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("E((uint8,int16),(uint8,int16))")));
+}
+
 
 BOOST_AUTO_TEST_CASE(abi_encode_with_selector)
 {
@@ -14269,12 +13388,17 @@ BOOST_AUTO_TEST_CASE(abi_encode_empty_string)
 			}
 		}
 	)";
+
 	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(
-		0x40, 0xc0,
-		0x60, 0x20, 0x00, 0x00,
-		0x00
-	));
+	if (!solidity::test::CommonOptions::get().useABIEncoderV2)
+	{
+		// ABI Encoder V2 has slightly different padding, tested below.
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(
+			0x40, 0xc0,
+			0x60, 0x20, 0x00, 0x00,
+			0x00
+		));
+	}
 }
 
 BOOST_AUTO_TEST_CASE(abi_encode_empty_string_v2)
@@ -14390,7 +13514,7 @@ BOOST_AUTO_TEST_CASE(staticcall_for_view_and_pure)
 	compileAndRun(sourceCode, 0, "D");
 	// This should work (called via CALL)
 	ABI_CHECK(callContractFunction("f()"), encodeArgs(1));
-	if (dev::test::Options::get().evmVersion().hasStaticCall())
+	if (solidity::test::CommonOptions::get().evmVersion().hasStaticCall())
 	{
 		// These should throw (called via STATICCALL)
 		ABI_CHECK(callContractFunction("fview()"), encodeArgs());
@@ -14405,7 +13529,7 @@ BOOST_AUTO_TEST_CASE(staticcall_for_view_and_pure)
 
 BOOST_AUTO_TEST_CASE(bitwise_shifting_constantinople)
 {
-	if (!dev::test::Options::get().evmVersion().hasBitwiseShifting())
+	if (!solidity::test::CommonOptions::get().evmVersion().hasBitwiseShifting())
 		return;
 	char const* sourceCode = R"(
 		contract C {
@@ -14426,23 +13550,25 @@ BOOST_AUTO_TEST_CASE(bitwise_shifting_constantinople)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	BOOST_CHECK(callContractFunction("shl(uint256,uint256)", u256(1), u256(2)) == encodeArgs(u256(4)));
-	BOOST_CHECK(callContractFunction("shl(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(1)) == encodeArgs(u256("0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe")));
-	BOOST_CHECK(callContractFunction("shl(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(256)) == encodeArgs(u256(0)));
-	BOOST_CHECK(callContractFunction("shr(uint256,uint256)", u256(3), u256(1)) == encodeArgs(u256(1)));
-	BOOST_CHECK(callContractFunction("shr(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(1)) == encodeArgs(u256("0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
-	BOOST_CHECK(callContractFunction("shr(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(255)) == encodeArgs(u256(1)));
-	BOOST_CHECK(callContractFunction("shr(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(256)) == encodeArgs(u256(0)));
-	BOOST_CHECK(callContractFunction("sar(uint256,uint256)", u256(3), u256(1)) == encodeArgs(u256(1)));
-	BOOST_CHECK(callContractFunction("sar(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(1)) == encodeArgs(u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
-	BOOST_CHECK(callContractFunction("sar(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(255)) == encodeArgs(u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
-	BOOST_CHECK(callContractFunction("sar(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(256)) == encodeArgs(u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		BOOST_CHECK(callContractFunction("shl(uint256,uint256)", u256(1), u256(2)) == encodeArgs(u256(4)));
+		BOOST_CHECK(callContractFunction("shl(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(1)) == encodeArgs(u256("0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe")));
+		BOOST_CHECK(callContractFunction("shl(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(256)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("shr(uint256,uint256)", u256(3), u256(1)) == encodeArgs(u256(1)));
+		BOOST_CHECK(callContractFunction("shr(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(1)) == encodeArgs(u256("0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
+		BOOST_CHECK(callContractFunction("shr(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(255)) == encodeArgs(u256(1)));
+		BOOST_CHECK(callContractFunction("shr(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(256)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("sar(uint256,uint256)", u256(3), u256(1)) == encodeArgs(u256(1)));
+		BOOST_CHECK(callContractFunction("sar(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(1)) == encodeArgs(u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
+		BOOST_CHECK(callContractFunction("sar(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(255)) == encodeArgs(u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
+		BOOST_CHECK(callContractFunction("sar(uint256,uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), u256(256)) == encodeArgs(u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(bitwise_shifting_constants_constantinople)
 {
-	if (!dev::test::Options::get().evmVersion().hasBitwiseShifting())
+	if (!solidity::test::CommonOptions::get().evmVersion().hasBitwiseShifting())
 		return;
 	char const* sourceCode = R"(
 		contract C {
@@ -14496,13 +13622,138 @@ BOOST_AUTO_TEST_CASE(bitwise_shifting_constants_constantinople)
 			}
 		}
 	)";
-	compileAndRun(sourceCode);
-	BOOST_CHECK(callContractFunction("shl_1()") == encodeArgs(u256(1)));
-	BOOST_CHECK(callContractFunction("shl_2()") == encodeArgs(u256(1)));
-	BOOST_CHECK(callContractFunction("shl_3()") == encodeArgs(u256(1)));
-	BOOST_CHECK(callContractFunction("shr_1()") == encodeArgs(u256(1)));
-	BOOST_CHECK(callContractFunction("shr_2()") == encodeArgs(u256(1)));
-	BOOST_CHECK(callContractFunction("shr_3()") == encodeArgs(u256(1)));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		BOOST_CHECK(callContractFunction("shl_1()") == encodeArgs(u256(1)));
+		BOOST_CHECK(callContractFunction("shl_2()") == encodeArgs(u256(1)));
+		BOOST_CHECK(callContractFunction("shl_3()") == encodeArgs(u256(1)));
+		BOOST_CHECK(callContractFunction("shr_1()") == encodeArgs(u256(1)));
+		BOOST_CHECK(callContractFunction("shr_2()") == encodeArgs(u256(1)));
+		BOOST_CHECK(callContractFunction("shr_3()") == encodeArgs(u256(1)));
+	)
+}
+
+BOOST_AUTO_TEST_CASE(bitwise_shifting_constantinople_combined)
+{
+	if (!solidity::test::CommonOptions::get().evmVersion().hasBitwiseShifting())
+		return;
+	char const* sourceCode = R"(
+		contract C {
+			function shl_zero(uint a) public returns (uint c) {
+				assembly {
+					c := shl(0, a)
+				}
+			}
+			function shr_zero(uint a) public returns (uint c) {
+				assembly {
+					c := shr(0, a)
+				}
+			}
+			function sar_zero(uint a) public returns (uint c) {
+				assembly {
+					c := sar(0, a)
+				}
+			}
+
+			function shl_large(uint a) public returns (uint c) {
+				assembly {
+					c := shl(0x110, a)
+				}
+			}
+			function shr_large(uint a) public returns (uint c) {
+				assembly {
+					c := shr(0x110, a)
+				}
+			}
+			function sar_large(uint a) public returns (uint c) {
+				assembly {
+					c := sar(0x110, a)
+				}
+			}
+
+			function shl_combined(uint a) public returns (uint c) {
+				assembly {
+					c := shl(4, shl(12, a))
+				}
+			}
+			function shr_combined(uint a) public returns (uint c) {
+				assembly {
+					c := shr(4, shr(12, a))
+				}
+			}
+			function sar_combined(uint a) public returns (uint c) {
+				assembly {
+					c := sar(4, sar(12, a))
+				}
+			}
+
+			function shl_combined_large(uint a) public returns (uint c) {
+				assembly {
+					c := shl(0xd0, shl(0x40, a))
+				}
+			}
+			function shl_combined_overflow(uint a) public returns (uint c) {
+				assembly {
+					c := shl(0x01, shl(not(0x00), a))
+				}
+			}
+			function shr_combined_large(uint a) public returns (uint c) {
+				assembly {
+					c := shr(0xd0, shr(0x40, a))
+				}
+			}
+			function shr_combined_overflow(uint a) public returns (uint c) {
+				assembly {
+					c := shr(0x01, shr(not(0x00), a))
+				}
+			}
+			function sar_combined_large(uint a) public returns (uint c) {
+				assembly {
+					c := sar(0xd0, sar(0x40, a))
+				}
+			}
+		}
+	)";
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+
+		BOOST_CHECK(callContractFunction("shl_zero(uint256)", u256(0)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("shl_zero(uint256)", u256("0xffff")) == encodeArgs(u256("0xffff")));
+		BOOST_CHECK(callContractFunction("shl_zero(uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == encodeArgs(u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
+		BOOST_CHECK(callContractFunction("shr_zero(uint256)", u256(0)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("shr_zero(uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == encodeArgs(u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
+		BOOST_CHECK(callContractFunction("sar_zero(uint256)", u256(0)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("sar_zero(uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == encodeArgs(u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
+
+		BOOST_CHECK(callContractFunction("shl_large(uint256)", u256(0)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("shl_large(uint256)", u256("0xffff")) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("shl_large(uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("shr_large(uint256)", u256(0)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("shr_large(uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("sar_large(uint256)", u256(0)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("sar_large(uint256)", u256("0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("sar_large(uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == encodeArgs(u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
+
+		BOOST_CHECK(callContractFunction("shl_combined(uint256)", u256(0)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("shl_combined(uint256)", u256("0xffff")) == encodeArgs(u256("0xffff0000")));
+		BOOST_CHECK(callContractFunction("shl_combined(uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == encodeArgs(u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000")));
+		BOOST_CHECK(callContractFunction("shr_combined(uint256)", u256(0)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("shr_combined(uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == encodeArgs(u256("0x0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
+		BOOST_CHECK(callContractFunction("sar_combined(uint256)", u256(0)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("sar_combined(uint256)", u256("0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == encodeArgs(u256("0x00007fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
+		BOOST_CHECK(callContractFunction("sar_combined(uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == encodeArgs(u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
+
+		BOOST_CHECK(callContractFunction("shl_combined_large(uint256)", u256(0)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("shl_combined_large(uint256)", u256("0xffff")) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("shl_combined_large(uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("shl_combined_overflow(uint256)", u256(2)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("shr_combined_large(uint256)", u256(0)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("shr_combined_large(uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("shr_combined_overflow(uint256)", u256(2)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("sar_combined_large(uint256)", u256(0)) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("sar_combined_large(uint256)", u256("0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == encodeArgs(u256(0)));
+		BOOST_CHECK(callContractFunction("sar_combined_large(uint256)", u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) == encodeArgs(u256("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(senders_balance)
@@ -14789,21 +14040,22 @@ BOOST_AUTO_TEST_CASE(flipping_sign_tests)
 	compileAndRun(sourceCode);
 	ABI_CHECK(callContractFunction("f()"), encodeArgs(true));
 }
-
 BOOST_AUTO_TEST_CASE(external_public_override)
 {
 	char const* sourceCode = R"(
 		contract A {
-			function f() external returns (uint) { return 1; }
+			function f() external virtual returns (uint) { return 1; }
 		}
 		contract B is A {
-			function f() public returns (uint) { return 2; }
+			function f() public override returns (uint) { return 2; }
 			function g() public returns (uint) { return f(); }
 		}
 	)";
-	compileAndRun(sourceCode);
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(2));
-	ABI_CHECK(callContractFunction("g()"), encodeArgs(2));
+	ALSO_VIA_YUL(
+		compileAndRun(sourceCode);
+		ABI_CHECK(callContractFunction("f()"), encodeArgs(2));
+		ABI_CHECK(callContractFunction("g()"), encodeArgs(2));
+	)
 }
 
 BOOST_AUTO_TEST_CASE(base_access_to_function_type_variables)
@@ -14951,8 +14203,255 @@ BOOST_AUTO_TEST_CASE(code_access_content)
 	ABI_CHECK(callContractFunction("testCreation()"), encodeArgs(true));
 }
 
+BOOST_AUTO_TEST_CASE(contract_name)
+{
+	char const* sourceCode = R"(
+		contract C {
+			string public nameAccessor = type(C).name;
+			string public constant constantNameAccessor = type(C).name;
+
+			function name() public virtual pure returns (string memory) {
+				return type(C).name;
+			}
+		}
+		contract D is C {
+			function name() public override pure returns (string memory) {
+				return type(D).name;
+			}
+			function name2() public pure returns (string memory) {
+				return type(C).name;
+			}
+		}
+		contract ThisIsAVeryLongContractNameExceeding256bits {
+			string public nameAccessor = type(ThisIsAVeryLongContractNameExceeding256bits).name;
+			string public constant constantNameAccessor = type(ThisIsAVeryLongContractNameExceeding256bits).name;
+
+			function name() public pure returns (string memory) {
+				return type(ThisIsAVeryLongContractNameExceeding256bits).name;
+			}
+		}
+	)";
+
+	compileAndRun(sourceCode, 0, "C");
+	bytes argsC = encodeArgs(u256(0x20), u256(1), "C");
+	ABI_CHECK(callContractFunction("name()"), argsC);
+	ABI_CHECK(callContractFunction("nameAccessor()"), argsC);
+	ABI_CHECK(callContractFunction("constantNameAccessor()"), argsC);
+
+	compileAndRun(sourceCode, 0, "D");
+	bytes argsD = encodeArgs(u256(0x20), u256(1), "D");
+	ABI_CHECK(callContractFunction("name()"), argsD);
+	ABI_CHECK(callContractFunction("name2()"), argsC);
+
+	string longName = "ThisIsAVeryLongContractNameExceeding256bits";
+	compileAndRun(sourceCode, 0, longName);
+	bytes argsLong = encodeArgs(u256(0x20), u256(longName.length()), longName);
+	ABI_CHECK(callContractFunction("name()"), argsLong);
+	ABI_CHECK(callContractFunction("nameAccessor()"), argsLong);
+	ABI_CHECK(callContractFunction("constantNameAccessor()"), argsLong);
+}
+
+BOOST_AUTO_TEST_CASE(event_wrong_abi_name)
+{
+	char const* sourceCode = R"(
+		library ClientReceipt {
+			event Deposit(Test indexed _from, bytes32 indexed _id, uint _value);
+			function deposit(bytes32 _id) public {
+				Test a;
+				emit Deposit(a, _id, msg.value);
+			}
+		}
+		contract Test {
+			function f() public {
+				ClientReceipt.deposit("123");
+			}
+		}
+	)";
+	compileAndRun(sourceCode, 0, "ClientReceipt", bytes());
+	compileAndRun(sourceCode, 0, "Test", bytes(), map<string, Address>{{"ClientReceipt", m_contractAddress}});
+
+	callContractFunction("f()");
+	BOOST_REQUIRE_EQUAL(numLogs(), 1);
+	BOOST_CHECK_EQUAL(logAddress(0), m_contractAddress);
+	BOOST_REQUIRE_EQUAL(numLogTopics(0), 3);
+	BOOST_CHECK_EQUAL(logTopic(0, 0), util::keccak256(string("Deposit(address,bytes32,uint256)")));
+}
+
+BOOST_AUTO_TEST_CASE(uninitialized_internal_storage_function)
+{
+	char const* sourceCode = R"(
+		contract Test {
+			function() internal x;
+			function f() public returns (uint r) {
+				function() internal t = x;
+				assembly { r := t }
+			}
+		}
+	)";
+	compileAndRun(sourceCode, 0, "Test");
+
+	bytes result = callContractFunction("f()");
+	BOOST_CHECK(!result.empty());
+	BOOST_CHECK(result != encodeArgs(0));
+}
+
+BOOST_AUTO_TEST_CASE(uninitialized_internal_storage_function_call)
+{
+	char const* sourceCode = R"(
+		contract Test {
+			function() internal x;
+			function f() public returns (uint r) {
+				x();
+				return 2;
+			}
+		}
+	)";
+	compileAndRun(sourceCode, 0, "Test");
+
+	ABI_CHECK(callContractFunction("f()"), bytes{});
+}
+
+BOOST_AUTO_TEST_CASE(dirty_scratch_space_prior_to_constant_optimiser)
+{
+	char const* sourceCode = R"(
+		contract C {
+			event X(uint);
+			constructor() public {
+				assembly {
+					// make scratch space dirty
+					mstore(0, 0x4242424242424242424242424242424242424242424242424242424242424242)
+				}
+				uint x = 0x0000000000001234123412431234123412412342112341234124312341234124;
+				// This is just to create many instances of x
+				emit X(x + f() * g(tx.origin) ^ h(block.number));
+				assembly {
+					// make scratch space dirty
+					mstore(0, 0x4242424242424242424242424242424242424242424242424242424242424242)
+				}
+				emit X(x);
+			}
+			function f() internal pure returns (uint) {
+				return 0x0000000000001234123412431234123412412342112341234124312341234124;
+			}
+			function g(address a) internal pure returns (uint) {
+				return uint(a) * 0x0000000000001234123412431234123412412342112341234124312341234124;
+			}
+			function h(uint a) internal pure returns (uint) {
+				return a * 0x0000000000001234123412431234123412412342112341234124312341234124;
+			}
+		}
+	)";
+	compileAndRun(sourceCode, 0, "C");
+	BOOST_REQUIRE_EQUAL(numLogs(), 2);
+	BOOST_CHECK_EQUAL(logAddress(1), m_contractAddress);
+	ABI_CHECK(
+		logData(1),
+		encodeArgs(u256("0x0000000000001234123412431234123412412342112341234124312341234124"))
+	);
+}
+
+BOOST_AUTO_TEST_CASE(try_catch_library_call)
+{
+	char const* sourceCode = R"(
+		library L {
+			struct S { uint x; }
+			function integer(uint t, bool b) public view returns (uint) {
+				if (b) {
+					return t;
+				} else {
+					revert("failure");
+				}
+			}
+			function stru(S storage t, bool b) public view returns (uint) {
+				if (b) {
+					return t.x;
+				} else {
+					revert("failure");
+				}
+			}
+		}
+		contract C {
+			using L for L.S;
+			L.S t;
+			function f(bool b) public returns (uint, string memory) {
+				uint x = 8;
+				try L.integer(x, b) returns (uint _x) {
+					return (_x, "");
+				} catch Error(string memory message) {
+					return (18, message);
+				}
+			}
+			function g(bool b) public returns (uint, string memory) {
+				t.x = 9;
+				try t.stru(b) returns (uint x) {
+					return (x, "");
+				} catch Error(string memory message) {
+					return (19, message);
+				}
+			}
+		}
+	)";
+	if (solidity::test::CommonOptions::get().evmVersion().supportsReturndata())
+	{
+		compileAndRun(sourceCode, 0, "L", bytes());
+		compileAndRun(sourceCode, 0, "C", bytes(), map<string, Address>{{"L", m_contractAddress}});
+
+		ABI_CHECK(callContractFunction("f(bool)", true), encodeArgs(8, 0x40, 0));
+		ABI_CHECK(callContractFunction("f(bool)", false), encodeArgs(18, 0x40, 7, "failure"));
+		ABI_CHECK(callContractFunction("g(bool)", true), encodeArgs(9, 0x40, 0));
+		ABI_CHECK(callContractFunction("g(bool)", false), encodeArgs(19, 0x40, 7, "failure"));
+	}
+}
+
+BOOST_AUTO_TEST_CASE(strip_reason_strings)
+{
+	char const* sourceCode = R"(
+		contract C {
+			function f(bool _x) public pure returns (uint) {
+				require(_x, "some reason");
+				return 7;
+			}
+			function g(bool _x) public pure returns (uint) {
+				string memory x = "some indirect reason";
+				require(_x, x);
+				return 8;
+			}
+			function f1(bool _x) public pure returns (uint) {
+				if (!_x) revert( /* */ "some reason" /* */ );
+				return 9;
+			}
+			function g1(bool _x) public pure returns (uint) {
+				string memory x = "some indirect reason";
+				if (!_x) revert(x);
+				return 10;
+			}
+		}
+	)";
+	m_revertStrings = RevertStrings::Default;
+	compileAndRun(sourceCode, 0, "C");
+
+	if (
+		m_optimiserSettings == OptimiserSettings::minimal() ||
+		m_optimiserSettings == OptimiserSettings::none()
+	)
+		// check that the reason string IS part of the binary.
+		BOOST_CHECK(toHex(m_output).find("736f6d6520726561736f6e") != std::string::npos);
+
+	m_revertStrings = RevertStrings::Strip;
+	compileAndRun(sourceCode, 0, "C");
+	// check that the reason string is NOT part of the binary.
+	BOOST_CHECK(toHex(m_output).find("736f6d6520726561736f6e") == std::string::npos);
+
+	ABI_CHECK(callContractFunction("f(bool)", true), encodeArgs(7));
+	ABI_CHECK(callContractFunction("f(bool)", false), encodeArgs());
+	ABI_CHECK(callContractFunction("g(bool)", true), encodeArgs(8));
+	ABI_CHECK(callContractFunction("g(bool)", false), encodeArgs());
+	ABI_CHECK(callContractFunction("f1(bool)", true), encodeArgs(9));
+	ABI_CHECK(callContractFunction("f1(bool)", false), encodeArgs());
+	ABI_CHECK(callContractFunction("g1(bool)", true), encodeArgs(10));
+	ABI_CHECK(callContractFunction("g1(bool)", false), encodeArgs());
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
-}
-}
 } // end namespaces

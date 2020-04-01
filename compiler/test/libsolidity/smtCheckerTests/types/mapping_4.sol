@@ -8,5 +8,5 @@ contract C
 		assert(x != map[x]);
 	}
 }
-// ----
-// Warning: (125-144): Assertion violation happens here
+// ====
+// SMTSolvers: z3

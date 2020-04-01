@@ -17,34 +17,43 @@
 
 #pragma once
 
-#include <map>
-#include <set>
+#include <libsolidity/ast/ASTVisitor.h>
+
 #include <vector>
+#include <set>
 
-namespace dev
+namespace solidity::frontend::smt
 {
-namespace solidity
-{
-
-class ASTNode;
-class VariableDeclaration;
 
 /**
- * This class collects information about which local variables of value type
- * are modified in which parts of the AST.
+ * This class computes information about which variables are modified in a certain subtree.
  */
-class VariableUsage
+class VariableUsage: private ASTConstVisitor
 {
 public:
-	explicit VariableUsage(ASTNode const& _node);
+	/// @param _outerCallstack the current callstack in the callers context.
+	std::set<VariableDeclaration const*> touchedVariables(ASTNode const& _node, std::vector<CallableDeclaration const*> const& _outerCallstack);
 
-	std::vector<VariableDeclaration const*> touchedVariables(ASTNode const& _node) const;
+	/// Sets whether to inline function calls.
+	void setFunctionInlining(bool _inlineFunction) { m_inlineFunctionCalls = _inlineFunction; }
 
 private:
-	// Variable touched by a specific AST node.
-	std::map<ASTNode const*, VariableDeclaration const*> m_touchedVariable;
-	std::map<ASTNode const*, std::vector<ASTNode const*>> m_children;
+	void endVisit(Identifier const& _node) override;
+	void endVisit(IndexAccess const& _node) override;
+	void endVisit(FunctionCall const& _node) override;
+	bool visit(FunctionDefinition const& _node) override;
+	void endVisit(FunctionDefinition const& _node) override;
+	void endVisit(ModifierInvocation const& _node) override;
+	void endVisit(PlaceholderStatement const& _node) override;
+
+	/// Checks whether an identifier should be added to touchedVariables.
+	void checkIdentifier(Identifier const& _identifier);
+
+	std::set<VariableDeclaration const*> m_touchedVariables;
+	std::vector<CallableDeclaration const*> m_callStack;
+	CallableDeclaration const* m_lastCall = nullptr;
+
+	bool m_inlineFunctionCalls = false;
 };
 
-}
 }

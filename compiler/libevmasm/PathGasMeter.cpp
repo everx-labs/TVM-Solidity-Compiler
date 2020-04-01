@@ -19,15 +19,15 @@
  * @date 2015
  */
 
-#include "PathGasMeter.h"
+#include <libevmasm/PathGasMeter.h>
 #include <libevmasm/KnownState.h>
 #include <libevmasm/SemanticInformation.h>
 
 using namespace std;
-using namespace dev;
-using namespace dev::eth;
+using namespace solidity;
+using namespace solidity::evmasm;
 
-PathGasMeter::PathGasMeter(AssemblyItems const& _items, solidity::EVMVersion _evmVersion):
+PathGasMeter::PathGasMeter(AssemblyItems const& _items, langutil::EVMVersion _evmVersion):
 	m_items(_items), m_evmVersion(_evmVersion)
 {
 	for (size_t i = 0; i < m_items.size(); ++i)
@@ -40,7 +40,7 @@ GasMeter::GasConsumption PathGasMeter::estimateMax(
 	shared_ptr<KnownState> const& _state
 )
 {
-	auto path = unique_ptr<GasPath>(new GasPath());
+	auto path = make_unique<GasPath>();
 	path->index = _startIndex;
 	path->state = _state->copy();
 	queue(move(path));
@@ -120,7 +120,7 @@ GasMeter::GasConsumption PathGasMeter::handleQueueItem()
 
 		for (u256 const& tag: jumpTags)
 		{
-			auto newPath = unique_ptr<GasPath>(new GasPath());
+			auto newPath = make_unique<GasPath>();
 			newPath->index = m_items.size();
 			if (m_tagPositions.count(tag))
 				newPath->index = m_tagPositions.at(tag);

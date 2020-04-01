@@ -20,51 +20,51 @@
  * Tests for a fixed fee registrar contract.
  */
 
-#include <string>
-#include <tuple>
-#include <boost/test/unit_test.hpp>
 #include <test/libsolidity/SolidityExecutionFramework.h>
 #include <test/contracts/ContractInterface.h>
+#include <test/EVMHost.h>
+
+#include <boost/test/unit_test.hpp>
+
+#include <string>
 
 using namespace std;
-using namespace dev::test;
+using namespace solidity;
+using namespace solidity::util;
+using namespace solidity::test;
 
-namespace dev
-{
-namespace solidity
-{
-namespace test
+namespace solidity::frontend::test
 {
 
 namespace
 {
 
 static char const* registrarCode = R"DELIMITER(
-pragma solidity >=0.4.0 <0.6.0;
+pragma solidity >=0.4.0 <0.7.0;
 
-contract NameRegister {
-	function addr(string memory _name) public view returns (address o_owner);
-	function name(address _owner) public view returns (string memory o_name);
+abstract contract NameRegister {
+	function addr(string memory _name) public virtual view returns (address o_owner);
+	function name(address _owner) public view virtual returns (string memory o_name);
 }
 
-contract Registrar is NameRegister {
+abstract contract Registrar is NameRegister {
 	event Changed(string indexed name);
 	event PrimaryChanged(string indexed name, address indexed addr);
 
-	function owner(string memory _name) public view returns (address o_owner);
-	function addr(string memory _name) public view returns (address o_address);
-	function subRegistrar(string memory _name) public view returns (address o_subRegistrar);
-	function content(string memory _name) public view returns (bytes32 o_content);
+	function owner(string memory _name) public view virtual returns (address o_owner);
+	function addr(string memory _name) public virtual override view returns (address o_address);
+	function subRegistrar(string memory _name) public virtual view returns (address o_subRegistrar);
+	function content(string memory _name) public virtual view returns (bytes32 o_content);
 
-	function name(address _owner) public view returns (string memory o_name);
+	function name(address _owner) public virtual override view returns (string memory o_name);
 }
 
-contract AuctionSystem {
+abstract contract AuctionSystem {
 	event AuctionEnded(string indexed _name, address _winner);
 	event NewBid(string indexed _name, address _bidder, uint _value);
 
 	/// Function that is called once an auction ends.
-	function onAuctionEnd(string memory _name) internal;
+	function onAuctionEnd(string memory _name) internal virtual;
 
 	function bid(string memory _name, address payable _bidder, uint _value) internal {
 		Auction storage auction = m_auctions[_name];
@@ -116,7 +116,7 @@ contract GlobalRegistrar is Registrar, AuctionSystem {
 		// TODO: Populate with hall-of-fame.
 	}
 
-	function onAuctionEnd(string memory _name) internal {
+	function onAuctionEnd(string memory _name) internal override {
 		Auction storage auction = m_auctions[_name];
 		Record storage record = m_toRecord[_name];
 		address previousOwner = record.owner;
@@ -201,11 +201,11 @@ contract GlobalRegistrar is Registrar, AuctionSystem {
 		return true;
 	}
 
-	function owner(string memory _name) public view returns (address) { return m_toRecord[_name].owner; }
-	function addr(string memory _name) public view returns (address) { return m_toRecord[_name].primary; }
-	function subRegistrar(string memory _name) public view returns (address) { return m_toRecord[_name].subRegistrar; }
-	function content(string memory _name) public view returns (bytes32) { return m_toRecord[_name].content; }
-	function name(address _addr) public view returns (string memory o_name) { return m_toName[_addr]; }
+	function owner(string memory _name) public override view returns (address) { return m_toRecord[_name].owner; }
+	function addr(string memory _name) public override view returns (address) { return m_toRecord[_name].primary; }
+	function subRegistrar(string memory _name) public override view returns (address) { return m_toRecord[_name].subRegistrar; }
+	function content(string memory _name) public override view returns (bytes32) { return m_toRecord[_name].content; }
+	function name(address _addr) public override view returns (string memory o_name) { return m_toName[_addr]; }
 
 	mapping (address => string) m_toName;
 	mapping (string => Record) m_toRecord;
@@ -220,7 +220,7 @@ protected:
 	void deployRegistrar()
 	{
 		if (!s_compiledRegistrar)
-			s_compiledRegistrar.reset(new bytes(compileContract(registrarCode, "GlobalRegistrar")));
+			s_compiledRegistrar = make_unique<bytes>(compileContract(registrarCode, "GlobalRegistrar"));
 
 		sendMessage(*s_compiledRegistrar, true);
 		BOOST_REQUIRE(m_transactionSuccessful);
@@ -277,8 +277,7 @@ protected:
 		}
 	};
 
-	size_t const m_biddingTime = size_t(7 * 24 * 3600);
-	size_t const m_renewalInterval = size_t(365 * 24 * 3600);
+	int64_t const m_biddingTime = 7 * 24 * 3600;
 };
 
 }
@@ -413,7 +412,8 @@ BOOST_AUTO_TEST_CASE(auction_simple)
 	registrar.reserve(name);
 	BOOST_CHECK_EQUAL(registrar.owner(name), 0);
 	// "wait" until auction end
-	m_rpc.test_modifyTimestamp(currentTimestamp() + m_biddingTime + 10);
+
+	m_evmHost->tx_context.block_timestamp += m_biddingTime + 10;
 	// trigger auction again
 	registrar.reserve(name);
 	BOOST_CHECK_EQUAL(registrar.owner(name), m_sender);
@@ -425,7 +425,7 @@ BOOST_AUTO_TEST_CASE(auction_bidding)
 	string name = "x";
 
 	unsigned startTime = 0x776347e2;
-	m_rpc.test_modifyTimestamp(startTime);
+	m_evmHost->tx_context.block_timestamp = startTime;
 
 	RegistrarInterface registrar(*this);
 	// initiate auction
@@ -433,57 +433,24 @@ BOOST_AUTO_TEST_CASE(auction_bidding)
 	registrar.reserve(name);
 	BOOST_CHECK_EQUAL(registrar.owner(name), 0);
 	// overbid self
-	m_rpc.test_modifyTimestamp(startTime + m_biddingTime - 10);
+	m_evmHost->tx_context.block_timestamp = startTime + m_biddingTime - 10;
 	registrar.setNextValue(12);
 	registrar.reserve(name);
 	// another bid by someone else
 	sendEther(account(1), 10 * ether);
 	m_sender = account(1);
-	m_rpc.test_modifyTimestamp(startTime + 2 * m_biddingTime - 50);
+	m_evmHost->tx_context.block_timestamp = startTime + 2 * m_biddingTime - 50;
 	registrar.setNextValue(13);
 	registrar.reserve(name);
 	BOOST_CHECK_EQUAL(registrar.owner(name), 0);
 	// end auction by first bidder (which is not highest) trying to overbid again (too late)
 	m_sender = account(0);
-	m_rpc.test_modifyTimestamp(startTime + 4 * m_biddingTime);
+	m_evmHost->tx_context.block_timestamp = startTime + 4 * m_biddingTime;
 	registrar.setNextValue(20);
-	registrar.reserve(name);
-	BOOST_CHECK_EQUAL(registrar.owner(name), account(1));
-}
-
-BOOST_AUTO_TEST_CASE(auction_renewal)
-{
-	deployRegistrar();
-
-	string name = "x";
-	RegistrarInterface registrar(*this);
-	size_t startTime = currentTimestamp();
-	// register name by auction
-	registrar.setNextValue(8);
-	registrar.reserve(name);
-	m_rpc.test_modifyTimestamp(startTime + 4 * m_biddingTime);
-	registrar.reserve(name);
-	BOOST_CHECK_EQUAL(registrar.owner(name), m_sender);
-
-	// try to re-register before interval end
-	sendEther(account(1), 10 * ether);
-	m_sender = account(1);
-	m_rpc.test_modifyTimestamp(currentTimestamp() + m_renewalInterval - 1);
-	registrar.setNextValue(80);
-	registrar.reserve(name);
-	m_rpc.test_modifyTimestamp(currentTimestamp() + m_biddingTime);
-	// if there is a bug in the renewal logic, this would transfer the ownership to account(1),
-	// but if there is no bug, this will initiate the auction, albeit with a zero bid
-	registrar.reserve(name);
-	BOOST_CHECK_EQUAL(registrar.owner(name), account(0));
-
-	registrar.setNextValue(80);
 	registrar.reserve(name);
 	BOOST_CHECK_EQUAL(registrar.owner(name), account(1));
 }
 
 BOOST_AUTO_TEST_SUITE_END()
 
-}
-}
 } // end namespaces

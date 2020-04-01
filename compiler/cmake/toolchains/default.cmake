@@ -1,5 +1,4 @@
-# Require C++14.
-# set(CMAKE_CXX_STANDARD -std=c++1z)
-set(CMAKE_CXX_FLAGS -std=c++1z)
+# Require C++17.
+set(CMAKE_CXX_STANDARD 17) # This requires at least CMake 3.8 to accept this C++17 flag.
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS OFF)

@@ -18,7 +18,7 @@
  * Interactive yul optimizer
  */
 
-#include <libdevcore/CommonIO.h>
+#include <libsolutil/CommonIO.h>
 #include <liblangutil/ErrorReporter.h>
 #include <liblangutil/Scanner.h>
 #include <libyul/AsmAnalysis.h>
@@ -27,46 +27,32 @@
 #include <libyul/AsmData.h>
 #include <libyul/AsmParser.h>
 #include <libyul/AsmPrinter.h>
+#include <libyul/Object.h>
 #include <liblangutil/SourceReferenceFormatter.h>
 
-#include <libyul/optimiser/BlockFlattener.h>
 #include <libyul/optimiser/Disambiguator.h>
-#include <libyul/optimiser/CommonSubexpressionEliminator.h>
-#include <libyul/optimiser/NameCollector.h>
-#include <libyul/optimiser/EquivalentFunctionCombiner.h>
-#include <libyul/optimiser/ExpressionSplitter.h>
-#include <libyul/optimiser/FunctionGrouper.h>
-#include <libyul/optimiser/FunctionHoister.h>
-#include <libyul/optimiser/ExpressionInliner.h>
-#include <libyul/optimiser/FullInliner.h>
-#include <libyul/optimiser/ForLoopInitRewriter.h>
-#include <libyul/optimiser/MainFunction.h>
-#include <libyul/optimiser/Rematerialiser.h>
-#include <libyul/optimiser/ExpressionSimplifier.h>
-#include <libyul/optimiser/UnusedPruner.h>
-#include <libyul/optimiser/ExpressionJoiner.h>
-#include <libyul/optimiser/RedundantAssignEliminator.h>
-#include <libyul/optimiser/SSAReverser.h>
-#include <libyul/optimiser/SSATransform.h>
+#include <libyul/optimiser/OptimiserStep.h>
 #include <libyul/optimiser/StackCompressor.h>
-#include <libyul/optimiser/StructuralSimplifier.h>
-#include <libyul/optimiser/VarDeclInitializer.h>
+#include <libyul/optimiser/VarNameCleaner.h>
+#include <libyul/optimiser/Suite.h>
 
 #include <libyul/backends/evm/EVMDialect.h>
 
-#include <libdevcore/JSON.h>
+#include <libsolutil/JSON.h>
 
 #include <boost/program_options.hpp>
 
 #include <string>
 #include <sstream>
 #include <iostream>
+#include <variant>
 
 using namespace std;
-using namespace dev;
-using namespace langutil;
-using namespace dev::solidity;
-using namespace yul;
+using namespace solidity;
+using namespace solidity::util;
+using namespace solidity::langutil;
+using namespace solidity::frontend;
+using namespace solidity::yul;
 
 namespace po = boost::program_options;
 
@@ -78,10 +64,7 @@ public:
 		SourceReferenceFormatter formatter(cout);
 
 		for (auto const& error: m_errors)
-			formatter.printExceptionInformation(
-				*error,
-				(error->type() == Error::Type::Warning) ? "Warning" : "Error"
-			);
+			formatter.printErrorInformation(*error);
 	}
 
 	bool parse(string const& _input)
@@ -99,8 +82,6 @@ public:
 		AsmAnalyzer analyzer(
 			*m_analysisInfo,
 			errorReporter,
-			EVMVersion::byzantium(),
-			langutil::Error::Type::SyntaxError,
 			m_dialect
 		);
 		if (!analyzer.analyze(*m_ast) || !errorReporter.errors().empty())
@@ -112,6 +93,40 @@ public:
 		return true;
 	}
 
+	void printUsageBanner(
+		map<char, string> const& _optimizationSteps,
+		map<char, string> const& _extraOptions,
+		size_t _columns
+	)
+	{
+		auto hasShorterString = [](auto const& a, auto const& b){ return a.second.size() < b.second.size(); };
+		size_t longestDescriptionLength = max(
+			max_element(_optimizationSteps.begin(), _optimizationSteps.end(), hasShorterString)->second.size(),
+			max_element(_extraOptions.begin(), _extraOptions.end(), hasShorterString)->second.size()
+		);
+
+		size_t index = 0;
+		auto printPair = [&](auto const& optionAndDescription)
+		{
+			cout << optionAndDescription.first << ": ";
+			cout << setw(longestDescriptionLength) << setiosflags(ios::left);
+			cout << optionAndDescription.second << " ";
+
+			++index;
+			if (index % _columns == 0)
+				cout << endl;
+		};
+
+		for (auto const& optionAndDescription: _extraOptions)
+		{
+			yulAssert(_optimizationSteps.count(optionAndDescription.first) == 0, "");
+			printPair(optionAndDescription);
+		}
+
+		for (auto const& abbreviationAndName: _optimizationSteps)
+			printPair(abbreviationAndName);
+	}
+
 	void runInteractive(string source)
 	{
 		bool disambiguated = false;
@@ -121,93 +136,62 @@ public:
 			cout << source << endl;
 			if (!parse(source))
 				return;
+			set<YulString> reservedIdentifiers;
 			if (!disambiguated)
 			{
-				*m_ast = boost::get<yul::Block>(Disambiguator(*m_dialect, *m_analysisInfo)(*m_ast));
+				*m_ast = std::get<yul::Block>(Disambiguator(m_dialect, *m_analysisInfo)(*m_ast));
 				m_analysisInfo.reset();
-				m_nameDispenser = make_shared<NameDispenser>(*m_dialect, *m_ast);
+				m_nameDispenser = make_shared<NameDispenser>(m_dialect, *m_ast, reservedIdentifiers);
 				disambiguated = true;
 			}
-			cout << "(q)quit/(f)flatten/(c)se/initialize var(d)ecls/(x)plit/(j)oin/(g)rouper/(h)oister/" << endl;
-			cout << "  (e)xpr inline/(i)nline/(s)implify/(u)nusedprune/ss(a) transform/" << endl;
-			cout << "  (r)edundant assign elim./re(m)aterializer/f(o)r-loop-pre-rewriter/" << endl;
-			cout << "  s(t)ructural simplifier/equi(v)alent function combiner/ssa re(V)erser/? " << endl;
-			cout << "  stack com(p)ressor? " << endl;
+			map<char, string> const& abbreviationMap = OptimiserSuite::stepAbbreviationToNameMap();
+			map<char, string> const& extraOptions = {
+				{'q', "quit"},
+				{'l', "VarNameCleaner"},
+				{'p', "StackCompressor"},
+			};
+
+			printUsageBanner(abbreviationMap, extraOptions, 4);
+			cout << "? ";
 			cout.flush();
 			int option = readStandardInputChar();
 			cout << ' ' << char(option) << endl;
-			switch (option)
+
+			OptimiserStepContext context{m_dialect, *m_nameDispenser, reservedIdentifiers};
+
+			auto abbreviationAndName = abbreviationMap.find(option);
+			if (abbreviationAndName != abbreviationMap.end())
+			{
+				OptimiserStep const& step = *OptimiserSuite::allSteps().at(abbreviationAndName->second);
+				step.run(context, *m_ast);
+			}
+			else switch (option)
 			{
 			case 'q':
 				return;
-			case 'f':
-				BlockFlattener{}(*m_ast);
-				break;
-			case 'o':
-				ForLoopInitRewriter{}(*m_ast);
-				break;
-			case 'c':
-				(CommonSubexpressionEliminator{*m_dialect})(*m_ast);
-				break;
-			case 'd':
-				(VarDeclInitializer{})(*m_ast);
-				break;
-			case 'x':
-				ExpressionSplitter{*m_dialect, *m_nameDispenser}(*m_ast);
-				break;
-			case 'j':
-				ExpressionJoiner::run(*m_ast);
-				break;
-			case 'g':
-				(FunctionGrouper{})(*m_ast);
-				break;
-			case 'h':
-				(FunctionHoister{})(*m_ast);
-				break;
-			case 'e':
-				ExpressionInliner{*m_dialect, *m_ast}.run();
-				break;
-			case 'i':
-				FullInliner(*m_ast, *m_nameDispenser).run();
-				break;
-			case 's':
-				ExpressionSimplifier::run(*m_dialect, *m_ast);
-				break;
-			case 't':
-				(StructuralSimplifier{*m_dialect})(*m_ast);
-				break;
-			case 'u':
-				UnusedPruner::runUntilStabilised(*m_dialect, *m_ast);
-				break;
-			case 'a':
-				SSATransform::run(*m_ast, *m_nameDispenser);
-				break;
-			case 'r':
-				RedundantAssignEliminator::run(*m_dialect, *m_ast);
-				break;
-			case 'm':
-				Rematerialiser::run(*m_dialect, *m_ast);
-				break;
-			case 'v':
-				EquivalentFunctionCombiner::run(*m_ast);
-				break;
-			case 'V':
-				SSAReverser::run(*m_ast);
+			case 'l':
+				VarNameCleaner::run(context, *m_ast);
+				// VarNameCleaner destroys the unique names guarantee of the disambiguator.
+				disambiguated = false;
 				break;
 			case 'p':
-				StackCompressor::run(m_dialect, *m_ast);
+			{
+				Object obj;
+				obj.code = m_ast;
+				StackCompressor::run(m_dialect, obj, true, 16);
 				break;
+			}
 			default:
 				cout << "Unknown option." << endl;
 			}
-			source = AsmPrinter{}(*m_ast);
+			source = AsmPrinter{m_dialect}(*m_ast);
 		}
 	}
 
 private:
 	ErrorList m_errors;
 	shared_ptr<yul::Block> m_ast;
-	shared_ptr<Dialect> m_dialect{EVMDialect::strictAssemblyForEVMObjects()};
+	Dialect const& m_dialect{EVMDialect::strictAssemblyForEVMObjects(EVMVersion{})};
 	shared_ptr<AsmAnalysisInfo> m_analysisInfo;
 	shared_ptr<NameDispenser> m_nameDispenser;
 };

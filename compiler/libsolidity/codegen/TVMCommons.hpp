@@ -36,15 +36,13 @@
 #include "TVMStructCompiler.hpp"
 
 using namespace std;
-using namespace dev;
-using namespace dev::solidity;
+using namespace solidity;
+using namespace solidity::frontend;
 using namespace langutil;
+using namespace solidity::util;
 
-#define DBG(x) cout << x << endl;
+namespace solidity::frontend {
 
-namespace dev {
-namespace solidity {
-	
 template <typename T>	using string_map	= std::map<std::string, T>;
 template <typename T>	using ptr_vec		= std::vector<ASTPointer<T>>;
 
@@ -53,7 +51,7 @@ T1 const* to(T2 const* ptr) { return dynamic_cast<T1 const*>(ptr); }
 
 template<typename T, typename... Args>
 constexpr bool isIn(T v, Args... args) {
-	return (... || (v == args));
+	return (... || (v == (args)));
 }
 
 constexpr unsigned int str2int(const char* str, int h = 0) {
@@ -61,13 +59,27 @@ constexpr unsigned int str2int(const char* str, int h = 0) {
 }
 
 template <typename T, typename TT>
-T get_from_map(const string_map<T>& map, string key, TT defValue) {
+T get_from_map(const string_map<T>& map, const string& key, TT defValue) {
 	if (map.count(key) > 0)
 		return map.at(key);
 	return defValue;
 }
 
 bool ends_with(const string& str, const string& suffix);
+
+std::string functionName(FunctionDefinition const* _function) {
+	if (_function->isConstructor()) {
+		solAssert(false, "");
+	}
+
+	if (_function->isReceive()) {
+		return "receive";
+	}
+	if (_function->isFallback()) {
+		return "fallback";
+	}
+	return _function->name();
+}
 
 class TVMStack {
 	int m_size;
@@ -122,7 +134,7 @@ public:
 		}
 		return o.str();
 	}
-	
+
 	void ensureSize(int savedStackSize, const string& location) const {
 		solAssert(savedStackSize == m_size, "stack: " + toString(savedStackSize)
 		                                    + " vs " + toString(m_size) + " at " + location);
@@ -130,22 +142,24 @@ public:
 
 };
 
-enum class OnEndContinuation {
-	DropStack,
-	FixStack,
-	Nothing
-};
-
 struct CodeLines {
 	vector<string> lines;
 	int tabQty{};
-	
-	string str(const string& indent) const {
+
+	string str(const string& indent = "") const {
 		std::ostringstream o;
 		for (const string& s : lines) {
 			o << indent << s << endl;
 		}
 		return o.str();
+	}
+
+	void addTabs(const int qty = 1) {
+		tabQty += qty;
+	}
+
+	void subTabs(const int qty = 1) {
+		tabQty -= qty;
 	}
 
 	void startContinuation() {
@@ -160,7 +174,7 @@ struct CodeLines {
 	}
 
 	void push(const string& cmd) {
-		if (cmd.empty()) {
+		if (cmd.empty() || cmd == "\n") {
 			return;
 		}
 
@@ -172,38 +186,11 @@ struct CodeLines {
 			lines.push_back(std::string(tabQty, '\t') + cmd);
 		}
 	}
-	
-	void pushCont(const CodeLines& cont, const string& comment = "") {
-		if (comment.empty())
-			push("PUSHCONT {");
-		else
-			push("PUSHCONT { ; " + comment);
-		for (const auto& l : cont.lines)
-			push(string("\t") + l);
-		push("}");
-	}
-	
+
 	void append(const CodeLines& oth) {
 		for (const auto& s : oth.lines) {
-			lines.push_back(s);
+			lines.push_back(std::string(tabQty, '\t') + s);
 		}
-	}
-
-	void generateGlobl(const string& fname, const bool isPublic) {
-		push(".globl\t" + fname);
-		if (isPublic) {
-			push(".public\t" + fname);
-		}
-		push(".type\t"  + fname + ", @function");
-	}
-
-	void generateInternal(const string& fname, const int id) {
-		push(".internal-alias :" + fname + ",        " + toString(id));
-		push(".internal\t:" + fname);
-	}
-
-	void generateMacro(const string& functionName) {
-		push(".macro " + functionName);
 	}
 };
 
@@ -223,7 +210,6 @@ struct ContInfo {
 
 class TVMScanner: public ASTConstVisitor
 {
-	int m_loopDepth = 0;
 public:
 	explicit TVMScanner(const ASTNode& node) {
 		node.accept(*this);
@@ -263,8 +249,34 @@ protected:
 			m_info.canContinue = true;
 	}
 
+	bool visit(FunctionCall const& _functionCall) override {
+		auto ma = to<MemberAccess>(&_functionCall.expression());
+        if (ma && ma->memberName() == "pubkey" && ma->expression().annotation().type->category() == Type::Category::Magic) {
+	        auto expr = to<Identifier>(&ma->expression());
+	        if (expr && expr->name() == "msg") {
+		        haveMsgPubkey = true;
+	        }
+        }
+
+
+		auto identifier = to<Identifier>(&_functionCall.expression());
+		if (identifier) {
+			auto functionDefinition = to<FunctionDefinition>(identifier->annotation().referencedDeclaration);
+			if (functionDefinition && !functionDefinition->isInline()) {
+				havePrivateFunctionCall = true;
+			}
+		}
+
+		return true;
+	}
+
+private:
+	int m_loopDepth = 0;
+
 public:
 	ContInfo m_info;
+	bool haveMsgPubkey = false;
+	bool havePrivateFunctionCall = false;
 };
 
 template <typename T>
@@ -313,7 +325,7 @@ ContInfo getInfo(const Statement& statement) {
 	return info;
 }
 
-bool isAddressType(const Type* type) {
+bool isAddressOrContractType(const Type* type) {
 	return to<AddressType>(type) || to<ContractType>(type);
 }
 
@@ -327,11 +339,6 @@ bool isByteArrayOrString(const Type* type) {
 	return arrayType && arrayType->isByteArray();
 }
 
-bool isUsualStruct(const Type* type) {
-	auto structType = to<StructType>(type);
-	return structType;
-}
-
 struct AddressInfo {
 
 	static int stdAddrLength() {
@@ -340,14 +347,14 @@ struct AddressInfo {
 	}
 
 	static int minBitLength() {
-		// addr_var$11 anycast:(Maybe Anycast) addr_len:(## 9) workchain_id:int32 address:(bits addr_len) = MsgAddressInt;
-		return 2 + 1 + 9 + 32 + 1;
+		// addr_none$00 = MsgAddressExt;
+		return 2;
 	}
 
 	static int maxBitLength() {
 		// addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt
 		// anycast_info$_ depth:(#<= 30) { depth >= 1 } rewrite_pfx:(bits depth) = Anycast;
-		return 2 + 1 + (2 * 30) + 8 + 256;
+		return 2 + 1 + (5 + 30) + 8 + 256;
 	}
 };
 
@@ -395,16 +402,16 @@ bool isTvmIntrinsic(const string& name) {
 	return 0 == name.find("tvm_");
 }
 
-bool isInlineFunction(FunctionDefinition const* f) {
-	return ends_with(f->name(), "_inline") || f->isInline();
+bool isFunctionForInlining(FunctionDefinition const* f) {
+	return ends_with(f->name(), "_inline") || f->isInline() || f->isFallback() || f->isReceive() || f->name() == "onBounce";
 }
 
 const Type* getType(const Expression* expr) {
-	return expr->annotation().type.get();
+	return expr->annotation().type;
 }
 
 const Type* getType(const VariableDeclaration* var) {
-	return var->annotation().type.get();
+	return var->annotation().type;
 }
 
 bool isIntegralType(const Type* type) {
@@ -452,7 +459,7 @@ IntegerType getKeyTypeOfArray() {
 }
 
 string storeIntegralOrAddress(const Type* type, bool reverse) {
-	if (isAddressType(type))
+	if (isAddressOrContractType(type))
 		return reverse ? "STSLICER" : "STSLICE";
 	auto ti = TypeInfo(type);
 	if (ti.isNumeric) {
@@ -506,7 +513,8 @@ vector<ContractDefinition const*> getContractsChain(ContractDefinition const* co
 	return contracts;
 }
 
-auto getContractFunctionPairs(ContractDefinition const* contract) {
+vector<std::pair<FunctionDefinition const*, ContractDefinition const*>>
+getContractFunctionPairs(ContractDefinition const* contract) {
 	vector<pair<FunctionDefinition const*, ContractDefinition const*>> result;
 	for (ContractDefinition const* c : getContractsChain(contract)) {
 		for (const auto f : c->definedFunctions())
@@ -540,8 +548,8 @@ bool isAddressThis(const FunctionCall* fcall) {
 		return false;
 	auto arguments = fcall->arguments();
 	if (auto etn = to<ElementaryTypeNameExpression>(&fcall->expression())) {
-		if (etn->typeName().token() == Token::Address) {
-			solAssert(arguments.size() >= 1, "");
+		if (etn->type().typeName().token() == Token::Address) {
+			solAssert(!arguments.empty(), "");
 			if (auto arg0 = to<Identifier>(arguments[0].get())) {
 				if (arg0->name() == "this")
 					return true;
@@ -551,35 +559,43 @@ bool isAddressThis(const FunctionCall* fcall) {
 	return false;
 }
 
-// List of all function with a given name
-auto getContractFunctions(ContractDefinition const* contract, const string& fname) {
+// List of all function but constructors with a given name
+vector<FunctionDefinition const*>
+getContractFunctions(ContractDefinition const* contract, const string& funcName) {
 	vector<FunctionDefinition const*> result;
-	for (auto pair : getContractFunctionPairs(contract)) {
-		if (pair.first->name() == fname)
-			result.push_back(pair.first);
+	for (auto &[functionDefinition, contractDefinition] : getContractFunctionPairs(contract)) {
+		(void)contractDefinition;	// suppress unused variable error
+		if (functionDefinition->isConstructor()) {
+			continue;
+		}
+		if (functionName(functionDefinition) == funcName)
+			result.push_back(functionDefinition);
 	}
 	return result;
 }
 
-// List of all contract functions including derived
-auto getContractFunctions(ContractDefinition const* contract) {
+// List of all contract but constructor and  TvmIntrinsic functions including derived
+vector<FunctionDefinition const*>
+getContractFunctions(ContractDefinition const* contract) {
 	vector<FunctionDefinition const*> result;
-	for (auto pair : getContractFunctionPairs(contract)) {
-		auto f = pair.first;
-		auto fn = f->name();
-		if (isTvmIntrinsic(fn))
+	for (auto &[functionDefinition, contractDefinition] : getContractFunctionPairs(contract)) {
+		(void)contractDefinition;	// suppress unused variable error
+		if (functionDefinition->isConstructor())
+			continue;
+		const std::string funName = functionName(functionDefinition); // for fallback and recieve name is empty
+		if (isTvmIntrinsic(funName))
 			continue;
 		// TODO: not needed check?
-		if (!f->isConstructor() && f != getContractFunctions(contract, fn).back())
+		if (functionDefinition != getContractFunctions(contract, funName).back())
 			continue;
-		result.push_back(f);
+		result.push_back(functionDefinition);
 	}
 	return result;
 }
 
 const ContractDefinition* getSuperContract(const ContractDefinition* currentContract,
-														 const ContractDefinition* mainContract,
-														 string fname) {
+											const ContractDefinition* mainContract,
+											const string& fname) {
 	ContractDefinition const* prev = nullptr;
 	for (auto c : getContractsChain(mainContract)) {
 		if (c == currentContract)
@@ -623,9 +639,56 @@ struct FuncInfo {
 	string						m_internalName;
 
 	FuncInfo(const FunctionDefinition* f, const ContractDefinition* c)
-		: m_function(f), m_contract(c) 
+		: m_function(f), m_contract(c)
 	{
 	}
+};
+
+class PragmaDirectiveHelper {
+public:
+	explicit PragmaDirectiveHelper(std::vector<PragmaDirective const *> const& _pragmaDirectives) :
+			pragmaDirectives{_pragmaDirectives} {
+	}
+
+	bool havePubkey() const {
+		return std::get<0>(haveHeader("pubkey"));
+	}
+
+	bool haveTime() const {
+		return std::get<0>(haveHeader("time"));
+	}
+
+	bool haveExpire() const {
+		return std::get<0>(haveHeader("expire"));
+	}
+
+	int abiVersion() const {
+		return std::get<0>(haveHeader("v1"))? 1 : 2;
+	}
+
+	std::tuple<bool, PragmaDirective const *> haveHeader(const std::string& str) const {
+		for (PragmaDirective const *pd : pragmaDirectives) {
+			if (pd->literals().size() == 2 &&
+			    pd->literals()[0] == "AbiHeader" &&
+			    pd->literals()[1] == str) {
+				return {true, pd};
+			}
+		}
+		return {false, nullptr};
+	}
+
+	bool haveIgnoreIntOverflow() const {
+		for (PragmaDirective const *pd : pragmaDirectives) {
+			if (pd->literals().size() == 1 &&
+				 pd->literals()[0] == "ignoreIntOverflow") {
+				return true;
+			}
+		}
+		return false;
+	}
+
+private:
+	std::vector<PragmaDirective const *> const& pragmaDirectives;
 };
 
 class TVMCompilerContext {
@@ -636,8 +699,11 @@ class TVMCompilerContext {
 	set<string>								m_allContractNames;
 	bool haveFallback = false;
 	bool haveOnBounce = false;
+	bool haveReceive = false;
 	bool ignoreIntOverflow = false;
 	bool m_haveSetDestAddr = false;
+	PragmaDirectiveHelper const& m_pragmaHelper;
+	std::map<VariableDeclaration const *, int> m_stateVarIndex;
 
 	void addEvent(EventDefinition const *event) {
 		std::string name = event->name();
@@ -647,7 +713,7 @@ class TVMCompilerContext {
 
 	void addFunction(FunctionDefinition const* _function) {
 		if (!_function->isConstructor()) {
-			string name = _function->name();
+			string name = functionName(_function);
 			if (m_functions.count(name) > 0) {
 				// TODO: check for signature match!
 				cast_error(*_function, "Function overloading is not supported yet");
@@ -655,7 +721,7 @@ class TVMCompilerContext {
 			m_functions[name] = _function;
 		}
 	}
-	
+
 	void initMembers(ContractDefinition const* contract, const std::vector<ContractDefinition const*>& allContracts) {
 		solAssert(!m_contract, "");
 		m_contract = contract;
@@ -692,10 +758,12 @@ class TVMCompilerContext {
 		for (FunctionDefinition const* f : contract->definedFunctions()) {
 			ignoreIntOverflow |= f->name() == "tvm_ignore_integer_overflow";
 			m_haveSetDestAddr |=  f->name() == "tvm_set_ext_dest_address";
-		}
-		for (const auto f : getContractFunctions(contract)) {
 			haveFallback |= f->isFallback();
 			haveOnBounce |= f->name() == "onBounce";
+			haveReceive  |= f->isReceive();
+		}
+		ignoreIntOverflow |= m_pragmaHelper.haveIgnoreIntOverflow();
+		for (const auto f : getContractFunctions(contract)) {
 			if (isPureFunction(f))
 				continue;
 			addFunction(f);
@@ -703,7 +771,7 @@ class TVMCompilerContext {
 		for (const auto pair : getContractFunctionPairs(contract)) {
 			auto f = pair.first;
 			auto c = pair.second;
-			if (!isTvmIntrinsic(f->name()) && !isPureFunction(f) && !isInlineFunction(f)) {
+			if (!isTvmIntrinsic(f->name()) && !isPureFunction(f) && !isFunctionForInlining(f)) {
 				FuncInfo fi(f, c);
 				fi.m_internalName = getFunctionInternalName(f);
 				if (!f->isConstructor() && f != getContractFunctions(contract, f->name()).back()) {
@@ -715,17 +783,53 @@ class TVMCompilerContext {
 		for (auto c : allContracts) {
 			m_allContractNames.insert(c->name());
 		}
+
+		for (VariableDeclaration const *variable: notConstantStateVariables()) {
+			m_stateVarIndex[variable] = 10 + m_stateVarIndex.size();
+		}
 	}
-	
+
 public:
-	TVMCompilerContext(ContractDefinition const* contract, const std::vector<ContractDefinition const*>& allContracts) {
+	TVMCompilerContext(ContractDefinition const* contract, const std::vector<ContractDefinition const*>& allContracts,
+			PragmaDirectiveHelper const& pragmaHelper) : m_pragmaHelper{pragmaHelper} {
 		initMembers(contract, allContracts);
 	}
-	
+
 	mutable set<string>		m_remoteFunctions;
 	vector<FuncInfo>		m_functionsList;
 	const FuncInfo*			m_currentFunction = nullptr;
 	map<string, CodeLines>	m_inlinedFunctions;
+
+	int getStateVarIndex(VariableDeclaration const *variable) const {
+		return m_stateVarIndex.at(variable);
+	}
+
+	std::vector<VariableDeclaration const *> notConstantStateVariables() const {
+		std::vector<VariableDeclaration const*> variableDeclarations;
+		std::vector<ContractDefinition const*> mainChain = getContractsChain(getContract());
+		for (ContractDefinition const* contract : mainChain) {
+			for (VariableDeclaration const *variable: contract->stateVariables()) {
+				if (!variable->isConstant()) {
+					variableDeclarations.push_back(variable);
+				}
+			}
+		}
+		return variableDeclarations;
+	}
+
+	PragmaDirectiveHelper const& pragmaHelper() const {
+		return m_pragmaHelper;
+	}
+
+	bool haveTimeInAbiHeader() const {
+		if (m_pragmaHelper.abiVersion() == 1) {
+			return true;
+		}
+		if (m_pragmaHelper.abiVersion() == 2) {
+			return m_pragmaHelper.haveTime() || afterSignatureCheck() == nullptr;
+		}
+		solAssert(false, "");
+	}
 
 	bool isStdlib() const {
 		return m_contract->name() == "stdlib";
@@ -736,15 +840,11 @@ public:
 	}
 
 	string getFunctionInternalName(FunctionDefinition const* _function) const {
-		if (isStdlib())
+		if (isStdlib()) {
 			return _function->name();
-		if (_function->isConstructor()) {
-			auto contract = getContract(_function);
-			solAssert(contract, "");
-			return "constructor_" + contract->name();
 		}
-        if (_function->isFallback()) {
-            return "fallback_internal";
+        if (_function->name() == "onCodeUpgrade") {
+            return ":onCodeUpgrade";
         }
 		return _function->name() + "_internal";
 	}
@@ -760,7 +860,7 @@ public:
 		}
 		return getFunctionExternalName(fname);
 	}
-	
+
 	static string getFunctionExternalName(const string& fname) {
 		return fname;
 	}
@@ -769,11 +869,11 @@ public:
 		const auto& vec = getContract(f)->annotation().unimplementedFunctions;
 		return std::find(vec.cbegin(), vec.cend(), f) != vec.end();
 	}
-	
+
 	const ContractDefinition* getContract() const {
 		return m_contract;
 	}
-	
+
 	const ContractDefinition* getContract(const FunctionDefinition* f) const {
 		return m_function2contract.at(f);
 	}
@@ -781,17 +881,21 @@ public:
 	const FunctionDefinition* getLocalFunction(string fname) const {
 		return get_from_map(m_functions, std::move(fname), nullptr);
 	}
-	
-	const EventDefinition* getEvent(string name) const {
+
+	const EventDefinition* getEvent(const string& name) const {
 		return get_from_map(m_events, name, nullptr);
 	}
-	
+
 	bool isContractName(const string& name) const {
 		return m_allContractNames.count(name) > 0;
 	}
 
 	bool haveFallbackFunction() const {
 		return haveFallback;
+	}
+
+	bool haveReceiveFunction() const {
+		return haveReceive;
 	}
 
 	bool haveOnBounceHandler() const {
@@ -810,68 +914,18 @@ public:
 		}
 		return result;
 	}
-};
 
-class IStackPusher {
-public:
-	virtual void push(int stackDiff, const string& cmd) = 0;
-	virtual void startContinuation() = 0;
-	virtual void endContinuation() = 0;
-	virtual TVMStack& getStack() = 0;
-};
-
-struct StackPusherImpl : IStackPusher {
-	TVMStack&					m_stack;
-	CodeLines&					m_code;
-	
-	StackPusherImpl(TVMStack& stack, CodeLines&	code) 
-		: m_stack(stack)
-		, m_code(code) 
-		{}
-	
-	void push(int stackDiff, const string& cmd) override {
-		m_code.push(cmd);
-		m_stack.change(stackDiff);
+	FunctionDefinition const* afterSignatureCheck() const {
+		for (FunctionDefinition const* f : m_contract->definedFunctions()) {
+			if (f->name() == "afterSignatureCheck") {
+				return f;
+			}
+		}
+		return nullptr;
 	}
 
-	void startContinuation() override {
-		m_code.startContinuation();
-	}
-
-	void endContinuation() override {
-		m_code.endContinuation();
-	}
-
-	TVMStack& getStack() override {
-		return m_stack;
-	}
-};
-
-struct StackPusherImpl2 : IStackPusher {
-	TVMStack m_stack;
-	CodeLines m_code;
-
-	explicit StackPusherImpl2() = default;
-
-	void push(int stackDiff, const string& cmd) override {
-		m_code.push(cmd);
-		m_stack.change(stackDiff);
-	}
-
-	CodeLines& codeLines() {
-		return m_code;
-	}
-
-	TVMStack& getStack() override {
-		return m_stack;
-	}
-
-	void startContinuation() override {
-		solAssert(false, "");
-	}
-
-	void endContinuation() override {
-		solAssert(false, "");
+	bool storeTimestampInC4() const {
+		return haveTimeInAbiHeader() && afterSignatureCheck() == nullptr;
 	}
 };
 
@@ -882,7 +936,7 @@ struct ABITypeSize {
 	int maxRefs = -1;
 
 	explicit ABITypeSize(Type const* type, ASTNode const* node = nullptr) {
-		if (isAddressType(type)){
+		if (isAddressOrContractType(type)){
 			minBits = AddressInfo::minBitLength();
 			maxBits = AddressInfo::maxBitLength();
 			minRefs = 0;
@@ -927,24 +981,82 @@ struct ABITypeSize {
 };
 
 class StackPusherHelper {
-private:
-	IStackPusher* const					m_pusher;
-	const TVMCompilerContext* const		m_ctx;
+protected:
+	TVMStack m_stack;
+	CodeLines m_code;
+	const TVMCompilerContext* const m_ctx;
 	StructCompiler m_structCompiler;
 
 public:
-	StackPusherHelper(IStackPusher* compiler, const TVMCompilerContext* ctx) 
-		: m_pusher(compiler),
+	explicit StackPusherHelper(const TVMCompilerContext* ctx) :
 		m_ctx(ctx),
 		m_structCompiler{this,
-		                 notConstantStateVariables(),
-				            1 + 64 + 64 + 1, 1, true, nullptr} // dict + timestamp + interval + constructor_flag
-	{
-
+		                 ctx->notConstantStateVariables(),
+				         256 + (m_ctx->storeTimestampInC4()? 64 : 0) + 1, // pubkey + timestamp + constructor_flag
+				         1,
+				         true,
+				         nullptr} {
 	}
-		
-	const TVMCompilerContext&  ctx() const {
+
+	void append(const CodeLines& oth) {
+		m_code.append(oth);
+	}
+
+	void addTabs(const int qty = 1) {
+		m_code.addTabs(qty);
+	}
+
+	void subTabs(const int qty = 1) {
+		m_code.subTabs(qty);
+	}
+
+	void pushCont(const CodeLines& cont, const string& comment = "") {
+		if (comment.empty())
+			push(0, "PUSHCONT {");
+		else
+			push(0, "PUSHCONT { ; " + comment);
+		for (const auto& l : cont.lines)
+			push(0, string("\t") + l);
+		push(+1, "}"); // adjust stack
+	}
+
+	void generateGlobl(const string& fname, const bool isPublic) {
+		push(0, ".globl\t" + fname);
+		if (isPublic) {
+			push(0, ".public\t" + fname);
+		}
+		push(0, ".type\t"  + fname + ", @function");
+	}
+
+	void generateInternal(const string& fname, const int id) {
+		push(0, ".internal-alias :" + fname + ",        " + toString(id));
+		push(0, ".internal\t:" + fname);
+	}
+
+	void generateMacro(const string& functionName) {
+		push(0, ".macro " + functionName);
+	}
+
+	CodeLines code() const {
+		return m_code;
+	}
+
+	[[nodiscard]]
+	const TVMCompilerContext& ctx() const {
 		return *m_ctx;
+	}
+
+	void push(int stackDiff, const string& cmd) {
+		m_code.push(cmd);
+		m_stack.change(stackDiff);
+	}
+
+	void startContinuation() {
+		m_code.startContinuation();
+	}
+
+	void endContinuation() {
+		m_code.endContinuation();
 	}
 
 	StructCompiler& structCompiler() {
@@ -952,11 +1064,7 @@ public:
 	}
 
 	TVMStack& getStack() {
-		return m_pusher->getStack();
-	}
-	
-	auto getStackPusher() const {
-		return m_pusher;
+		return m_stack;
 	}
 
 	void pushLog(const std::string& str);
@@ -969,9 +1077,85 @@ public:
 		}
 	}
 
-	void push(int stackDiff, const string& cmd) {
-		solAssert(m_pusher, "#18");
-		m_pusher->push(stackDiff, cmd);
+	void untuple(int n) {
+		solAssert(0 <= n, "");
+		if (n <= 15) {
+			push(-1 + n, "UNTUPLE " + toString(n));
+		} else {
+			solAssert(n <= 255, "");
+			pushInt(n);
+			push(-2 + n, "UNTUPLEVAR");
+		}
+	}
+
+	void index(int index) {
+		solAssert(0 <= index, "");
+		if (index <= 15) {
+			push(-1 + 1, "INDEX " + toString(index));
+		} else {
+			solAssert(index <= 254, "");
+			pushInt(index);
+			push(-2 + 1, "INDEXVAR");
+		}
+	}
+
+	void set_index(int index) {
+		solAssert(0 <= index, "");
+		if (index <= 15) {
+			push(-2 + 1, "SETINDEX " + toString(index));
+		} else {
+			solAssert(index <= 254, "");
+			pushInt(index);
+			push(-1 - 2 + 1, "SETINDEXVAR");
+		}
+	}
+
+	void tuple(int qty) {
+		solAssert(0 <= qty, "");
+		if (qty <= 15) {
+			push(-qty + 1, "TUPLE " + toString(qty));
+		} else {
+			solAssert(qty <= 255, "");
+			pushInt(qty);
+			push(-1 - qty + 1, "TUPLEVAR");
+		}
+	}
+
+	void resetAllStateVars() {
+		push(0, ";; set default state vars");
+		for (VariableDeclaration const *variable: ctx().notConstantStateVariables()) {
+			pushDefaultValue(variable->type());
+			setGlob(variable);
+		}
+		push(0, ";; end set default state vars");
+	}
+
+	void getGlob(VariableDeclaration const * vd) {
+		const int index = ctx().getStateVarIndex(vd);
+		getGlob(index);
+	}
+
+	void getGlob(int index) {
+		solAssert(index >= 0, "");
+		if (index <= 30) { // TODO 31
+			push(+1, "GETGLOB " + toString(index));
+		} else {
+			solAssert(index < 255, "");
+			pushInt(index);
+			push(-1 + 1, "GETGLOBVAR");
+		}
+	}
+
+	void setGlob(VariableDeclaration const * vd) {
+		const int index = ctx().getStateVarIndex(vd);
+		solAssert(index >= 0, "");
+		if (index <= 30) { // TODO 31
+			push(-1, "SETGLOB " + toString(index));
+		} else {
+			solAssert(index < 255, "");
+			pushInt(index);
+			push(-1 - 1, "SETGLOBVAR");
+		}
 	}
 
 	void pushS(int i) {
@@ -987,13 +1171,15 @@ public:
 		push(+1, "PUSHINT " + toString(i));
 	}
 
-	void loadArray() {
+	void loadArray(bool directOrder = true) {
 		pushLines(R"(LDU 32
 LDDICT
 ROTREV
 PAIR
-SWAP
 )");
+		if (directOrder) {
+			exchange(0, 1);
+		}
 		push(-1 + 2, ""); // fix stack
 		// stack: array slice
 	}
@@ -1021,6 +1207,8 @@ PAIR
 	void preload(const Type* type) {
 		if (isUsualArray(type)) {
 			preLoadArray();
+		} else if (type->category() == Type::Category::Mapping) {
+			push(0, "PLDDICT");
 		} else {
 			TypeInfo ti{type};
 			solAssert(ti.isNumeric, "");
@@ -1033,30 +1221,47 @@ PAIR
 		push(+1, "PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_");
 	}
 
-	void literalToSliceAddress(Literal const* literal) {
+	void generateC7ToT4Macro() {
+		pushLines(R"(
+.macro	c7_to_c4
+GETGLOB 2
+NEWC
+STU 256
+)");
+		if (ctx().storeTimestampInC4()) {
+			pushLines(R"(
+GETGLOB 3
+STUR 64
+)");
+		}
+		pushLines(R"(
+GETGLOB 6
+STUR 1
+)");
+		if (!ctx().notConstantStateVariables().empty()) {
+			structCompiler().stateVarsToBuilder();
+		}
+		pushLines(R"(
+ENDC
+POP C4
+)");
+	}
 
-		Type const* type = literal->annotation().type.get();
-		dev::u256 value = type->literalValue(literal);
-
-
-//		addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt;
-
-		std::string s;
-		s += "10";
-		s += "0";
-		s += std::string(8, '0');
-		for (int i = 0; i < 256; ++i) {
+	static void addBinaryNumberToString(std::string &s, u256 value, int bitlen = 256) {
+		for (int i = 0; i < bitlen; ++i) {
 			s += value % 2 == 0? "0" : "1";
 			value /= 2;
 		}
-		std::reverse(s.rbegin(), s.rbegin() + 256);
+		std::reverse(s.rbegin(), s.rbegin() + bitlen);
+	}
+
+	static std::string binaryStringToSlice(std::string & s) {
 		bool haveCompletionTag = false;
 		if (s.size() % 4 != 0) {
 			haveCompletionTag = true;
 			s += "1";
 			s += std::string((4 - s.size() % 4) % 4, '0');
 		}
-
 		std::string ans;
 		for (int i = 0; i < static_cast<int>(s.length()); i += 4) {
 			int x = stoi(s.substr(i, 4), nullptr, 2);
@@ -1067,13 +1272,57 @@ PAIR
 		if (haveCompletionTag) {
 			ans += "_";
 		}
-		push(+1, "PUSHSLICE x" + ans);
+		return ans;
+	}
+
+	static std::string gramsToBinaryString(Literal const* literal) {
+		Type const* type = literal->annotation().type;
+		u256 value = type->literalValue(literal);
+		std::string s;
+		int len = 256;
+		for (int i = 0; i < 256; ++i) {
+			if (value == 0) {
+				len = i;
+				break;
+			}
+			s += value % 2 == 0? "0" : "1";
+			value /= 2;
+		}
+		solAssert(len < 120, "Gram value should fit 120 bit");
+		while (len % 8 != 0) {
+			s += "0";
+			len++;
+		}
+		std::reverse(s.rbegin(), s.rbegin() + len);
+		len = len/8;
+		std::string res;
+		for (int i = 0; i < 4; ++i) {
+			res += len % 2 == 0? "0" : "1";
+			len /= 2;
+		}
+		std::reverse(res.rbegin(), res.rbegin() + 4);
+		return res + s;
+
+	}
+
+	std::string literalToSliceAddress(Literal const* literal, bool pushSlice = true) {
+		Type const* type = literal->annotation().type;
+		u256 value = type->literalValue(literal);
+//		addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt;
+		std::string s;
+		s += "10";
+		s += "0";
+		s += std::string(8, '0');
+		addBinaryNumberToString(s, value);
+		if (pushSlice)
+			push(+1, "PUSHSLICE x" + binaryStringToSlice(s));
+		return s;
 	}
 
 	bool tryImplicitConvert(Type const *leftType, Type const *rightType) {
 		if (leftType->category() == Type::Category::FixedBytes && rightType->category() == Type::Category::StringLiteral) {
 			auto stringLiteralType = to<StringLiteralType>(rightType);
-			dev::u256 value = 0;
+			u256 value = 0;
 			for (char c : stringLiteralType->value()) {
 				value = value * 256 + c;
 			}
@@ -1088,7 +1337,7 @@ PAIR
 			push(0, s);
 		}
 	}
-	
+
 	void pushPrivateFunctionOrMacroCall(const int stackDelta, const string& fname) {
 		push(stackDelta, "CALL $" + fname + "$");
 	}
@@ -1096,11 +1345,7 @@ PAIR
 	void pushCall(const string& functionName, const FunctionType* ft) {
 		int params  = ft->parameterTypes().size();
 		int retVals = ft->returnParameterTypes().size();
-		if (functionName == "onCodeUpgrade_internal") {
-			push(-params + retVals, "CALL 2");
-		} else {
-			push(-params + retVals, "CALL $" + functionName + "$");
-		}
+		push(-params + retVals, "CALL $" + functionName + "$");
 	}
 
 	void pushFunctionIndex(const string& fname) {
@@ -1108,9 +1353,9 @@ PAIR
 	}
 
 	void dumpStackSize(const string& prefix = "") {
-		push(0, prefix + ";; stack=" + toString(m_pusher->getStack().size()));
+		push(0, prefix + ";; stack=" + toString(getStack().size()));
 	}
-	
+
 	void drop(int cnt) {
 		solAssert(cnt >= 0, "");
 		if (cnt == 0)
@@ -1211,14 +1456,24 @@ PAIR
 		solAssert(i <= j, "");
 		solAssert(i >= 0, "");
 		solAssert(j >= 1, "");
-		if (i == 0 && j <= 15) {
+		if (i == 0 && j <= 255) {
 			if (j == 1) {
 				push(0, "SWAP");
-			} else {
+			} else if (j <= 15) {
 				push(0, "XCHG s" + toString(j));
+			} else {
+				push(0, "XCHG s0,s" + toString(j));
 			}
-		} else {
+		} else if (i == 1 && 2 <= j && j <= 15) {
+			push(0, "XCHG s1,s" + toString(j));
+		} else if (1 <= i && i < j && j <= 15) {
 			push(0, "XCHG s" + toString(i) + ",s" + toString(j));
+		} else if (j <= 255) {
+			exchange(0, i);
+			exchange(0, j);
+			exchange(0, i);
+		} else {
+			solAssert(false, "");
 		}
 	}
 
@@ -1238,19 +1493,32 @@ PAIR
 	}
 
 	[[nodiscard]]
+	// return true if result is a builder
 	bool prepareValueForDictOperations(Type const* keyType, Type const* dictValueType, bool isValueBuilder) {
 		// value
 		if (isIntegralType(dictValueType)) {
 			if (!isValueBuilder) {
-				push(0, "NEWC " + storeIntegralOrAddress(dictValueType, false));
+				push(0, "NEWC");
+				push(0, storeIntegralOrAddress(dictValueType, false));
 				return true;
 			}
-		} else if (isUsualStruct(dictValueType)) {
-			if (!StructCompiler::isCompatibleWithSDK(lengthOfDictKey(keyType), to<StructType>(dictValueType))) {
+		} else if (dictValueType->category() == Type::Category::Struct) {
+			if (StructCompiler::isCompatibleWithSDK(lengthOfDictKey(keyType), to<StructType>(dictValueType))) {
+				if (isValueBuilder) {
+					return true;
+				} else {
+					StructCompiler sc{this, to<StructType>(dictValueType)};
+					sc.tupleToBuilder();
+					return true;
+				}
+			} else {
+				if (!isValueBuilder) {
+					StructCompiler sc{this, to<StructType>(dictValueType)};
+					sc.tupleToBuilder();
+				}
 				push(+1, "NEWC");
-				push(-1, isValueBuilder? "STB" : "STSLICE");
-				push(0, "ENDC");
-				return false;
+				push(-2 + 1, "STBREF");
+				return true;
 			}
 		} else if (isUsualArray(dictValueType)) {
 			if (!isValueBuilder) {
@@ -1261,15 +1529,16 @@ PAIR
 				push(-1, "STDICT"); // builder
 				return true;
 			}
-		} else if (to<TvmCellType>(dictValueType)) {
+		} else if (to<TvmCellType>(dictValueType) || (to<ArrayType>(dictValueType) && to<ArrayType>(dictValueType)->isByteArray())) {
 			if (isValueBuilder) {
 				push(0, "ENDC");
 				return false;
 			}
-		} else if (to<ArrayType>(dictValueType) && to<ArrayType>(dictValueType)->isByteArray()) {
-			if (isValueBuilder) {
-				push(0, "ENDC");
-				return false;
+		} else if (dictValueType->category() == Type::Category::Mapping) {
+			if (!isValueBuilder) {
+				push(+1, "NEWC"); // dict builder
+				push(-1, "STDICT"); // builder
+				return true;
 			}
 		}
 
@@ -1314,8 +1583,8 @@ PAIR
 						dict_cmd = "DICT" + typeToDictChar(&keyType) + "SET";
 					}
 				} else {
-					solAssert(!isValueBuilder, "");
-					dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETREF";
+					solAssert(isValueBuilder, "");
+					dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETB";
 				}
 				break;
 			case Type::Category::Integer:
@@ -1335,8 +1604,8 @@ PAIR
 				}
 				break;
 			case Type::Category::Mapping:
-				solAssert(!isValueBuilder, "");
-				dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETGETOPTREF DROP";
+				solAssert(isValueBuilder, "");
+				dict_cmd = "DICT" + typeToDictChar(&keyType) + "SETB";
 				break;
 			default:
 				cast_error(node, "Unsupported value type: " + valueType.toString());
@@ -1345,13 +1614,8 @@ PAIR
 		push(-3, dict_cmd);
 	}
 
-	void pushPersistentDataCellTree() {
-		push(+1, "PUSH c7");
-		push(-1 + 1, "SECOND");
-	}
-
 	bool tryAssignParam(const string& name) {
-		auto& stack = m_pusher->getStack();
+		auto& stack = getStack();
 		if (stack.isParam(name)) {
 			int idx = stack.getOffset(name);
 			solAssert(idx >= 0, "");
@@ -1366,19 +1630,19 @@ PAIR
 		}
 		return false;
 	}
-	
-	void getFromDict(const Type& keyType, const Type& valueType, ASTNode const& node, const bool pushDefaultValue);
 
-	void pushCont(const CodeLines& cont, const string& comment = "") {
-		if (comment.empty())
-			push(0, "PUSHCONT {");
-		else
-			push(0, "PUSHCONT { ; " + comment);
-		for (const auto& l : cont.lines)
-			push(0, string("\t") + l);
-		push(+1, "}"); // adjust stack
-	}
-	
+	enum class DictOperation {
+		GetFromArray,
+		GetFromMapping,
+		Fetch,
+		Exist
+	};
+
+	void getFromDict(const Type& keyType, const Type& valueType, ASTNode const& node, const DictOperation op,
+						const bool resultAsSliceForStruct);
+
+
+
 	void ensureValueFitsType(const ElementaryTypeNameToken& typeName, const ASTNode& node) {
 		push(0, ";; " + typeName.toString());
 		switch (typeName.token()) {
@@ -1422,7 +1686,7 @@ PAIR
 	public:
 		explicit EncodePosition(int bits) :
 				restSliceBits{TvmConst::CellBitLength - bits},
-				restFef{3},
+				restFef{4},
 				qtyOfCreatedBuilders{0}
 		{
 
@@ -1501,7 +1765,7 @@ PAIR
 				push(+1, "NEWC");
 			}
 
-			if (isIntegralType(type) || isAddressType(type)) {
+			if (isIntegralType(type) || isAddressOrContractType(type)) {
 				pushParam();
 				push(-1, storeIntegralOrAddress(type, true));
 			} else if (auto arrayType = to<ArrayType>(type)) {
@@ -1529,24 +1793,23 @@ PAIR
 		}
 	}
 
-	void f(const StructDefinition &structDefinition, const string &pref, const std::map<std::string, int> &memberToStackSize,
-			EncodePosition& position, ASTNode const* node);
 	void encodeStruct(const StructType* structType, ASTNode const* node, EncodePosition& position);
 	void pushDefaultValue(Type const* type, bool isResultBuilder = false);
-	std::vector<VariableDeclaration const*> notConstantStateVariables();
-};
-
-class ITVMCompiler : public IStackPusher {
-public:
-	virtual const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess)	= 0;
 };
 
 class IExpressionCompiler {
 public:
-	virtual void acceptExpr(const Expression* expr) = 0;
-	virtual void acceptExpr2(const Expression* expr, const bool isResultNeeded = true) = 0;
-	bool isWithoutLogstr();
+	virtual void compileNewExpr(const Expression* expr) = 0;
+	static bool isWithoutLogstr();
+
+	struct LValueInfo {
+		std::vector<Expression const*> expressions;
+		std::vector<bool> isResultBuilder;
+		bool isValueBuilder{};
+	};
+
+	virtual LValueInfo expandLValue(Expression const* const _expr, const bool withExpandLastValue, bool willNoStackPermutarion = false) = 0;
+	virtual void collectLValue(const LValueInfo &lValueInfo, const bool haveValueOnStackTop, bool isValueBuilder) = 0;
 };
 
 }	// solidity
-}	// dev

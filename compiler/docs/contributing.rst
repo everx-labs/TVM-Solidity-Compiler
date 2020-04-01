@@ -21,6 +21,17 @@ In particular, we need help in the following areas:
 
 Please note that this project is released with a `Contributor Code of Conduct <https://raw.githubusercontent.com/ethereum/solidity/develop/CODE_OF_CONDUCT.md>`_. By participating in this project - in the issues, pull requests, or Gitter channels - you agree to abide by its terms.
 
+Team Calls
+==========
+
+If you have issues or pull requests to discuss, or are interested in hearing what
+the team and contributors are working on, you can join our public team calls:
+
+- Monday at 12pm CET
+- Wednesday at 3pm CET
+
+Both calls take place on `Google Hangouts <https://hangouts.google.com/hangouts/_/ethereum.org/solidity-weekly>`_.
+
 How to Report Issues
 ====================
 
@@ -70,40 +81,47 @@ Thank you for your help!
 Running the compiler tests
 ==========================
 
-The ``./scripts/tests.sh`` script executes most Solidity tests and
-runs ``aleth`` automatically if it is in the path, but does not download it,
-so you need to install it first. Please read on for the details.
+The ``./scripts/tests.sh`` script executes most Solidity tests automatically,
+but for quicker feedback, you might want to run specific tests.
 
-Solidity includes different types of tests, most of them bundled into the ``soltest``
-application. Some of them require the ``aleth`` client in testing mode, others require ``libz3``.
+Solidity includes different types of tests, most of them bundled into the
+`Boost C++ Test Framework <https://www.boost.org/doc/libs/1_69_0/libs/test/doc/html/index.html>`_ application ``soltest``.
+Running ``build/test/soltest`` or its wrapper ``scripts/soltest.sh`` is sufficient for most changes.
 
-To run a basic set of tests that require neither ``aleth`` nor ``libz3``, run
-``./scripts/soltest.sh --no-ipc --no-smt``. This script runs ``./build/test/soltest``
-internally.
+Some tests require the ``evmone`` library, others require ``libz3``.
+
+The test system will automatically try to discover the location of the ``evmone`` library
+starting from the current directory. The required file is called ``libevmone.so`` on Linux systems,
+``evmone.dll`` on Windows systems and ``libevmone.dylib`` on MacOS. If it is not found, the relevant tests
+are skipped. To run all tests, download the library from
+`Github <https://github.com/ethereum/evmone/releases/tag/v0.3.0>`_
+and either place it in the project root path or inside the ``deps`` folder.
+
+If you do not have libz3 installed on your system, you should disable the SMT tests:
+``./scripts/soltest.sh --no-smt``.
+
+``./build/test/soltest --help`` has extensive help on all of the options available.
+See especially:
+
+- `show_progress (-p) <https://www.boost.org/doc/libs/1_69_0/libs/test/doc/html/boost_test/utf_reference/rt_param_reference/show_progress.html>`_ to show test completion,
+- `run_test (-t) <https://www.boost.org/doc/libs/1_69_0/libs/test/doc/html/boost_test/utf_reference/rt_param_reference/run_test.html>`_ to run specific tests cases, and
+- `report-level (-r) <https://www.boost.org/doc/libs/1_69_0/libs/test/doc/html/boost_test/utf_reference/rt_param_reference/report_level.html>`_ give a more detailed report.
 
 .. note ::
 
-    Those working in a Windows environment wanting to run the above basic sets without aleth or libz3 in Git Bash, you would have to do: ``./build/test/Release/soltest.exe -- --no-ipc --no-smt``.
-    If you're running this in plain Command Prompt, use ``.\build\test\Release\soltest.exe -- --no-ipc --no-smt``.
-
-The option ``--no-smt`` disables the tests that require ``libz3`` and
-``--no-ipc`` disables those that require ``aleth``.
-
-If you want to run the ipc tests (that test the semantics of the generated code),
-you need to install `aleth <https://github.com/ethereum/aleth/releases/download/v1.5.2/aleth-1.5.2-linux-x86_64.tar.gz>`_ and run it in testing mode: ``aleth --db memorydb --test -d /tmp/testeth``.
-
-To run the actual tests, use: ``./scripts/soltest.sh --ipcpath /tmp/testeth/geth.ipc``.
+    Those working in a Windows environment wanting to run the above basic sets without libz3 in Git Bash, you would have to do: ``./build/test/Release/soltest.exe -- --no-smt``.
+    If you are running this in plain Command Prompt, use ``.\build\test\Release\soltest.exe -- --no-smt``.
 
 To run a subset of tests, you can use filters:
-``./scripts/soltest.sh -t TestSuite/TestName --ipcpath /tmp/testeth/geth.ipc``,
+``./scripts/soltest.sh -t TestSuite/TestName``,
 where ``TestName`` can be a wildcard ``*``.
 
-For example, here's an example test you might run;
-``./scripts/soltest.sh -t "yulOptimizerTests/disambiguator/*" --no-ipc --no-smt``.
+For example, here is an example test you might run;
+``./scripts/soltest.sh -t "yulOptimizerTests/disambiguator/*" --no-smt``.
 This will test all the tests for the disambiguator.
 
 To get a list of all tests, use
-``./build/test/soltest --list_content=HRF -- --ipcpath /tmp/irrelevant``.
+``./build/test/soltest --list_content=HRF``.
 
 If you want to debug using GDB, make sure you build differently than the "usual".
 For example, you could run the following command in your ``build`` folder:
@@ -120,11 +138,6 @@ in addition to those found in ``soltest``.
 
 The CI runs additional tests (including ``solc-js`` and testing third party Solidity frameworks) that require compiling the Emscripten target.
 
-.. note ::
-
-    Some versions of ``aleth`` can not be used for testing. We suggest using
-    the same version that the Solidity continuous integration tests use.
-    Currently the CI uses version ``1.5.0-alpha.7`` of ``aleth``.
 
 Writing and running syntax tests
 --------------------------------
@@ -315,7 +328,7 @@ Whiskers
 compiler in various places to aid readability, and thus maintainability and verifiability, of the code.
 
 The syntax comes with a substantial difference to Mustache. The template markers ``{{`` and ``}}`` are
-replaced by ``<`` and ``>`` in order to aid parsing and avoid conflicts with :ref:`inline-assembly`
+replaced by ``<`` and ``>`` in order to aid parsing and avoid conflicts with :ref:`yul`
 (The symbols ``<`` and ``>`` are invalid in inline assembly, while ``{`` and ``}`` are used to delimit blocks).
 Another limitation is that lists are only resolved one depth and they do not recurse. This may change in the future.
 
@@ -326,3 +339,93 @@ escaping and without iterated replacements. An area can be delimited by ``<#name
 by as many concatenations of its contents as there were sets of variables supplied to the template system,
 each time replacing any ``<inner>`` items by their respective value. Top-level variables can also be used
 inside such areas.
+
+.. _documentation-style:
+
+Documentation Style Guide
+=========================
+
+The following are style recommendations specifically for documentation
+contributions to Solidity.
+
+English Language
+----------------
+
+Use English, with British English spelling preferred, unless using project or brand names. Try to reduce the usage of
+local slang and references, making your language as clear to all readers as possible. Below are some references to help:
+
+* `Simplified technical English <https://en.wikipedia.org/wiki/Simplified_Technical_English>`_
+* `International English <https://en.wikipedia.org/wiki/International_English>`_
+* `British English spelling <https://en.oxforddictionaries.com/spelling/british-and-spelling>`_
+
+
+.. note::
+
+    While the official Solidity documentation is written in English, there are community contributed :ref:`translations`
+    in other languages available.
+
+Title Case for Headings
+-----------------------
+
+Use `title case <http://titlecase.com>`_ for headings. This means capitalise all principal words in
+titles, but not articles, conjunctions, and prepositions unless they start the
+title.
+
+For example, the following are all correct:
+
+* Title Case for Headings
+* For Headings Use Title Case
+* Local and State Variable Names
+* Order of Layout
+
+Expand Contractions
+-------------------
+
+Use expanded contractions for words, for example:
+
+* "Do not" instead of "Don't".
+* "Can not" instead of "Can't".
+
+Active and Passive Voice
+------------------------
+
+Active voice is typically recommended for tutorial style documentation as it
+helps the reader understand who or what is performing a task. However, as the
+Solidity documentation is a mixture of tutorials and reference content, passive
+voice is sometimes more applicable.
+
+As a summary:
+
+* Use passive voice for technical reference, for example language definition and internals of the Ethereum VM.
+* Use active voice when describing recommendations on how to apply an aspect of Solidity.
+
+For example, the below is in passive voice as it specifies an aspect of Solidity:
+
+  Functions can be declared ``pure`` in which case they promise not to read
+  from or modify the state.
+
+For example, the below is in active voice as it discusses an application of Solidity:
+
+  When invoking the compiler, you can specify how to discover the first element
+  of a path, and also path prefix remappings.
+
+Common Terms
+------------
+
+* "Function parameters" and "return variables", not input and output parameters.
+
+Code Examples
+-------------
+
+A CI process tests all code block formatted code examples that begin with ``pragma solidity``, ``contract``, ``library``
+or ``interface`` using the ``./test/cmdlineTests.sh`` script when you create a PR. If you are adding new code examples,
+ensure they work and pass tests before creating the PR.
+
+Ensure that all code examples begin with a ``pragma`` version that spans the largest where the contract code is valid.
+For example ``pragma solidity >=0.4.0 <0.7.0;``.
+
+Running Documentation Tests
+---------------------------
+
+Make sure your contributions pass our documentation tests by running ``./scripts/docs.sh`` that installs dependencies
+needed for documentation and checks for any problems such as broken links or syntax issues.

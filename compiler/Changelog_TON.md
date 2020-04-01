@@ -1,3 +1,19 @@
+### 0.20 (2020-03-30)
+
+APIs for common TON-specific functionality:
+
+ * Migrated frontend to 0.6.3
+ * Native types support
+   * TvmCell: toSlice()
+   * TvmSlice: decode(), size(), loadRef(), loadRefAsSlice()
+ * Native TVM operations as tvm member functions
+   * Custom message builders: sendMsg(), sendRawMsg()
+   * Account state access: setCode(), setCurrentCode(), commit(), resetStorage()
+   * Misc: cdatasize(), transLT(), configParam()
+
+ * Multiple stability fixes
+ * Gas consumption optimizations
+
 ### 0.18 (2020-01-30)
 
 APIs for common TON-specific functionality:

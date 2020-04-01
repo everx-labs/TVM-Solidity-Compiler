@@ -18,12 +18,12 @@
 #include <libsolidity/analysis/ControlFlowAnalyzer.h>
 
 #include <liblangutil/SourceLocation.h>
-#include <libdevcore/Algorithms.h>
+#include <libsolutil/Algorithms.h>
 #include <boost/range/algorithm/sort.hpp>
 
 using namespace std;
-using namespace langutil;
-using namespace dev::solidity;
+using namespace solidity::langutil;
+using namespace solidity::frontend;
 
 bool ControlFlowAnalyzer::analyze(ASTNode const& _astRoot)
 {
@@ -133,7 +133,7 @@ void ControlFlowAnalyzer::checkUninitializedAccess(CFGNode const* _entry, CFGNod
 		{
 			if (variableOccurrence->declaration().referenceLocation() == VariableDeclaration::Location::Memory)
 				continue;
-			
+
 			SecondarySourceLocation ssl;
 			if (variableOccurrence->occurrence())
 				ssl.append("The variable was declared here.", variableOccurrence->declaration().location());
@@ -145,7 +145,7 @@ void ControlFlowAnalyzer::checkUninitializedAccess(CFGNode const* _entry, CFGNod
 				ssl,
 				string("This variable is of storage pointer type and can be ") +
 				(variableOccurrence->kind() == VariableOccurrence::Kind::Return ? "returned" : "accessed") +
-				" without prior assignment."
+				" without prior assignment, which would lead to undefined behaviour."
 			);
 		}
 	}
@@ -154,22 +154,22 @@ void ControlFlowAnalyzer::checkUninitializedAccess(CFGNode const* _entry, CFGNod
 void ControlFlowAnalyzer::checkUnreachable(CFGNode const* _entry, CFGNode const* _exit, CFGNode const* _revert) const
 {
 	// collect all nodes reachable from the entry point
-	std::set<CFGNode const*> reachable = BreadthFirstSearch<CFGNode>{{_entry}}.run(
-		[](CFGNode const& _node, auto&& _addChild) {
-			for (CFGNode const* exit: _node.exits)
-				_addChild(*exit);
+	std::set<CFGNode const*> reachable = util::BreadthFirstSearch<CFGNode const*>{{_entry}}.run(
+		[](CFGNode const* _node, auto&& _addChild) {
+			for (CFGNode const* exit: _node->exits)
+				_addChild(exit);
 		}
 	).visited;
 
 	// traverse all paths backwards from exit and revert
 	// and extract (valid) source locations of unreachable nodes into sorted set
 	std::set<SourceLocation> unreachable;
-	BreadthFirstSearch<CFGNode>{{_exit, _revert}}.run(
-		[&](CFGNode const& _node, auto&& _addChild) {
-			if (!reachable.count(&_node) && !_node.location.isEmpty())
-				unreachable.insert(_node.location);
-			for (CFGNode const* entry: _node.entries)
-				_addChild(*entry);
+	util::BreadthFirstSearch<CFGNode const*>{{_exit, _revert}}.run(
+		[&](CFGNode const* _node, auto&& _addChild) {
+			if (!reachable.count(_node) && _node->location.isValid())
+				unreachable.insert(_node->location);
+			for (CFGNode const* entry: _node->entries)
+				_addChild(entry);
 		}
 	);
 

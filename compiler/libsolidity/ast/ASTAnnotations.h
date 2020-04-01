@@ -23,26 +23,27 @@
 #pragma once
 
 #include <libsolidity/ast/ASTForward.h>
+#include <libsolidity/ast/ASTEnums.h>
 #include <libsolidity/ast/ExperimentalFeatures.h>
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <vector>
 
-namespace yul
+namespace solidity::yul
 {
-	struct AsmAnalysisInfo;
-	struct Identifier;
+struct AsmAnalysisInfo;
+struct Identifier;
+struct Dialect;
 }
 
-namespace dev
-{
-namespace solidity
+namespace solidity::frontend
 {
 
 class Type;
-using TypePointer = std::shared_ptr<Type const>;
+using TypePointer = Type const*;
 
 struct ASTAnnotation
 {
@@ -55,9 +56,9 @@ struct DocTag
 	std::string paramName;	///< Only used for @param, stores the parameter name.
 };
 
-struct DocumentedAnnotation
+struct StructurallyDocumentedAnnotation
 {
-	virtual ~DocumentedAnnotation() = default;
+	virtual ~StructurallyDocumentedAnnotation() = default;
 	/// Mapping docstring tag name -> content.
 	std::multimap<std::string, DocTag> docTags;
 };
@@ -72,7 +73,21 @@ struct SourceUnitAnnotation: ASTAnnotation
 	std::set<ExperimentalFeature> experimentalFeatures;
 };
 
-struct ImportAnnotation: ASTAnnotation
+struct ScopableAnnotation
+{
+	/// The scope this declaration resides in. Can be nullptr if it is the global scope.
+	/// Available only after name and type resolution step.
+	ASTNode const* scope = nullptr;
+	/// Pointer to the contract this declaration resides in. Can be nullptr if the current scope
+	/// is not part of a contract. Available only after name and type resolution step.
+	ContractDefinition const* contract = nullptr;
+};
+
+struct DeclarationAnnotation: ASTAnnotation, ScopableAnnotation
+{
+};
+
+struct ImportAnnotation: DeclarationAnnotation
 {
 	/// The absolute path of the source unit to import.
 	std::string absolutePath;
@@ -80,13 +95,13 @@ struct ImportAnnotation: ASTAnnotation
 	SourceUnit const* sourceUnit = nullptr;
 };
 
-struct TypeDeclarationAnnotation: ASTAnnotation
+struct TypeDeclarationAnnotation: DeclarationAnnotation
 {
 	/// The name of this type, prefixed by proper namespaces if globally accessible.
 	std::string canonicalName;
 };
 
-struct ContractDefinitionAnnotation: TypeDeclarationAnnotation, DocumentedAnnotation
+struct ContractDefinitionAnnotation: TypeDeclarationAnnotation, StructurallyDocumentedAnnotation
 {
 	/// List of functions without a body. Can also contain functions from base classes.
 	std::vector<FunctionDefinition const*> unimplementedFunctions;
@@ -101,28 +116,33 @@ struct ContractDefinitionAnnotation: TypeDeclarationAnnotation, DocumentedAnnota
 	std::map<FunctionDefinition const*, ASTNode const*> baseConstructorArguments;
 };
 
-struct FunctionDefinitionAnnotation: ASTAnnotation, DocumentedAnnotation
+struct CallableDeclarationAnnotation: DeclarationAnnotation
 {
-	/// The function this function overrides, if any. This is always the closest
-	/// in the linearized inheritance hierarchy.
-	FunctionDefinition const* superFunction = nullptr;
+	/// The set of functions/modifiers/events this callable overrides.
+	std::set<CallableDeclaration const*> baseFunctions;
 };
 
-struct EventDefinitionAnnotation: ASTAnnotation, DocumentedAnnotation
-{
-};
-
-struct ModifierDefinitionAnnotation: ASTAnnotation, DocumentedAnnotation
+struct FunctionDefinitionAnnotation: CallableDeclarationAnnotation, StructurallyDocumentedAnnotation
 {
 };
 
-struct VariableDeclarationAnnotation: ASTAnnotation
+struct EventDefinitionAnnotation: CallableDeclarationAnnotation, StructurallyDocumentedAnnotation
+{
+};
+
+struct ModifierDefinitionAnnotation: CallableDeclarationAnnotation, StructurallyDocumentedAnnotation
+{
+};
+
+struct VariableDeclarationAnnotation: DeclarationAnnotation
 {
 	/// Type of variable (type of identifier referencing this variable).
-	TypePointer type;
+	TypePointer type = nullptr;
+	/// The set of functions this (public state) variable overrides.
+	std::set<CallableDeclaration const*> baseFunctions;
 };
 
-struct StatementAnnotation: ASTAnnotation, DocumentedAnnotation
+struct StatementAnnotation: ASTAnnotation
 {
 };
 
@@ -142,6 +162,18 @@ struct InlineAssemblyAnnotation: StatementAnnotation
 	std::shared_ptr<yul::AsmAnalysisInfo> analysisInfo;
 };
 
+struct BlockAnnotation: StatementAnnotation, ScopableAnnotation
+{
+};
+
+struct TryCatchClauseAnnotation: ASTAnnotation, ScopableAnnotation
+{
+};
+
+struct ForStatementAnnotation: StatementAnnotation, ScopableAnnotation
+{
+};
+
 struct ReturnAnnotation: StatementAnnotation
 {
 	/// Reference to the return parameters of the function.
@@ -152,7 +184,7 @@ struct TypeNameAnnotation: ASTAnnotation
 {
 	/// Type declared by this type name, i.e. type of a variable where this type name is used.
 	/// Set during reference resolution stage.
-	TypePointer type;
+	TypePointer type = nullptr;
 };
 
 struct UserDefinedTypeNameAnnotation: TypeNameAnnotation
@@ -167,7 +199,7 @@ struct UserDefinedTypeNameAnnotation: TypeNameAnnotation
 struct ExpressionAnnotation: ASTAnnotation
 {
 	/// Inferred type of the expression.
-	TypePointer type;
+	TypePointer type = nullptr;
 	/// Whether the expression is a constant variable
 	bool isConstant = false;
 	/// Whether the expression is pure, i.e. compile-time constant.
@@ -176,9 +208,10 @@ struct ExpressionAnnotation: ASTAnnotation
 	bool isLValue = false;
 	/// Whether the expression is used in a context where the LValue is actually required.
 	bool lValueRequested = false;
-	/// Types of arguments if the expression is a function that is called - used
-	/// for overload resolution.
-	std::shared_ptr<std::vector<TypePointer>> argumentTypes;
+
+	/// Types and - if given - names of arguments if the expr. is a function
+	/// that is called, used for overload resoultion
+	std::optional<FuncCallArguments> arguments;
 };
 
 struct IdentifierAnnotation: ExpressionAnnotation
@@ -199,7 +232,7 @@ struct BinaryOperationAnnotation: ExpressionAnnotation
 {
 	/// The common type that is used for the operation, not necessarily the result type (which
 	/// e.g. for comparisons is bool).
-	TypePointer commonType;
+	TypePointer commonType = nullptr;
 };
 
 enum class FunctionCallKind
@@ -213,7 +246,8 @@ enum class FunctionCallKind
 struct FunctionCallAnnotation: ExpressionAnnotation
 {
 	FunctionCallKind kind = FunctionCallKind::Unset;
+	/// If true, this is the external call of a try statement.
+	bool tryCall = false;
 };
 
-}
 }

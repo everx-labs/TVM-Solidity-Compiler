@@ -13,6 +13,7 @@ contract C {
         assert(x == 2);
     }
 }
+// ====
+// SMTSolvers: z3
 // ----
 // Warning: (115-121): Unused local variable.
-// Warning: (356-370): Assertion violation happens here

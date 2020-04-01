@@ -22,13 +22,12 @@ a contract where the goal is to send the most money to the
 contract in order to become the "richest", inspired by
 `King of the Ether <https://www.kingoftheether.com/>`_.
 
-In the following contract, if you are usurped as the richest,
-you will receive the funds of the person who has gone on to
-become the new richest.
+In the following contract, if you are no longer the richest,
+you receive the funds of the person who is now the richest.
 
 ::
 
-    pragma solidity ^0.5.0;
+    pragma solidity >=0.5.0 <0.7.0;
 
     contract WithdrawalContract {
         address public richest;
@@ -41,15 +40,11 @@ become the new richest.
             mostSent = msg.value;
         }
 
-        function becomeRichest() public payable returns (bool) {
-            if (msg.value > mostSent) {
-                pendingWithdrawals[richest] += msg.value;
-                richest = msg.sender;
-                mostSent = msg.value;
-                return true;
-            } else {
-                return false;
-            }
+        function becomeRichest() public payable {
+            require(msg.value > mostSent, "Not enough money sent.");
+            pendingWithdrawals[richest] += msg.value;
+            richest = msg.sender;
+            mostSent = msg.value;
         }
 
         function withdraw() public {
@@ -65,7 +60,7 @@ This is as opposed to the more intuitive sending pattern:
 
 ::
 
-    pragma solidity ^0.5.0;
+    pragma solidity >=0.5.0 <0.7.0;
 
     contract SendContract {
         address payable public richest;
@@ -76,22 +71,18 @@ This is as opposed to the more intuitive sending pattern:
             mostSent = msg.value;
         }
 
-        function becomeRichest() public payable returns (bool) {
-            if (msg.value > mostSent) {
-                // This line can cause problems (explained below).
-                richest.transfer(msg.value);
-                richest = msg.sender;
-                mostSent = msg.value;
-                return true;
-            } else {
-                return false;
-            }
+        function becomeRichest() public payable {
+            require(msg.value > mostSent, "Not enough money sent.");
+            // This line can cause problems (explained below).
+            richest.transfer(msg.value);
+            richest = msg.sender;
+            mostSent = msg.value;
         }
     }
 
 Notice that, in this example, an attacker could trap the
 contract into an unusable state by causing ``richest`` to be
-the address of a contract that has a fallback function
+the address of a contract that has a receive or fallback function
 which fails (e.g. by using ``revert()`` or by just
 consuming more than the 2300 gas stipend transferred to them). That way,
 whenever ``transfer`` is called to deliver funds to the
@@ -130,7 +121,7 @@ restrictions highly readable.
 
 ::
 
-    pragma solidity >=0.4.22 <0.6.0;
+    pragma solidity >=0.4.22 <0.7.0;
 
     contract AccessRestriction {
         // These will be assigned at the construction
@@ -282,7 +273,7 @@ function finishes.
 
 ::
 
-    pragma solidity >=0.4.22 <0.6.0;
+    pragma solidity >=0.4.22 <0.7.0;
 
     contract StateMachine {
         enum Stages {

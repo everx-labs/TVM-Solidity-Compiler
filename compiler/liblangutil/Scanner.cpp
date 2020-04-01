@@ -50,65 +50,26 @@
  * Solidity scanner.
  */
 
+#include <liblangutil/Common.h>
 #include <liblangutil/Exceptions.h>
 #include <liblangutil/Scanner.h>
+
 #include <algorithm>
+#include <optional>
 #include <ostream>
 #include <tuple>
 
 using namespace std;
 
-namespace langutil
-{
+namespace solidity::langutil {
 
-namespace
-{
-bool isDecimalDigit(char c)
-{
-	return '0' <= c && c <= '9';
-}
-bool isHexDigit(char c)
-{
-	return
-		isDecimalDigit(c) ||
-		('a' <= c && c <= 'f') ||
-		('A' <= c && c <= 'F');
-}
-bool isLineTerminator(char c)
-{
-	return c == '\n';
-}
-bool isWhiteSpace(char c)
-{
-	return c == ' ' || c == '\n' || c == '\t' || c == '\r';
-}
-bool isIdentifierStart(char c)
-{
-	return c == '_' || c == '$' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z');
-}
-bool isIdentifierPart(char c)
-{
-	return isIdentifierStart(c) || isDecimalDigit(c);
-}
-int hexValue(char c)
-{
-	if (c >= '0' && c <= '9')
-		return c - '0';
-	else if (c >= 'a' && c <= 'f')
-		return c - 'a' + 10;
-	else if (c >= 'A' && c <= 'F')
-		return c - 'A' + 10;
-	else return -1;
-}
-} // end anonymous namespace
-
-std::string to_string(ScannerError _errorCode)
+string to_string(ScannerError _errorCode)
 {
 	switch (_errorCode)
 	{
 		case ScannerError::NoError: return "No error.";
 		case ScannerError::IllegalToken: return "Invalid token.";
-		case ScannerError::IllegalHexString: return "Expected even number of hex-nibbles within double-quotes.";
+		case ScannerError::IllegalHexString: return "Expected even number of hex-nibbles.";
 		case ScannerError::IllegalHexDigit: return "Hexadecimal digit missing or invalid.";
 		case ScannerError::IllegalCommentTerminator: return "Expected multi-line comment-terminator.";
 		case ScannerError::IllegalEscapeSequence: return "Invalid escape sequence.";
@@ -123,15 +84,16 @@ std::string to_string(ScannerError _errorCode)
 	}
 }
 
-std::ostream& operator<<(std::ostream& os, ScannerError _errorCode)
+
+ostream& operator<<(ostream& os, ScannerError _errorCode)
 {
-	os << to_string(_errorCode);
-	return os;
+	return os << to_string(_errorCode);
 }
 
 /// Scoped helper for literal recording. Automatically drops the literal
 /// if aborting the scanning before it's complete.
-enum LiteralType {
+enum LiteralType
+{
 	LITERAL_TYPE_STRING,
 	LITERAL_TYPE_NUMBER, // not really different from string type in behaviour
 	LITERAL_TYPE_COMMENT
@@ -140,23 +102,24 @@ enum LiteralType {
 class LiteralScope
 {
 public:
-	explicit LiteralScope(Scanner* _self, enum LiteralType _type): m_type(_type)
-	, m_scanner(_self)
-	, m_complete(false)
+	explicit LiteralScope(Scanner* _self, enum LiteralType _type):
+		m_type(_type),
+		m_scanner(_self),
+		m_complete(false)
 	{
 		if (_type == LITERAL_TYPE_COMMENT)
-			m_scanner->m_nextSkippedComment.literal.clear();
+			m_scanner->m_skippedComments[Scanner::NextNext].literal.clear();
 		else
-			m_scanner->m_nextToken.literal.clear();
+			m_scanner->m_tokens[Scanner::NextNext].literal.clear();
 	}
 	~LiteralScope()
 	{
 		if (!m_complete)
 		{
 			if (m_type == LITERAL_TYPE_COMMENT)
-				m_scanner->m_nextSkippedComment.literal.clear();
+				m_scanner->m_skippedComments[Scanner::NextNext].literal.clear();
 			else
-				m_scanner->m_nextToken.literal.clear();
+				m_scanner->m_tokens[Scanner::NextNext].literal.clear();
 		}
 	}
 	void complete() { m_complete = true; }
@@ -165,8 +128,7 @@ private:
 	enum LiteralType m_type;
 	Scanner* m_scanner;
 	bool m_complete;
-}; // end of LiteralScope class
-
+};
 
 void Scanner::reset(CharStream _source)
 {
@@ -174,20 +136,36 @@ void Scanner::reset(CharStream _source)
 	reset();
 }
 
-void Scanner::reset(std::shared_ptr<CharStream> _source)
+void Scanner::reset(shared_ptr<CharStream> _source)
 {
 	solAssert(_source.get() != nullptr, "You MUST provide a CharStream when resetting.");
-	m_source = _source;
+	m_source = std::move(_source);
 	reset();
 }
 
 void Scanner::reset()
 {
 	m_source->reset();
+	m_supportPeriodInIdentifier = false;
 	m_char = m_source->get();
 	skipWhitespace();
+	next();
+	next();
+	next();
+}
+
+void Scanner::setPosition(size_t _offset)
+{
+	m_char = m_source->setPosition(_offset);
 	scanToken();
 	next();
+	next();
+}
+
+void Scanner::supportPeriodInIdentifier(bool _value)
+{
+	m_supportPeriodInIdentifier = _value;
+	rescan();
 }
 
 bool Scanner::scanHexByte(char& o_scannedByte)
@@ -208,7 +186,7 @@ bool Scanner::scanHexByte(char& o_scannedByte)
 	return true;
 }
 
-bool Scanner::scanUnicode(unsigned & o_codepoint)
+std::optional<unsigned> Scanner::scanUnicode()
 {
 	unsigned x = 0;
 	for (int i = 0; i < 4; i++)
@@ -217,13 +195,12 @@ bool Scanner::scanUnicode(unsigned & o_codepoint)
 		if (d < 0)
 		{
 			rollback(i);
-			return false;
+			return {};
 		}
 		x = x * 16 + d;
 		advance();
 	}
-	o_codepoint = x;
-	return true;
+	return x;
 }
 
 // This supports codepoints between 0000 and FFFF.
@@ -244,16 +221,32 @@ void Scanner::addUnicodeAsUTF8(unsigned codepoint)
 	}
 }
 
+void Scanner::rescan()
+{
+	size_t rollbackTo = 0;
+	if (m_skippedComments[Current].literal.empty())
+		rollbackTo = m_tokens[Current].location.start;
+	else
+		rollbackTo = m_skippedComments[Current].location.start;
+	m_char = m_source->rollback(size_t(m_source->position()) - rollbackTo);
+	next();
+	next();
+	next();
+}
+
 // Ensure that tokens can be stored in a byte.
 BOOST_STATIC_ASSERT(TokenTraits::count() <= 0x100);
 
 Token Scanner::next()
 {
-	m_currentToken = m_nextToken;
-	m_skippedComment = m_nextSkippedComment;
+	m_tokens[Current] = std::move(m_tokens[Next]);
+	m_tokens[Next] = std::move(m_tokens[NextNext]);
+	m_skippedComments[Current] = std::move(m_skippedComments[Next]);
+	m_skippedComments[Next] = std::move(m_skippedComments[NextNext]);
+
 	scanToken();
 
-	return m_currentToken.token;
+	return m_tokens[Current].token;
 }
 
 Token Scanner::selectToken(char _next, Token _then, Token _else)
@@ -290,6 +283,29 @@ Token Scanner::skipSingleLineComment()
 	return Token::Whitespace;
 }
 
+bool Scanner::atEndOfLine() const
+{
+	return m_char == '\n' || m_char == '\r';
+}
+
+bool Scanner::tryScanEndOfLine()
+{
+	if (m_char == '\n')
+	{
+		advance();
+		return true;
+	}
+
+	if (m_char == '\r')
+	{
+		if (advance() && m_char == '\n')
+			advance();
+		return true;
+	}
+
+	return false;
+}
+
 Token Scanner::scanSingleLineDocComment()
 {
 	LiteralScope literal(this, LITERAL_TYPE_COMMENT);
@@ -299,7 +315,7 @@ Token Scanner::scanSingleLineDocComment()
 
 	while (!isSourcePastEndOfInput())
 	{
-		if (isLineTerminator(m_char))
+		if (tryScanEndOfLine())
 		{
 			// check if next line is also a documentation comment
 			skipWhitespace();
@@ -313,7 +329,6 @@ Token Scanner::scanSingleLineDocComment()
 			}
 			else
 				break; // next line is not a documentation comment, we are done
-
 		}
 		else if (isUnicodeLinebreak())
 			// Any line terminator that is not '\n' is considered to end the
@@ -353,13 +368,13 @@ Token Scanner::scanMultiLineDocComment()
 	bool endFound = false;
 	bool charsAdded = false;
 
-	while (isWhiteSpace(m_char) && !isLineTerminator(m_char))
+	while (isWhiteSpace(m_char) && !atEndOfLine())
 		advance();
 
 	while (!isSourcePastEndOfInput())
 	{
 		//handle newlines in multline comments
-		if (isLineTerminator(m_char))
+		if (atEndOfLine())
 		{
 			skipWhitespace();
 			if (!m_source->isPastEndOfInput(1) && m_source->get(0) == '*' && m_source->get(1) == '*')
@@ -412,10 +427,11 @@ Token Scanner::scanSlash()
 		{
 			// doxygen style /// comment
 			Token comment;
-			m_nextSkippedComment.location.start = firstSlashPosition;
+			m_skippedComments[NextNext].location.start = firstSlashPosition;
+			m_skippedComments[NextNext].location.source = m_source;
 			comment = scanSingleLineDocComment();
-			m_nextSkippedComment.location.end = sourcePos();
-			m_nextSkippedComment.token = comment;
+			m_skippedComments[NextNext].location.end = sourcePos();
+			m_skippedComments[NextNext].token = comment;
 			return Token::Whitespace;
 		}
 		else
@@ -438,10 +454,11 @@ Token Scanner::scanSlash()
 			}
 			// we actually have a multiline documentation comment
 			Token comment;
-			m_nextSkippedComment.location.start = firstSlashPosition;
+			m_skippedComments[NextNext].location.start = firstSlashPosition;
+			m_skippedComments[NextNext].location.source = m_source;
 			comment = scanMultiLineDocComment();
-			m_nextSkippedComment.location.end = sourcePos();
-			m_nextSkippedComment.token = comment;
+			m_skippedComments[NextNext].location.end = sourcePos();
+			m_skippedComments[NextNext].token = comment;
 			if (comment == Token::Illegal)
 				return Token::Illegal; // error already set
 			else
@@ -458,11 +475,8 @@ Token Scanner::scanSlash()
 
 void Scanner::scanToken()
 {
-	m_nextToken.error = ScannerError::NoError;
-	m_nextToken.literal.clear();
-	m_nextToken.extendedTokenInfo = make_tuple(0, 0);
-	m_nextSkippedComment.literal.clear();
-	m_nextSkippedComment.extendedTokenInfo = make_tuple(0, 0);
+	m_tokens[NextNext] = {};
+	m_skippedComments[NextNext] = {};
 
 	Token token;
 	// M and N are for the purposes of grabbing different type sizes
@@ -471,7 +485,7 @@ void Scanner::scanToken()
 	do
 	{
 		// Remember the position of the next token
-		m_nextToken.location.start = sourcePos();
+		m_tokens[NextNext].location.start = sourcePos();
 		switch (m_char)
 		{
 		case '"':
@@ -596,7 +610,12 @@ void Scanner::scanToken()
 				token = Token::Period;
 			break;
 		case ':':
-			token = selectToken(Token::Colon);
+			// : :=
+			advance();
+			if (m_char == '=')
+				token = selectToken(Token::AssemblyAssign);
+			else
+				token = Token::Colon;
 			break;
 		case ';':
 			token = selectToken(Token::Semicolon);
@@ -661,18 +680,21 @@ void Scanner::scanToken()
 		// whitespace.
 	}
 	while (token == Token::Whitespace);
-	m_nextToken.location.end = sourcePos();
-	m_nextToken.token = token;
-	m_nextToken.extendedTokenInfo = make_tuple(m, n);
+	m_tokens[NextNext].location.end = sourcePos();
+	m_tokens[NextNext].location.source = m_source;
+	m_tokens[NextNext].token = token;
+	m_tokens[NextNext].extendedTokenInfo = make_tuple(m, n);
 }
 
 bool Scanner::scanEscape()
 {
 	char c = m_char;
-	advance();
+
 	// Skip escaped newlines.
-	if (isLineTerminator(c))
+	if (tryScanEndOfLine())
 		return true;
+	advance();
+
 	switch (c)
 	{
 	case '\'':  // fall through
@@ -699,10 +721,10 @@ bool Scanner::scanEscape()
 		break;
 	case 'u':
 	{
-		unsigned codepoint;
-		if (!scanUnicode(codepoint))
+		if (auto const codepoint = scanUnicode(); codepoint.has_value())
+			addUnicodeAsUTF8(*codepoint);
+		else
 			return false;
-		addUnicodeAsUTF8(codepoint);
 		return true;
 	}
 	case 'x':
@@ -764,13 +786,25 @@ Token Scanner::scanHexString()
 	char const quote = m_char;
 	advance();  // consume quote
 	LiteralScope literal(this, LITERAL_TYPE_STRING);
+	bool allowUnderscore = false;
 	while (m_char != quote && !isSourcePastEndOfInput())
 	{
 		char c = m_char;
-		if (!scanHexByte(c))
-			// can only return false if hex-byte is incomplete (only one hex digit instead of two)
+
+		if (scanHexByte(c))
+		{
+			addLiteralChar(c);
+			allowUnderscore = true;
+		}
+		else if (c == '_')
+		{
+			advance();
+			if (!allowUnderscore || m_char == quote)
+				return setError(ScannerError::IllegalNumberSeparator);
+			allowUnderscore = false;
+		}
+		else
 			return setError(ScannerError::IllegalHexString);
-		addLiteralChar(c);
 	}
 
 	if (m_char != quote)
@@ -778,7 +812,7 @@ Token Scanner::scanHexString()
 
 	literal.complete();
 	advance();  // consume quote
-	return Token::StringLiteral;
+	return Token::HexStringLiteral;
 }
 
 // Parse for regex [:digit:]+(_[:digit:]+)*
@@ -789,7 +823,8 @@ void Scanner::scanDecimalDigits()
 		return;
 
 	// May continue with decimal digit or underscore for grouping.
-	do addLiteralCharAndAdvance();
+	do
+		addLiteralCharAndAdvance();
 	while (!m_source->isPastEndOfInput() && (isDecimalDigit(m_char) || m_char == '_'));
 
 	// Defer further validation of underscore to SyntaxChecker.
@@ -895,11 +930,10 @@ tuple<Token, unsigned, unsigned> Scanner::scanIdentifierOrKeyword()
 	LiteralScope literal(this, LITERAL_TYPE_STRING);
 	addLiteralCharAndAdvance();
 	// Scan the rest of the identifier characters.
-	while (isIdentifierPart(m_char)) //get full literal
+	while (isIdentifierPart(m_char) || (m_char == '.' && m_supportPeriodInIdentifier))
 		addLiteralCharAndAdvance();
 	literal.complete();
-	return TokenTraits::fromIdentifierOrKeyword(m_nextToken.literal);
+	return TokenTraits::fromIdentifierOrKeyword(m_tokens[NextNext].literal);
 }
 
-
-}
+} // namespace solidity::langutil

@@ -22,17 +22,20 @@
 
 #include <libyul/backends/evm/AbstractAssembly.h>
 
+#include <libyul/backends/evm/EVMDialect.h>
+
 #include <libevmasm/LinkerObject.h>
 
 #include <map>
 
-namespace langutil
+namespace solidity::langutil
 {
 struct SourceLocation;
 }
 
-namespace yul
+namespace solidity::yul
 {
+
 
 /**
  * Assembly class that just ignores everything and only performs stack counting.
@@ -46,8 +49,9 @@ public:
 
 	void setSourceLocation(langutil::SourceLocation const&) override {}
 	int stackHeight() const override { return m_stackHeight; }
-	void appendInstruction(dev::solidity::Instruction _instruction) override;
-	void appendConstant(dev::u256 const& _constant) override;
+	void setStackHeight(int height) override { m_stackHeight = height; }
+	void appendInstruction(evmasm::Instruction _instruction) override;
+	void appendConstant(u256 const& _constant) override;
 	void appendLabel(LabelID _labelId) override;
 	void appendLabelReference(LabelID _labelId) override;
 	LabelID newLabelId() override;
@@ -65,11 +69,21 @@ public:
 	std::pair<std::shared_ptr<AbstractAssembly>, SubID> createSubAssembly() override;
 	void appendDataOffset(SubID _sub) override;
 	void appendDataSize(SubID _sub) override;
-	SubID appendData(dev::bytes const& _data) override;
+	SubID appendData(bytes const& _data) override;
 
 private:
 	bool m_evm15 = false; ///< if true, switch to evm1.5 mode
 	int m_stackHeight = 0;
 };
+
+
+/**
+ * EVM dialect that does not generate any code.
+ */
+struct NoOutputEVMDialect: public EVMDialect
+{
+	explicit NoOutputEVMDialect(EVMDialect const& _copyFrom);
+};
+
 
 }

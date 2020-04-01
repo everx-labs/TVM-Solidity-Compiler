@@ -23,13 +23,13 @@
 #include <liblangutil/Exceptions.h>
 
 using namespace std;
-using namespace dev;
-using namespace langutil;
+using namespace solidity;
+using namespace solidity::langutil;
 
 Error::Error(Type _type, SourceLocation const& _location, string const& _description):
 	m_type(_type)
 {
-	switch(m_type)
+	switch (m_type)
 	{
 	case Type::DeclarationError:
 		m_typeName = "DeclarationError";
@@ -51,16 +51,16 @@ Error::Error(Type _type, SourceLocation const& _location, string const& _descrip
 		break;
 	}
 
-	if (!_location.isEmpty())
+	if (_location.isValid())
 		*this << errinfo_sourceLocation(_location);
 	if (!_description.empty())
-		*this << errinfo_comment(_description);
+		*this << util::errinfo_comment(_description);
 }
 
 Error::Error(Error::Type _type, std::string const& _description, SourceLocation const& _location):
 	Error(_type)
 {
-	if (!_location.isEmpty())
+	if (_location.isValid())
 		*this << errinfo_sourceLocation(_location);
-	*this << errinfo_comment(_description);
+	*this << util::errinfo_comment(_description);
 }

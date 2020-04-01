@@ -6,7 +6,7 @@
 REPO_ROOT="$(dirname "$0")"/..
 cd $REPO_ROOT
 
-WHITESPACE=$(git grep -n -I -E "^.*[[:space:]]+$" | grep -v "test/libsolidity/ASTJSON\|test/compilationTests/zeppelin/LICENSE")
+WHITESPACE=$(git grep -n -I -E "^.*[[:space:]]+$" | grep -v "test/libsolidity/ASTJSON\|test/libsolidity/ASTRecoveryTests\|test/compilationTests/zeppelin/LICENSE")
 
 if [[ "$WHITESPACE" != "" ]]
 then
@@ -17,7 +17,8 @@ fi
 
 FORMATERROR=$(
 (
-	git grep -nIE "\<(if|for)\(" -- '*.h' '*.cpp' # no space after "if" or "for"
+	git grep -nIE "\<(if|for|while|switch)\(" -- '*.h' '*.cpp' # no space after "if", "for", "while" or "switch"
+	git grep -nIE "\<for\>\s*\([^=]*\>\s:\s.*\)" -- '*.h' '*.cpp' # no space before range based for-loop
 	git grep -nIE "\<if\>\s*\(.*\)\s*\{\s*$" -- '*.h' '*.cpp' # "{\n" on same line as "if" / "for"
 	git grep -nIE "[,\(<]\s*const " -- '*.h' '*.cpp' # const on left side of type
 	git grep -nIE "^\s*(static)?\s*const " -- '*.h' '*.cpp' # const on left side of type (beginning of line)

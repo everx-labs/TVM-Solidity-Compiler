@@ -24,15 +24,15 @@
 #include <libyul/AsmData.h>
 #include <libyul/Utilities.h>
 
-#include <libdevcore/CommonData.h>
+#include <libsolutil/CommonData.h>
 
 using namespace std;
-using namespace dev;
-using namespace yul;
+using namespace solidity;
+using namespace solidity::yul;
 
 bool SyntacticallyEqual::operator()(Expression const& _lhs, Expression const& _rhs)
 {
-	return boost::apply_visitor([this](auto&& _lhsExpr, auto&& _rhsExpr) -> bool {
+	return std::visit([this](auto&& _lhsExpr, auto&& _rhsExpr) -> bool {
 		// ``this->`` is redundant, but required to work around a bug present in gcc 6.x.
 		return this->expressionEqual(_lhsExpr, _rhsExpr);
 	}, _lhs, _rhs);
@@ -40,26 +40,17 @@ bool SyntacticallyEqual::operator()(Expression const& _lhs, Expression const& _r
 
 bool SyntacticallyEqual::operator()(Statement const& _lhs, Statement const& _rhs)
 {
-	return boost::apply_visitor([this](auto&& _lhsStmt, auto&& _rhsStmt) -> bool {
+	return std::visit([this](auto&& _lhsStmt, auto&& _rhsStmt) -> bool {
 		// ``this->`` is redundant, but required to work around a bug present in gcc 6.x.
 		return this->statementEqual(_lhsStmt, _rhsStmt);
 	}, _lhs, _rhs);
-}
-
-bool SyntacticallyEqual::expressionEqual(FunctionalInstruction const& _lhs, FunctionalInstruction const& _rhs)
-{
-	return
-		_lhs.instruction == _rhs.instruction &&
-		containerEqual(_lhs.arguments, _rhs.arguments, [this](Expression const& _lhsExpr, Expression const& _rhsExpr) -> bool {
-			return (*this)(_lhsExpr, _rhsExpr);
-		});
 }
 
 bool SyntacticallyEqual::expressionEqual(FunctionCall const& _lhs, FunctionCall const& _rhs)
 {
 	return
 		expressionEqual(_lhs.functionName, _rhs.functionName) &&
-		containerEqual(_lhs.arguments, _rhs.arguments, [this](Expression const& _lhsExpr, Expression const& _rhsExpr) -> bool {
+		util::containerEqual(_lhs.arguments, _rhs.arguments, [this](Expression const& _lhsExpr, Expression const& _rhsExpr) -> bool {
 			return (*this)(_lhsExpr, _rhsExpr);
 		});
 }
@@ -88,7 +79,7 @@ bool SyntacticallyEqual::statementEqual(ExpressionStatement const& _lhs, Express
 }
 bool SyntacticallyEqual::statementEqual(Assignment const& _lhs, Assignment const& _rhs)
 {
-	return containerEqual(
+	return util::containerEqual(
 		_lhs.variableNames,
 		_rhs.variableNames,
 		[this](Identifier const& _lhsVarName, Identifier const& _rhsVarName) -> bool {
@@ -102,7 +93,7 @@ bool SyntacticallyEqual::statementEqual(VariableDeclaration const& _lhs, Variabl
 	// first visit expression, then variable declarations
 	if (!compareUniquePtr<Expression, &SyntacticallyEqual::operator()>(_lhs.value, _rhs.value))
 		return false;
-	return containerEqual(_lhs.variables, _rhs.variables, [this](TypedName const& _lhsVarName, TypedName const& _rhsVarName) -> bool {
+	return util::containerEqual(_lhs.variables, _rhs.variables, [this](TypedName const& _lhsVarName, TypedName const& _rhsVarName) -> bool {
 		return this->visitDeclaration(_lhsVarName, _rhsVarName);
 	});
 }
@@ -113,9 +104,9 @@ bool SyntacticallyEqual::statementEqual(FunctionDefinition const& _lhs, Function
 		return this->visitDeclaration(_lhsVarName, _rhsVarName);
 	};
 	// first visit parameter declarations, then body
-	if (!containerEqual(_lhs.parameters, _rhs.parameters, compare))
+	if (!util::containerEqual(_lhs.parameters, _rhs.parameters, compare))
 		return false;
-	if (!containerEqual(_lhs.returnVariables, _rhs.returnVariables, compare))
+	if (!util::containerEqual(_lhs.returnVariables, _rhs.returnVariables, compare))
 		return false;
 	return statementEqual(_lhs.body, _rhs.body);
 }
@@ -129,18 +120,15 @@ bool SyntacticallyEqual::statementEqual(If const& _lhs, If const& _rhs)
 
 bool SyntacticallyEqual::statementEqual(Switch const& _lhs, Switch const& _rhs)
 {
-	static auto const sortCasesByValue = [](Case const* _lhsCase, Case const* _rhsCase) -> bool {
-		return Less<Literal*>{}(_lhsCase->value.get(), _rhsCase->value.get());
-	};
-	std::set<Case const*, decltype(sortCasesByValue)> lhsCases(sortCasesByValue);
-	std::set<Case const*, decltype(sortCasesByValue)> rhsCases(sortCasesByValue);
+	std::set<Case const*, SwitchCaseCompareByLiteralValue> lhsCases;
+	std::set<Case const*, SwitchCaseCompareByLiteralValue> rhsCases;
 	for (auto const& lhsCase: _lhs.cases)
 		lhsCases.insert(&lhsCase);
 	for (auto const& rhsCase: _rhs.cases)
 		rhsCases.insert(&rhsCase);
 	return
 		compareUniquePtr<Expression, &SyntacticallyEqual::operator()>(_lhs.expression, _rhs.expression) &&
-		containerEqual(lhsCases, rhsCases, [this](Case const* _lhsCase, Case const* _rhsCase) -> bool {
+		util::containerEqual(lhsCases, rhsCases, [this](Case const* _lhsCase, Case const* _rhsCase) -> bool {
 			return this->switchCaseEqual(*_lhsCase, *_rhsCase);
 		});
 }
@@ -162,24 +150,9 @@ bool SyntacticallyEqual::statementEqual(ForLoop const& _lhs, ForLoop const& _rhs
 		statementEqual(_lhs.post, _rhs.post);
 }
 
-bool SyntacticallyEqual::statementEqual(Instruction const&, Instruction const&)
-{
-	assertThrow(false, OptimizerException, "");
-}
-
-bool SyntacticallyEqual::statementEqual(Label const&, Label const&)
-{
-	assertThrow(false, OptimizerException, "");
-}
-
-bool SyntacticallyEqual::statementEqual(StackAssignment const&, StackAssignment const&)
-{
-	assertThrow(false, OptimizerException, "");
-}
-
 bool SyntacticallyEqual::statementEqual(Block const& _lhs, Block const& _rhs)
 {
-	return containerEqual(_lhs.statements, _rhs.statements, [this](Statement const& _lhsStmt, Statement const& _rhsStmt) -> bool {
+	return util::containerEqual(_lhs.statements, _rhs.statements, [this](Statement const& _lhsStmt, Statement const& _rhsStmt) -> bool {
 		return (*this)(_lhsStmt, _rhsStmt);
 	});
 }

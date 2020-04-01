@@ -17,35 +17,38 @@
 
 #include <test/libsolidity/util/TestFileParser.h>
 
-#include <test/Options.h>
+#include <test/libsolidity/util/BytesUtils.h>
+#include <test/Common.h>
+
+#include <liblangutil/Common.h>
+
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/predicate.hpp>
-#include <boost/optional.hpp>
 #include <boost/throw_exception.hpp>
+
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 
-using namespace dev;
-using namespace langutil;
 using namespace solidity;
-using namespace dev::solidity::test;
+using namespace solidity::langutil;
+using namespace solidity::frontend;
+using namespace solidity::frontend::test;
 using namespace std;
 using namespace soltest;
 
-namespace
+char TestFileParser::Scanner::peek() const noexcept
 {
-	bool isIdentifierStart(char c)
-	{
-		return c == '_' || c == '$' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z');
-	}
-	bool isIdentifierPart(char c)
-	{
-		return isIdentifierStart(c) || isdigit(c);
-	}
+	if (std::distance(m_char, m_line.end()) < 2)
+		return '\0';
+
+	auto next = m_char;
+	std::advance(next, 1);
+	return *next;
 }
 
-vector<dev::solidity::test::FunctionCall> TestFileParser::parseFunctionCalls()
+vector<solidity::frontend::test::FunctionCall> TestFileParser::parseFunctionCalls(size_t _lineOffset)
 {
 	vector<FunctionCall> calls;
 	if (!accept(Token::EOS))
@@ -67,29 +70,67 @@ vector<dev::solidity::test::FunctionCall> TestFileParser::parseFunctionCalls()
 				if (calls.empty())
 					expect(Token::Newline);
 				else
-					accept(Token::Newline, true);
+					if (accept(Token::Newline, true))
+						m_lineNumber++;
 
-				call.signature = parseFunctionSignature();
-				if (accept(Token::Comma, true))
-					call.value = parseFunctionCallValue();
-				if (accept(Token::Colon, true))
-					call.arguments = parseFunctionCallArguments();
+				try
+				{
+					if (accept(Token::Library, true))
+					{
+						expect(Token::Colon);
+						call.signature = m_scanner.currentLiteral();
+						expect(Token::Identifier);
+						call.isLibrary = true;
+						call.expectations.failure = false;
+					}
+					else
+					{
+						tie(call.signature, call.useCallWithoutSignature) = parseFunctionSignature();
+						if (accept(Token::Comma, true))
+							call.value = parseFunctionCallValue();
+						if (accept(Token::Colon, true))
+							call.arguments = parseFunctionCallArguments();
 
-				if (accept(Token::Newline, true))
-					call.displayMode = FunctionCall::DisplayMode::MultiLine;
+						if (accept(Token::Newline, true))
+						{
+							call.displayMode = FunctionCall::DisplayMode::MultiLine;
+							m_lineNumber++;
+						}
 
-				call.arguments.comment = parseComment();
+						call.arguments.comment = parseComment();
 
-				if (accept(Token::Newline, true))
-					call.displayMode = FunctionCall::DisplayMode::MultiLine;
+						if (accept(Token::Newline, true))
+						{
+							call.displayMode = FunctionCall::DisplayMode::MultiLine;
+							m_lineNumber++;
+						}
 
-				expect(Token::Arrow);
-				call.expectations = parseFunctionCallExpectations();
+						if (accept(Token::Arrow, true))
+						{
+							call.omitsArrow = false;
+							call.expectations = parseFunctionCallExpectations();
+							if (accept(Token::Newline, true))
+								m_lineNumber++;
+						}
+						else
+						{
+							call.expectations.failure = false;
+							call.displayMode = FunctionCall::DisplayMode::SingleLine;
+						}
 
-				accept(Token::Newline, true);
-				call.expectations.comment = parseComment();
+						call.expectations.comment = parseComment();
 
-				calls.emplace_back(std::move(call));
+						if (call.signature == "constructor()")
+							call.isConstructor = true;
+
+					}
+
+					calls.emplace_back(std::move(call));
+				}
+				catch (Error const& _e)
+				{
+					throw Error{_e.type(), "Line " + to_string(_lineOffset + m_lineNumber) + ": " + _e.what()};
+				}
 			}
 		}
 	}
@@ -119,10 +160,17 @@ bool TestFileParser::expect(soltest::Token _token, bool const _advance)
 	return true;
 }
 
-string TestFileParser::parseFunctionSignature()
+pair<string, bool> TestFileParser::parseFunctionSignature()
 {
-	string signature = m_scanner.currentLiteral();
-	expect(Token::Identifier);
+	string signature;
+	bool hasName = false;
+
+	if (accept(Token::Identifier, false))
+	{
+		hasName = true;
+		signature = m_scanner.currentLiteral();
+		expect(Token::Identifier);
+	}
 
 	signature += formatToken(Token::LParen);
 	expect(Token::LParen);
@@ -140,18 +188,29 @@ string TestFileParser::parseFunctionSignature()
 	if (accept(Token::Arrow, true))
 		throw Error(Error::Type::ParserError, "Invalid signature detected: " + signature);
 
-	signature += parameters;
+	if (!hasName && !parameters.empty())
+		throw Error(Error::Type::ParserError, "Signatures without a name cannot have parameters: " + signature);
+	else
+		signature += parameters;
 
 	expect(Token::RParen);
 	signature += formatToken(Token::RParen);
-	return signature;
+
+	return {signature, !hasName};
 }
 
 u256 TestFileParser::parseFunctionCallValue()
 {
-	u256 value = convertNumber(parseNumber());
-	expect(Token::Ether);
-	return value;
+	try
+	{
+		u256 value{parseDecimalNumber()};
+		expect(Token::Ether);
+		return value;
+	}
+	catch (std::exception const&)
+	{
+		throw Error(Error::Type::ParserError, "Ether value encoding invalid.");
+	}
 }
 
 FunctionCallArgs TestFileParser::parseFunctionCallArguments()
@@ -194,62 +253,146 @@ Parameter TestFileParser::parseParameter()
 {
 	Parameter parameter;
 	if (accept(Token::Newline, true))
+	{
 		parameter.format.newline = true;
-	auto literal = parseABITypeLiteral();
-	parameter.rawBytes = get<0>(literal);
-	parameter.abiType = get<1>(literal);
-	parameter.rawString = get<2>(literal);
+		m_lineNumber++;
+	}
+	parameter.abiType = ABIType{ABIType::None, ABIType::AlignNone, 0};
+
+	bool isSigned = false;
+	if (accept(Token::Left, true))
+	{
+		parameter.rawString += formatToken(Token::Left);
+		expect(Token::LParen);
+		parameter.rawString += formatToken(Token::LParen);
+		parameter.alignment = Parameter::Alignment::Left;
+	}
+	if (accept(Token::Right, true))
+	{
+		parameter.rawString += formatToken(Token::Right);
+		expect(Token::LParen);
+		parameter.rawString += formatToken(Token::LParen);
+		parameter.alignment = Parameter::Alignment::Right;
+	}
+
+	if (accept(Token::Sub, true))
+	{
+		parameter.rawString += formatToken(Token::Sub);
+		isSigned = true;
+	}
+	if (accept(Token::Boolean))
+	{
+		if (isSigned)
+			throw Error(Error::Type::ParserError, "Invalid boolean literal.");
+
+		parameter.abiType = ABIType{ABIType::Boolean, ABIType::AlignRight, 32};
+		string parsed = parseBoolean();
+		parameter.rawString += parsed;
+		parameter.rawBytes = BytesUtils::applyAlign(
+			parameter.alignment,
+			parameter.abiType,
+			BytesUtils::convertBoolean(parsed)
+		);
+	}
+	else if (accept(Token::HexNumber))
+	{
+		if (isSigned)
+			throw Error(Error::Type::ParserError, "Invalid hex number literal.");
+
+		parameter.abiType = ABIType{ABIType::Hex, ABIType::AlignRight, 32};
+		string parsed = parseHexNumber();
+		parameter.rawString += parsed;
+		parameter.rawBytes = BytesUtils::applyAlign(
+			parameter.alignment,
+			parameter.abiType,
+			BytesUtils::convertHexNumber(parsed)
+		);
+	}
+	else if (accept(Token::Hex, true))
+	{
+		if (isSigned)
+			throw Error(Error::Type::ParserError, "Invalid hex string literal.");
+		if (parameter.alignment != Parameter::Alignment::None)
+			throw Error(Error::Type::ParserError, "Hex string literals cannot be aligned or padded.");
+
+		string parsed = parseString();
+		parameter.rawString += "hex\"" + parsed + "\"";
+		parameter.rawBytes = BytesUtils::convertHexNumber(parsed);
+		parameter.abiType = ABIType{
+			ABIType::HexString, ABIType::AlignNone, parameter.rawBytes.size()
+		};
+	}
+	else if (accept(Token::String))
+	{
+		if (isSigned)
+			throw Error(Error::Type::ParserError, "Invalid string literal.");
+		if (parameter.alignment != Parameter::Alignment::None)
+			throw Error(Error::Type::ParserError, "String literals cannot be aligned or padded.");
+
+		string parsed = parseString();
+		parameter.abiType = ABIType{ABIType::String, ABIType::AlignLeft, parsed.size()};
+		parameter.rawString += "\"" + parsed + "\"";
+		parameter.rawBytes = BytesUtils::applyAlign(
+			Parameter::Alignment::Left,
+			parameter.abiType,
+			BytesUtils::convertString(parsed)
+		);
+	}
+	else if (accept(Token::Number))
+	{
+		auto type = isSigned ? ABIType::SignedDec : ABIType::UnsignedDec;
+
+		parameter.abiType = ABIType{type, ABIType::AlignRight, 32};
+		string parsed = parseDecimalNumber();
+		parameter.rawString += parsed;
+		if (isSigned)
+			parsed = "-" + parsed;
+
+		parameter.rawBytes = BytesUtils::applyAlign(
+			parameter.alignment,
+			parameter.abiType,
+			BytesUtils::convertNumber(parsed)
+		);
+	}
+	else if (accept(Token::Failure, true))
+	{
+		if (isSigned)
+			throw Error(Error::Type::ParserError, "Invalid failure literal.");
+
+		parameter.abiType = ABIType{ABIType::Failure, ABIType::AlignRight, 0};
+		parameter.rawBytes = bytes{};
+	}
+	if (parameter.alignment != Parameter::Alignment::None)
+	{
+		expect(Token::RParen);
+		parameter.rawString += formatToken(Token::RParen);
+	}
+
 	return parameter;
-}
-
-tuple<bytes, ABIType, string> TestFileParser::parseABITypeLiteral()
-{
-	try
-	{
-		u256 number{0};
-		ABIType abiType{ABIType::None, 0};
-		string rawString;
-
-		if (accept(Token::Sub))
-		{
-			abiType = ABIType{ABIType::SignedDec, 32};
-			expect(Token::Sub);
-			rawString += formatToken(Token::Sub);
-			string parsed = parseNumber();
-			rawString += parsed;
-			number = convertNumber(parsed) * -1;
-		}
-		else
-		{
-			if (accept(Token::Number))
-			{
-				abiType = ABIType{ABIType::UnsignedDec, 32};
-				string parsed = parseNumber();
-				rawString += parsed;
-				number = convertNumber(parsed);
-			}
-			else if (accept(Token::Failure, true))
-			{
-				abiType = ABIType{ABIType::Failure, 0};
-				return make_tuple(bytes{}, abiType, rawString);
-			}
-		}
-		return make_tuple(toBigEndian(number), abiType, rawString);
-	}
-	catch (std::exception const&)
-	{
-		throw Error(Error::Type::ParserError, "Number encoding invalid.");
-	}
 }
 
 string TestFileParser::parseIdentifierOrTuple()
 {
 	string identOrTuple;
 
+	auto parseArrayDimensions = [&]()
+	{
+		while (accept(Token::LBrack))
+		{
+			identOrTuple += formatToken(Token::LBrack);
+			expect(Token::LBrack);
+			if (accept(Token::Number))
+				identOrTuple += parseDecimalNumber();
+			identOrTuple += formatToken(Token::RBrack);
+			expect(Token::RBrack);
+		}
+	};
+
 	if (accept(Token::Identifier))
 	{
 		identOrTuple = m_scanner.currentLiteral();
 		expect(Token::Identifier);
+		parseArrayDimensions();
 		return identOrTuple;
 	}
 	expect(Token::LParen);
@@ -264,7 +407,16 @@ string TestFileParser::parseIdentifierOrTuple()
 	}
 	expect(Token::RParen);
 	identOrTuple += formatToken(Token::RParen);
+
+	parseArrayDimensions();
 	return identOrTuple;
+}
+
+string TestFileParser::parseBoolean()
+{
+	string literal = m_scanner.currentLiteral();
+	expect(Token::Boolean);
+	return literal;
 }
 
 string TestFileParser::parseComment()
@@ -275,22 +427,25 @@ string TestFileParser::parseComment()
 	return string{};
 }
 
-string TestFileParser::parseNumber()
+string TestFileParser::parseDecimalNumber()
 {
 	string literal = m_scanner.currentLiteral();
 	expect(Token::Number);
 	return literal;
 }
 
-u256 TestFileParser::convertNumber(string const& _literal)
+string TestFileParser::parseHexNumber()
 {
-	try {
-		return u256{_literal};
-	}
-	catch (std::exception const&)
-	{
-		throw Error(Error::Type::ParserError, "Number encoding invalid.");
-	}
+	string literal = m_scanner.currentLiteral();
+	expect(Token::HexNumber);
+	return literal;
+}
+
+string TestFileParser::parseString()
+{
+	string literal = m_scanner.currentLiteral();
+	expect(Token::String);
+	return literal;
 }
 
 void TestFileParser::Scanner::readStream(istream& _stream)
@@ -303,11 +458,19 @@ void TestFileParser::Scanner::readStream(istream& _stream)
 
 void TestFileParser::Scanner::scanNextToken()
 {
+	using namespace langutil;
+
 	// Make code coverage happy.
 	assert(formatToken(Token::NUM_TOKENS) == "");
 
 	auto detectKeyword = [](std::string const& _literal = "") -> TokenDesc {
+		if (_literal == "true") return TokenDesc{Token::Boolean, _literal};
+		if (_literal == "false") return TokenDesc{Token::Boolean, _literal};
 		if (_literal == "ether") return TokenDesc{Token::Ether, _literal};
+		if (_literal == "left") return TokenDesc{Token::Left, _literal};
+		if (_literal == "library") return TokenDesc{Token::Library, _literal};
+		if (_literal == "right") return TokenDesc{Token::Right, _literal};
+		if (_literal == "hex") return TokenDesc{Token::Hex, _literal};
 		if (_literal == "FAILURE") return TokenDesc{Token::Failure, _literal};
 		return TokenDesc{Token::Identifier, _literal};
 	};
@@ -353,18 +516,41 @@ void TestFileParser::Scanner::scanNextToken()
 		case ')':
 			token = selectToken(Token::RParen);
 			break;
+		case '[':
+			token = selectToken(Token::LBrack);
+			break;
+		case ']':
+			token = selectToken(Token::RBrack);
+			break;
+		case '\"':
+			token = selectToken(Token::String, scanString());
+			break;
 		default:
 			if (isIdentifierStart(current()))
 			{
 				TokenDesc detectedToken = detectKeyword(scanIdentifierOrKeyword());
 				token = selectToken(detectedToken.first, detectedToken.second);
 			}
-			else if (isdigit(current()))
-				token = selectToken(Token::Number, scanNumber());
-			else if (isspace(current()))
+			else if (isDecimalDigit(current()))
+			{
+				if (current() == '0' && peek() == 'x')
+				{
+					advance();
+					advance();
+					token = selectToken(Token::HexNumber, "0x" + scanHexNumber());
+				}
+				else
+					token = selectToken(Token::Number, scanDecimalNumber());
+			}
+			else if (isWhiteSpace(current()))
 				token = selectToken(Token::Whitespace);
 			else if (isEndOfLine())
-				token = selectToken(Token::EOS);
+				token = make_pair(Token::EOS, "EOS");
+			else
+				throw Error(
+					Error::Type::ParserError,
+					"Unexpected character: '" + string{current()} + "'"
+				);
 			break;
 		}
 	}
@@ -389,7 +575,7 @@ string TestFileParser::Scanner::scanIdentifierOrKeyword()
 {
 	string identifier;
 	identifier += current();
-	while (isIdentifierPart(peek()))
+	while (langutil::isIdentifierPart(peek()))
 	{
 		advance();
 		identifier += current();
@@ -397,14 +583,101 @@ string TestFileParser::Scanner::scanIdentifierOrKeyword()
 	return identifier;
 }
 
-string TestFileParser::Scanner::scanNumber()
+string TestFileParser::Scanner::scanDecimalNumber()
 {
 	string number;
 	number += current();
-	while (isdigit(peek()))
+	while (langutil::isDecimalDigit(peek()))
 	{
 		advance();
 		number += current();
 	}
 	return number;
+}
+
+string TestFileParser::Scanner::scanHexNumber()
+{
+	string number;
+	number += current();
+	while (langutil::isHexDigit(peek()))
+	{
+		advance();
+		number += current();
+	}
+	return number;
+}
+
+string TestFileParser::Scanner::scanString()
+{
+	string str;
+	advance();
+
+	while (current() != '\"')
+	{
+		if (current() == '\\')
+		{
+			advance();
+			switch (current())
+			{
+				case '\\':
+					str += current();
+					advance();
+					break;
+				case 'n':
+					str += '\n';
+					advance();
+					break;
+				case 'r':
+					str += '\r';
+					advance();
+					break;
+				case 't':
+					str += '\t';
+					advance();
+					break;
+				case '0':
+					str += '\0';
+					advance();
+					break;
+				case 'x':
+					str += scanHexPart();
+					break;
+				default:
+					throw Error(Error::Type::ParserError, "Invalid or escape sequence found in string literal.");
+			}
+		}
+		else
+		{
+			str += current();
+			advance();
+		}
+	}
+	return str;
+}
+
+char TestFileParser::Scanner::scanHexPart()
+{
+	advance(); // skip 'x'
+
+	char value{};
+	if (isdigit(current()))
+		value = current() - '0';
+	else if (tolower(current()) >= 'a' && tolower(current()) <= 'f')
+		value = tolower(current()) - 'a' + 10;
+	else
+		throw Error(Error::Type::ParserError, "\\x used with no following hex digits.");
+
+	advance();
+	if (current() == '"')
+		return value;
+
+	value <<= 4;
+	if (isdigit(current()))
+		value |= current() - '0';
+	else if (tolower(current()) >= 'a' && tolower(current()) <= 'f')
+		value |= tolower(current()) - 'a' + 10;
+
+	advance();
+
+	return value;
 }

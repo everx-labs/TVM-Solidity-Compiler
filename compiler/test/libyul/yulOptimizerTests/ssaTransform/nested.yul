@@ -10,8 +10,9 @@
   }
   a := add(b, a)
 }
+// ====
+// step: ssaTransform
 // ----
-// ssaTransform
 // {
 //     let a_1 := 1
 //     let a := a_1
@@ -27,6 +28,7 @@
 //         let a_6 := 4
 //         a := a_6
 //     }
-//     let a_7 := add(b_4, a)
+//     let a_8 := a
+//     let a_7 := add(b_4, a_8)
 //     a := a_7
 // }

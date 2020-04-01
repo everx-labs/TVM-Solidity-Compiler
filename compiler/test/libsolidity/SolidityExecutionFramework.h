@@ -27,30 +27,31 @@
 #include <test/ExecutionFramework.h>
 
 #include <libsolidity/interface/CompilerStack.h>
+#include <libsolidity/interface/DebugSettings.h>
+
+#include <libyul/AssemblyStack.h>
+
 #include <liblangutil/Exceptions.h>
 #include <liblangutil/SourceReferenceFormatter.h>
 
-namespace dev
-{
-namespace solidity
+namespace solidity::frontend::test
 {
 
-namespace test
-{
-
-class SolidityExecutionFramework: public dev::test::ExecutionFramework
+class SolidityExecutionFramework: public solidity::test::ExecutionFramework
 {
 
 public:
-	SolidityExecutionFramework();
-	SolidityExecutionFramework(std::string const& _ipcPath);
+	SolidityExecutionFramework() {}
+	explicit SolidityExecutionFramework(langutil::EVMVersion _evmVersion):
+		ExecutionFramework(_evmVersion)
+	{}
 
 	virtual bytes const& compileAndRunWithoutCheck(
 		std::string const& _sourceCode,
 		u256 const& _value = 0,
 		std::string const& _contractName = "",
 		bytes const& _arguments = bytes(),
-		std::map<std::string, dev::test::Address> const& _libraryAddresses = std::map<std::string, dev::test::Address>()
+		std::map<std::string, solidity::test::Address> const& _libraryAddresses = std::map<std::string, solidity::test::Address>()
 	) override
 	{
 		bytes bytecode = compileContract(_sourceCode, _contractName, _libraryAddresses);
@@ -61,37 +62,15 @@ public:
 	bytes compileContract(
 		std::string const& _sourceCode,
 		std::string const& _contractName = "",
-		std::map<std::string, dev::test::Address> const& _libraryAddresses = std::map<std::string, dev::test::Address>()
-	)
-	{
-		// Silence compiler version warning
-		std::string sourceCode = "pragma solidity >=0.0;\n" + _sourceCode;
-		m_compiler.reset(false);
-		m_compiler.addSource("", sourceCode);
-		m_compiler.setLibraries(_libraryAddresses);
-		m_compiler.setEVMVersion(m_evmVersion);
-		m_compiler.setOptimiserSettings(m_optimize, m_optimizeRuns);
-		if (!m_compiler.compile())
-		{
-			langutil::SourceReferenceFormatter formatter(std::cerr);
-
-			for (auto const& error: m_compiler.errors())
-				formatter.printExceptionInformation(
-					*error,
-					(error->type() == langutil::Error::Type::Warning) ? "Warning" : "Error"
-				);
-			BOOST_ERROR("Compiling contract failed");
-		}
-		eth::LinkerObject obj = m_compiler.object(_contractName.empty() ? m_compiler.lastContractName() : _contractName);
-		BOOST_REQUIRE(obj.linkReferences.empty());
-		return obj.bytecode;
-	}
+		std::map<std::string, solidity::test::Address> const& _libraryAddresses = std::map<std::string, solidity::test::Address>()
+	);
 
 protected:
-	dev::solidity::CompilerStack m_compiler;
+	solidity::frontend::CompilerStack m_compiler;
+	bool m_compileViaYul = false;
+	RevertStrings m_revertStrings = RevertStrings::Default;
+
 };
 
-}
-}
 } // end namespaces
 

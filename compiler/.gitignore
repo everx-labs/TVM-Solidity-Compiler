@@ -31,7 +31,7 @@ prerelease.txt
 *.app
 
 # Build directory
-build/
+build*/
 cmake-build-*/
 docs/_build
 docs/utils/__pycache__

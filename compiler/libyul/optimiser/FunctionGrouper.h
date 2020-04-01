@@ -23,8 +23,10 @@
 
 #include <libyul/AsmDataForward.h>
 
-namespace yul
+namespace solidity::yul
 {
+
+struct OptimiserStepContext;
 
 /**
  * Moves all instructions in a block into a new block at the start of the block, followed by
@@ -37,9 +39,14 @@ namespace yul
 class FunctionGrouper
 {
 public:
+	static constexpr char const* name{"FunctionGrouper"};
+	static void run(OptimiserStepContext&, Block& _ast) { FunctionGrouper{}(_ast); }
+
 	void operator()(Block& _block);
 
 private:
+	FunctionGrouper() = default;
+
 	bool alreadyGrouped(Block const& _block);
 };
 

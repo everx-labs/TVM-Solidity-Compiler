@@ -20,12 +20,12 @@
 #include "TVMInlineFunctionChecker.hpp"
 #include "TVMCommons.hpp"
 
-using namespace dev::solidity;
+using namespace solidity::frontend;
 
 bool TVMInlineFunctionChecker::visit(Identifier const &_identifier) {
-	auto functionType = to<FunctionType>(_identifier.annotation().type.get());
+	auto functionType = to<FunctionType>(_identifier.annotation().type);
 	auto funDef = to<FunctionDefinition>(_identifier.annotation().referencedDeclaration);
-	if (functionType && funDef && isInlineFunction(funDef)) {
+	if (functionType && funDef && isFunctionForInlining(funDef)) {
 		graph[currentFunctionDefinition].insert(funDef);
 	}
 	return false;
@@ -34,7 +34,7 @@ bool TVMInlineFunctionChecker::visit(Identifier const &_identifier) {
 bool TVMInlineFunctionChecker::visit(FunctionDefinition const &_node) {
 	currentFunctionDefinition = &_node;
 	graph[currentFunctionDefinition];
-	solAssert(isInlineFunction(currentFunctionDefinition), "");
+	solAssert(isFunctionForInlining(currentFunctionDefinition), "");
 	return ASTConstVisitor::visit(_node);
 }
 

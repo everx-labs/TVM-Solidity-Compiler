@@ -18,12 +18,12 @@ set(sources
 	analysis/GlobalContext.h
 	analysis/NameAndTypeResolver.cpp
 	analysis/NameAndTypeResolver.h
+	analysis/OverrideChecker.cpp
+	analysis/OverrideChecker.h
 	analysis/PostTypeChecker.cpp
 	analysis/PostTypeChecker.h
 	analysis/ReferencesResolver.cpp
 	analysis/ReferencesResolver.h
-	analysis/SemVerHandler.cpp
-	analysis/SemVerHandler.h
 	analysis/StaticAnalyzer.cpp
 	analysis/StaticAnalyzer.h
 	analysis/SyntaxChecker.cpp
@@ -39,14 +39,20 @@ set(sources
 	ast/ASTAnnotations.h
 	ast/ASTEnums.h
 	ast/ASTForward.h
+	ast/AsmJsonImporter.cpp
+	ast/AsmJsonImporter.h
 	ast/ASTJsonConverter.cpp
 	ast/ASTJsonConverter.h
-	ast/ASTPrinter.cpp
-	ast/ASTPrinter.h
+	ast/ASTUtils.cpp
+	ast/ASTUtils.h
+	ast/ASTJsonImporter.cpp
+	ast/ASTJsonImporter.h
 	ast/ASTVisitor.h
 	ast/ExperimentalFeatures.h
 	ast/Types.cpp
 	ast/Types.h
+	ast/TypeProvider.cpp
+	ast/TypeProvider.h
 	codegen/ABIFunctions.cpp
 	codegen/ABIFunctions.h
 	codegen/ArrayUtils.cpp
@@ -63,8 +69,31 @@ set(sources
 	codegen/ExpressionCompiler.h
 	codegen/LValue.cpp
 	codegen/LValue.h
-	formal/SMTChecker.cpp
-	formal/SMTChecker.h
+	codegen/MultiUseYulFunctionCollector.h
+	codegen/MultiUseYulFunctionCollector.cpp
+	codegen/YulUtilFunctions.h
+	codegen/YulUtilFunctions.cpp
+	codegen/ir/IRGenerator.cpp
+	codegen/ir/IRGenerator.h
+	codegen/ir/IRGeneratorForStatements.cpp
+	codegen/ir/IRGeneratorForStatements.h
+	codegen/ir/IRGenerationContext.cpp
+	codegen/ir/IRGenerationContext.h
+	codegen/ir/IRLValue.cpp
+	codegen/ir/IRLValue.h
+	formal/BMC.cpp
+	formal/BMC.h
+	formal/CHC.cpp
+	formal/CHC.h
+	formal/CHCSmtLib2Interface.cpp
+	formal/CHCSmtLib2Interface.h
+	formal/CHCSolverInterface.h
+	formal/EncodingContext.cpp
+	formal/EncodingContext.h
+	formal/ModelChecker.cpp
+	formal/ModelChecker.h
+	formal/SMTEncoder.cpp
+	formal/SMTEncoder.h
 	formal/SMTLib2Interface.cpp
 	formal/SMTLib2Interface.h
 	formal/SMTPortfolio.cpp
@@ -82,13 +111,17 @@ set(sources
 	interface/ABI.h
 	interface/CompilerStack.cpp
 	interface/CompilerStack.h
+	interface/DebugSettings.h
 	interface/GasEstimator.cpp
 	interface/GasEstimator.h
 	interface/Natspec.cpp
 	interface/Natspec.h
+	interface/OptimiserSettings.h
 	interface/ReadFile.h
 	interface/StandardCompiler.cpp
 	interface/StandardCompiler.h
+	interface/StorageLayout.cpp
+	interface/StorageLayout.h
 	interface/Version.cpp
 	interface/Version.h
 	parsing/DocStringParser.cpp
@@ -96,7 +129,7 @@ set(sources
 	parsing/Parser.cpp
 	parsing/Parser.h
 	parsing/Token.h
-
+	
 	codegen/TVM.cpp
 	codegen/TVM.h
 )
@@ -105,7 +138,7 @@ find_package(Z3 4.6.0)
 if (${Z3_FOUND})
   add_definitions(-DHAVE_Z3)
   message("Z3 SMT solver found. This enables optional SMT checking with Z3.")
-  set(z3_SRCS formal/Z3Interface.cpp formal/Z3Interface.h)
+  set(z3_SRCS formal/Z3Interface.cpp formal/Z3Interface.h formal/Z3CHCInterface.cpp formal/Z3CHCInterface.h)
 else()
   set(z3_SRCS)
 endif()
@@ -125,10 +158,10 @@ if (NOT (${Z3_FOUND} OR ${CVC4_FOUND}))
 endif()
 
 add_library(solidity ${sources} ${z3_SRCS} ${cvc4_SRCS})
-target_link_libraries(solidity PUBLIC yul evmasm langutil devcore ${Boost_FILESYSTEM_LIBRARY} ${Boost_SYSTEM_LIBRARY})
+target_link_libraries(solidity PUBLIC yul evmasm langutil solutil Boost::boost Boost::filesystem Boost::system)
 
 if (${Z3_FOUND})
-  target_link_libraries(solidity PUBLIC Z3::Z3)
+  target_link_libraries(solidity PUBLIC z3::libz3)
 endif()
 
 if (${CVC4_FOUND})

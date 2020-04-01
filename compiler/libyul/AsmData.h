@@ -25,16 +25,11 @@
 #include <libyul/AsmDataForward.h>
 #include <libyul/YulString.h>
 
-#include <libevmasm/Instruction.h>
 #include <liblangutil/SourceLocation.h>
 
-#include <boost/variant.hpp>
-#include <boost/noncopyable.hpp>
-
-#include <map>
 #include <memory>
 
-namespace yul
+namespace solidity::yul
 {
 
 using Type = YulString;
@@ -42,17 +37,11 @@ using Type = YulString;
 struct TypedName { langutil::SourceLocation location; YulString name; Type type; };
 using TypedNameList = std::vector<TypedName>;
 
-/// Direct EVM instruction (except PUSHi and JUMPDEST)
-struct Instruction { langutil::SourceLocation location; dev::solidity::Instruction instruction; };
 /// Literal number or string (up to 32 bytes)
 enum class LiteralKind { Number, Boolean, String };
 struct Literal { langutil::SourceLocation location; LiteralKind kind; YulString value; Type type; };
 /// External / internal identifier or label reference
 struct Identifier { langutil::SourceLocation location; YulString name; };
-/// Jump label ("name:")
-struct Label { langutil::SourceLocation location; YulString name; };
-/// Assignment from stack (":= x", moves stack top into x, potentially multiple slots)
-struct StackAssignment { langutil::SourceLocation location; Identifier variableName; };
 /// Assignment ("x := mload(20:u256)", expects push-1-expression on the right hand
 /// side and requires x to occupy exactly one stack slot.
 ///
@@ -60,8 +49,6 @@ struct StackAssignment { langutil::SourceLocation location; Identifier variableN
 /// a single stack slot and expects a single expression on the right hand returning
 /// the same amount of items as the number of variables.
 struct Assignment { langutil::SourceLocation location; std::vector<Identifier> variableNames; std::unique_ptr<Expression> value; };
-/// Functional instruction, e.g. "mul(mload(20:u256), add(2:u256, x))"
-struct FunctionalInstruction { langutil::SourceLocation location; dev::solidity::Instruction instruction; std::vector<Expression> arguments; };
 struct FunctionCall { langutil::SourceLocation location; Identifier functionName; std::vector<Expression> arguments; };
 /// Statement that contains only a single expression
 struct ExpressionStatement { langutil::SourceLocation location; Expression expression; };
@@ -78,8 +65,14 @@ struct Case { langutil::SourceLocation location; std::unique_ptr<Literal> value;
 /// Switch statement
 struct Switch { langutil::SourceLocation location; std::unique_ptr<Expression> expression; std::vector<Case> cases; };
 struct ForLoop { langutil::SourceLocation location; Block pre; std::unique_ptr<Expression> condition; Block post; Block body; };
+/// Break statement (valid within for loop)
+struct Break { langutil::SourceLocation location; };
+/// Continue statement (valid within for loop)
+struct Continue { langutil::SourceLocation location; };
+/// Leave statement (valid within function)
+struct Leave { langutil::SourceLocation location; };
 
-struct LocationExtractor: boost::static_visitor<langutil::SourceLocation>
+struct LocationExtractor
 {
 	template <class T> langutil::SourceLocation operator()(T const& _node) const
 	{
@@ -90,7 +83,7 @@ struct LocationExtractor: boost::static_visitor<langutil::SourceLocation>
 /// Extracts the source location from an inline assembly node.
 template <class T> inline langutil::SourceLocation locationOf(T const& _node)
 {
-	return boost::apply_visitor(LocationExtractor(), _node);
+	return std::visit(LocationExtractor(), _node);
 }
 
 }

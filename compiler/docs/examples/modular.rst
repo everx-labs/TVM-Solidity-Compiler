@@ -4,14 +4,22 @@
 Modular Contracts
 *****************
 
-A modular approach to building your contracts helps you prevent overflow risks
-and unexpected tokens. In the example below, the contract uses the ``move`` method
+A modular approach to building your contracts helps you reduce the complexity
+and improve the readability which will help to identify bugs and vulnerabilities
+during development and code review.
+If you specify and control the behaviour or each module in isolation, the
+interactions you have to consider are only those between the module specifications
+and not every other moving part of the contract.
+In the example below, the contract uses the ``move`` method
 of the ``Balances`` :ref:`library <libraries>` to check that balances sent between
-addresses match what you expect.
+addresses match what you expect. In this way, the ``Balances`` library
+provides an isolated component that properly tracks balances of accounts.
+It is easy to verify that the ``Balances`` library never produces negative balances or overflows
+and the sum of all balances is an invariant across the lifetime of the contract.
 
 ::
 
-    pragma solidity >=0.4.22 <0.6.0;
+    pragma solidity >=0.4.22 <0.7.0;
 
     library Balances {
         function move(mapping(address => uint256) storage balances, address from, address to, uint amount) internal {
@@ -30,9 +38,6 @@ addresses match what you expect.
         event Transfer(address from, address to, uint amount);
         event Approval(address owner, address spender, uint amount);
 
-        function balanceOf(address tokenOwner) public view returns (uint balance) {
-            return balances[tokenOwner];
-        }
         function transfer(address to, uint amount) public returns (bool success) {
             balances.move(msg.sender, to, amount);
             emit Transfer(msg.sender, to, amount);
@@ -53,5 +58,9 @@ addresses match what you expect.
             allowed[msg.sender][spender] = tokens;
             emit Approval(msg.sender, spender, tokens);
             return true;
+        }
+
+        function balanceOf(address tokenOwner) public view returns (uint balance) {
+            return balances[tokenOwner];
         }
     }

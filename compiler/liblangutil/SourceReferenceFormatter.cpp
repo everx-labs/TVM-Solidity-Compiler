@@ -25,8 +25,9 @@
 #include <liblangutil/Exceptions.h>
 
 using namespace std;
-using namespace dev;
-using namespace langutil;
+using namespace solidity;
+using namespace solidity::util;
+using namespace solidity::langutil;
 
 void SourceReferenceFormatter::printSourceLocation(SourceLocation const* _location)
 {
@@ -68,11 +69,21 @@ void SourceReferenceFormatter::printSourceName(SourceReference const& _ref)
 {
 	if (_ref.position.line != -1)
 		m_stream << _ref.sourceName << ":" << (_ref.position.line + 1) << ":" << (_ref.position.column + 1) << ": ";
+	else if (!_ref.sourceName.empty())
+		m_stream << _ref.sourceName << ": ";
 }
 
-void SourceReferenceFormatter::printExceptionInformation(dev::Exception const& _error, std::string const& _category)
+void SourceReferenceFormatter::printExceptionInformation(util::Exception const& _exception, std::string const& _category)
 {
-	printExceptionInformation(SourceReferenceExtractor::extract(_error, _category));
+	printExceptionInformation(SourceReferenceExtractor::extract(_exception, _category));
+}
+
+void SourceReferenceFormatter::printErrorInformation(Error const& _error)
+{
+	printExceptionInformation(
+		_error,
+		(_error.type() == Error::Type::Warning) ? "Warning" : "Error"
+	);
 }
 
 void SourceReferenceFormatter::printExceptionInformation(SourceReferenceExtractor::Message const& _msg)

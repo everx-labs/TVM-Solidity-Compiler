@@ -55,11 +55,13 @@
 #include <liblangutil/Token.h>
 #include <liblangutil/CharStream.h>
 #include <liblangutil/SourceLocation.h>
-#include <libdevcore/Common.h>
-#include <libdevcore/CommonData.h>
+#include <libsolutil/Common.h>
+#include <libsolutil/CommonData.h>
+
+#include <optional>
 #include <iosfwd>
 
-namespace langutil
+namespace solidity::langutil
 {
 
 class AstRawString;
@@ -103,8 +105,15 @@ public:
 	/// Resets scanner to the start of input.
 	void reset();
 
+	/// Enables or disables support for period in identifier.
+	/// This re-scans the current token and comment literal and thus invalidates it.
+	void supportPeriodInIdentifier(bool _value);
+
 	/// @returns the next token and advances input
 	Token next();
+
+	/// Set scanner to a specific offset. This is used in error recovery.
+	void setPosition(size_t _offset);
 
 	///@{
 	///@name Information about the current token
@@ -112,32 +121,32 @@ public:
 	/// @returns the current token
 	Token currentToken() const
 	{
-		return m_currentToken.token;
+		return m_tokens[Current].token;
 	}
 	ElementaryTypeNameToken currentElementaryTypeNameToken() const
 	{
 		unsigned firstSize;
 		unsigned secondSize;
-		std::tie(firstSize, secondSize) = m_currentToken.extendedTokenInfo;
-		return ElementaryTypeNameToken(m_currentToken.token, firstSize, secondSize);
+		std::tie(firstSize, secondSize) = m_tokens[Current].extendedTokenInfo;
+		return ElementaryTypeNameToken(m_tokens[Current].token, firstSize, secondSize);
 	}
 
-	SourceLocation currentLocation() const { return m_currentToken.location; }
-	std::string const& currentLiteral() const { return m_currentToken.literal; }
-	std::tuple<unsigned, unsigned> const& currentTokenInfo() const { return m_currentToken.extendedTokenInfo; }
+	SourceLocation currentLocation() const { return m_tokens[Current].location; }
+	std::string const& currentLiteral() const { return m_tokens[Current].literal; }
+	std::tuple<unsigned, unsigned> const& currentTokenInfo() const { return m_tokens[Current].extendedTokenInfo; }
 
 	/// Retrieves the last error that occurred during lexical analysis.
 	/// @note If no error occurred, the value is undefined.
-	ScannerError currentError() const noexcept { return m_currentToken.error; }
+	ScannerError currentError() const noexcept { return m_tokens[Current].error; }
 	///@}
 
 	///@{
 	///@name Information about the current comment token
 
-	SourceLocation currentCommentLocation() const { return m_skippedComment.location; }
-	std::string const& currentCommentLiteral() const { return m_skippedComment.literal; }
+	SourceLocation currentCommentLocation() const { return m_skippedComments[Current].location; }
+	std::string const& currentCommentLiteral() const { return m_skippedComments[Current].literal; }
 	/// Called by the parser during FunctionDefinition parsing to clear the current comment
-	void clearCurrentCommentLiteral() { m_skippedComment.literal.clear(); }
+	void clearCurrentCommentLiteral() { m_skippedComments[Current].literal.clear(); }
 
 	///@}
 
@@ -145,9 +154,11 @@ public:
 	///@name Information about the next token
 
 	/// @returns the next token without advancing input.
-	Token peekNextToken() const { return m_nextToken.token; }
-	SourceLocation peekLocation() const { return m_nextToken.location; }
-	std::string const& peekLiteral() const { return m_nextToken.literal; }
+	Token peekNextToken() const { return m_tokens[Next].token; }
+	SourceLocation peekLocation() const { return m_tokens[Next].location; }
+	std::string const& peekLiteral() const { return m_tokens[Next].literal; }
+
+	Token peekNextNextToken() const { return m_tokens[NextNext].token; }
 	///@}
 
 	///@{
@@ -156,18 +167,12 @@ public:
 	/// Do only use in error cases, they are quite expensive.
 	std::string lineAtPosition(int _position) const { return m_source->lineAtPosition(_position); }
 	std::tuple<int, int> translatePositionToLineColumn(int _position) const { return m_source->translatePositionToLineColumn(_position); }
-	std::string sourceAt(SourceLocation const& _location) const
-	{
-		solAssert(!_location.isEmpty(), "");
-		solAssert(m_source.get() == _location.source.get(), "CharStream memory locations must match.");
-		return m_source->source().substr(_location.start, _location.end - _location.start);
-	}
 	///@}
 
 private:
 	inline Token setError(ScannerError _error) noexcept
 	{
-		m_nextToken.error = _error;
+		m_tokens[NextNext].error = _error;
 		return Token::Illegal;
 	}
 
@@ -183,14 +188,16 @@ private:
 
 	///@{
 	///@name Literal buffer support
-	inline void addLiteralChar(char c) { m_nextToken.literal.push_back(c); }
-	inline void addCommentLiteralChar(char c) { m_nextSkippedComment.literal.push_back(c); }
+	inline void addLiteralChar(char c) { m_tokens[NextNext].literal.push_back(c); }
+	inline void addCommentLiteralChar(char c) { m_skippedComments[NextNext].literal.push_back(c); }
 	inline void addLiteralCharAndAdvance() { addLiteralChar(m_char); advance(); }
 	void addUnicodeAsUTF8(unsigned codepoint);
 	///@}
 
 	bool advance() { m_char = m_source->advanceAndGet(); return !m_source->isPastEndOfInput(); }
 	void rollback(int _amount) { m_char = m_source->rollback(_amount); }
+	/// Rolls back to the start of the current token and re-runs the scanner.
+	void rescan();
 
 	inline Token selectErrorToken(ScannerError _err) { advance(); return setError(_err); }
 	inline Token selectToken(Token _tok) { advance(); return _tok; }
@@ -198,7 +205,7 @@ private:
 	inline Token selectToken(char _next, Token _then, Token _else);
 
 	bool scanHexByte(char& o_scannedByte);
-	bool scanUnicode(unsigned& o_codepoint);
+	std::optional<unsigned> scanUnicode();
 
 	/// Scans a single Solidity token.
 	void scanToken();
@@ -209,6 +216,12 @@ private:
 	void skipWhitespaceExceptUnicodeLinebreak();
 	Token skipSingleLineComment();
 	Token skipMultiLineComment();
+
+	/// Tests if current source position is CR, LF or CRLF.
+	bool atEndOfLine() const;
+
+	/// Tries to consume CR, LF or CRLF line terminators and returns success or failure.
+	bool tryScanEndOfLine();
 
 	void scanDecimalDigits();
 	Token scanNumber(char _charSeen = 0);
@@ -233,11 +246,12 @@ private:
 	int sourcePos() const { return m_source->position(); }
 	bool isSourcePastEndOfInput() const { return m_source->isPastEndOfInput(); }
 
-	TokenDesc m_skippedComment;  // desc for current skipped comment
-	TokenDesc m_nextSkippedComment; // desc for next skipped comment
+	bool m_supportPeriodInIdentifier = false;
 
-	TokenDesc m_currentToken;  // desc for current token (as returned by Next())
-	TokenDesc m_nextToken;     // desc for next token (one token look-ahead)
+	enum TokenIndex { Current, Next, NextNext };
+
+	TokenDesc m_skippedComments[3] = {}; // desc for the current, next and nextnext skipped comment
+	TokenDesc m_tokens[3] = {}; // desc for the current, next and nextnext token
 
 	std::shared_ptr<CharStream> m_source;
 

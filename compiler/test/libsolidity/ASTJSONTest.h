@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <libdevcore/AnsiColorized.h>
+#include <libsolutil/AnsiColorized.h>
 #include <test/TestCase.h>
 
 #include <iosfwd>
@@ -25,21 +25,17 @@
 #include <vector>
 #include <utility>
 
-namespace dev
-{
-namespace solidity
-{
-namespace test
+namespace solidity::frontend::test
 {
 
 class ASTJSONTest: public TestCase
 {
 public:
 	static std::unique_ptr<TestCase> create(Config const& _config)
-	{ return std::unique_ptr<TestCase>(new ASTJSONTest(_config.filename)); }
+	{ return std::make_unique<ASTJSONTest>(_config.filename); }
 	ASTJSONTest(std::string const& _filename);
 
-	bool run(std::ostream& _stream, std::string const& _linePrefix = "", bool const _formatted = false) override;
+	TestResult run(std::ostream& _stream, std::string const& _linePrefix = "", bool const _formatted = false) override;
 
 	void printSource(std::ostream& _stream, std::string const& _linePrefix = "", bool const _formatted = false) const override;
 	void printUpdatedExpectations(std::ostream& _stream, std::string const& _linePrefix) const override;
@@ -53,6 +49,4 @@ private:
 	std::string m_resultLegacy;
 };
 
-}
-}
 }

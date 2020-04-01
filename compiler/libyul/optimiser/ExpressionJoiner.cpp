@@ -26,19 +26,19 @@
 #include <libyul/Exceptions.h>
 #include <libyul/AsmData.h>
 
-#include <libdevcore/CommonData.h>
+#include <libsolutil/CommonData.h>
 
 #include <boost/range/adaptor/reversed.hpp>
 
 using namespace std;
-using namespace dev;
-using namespace yul;
-using namespace dev::solidity;
+using namespace solidity;
+using namespace solidity::yul;
 
-void ExpressionJoiner::operator()(FunctionalInstruction& _instruction)
+void ExpressionJoiner::run(OptimiserStepContext&, Block& _ast)
 {
-	handleArguments(_instruction.arguments);
+	ExpressionJoiner{_ast}(_ast);
 }
+
 
 void ExpressionJoiner::operator()(FunctionCall& _funCall)
 {
@@ -61,12 +61,12 @@ void ExpressionJoiner::operator()(Block& _block)
 
 void ExpressionJoiner::visit(Expression& _e)
 {
-	if (_e.type() == typeid(Identifier))
+	if (holds_alternative<Identifier>(_e))
 	{
-		Identifier const& identifier = boost::get<Identifier>(_e);
+		Identifier const& identifier = std::get<Identifier>(_e);
 		if (isLatestStatementVarDeclJoinable(identifier))
 		{
-			VariableDeclaration& varDecl = boost::get<VariableDeclaration>(*latestStatement());
+			VariableDeclaration& varDecl = std::get<VariableDeclaration>(*latestStatement());
 			_e = std::move(*varDecl.value);
 
 			// Delete the variable declaration (also get the moved-from structure back into a sane state)
@@ -77,11 +77,6 @@ void ExpressionJoiner::visit(Expression& _e)
 	}
 	else
 		ASTModifier::visit(_e);
-}
-
-void ExpressionJoiner::run(Block& _ast)
-{
-	ExpressionJoiner{_ast}(_ast);
 }
 
 ExpressionJoiner::ExpressionJoiner(Block& _ast)
@@ -101,7 +96,7 @@ void ExpressionJoiner::handleArguments(vector<Expression>& _arguments)
 	for (Expression const& arg: _arguments | boost::adaptors::reversed)
 	{
 		--i;
-		if (arg.type() != typeid(Identifier) && arg.type() != typeid(Literal))
+		if (!holds_alternative<Identifier>(arg) && !holds_alternative<Literal>(arg))
 			break;
 	}
 	// i points to the last element that is neither an identifier nor a literal,
@@ -138,9 +133,9 @@ Statement* ExpressionJoiner::latestStatement()
 bool ExpressionJoiner::isLatestStatementVarDeclJoinable(Identifier const& _identifier)
 {
 	Statement const* statement = latestStatement();
-	if (!statement || statement->type() != typeid(VariableDeclaration))
+	if (!statement || !holds_alternative<VariableDeclaration>(*statement))
 		return false;
-	VariableDeclaration const& varDecl = boost::get<VariableDeclaration>(*statement);
+	VariableDeclaration const& varDecl = std::get<VariableDeclaration>(*statement);
 	if (varDecl.variables.size() != 1 || !varDecl.value)
 		return false;
 	assertThrow(varDecl.variables.size() == 1, OptimizerException, "");

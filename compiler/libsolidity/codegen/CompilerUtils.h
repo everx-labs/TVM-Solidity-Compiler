@@ -23,17 +23,20 @@
 #pragma once
 
 #include <libsolidity/ast/ASTForward.h>
+#include <libsolidity/ast/TypeProvider.h>
+#include <libsolidity/interface/DebugSettings.h>
+#include <libsolidity/codegen/CompilerContext.h>
 #include <libsolidity/codegen/CompilerContext.h>
 
-namespace dev {
-namespace solidity {
+namespace solidity::frontend {
 
 class Type; // forward
 
 class CompilerUtils
 {
 public:
-	explicit CompilerUtils(CompilerContext& _context): m_context(_context) {}
+	explicit CompilerUtils(CompilerContext& _context): m_context(_context)
+	{}
 
 	/// Stores the initial value of the free-memory-pointer at its position;
 	void initialiseFreeMemoryPointer();
@@ -49,6 +52,10 @@ public:
 	/// Stack pre: <size>
 	/// Stack post: <mem_start>
 	void allocateMemory();
+	/// Allocates a number of bytes in memory as given on the stack.
+	/// Stack pre:
+	/// Stack post: <mem_start>
+	void allocateMemory(u256 const& size);
 	/// Appends code that transforms memptr to (memptr - free_memptr) memptr
 	/// Stack pre: <mem_end>
 	/// Stack post: <size> <mem_start>
@@ -61,6 +68,17 @@ public:
 	/// Stack post:
 	void revertWithStringData(Type const& _argumentType);
 
+	/// Allocates a new array and copies the return data to it.
+	/// If the EVM does not support return data, creates an empty array.
+	void returnDataToArray();
+
+	/// Computes the absolute calldata offset of a tail given a base reference and the (absolute)
+	/// offset of the tail pointer. Performs bounds checks. If @a _type is a dynamically sized array it also
+	/// returns the array length on the stack.
+	/// Stack pre: base_ref tail_ptr
+	/// Stack post: tail_ref [length]
+	void accessCalldataTail(Type const& _type);
+
 	/// Loads data from memory to the stack.
 	/// @param _offset offset in memory (or calldata)
 	/// @param _type data type to load
@@ -69,7 +87,7 @@ public:
 	/// @returns the number of bytes consumed in memory.
 	unsigned loadFromMemory(
 		unsigned _offset,
-		Type const& _type = IntegerType::uint256(),
+		Type const& _type = *TypeProvider::uint256(),
 		bool _fromCalldata = false,
 		bool _padToWords = false
 	);
@@ -84,7 +102,6 @@ public:
 	);
 	/// Stores a 256 bit integer from stack in memory.
 	/// @param _offset offset in memory
-	/// @param _type type of the data on the stack
 	void storeInMemory(unsigned _offset);
 	/// Dynamic version of @see storeInMemory, expects the memory offset below the value on the stack
 	/// and also updates that. For reference types, only copies the data pointer. Fails for
@@ -187,6 +204,11 @@ public:
 	/// Stack post:
 	void memoryCopy();
 
+	/// Stores the given string in memory.
+	/// Stack pre: mempos
+	/// Stack post:
+	void storeStringData(bytesConstRef _data);
+
 	/// Converts the combined and left-aligned (right-aligned if @a _rightAligned is true)
 	/// external function type <address><function identifier> into two stack slots:
 	/// address (right aligned), function identifier (right aligned)
@@ -245,11 +267,11 @@ public:
 	/// Pops slots from the stack such that its height is _toHeight.
 	/// Adds jump to _jumpTo.
 	/// Readjusts the stack offset to the original value.
-	void popAndJump(unsigned _toHeight, eth::AssemblyItem const& _jumpTo);
+	void popAndJump(unsigned _toHeight, evmasm::AssemblyItem const& _jumpTo);
 
 	template <class T>
 	static unsigned sizeOnStack(std::vector<T> const& _variables);
-	static unsigned sizeOnStack(std::vector<std::shared_ptr<Type const>> const& _variableTypes);
+	static unsigned sizeOnStack(std::vector<Type const*> const& _variableTypes);
 
 	/// Helper function to shift top value on the stack to the left.
 	/// Stack pre: <value> <shift_by_bits>
@@ -283,14 +305,6 @@ public:
 	static size_t const generalPurposeMemoryStart;
 
 private:
-	/// Address of the precompiled identity contract.
-	static unsigned const identityContractAddress;
-
-	/// Stores the given string in memory.
-	/// Stack pre: mempos
-	/// Stack post:
-	void storeStringData(bytesConstRef _data);
-
 	/// Appends code that cleans higher-order bits for integer types.
 	void cleanHigherOrderBits(IntegerType const& _typeOnStack);
 
@@ -312,5 +326,4 @@ unsigned CompilerUtils::sizeOnStack(std::vector<T> const& _variables)
 	return size;
 }
 
-}
 }

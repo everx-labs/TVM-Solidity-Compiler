@@ -13,5 +13,6 @@ contract C
 		assert(x > 0);
 	}
 }
+// ====
+// SMTSolvers: z3
 // ----
-// Warning: (177-190): Assertion violation happens here

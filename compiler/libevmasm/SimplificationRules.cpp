@@ -27,7 +27,7 @@
 #include <libevmasm/Assembly.h>
 #include <libevmasm/CommonSubexpressionEliminator.h>
 #include <libevmasm/RuleList.h>
-#include <libdevcore/Assertions.h>
+#include <libsolutil/Assertions.h>
 
 #include <boost/range/adaptor/reversed.hpp>
 #include <boost/noncopyable.hpp>
@@ -36,9 +36,9 @@
 #include <functional>
 
 using namespace std;
-using namespace dev;
-using namespace dev::eth;
-using namespace langutil;
+using namespace solidity;
+using namespace solidity::evmasm;
+using namespace solidity::langutil;
 
 SimplificationRule<Pattern> const* Rules::findFirstMatch(
 	Expression const& _expr,
@@ -51,7 +51,9 @@ SimplificationRule<Pattern> const* Rules::findFirstMatch(
 	for (auto const& rule: m_rules[uint8_t(_expr.item->instruction())])
 	{
 		if (rule.pattern.matches(_expr, _classes))
-			return &rule;
+			if (!rule.feasible || rule.feasible())
+				return &rule;
+
 		resetMatchGroups();
 	}
 	return nullptr;
@@ -81,19 +83,23 @@ Rules::Rules()
 	Pattern B(Push);
 	Pattern C(Push);
 	// Anything.
+	Pattern W;
 	Pattern X;
 	Pattern Y;
+	Pattern Z;
 	A.setMatchGroup(1, m_matchGroups);
 	B.setMatchGroup(2, m_matchGroups);
 	C.setMatchGroup(3, m_matchGroups);
-	X.setMatchGroup(4, m_matchGroups);
-	Y.setMatchGroup(5, m_matchGroups);
+	W.setMatchGroup(4, m_matchGroups);
+	X.setMatchGroup(5, m_matchGroups);
+	Y.setMatchGroup(6, m_matchGroups);
+	Z.setMatchGroup(7, m_matchGroups);
 
-	addRules(simplificationRuleList(A, B, C, X, Y));
+	addRules(simplificationRuleList(A, B, C, W, X, Y, Z));
 	assertThrow(isInitialized(), OptimizerException, "Rule list not properly initialized.");
 }
 
-Pattern::Pattern(Instruction _instruction, std::vector<Pattern> const& _arguments):
+Pattern::Pattern(Instruction _instruction, std::initializer_list<Pattern> _arguments):
 	m_type(Operation),
 	m_instruction(_instruction),
 	m_arguments(_arguments)

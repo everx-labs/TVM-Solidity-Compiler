@@ -24,13 +24,9 @@
 #include <boost/test/unit_test.hpp>
 
 using namespace std;
-using namespace langutil;
+using namespace solidity::langutil;
 
-namespace dev
-{
-namespace solidity
-{
-namespace test
+namespace solidity::frontend::test
 {
 
 BOOST_AUTO_TEST_SUITE(SolidityScanner)
@@ -56,6 +52,32 @@ BOOST_AUTO_TEST_CASE(smoke_test)
 	BOOST_CHECK_EQUAL(scanner.currentLiteral(), "string2");
 	BOOST_CHECK_EQUAL(scanner.next(), Token::Identifier);
 	BOOST_CHECK_EQUAL(scanner.currentLiteral(), "identifier1");
+	BOOST_CHECK_EQUAL(scanner.next(), Token::EOS);
+}
+
+BOOST_AUTO_TEST_CASE(assembly_assign)
+{
+	Scanner scanner(CharStream("let a := 1", ""));
+	BOOST_CHECK_EQUAL(scanner.currentToken(), Token::Let);
+	BOOST_CHECK_EQUAL(scanner.next(), Token::Identifier);
+	BOOST_CHECK_EQUAL(scanner.next(), Token::AssemblyAssign);
+	BOOST_CHECK_EQUAL(scanner.next(), Token::Number);
+	BOOST_CHECK_EQUAL(scanner.currentLiteral(), "1");
+	BOOST_CHECK_EQUAL(scanner.next(), Token::EOS);
+}
+
+BOOST_AUTO_TEST_CASE(assembly_multiple_assign)
+{
+	Scanner scanner(CharStream("let a, b, c := 1", ""));
+	BOOST_CHECK_EQUAL(scanner.currentToken(), Token::Let);
+	BOOST_CHECK_EQUAL(scanner.next(), Token::Identifier);
+	BOOST_CHECK_EQUAL(scanner.next(), Token::Comma);
+	BOOST_CHECK_EQUAL(scanner.next(), Token::Identifier);
+	BOOST_CHECK_EQUAL(scanner.next(), Token::Comma);
+	BOOST_CHECK_EQUAL(scanner.next(), Token::Identifier);
+	BOOST_CHECK_EQUAL(scanner.next(), Token::AssemblyAssign);
+	BOOST_CHECK_EQUAL(scanner.next(), Token::Number);
+	BOOST_CHECK_EQUAL(scanner.currentLiteral(), "1");
 	BOOST_CHECK_EQUAL(scanner.next(), Token::EOS);
 }
 
@@ -479,7 +501,7 @@ BOOST_AUTO_TEST_CASE(valid_hex_literal)
 {
 	Scanner scanner(CharStream("{ hex\"00112233FF\"", ""));
 	BOOST_CHECK_EQUAL(scanner.currentToken(), Token::LBrace);
-	BOOST_CHECK_EQUAL(scanner.next(), Token::StringLiteral);
+	BOOST_CHECK_EQUAL(scanner.next(), Token::HexStringLiteral);
 	BOOST_CHECK_EQUAL(scanner.currentLiteral(), std::string("\x00\x11\x22\x33\xFF", 5));
 }
 
@@ -542,7 +564,7 @@ BOOST_AUTO_TEST_CASE(multiline_comment_at_eos)
 
 BOOST_AUTO_TEST_CASE(regular_line_break_in_single_line_comment)
 {
-	for (auto const& nl: {"\r", "\n"})
+	for (auto const& nl: {"\r", "\n", "\r\n"})
 	{
 		Scanner scanner(CharStream("// abc " + string(nl) + " def ", ""));
 		BOOST_CHECK_EQUAL(scanner.currentCommentLiteral(), "");
@@ -569,12 +591,28 @@ BOOST_AUTO_TEST_CASE(irregular_line_breaks_in_single_line_comment)
 
 BOOST_AUTO_TEST_CASE(regular_line_breaks_in_single_line_doc_comment)
 {
-	for (auto const& nl: {"\r", "\n"})
+	for (auto const& nl: {"\r", "\n", "\r\n"})
 	{
 		Scanner scanner(CharStream("/// abc " + string(nl) + " def ", ""));
 		BOOST_CHECK_EQUAL(scanner.currentCommentLiteral(), "abc ");
 		BOOST_CHECK_EQUAL(scanner.currentToken(), Token::Identifier);
 		BOOST_CHECK_EQUAL(scanner.currentLiteral(), "def");
+		BOOST_CHECK_EQUAL(scanner.next(), Token::EOS);
+	}
+}
+
+BOOST_AUTO_TEST_CASE(regular_line_breaks_in_multiline_doc_comment)
+{
+	// Test CR, LF, CRLF as line valid terminators for code comments.
+	// Any accepted non-LF is being canonicalized to LF.
+	for (auto const& nl : {"\r"s, "\n"s, "\r\n"s})
+	{
+		Scanner scanner{CharStream{"/// Hello" + nl + "/// World" + nl + "ident", ""}};
+		auto const& lit = scanner.currentCommentLiteral();
+		BOOST_CHECK_EQUAL(lit, "Hello\n World");
+		BOOST_CHECK_EQUAL(scanner.currentCommentLiteral(), "Hello\n World");
+		BOOST_CHECK_EQUAL(scanner.currentToken(), Token::Identifier);
+		BOOST_CHECK_EQUAL(scanner.currentLiteral(), "ident");
 		BOOST_CHECK_EQUAL(scanner.next(), Token::EOS);
 	}
 }
@@ -596,9 +634,9 @@ BOOST_AUTO_TEST_CASE(irregular_line_breaks_in_single_line_doc_comment)
 
 BOOST_AUTO_TEST_CASE(regular_line_breaks_in_strings)
 {
-	for (auto const& nl: {"\n", "\r"})
+	for (auto const& nl: {"\r"s, "\n"s, "\r\n"s})
 	{
-		Scanner scanner(CharStream("\"abc " + string(nl) + " def\"", ""));
+		Scanner scanner(CharStream("\"abc " + nl + " def\"", ""));
 		BOOST_CHECK_EQUAL(scanner.currentToken(), Token::Illegal);
 		BOOST_CHECK_EQUAL(scanner.next(), Token::Identifier);
 		BOOST_CHECK_EQUAL(scanner.currentLiteral(), "def");
@@ -624,6 +662,4 @@ BOOST_AUTO_TEST_CASE(irregular_line_breaks_in_strings)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-}
-}
 } // end namespaces

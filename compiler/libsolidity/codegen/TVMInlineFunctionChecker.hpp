@@ -19,7 +19,7 @@
 
 #include <libsolidity/ast/ASTVisitor.h>
 
-namespace dev::solidity {
+namespace solidity::frontend {
 
 class TVMInlineFunctionChecker : public ASTConstVisitor {
 public:
@@ -41,5 +41,5 @@ private:
 	FunctionDefinition const* cycleStart{};
 };
 
-} // end dev::solidity
+} // end solidity::frontend
 

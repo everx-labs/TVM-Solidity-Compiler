@@ -20,7 +20,7 @@
 
 #include <test/libsolidity/AnalysisFramework.h>
 
-#include <test/Options.h>
+#include <test/Common.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -28,13 +28,9 @@
 #include <tuple>
 
 using namespace std;
-using namespace langutil;
+using namespace solidity::langutil;
 
-namespace dev
-{
-namespace solidity
-{
-namespace test
+namespace solidity::frontend::test
 {
 
 BOOST_FIXTURE_TEST_SUITE(ViewPureChecker, AnalysisFramework)
@@ -56,7 +52,7 @@ BOOST_AUTO_TEST_CASE(environment_access)
 		"this",
 		"address(1).balance",
 	};
-	if (dev::test::Options::get().evmVersion().hasStaticCall())
+	if (solidity::test::CommonOptions::get().evmVersion().hasStaticCall())
 		view.emplace_back("address(0x4242).staticcall(\"\")");
 
 	// ``block.blockhash`` and ``blockhash`` are tested separately below because their usage will
@@ -109,7 +105,7 @@ BOOST_AUTO_TEST_CASE(address_staticcall)
 			}
 		}
 	)";
-	if (!dev::test::Options::get().evmVersion().hasStaticCall())
+	if (!solidity::test::CommonOptions::get().evmVersion().hasStaticCall())
 		CHECK_ERROR(text, TypeError, "\"staticcall\" is not supported by the VM version.");
 	else
 		CHECK_SUCCESS_NO_WARNINGS(text);
@@ -121,18 +117,16 @@ BOOST_AUTO_TEST_CASE(assembly_staticcall)
 	string text = R"(
 		contract C {
 			function i() view public {
-				assembly { pop(staticcall(gas, 1, 2, 3, 4, 5)) }
+				assembly { pop(staticcall(gas(), 1, 2, 3, 4, 5)) }
 			}
 		}
 	)";
-	if (!dev::test::Options::get().evmVersion().hasStaticCall())
-		CHECK_WARNING(text, "\"staticcall\" instruction is only available for Byzantium-compatible");
+	if (!solidity::test::CommonOptions::get().evmVersion().hasStaticCall())
+		CHECK_ERROR(text, TypeError, "\"staticcall\" instruction is only available for Byzantium-compatible");
 	else
 		CHECK_SUCCESS_NO_WARNINGS(text);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
 
-}
-}
 }

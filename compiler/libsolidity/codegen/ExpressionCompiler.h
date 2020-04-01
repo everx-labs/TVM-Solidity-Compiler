@@ -25,20 +25,21 @@
 
 #include <libsolidity/ast/ASTVisitor.h>
 #include <libsolidity/codegen/LValue.h>
+#include <libsolidity/interface/DebugSettings.h>
 #include <liblangutil/Exceptions.h>
 #include <liblangutil/SourceLocation.h>
-#include <libdevcore/Common.h>
+#include <libsolutil/Common.h>
 
 #include <boost/noncopyable.hpp>
 #include <functional>
 #include <memory>
 
-namespace dev {
-namespace eth
+namespace solidity::evmasm
 {
 class AssemblyItem; // forward
 }
-namespace solidity {
+
+namespace solidity::frontend {
 
 // forward declarations
 class CompilerContext;
@@ -55,11 +56,13 @@ class ArrayType;
 class ExpressionCompiler: private ASTConstVisitor
 {
 public:
-	/// Appends code for a State Variable accessor function
-	static void appendStateVariableAccessor(CompilerContext& _context, VariableDeclaration const& _varDecl, bool _optimize = false);
-
-	explicit ExpressionCompiler(CompilerContext& _compilerContext, bool _optimize = false):
-		m_optimize(_optimize), m_context(_compilerContext) {}
+	ExpressionCompiler(
+		CompilerContext& _compilerContext,
+		bool _optimiseOrderLiterals
+	):
+		m_optimiseOrderLiterals(_optimiseOrderLiterals),
+		m_context(_compilerContext)
+	{}
 
 	/// Compile the given @a _expression and leave its value on the stack.
 	void compile(Expression const& _expression);
@@ -80,9 +83,11 @@ private:
 	bool visit(UnaryOperation const& _unaryOperation) override;
 	bool visit(BinaryOperation const& _binaryOperation) override;
 	bool visit(FunctionCall const& _functionCall) override;
+	bool visit(FunctionCallOptions const& _functionCallOptions) override;
 	bool visit(NewExpression const& _newExpression) override;
 	bool visit(MemberAccess const& _memberAccess) override;
 	bool visit(IndexAccess const& _indexAccess) override;
+	bool visit(IndexRangeAccess const& _indexAccess) override;
 	void endVisit(Identifier const& _identifier) override;
 	void endVisit(Literal const& _literal) override;
 
@@ -98,9 +103,12 @@ private:
 	/// @}
 
 	/// Appends code to call a function of the given type with the given arguments.
+	/// @param _tryCall if true, this is the external call of a try statement. In that case,
+	///                 returns success flag on top of stack and does not revert on failure.
 	void appendExternalFunctionCall(
 		FunctionType const& _functionType,
-		std::vector<ASTPointer<Expression const>> const& _arguments
+		std::vector<ASTPointer<Expression const>> const& _arguments,
+		bool _tryCall
 	);
 	/// Appends code that evaluates a single expression and moves the result to memory. The memory offset is
 	/// expected to be on the stack and is updated by this call.
@@ -124,10 +132,12 @@ private:
 	/// operation.
 	static bool cleanupNeededForOp(Type::Category _type, Token _op);
 
+	void acceptAndConvert(Expression const& _expression, Type const& _type, bool _cleanupNeeded = false);
+
 	/// @returns the CompilerUtils object containing the current context.
 	CompilerUtils utils();
 
-	bool m_optimize;
+	bool m_optimiseOrderLiterals;
 	CompilerContext& m_context;
 	std::unique_ptr<LValue> m_currentLValue;
 
@@ -137,12 +147,11 @@ template <class _LValueType, class... _Arguments>
 void ExpressionCompiler::setLValue(Expression const& _expression, _Arguments const&... _arguments)
 {
 	solAssert(!m_currentLValue, "Current LValue not reset before trying to set new one.");
-	std::unique_ptr<_LValueType> lvalue(new _LValueType(m_context, _arguments...));
+	std::unique_ptr<_LValueType> lvalue = std::make_unique<_LValueType>(m_context, _arguments...);
 	if (_expression.annotation().lValueRequested)
 		m_currentLValue = move(lvalue);
 	else
 		lvalue->retrieveValue(_expression.location(), true);
 }
 
-}
 }

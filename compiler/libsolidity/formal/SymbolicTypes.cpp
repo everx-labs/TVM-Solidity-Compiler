@@ -17,222 +17,338 @@
 
 #include <libsolidity/formal/SymbolicTypes.h>
 
+#include <libsolidity/ast/TypeProvider.h>
 #include <libsolidity/ast/Types.h>
+#include <libsolutil/CommonData.h>
 #include <memory>
 
 using namespace std;
-using namespace dev::solidity;
 
-smt::SortPointer dev::solidity::smtSort(Type const& _type)
+namespace solidity::frontend::smt
+{
+
+SortPointer smtSort(frontend::Type const& _type)
 {
 	switch (smtKind(_type.category()))
 	{
-	case smt::Kind::Int:
-		return make_shared<smt::Sort>(smt::Kind::Int);
-	case smt::Kind::Bool:
-		return make_shared<smt::Sort>(smt::Kind::Bool);
-	case smt::Kind::Function:
+	case Kind::Int:
+		return make_shared<Sort>(Kind::Int);
+	case Kind::Bool:
+		return make_shared<Sort>(Kind::Bool);
+	case Kind::Function:
 	{
-		auto fType = dynamic_cast<FunctionType const*>(&_type);
+		auto fType = dynamic_cast<frontend::FunctionType const*>(&_type);
 		solAssert(fType, "");
-		vector<smt::SortPointer> parameterSorts = smtSort(fType->parameterTypes());
+		vector<SortPointer> parameterSorts = smtSort(fType->parameterTypes());
 		auto returnTypes = fType->returnParameterTypes();
-		smt::SortPointer returnSort;
+		SortPointer returnSort;
 		// TODO change this when we support tuples.
 		if (returnTypes.size() == 0)
 			// We cannot declare functions without a return sort, so we use the smallest.
-			returnSort = make_shared<smt::Sort>(smt::Kind::Bool);
+			returnSort = make_shared<Sort>(Kind::Bool);
 		else if (returnTypes.size() > 1)
 			// Abstract sort.
-			returnSort = make_shared<smt::Sort>(smt::Kind::Int);
+			returnSort = make_shared<Sort>(Kind::Int);
 		else
-			returnSort = smtSort(*returnTypes.at(0));
-		return make_shared<smt::FunctionSort>(parameterSorts, returnSort);
+			returnSort = smtSort(*returnTypes.front());
+		return make_shared<FunctionSort>(parameterSorts, returnSort);
 	}
-	case smt::Kind::Array:
+	case Kind::Array:
 	{
 		if (isMapping(_type.category()))
 		{
-			auto mapType = dynamic_cast<MappingType const*>(&_type);
+			auto mapType = dynamic_cast<frontend::MappingType const*>(&_type);
 			solAssert(mapType, "");
-			return make_shared<smt::ArraySort>(smtSort(*mapType->keyType()), smtSort(*mapType->valueType()));
+			return make_shared<ArraySort>(smtSortAbstractFunction(*mapType->keyType()), smtSortAbstractFunction(*mapType->valueType()));
 		}
-		// TODO Solidity array
-		return make_shared<smt::Sort>(smt::Kind::Int);
+		else if (isStringLiteral(_type.category()))
+		{
+			auto stringLitType = dynamic_cast<frontend::StringLiteralType const*>(&_type);
+			solAssert(stringLitType, "");
+			auto intSort = make_shared<Sort>(Kind::Int);
+			return make_shared<ArraySort>(intSort, intSort);
+		}
+		else
+		{
+			solAssert(isArray(_type.category()), "");
+			auto arrayType = dynamic_cast<frontend::ArrayType const*>(&_type);
+			solAssert(arrayType, "");
+			return make_shared<ArraySort>(make_shared<Sort>(Kind::Int), smtSortAbstractFunction(*arrayType->baseType()));
+		}
 	}
 	default:
 		// Abstract case.
-		return make_shared<smt::Sort>(smt::Kind::Int);
+		return make_shared<Sort>(Kind::Int);
 	}
 }
 
-vector<smt::SortPointer> dev::solidity::smtSort(vector<TypePointer> const& _types)
+vector<SortPointer> smtSort(vector<frontend::TypePointer> const& _types)
 {
-	vector<smt::SortPointer> sorts;
+	vector<SortPointer> sorts;
 	for (auto const& type: _types)
 		sorts.push_back(smtSort(*type));
 	return sorts;
 }
 
-smt::Kind dev::solidity::smtKind(Type::Category _category)
+SortPointer smtSortAbstractFunction(frontend::Type const& _type)
 {
-	if (isNumber(_category))
-		return smt::Kind::Int;
-	else if (isBool(_category))
-		return smt::Kind::Bool;
-	else if (isFunction(_category))
-		return smt::Kind::Function;
-	else if (isMapping(_category))
-		return smt::Kind::Array;
-	// Abstract case.
-	return smt::Kind::Int;
+	if (isFunction(_type.category()))
+		return make_shared<Sort>(Kind::Int);
+	return smtSort(_type);
 }
 
-bool dev::solidity::isSupportedType(Type::Category _category)
+Kind smtKind(frontend::Type::Category _category)
+{
+	if (isNumber(_category))
+		return Kind::Int;
+	else if (isBool(_category))
+		return Kind::Bool;
+	else if (isFunction(_category))
+		return Kind::Function;
+	else if (isMapping(_category) || isArray(_category))
+		return Kind::Array;
+	// Abstract case.
+	return Kind::Int;
+}
+
+bool isSupportedType(frontend::Type::Category _category)
 {
 	return isNumber(_category) ||
 		isBool(_category) ||
-		isMapping(_category);
+		isMapping(_category) ||
+		isArray(_category) ||
+		isTuple(_category);
 }
 
-bool dev::solidity::isSupportedTypeDeclaration(Type::Category _category)
+bool isSupportedTypeDeclaration(frontend::Type::Category _category)
 {
 	return isSupportedType(_category) ||
 		isFunction(_category);
 }
 
-pair<bool, shared_ptr<SymbolicVariable>> dev::solidity::newSymbolicVariable(
-	Type const& _type,
+pair<bool, shared_ptr<SymbolicVariable>> newSymbolicVariable(
+	frontend::Type const& _type,
 	std::string const& _uniqueName,
-	smt::SolverInterface& _solver
+	EncodingContext& _context
 )
 {
 	bool abstract = false;
 	shared_ptr<SymbolicVariable> var;
-	TypePointer type = _type.shared_from_this();
+	frontend::TypePointer type = &_type;
 	if (!isSupportedTypeDeclaration(_type))
 	{
 		abstract = true;
-		var = make_shared<SymbolicIntVariable>(make_shared<IntegerType>(256), _uniqueName, _solver);
+		var = make_shared<SymbolicIntVariable>(frontend::TypeProvider::uint256(), type, _uniqueName, _context);
 	}
 	else if (isBool(_type.category()))
-		var = make_shared<SymbolicBoolVariable>(type, _uniqueName, _solver);
+		var = make_shared<SymbolicBoolVariable>(type, _uniqueName, _context);
 	else if (isFunction(_type.category()))
-		var = make_shared<SymbolicFunctionVariable>(type, _uniqueName, _solver);
+	{
+		auto const& fType = dynamic_cast<FunctionType const*>(type);
+		auto const& paramsIn = fType->parameterTypes();
+		auto const& paramsOut = fType->returnParameterTypes();
+		auto findFunctionParam = [&](auto&& params) {
+			return find_if(
+				begin(params),
+				end(params),
+				[&](TypePointer _paramType) { return _paramType->category() == frontend::Type::Category::Function; }
+			);
+		};
+		if (
+			findFunctionParam(paramsIn) != end(paramsIn) ||
+			findFunctionParam(paramsOut) != end(paramsOut)
+		)
+		{
+			abstract = true;
+			var = make_shared<SymbolicIntVariable>(TypeProvider::uint256(), type, _uniqueName, _context);
+		}
+		else
+			var = make_shared<SymbolicFunctionVariable>(type, _uniqueName, _context);
+	}
 	else if (isInteger(_type.category()))
-		var = make_shared<SymbolicIntVariable>(type, _uniqueName, _solver);
+		var = make_shared<SymbolicIntVariable>(type, type, _uniqueName, _context);
 	else if (isFixedBytes(_type.category()))
 	{
-		auto fixedBytesType = dynamic_cast<FixedBytesType const*>(type.get());
+		auto fixedBytesType = dynamic_cast<frontend::FixedBytesType const*>(type);
 		solAssert(fixedBytesType, "");
-		var = make_shared<SymbolicFixedBytesVariable>(fixedBytesType->numBytes(), _uniqueName, _solver);
+		var = make_shared<SymbolicFixedBytesVariable>(type, fixedBytesType->numBytes(), _uniqueName, _context);
 	}
-	else if (isAddress(_type.category()))
-		var = make_shared<SymbolicAddressVariable>(_uniqueName, _solver);
+	else if (isAddress(_type.category()) || isContract(_type.category()))
+		var = make_shared<SymbolicAddressVariable>(_uniqueName, _context);
+	else if (isEnum(_type.category()))
+		var = make_shared<SymbolicEnumVariable>(type, _uniqueName, _context);
 	else if (isRational(_type.category()))
 	{
-		auto rational = dynamic_cast<RationalNumberType const*>(&_type);
+		auto rational = dynamic_cast<frontend::RationalNumberType const*>(&_type);
 		solAssert(rational, "");
 		if (rational->isFractional())
-			var = make_shared<SymbolicIntVariable>(make_shared<IntegerType>(256), _uniqueName, _solver);
+			var = make_shared<SymbolicIntVariable>(frontend::TypeProvider::uint256(), type, _uniqueName, _context);
 		else
-			var = make_shared<SymbolicIntVariable>(type, _uniqueName, _solver);
+			var = make_shared<SymbolicIntVariable>(type, type, _uniqueName, _context);
 	}
 	else if (isMapping(_type.category()))
-		var = make_shared<SymbolicMappingVariable>(type, _uniqueName, _solver);
+		var = make_shared<SymbolicMappingVariable>(type, _uniqueName, _context);
+	else if (isArray(_type.category()))
+		var = make_shared<SymbolicArrayVariable>(type, type, _uniqueName, _context);
+	else if (isTuple(_type.category()))
+		var = make_shared<SymbolicTupleVariable>(type, _uniqueName, _context);
+	else if (isStringLiteral(_type.category()))
+	{
+		auto stringType = TypeProvider::stringMemory();
+		var = make_shared<SymbolicArrayVariable>(stringType, type, _uniqueName, _context);
+	}
 	else
 		solAssert(false, "");
 	return make_pair(abstract, var);
 }
 
-bool dev::solidity::isSupportedType(Type const& _type)
+bool isSupportedType(frontend::Type const& _type)
 {
 	return isSupportedType(_type.category());
 }
 
-bool dev::solidity::isSupportedTypeDeclaration(Type const& _type)
+bool isSupportedTypeDeclaration(frontend::Type const& _type)
 {
 	return isSupportedTypeDeclaration(_type.category());
 }
 
-bool dev::solidity::isInteger(Type::Category _category)
+bool isInteger(frontend::Type::Category _category)
 {
-	return _category == Type::Category::Integer;
+	return _category == frontend::Type::Category::Integer;
 }
 
-bool dev::solidity::isRational(Type::Category _category)
+bool isRational(frontend::Type::Category _category)
 {
-	return _category == Type::Category::RationalNumber;
+	return _category == frontend::Type::Category::RationalNumber;
 }
 
-bool dev::solidity::isFixedBytes(Type::Category _category)
+bool isFixedBytes(frontend::Type::Category _category)
 {
-	return _category == Type::Category::FixedBytes;
+	return _category == frontend::Type::Category::FixedBytes;
 }
 
-bool dev::solidity::isAddress(Type::Category _category)
+bool isAddress(frontend::Type::Category _category)
 {
-	return _category == Type::Category::Address;
+	return _category == frontend::Type::Category::Address;
 }
 
-bool dev::solidity::isNumber(Type::Category _category)
+bool isContract(frontend::Type::Category _category)
+{
+	return _category == frontend::Type::Category::Contract;
+}
+
+bool isEnum(frontend::Type::Category _category)
+{
+	return _category == frontend::Type::Category::Enum;
+}
+
+bool isNumber(frontend::Type::Category _category)
 {
 	return isInteger(_category) ||
 		isRational(_category) ||
 		isFixedBytes(_category) ||
-		isAddress(_category);
+		isAddress(_category) ||
+		isContract(_category) ||
+		isEnum(_category);
 }
 
-bool dev::solidity::isBool(Type::Category _category)
+bool isBool(frontend::Type::Category _category)
 {
-	return _category == Type::Category::Bool;
+	return _category == frontend::Type::Category::Bool;
 }
 
-bool dev::solidity::isFunction(Type::Category _category)
+bool isFunction(frontend::Type::Category _category)
 {
-	return _category == Type::Category::Function;
+	return _category == frontend::Type::Category::Function;
 }
 
-bool dev::solidity::isMapping(Type::Category _category)
+bool isMapping(frontend::Type::Category _category)
 {
-	return _category == Type::Category::Mapping;
+	return _category == frontend::Type::Category::Mapping;
 }
 
-smt::Expression dev::solidity::minValue(IntegerType const& _type)
+bool isArray(frontend::Type::Category _category)
 {
-	return smt::Expression(_type.minValue());
+	return _category == frontend::Type::Category::Array ||
+		_category == frontend::Type::Category::StringLiteral;
 }
 
-smt::Expression dev::solidity::maxValue(IntegerType const& _type)
+bool isTuple(frontend::Type::Category _category)
 {
-	return smt::Expression(_type.maxValue());
+	return _category == frontend::Type::Category::Tuple;
 }
 
-void dev::solidity::smt::setSymbolicZeroValue(SymbolicVariable const& _variable, smt::SolverInterface& _interface)
+bool isStringLiteral(frontend::Type::Category _category)
 {
-	setSymbolicZeroValue(_variable.currentValue(), _variable.type(), _interface);
+	return _category == frontend::Type::Category::StringLiteral;
 }
 
-void dev::solidity::smt::setSymbolicZeroValue(smt::Expression _expr, TypePointer const& _type, smt::SolverInterface& _interface)
+Expression minValue(frontend::IntegerType const& _type)
 {
-	if (isInteger(_type->category()))
-		_interface.addAssertion(_expr == 0);
-	else if (isBool(_type->category()))
-		_interface.addAssertion(_expr == smt::Expression(false));
+	return Expression(_type.minValue());
 }
 
-void dev::solidity::smt::setSymbolicUnknownValue(SymbolicVariable const& _variable, smt::SolverInterface& _interface)
+Expression maxValue(frontend::IntegerType const& _type)
 {
-	setSymbolicUnknownValue(_variable.currentValue(), _variable.type(), _interface);
+	return Expression(_type.maxValue());
 }
 
-void dev::solidity::smt::setSymbolicUnknownValue(smt::Expression _expr, TypePointer const& _type, smt::SolverInterface& _interface)
+void setSymbolicZeroValue(SymbolicVariable const& _variable, EncodingContext& _context)
 {
-	if (isInteger(_type->category()))
+	setSymbolicZeroValue(_variable.currentValue(), _variable.type(), _context);
+}
+
+void setSymbolicZeroValue(Expression _expr, frontend::TypePointer const& _type, EncodingContext& _context)
+{
+	solAssert(_type, "");
+	_context.addAssertion(_expr == zeroValue(_type));
+}
+
+Expression zeroValue(frontend::TypePointer const& _type)
+{
+	solAssert(_type, "");
+	if (isSupportedType(_type->category()))
 	{
-		auto intType = dynamic_cast<IntegerType const*>(_type.get());
-		solAssert(intType, "");
-		_interface.addAssertion(_expr >= minValue(*intType));
-		_interface.addAssertion(_expr <= maxValue(*intType));
+		if (isNumber(_type->category()))
+			return 0;
+		if (isBool(_type->category()))
+			return Expression(false);
+		if (isArray(_type->category()) || isMapping(_type->category()))
+		{
+			if (auto arrayType = dynamic_cast<ArrayType const*>(_type))
+				return Expression::const_array(Expression(arrayType), zeroValue(arrayType->baseType()));
+			auto mappingType = dynamic_cast<MappingType const*>(_type);
+			solAssert(mappingType, "");
+			return Expression::const_array(Expression(mappingType), zeroValue(mappingType->valueType()));
+		}
+		solAssert(false, "");
 	}
+	// Unsupported types are abstracted as Int.
+	return 0;
+}
+
+void setSymbolicUnknownValue(SymbolicVariable const& _variable, EncodingContext& _context)
+{
+	setSymbolicUnknownValue(_variable.currentValue(), _variable.type(), _context);
+}
+
+void setSymbolicUnknownValue(Expression _expr, frontend::TypePointer const& _type, EncodingContext& _context)
+{
+	solAssert(_type, "");
+	if (isEnum(_type->category()))
+	{
+		auto enumType = dynamic_cast<frontend::EnumType const*>(_type);
+		solAssert(enumType, "");
+		_context.addAssertion(_expr >= 0);
+		_context.addAssertion(_expr < enumType->numberOfMembers());
+	}
+	else if (isInteger(_type->category()))
+	{
+		auto intType = dynamic_cast<frontend::IntegerType const*>(_type);
+		solAssert(intType, "");
+		_context.addAssertion(_expr >= minValue(*intType));
+		_context.addAssertion(_expr <= maxValue(*intType));
+	}
+}
+
 }

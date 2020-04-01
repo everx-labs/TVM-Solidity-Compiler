@@ -20,12 +20,11 @@
 
 #include <libsolidity/ast/ASTForward.h>
 
-namespace dev::solidity {
+namespace solidity::frontend {
 
 class StackPusherHelper;
 
 class StructCompiler {
-
 public:
 	struct FieldSizeInfo {
 		bool isBitFixed{false};
@@ -90,21 +89,29 @@ public:
 	StructCompiler(StackPusherHelper *pusher, std::vector<VariableDeclaration const*> variableDeclarations,
 	               int skipData, int skipRef, bool isC4, StructType const *structType);
 	void createDefaultStruct(bool resultIsBuilder = false);
-	void pushMember(const std::string &memberName);
-	void createStruct(const int argumentStackSize, std::vector<ASTPointer<ASTString>> const& names);
+	void pushMember(const std::string &memberName, bool isStructTuple, bool returnStructAsSlice);
+	void setMemberForTuple(const std::string &memberName);
+	void structConstructor(std::vector<ASTPointer<ASTString>> const& names);
+	void tupleToBuilder();
+	void stateVarsToBuilder();
 	void expandStruct(const std::string &memberName, bool doPushMemberOnStack);
-	void collectStruct(const std::string &memberName, bool isValueBuilder, bool isResultBuilder);
-	void expandStruct(std::map<std::string, int> &memberToStackSize);
+	void collectStruct(const std::string &memberName, bool isValueBuilder);
+	void convertSliceToTuple();
+	void sliceToStateVarsToC7();
 	static bool isCompatibleWithSDK(int keyLength, StructType const* structType);
 	const std::vector<Node>& getNodes() { return nodes; }
 private:
 	void dfs(int v, std::vector<int> &nodePath, std::vector<int> &refPath);
 	void createDefaultStructDfs(int v);
 	void createStructDfs(int v, const std::map<std::string, int>& argStackSize);
-	void expandStructDfs(int v, const std::string& prefix, std::map<std::string, int> &memberToStackSize);
+	void stateVarsToBuilderDfs(const int v);
+	void convertSliceToTupleDfs(int v, std::vector<std::string>& names);
+	void sliceToStateVarsToC7Dfs(int v);
 	void load(const VariableDeclaration *vd, bool reverseOrder);
-	void preload(const VariableDeclaration *vd);
-	void store(const VariableDeclaration *vd, bool reverse, bool isValueBuilder = false);
+	// return true if on stack there are (value, slice) else false if (slice, value)
+	bool fastLoad(const VariableDeclaration *vd);
+	void preload(const VariableDeclaration *vd, bool returnStructAsSlice);
+	void store(const VariableDeclaration *vd, bool reverse, bool isValueBuilder = false, bool isArrayUntupled = false);
 	void skip(int bits, int refs);
 	void skip(const FieldSizeInfo& si);
 	void skip(const std::vector<FieldSizeInfo> &fieldInfo);
@@ -112,6 +119,7 @@ private:
 	void split(int bitQty, int refQty);
 	void merge(const FieldSizeInfo& fieldSizeInfo);
 	static std::vector<VariableDeclaration const*> fVariableDeclarations(StructDefinition const* structDefinition);
+	void sortOnStack(std::vector<std::string>& order);
 }; // end StructCompiler
-} // end dev::solidity
+} // end solidity::frontend
 

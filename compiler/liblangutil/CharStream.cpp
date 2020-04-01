@@ -54,7 +54,8 @@
 #include <liblangutil/Exceptions.h>
 
 using namespace std;
-using namespace langutil;
+using namespace solidity;
+using namespace solidity::langutil;
 
 char CharStream::advanceAndGet(size_t _chars)
 {
@@ -73,6 +74,13 @@ char CharStream::rollback(size_t _amount)
 	return get();
 }
 
+char CharStream::setPosition(size_t _location)
+{
+	solAssert(_location <= m_source.size(), "Attempting to set position past end of source.");
+	m_position = _location;
+	return get();
+}
+
 string CharStream::lineAtPosition(int _position) const
 {
 	// if _position points to \n, it returns the line before the \n
@@ -85,10 +93,13 @@ string CharStream::lineAtPosition(int _position) const
 		lineStart = 0;
 	else
 		lineStart++;
-	return m_source.substr(
+	string line = m_source.substr(
 		lineStart,
 		min(m_source.find('\n', lineStart), m_source.size()) - lineStart
 	);
+	if (!line.empty() && line.back() == '\r')
+		line.pop_back();
+	return line;
 }
 
 tuple<int, int> CharStream::translatePositionToLineColumn(int _position) const
@@ -106,5 +117,3 @@ tuple<int, int> CharStream::translatePositionToLineColumn(int _position) const
 	}
 	return tuple<int, int>(lineNumber, searchPosition - lineStart);
 }
-
-

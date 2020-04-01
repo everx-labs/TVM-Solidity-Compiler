@@ -26,19 +26,19 @@
 #include <libevmasm/ExpressionClasses.h>
 #include <libevmasm/SimplificationRule.h>
 
+#include <libsolutil/CommonData.h>
+
 #include <boost/noncopyable.hpp>
 
 #include <functional>
 #include <vector>
 
-namespace langutil
+namespace solidity::langutil
 {
 struct SourceLocation;
 }
 
-namespace dev
-{
-namespace eth
+namespace solidity::evmasm
 {
 
 class Pattern;
@@ -87,14 +87,20 @@ public:
 	using Expression = ExpressionClasses::Expression;
 	using Id = ExpressionClasses::Id;
 
+	using Builtins = evmasm::EVMBuiltins<Pattern>;
+	static constexpr size_t WordSize = 256;
+	using Word = u256;
+
 	// Matches a specific constant value.
 	Pattern(unsigned _value): Pattern(u256(_value)) {}
+	Pattern(int _value): Pattern(u256(_value)) {}
+	Pattern(long unsigned _value): Pattern(u256(_value)) {}
 	// Matches a specific constant value.
 	Pattern(u256 const& _value): m_type(Push), m_requireDataMatch(true), m_data(std::make_shared<u256>(_value)) {}
 	// Matches a specific assembly item type or anything if not given.
 	Pattern(AssemblyItemType _type = UndefinedItem): m_type(_type) {}
 	// Matches a given instruction with given arguments
-	Pattern(Instruction _instruction, std::vector<Pattern> const& _arguments = {});
+	Pattern(Instruction _instruction, std::initializer_list<Pattern> _arguments = {});
 	/// Sets this pattern to be part of the match group with the identifier @a _group.
 	/// Inside one rule, all patterns in the same match group have to match expressions from the
 	/// same expression equivalence class.
@@ -150,5 +156,4 @@ struct ExpressionTemplate
 	std::vector<ExpressionTemplate> arguments;
 };
 
-}
 }

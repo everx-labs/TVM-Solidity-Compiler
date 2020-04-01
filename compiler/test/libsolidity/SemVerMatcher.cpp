@@ -24,17 +24,15 @@
 #include <vector>
 #include <tuple>
 #include <liblangutil/Scanner.h>
-#include <libsolidity/analysis/SemVerHandler.h>
-#include <test/Options.h>
+#include <liblangutil/SemVerHandler.h>
+#include <test/Common.h>
+
+#include <boost/test/unit_test.hpp>
 
 using namespace std;
-using namespace langutil;
+using namespace solidity::langutil;
 
-namespace dev
-{
-namespace solidity
-{
-namespace test
+namespace solidity::frontend::test
 {
 
 BOOST_AUTO_TEST_SUITE(SemVerMatcher)
@@ -70,6 +68,8 @@ BOOST_AUTO_TEST_CASE(positive_range)
 		{"*", "1.2.3-foo"},
 		{"1.0.0 - 2.0.0", "1.2.3"},
 		{"1.0.0", "1.0.0"},
+		{"1.0", "1.0.0"},
+		{"1", "1.0.0"},
 		{">=*", "0.2.4"},
 		{"*", "1.2.3"},
 		{">=1.0.0", "1.0.0"},
@@ -82,6 +82,8 @@ BOOST_AUTO_TEST_CASE(positive_range)
 		{"<=2.0.0", "0.2.9"},
 		{"<2.0.0", "1.9999.9999"},
 		{"<2.0.0", "0.2.9"},
+		{"<1.0", "1.0.0-pre"},
+		{"<1", "1.0.0-pre"},
 		{">= 1.0.0", "1.0.0"},
 		{">=  1.0.0", "1.0.1"},
 		{">=   1.0.0", "1.1.0"},
@@ -137,10 +139,14 @@ BOOST_AUTO_TEST_CASE(positive_range)
 		{"^0.1.2", "0.1.2"},
 		{"^0.1", "0.1.2"},
 		{"^1.2", "1.4.2"},
+		{"^1.2", "1.2.0"},
+		{"^1", "1.2.0"},
 		{"<=1.2.3", "1.2.3-beta"},
 		{">1.2", "1.3.0-beta"},
 		{"<1.2.3", "1.2.3-beta"},
-		{"^1.2 ^1", "1.4.2"}
+		{"^1.2 ^1", "1.4.2"},
+		{"^0", "0.5.1"},
+		{"^0", "0.1.1"},
 	};
 	for (auto const& t: tests)
 	{
@@ -155,11 +161,14 @@ BOOST_AUTO_TEST_CASE(positive_range)
 
 BOOST_AUTO_TEST_CASE(negative_range)
 {
-	// Positive range tests
+	// Negative range tests
 	vector<pair<string, string>> tests = {
 		{"1.0.0 - 2.0.0", "2.2.3"},
+		{"1.0", "1.0.0-pre"},
+		{"1", "1.0.0-pre"},
 		{"^1.2.3", "1.2.3-pre"},
 		{"^1.2", "1.2.0-pre"},
+		{"^1.2", "1.2.1-pre"},
 		{"^1.2.3", "1.2.3-beta"},
 		{"=0.7.x", "0.7.0-asdf"},
 		{">=0.7.x", "0.7.0-asdf"},
@@ -202,8 +211,16 @@ BOOST_AUTO_TEST_CASE(negative_range)
 		{"=1.2.3", "1.2.3-beta"},
 		{">1.2", "1.2.8"},
 		{"^1.2.3", "2.0.0-alpha"},
+		{"^0.6", "0.6.2-alpha"},
+		{"^0.6", "0.6.0-alpha"},
+		{"^1.2", "1.2.1-pre"},
 		{"^1.2.3", "1.2.2"},
-		{"^1.2", "1.1.9"}
+		{"^1", "1.2.0-pre"},
+		{"^1", "1.2.0-pre"},
+		{"^1.2", "1.1.9"},
+		{"^0", "0.5.1-pre"},
+		{"^0", "0.0.0-pre"},
+		{"^0", "1.0.0"},
 	};
 	for (auto const& t: tests)
 	{
@@ -219,6 +236,4 @@ BOOST_AUTO_TEST_CASE(negative_range)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-}
-}
 } // end namespaces

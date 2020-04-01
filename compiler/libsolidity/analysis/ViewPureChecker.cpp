@@ -18,50 +18,45 @@
 #include <libsolidity/analysis/ViewPureChecker.h>
 #include <libsolidity/ast/ExperimentalFeatures.h>
 #include <libyul/AsmData.h>
+#include <libyul/backends/evm/EVMDialect.h>
 #include <liblangutil/ErrorReporter.h>
 #include <libevmasm/SemanticInformation.h>
+
 #include <functional>
+#include <variant>
 
 using namespace std;
-using namespace dev;
-using namespace langutil;
-using namespace dev::solidity;
+using namespace solidity;
+using namespace solidity::langutil;
+using namespace solidity::frontend;
 
 namespace
 {
 
-class AssemblyViewPureChecker: public boost::static_visitor<void>
+class AssemblyViewPureChecker
 {
 public:
-	explicit AssemblyViewPureChecker(std::function<void(StateMutability, SourceLocation const&)> _reportMutability):
+	explicit AssemblyViewPureChecker(
+		yul::Dialect const& _dialect,
+		std::function<void(StateMutability, SourceLocation const&)> _reportMutability
+	):
+		m_dialect(_dialect),
 		m_reportMutability(_reportMutability) {}
 
-	void operator()(yul::Label const&) { }
-	void operator()(yul::Instruction const& _instruction)
-	{
-		checkInstruction(_instruction.location, _instruction.instruction);
-	}
 	void operator()(yul::Literal const&) {}
 	void operator()(yul::Identifier const&) {}
-	void operator()(yul::FunctionalInstruction const& _instr)
-	{
-		checkInstruction(_instr.location, _instr.instruction);
-		for (auto const& arg: _instr.arguments)
-			boost::apply_visitor(*this, arg);
-	}
 	void operator()(yul::ExpressionStatement const& _expr)
 	{
-		boost::apply_visitor(*this, _expr.expression);
+		std::visit(*this, _expr.expression);
 	}
-	void operator()(yul::StackAssignment const&) {}
 	void operator()(yul::Assignment const& _assignment)
 	{
-		boost::apply_visitor(*this, *_assignment.value);
+		std::visit(*this, *_assignment.value);
 	}
 	void operator()(yul::VariableDeclaration const& _varDecl)
 	{
 		if (_varDecl.value)
-			boost::apply_visitor(*this, *_varDecl.value);
+			std::visit(*this, *_varDecl.value);
 	}
 	void operator()(yul::FunctionDefinition const& _funDef)
 	{
@@ -69,17 +64,22 @@ public:
 	}
 	void operator()(yul::FunctionCall const& _funCall)
 	{
+		if (yul::EVMDialect const* dialect = dynamic_cast<decltype(dialect)>(&m_dialect))
+			if (yul::BuiltinFunctionForEVM const* fun = dialect->builtin(_funCall.functionName.name))
+				if (fun->instruction)
+					checkInstruction(_funCall.location, *fun->instruction);
+
 		for (auto const& arg: _funCall.arguments)
-			boost::apply_visitor(*this, arg);
+			std::visit(*this, arg);
 	}
 	void operator()(yul::If const& _if)
 	{
-		boost::apply_visitor(*this, *_if.condition);
+		std::visit(*this, *_if.condition);
 		(*this)(_if.body);
 	}
 	void operator()(yul::Switch const& _switch)
 	{
-		boost::apply_visitor(*this, *_switch.expression);
+		std::visit(*this, *_switch.expression);
 		for (auto const& _case: _switch.cases)
 		{
 			if (_case.value)
@@ -90,25 +90,36 @@ public:
 	void operator()(yul::ForLoop const& _for)
 	{
 		(*this)(_for.pre);
-		boost::apply_visitor(*this, *_for.condition);
+		std::visit(*this, *_for.condition);
 		(*this)(_for.body);
 		(*this)(_for.post);
+	}
+	void operator()(yul::Break const&)
+	{
+	}
+	void operator()(yul::Continue const&)
+	{
+	}
+	void operator()(yul::Leave const&)
+	{
 	}
 	void operator()(yul::Block const& _block)
 	{
 		for (auto const& s: _block.statements)
-			boost::apply_visitor(*this, s);
+			std::visit(*this, s);
 	}
 
 private:
-	std::function<void(StateMutability, SourceLocation const&)> m_reportMutability;
-	void checkInstruction(SourceLocation _location, solidity::Instruction _instruction)
+	void checkInstruction(SourceLocation _location, evmasm::Instruction _instruction)
 	{
-		if (eth::SemanticInformation::invalidInViewFunctions(_instruction))
+		if (evmasm::SemanticInformation::invalidInViewFunctions(_instruction))
 			m_reportMutability(StateMutability::NonPayable, _location);
-		else if (eth::SemanticInformation::invalidInPureFunctions(_instruction))
+		else if (evmasm::SemanticInformation::invalidInPureFunctions(_instruction))
 			m_reportMutability(StateMutability::View, _location);
 	}
+
+	yul::Dialect const& m_dialect;
+	std::function<void(StateMutability, SourceLocation const&)> m_reportMutability;
 };
 
 }
@@ -155,7 +166,8 @@ void ViewPureChecker::endVisit(FunctionDefinition const& _funDef)
 		!_funDef.body().statements().empty() &&
 		!_funDef.isConstructor() &&
 		!_funDef.isFallback() &&
-		!_funDef.annotation().superFunction
+		!_funDef.isReceive() &&
+		!_funDef.overrides()
 	)
 		m_errorReporter.warning(
 			_funDef.location(),
@@ -215,6 +227,7 @@ void ViewPureChecker::endVisit(Identifier const& _identifier)
 void ViewPureChecker::endVisit(InlineAssembly const& _inlineAssembly)
 {
 	AssemblyViewPureChecker{
+		_inlineAssembly.dialect(),
 		[=](StateMutability _mutability, SourceLocation const& _location) { reportMutability(_mutability, _location); }
 	}(_inlineAssembly.operations());
 }
@@ -222,7 +235,7 @@ void ViewPureChecker::endVisit(InlineAssembly const& _inlineAssembly)
 void ViewPureChecker::reportMutability(
 	StateMutability _mutability,
 	SourceLocation const& _location,
-	boost::optional<SourceLocation> const& _nestedLocation
+	std::optional<SourceLocation> const& _nestedLocation
 )
 {
 	if (_mutability > m_bestMutabilityAndLocation.mutability)
@@ -259,18 +272,18 @@ void ViewPureChecker::reportMutability(
 	{
 		// We do not warn for library functions because they cannot be payable anyway.
 		// Also internal functions should be allowed to use `msg.value`.
-		if (m_currentFunction->isPublic() && m_currentFunction->inContractKind() != ContractDefinition::ContractKind::Library)
+		if (m_currentFunction->isPublic() && m_currentFunction->inContractKind() != ContractKind::Library)
 		{
 			if (_nestedLocation)
 				m_errorReporter.typeError(
 					_location,
-					SecondarySourceLocation().append("\"msg.value\" appears here inside the modifier.", *_nestedLocation),
-					"This modifier uses \"msg.value\" and thus the function has to be payable or internal."
+					SecondarySourceLocation().append("\"msg.value\" or \"callvalue()\" appear here inside the modifier.", *_nestedLocation),
+					"This modifier uses \"msg.value\" or \"callvalue()\" and thus the function has to be payable or internal."
 				);
 			else
 				m_errorReporter.typeError(
 					_location,
-					"\"msg.value\" can only be used in payable public functions. Make the function "
+					"\"msg.value\" and \"callvalue()\" can only be used in payable public functions. Make the function "
 					"\"payable\" or use an internal function to avoid this error."
 				);
 			m_errors = true;
@@ -292,7 +305,13 @@ void ViewPureChecker::endVisit(FunctionCall const& _functionCall)
 	if (_functionCall.annotation().kind != FunctionCallKind::FunctionCall)
 		return;
 
-	StateMutability mutability = dynamic_cast<FunctionType const&>(*_functionCall.expression().annotation().type).stateMutability();
+	StateMutability mutability;
+	auto ma = dynamic_cast<MemberAccess const *>(&_functionCall.expression());
+	if (ma && ma->expression().annotation().type->category() == Type::Category::Contract) {
+		mutability = StateMutability::Pure; // call function of another contract
+	} else {
+		mutability = dynamic_cast<FunctionType const&>(*_functionCall.expression().annotation().type).stateMutability();
+	}
 	// We only require "nonpayable" to call a payble function.
 	if (mutability == StateMutability::Payable)
 		mutability = StateMutability::NonPayable;
@@ -343,31 +362,44 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::ABI, "encodeWithSelector"},
 			{MagicType::Kind::ABI, "encodeWithSignature"},
 			{MagicType::Kind::Block, "blockhash"},
+			{MagicType::Kind::Message, "createAt"},
 			{MagicType::Kind::Message, "data"},
-			{MagicType::Kind::Message, "sig"},
 			{MagicType::Kind::Message, "pubkey"},
+			{MagicType::Kind::Message, "sig"},
 			{MagicType::Kind::TVM, "accept"},
-			{MagicType::Kind::TVM, "hash"},
+			{MagicType::Kind::TVM, "cdatasize"},
 			{MagicType::Kind::TVM, "checkSign"},
-			{MagicType::Kind::TVM, "transfer"},
+			{MagicType::Kind::TVM, "configParam"},
+			{MagicType::Kind::TVM, "hash"},
 			{MagicType::Kind::TVM, "log"},
+			{MagicType::Kind::TVM, "sendMsg"},
 			{MagicType::Kind::TVM, "setcode"},
+			{MagicType::Kind::TVM, "sendrawmsg"},
+			{MagicType::Kind::TVM, "setCurrentCode"},
+			{MagicType::Kind::TVM, "transfer"},
+			{MagicType::Kind::TVM, "transLT"},
 			{MagicType::Kind::MetaType, "creationCode"},
-			{MagicType::Kind::MetaType, "runtimeCode"}
+			{MagicType::Kind::MetaType, "runtimeCode"},
+			{MagicType::Kind::MetaType, "name"},
 		};
 		set<MagicMember> static const payableMembers{
 			{MagicType::Kind::Message, "value"}
 		};
-
+		set<MagicMember> static const nonpayableMembers{
+			{MagicType::Kind::TVM, "commit"},
+			{MagicType::Kind::TVM, "resetStorage"}
+		};
+		
 		auto const& type = dynamic_cast<MagicType const&>(*_memberAccess.expression().annotation().type);
 		MagicMember magicMember(type.kind(), member);
 
 		if (!pureMembers.count(magicMember))
 			mutability = StateMutability::View;
+		if (nonpayableMembers.count(magicMember))
+			mutability = StateMutability::NonPayable;
 		if (payableMembers.count(magicMember))
 			mutability = StateMutability::Payable;
-		if (member == "commit")
-				mutability = StateMutability::NonPayable;
+		
 		break;
 	}
 	case Type::Category::Struct:
@@ -380,7 +412,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 	{
 		auto const& type = dynamic_cast<ArrayType const&>(*_memberAccess.expression().annotation().type);
 		if (member == "length" && type.isDynamicallySized() && type.dataStoredIn(DataLocation::Storage))
-			mutability = writes ? StateMutability::NonPayable : StateMutability::View;
+			mutability = StateMutability::View;
 		if (member == "pop" || member == "push"){
 			if (_memberAccess.expression().annotation().type->dataStoredIn(DataLocation::Storage))
 				mutability = StateMutability::NonPayable;
@@ -388,7 +420,14 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 		break;
 	}
 	default:
+	{
+		if (VariableDeclaration const* varDecl = dynamic_cast<VariableDeclaration const*>(
+			_memberAccess.annotation().referencedDeclaration
+		))
+			if (varDecl->isStateVariable() && !varDecl->isConstant())
+				mutability = writes ? StateMutability::NonPayable : StateMutability::View;
 		break;
+	}
 	}
 	reportMutability(mutability, _memberAccess.location());
 }
@@ -403,6 +442,13 @@ void ViewPureChecker::endVisit(IndexAccess const& _indexAccess)
 		if (_indexAccess.baseExpression().annotation().type->dataStoredIn(DataLocation::Storage))
 			reportMutability(writes ? StateMutability::NonPayable : StateMutability::View, _indexAccess.location());
 	}
+}
+
+void ViewPureChecker::endVisit(IndexRangeAccess const& _indexRangeAccess)
+{
+	bool writes = _indexRangeAccess.annotation().lValueRequested;
+	if (_indexRangeAccess.baseExpression().annotation().type->dataStoredIn(DataLocation::Storage))
+		reportMutability(writes ? StateMutability::NonPayable : StateMutability::View, _indexRangeAccess.location());
 }
 
 void ViewPureChecker::endVisit(ModifierInvocation const& _modifier)
