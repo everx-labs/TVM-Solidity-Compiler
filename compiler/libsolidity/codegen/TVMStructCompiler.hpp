@@ -19,12 +19,15 @@
 #pragma once
 
 #include <libsolidity/ast/ASTForward.h>
+#include <libsolidity/ast/Types.h>
+#include <boost/core/noncopyable.hpp>
+#include "TVMCommons.hpp"
 
 namespace solidity::frontend {
 
 class StackPusherHelper;
 
-class StructCompiler {
+class StructCompiler : public boost::noncopyable {
 public:
 	struct FieldSizeInfo {
 		bool isBitFixed{false};
@@ -60,6 +63,7 @@ public:
 		void removeFirstField(int index);
 		bool tryAddChild(int child);
 		void removeChildIfHave(int v);
+		int maxBitLength() const { return maxBits; }
 	};
 
 	struct PathToStructMember {
@@ -87,11 +91,11 @@ private:
 public:
 	StructCompiler(StackPusherHelper *pusher, StructType const* structType);
 	StructCompiler(StackPusherHelper *pusher, std::vector<VariableDeclaration const*> variableDeclarations,
-	               int skipData, int skipRef, bool isC4, StructType const *structType);
+	               int skipData, int skipRef, bool isC4);
 	void createDefaultStruct(bool resultIsBuilder = false);
 	void pushMember(const std::string &memberName, bool isStructTuple, bool returnStructAsSlice);
 	void setMemberForTuple(const std::string &memberName);
-	void structConstructor(std::vector<ASTPointer<ASTString>> const& names);
+	void structConstructor(ast_vec<ASTString> const& names);
 	void tupleToBuilder();
 	void stateVarsToBuilder();
 	void expandStruct(const std::string &memberName, bool doPushMemberOnStack);
@@ -99,6 +103,8 @@ public:
 	void convertSliceToTuple();
 	void sliceToStateVarsToC7();
 	static bool isCompatibleWithSDK(int keyLength, StructType const* structType);
+	bool isCompatibleWithSDK(int keyLength) const;
+public:
 	const std::vector<Node>& getNodes() { return nodes; }
 private:
 	void dfs(int v, std::vector<int> &nodePath, std::vector<int> &refPath);

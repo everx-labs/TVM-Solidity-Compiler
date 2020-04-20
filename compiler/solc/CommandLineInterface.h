@@ -49,42 +49,42 @@ public:
 	bool actOnInput();
 
 private:
-	bool link();
-	void writeLinkedFiles();
+//	bool link();
+//	void writeLinkedFiles();
 	/// @returns the ``// <identifier> -> name`` hint for library placeholders.
-	static std::string libraryPlaceholderHint(std::string const& _libraryName);
+//	static std::string libraryPlaceholderHint(std::string const& _libraryName);
 	/// @returns the full object with library placeholder hints in hex.
-	static std::string objectWithLinkRefsHex(evmasm::LinkerObject const& _obj);
+//	static std::string objectWithLinkRefsHex(evmasm::LinkerObject const& _obj);
 
-	bool assemble(yul::AssemblyStack::Language _language, yul::AssemblyStack::Machine _targetMachine, bool _optimize);
+//	bool assemble(yul::AssemblyStack::Language _language, yul::AssemblyStack::Machine _targetMachine, bool _optimize);
 
 	void outputCompilationResults();
 
-	void handleCombinedJSON();
+//	void handleCombinedJSON();
 	void handleAst(std::string const& _argStr);
-	void handleBinary(std::string const& _contract);
-	void handleOpcode(std::string const& _contract);
-	void handleIR(std::string const& _contract);
-	void handleEwasm(std::string const& _contract);
-	void handleBytecode(std::string const& _contract);
-	void handleSignatureHashes(std::string const& _contract);
-	void handleMetadata(std::string const& _contract);
-	void handleABI(std::string const& _contract);
+//	void handleBinary(std::string const& _contract);
+//	void handleOpcode(std::string const& _contract);
+//	void handleIR(std::string const& _contract);
+//	void handleEwasm(std::string const& _contract);
+//	void handleBytecode(std::string const& _contract);
+//	void handleSignatureHashes(std::string const& _contract);
+//	void handleMetadata(std::string const& _contract);
+//	void handleABI(std::string const& _contract);
 	void handleNatspec(bool _natspecDev, std::string const& _contract);
-	void handleGasEstimation(std::string const& _contract);
-	void handleFormal();
+//	void handleGasEstimation(std::string const& _contract);
+//	void handleFormal();
 
 	/// Fills @a m_sourceCodes initially and @a m_redirects.
 	bool readInputFilesAndConfigureRemappings();
 	/// Tries to read from the file @a _input or interprets _input literally if that fails.
 	/// It then tries to parse the contents and appends to m_libraries.
-	bool parseLibraryOption(std::string const& _input);
+//	bool parseLibraryOption(std::string const& _input);
 
 	/// Tries to read @ m_sourceCodes as a JSONs holding ASTs
 	/// such that they can be imported into the compiler  (importASTs())
 	/// (produced by --combined-json ast,compact-format <file.sol>
 	/// or standard-json output
-	std::map<std::string, Json::Value> parseAstFromInput();
+//	std::map<std::string, Json::Value> parseAstFromInput();
 
 	/// Create a file in the given directory
 	/// @arg _fileName the name of the file
@@ -94,7 +94,7 @@ private:
 	/// Create a json file in the given directory
 	/// @arg _fileName the name of the file (the extension will be replaced with .json)
 	/// @arg _json json string to be written
-	void createJson(std::string const& _fileName, std::string const& _json);
+//	void createJson(std::string const& _fileName, std::string const& _json);
 
 	bool m_error = false; ///< If true, some error occurred.
 

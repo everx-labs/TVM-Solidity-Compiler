@@ -17,6 +17,7 @@
  */
 
 #pragma once
+#include <string>
 
 namespace TvmConst {
 	namespace C4 {
@@ -24,7 +25,11 @@ namespace TvmConst {
 		const int KeyLength = 64;
 		const int PersistenceMembersStartIndex = 1;
 	}
+	namespace C7 {
+		const int TempFunctionReturnBuffer = 8;
+	}
 	namespace SENDRAWMSG {
+		const int DefaultFlag  = 1;
 		const int CarryAllMoney  = 128;
 	}
 	namespace Message {
@@ -57,5 +62,17 @@ namespace TvmConst {
 	namespace FunctionId {
 		const int First = 3;
 		const int64_t Last = 0xFFFFFFFD;
+	}
+
+	namespace int_msg_info {
+		const int ihr_disabled = 0;
+		const int bounce = 1;
+		const int dest = 4;
+		const int grams = 5;
+		const int currency = 6;
+	}
+
+	namespace Attributes {
+		const std::string MuteStructWarning = "maybe_unsaved";
 	}
 }

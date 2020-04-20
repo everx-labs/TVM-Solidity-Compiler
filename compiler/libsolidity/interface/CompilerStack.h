@@ -173,6 +173,14 @@ public:
 		m_requestedContractNames = _contractNames;
 	}
 
+	void setStructWarning(bool _structWarning) {
+		m_structWarning = _structWarning;
+	}
+
+	void setMainContract(std::string mainContract) {
+		m_mainContract = mainContract;
+	}
+
 	/// Enable experimental generation of Yul IR code.
 	void enableIRGeneration(bool _enable = true) { m_generateIR = _enable; }
 
@@ -464,6 +472,8 @@ private:
 	/// If this is true, the stack will refuse to generate code.
 	bool m_hasError = false;
 	bool m_release = VersionIsRelease;
+	bool m_structWarning = false;
+	std::string m_mainContract;
 };
 
 }

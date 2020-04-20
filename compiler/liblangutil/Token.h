@@ -216,6 +216,8 @@ namespace solidity::langutil
 	K(Bool, "bool", 0)                                                 \
 	K(TvmCell, "TvmCell", 0)                                           \
 	K(TvmSlice, "TvmSlice", 0)                                         \
+	K(TvmBuilder, "TvmBuilder", 0)                                     \
+	K(ExtraCurrencyCollection, "ExtraCurrencyCollection", 0)           \
 	K(Fixed, "fixed", 0)                                               \
 	K(UFixed, "ufixed", 0)                                             \
 	T(IntM, "intM", 0)                                                 \
@@ -306,8 +308,8 @@ namespace TokenTraits
 	constexpr bool isUnaryOp(Token op) { return (Token::Not <= op && op <= Token::Delete) || op == Token::Add || op == Token::Sub; }
 	constexpr bool isCountOp(Token op) { return op == Token::Inc || op == Token::Dec; }
 	constexpr bool isShiftOp(Token op) { return (Token::SHL <= op) && (op <= Token::SHR); }
-	constexpr bool isVariableVisibilitySpecifier(Token op) { 
-		return op == Token::Public || op == Token::Private || op == Token::Internal || op == Token::TvmGetter; 
+	constexpr bool isVariableVisibilitySpecifier(Token op) {
+		return op == Token::Public || op == Token::Private || op == Token::Internal || op == Token::TvmGetter;
 	}
 	constexpr bool isVisibilitySpecifier(Token op) { return isVariableVisibilitySpecifier(op) || op == Token::External; }
 	constexpr bool isLocationSpecifier(Token op) { return op == Token::Memory || op == Token::Storage || op == Token::CallData; }

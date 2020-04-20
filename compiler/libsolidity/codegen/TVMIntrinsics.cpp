@@ -16,8 +16,15 @@
  * TVM intrinsics codegen routines
  */
 
-#pragma once
+#include <string>
 
+#include <boost/algorithm/string.hpp>
+
+#include <libsolidity/ast/Types.h>
+
+#include "TVMCommons.hpp"
+#include "TVMContractCompiler.hpp"
+#include "TVMExpressionCompiler.hpp"
 #include "TVMIntrinsics.hpp"
 
 
@@ -45,7 +52,7 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 
 	auto ensureParamIsIdentifier = [&] (int idx) -> Identifier const* {
 		auto param = to<Identifier>(arguments[idx].get());
-		solAssert(param && m_pusher.getStack().isParam(param->name()), "");
+		solAssert(param && m_pusher.getStack().isParam(param->annotation().referencedDeclaration), "");
 		return param;
 	};
 
@@ -72,7 +79,7 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		if (auto literal = to<Literal>(logstr)) {
 			if (literal->value().length() > 15)
 				cast_error(_functionCall, "tvm_logstr param should be no more than 15 chars");
-			if (TVMCompiler::g_without_logstr) {
+			if (TVMContractCompiler::g_without_logstr) {
 				return true;
 			}
 			m_pusher.push(0, "PRINTSTR " + literal->value());
@@ -93,11 +100,11 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 				}
 				m_pusher.push(+1, opcode + " " + literal->value());
 			}
-			solAssert(m_pusher.tryAssignParam(slice->name()), "");
+			solAssert(m_pusher.tryAssignParam(slice->annotation().referencedDeclaration), "");
 		} else {
 			auto bits = arguments[1].get();
 			auto literal = to<Literal>(bits);
-			if (m_pusher.getStack().getOffset(slice->name()) == 0 && literal) {
+			if (m_pusher.getStack().getOffset(slice->annotation().referencedDeclaration) == 0 && literal) {
 				m_pusher.push(+1, opcode + " " + literal->value());
 				m_pusher.push(0, "SWAP");
 			} else {
@@ -108,7 +115,7 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 					acceptExpr(bits);
 					m_pusher.push(0, opcode + "X");
 				}
-				solAssert(m_pusher.tryAssignParam(slice->name()), "");
+				solAssert(m_pusher.tryAssignParam(slice->annotation().referencedDeclaration), "");
 			}
 		}
 		return true;
@@ -129,7 +136,7 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		auto slice = ensureParamIsIdentifier(0);
 		acceptExpr(slice);
 		m_pusher.push(-1 + 2, opcode);
-		solAssert(m_pusher.tryAssignParam(slice->name()), "");
+		solAssert(m_pusher.tryAssignParam(slice->annotation().referencedDeclaration), "");
 		return true;
 	}
 	if (iname == "tvm_pldmsgaddr") {
@@ -148,18 +155,18 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 			acceptExpr(bits);
 			m_pusher.push(0, "LDSLICEX");
 		}
-		solAssert(m_pusher.tryAssignParam(slice->name()), "");
+		solAssert(m_pusher.tryAssignParam(slice->annotation().referencedDeclaration), "");
 		return true;
 	}
 	if (isIn(iname, "tvm_ldref", "tvm_lddict")) {
 		Identifier const* slice = ensureParamIsIdentifier(0);
-		if (m_pusher.getStack().getOffset(slice->name()) == 0) {
+		if (m_pusher.getStack().getOffset(slice->annotation().referencedDeclaration) == 0) {
 			m_pusher.push(+1, opcode);
 			m_pusher.push(0, "SWAP");
 		} else {
 			acceptExpr(slice);
 			m_pusher.push(+1, opcode);
-			solAssert(m_pusher.tryAssignParam(slice->name()), "");
+			solAssert(m_pusher.tryAssignParam(slice->annotation().referencedDeclaration), "");
 		}
 		return true;
 	}
@@ -168,7 +175,7 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		auto literal = to<Literal>(arguments[1].get());
 		if (!literal)
 			cast_error(*arguments[1].get(),"Should be literal.");
-		if (m_pusher.getStack().getOffset(tuple->name()) == 0) {
+		if (m_pusher.getStack().getOffset(tuple->annotation().referencedDeclaration) == 0) {
 			acceptExpr(arguments[2].get());
 			m_pusher.push(-2 + 1, "SETINDEX " + literal->value());
 		} else {
@@ -180,7 +187,7 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		const Identifier* builder = ensureParamIsIdentifier(0);
 		auto bitLen = arguments[1].get();
 		auto literal = to<Literal>(bitLen);
-		if (m_pusher.getStack().getOffset(builder->name()) == 0) {
+		if (m_pusher.getStack().getOffset(builder->annotation().referencedDeclaration) == 0) {
 			acceptExpr(arguments[2].get());
 			if (literal) {
 				m_pusher.push(-1, opcode + "R " + literal->value());
@@ -197,7 +204,7 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 				acceptExpr(bitLen);
 				m_pusher.push(-2, opcode + "X");
 			}
-			solAssert(m_pusher.tryAssignParam(builder->name()), "");
+			solAssert(m_pusher.tryAssignParam(builder->annotation().referencedDeclaration), "");
 		}
 		return true;
 	}
@@ -205,14 +212,14 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		// function(builder, arg)
 		checkArgCount(2);
 		auto builder = ensureParamIsIdentifier(0);
-		if (m_pusher.getStack().getOffset(builder->name()) == 0) {
+		if (m_pusher.getStack().getOffset(builder->annotation().referencedDeclaration) == 0) {
 			acceptExpr(arguments[1].get());
 			m_pusher.push(- 1, opcode + "R");
 		} else {
 			acceptExpr(arguments[1].get());
 			acceptExpr(builder);
 			m_pusher.push(-1, opcode);
-			solAssert(m_pusher.tryAssignParam(builder->name()), "");
+			solAssert(m_pusher.tryAssignParam(builder->annotation().referencedDeclaration), "");
 		}
 		return true;
 	}
@@ -224,7 +231,7 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		acceptExpr(dict);
 		acceptExpr(arguments[3].get());
 		m_pusher.push(-4 + 1, opcode);
-		solAssert(m_pusher.tryAssignParam(dict->name()), "");
+		solAssert(m_pusher.tryAssignParam(dict->annotation().referencedDeclaration), "");
 		return true;
 	}
 	if (iname == "tvm_bchkbitsq" || iname == "tvm_schkbitsq") {
@@ -247,14 +254,14 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 	}
 	if (iname == "tvm_srefs") {
 		acceptExpr(arguments[0].get());
-		m_pusher.push(-1+1, "SREFS ; tvm_srefs");
+		m_pusher.push(-1+1, "SREFS");
 		return true;
 	}
 	if (iname == "tvm_brembits")
 	{
 		// function tvm_brembits(uint builder) private pure returns (uint /*the number of data bits that can still be stored in b*/)
 		acceptExpr(arguments[0].get());
-		m_pusher.push(-1+1, "BREMBITS ; tvm_brembits");
+		m_pusher.push(-1+1, "BREMBITS");
 		return true;
 	}
 	if (iname == "tvm_getfromdict") {
@@ -264,7 +271,7 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		acceptExpr(arguments[0].get());
 		acceptExpr(arguments[1].get());
 		m_pusher.push(-3+2, "DICTUGET");
-		m_pusher.push(-1, "THROWIFNOT 10");		// TODO!
+		m_pusher.push(-1, "THROWIFNOT 10");
 		return true;
 	}
 	if (iname == "tvm_get_slice_from_integer_dict") {
@@ -297,7 +304,7 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		acceptExpr(slice);
 		m_pusher.push(-1, "ENDS");
 		m_pusher.push(+1, "NULL");
-		solAssert(m_pusher.tryAssignParam(slice->name()), "");
+		solAssert(m_pusher.tryAssignParam(slice->annotation().referencedDeclaration), "");
 		return true;
 	}
 	if (iname == "tvm_newc") {
@@ -398,7 +405,7 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 	}
 	if (iname == "tvm_stdict") {
 		Identifier const* builder = ensureParamIsIdentifier(0);
-		if (m_pusher.getStack().getOffset(builder->name()) == 0) {
+		if (m_pusher.getStack().getOffset(builder->annotation().referencedDeclaration) == 0) {
 			// there is no stdictr. Using swap
 			acceptExpr(arguments[1].get());
 			m_pusher.push(0, "SWAP");
@@ -407,7 +414,7 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 			acceptExpr(arguments[1].get());
 			acceptExpr(builder);
 			m_pusher.push(-1, "STDICT");
-			solAssert(m_pusher.tryAssignParam(builder->name()), "");
+			solAssert(m_pusher.tryAssignParam(builder->annotation().referencedDeclaration), "");
 		}
 		return true;
 	}
@@ -417,14 +424,14 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		// function(container, value)
 		checkArgCount(2);
 		Identifier const* holder = ensureParamIsIdentifier(0);
-		if (m_pusher.getStack().getOffset(holder->name()) == 0) {
+		if (m_pusher.getStack().getOffset(holder->annotation().referencedDeclaration) == 0) {
 			acceptExpr(arguments[1].get());
 			m_pusher.push(-1, opcode);
 		} else {
 			acceptExpr(holder);
 			acceptExpr(arguments[1].get());
 			m_pusher.push(-1, opcode);
-			solAssert(m_pusher.tryAssignParam(holder->name()), "");
+			solAssert(m_pusher.tryAssignParam(holder->annotation().referencedDeclaration), "");
 		}
 		return true;
 	}
@@ -500,7 +507,7 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 	if (iname == "tvm_ldrefrtos") {
 		checkArgCount(1);
 		auto builder = ensureParamIsIdentifier(0);
-		if (m_pusher.getStack().getOffset(builder->name()) == 0) {
+		if (m_pusher.getStack().getOffset(builder->annotation().referencedDeclaration) == 0) {
 			m_pusher.push(+1, "LDREFRTOS");
 		} else {
 			cast_error(_functionCall, R"(Use "tvm_ldrefrtos" only if)" + builder->name() + " is on stack top");
@@ -628,14 +635,14 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		// function(builder, argument)
 		checkArgCount(2);
 		Identifier const* builder = ensureParamIsIdentifier(0);
-		if (m_pusher.getStack().getOffset(builder->name()) == 0) {
+		if (m_pusher.getStack().getOffset(builder->annotation().referencedDeclaration) == 0) {
 			acceptExpr(arguments[1].get());
 			m_pusher.push(- 1, opcode);
 		} else {
 			acceptExpr(builder);
 			acceptExpr(arguments[1].get());
 			m_pusher.push(-2 + 1, opcode);
-			solAssert(m_pusher.tryAssignParam(builder->name()), "");
+			solAssert(m_pusher.tryAssignParam(builder->annotation().referencedDeclaration), "");
 		}
 		return true;
 	}
@@ -643,12 +650,12 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		// tvm_skipdict(uint slice)
 		checkArgCount(1);
 		Identifier const* slice = ensureParamIsIdentifier(0);
-		if (m_pusher.getStack().getOffset(slice->name()) == 0) {
+		if (m_pusher.getStack().getOffset(slice->annotation().referencedDeclaration) == 0) {
 			m_pusher.push(0, opcode);
 		} else {
 			acceptExpr(slice);
 			m_pusher.push(0, opcode);
-			solAssert(m_pusher.tryAssignParam(slice->name()), "");
+			solAssert(m_pusher.tryAssignParam(slice->annotation().referencedDeclaration), "");
 		}
 		return true;
 	}
@@ -674,41 +681,28 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		return true;
 	}
 	if (iname == "require") {
-		acceptExpr(arguments[0].get());
-		if (arguments.size() == 1)
+		if (arguments.size() == 1) {
+			acceptExpr(arguments[0].get());
 			m_pusher.push(-1, "THROWIFNOT 100");
-		else {
+		} else if (arguments.size() == 2) {
 			if (auto literal = to<Literal>(arguments[1].get())) {
+				acceptExpr(arguments[0].get());
 				m_pusher.push(-1, "THROWIFNOT " + literal->value());
 			} else {
-				cast_error(_functionCall, "tvm_throwifnot second param should be integer");
+				acceptExpr(arguments[1].get());
+				acceptExpr(arguments[0].get());
+				m_pusher.push(-2, "THROWANYIFNOT");
 			}
+		} else {
+			cast_error(_functionCall, "require takes one or two arguments.");
 		}
+		
 		return true;
 	}
 	if (iname == "tvm_plddict" || iname == "tvm_iszero") {
 		checkArgCount(1);
 		acceptExpr(arguments[0].get());
 		m_pusher.push(-1+1, opcode);
-		return true;
-	}
-	if (iname == "tvm_transfer") {
-		if (arguments.size() == 4) {
-			acceptExpr(arguments[0].get());
-			acceptExpr(arguments[1].get());
-			acceptExpr(arguments[2].get());
-			acceptExpr(arguments[3].get());
-			m_pusher.pushPrivateFunctionOrMacroCall(-4, "send_accurate_internal_message_macro");
-		} else if (arguments.size() == 5) {
-			acceptExpr(arguments[0].get());
-			acceptExpr(arguments[1].get());
-			acceptExpr(arguments[2].get());
-			acceptExpr(arguments[3].get());
-			acceptExpr(arguments[4].get());
-			m_pusher.pushPrivateFunctionOrMacroCall(-5, "send_accurate_internal_message_with_body_macro");
-		} else {
-			cast_error(_functionCall, iname + " should have 4 or 5 arguments");
-		}
 		return true;
 	}
 	if (iname == "tvm_poproot") {
@@ -1026,6 +1020,10 @@ IF
 		return true;
 	}
 	return false;
+}
+
+void IntrinsicsCompiler::acceptExpr(const Expression *expr) {
+	TVMExpressionCompiler{m_pusher}.compileNewExpr(expr);
 }
 
 } // end solidity::frontend

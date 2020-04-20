@@ -17,30 +17,13 @@
  */
 
 
-#include "TVMCommons.cpp"
-
-#include "TVMFunctionCall.hpp"
-#include "TVMExpressionCompiler.hpp"
-#include "TVMABI.hpp"
-#include "TVMCompiler.hpp"
-#include "TVMIntrinsics.cpp"
 #include "TVM.h"
-#include "TVMStructCompiler.cpp"
+#include "TVMContractCompiler.hpp"
 #include "TVMTypeChecker.hpp"
-#include "TVMInlineFunctionChecker.cpp"
-#include "TVMABI.cpp"
-
-
-bool TVMCompiler::m_optionsEnabled = false;
-TvmOption TVMCompiler::m_tvmOption = TvmOption::Code;
-bool TVMCompiler::m_outputProduced = false;
-bool TVMCompiler::g_without_logstr = false;
-std::string TVMCompiler::m_outputWarnings;
-std::vector<ContractDefinition const*> TVMCompiler::m_allContracts;
 
 static string getLastContractName() {
 	string name;
-	for (auto c : TVMCompiler::m_allContracts) {
+	for (auto c : TVMContractCompiler::m_allContracts) {
 		if (c->canBeDeployed()) {
 			name = c->name();
 		}
@@ -48,49 +31,68 @@ static string getLastContractName() {
 	return name;
 }
 
-void TVMCompilerProceedContract(ContractDefinition const& _contract, std::vector<PragmaDirective const *> const* pragmaDirectives) {
-	if (!TVMCompiler::m_optionsEnabled)
+void TVMCompilerProceedContract(ContractDefinition const& _contract,
+								std::vector<PragmaDirective const *> const* pragmaDirectives) {
+	if (!TVMContractCompiler::m_optionsEnabled)
 		return;
 
-	if (_contract.name() != getLastContractName())
+	std::string mainContract = (TVMContractCompiler::m_mainContractName == "") ?
+				getLastContractName() : TVMContractCompiler::m_mainContractName;
+
+	if (_contract.name() != mainContract)
 		return;
 
-	for (ContractDefinition const* c : TVMCompiler::m_allContracts) {
+	for (ContractDefinition const* c : TVMContractCompiler::m_allContracts) {
 		TVMTypeChecker::check(c, *pragmaDirectives);
 	}
 
 	PragmaDirectiveHelper pragmaHelper{*pragmaDirectives};
-	switch (TVMCompiler::m_tvmOption) {
+	switch (TVMContractCompiler::m_tvmOption) {
 		case TvmOption::Code:
-			TVMCompiler::proceedContract(&_contract, pragmaHelper);
+			TVMContractCompiler::proceedContract(&_contract, pragmaHelper);
 			break;
 		case TvmOption::Abi:
-			TVMCompiler::generateABI(&_contract, *pragmaDirectives);
+			TVMContractCompiler::generateABI(&_contract, *pragmaDirectives);
 			break;
 		case TvmOption::DumpStorage:
-			TVMCompiler::proceedDumpStorage(&_contract, pragmaHelper);
+			TVMContractCompiler::proceedDumpStorage(&_contract, pragmaHelper);
+			break;
+		case TvmOption::CodeAndAbi:
+			TVMContractCompiler::m_outputToFile = true;
+			TVMContractCompiler::proceedContract(&_contract, pragmaHelper);
+			TVMContractCompiler::generateABI(&_contract, *pragmaDirectives);
 			break;
 	}
 }
 
-void TVMCompilerEnable(const TvmOption tvmOption, bool without_logstr) {
-	TVMCompiler::m_optionsEnabled = true;
-	TVMCompiler::m_tvmOption = tvmOption;
-	TVMCompiler::g_without_logstr = without_logstr;
+void TVMCompilerEnable(const TvmOption tvmOption, bool without_logstr, bool optimize) {
+	TVMContractCompiler::m_optionsEnabled = true;
+	TVMContractCompiler::m_tvmOption = tvmOption;
+	TVMContractCompiler::g_without_logstr = without_logstr;
+	TVMContractCompiler::g_disable_optimizer = !optimize;
 }
 
-void TVMSetAllContracts(const std::vector<ContractDefinition const*>& allContracts) {
-	TVMCompiler::m_allContracts = allContracts;
+void TVMSetAllContracts(const std::vector<ContractDefinition const*>& allContracts, std::string mainContract) {
+	TVMContractCompiler::m_allContracts = allContracts;
+	TVMContractCompiler::m_mainContractName = mainContract;
+}
+
+void TVMSetFileName(std::string _fileName) {
+	std::string fileName = _fileName;
+	if (auto point = fileName.find("."); point != std::string::npos)
+		fileName = fileName.substr(0, point);
+
+	TVMContractCompiler::m_fileName = fileName;
 }
 
 bool TVMIsOutputProduced() {
-	return TVMCompiler::m_outputProduced;
+	return TVMContractCompiler::m_outputProduced;
 }
 
 void TVMAddWarning(const std::string& msg) {
-	TVMCompiler::m_outputWarnings += msg;
+	TVMContractCompiler::m_outputWarnings += msg;
 }
 
 const std::string& TVMGetWarning() {
-	return TVMCompiler::m_outputWarnings;
+	return TVMContractCompiler::m_outputWarnings;
 }

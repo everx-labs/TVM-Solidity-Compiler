@@ -803,10 +803,10 @@ public:
 			CallableDeclaration::virtualSemantics() ||
 			(annotation().contract && annotation().contract->isInterface());
 	}
-	
-	unsigned int functioID() const { return m_functionID; }
+
+	unsigned int functionID() const { return m_functionID; }
 	bool isInline() const { return m_isInline; }
-	
+
 private:
 	StateMutability m_stateMutability;
 	Token const m_kind;
@@ -836,7 +836,8 @@ public:
 		bool _isIndexed = false,
 		bool _isConstant = false,
 		ASTPointer<OverrideSpecifier> const& _overrides = nullptr,
-		Location _referenceLocation = Location::Unspecified
+		Location _referenceLocation = Location::Unspecified,
+		ASTPointer<ASTString> _attribute = nullptr
 	):
 		Declaration(_id, _location, _name, _visibility),
 		m_typeName(_type),
@@ -845,7 +846,8 @@ public:
 		m_isIndexed(_isIndexed),
 		m_isConstant(_isConstant),
 		m_overrides(_overrides),
-		m_location(_referenceLocation) {}
+		m_location(_referenceLocation),
+		m_attribute(_attribute) {}
 
 
 	void accept(ASTVisitor& _visitor) override;
@@ -853,6 +855,7 @@ public:
 
 	TypeName* typeName() const { return m_typeName.get(); }
 	ASTPointer<Expression> const& value() const { return m_value; }
+	ASTPointer<ASTString> const& attribute() const { return m_attribute; }
 
 	bool isLValue() const override;
 	bool isPartOfExternalInterface() const override { return isPublic(); }
@@ -917,6 +920,7 @@ private:
 	bool m_isConstant = false; ///< Whether the variable is a compile-time constant.
 	ASTPointer<OverrideSpecifier> m_overrides; ///< Contains the override specifier node
 	Location m_location = Location::Unspecified; ///< Location of the variable if it is of reference type.
+	ASTPointer<ASTString> m_attribute; ///< Attribute for variable.
 };
 
 /**

@@ -16,8 +16,11 @@
  * Struct compiler for TVM
  */
 
-
+#include "TVMCommons.hpp"
+#include "TVMPusher.hpp"
 #include "TVMStructCompiler.hpp"
+
+using namespace solidity::frontend;
 
 StructCompiler::FieldSizeInfo::FieldSizeInfo(bool isBitFixed, bool isRefFixed, int maxBitLength, int maxRefLength)
 	:
@@ -146,11 +149,11 @@ StructCompiler::PathToStructMember::PathToStructMember(const std::vector<int> &n
 }
 
 StructCompiler::StructCompiler(StackPusherHelper *pusher, StructType const *structType) :
-		StructCompiler{pusher, fVariableDeclarations(&structType->structDefinition()), 0, 0, false, structType} {
+		StructCompiler{pusher, fVariableDeclarations(&structType->structDefinition()), 0, 0, false} {
 }
 
 StructCompiler::StructCompiler(StackPusherHelper *pusher, std::vector<VariableDeclaration const *> _variableDeclarations,
-		const int skipData, const int skipRef, bool isC4, StructType const * structType)
+		const int skipData, const int skipRef, bool isC4)
 		:
 		variableDeclarations{std::move(_variableDeclarations)},
 		pusher{pusher}
@@ -214,7 +217,7 @@ StructCompiler::StructCompiler(StackPusherHelper *pusher, std::vector<VariableDe
 		}
 	} while (doSome);
 
-	if (isC4 || !isCompatibleWithSDK(TvmConst::ArrayKeyLength, structType)) {
+	if (isC4 || !isCompatibleWithSDK(TvmConst::ArrayKeyLength)) {
 		for (Node &node : nodes) {
 			std::stable_sort(node.fields.begin(), node.fields.end(), [](const Field &a, const Field &b) {
 				const bool l = a.fieldSizeInfo.isBitFixed && a.fieldSizeInfo.isRefFixed;
@@ -424,25 +427,21 @@ void StructCompiler::sliceToStateVarsToC7() {
 }
 
 bool StructCompiler::isCompatibleWithSDK(int keyLength, StructType const *structType) {
-	int bitSize = 0;
-	int refSize = 0;
-	StructDefinition const& structDefinition = structType->structDefinition();
-	std::vector<ASTPointer<VariableDeclaration>> const& members = structDefinition.members();
-	for (const ASTPointer<VariableDeclaration>& member : members) {
-		Type const* type = member->type();
-		if (isIntegralType(type)) {
-			TypeInfo ti{member->type()};
-			bitSize += ti.numBits;
-		} else if (isAddressOrContractType(type)) {
-			bitSize += AddressInfo::maxBitLength();
-		} else if (isStringOrStringLiteralOrBytes(type)) {
-			refSize++;
-		} else {
+	StructCompiler sc{nullptr, structType};
+	return sc.isCompatibleWithSDK(keyLength);
+}
+
+bool StructCompiler::isCompatibleWithSDK(int keyLength) const {
+	for (VariableDeclaration const* vd : variableDeclarations) {
+		Type const *type = vd->type();
+		if (type->category() == Type::Category::Struct) {
 			return false;
 		}
 	}
-	return 2 + keyLength + bitSize <= TvmConst::CellBitLength && refSize <= 3; // 2 is gotten from hml_long$10
+	return nodes.size() == 1 &&
+		2 + static_cast<int>(std::ceil(log2(keyLength + 1)+ 1e-5)) + keyLength + nodes[0].maxBitLength() <= TvmConst::CellBitLength; // 2 is gotten from hml_long$10
 }
+
 
 void StructCompiler::dfs(int v, std::vector<int> &nodePath, std::vector<int> &refPath) {
 	nodePath.push_back(v);
@@ -940,4 +939,5 @@ void StructCompiler::sortOnStack(std::vector<std::string> &order) {
 		}
 	}
 }
+
 

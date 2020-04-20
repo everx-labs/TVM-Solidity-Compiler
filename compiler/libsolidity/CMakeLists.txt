@@ -129,9 +129,37 @@ set(sources
 	parsing/Parser.cpp
 	parsing/Parser.h
 	parsing/Token.h
-	
+
 	codegen/TVM.cpp
 	codegen/TVM.h
+	codegen/TVMABI.cpp
+	codegen/TVMABI.hpp
+	codegen/TVMCommons.cpp
+	codegen/TVMCommons.hpp
+	codegen/TVMContractCompiler.cpp
+	codegen/TVMContractCompiler.cpp
+	codegen/TVMContractCompiler.hpp
+	codegen/TVMContractCompiler.hpp
+	codegen/TVMExpressionCompiler.cpp
+	codegen/TVMExpressionCompiler.hpp
+	codegen/TVMFunctionCall.cpp
+	codegen/TVMFunctionCall.hpp
+	codegen/TVMFunctionCompiler.cpp
+	codegen/TVMFunctionCompiler.hpp
+	codegen/TVMInlineFunctionChecker.cpp
+	codegen/TVMInlineFunctionChecker.hpp
+	codegen/TVMIntrinsics.cpp
+	codegen/TVMIntrinsics.hpp
+	codegen/TVMPusher.cpp
+	codegen/TVMPusher.hpp
+	codegen/TVMStructCompiler.cpp
+	codegen/TVMStructCompiler.hpp
+	codegen/TVMTypeChecker.cpp
+	codegen/TVMTypeChecker.hpp
+	codegen/TVMOptimizations.cpp
+	codegen/TVMOptimizations.hpp
+	codegen/TVMAnalyzer.hpp
+	codegen/TVMAnalyzer.cpp
 )
 
 find_package(Z3 4.6.0)

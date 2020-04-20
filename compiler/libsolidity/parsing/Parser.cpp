@@ -328,6 +328,7 @@ ASTPointer<ContractDefinition> Parser::parseContractDefinition()
 			else if (
 				currentTokenValue == Token::Identifier ||
 				currentTokenValue == Token::Mapping ||
+				currentTokenValue == Token::LBrack ||
 				TokenTraits::isElementaryTypeName(currentTokenValue) ||
 				(currentTokenValue == Token::Function && m_scanner->peekNextToken() == Token::LParen)
 			)
@@ -717,6 +718,15 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 	ASTPointer<TypeName> const& _lookAheadArrayType
 )
 {
+	ASTPointer<ASTString> attributeName = nullptr;
+	if (m_scanner->currentToken() == Token::LBrack)
+	{
+		m_scanner->next();
+		expectToken(Token::LBrack);
+		attributeName = expectIdentifierToken();
+		expectToken(Token::RBrack);
+		expectToken(Token::RBrack);
+	}
 	RecursionGuard recursionGuard(*this);
 	ASTNodeFactory nodeFactory = _lookAheadArrayType ?
 		ASTNodeFactory(*this, _lookAheadArrayType) : ASTNodeFactory(*this);
@@ -777,6 +787,7 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 				isDeclaredConst = true;
 			else if (_options.allowLocationSpecifier && TokenTraits::isLocationSpecifier(token))
 			{
+				parserWarning("Memory access modifiers have no effect in TON.");
 				if (location != VariableDeclaration::Location::Unspecified)
 					parserError(string("Location already specified."));
 				else if (!type)
@@ -845,7 +856,8 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 		isIndexed,
 		isDeclaredConst,
 		overrides,
-		location
+		location,
+		attributeName
 	);
 }
 
@@ -2046,7 +2058,7 @@ Parser::LookAheadInfo Parser::peekStatementType() const
 	Token token(m_scanner->currentToken());
 	bool mightBeTypeName = (TokenTraits::isElementaryTypeName(token) || token == Token::Identifier);
 
-	if (token == Token::Mapping || token == Token::Function || token == Token::Var)
+	if (token == Token::Mapping || token == Token::Function || token == Token::Var || token == Token::LBrack)
 		return LookAheadInfo::VariableDeclaration;
 	if (mightBeTypeName)
 	{

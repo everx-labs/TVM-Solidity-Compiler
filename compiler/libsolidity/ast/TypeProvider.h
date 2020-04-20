@@ -66,6 +66,9 @@ public:
 
 	static TvmSliceType const* tvmslice() noexcept {return &m_tvmslice; }
 
+	static TvmBuilderType const* tvmbuilder() noexcept { return &m_tvmbuilder; }
+	static ExtraCurrencyCollectionType const* extraCurrencyCollection() noexcept { return &m_extraCurrencyCollection; }
+
 	static FixedBytesType const* byte() { return fixedBytes(1); }
 	static FixedBytesType const* fixedBytes(unsigned m) { return m_bytesM.at(m - 1).get(); }
 
@@ -88,6 +91,7 @@ public:
 
 	static AddressType const* payableAddress() noexcept { return &m_payableAddress; }
 	static AddressType const* address() noexcept { return &m_address; }
+	static VarInteger const* varInteger() noexcept { return &m_varInteger; }
 
 	static IntegerType const* integer(unsigned _bits, IntegerType::Modifier _modifier)
 	{
@@ -157,8 +161,9 @@ public:
 		Declaration const* _declaration = nullptr,
 		bool _gasSet = false,
 		bool _valueSet = false,
+		bool _saltSet = false,
 		bool _bound = false,
-		bool _saltSet = false
+		bool _flagSet = false
 	);
 
 	/// Auto-detect the proper type for a literal. @returns an empty pointer if the literal does
@@ -184,7 +189,7 @@ public:
 	static TypeType const* typeType(Type const* _actualType);
 
 	static StructType const* structType(StructDefinition const& _struct, DataLocation _location);
-	
+
 	static ModifierType const* modifier(ModifierDefinition const& _modifierDef);
 
 	static MagicType const* magic(MagicType::Kind _kind);
@@ -207,6 +212,8 @@ private:
 	static BoolType const m_boolean;
 	static TvmCellType const m_tvmcell;
 	static TvmSliceType const m_tvmslice;
+	static TvmBuilderType const m_tvmbuilder;
+	static ExtraCurrencyCollectionType const  m_extraCurrencyCollection;
 	static InaccessibleDynamicType const m_inaccessibleDynamic;
 
 	/// These are lazy-initialized because they depend on `byte` being available.
@@ -219,6 +226,7 @@ private:
 	static TupleType const m_emptyTuple;
 	static AddressType const m_payableAddress;
 	static AddressType const m_address;
+	static VarInteger const m_varInteger;
 	static std::array<std::unique_ptr<IntegerType>, 32> const m_intM;
 	static std::array<std::unique_ptr<IntegerType>, 32> const m_uintM;
 	static std::array<std::unique_ptr<FixedBytesType>, 32> const m_bytesM;

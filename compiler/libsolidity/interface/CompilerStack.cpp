@@ -36,6 +36,8 @@
 #include <libsolidity/analysis/TypeChecker.h>
 #include <libsolidity/analysis/ViewPureChecker.h>
 
+#include <libsolidity/codegen/TVMAnalyzer.hpp>
+
 #include <libsolidity/ast/AST.h>
 #include <libsolidity/ast/TypeProvider.h>
 #include <libsolidity/ast/ASTJsonImporter.h>
@@ -77,9 +79,10 @@ using solidity::util::toHex;
 
 static int g_compilerStackCounts = 0;
 
-void TVMSetAllContracts(const std::vector<ContractDefinition const*>& allContracts);
+void TVMSetAllContracts(const std::vector<ContractDefinition const*>& allContracts, std::string mainContract);
 void TVMAddWarning(const std::string& msg);
 void TVMCompilerProceedContract(ContractDefinition const& _contract, std::vector<PragmaDirective const *> const* pragmaDirectives);
+void TVMSetFileName(std::string _fileName);
 
 CompilerStack::CompilerStack(ReadCallback::Callback const& _readFile):
 	m_readFile{_readFile},
@@ -231,6 +234,7 @@ void CompilerStack::setSources(StringMap _sources)
 	for (auto source: _sources)
 		m_sources[source.first].scanner = make_shared<Scanner>(CharStream(/*content*/std::move(source.second), /*name*/source.first));
 	m_stackState = SourcesSet;
+	TVMSetFileName((m_sources.rbegin())->first);
 }
 
 bool CompilerStack::parse()
@@ -414,6 +418,14 @@ bool CompilerStack::analyze()
 					noErrors = false;
 		}
 
+		if (noErrors) {
+			//Checks for TVM specific issues.
+			TVMAnalyzer tvmAnalyzer(m_errorReporter, m_structWarning);
+			for (Source const* source: m_sourceOrder)
+				if (source->ast && !tvmAnalyzer.analyze(*source->ast))
+					noErrors = false;
+		}
+
 		if (noErrors)
 		{
 			// Check for state mutability in every function.
@@ -491,13 +503,20 @@ bool CompilerStack::compile()
 	if (m_hasError)
 		BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("Called compile with errors."));
 
+	bool mainFound = (m_mainContract == "") ? true : false;
 	std::vector<const ContractDefinition*> allContracts;
 	for (Source const* source: m_sourceOrder)
 		for (ASTPointer<ASTNode> const& node: source->ast->nodes())
 			if (auto contract = dynamic_cast<ContractDefinition const*>(node.get())) {
 				allContracts.push_back(contract);
+				if (!mainFound)
+					mainFound = contract->name() == m_mainContract;
 			}
-	TVMSetAllContracts(allContracts);
+
+	if (!mainFound)
+		BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("Specified contract was not found in sources."));
+
+	TVMSetAllContracts(allContracts, m_mainContract);
 
 	// Only compile contracts individually which have been requested.
 	map<ContractDefinition const*, shared_ptr<Compiler const>> otherCompilers;
