@@ -570,7 +570,9 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 		case FunctionType::Kind::TVMConfigParam:
 		case FunctionType::Kind::MappingDelMin:
 		case FunctionType::Kind::MappingGetMinKey:
+		case FunctionType::Kind::MappingGetMaxKey:
 		case FunctionType::Kind::MappingGetNextKey:
+		case FunctionType::Kind::MappingGetPrevKey:
 		case FunctionType::Kind::MappingFetch:
 		case FunctionType::Kind::MappingExists:
 		case FunctionType::Kind::MappingEmpty:
@@ -581,6 +583,9 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 		case FunctionType::Kind::TVMSliceSize:
 		case FunctionType::Kind::TVMCellToSlice:
 		case FunctionType::Kind::TVMLoadRef:
+		case FunctionType::Kind::TVMBuilderMethods:
+		case FunctionType::Kind::TVMDeploy:
+		case FunctionType::Kind::ExtraCurrencyCollectionMethods:
 		{
 			solAssert(false, "");
 			break;

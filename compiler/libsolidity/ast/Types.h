@@ -162,7 +162,7 @@ public:
 		Address, Integer, RationalNumber, StringLiteral, Bool, FixedPoint, Array, ArraySlice,
 		FixedBytes, Contract, Struct, Function, Enum, Tuple,
 		Mapping, TypeType, Modifier, Magic, Module,
-		InaccessibleDynamic, TvmCell, TvmSlice
+		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection, VarInteger
 	};
 
 	/// @returns a pointer to _a or _b if the other is implicitly convertible to it or nullptr otherwise
@@ -332,7 +332,7 @@ private:
 protected:
 	/// @returns the members native to this type depending on the given context. This function
 	/// is used (in conjunction with boundFunctions to fill m_members below.
-	virtual MemberList::MemberMap nativeMembers(ContractDefinition const* /*_currentScope*/) const
+	virtual MemberList::MemberMap nativeMembers(ContractDefinition const*) const
 	{
 		return MemberList::MemberMap();
 	}
@@ -640,7 +640,7 @@ public:
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_tvmcell"; }
 	std::string toString(bool) const override { return "TvmCell"; }
-	
+
 	TypePointer encodingType() const override { return this; }
 	TypeResult interfaceType(bool) const override { return this; }
 
@@ -660,6 +660,59 @@ public:
 
 	TypePointer encodingType() const override { return this; }
 	TypeResult interfaceType(bool) const override { return this; }
+
+	MemberList::MemberMap nativeMembers(ContractDefinition const* _currentScope) const override;
+};
+
+/**
+ * The TVM Builder type.
+ */
+class TvmBuilderType: public Type
+{
+public:
+	Category category() const override { return Category::TvmBuilder; }
+	bool isValueType() const override { return true; }
+	std::string richIdentifier() const override { return "t_tvmbuilder"; }
+	std::string toString(bool) const override { return "TvmBuilder"; }
+
+	TypePointer encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
+
+	MemberList::MemberMap nativeMembers(ContractDefinition const* _currentScope) const override;
+};
+
+/**
+ * The VarInteger type.
+ */
+class VarInteger: public Type
+{
+public:
+	Category category() const override { return Category::VarInteger; }
+	bool isValueType() const override { return true; }
+	std::string richIdentifier() const override { return "t_varinteger"; }
+	std::string toString(bool) const override { return "VarInteger"; }
+
+	TypePointer encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
+};
+
+/**
+ * The ExtraCurrencyCollection type.
+ */
+class ExtraCurrencyCollectionType: public Type
+{
+public:
+	Category category() const override { return Category::ExtraCurrencyCollection; }
+	bool isValueType() const override { return true; }
+	std::string richIdentifier() const override { return "t_extracurrencycollection"; }
+	std::string toString(bool) const override { return "ExtraCurrencyCollection"; }
+
+	TypePointer encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
+	IntegerType const* keyType() const;
+	IntegerType const* valueType() const;
+	VarInteger const* realValueType() const;
+	TypeResult unaryOperatorResult(Token _operator) const override;
 
 	MemberList::MemberMap nativeMembers(ContractDefinition const* _currentScope) const override;
 };
@@ -1066,6 +1119,8 @@ public:
 		TVMSliceSize, ///< slice.size()
 		TVMLoadRef, ///< slice.loadRef()
 		TVMCellToSlice, ///< cell.toSlice()
+		TVMBuilderMethods, ///< builder.*()
+		ExtraCurrencyCollectionMethods, ///< extraCurrencyCollection.*()
 		KECCAK256, ///< KECCAK256
 		Selfdestruct, ///< SELFDESTRUCT
 		Revert, ///< REVERT
@@ -1098,11 +1153,14 @@ public:
 		TVMTransLT, ///< tvm.transLT()
 		TVMResetStorage, ///< tvm.resetStorage()
 		TVMConfigParam, ///< tvm.configParam()
+		TVMDeploy, ///< functions to deploy contract from contract
 		ArrayPush, ///< .push() to a dynamically sized array in storage
 		ArrayPop, ///< .pop() from a dynamically sized array in storage
 		ByteArrayPush, ///< .push() to a dynamically sized byte array in storage
 		MappingGetNextKey, ///< .next() for a mapping
+		MappingGetPrevKey, ///< .prev() for a mapping
 		MappingGetMinKey, ///< .min() for a mapping
+		MappingGetMaxKey, ///< .max() for a mapping
 		MappingDelMin, ///< .delMin() for a mapping
 		MappingFetch, ///< .fetch() for a mapping
 		MappingExists, ///< .exists() for a mapping
@@ -1164,7 +1222,8 @@ public:
 		bool _gasSet = false,
 		bool _valueSet = false,
 		bool _saltSet = false,
-		bool _bound = false
+		bool _bound = false,
+		bool _flagSet = false
 	):
 		m_parameterTypes(_parameterTypes),
 		m_returnParameterTypes(_returnParameterTypes),
@@ -1175,6 +1234,7 @@ public:
 		m_arbitraryParameters(_arbitraryParameters),
 		m_gasSet(_gasSet),
 		m_valueSet(_valueSet),
+		m_flagSet(_flagSet),
 		m_bound(_bound),
 		m_declaration(_declaration),
 		m_saltSet(_saltSet)
@@ -1302,12 +1362,14 @@ public:
 
 	bool gasSet() const { return m_gasSet; }
 	bool valueSet() const { return m_valueSet; }
+	bool flagSet() const { return m_flagSet; }
+	bool currenciesSet() const { return m_currenciesSet; }
 	bool saltSet() const { return m_saltSet; }
 	bool bound() const { return m_bound; }
 
 	/// @returns a copy of this type, where gas or value are set manually. This will never set one
 	/// of the parameters to false.
-	TypePointer copyAndSetCallOptions(bool _setGas, bool _setValue, bool _setSalt) const;
+	TypePointer copyAndSetCallOptions(bool _setGas, bool _setValue, bool _setSalt, bool setFlag = false) const;
 
 	/// @returns a copy of this function type where the location of reference types is changed
 	/// from CallData to Memory. This is the type that would be used when the function is
@@ -1330,6 +1392,8 @@ private:
 	bool const m_arbitraryParameters = false;
 	bool const m_gasSet = false; ///< true iff the gas value to be used is on the stack
 	bool const m_valueSet = false; ///< true iff the value to be sent is on the stack
+	bool const m_flagSet = false; ///< true iff the send flag is on the stack
+	bool const m_currenciesSet = false; ///< true iff the currencies are on the stack
 	bool const m_bound = false; ///< true iff the function is called as arg1.fun(arg2, ..., argn)
 	Declaration const* m_declaration = nullptr;
 	bool m_saltSet = false; ///< true iff the salt value to be used is on the stack
@@ -1346,7 +1410,7 @@ public:
 		m_keyType(_keyType), m_valueType(_valueType), m_location(_location) {}
 
 	Category category() const override { return Category::Mapping; }
-	
+
 	BoolResult isImplicitlyConvertibleTo(const MappingType * _other) const;
 	std::string richIdentifier() const override;
 	bool operator==(Type const& _other) const override;

@@ -17,304 +17,293 @@
  */
 
 #include "TVMCommons.hpp"
-#include "TVMStructCompiler.hpp"
-#include "TVMCompiler.hpp"
+#include "TVMPusher.hpp"
 
-void StackPusherHelper::encodeStruct(const StructType* structType, ASTNode const* node, EncodePosition& position) {
-	// builder... builder struct
-	const int saveStackSize0 = getStack().size() - 2;
-	std::vector<ASTPointer<VariableDeclaration>> const& members = structType->structDefinition().members();
-	const int memberQty = members.size();
-	untuple(memberQty); // builder... builder values...
-	blockSwap(1, memberQty); // builder... values... builder
-	for (int i = 0; i < memberQty; ++i) {
-		encodeParameter(members[i]->type(), position, [&]() {
-			const int index = getStack().size() - saveStackSize0 - 1 - i;
-			pushS(index);
-		}, node);
+
+using namespace solidity::frontend;
+
+
+namespace solidity::frontend {
+
+std::string functionName(FunctionDefinition const *_function) {
+	if (_function->isConstructor()) {
+		return _function->annotation().contract->name();
 	}
 
-	// builder... values... builder...
-	const int builderQty = getStack().size() - saveStackSize0 - memberQty;
-	dropUnder(builderQty, memberQty);
-}
-
-void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder) {
-	Type::Category cat = type->category();
-	switch (cat) {
-		case Type::Category::Address:
-		case Type::Category::Contract:
-			pushZeroAddress();
-			if (isResultBuilder) {
-				push(+1, "NEWC");
-				push(-1, "STSLICE");
-			}
-			break;
-		case Type::Category::Bool:
-		case Type::Category::FixedBytes:
-		case Type::Category::Integer:
-		case Type::Category::Enum:
-			push(+1, "PUSHINT 0");
-			if (isResultBuilder) {
-				push(+1, "NEWC");
-				push(-1, storeIntegralOrAddress(type, false));
-			}
-			break;
-		case Type::Category::Array:
-			if (to<ArrayType>(type)->isByteArray()) {
-				push(+1, "NEWC");
-				if (!isResultBuilder) {
-					push(0, "ENDC");
-				}
-				break;
-			}
-			if (!isResultBuilder) {
-				pushInt(0);
-				push(+1, "NEWDICT");
-				push(-2 + 1, "PAIR");
-			} else {
-				push(+1, "NEWC");
-				pushInt(33);
-				push(-1, "STZEROES");
-			}
-			break;
-		case Type::Category::Mapping:
-			solAssert(!isResultBuilder, "");
-			push(+1, "NEWDICT");
-			break;
-		case Type::Category::Struct: {
-			auto structType = to<StructType>(type);
-			StructCompiler structCompiler{this, structType};
-			structCompiler.createDefaultStruct(isResultBuilder);
-			break;
-		}
-		case Type::Category::TvmCell:
-			push(+1, "NEWC");
-			if (!isResultBuilder) {
-				push(0, "ENDC");
-			}
-			break;
-		case Type::Category::Function: {
-			solAssert(!isResultBuilder, "");
-			auto functionType = to<FunctionType>(type);
-			StackPusherHelper pusherHelper(&ctx());
-			pusherHelper.drop(functionType->parameterTypes().size());
-			for (const TypePointer &param : functionType->returnParameterTypes()) {
-				pusherHelper.pushDefaultValue(param);
-			}
-			pushCont(pusherHelper.code());
-			break;
-		}
-		default:
-			solAssert(false, "");
+	if (_function->isReceive()) {
+		return "receive";
 	}
-}
-
-void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, ASTNode const& node,
-									const DictOperation op,
-									const bool resultAsSliceForStruct) {
-	// stack: index dict
-	const Type::Category valueCategory = valueType.category();
-	prepareKeyForDictOperations(&keyType);
-	int keyLength = lengthOfDictKey(&keyType);
-	pushInt(keyLength); // stack: index dict nbits
-
-	StackPusherHelper haveValue(&ctx()); // for Fetch
-	haveValue.push(0, "SWAP");
-
-	StackPusherHelper pusherMoveC7(&ctx()); // for MoveToC7
-
-	auto pushContinuationWithDefaultDictValue = [&](){
-		StackPusherHelper pusherHelper(&ctx());
-		if (valueCategory == Type::Category::Struct) {
-			if (resultAsSliceForStruct) {
-				pusherHelper.pushDefaultValue(&valueType, true);
-				pusherHelper.push(0, "ENDC");
-				pusherHelper.push(0, "CTOS");
-			} else {
-				pusherHelper.pushDefaultValue(&valueType, false);
-			}
-		} else {
-			pusherHelper.pushDefaultValue(&valueType);
-		}
-		pushCont(pusherHelper.code());
-	};
-
-	auto fetchValue = [&](){
-		StackPusherHelper noValue(&ctx());
-		noValue.pushDefaultValue(&valueType, false);
-
-		push(0, "DUP");
-		pushCont(haveValue.code());
-		pushCont(noValue.code());
-		push(-2, "IFELSE");
-	};
-
-	auto checkExist = [&](){
-		StackPusherHelper deleteValue(&ctx());
-		deleteValue.push(-1, "NIP"); // delete value
-
-		push(0, "DUP");
-		pushCont(deleteValue.code());
-		push(-2, "IF");
-	};
-
-	std::string dictOpcode = "DICT" + typeToDictChar(&keyType);
-	if (valueCategory == Type::Category::TvmCell) {
-		push(-3 + 2, dictOpcode + "GETREF");
-		switch (op) {
-			case DictOperation::GetFromMapping:
-				pushContinuationWithDefaultDictValue();
-				push(-2, "IFNOT");
-				break;
-			case DictOperation::GetFromArray:
-				push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-				break;
-			case DictOperation::Fetch:
-				fetchValue();
-				break;
-			case DictOperation::Exist:
-				checkExist();
-				break;
-		}
-	} else if (valueCategory == Type::Category::Struct) {
-		if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(&valueType))) {
-			push(-3 + 2, dictOpcode + "GET");
-			switch (op) {
-				case DictOperation::GetFromMapping:
-					if (resultAsSliceForStruct) {
-						pushContinuationWithDefaultDictValue();
-						push(-2, "IFNOT");
-					} else {
-						// if ok
-						{
-							startContinuation();
-							StructCompiler sc{this, to<StructType>(&valueType)};
-							sc.convertSliceToTuple();
-							endContinuation();
-						}
-						// if fail
-						{
-							startContinuation();
-							StructCompiler sc{this, to<StructType>(&valueType)};
-							sc.createDefaultStruct(false);
-							endContinuation();
-						}
-						push(-2, "IFELSE");
-					}
-					break;
-				case DictOperation::GetFromArray:
-					push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-					if (!resultAsSliceForStruct) {
-						StructCompiler sc{this, to<StructType>(&valueType)};
-						sc.convertSliceToTuple();
-					}
-					break;
-				case DictOperation::Fetch: {
-					StructCompiler sc{&haveValue, to<StructType>(&valueType)};
-					sc.convertSliceToTuple();
-					fetchValue();
-					break;
-				}
-				case DictOperation::Exist:
-					checkExist();
-					break;
-			}
-		} else {
-			push(-3 + 2, dictOpcode + "GETREF");
-			switch (op) {
-				case DictOperation::GetFromMapping: {
-					StackPusherHelper pusherHelper(&ctx());
-					pusherHelper.push(-1 + 1, "CTOS");
-					if (!resultAsSliceForStruct) {
-						StructCompiler sc{&pusherHelper, to<StructType>(&valueType)};
-						sc.convertSliceToTuple();
-					}
-					pushCont(pusherHelper.code());
-					pushContinuationWithDefaultDictValue();
-					push(-3, "IFELSE");
-					break;
-				}
-				case DictOperation::GetFromArray:
-					push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-					push(-1 + 1, "CTOS");
-					if (!resultAsSliceForStruct) {
-						StructCompiler sc{this, to<StructType>(&valueType)};
-						sc.convertSliceToTuple();
-					}
-					break;
-				case DictOperation::Fetch: {
-					haveValue.push(0, "CTOS");
-					StructCompiler sc{&haveValue, to<StructType>(&valueType)};
-					sc.convertSliceToTuple();
-					fetchValue();
-					break;
-				}
-				case DictOperation::Exist:
-					checkExist();
-					break;
-			}
-		}
-	} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract) || isByteArrayOrString(&valueType)) {
-		if (isByteArrayOrString(&valueType)) {
-			push(-3 + 2, dictOpcode + "GETREF");
-		} else {
-			push(-3 + 2, dictOpcode + "GET");
-		}
-
-		switch (op) {
-			case DictOperation::GetFromMapping:
-				pushContinuationWithDefaultDictValue();
-				push(-2, "IFNOT");
-				break;
-			case DictOperation::GetFromArray:
-				push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-				break;
-			case DictOperation::Fetch: {
-				fetchValue();
-				break;
-			}
-			case DictOperation::Exist:
-				checkExist();
-				break;
-		}
-	} else if (isIntegralType(&valueType) || isUsualArray(&valueType) || valueCategory == Type::Category::Mapping) {
-		push(-3 + 2, dictOpcode + "GET");
-		switch (op) {
-			case DictOperation::GetFromMapping: {
-				StackPusherHelper pusherHelper(&ctx());
-
-				pusherHelper.preload(&valueType);
-				pushCont(pusherHelper.code());
-
-				pushContinuationWithDefaultDictValue();
-				push(-3, "IFELSE");
-				break;
-			}
-			case DictOperation::GetFromArray:
-				push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-				preload(&valueType);
-				break;
-			case DictOperation::Fetch: {
-				haveValue.preload(&valueType);
-				fetchValue();
-				break;
-			}
-			case DictOperation::Exist:
-				checkExist();
-				break;
-		}
-	} else {
-		cast_error(node, "Unsupported value type: " + valueType.toString());
+	if (_function->isFallback()) {
+		return "fallback";
 	}
+	return _function->name();
 }
 
-void StackPusherHelper::pushLog(const std::string& str) {
-	if (!TVMCompiler::g_without_logstr) {
-		push(0, "PRINTSTR " + str);
-	}
+bool ends_with(const string &str, const string &suffix) {
+	if (suffix.size() > str.size())
+		return false;
+	return 0 == str.compare(str.size()-suffix.size(), suffix.size(), suffix);
 }
-bool IExpressionCompiler::isWithoutLogstr()
-{
-	return TVMCompiler::g_without_logstr;
+
+std::string ASTNode2String(const ASTNode &node, const string &error_messag, bool isWarning) {
+	ErrorList		m_errors;
+	ErrorReporter	m_errorReporter(m_errors);
+	m_errorReporter.parserError(node.location(), error_messag);
+	string message = SourceReferenceFormatter::formatExceptionInformation(
+			*(m_errorReporter.errors())[0],
+			isWarning ? "Warning" : "Error"
+	);
+	return message;
+}
+
+void cast_error(const ASTNode &node, const string &error_message) {
+	cerr << ASTNode2String(node, error_message) << endl;
+	std::exit(EXIT_FAILURE);
+}
+
+void cast_warning(const ASTNode &node, const string &error_message) {
+	cerr << ASTNode2String(node, error_message, true) << endl;
+}
+
+const ContractDefinition *
+getSuperContract(const ContractDefinition *currentContract, const ContractDefinition *mainContract, const string &fname) {
+	ContractDefinition const* prev = nullptr;
+	for (auto c : getContractsChain(mainContract)) {
+		if (c == currentContract)
+			break;
+		if (getFunction(c, fname))
+			prev = c;
+	}
+	return prev;
+}
+
+vector<FunctionDefinition const *> getContractFunctions(ContractDefinition const *contract) {
+	vector<FunctionDefinition const*> result;
+	for (auto &[functionDefinition, contractDefinition] : getContractFunctionPairs(contract)) {
+		(void)contractDefinition;	// suppress unused variable error
+		if (functionDefinition->isConstructor())
+			continue;
+		const std::string funName = functionName(functionDefinition); // for fallback and recieve name is empty
+		if (isTvmIntrinsic(funName))
+			continue;
+		// TODO: not needed check?
+		if (functionDefinition != getContractFunctions(contract, funName).back())
+			continue;
+		result.push_back(functionDefinition);
+	}
+	return result;
+}
+
+const Type *getType(const VariableDeclaration *var) {
+	return var->annotation().type;
+}
+
+ContInfo getInfo(const Statement &statement) {
+	TVMScanner scanner(statement);
+	ContInfo info = scanner.m_info;
+	info.alwaysReturns = doesAlways<Return>(&statement);
+	info.alwaysContinue = doesAlways<Continue>(&statement);
+	info.alwaysBreak = doesAlways<Break>(&statement);
+	return info;
+}
+
+bool isAddressOrContractType(const Type *type) {
+	return to<AddressType>(type) || to<ContractType>(type);
+}
+
+bool isUsualArray(const Type *type) {
+	auto arrayType = to<ArrayType>(type);
+	return arrayType && !arrayType->isByteArray();
+}
+
+bool isByteArrayOrString(const Type *type) {
+	auto arrayType = to<ArrayType>(type);
+	return arrayType && arrayType->isByteArray();
+}
+
+int bitsForEnum(size_t val_count) {
+	int bytes = 0;
+	val_count--;
+	while (true) {
+		val_count >>= 8;
+		++bytes;
+		if (val_count == 0) {
+			break;
+		}
+	}
+	return 8 * bytes;
+}
+
+bool isTvmIntrinsic(const string &name) {
+	return 0 == name.find("tvm_");
+}
+
+bool isFunctionForInlining(FunctionDefinition const *f) {
+	return ends_with(f->name(), "_inline") || f->isInline() || f->isFallback() || f->isReceive() || f->name() == "onBounce";
+}
+
+const Type *getType(const Expression *expr) {
+	return expr->annotation().type;
+}
+
+bool isIntegralType(const Type *type) {
+	return TypeInfo(type).isNumeric;
+}
+
+bool isStringOrStringLiteralOrBytes(const Type *type) {
+	auto arrayType = to<ArrayType>(type);
+	return type->category() == Type::Category::StringLiteral || (arrayType && arrayType->isByteArray());
+}
+
+std::string typeToDictChar(Type const *keyType) {
+	TypeInfo ti(keyType);
+	if (ti.isNumeric) {
+		return ti.isSigned? "I" : "U";
+	} else if (isStringOrStringLiteralOrBytes(keyType)) {
+		return "U";
+	}
+	return ""; // dict key is slice
+}
+
+int lengthOfDictKey(Type const *key) {
+	if (isIn(key->category(), Type::Category::Address, Type::Category::Contract)) {
+		return AddressInfo::stdAddrLength();
+	}
+
+	TypeInfo ti{key};
+	if (ti.isNumeric) {
+		return ti.numBits;
+	}
+
+	if (isStringOrStringLiteralOrBytes(key)){
+		return 256;
+	}
+
+	solAssert(false, "");
+}
+
+IntegerType getKeyTypeOfC4() {
+	return IntegerType(TvmConst::C4::KeyLength);
+}
+
+IntegerType getKeyTypeOfArray() {
+	return IntegerType(TvmConst::ArrayKeyLength);
+}
+
+string storeIntegralOrAddress(const Type *type, bool reverse) {
+	if (isAddressOrContractType(type))
+		return reverse ? "STSLICER" : "STSLICE";
+	auto ti = TypeInfo(type);
+	if (ti.isNumeric) {
+		string cmd = ti.isSigned? "STI" : "STU";
+		if (reverse) cmd = cmd + "R";
+		solAssert(cmd != "STU 267", "");
+		return cmd + " " + toString(ti.numBits);
+	}
+	solAssert(false, "Unsupported param type " + type->toString());
+}
+
+bool isExpressionExactTypeKnown(Expression const *expr) {
+	if (to<Literal>(expr)) return true;
+	if (to<Identifier>(expr)) return true;
+	if (to<FunctionCall>(expr)) return true;
+	if (to<IndexAccess>(expr)) return true;
+	if (to<MemberAccess>(expr)) return true;
+	return false;
+}
+
+bool isNonNegative(Expression const *expr) {
+	auto type = getType(expr);
+	if (isExpressionExactTypeKnown(expr)) {
+		if (auto type2 = to<RationalNumberType>(type)) {
+			if (!type2->integerType()->isSigned())
+				return true;
+		}
+		if (auto type2 = to<IntegerType>(type)) {
+			if (!type2->isSigned())
+				return true;
+		}
+	}
+	if (auto binaryOp = to<BinaryOperation>(expr)) {
+		if (isNonNegative(&binaryOp->leftExpression()) && isNonNegative(&binaryOp->rightExpression())) {
+			switch (binaryOp->getOperator()) {
+				case Token::Add:
+				case Token::Mul:
+					return true;
+				default:
+					break;
+			}
+		}
+	}
+	return false;
+}
+
+vector<ContractDefinition const *> getContractsChain(ContractDefinition const *contract) {
+	vector<FunctionDefinition const*> result;
+	auto contracts = contract->annotation().linearizedBaseContracts;
+	std::reverse(contracts.begin(), contracts.end());
+	return contracts;
+}
+
+vector<std::pair<FunctionDefinition const *, ContractDefinition const *>>
+getContractFunctionPairs(ContractDefinition const *contract) {
+	vector<pair<FunctionDefinition const*, ContractDefinition const*>> result;
+	for (ContractDefinition const* c : getContractsChain(contract)) {
+		for (const auto f : c->definedFunctions())
+			result.emplace_back(f, c);
+	}
+	return result;
+}
+
+const FunctionDefinition *getFunction(ContractDefinition const *contract, const string &functionName) {
+	const FunctionDefinition* result = nullptr;
+	for (const auto f : contract->definedFunctions()) {
+		if (f->name() == functionName)
+			return f;
+	}
+	return result;
+}
+
+bool isSuper(Expression const *expr) {
+	if (auto identifier = to<Identifier>(expr)) {
+		return identifier->name() == "super";
+	}
+	return false;
+}
+
+bool isMacro(const std::string &functionName) {
+	return ends_with(functionName, "_macro");
+}
+
+bool isAddressThis(const FunctionCall *fcall) {
+	if (!fcall)
+		return false;
+	auto arguments = fcall->arguments();
+	if (auto etn = to<ElementaryTypeNameExpression>(&fcall->expression())) {
+		if (etn->type().typeName().token() == Token::Address) {
+			solAssert(!arguments.empty(), "");
+			if (auto arg0 = to<Identifier>(arguments[0].get())) {
+				if (arg0->name() == "this")
+					return true;
+			}
+		}
+	}
+	return false;
+}
+
+vector<FunctionDefinition const *> getContractFunctions(ContractDefinition const *contract, const string &funcName) {
+	vector<FunctionDefinition const*> result;
+	for (auto &[functionDefinition, contractDefinition] : getContractFunctionPairs(contract)) {
+		(void)contractDefinition;	// suppress unused variable error
+		if (functionDefinition->isConstructor()) {
+			continue;
+		}
+		if (functionName(functionDefinition) == funcName)
+			result.push_back(functionDefinition);
+	}
+	return result;
+}
+
+
+
 }

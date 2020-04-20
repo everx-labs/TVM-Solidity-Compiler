@@ -127,7 +127,7 @@ void TypeChecker::checkDoubleStorageAssignment(Assignment const& _assignment)
 
 TypePointers TypeChecker::getReturnTypesForTVMConfig(FunctionCall const& _functionCall)
 {
-	vector<ASTPointer<Expression const>> arguments = _functionCall.arguments();	
+	vector<ASTPointer<Expression const>> arguments = _functionCall.arguments();
 	if (arguments.size() != 1)
 		m_errorReporter.typeError(
 			_functionCall.location(),
@@ -135,20 +135,20 @@ TypePointers TypeChecker::getReturnTypesForTVMConfig(FunctionCall const& _functi
 			toString(arguments.size()) +
 			" were provided."
 		);
-	
+
 	set<std::string> availableParams {"1","15","17","34"};
 	auto paramNumberLiteral = dynamic_cast<const Literal *>(arguments[0].get());
-	
+
 	if (!paramNumberLiteral)
 		m_errorReporter.typeError(
 			_functionCall.location(),
 			"This function takes only param number literal."
 		);
-	
+
 	Type const* type = paramNumberLiteral->annotation().type;
 	u256 value = type->literalValue(paramNumberLiteral);
 	std::string paramNumber = value.str();
-	
+
 	if (!availableParams.count(paramNumber))
 		m_errorReporter.typeError(
 			_functionCall.location(),
@@ -157,7 +157,7 @@ TypePointers TypeChecker::getReturnTypesForTVMConfig(FunctionCall const& _functi
 //	function tvm_config_param1() pure private returns (uint256, bool) { }
 	if (paramNumber == "1")
 		return TypePointers{TypeProvider::uint256(), TypeProvider::boolean()};
-	
+
 //	function tvm_config_param15() pure private returns (uint32, uint32, uint32, uint32, bool) { }
 //	function tvm_config_param17() pure private returns (uint32, uint32, uint32, uint32, bool) { }
 	if (paramNumber == "15" || paramNumber == "17")
@@ -166,7 +166,7 @@ TypePointers TypeChecker::getReturnTypesForTVMConfig(FunctionCall const& _functi
 								  TypeProvider::integer(32, IntegerType::Modifier::Unsigned),
 								  TypeProvider::integer(32, IntegerType::Modifier::Unsigned),
 								  TypeProvider::boolean()};
-	
+
 //    function tvm_config_param34() private pure returns (
 //        uint8 /*constructor_id*/,
 //        uint32 /*utime_since*/,
@@ -178,11 +178,13 @@ TypePointers TypeChecker::getReturnTypesForTVMConfig(FunctionCall const& _functi
 //        bool ok
 //    ) { }
 	if (paramNumber == "34") {
-		if (m_structs.count("ValidatorDescr73") == 0)
+		if (m_structs.count("ValidatorDescr73") == 0) {
 			m_errorReporter.typeError(_functionCall.location(), "ValidatorDescr73 struct declaration not found.");
-		
+			return {};
+		}
+
 		auto validator = m_structs["ValidatorDescr73"];
-		
+
 //		struct ValidatorDescr73 {
 //			 uint8 validator_addr73;
 //			 uint32 ed25519_pubkey;
@@ -190,7 +192,7 @@ TypePointers TypeChecker::getReturnTypesForTVMConfig(FunctionCall const& _functi
 //			 uint64 weight;
 //			 uint256 adnl_addr;
 //		}
-		
+
 		// scheck struct to be valid
 		auto members = validator->structDefinition().members();
 		if ((members.size() != 5) ||
@@ -198,9 +200,11 @@ TypePointers TypeChecker::getReturnTypesForTVMConfig(FunctionCall const& _functi
 			(members[1]->type()->toString() != "uint32") ||
 			(members[2]->type()->toString() != "uint256") ||
 			(members[3]->type()->toString() != "uint64") ||
-			(members[4]->type()->toString() != "uint256"))
+			 (members[4]->type()->toString() != "uint256")) {
 			m_errorReporter.typeError(_functionCall.location(), "ValidatorDescr73 struct is not valid for this function.");
-		
+			return {};
+		}
+
 		auto ret = TypePointers{TypeProvider::integer(8, IntegerType::Modifier::Unsigned),
 									  TypeProvider::integer(32, IntegerType::Modifier::Unsigned),
 									  TypeProvider::integer(32, IntegerType::Modifier::Unsigned),
@@ -1261,13 +1265,13 @@ bool TypeChecker::visit(VariableDeclarationStatement const& _statement)
 		else
 		{
 			var.accept(*this);
-			
+
 			BoolResult result = valueComponentType->isImplicitlyConvertibleTo(*var.annotation().type);
-			
+
 			if (auto map1 = dynamic_cast<const MappingType*>(valueComponentType))
 				if (auto map2 = dynamic_cast<const MappingType*>(var.annotation().type))
 					result = map1->isImplicitlyConvertibleTo(map2);
-			
+
 			if (!result)
 			{
 				auto errorMsg = "Type " +
@@ -2019,11 +2023,18 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 	TypePointers const& parameterTypes = _functionType->parameterTypes();
 	vector<ASTPointer<Expression const>> const& arguments = _functionCall.arguments();
 	vector<ASTPointer<ASTString>> const& argumentNames = _functionCall.names();
+	bool isFunctionWithDefaultValues = false;
+	{
+		auto ma = dynamic_cast<MemberAccess const*>(&_functionCall.expression());
+		if (ma && ma->memberName() == "transfer" && dynamic_cast<AddressType const *>(ma->expression().annotation().type)) {
+			isFunctionWithDefaultValues = true;
+		}
+	}
 
 	// Check number of passed in arguments
 	if (
-		arguments.size() < parameterTypes.size() ||
-		(!isVariadic && arguments.size() > parameterTypes.size())
+		!isFunctionWithDefaultValues &&
+		(arguments.size() < parameterTypes.size() || (!isVariadic && arguments.size() > parameterTypes.size()))
 	)
 	{
 		bool const isStructConstructorCall =
@@ -2101,16 +2112,19 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 	std::vector<Expression const*> paramArgMap(parameterTypes.size());
 
 	// Map parameters to arguments - trivially for positional calls, less so for named calls
-	if (isPositionalCall)
-		for (size_t i = 0; i < paramArgMap.size(); ++i)
-			paramArgMap[i] = arguments[i].get();
-	else
-	{
-		auto const& parameterNames = _functionType->parameterNames();
+	if (isPositionalCall) {
+		if (isFunctionWithDefaultValues) {
+			paramArgMap.resize(arguments.size());
+		}
+		for (size_t i = 0; i < paramArgMap.size(); ++i) {
+			paramArgMap[i] = arguments.at(i).get();
+		}
+	} else {
+		auto const &parameterNames = _functionType->parameterNames();
 
 		solAssert(
-			parameterNames.size() == argumentNames.size(),
-			"Unexpected parameter length mismatch!"
+				isFunctionWithDefaultValues || parameterNames.size() == argumentNames.size(),
+				"Unexpected parameter length mismatch!"
 		);
 
 		// Check for duplicate argument names
@@ -2118,12 +2132,11 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 			bool duplication = false;
 			for (size_t i = 0; i < argumentNames.size(); i++)
 				for (size_t j = i + 1; j < argumentNames.size(); j++)
-					if (*argumentNames[i] == *argumentNames[j])
-					{
+					if (*argumentNames[i] == *argumentNames[j]) {
 						duplication = true;
 						m_errorReporter.typeError(
-							arguments[i]->location(),
-							"Duplicate named argument \"" + *argumentNames[i] + "\"."
+								arguments[i]->location(),
+								"Duplicate named argument \"" + *argumentNames[i] + "\"."
 						);
 					}
 			if (duplication)
@@ -2131,7 +2144,27 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 		}
 
 		// map parameter names to argument names
-		{
+		if (isFunctionWithDefaultValues) {
+			for (size_t i = 0; i < argumentNames.size(); i++) {
+				size_t j;
+				for (j = 0; j < parameterNames.size(); j++)
+					if (*argumentNames[i] == parameterNames[j])
+						break;
+
+				if (j < parameterNames.size())
+					paramArgMap[j] = arguments[i].get();
+				else
+				{
+					paramArgMap[j] = nullptr;
+					m_errorReporter.typeError(
+							_functionCall.location(),
+							"Named argument \"" +
+							*argumentNames[i] +
+							"\" does not match function declaration."
+					);
+				}
+			}
+		} else {
 			bool not_all_mapped = false;
 
 			for (size_t i = 0; i < paramArgMap.size(); i++)
@@ -2164,6 +2197,9 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 	// Check for compatible types between arguments and parameters
 	for (size_t i = 0; i < paramArgMap.size(); ++i)
 	{
+		if (paramArgMap[i] == nullptr && isFunctionWithDefaultValues) {
+			continue;
+		}
 		solAssert(!!paramArgMap[i], "unmapped parameter");
 		if (!type(*paramArgMap[i])->isImplicitlyConvertibleTo(*parameterTypes[i]))
 		{
@@ -2371,6 +2407,8 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	bool setSalt = false;
 	bool setValue = false;
 	bool setGas = false;
+	bool setFlag = false;
+	bool setCurrencies = false;
 
 	FunctionType::Kind kind = expressionFunctionType->kind();
 	if (
@@ -2417,6 +2455,16 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 					_functionCallOptions.location(),
 					"Function call option \"salt\" can only be used with \"new\"."
 				);
+		}
+		else if (name == "flag")
+		{
+			expectType(*_functionCallOptions.options()[i], *TypeProvider::uint(16));
+			setCheckOption(setFlag, "flag", expressionFunctionType->flagSet());
+		}
+		else if (name == "currencies")
+		{
+			expectType(*_functionCallOptions.options()[i], *TypeProvider::extraCurrencyCollection());
+			setCheckOption(setCurrencies, "currencies", expressionFunctionType->currenciesSet());
 		}
 		else if (name == "value")
 		{
@@ -2469,7 +2517,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 			"Unsupported call option \"salt\" (requires Constantinople-compatible VMs)."
 		);
 
-	_functionCallOptions.annotation().type = expressionFunctionType->copyAndSetCallOptions(setGas, setValue, setSalt);
+	_functionCallOptions.annotation().type = expressionFunctionType->copyAndSetCallOptions(setGas, setValue, setSalt, setFlag);
 	return false;
 }
 
@@ -2737,6 +2785,17 @@ bool TypeChecker::visit(IndexAccess const& _access)
 	case Type::Category::Mapping:
 	{
 		MappingType const& actualType = dynamic_cast<MappingType const&>(*baseType);
+		if (!index)
+			m_errorReporter.typeError(_access.location(), "Index expression cannot be omitted.");
+		else
+			expectType(*index, *actualType.keyType());
+		resultType = actualType.valueType();
+		isLValue = true;
+		break;
+	}
+	case Type::Category::ExtraCurrencyCollection:
+	{
+		ExtraCurrencyCollectionType const& actualType = dynamic_cast<ExtraCurrencyCollectionType const&>(*baseType);
 		if (!index)
 			m_errorReporter.typeError(_access.location(), "Index expression cannot be omitted.");
 		else
@@ -3062,15 +3121,15 @@ Declaration const& TypeChecker::dereference(UserDefinedTypeName const& _typeName
 bool TypeChecker::expectType(Expression const& _expression, Type const& _expectedType)
 {
 	_expression.accept(*this);
-	
-	
+
+
 	BoolResult result = type(_expression)->isImplicitlyConvertibleTo(_expectedType);
-	
+
 	if (auto map1 = dynamic_cast<const MappingType*>(type(_expression)))
 		if (auto map2 = dynamic_cast<const MappingType*>(&_expectedType))
 			result = map1->isImplicitlyConvertibleTo(map2);
-	
-	
+
+
 	if (!result)
 	{
 		auto errorMsg = "Type " +

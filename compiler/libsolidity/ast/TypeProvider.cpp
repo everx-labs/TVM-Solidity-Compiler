@@ -28,6 +28,8 @@ using namespace solidity::util;
 BoolType const TypeProvider::m_boolean{};
 TvmCellType const TypeProvider::m_tvmcell{};
 TvmSliceType const TypeProvider::m_tvmslice{};
+TvmBuilderType const TypeProvider::m_tvmbuilder{};
+ExtraCurrencyCollectionType const  TypeProvider::m_extraCurrencyCollection{};
 InaccessibleDynamicType const TypeProvider::m_inaccessibleDynamic{};
 
 /// The string and bytes unique_ptrs are initialized when they are first used because
@@ -41,6 +43,7 @@ unique_ptr<ArrayType> TypeProvider::m_stringMemory;
 TupleType const TypeProvider::m_emptyTuple{};
 AddressType const TypeProvider::m_payableAddress{StateMutability::Payable};
 AddressType const TypeProvider::m_address{StateMutability::NonPayable};
+VarInteger const TypeProvider::m_varInteger{};
 
 array<unique_ptr<IntegerType>, 32> const TypeProvider::m_intM{{
 	{make_unique<IntegerType>(8 * 1, IntegerType::Modifier::Signed)},
@@ -253,6 +256,10 @@ Type const* TypeProvider::fromElementaryTypeName(ElementaryTypeNameToken const& 
 		return tvmcell();
 	case Token::TvmSlice:
 		return tvmslice();
+	case Token::TvmBuilder:
+		return tvmbuilder();
+	case Token::ExtraCurrencyCollection:
+		return extraCurrencyCollection();
 	case Token::Bytes:
 		return bytesStorage();
 	case Token::String:
@@ -466,8 +473,9 @@ FunctionType const* TypeProvider::function(
 	Declaration const* _declaration,
 	bool _gasSet,
 	bool _valueSet,
+	bool _saltSet,
 	bool _bound,
-	bool _saltSet
+	bool _flagSet
 )
 {
 	return createAndGet<FunctionType>(
@@ -481,8 +489,9 @@ FunctionType const* TypeProvider::function(
 		_declaration,
 		_gasSet,
 		_valueSet,
+		_saltSet,
 		_bound,
-		_saltSet
+		_flagSet
 	);
 }
 

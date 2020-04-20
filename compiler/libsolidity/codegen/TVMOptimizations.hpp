@@ -13,30 +13,18 @@
 /**
  * @author TON Labs <connect@tonlabs.io>
  * @date 2019
- * TVM intrinsics codegen routines
+ * TVM codegen driver
  */
 
 #pragma once
 
-
-#include "TVMCommons.hpp"
+#include "TVMPusher.hpp"
 
 namespace solidity::frontend {
 
-class IntrinsicsCompiler {
-public:
-	explicit IntrinsicsCompiler(StackPusherHelper& pusher) :
-		m_pusher{pusher} {
-
-	}
-
-	bool checkTvmIntrinsic(FunctionCall const& _functionCall);
-
-protected:
-	void acceptExpr(const Expression* expr);
-
-private:
-	StackPusherHelper& m_pusher;
-};
+	CodeLines optimize_code(const CodeLines&);
+	
+	void run_peephole_pass(const string& filename);
 
 } // end solidity::frontend
+

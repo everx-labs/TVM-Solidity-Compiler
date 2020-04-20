@@ -208,9 +208,9 @@ void ViewPureChecker::endVisit(Identifier const& _identifier)
 		{
 		case Type::Category::Contract:
 			solAssert(_identifier.name() == "this" || _identifier.name() == "super", "");
-			if (!dynamic_cast<ContractType const&>(*magicVar->type()).isSuper())
-				// reads the address
-				mutability = StateMutability::View;
+//			if (!dynamic_cast<ContractType const&>(*magicVar->type()).isSuper())
+//				// reads the address
+//				mutability = StateMutability::View;
 			break;
 		case Type::Category::Integer:
 			solAssert(_identifier.name() == "now", "");
@@ -349,8 +349,8 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 		}
 		break;
 	case Type::Category::Address:
-		if (member == "balance")
-			mutability = StateMutability::View;
+		if (member == "balance" || member == "currencies")
+			mutability = StateMutability::Pure;
 		break;
 	case Type::Category::Magic:
 	{
@@ -362,10 +362,11 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::ABI, "encodeWithSelector"},
 			{MagicType::Kind::ABI, "encodeWithSignature"},
 			{MagicType::Kind::Block, "blockhash"},
-			{MagicType::Kind::Message, "createAt"},
+			{MagicType::Kind::Message, "createdAt"},
 			{MagicType::Kind::Message, "data"},
 			{MagicType::Kind::Message, "pubkey"},
 			{MagicType::Kind::Message, "sig"},
+			{MagicType::Kind::Message, "currencies"},
 			{MagicType::Kind::TVM, "accept"},
 			{MagicType::Kind::TVM, "cdatasize"},
 			{MagicType::Kind::TVM, "checkSign"},
@@ -389,7 +390,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::TVM, "commit"},
 			{MagicType::Kind::TVM, "resetStorage"}
 		};
-		
+
 		auto const& type = dynamic_cast<MagicType const&>(*_memberAccess.expression().annotation().type);
 		MagicMember magicMember(type.kind(), member);
 
@@ -399,7 +400,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			mutability = StateMutability::NonPayable;
 		if (payableMembers.count(magicMember))
 			mutability = StateMutability::Payable;
-		
+
 		break;
 	}
 	case Type::Category::Struct:
