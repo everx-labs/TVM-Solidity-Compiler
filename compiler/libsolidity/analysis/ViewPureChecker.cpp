@@ -377,6 +377,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::TVM, "setcode"},
 			{MagicType::Kind::TVM, "sendrawmsg"},
 			{MagicType::Kind::TVM, "setCurrentCode"},
+			{MagicType::Kind::TVM, "setExtDestAddr"},
 			{MagicType::Kind::TVM, "transfer"},
 			{MagicType::Kind::TVM, "transLT"},
 			{MagicType::Kind::MetaType, "creationCode"},

@@ -550,42 +550,46 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			solAssert(function.kind() == FunctionType::Kind::DelegateCall || function.kind() == FunctionType::Kind::Internal, "");
 		switch (function.kind())
 		{
-		case FunctionType::Kind::LogTVM:
-		case FunctionType::Kind::AddressType:
 		case FunctionType::Kind::AddressIsZero:
-		case FunctionType::Kind::AddressUnpack:
 		case FunctionType::Kind::AddressMakeAddrExtern:
 		case FunctionType::Kind::AddressMakeAddrNone:
 		case FunctionType::Kind::AddressMakeAddrStd:
-		case FunctionType::Kind::MessagePubkey:
-		case FunctionType::Kind::TVMPubkey:
-		case FunctionType::Kind::TVMAccept:
-		case FunctionType::Kind::TVMCommit:
-		case FunctionType::Kind::TVMHash:
-		case FunctionType::Kind::TVMTransfer:
-		case FunctionType::Kind::TVMChecksign:
-		case FunctionType::Kind::TVMSendMsg:
-		case FunctionType::Kind::TVMTransLT:
-		case FunctionType::Kind::TVMResetStorage:
-		case FunctionType::Kind::TVMConfigParam:
+		case FunctionType::Kind::AddressType:
+		case FunctionType::Kind::AddressUnpack:
+		case FunctionType::Kind::DecodeFunctionParams:
+		case FunctionType::Kind::ExtraCurrencyCollectionMethods:
+		case FunctionType::Kind::LogTVM:
 		case FunctionType::Kind::MappingDelMin:
-		case FunctionType::Kind::MappingGetMinKey:
+		case FunctionType::Kind::MappingEmpty:
+		case FunctionType::Kind::MappingExists:
+		case FunctionType::Kind::MappingFetch:
 		case FunctionType::Kind::MappingGetMaxKey:
+		case FunctionType::Kind::MappingGetMinKey:
 		case FunctionType::Kind::MappingGetNextKey:
 		case FunctionType::Kind::MappingGetPrevKey:
-		case FunctionType::Kind::MappingFetch:
-		case FunctionType::Kind::MappingExists:
-		case FunctionType::Kind::MappingEmpty:
-		case FunctionType::Kind::TVMSetcode:
-		case FunctionType::Kind::TVMcdatasize:
+		case FunctionType::Kind::MessagePubkey:
 		case FunctionType::Kind::SetFlag:
+		case FunctionType::Kind::StringMethod:
+		case FunctionType::Kind::TVMAccept:
+		case FunctionType::Kind::TVMBuilderMethods:
+		case FunctionType::Kind::TVMcdatasize:
+		case FunctionType::Kind::TVMCellToSlice:
+		case FunctionType::Kind::TVMChecksign:
+		case FunctionType::Kind::TVMCommit:
+		case FunctionType::Kind::TVMConfigParam:
+		case FunctionType::Kind::TVMDeploy:
+		case FunctionType::Kind::TVMDestAddr:
+		case FunctionType::Kind::TVMFunctionId:
+		case FunctionType::Kind::TVMHash:
+		case FunctionType::Kind::TVMLoadRef:
+		case FunctionType::Kind::TVMPubkey:
+		case FunctionType::Kind::TVMResetStorage:
+		case FunctionType::Kind::TVMSendMsg:
+		case FunctionType::Kind::TVMSetcode:
 		case FunctionType::Kind::TVMSliceDecode:
 		case FunctionType::Kind::TVMSliceSize:
-		case FunctionType::Kind::TVMCellToSlice:
-		case FunctionType::Kind::TVMLoadRef:
-		case FunctionType::Kind::TVMBuilderMethods:
-		case FunctionType::Kind::TVMDeploy:
-		case FunctionType::Kind::ExtraCurrencyCollectionMethods:
+		case FunctionType::Kind::TVMTransfer:
+		case FunctionType::Kind::TVMTransLT:
 		{
 			solAssert(false, "");
 			break;

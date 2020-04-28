@@ -48,12 +48,14 @@ protected:
 									const std::vector<ASTPointer<Expression const>> & arguments,
 									FunctionCall const& _functionCall);
 	void store(MemberAccess const& _node, TypePointer type, bool reverse = true);
+	bool checkForStringMethods(MemberAccess const& _node, const std::vector<ASTPointer<Expression const>> & arguments);
 	bool checkForTvmBuilderMethods(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments);
 	bool checkForTvmCellMethods(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & /*arguments*/);
 	void addressMethod(FunctionCall const &_functionCall);
 	bool checkForTvmConfigParamFunction(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments);
 	bool checkForTvmSendFunction(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments);
-	bool checkForMagicFunction(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments);
+	bool checkForMsgFunction(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments);
+	bool checkForTvmFunction(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments);
 	bool checkForMemberAccessTypeType(MemberAccess const& _node, Type::Category category);
 	bool checkAddressThis(FunctionCall const& _functionCall);
 	void typeConversion(FunctionCall const& _functionCall);

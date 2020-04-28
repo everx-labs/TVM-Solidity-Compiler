@@ -73,6 +73,7 @@ void ContractLevelChecker::checkDuplicateFunctions(ContractDefinition const& _co
 	FunctionDefinition const* constructor = nullptr;
 	FunctionDefinition const* fallback = nullptr;
 	FunctionDefinition const* receive = nullptr;
+	FunctionDefinition const* onBounce = nullptr;
 	for (FunctionDefinition const* function: _contract.definedFunctions())
 		if (function->isConstructor())
 		{
@@ -93,6 +94,16 @@ void ContractLevelChecker::checkDuplicateFunctions(ContractDefinition const& _co
 					"Only one fallback function is allowed."
 				);
 			fallback = function;
+		}
+		else if (function->isOnBounce())
+		{
+			if (onBounce)
+				m_errorReporter.declarationError(
+						function->location(),
+						SecondarySourceLocation().append("Another declaration is here:", onBounce->location()),
+						"Only one onBounce function is allowed."
+				);
+			onBounce = function;
 		}
 		else if (function->isReceive())
 		{

@@ -71,6 +71,7 @@ class TVMCompilerContext {
 	string_map<const FunctionDefinition*>	m_functions;
 	map<const FunctionDefinition*, const ContractDefinition*>	m_function2contract;
 	string_map<const EventDefinition*>		m_events;
+
 	bool haveFallback = false;
 	bool haveOnBounce = false;
 	bool haveReceive = false;
@@ -125,6 +126,7 @@ protected:
 public:
 	explicit StackPusherHelper(const TVMCompilerContext* ctx, const int stackSize = 0);
 	void tryPollLastRetOpcode();
+	void pollLastOpcode();
 	void append(const CodeLines& oth);
 	void addTabs(const int qty = 1);
 	void subTabs(const int qty = 1);
@@ -181,6 +183,8 @@ public:
 	void prepareKeyForDictOperations(Type const* key);
 	[[nodiscard]]
 	std::pair<std::string, int> int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams);
+	[[nodiscard]]
+	std::pair<std::string, int> ext_msg_info(const std::set<int> &isParamOnStack);
 	void appendToBuilder(const std::string& bitString);
 
 	[[nodiscard]]
@@ -218,7 +222,7 @@ public:
 		explicit EncodePosition(int bits);
 		bool needNewCell(Type const* type);
 		int countOfCreatedBuilders() const;
-		int restBits() { return restSliceBits; }
+		int restBits() const { return restSliceBits; }
 	};
 
 	int encodeFunctionAndParams(const string& functionName,
@@ -238,6 +242,11 @@ public:
 					const std::map<int, std::string> &constParams,
 	                const std::function<int()> &pushBody,
 	                const std::function<void()> &pushSendrawmsgFlag);
+	void sendMsg(const std::set<int>& isParamOnStack,
+				 const std::map<int, std::string> &constParams,
+	             const std::function<int()> &pushBody,
+	             const std::function<void()> &pushSendrawmsgFlag,
+	             bool isInternalMessage = true);
 };
 
 CodeLines switchSelectorIfNeed(FunctionDefinition const* f);

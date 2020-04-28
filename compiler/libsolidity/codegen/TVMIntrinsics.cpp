@@ -684,19 +684,33 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		if (arguments.size() == 1) {
 			acceptExpr(arguments[0].get());
 			m_pusher.push(-1, "THROWIFNOT 100");
-		} else if (arguments.size() == 2) {
-			if (auto literal = to<Literal>(arguments[1].get())) {
-				acceptExpr(arguments[0].get());
-				m_pusher.push(-1, "THROWIFNOT " + literal->value());
-			} else {
-				acceptExpr(arguments[1].get());
-				acceptExpr(arguments[0].get());
-				m_pusher.push(-2, "THROWANYIFNOT");
+		} else if (arguments.size() == 2 || arguments.size() == 3) {
+			if (arguments.size() == 3)
+				acceptExpr(arguments[2].get());
+			if (TVMExpressionCompiler::isLiteral(*arguments[1].get())) {
+				auto literal = to<Literal>(arguments[1].get());
+				u256 exceptionCode = literal->annotation().type->literalValue(literal);
+				if (exceptionCode >= 65536)
+					cast_error(_functionCall, "Exception code should be in range 0 to 65535.");
+				if (exceptionCode < 2048) {
+					acceptExpr(arguments[0].get());
+					if (arguments.size() == 3)
+						m_pusher.push(-2, "THROWARGIFNOT " + toString(exceptionCode));
+					else
+						m_pusher.push(-1, "THROWIFNOT " + toString(exceptionCode));
+					return true;
+				}
 			}
+			acceptExpr(arguments[1].get());
+			acceptExpr(arguments[0].get());
+			if (arguments.size() == 3)
+				m_pusher.push(-3, "THROWARGANYIFNOT");
+			else
+				m_pusher.push(-2, "THROWANYIFNOT");
 		} else {
-			cast_error(_functionCall, "require takes one or two arguments.");
+			cast_error(_functionCall, "\"require\" takes from one to three arguments.");
 		}
-		
+
 		return true;
 	}
 	if (iname == "tvm_plddict" || iname == "tvm_iszero") {
@@ -715,6 +729,16 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		checkArgCount(1);
 		acceptExpr(arguments[0].get());
 		m_pusher.push(-1, "THROWANY");
+		return true;
+	}
+	if (iname == "tvm_throw") {
+		checkArgCount(1);
+		auto literal = to<Literal>(arguments[0].get());
+		if (!literal) {
+			cast_error(*arguments[0].get(), "Must be string");
+		}
+		acceptExpr(arguments[0].get());
+		m_pusher.push(-1, "THROW " + literal->value());
 		return true;
 	}
 	if (iname == "tvm_accept") {
@@ -1017,6 +1041,18 @@ IF
 		}
 		acceptExpr(arguments[0].get());
 		m_pusher.push(-1, "SETGLOB " + literal->value());
+		return true;
+	}
+	if (iname == "tvm_migratePubkey") {
+		m_pusher.pushLines(R"(
+PUSHINT 0
+GETGLOB 2
+PUSHINT 64
+DICTUGET
+THROWIFNOT 62
+PLDU 256
+SETGLOB 2
+)");
 		return true;
 	}
 	return false;

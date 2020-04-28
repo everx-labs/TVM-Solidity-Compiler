@@ -165,7 +165,7 @@ void TVMTypeChecker::checkInlineFunctions() {
 			cast_warning(*f, "Suffix is deprecated it will be removed from compiler soon.");
 		}
 		if ((ends_with(f->name(), "_inline") || f->isInline()) && f->isPublic()) {
-			cast_error(*f, "Inline function should have private visibility");
+			cast_error(*f, "Inline function should have private or internal visibility");
 		}
 	}
 }
@@ -240,7 +240,7 @@ void TVMTypeChecker::checkTvmIntrinsic(FunctionDefinition const *f, ContractDefi
 	deprecatedFunctionsReplacement["tvm_insert_pubkey"] = "tvm.insertPubkey()";
 	deprecatedFunctionsReplacement["tvm_build_state_init"] = "tvm.buildStateInit()";
 	deprecatedFunctionsReplacement["tvm_ignore_integer_overflow"] = "pragma ignoreIntOverflow";
-
+	deprecatedFunctionsReplacement["tvm_set_ext_dest_address"] = "tvm.setExtDestAddr";
 
 	if (auto it = deprecatedFunctionsReplacement.find(f->name()); it != deprecatedFunctionsReplacement.end())
 		cast_warning(*f, "Function is deprecated it will be removed from compiler soon. Use " + it->second + " instead.");
@@ -283,25 +283,20 @@ void TVMTypeChecker::checkTvmIntrinsic(FunctionDefinition const *f, ContractDefi
 
 	auto arguments = f->parameters();
 
-	switch (str2int(f->name().c_str())) {
-		case str2int("tvm_deploy_contract"): {
-			Type const * type3 = f->parameters()[3]->annotation().type;
-			if (!to<TvmCellType>(type3)) {
-				TypeInfo ti(type3);
-				if (!ti.isNumeric || ti.numBits != 32 || ti.isSigned)
-					cast_error(*(f->parameters()[3].get()),"Constructor id argument should be of type uint32.");
-			}
-			break;
-		}
-		default:
-			break;
+	if (f->name() == "tvm_deploy_contract") {
+		Type const * type3 = f->parameters()[3]->annotation().type;
+		if (!to<TvmCellType>(type3)) {
+			TypeInfo ti(type3);
+			if (!ti.isNumeric || ti.numBits != 32 || ti.isSigned)
+				cast_error(*(f->parameters()[3].get()),"Constructor id argument should be of type uint32.");
+		}	
 	}
 }
 
 void TVMTypeChecker::check_onCodeUpgrade() {
 	for (FunctionDefinition const* f : contractDefinition->definedFunctions()) {
 		if (f->name() == "onCodeUpgrade") {
-			const std::string s = "function onCodeUpgrade(...) [internal|private] { /*...*/ }";
+			const std::string s = "function onCodeUpgrade(...) (internal|private) { /*...*/ }";
 			if (!f->returnParameters().empty()) {
 				cast_error(*f->returnParameters()[0], "Should have follow format: " + s);
 			}

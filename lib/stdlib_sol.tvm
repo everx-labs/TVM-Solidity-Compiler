@@ -43,7 +43,7 @@ PUSHCONT {
 PUSHCONT {
 	;; push identifier valueLength
 	;; push identifier idx
-	BLKPUSH 2, 1
+	DUP2
 	;; push identifier dict
 	PUSH S4
 	PUSHINT 32
@@ -98,10 +98,10 @@ PUSHINT 0
 ;; param: remote_addr
 ;; param: bounce
 ; function CommonMsgInfoRelaxed__int_msg_info
-NEWC
 ;; decl: builder
 PUSHINT 1
-STUR 2
+NEWC
+STU 2
 ;; push identifier bounce
 PUSH S1
 STIR 1
@@ -129,7 +129,7 @@ PUSH S5
 ;; param: builder
 ; function store_either_for_cell
 ;; push identifier x
-BLKPUSH 2, 1
+DUP2
 CTOS
 ;; decl: slice_x
 ;; if
@@ -248,10 +248,10 @@ PUSHINT 0
 ;; param: remote_addr
 ;; param: bounce
 ; function CommonMsgInfoRelaxed__int_msg_info
-NEWC
 ;; decl: builder
 PUSHINT 1
-STUR 2
+NEWC
+STU 2
 ;; push identifier bounce
 PUSH S1
 STIR 1
@@ -279,7 +279,7 @@ PUSH S4
 ;; param: builder
 ; function store_either_for_cell
 ;; push identifier x
-BLKPUSH 2, 1
+DUP2
 CTOS
 ;; decl: slice_x
 ;; if
@@ -582,10 +582,10 @@ BLKDROP 3
 ;; param: _wid
 ;; param: _address
 ; function make_std_address_with_wid_macro
-NEWC
 ;; decl: builder
 PUSHINT 4
-STUR 3
+NEWC
+STU 3
 ;; push identifier _wid
 PUSH S2
 STIR 8
@@ -604,68 +604,28 @@ BLKDROP 3
 .macro make_std_address_with_zero_wid_macro
 ;; param: _address
 ; function make_std_address_with_zero_wid_macro
-NEWC
 ;; decl: builder
 PUSHINT 1024
-STUR 11
+NEWC
+STU 11
 ;; push identifier _address
 PUSH S1
 STUR 256
 ;; return
 ;; push identifier builder
-DUP
 ENDC
 CTOS
 NIP
-NIP
 ; end function make_std_address_with_zero_wid_macro
-
-.macro send_external_message_macro
-;; param: body
-; function send_external_message_macro
-NEWC
-;; decl: builder
-PUSHINT 7605903601369376408980219232256
-STUR 103
-;; if
-;; push identifier body
-PUSH S1
-BBITS
-PUSHINT 920
-;; <
-LESS
-PUSHCONT {
-	PUSHINT 1
-	STZEROES
-	;; push identifier body
-	PUSH S1
-	STBR
-}
-PUSHCONT {
-	PUSHINT 1
-	STONES
-	;; push identifier body
-	PUSH S1
-	STBREFR
-}
-IFELSE
-;; end if
-;; push identifier builder
-DUP
-ENDC
-PUSHINT 1
-SENDRAWMSG
-DROP2
-; end function send_external_message_macro
 
 .macro send_external_message_with_dest_macro
 ;; param: dest
 ;; param: body
 ; function send_external_message_with_dest_macro
-NEWC
 ;; decl: builder
 PUSHINT 12
-STUR 4
+NEWC
+STU 4
 ;; push identifier dest
 PUSH S2
 STSLICER
@@ -708,10 +668,10 @@ BLKDROP 3
 ;; param: wid
 ;; param: addr
 ; function make_address_macro
-NEWC
 ;; decl: builder
 PUSHINT 4
-STUR 3
+NEWC
+STU 3
 ;; push identifier wid
 PUSH S2
 STIR 8
@@ -753,8 +713,7 @@ THIRD
 PUSH S1
 INDEX 3
 PLDU 256
-SWAP2
-DROP2
+BLKDROP2 2, 2
 ; end function unpack_address_macro
 
 .macro get_rand_seed_macro
@@ -765,72 +724,43 @@ GETPARAM 6
 
 .macro replay_protection_macro
 ;; param: msg_timestamp
-; function replay_protection_macro
-;; if
-GETGLOB 3
-;; push identifier msg_timestamp
-PUSH S1
-;; <
-LESS
-;; short-circuiting &&
-DUP
 PUSHCONT {
-	DROP
+	; function replay_protection_macro
+	;; if
+	GETGLOB 3
 	;; push identifier msg_timestamp
-	DUP
-	NOW
-	PUSHINT 1000
-	;; *
-	MUL
-	PUSHINT 1800000
-	;; +
-	ADD
+	PUSH S1
 	;; <
 	LESS
-}
-IF
-PUSHCONT {
-	;; push identifier msg_timestamp
+	;; short-circuiting &&
 	DUP
-	SETGLOB 3
-}
-PUSHCONT {
+	PUSHCONT {
+		DROP
+		;; push identifier msg_timestamp
+		DUP
+		NOW
+		PUSHINT 1000
+		;; *
+		MUL
+		PUSHINT 1800000
+		;; +
+		ADD
+		;; <
+		LESS
+	}
+	IF
+	PUSHCONT {
+		;; push identifier msg_timestamp
+		;; return
+		SETGLOB 3
+	}
+	IFJMP
+	;; end if
 	PUSHINT 52
-	THROWANY
+	THROW 52
+	; end function replay_protection_macro
 }
-IFELSE
-;; end if
-DROP
-; end function replay_protection_macro
-
-.macro sender_address_macro
-; function sender_address_macro
-PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_
-;; decl: sender_address
-;; if
-DEPTH
-ADDCONST -5
-PICK
-EQINT 0
-PUSHCONT {
-	DEPTH
-	ADDCONST -3
-	PICK
-	CTOS
-	PUSHINT 4
-	SDSKIPFIRST
-	LDMSGADDR
-	DROP
-	; expValue
-	; end expValue
-	; colValue
-	NIP
-	; end colValue
-}
-IF
-;; end if
-;; return
-; end function sender_address_macro
+CALLX
 
 .macro message_balance_macro
 ; function message_balance_macro
@@ -840,7 +770,6 @@ PUSHINT 0
 DEPTH
 ADDCONST -5
 PICK
-EQINT 0
 PUSHCONT {
 	DEPTH
 	ADDCONST -2
@@ -851,7 +780,7 @@ PUSHCONT {
 	NIP
 	; end colValue
 }
-IF
+IFNOT
 ;; end if
 ;; returning named params
 ; end function message_balance_macro
@@ -866,9 +795,8 @@ IF
 ;; push identifier addr
 PARSEMSGADDR
 INDEX 3
-PUSH2 S0, S0
+DUP
 SBITS
 PLDUX
-NIP
 ; end function address2uint_macro
 

@@ -72,6 +72,10 @@ namespace TvmConst {
 		const int currency = 6;
 	}
 
+	namespace ext_msg_info {
+		const int dest = 1;
+	}
+
 	namespace Attributes {
 		const std::string MuteStructWarning = "maybe_unsaved";
 	}

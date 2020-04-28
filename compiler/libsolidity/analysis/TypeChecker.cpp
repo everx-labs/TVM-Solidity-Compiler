@@ -297,7 +297,7 @@ TypePointers TypeChecker::typeCheckABIDecodeAndRetrieveReturnType(FunctionCall c
 TypePointers TypeChecker::typeCheckTVMSliceDecodeAndRetrieveReturnType(FunctionCall const& _functionCall)
 {
 	vector<ASTPointer<Expression const>> arguments = _functionCall.arguments();
-	if (arguments.size() == 0)
+	if (arguments.empty())
 		m_errorReporter.typeError(
 			_functionCall.location(),
 			"This function takes positive number of arguments."
@@ -306,7 +306,7 @@ TypePointers TypeChecker::typeCheckTVMSliceDecodeAndRetrieveReturnType(FunctionC
 	TypePointers components;
 	for (auto const& typeArgument: arguments) {
 		solAssert(typeArgument, "");
-		if (TypeType const* argTypeType = dynamic_cast<TypeType const*>(type(*typeArgument))) {
+		if (auto const* argTypeType = dynamic_cast<TypeType const*>(type(*typeArgument))) {
 			TypePointer actualType = argTypeType->actualType();
 			solAssert(actualType, "");
 			// We force memory because the parser currently cannot handle
@@ -561,6 +561,8 @@ bool TypeChecker::visit(FunctionDefinition const& _function)
 		typeCheckReceiveFunction(_function);
 	else if (_function.isConstructor())
 		typeCheckConstructor(_function);
+	else if (_function.isOnBounce())
+		typeCheckOnBounce(_function);
 
 	return false;
 }
@@ -1914,6 +1916,21 @@ void TypeChecker::typeCheckConstructor(FunctionDefinition const& _function)
 		m_errorReporter.typeError(_function.location(), "Constructor must be public or internal.");
 }
 
+void TypeChecker::typeCheckOnBounce(const FunctionDefinition &_function) {
+	solAssert(_function.isOnBounce(), "");
+
+	if (_function.inContractKind() == ContractKind::Library)
+		m_errorReporter.typeError(_function.location(), "Libraries cannot have onBounce functions.");
+
+	if (_function.visibility() != Visibility::External)
+		m_errorReporter.typeError(_function.location(), "onBounce function must be defined as \"external\".");
+	if (!_function.returnParameters().empty())
+		m_errorReporter.typeError(_function.returnParameterList()->location(), "onBounce function cannot return values.");
+	if (_function.parameters().size() != 1 || _function.parameters().at(0)->type()->category() != Type::Category::TvmSlice)
+		m_errorReporter.typeError(_function.parameterList().location(), "onBounce function should take one parameter (TvmSlice type).");
+
+}
+
 void TypeChecker::typeCheckABIEncodeFunctions(
 	FunctionCall const& _functionCall,
 	FunctionTypePointer _functionType
@@ -2001,6 +2018,30 @@ void TypeChecker::typeCheckABIEncodeFunctions(
 			);
 	}
 }
+
+FunctionDefinition const*
+TypeChecker::isArgumentAPublicFunction(FunctionCall const& _functionCall) {
+	std::vector<ASTPointer<Expression const>> arguments = _functionCall.arguments();
+	const std::string errorText = "This function takes one argument (identifier of public function)";
+	if (arguments.empty()) {
+		m_errorReporter.fatalTypeError(_functionCall.location(), errorText);
+	}
+	Expression const* expr = arguments.at(0).get();
+	if (expr->annotation().type->category() != Type::Category::Function) {
+		m_errorReporter.fatalTypeError(expr->location(), errorText);
+	}
+	auto identifier = dynamic_cast<Identifier const*>(expr);
+	Declaration const* declaration = identifier->annotation().referencedDeclaration;
+	if (!declaration->isPublic()) {
+		m_errorReporter.fatalTypeError(expr->location(), errorText);
+	}
+	auto functionDeclaration = dynamic_cast<FunctionDefinition const*>(declaration);
+	if (functionDeclaration == nullptr) {
+		m_errorReporter.fatalTypeError(expr->location(), errorText);
+	}
+	return functionDeclaration;
+}
+
 
 void TypeChecker::typeCheckFunctionGeneralChecks(
 	FunctionCall const& _functionCall,
@@ -2350,6 +2391,14 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			returnTypes = typeCheckTVMSliceDecodeAndRetrieveReturnType(_functionCall);
 			break;
 		}
+		case FunctionType::Kind::DecodeFunctionParams:
+		{
+			FunctionDefinition const* functionDeclaration = isArgumentAPublicFunction(_functionCall);
+			for(const ASTPointer<VariableDeclaration>& vd : functionDeclaration->parameters()){
+				returnTypes.push_back(vd->type());
+			}
+			break;
+		}
 		case FunctionType::Kind::ABIEncode:
 		case FunctionType::Kind::ABIEncodePacked:
 		case FunctionType::Kind::ABIEncodeWithSelector:
@@ -2362,6 +2411,9 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		case FunctionType::Kind::MetaType:
 			returnTypes = typeCheckMetaTypeFunctionAndRetrieveReturnType(_functionCall);
 			break;
+		case FunctionType::Kind::TVMFunctionId:
+			isArgumentAPublicFunction(_functionCall);
+			[[fallthrough]];
 		default:
 		{
 			typeCheckFunctionCall(_functionCall, functionType);

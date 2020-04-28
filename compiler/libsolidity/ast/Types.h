@@ -552,8 +552,10 @@ public:
 	Category category() const override { return Category::StringLiteral; }
 
 	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
-	TypeResult binaryOperatorResult(Token, Type const*) const override
+	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override
 	{
+		if (_operator == Token::Add || TokenTraits::isCompareOp(_operator))
+			return Type::commonType(this, _other);
 		return nullptr;
 	}
 
@@ -801,7 +803,7 @@ public:
 	{}
 
 	Category category() const override { return Category::Array; }
-
+	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
 	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
 	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
 	std::string richIdentifier() const override;
@@ -1116,6 +1118,7 @@ public:
 		AddressMakeAddrNone, ///< .makeAddrNone() for address
 		AddressMakeAddrStd, ///< .makeAddrStd() for address
 		TVMSliceDecode, ///< slice.decode(types)
+		DecodeFunctionParams, ///< slice.decodeFunctionParams(function_name)
 		TVMSliceSize, ///< slice.size()
 		TVMLoadRef, ///< slice.loadRef()
 		TVMCellToSlice, ///< cell.toSlice()
@@ -1141,19 +1144,21 @@ public:
 		AddMod, ///< ADDMOD
 		MulMod, ///< MULMOD
 		MessagePubkey, ///< msg.pubkey()
-		TVMPubkey, ///< tvm.pubkey()
-		TVMcdatasize, ///< tvm.cdatasize()
 		TVMAccept, ///< tvm.accept()
-		TVMCommit, ///< tvm.commit()
-		TVMSetcode, ///< tvm.setcode()
-		TVMTransfer, ///< tvm.transfer()
-		TVMHash, ///< tvm.hash()
+		TVMcdatasize, ///< tvm.cdatasize()
 		TVMChecksign, ///< tvm.checkSign()
-		TVMSendMsg, ///< tvm.sendMsg()
-		TVMTransLT, ///< tvm.transLT()
-		TVMResetStorage, ///< tvm.resetStorage()
+		TVMCommit, ///< tvm.commit()
 		TVMConfigParam, ///< tvm.configParam()
 		TVMDeploy, ///< functions to deploy contract from contract
+		TVMDestAddr, ///< tvm.setExtDestAddr()
+		TVMFunctionId, ///< tvm.functionId(function_name)
+		TVMHash, ///< tvm.hash()
+		TVMPubkey, ///< tvm.pubkey()
+		TVMResetStorage, ///< tvm.resetStorage()
+		TVMSendMsg, ///< tvm.sendMsg()
+		TVMSetcode, ///< tvm.setcode()
+		TVMTransfer, ///< tvm.transfer()
+		TVMTransLT, ///< tvm.transLT()
 		ArrayPush, ///< .push() to a dynamically sized array in storage
 		ArrayPop, ///< .pop() from a dynamically sized array in storage
 		ByteArrayPush, ///< .push() to a dynamically sized byte array in storage
@@ -1165,6 +1170,7 @@ public:
 		MappingFetch, ///< .fetch() for a mapping
 		MappingExists, ///< .exists() for a mapping
 		MappingEmpty,  ///< .empty() for a mapping
+		StringMethod,  ///< string methods
 		ObjectCreation, ///< array creation using new
 		Assert, ///< assert()
 		Require, ///< require()

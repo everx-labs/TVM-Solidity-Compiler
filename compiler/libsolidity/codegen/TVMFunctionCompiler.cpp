@@ -18,14 +18,69 @@
 
 #include <boost/algorithm/string/replace.hpp>
 
-#include "TVM.h"
 #include "TVMABI.hpp"
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCompiler.hpp"
-#include "TVMInlineFunctionChecker.hpp"
 #include "TVMStructCompiler.hpp"
 
 using namespace solidity::frontend;
+
+class LoopScanner: public ASTConstVisitor
+{
+public:
+	explicit LoopScanner(const ASTNode& node) {
+		node.accept(*this);
+		solAssert(m_loopDepth == 0, "");
+	}
+
+protected:
+	bool visit(WhileStatement const&) override {
+		m_loopDepth++;
+		return true;
+	}
+
+	void endVisit(WhileStatement const&) override {
+		m_loopDepth--;
+	}
+
+	bool visit(ForStatement const&) override {
+		m_loopDepth++;
+		return true;
+	}
+
+	void endVisit(ForStatement const&) override {
+		m_loopDepth--;
+	}
+
+	void endVisit(Return const&) override {
+		m_info.canReturn = true;
+	}
+
+	void endVisit(Break const&) override {
+		if (m_loopDepth == 0)
+			m_info.canBreak = true;
+	}
+
+	void endVisit(Continue const&) override {
+		if (m_loopDepth == 0)
+			m_info.canContinue = true;
+	}
+
+private:
+	int m_loopDepth = 0;
+
+public:
+	ContInfo m_info;
+};
+
+ContInfo getInfo(const Statement &statement) {
+	LoopScanner scanner(statement);
+	ContInfo info = scanner.m_info;
+	info.alwaysReturns = doesAlways<Return>(&statement);
+	info.alwaysContinue = doesAlways<Continue>(&statement);
+	info.alwaysBreak = doesAlways<Break>(&statement);
+	return info;
+}
 
 TVMFunctionCompiler::TVMFunctionCompiler(StackPusherHelper &pusher) : m_pusher{pusher} {
 
@@ -71,13 +126,13 @@ TVMFunctionCompiler::LocationReturn TVMFunctionCompiler::notNeedsPushContWhenInl
 
 	ast_vec<Statement> statements = _block.statements();
 
-	TVMScanner bodyScanner{_block};
+	LoopScanner bodyScanner{_block};
 	if (!bodyScanner.m_info.canReturn) {
 		return LocationReturn::noReturn;
 	}
 
 	for (std::vector<int>::size_type i = 0; i + 1 < statements.size(); ++i) {
-		TVMScanner scanner{*statements[i].get()};
+		LoopScanner scanner{*statements[i].get()};
 		if (scanner.m_info.canReturn) {
 			return LocationReturn::Anywhere;
 		}
@@ -305,27 +360,31 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 		nodes.push_back(param.get());
 	}
 
-	int prevStackSize = m_pusher.getStack().size();
-	m_pusher.encodeFunctionAndParams(
-			TVMCompilerContext::getFunctionExternalName(m_function),
-			types,
-			nodes,
-			[&](size_t idx) {
-				int pos = (m_pusher.getStack().size() - prevStackSize) +
-				          (static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
-				m_pusher.pushS(pos);
-			},
-			StackPusherHelper::ReasonOfOutboundMessage::FunctionReturnExternal
-	);
-	sendExternalMessage();
+	const int prevStackSize = m_pusher.getStack().size();
+	auto pushBody = [&]() {
+		return m_pusher.encodeFunctionAndParams(
+				TVMCompilerContext::getFunctionExternalName(m_function),
+				types,
+				nodes,
+				[&](size_t idx) {
+					int pos = (m_pusher.getStack().size() - prevStackSize) +
+					          (static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
+					m_pusher.pushS(pos);
+				},
+				StackPusherHelper::ReasonOfOutboundMessage::FunctionReturnExternal
+		);
+	};
+
+
+	sendExternalMessage(pushBody, nullptr);
 }
 
-void TVMFunctionCompiler::sendExternalMessage(bool addrIsArgument) {
+void TVMFunctionCompiler::sendExternalMessage(const std::function<int()> &pushBody, Expression const* destAddr) {
 	// stack: builder with encoded params
 	if (m_pusher.ctx().haveSetDestAddr()) {
-		if (!addrIsArgument)
+		if (destAddr == nullptr) {
 			m_pusher.push(+1, "GETGLOB " + toString(TvmConst::C7::ExtDestAddrIndex));
-		m_pusher.pushLines(R"(DUP
+			m_pusher.pushLines(R"(DUP
 ISNULL
 PUSHCONT {
 	DROP
@@ -333,10 +392,12 @@ PUSHCONT {
 }
 IF
 )");
-		m_pusher.exchange(0, 1);
-		m_pusher.pushPrivateFunctionOrMacroCall(-2, "send_external_message_with_dest_macro");
+		} else {
+			acceptExpr(destAddr, true);
+		}
+		m_pusher.sendMsg({TvmConst::ext_msg_info::dest}, {}, pushBody, nullptr, false);
 	} else {
-		m_pusher.pushPrivateFunctionOrMacroCall(-1, "send_external_message_macro");
+		m_pusher.sendMsg({}, {}, pushBody, nullptr, false);
 	}
 }
 
@@ -358,12 +419,21 @@ void TVMFunctionCompiler::visitModifierOrFunctionBlock(Block const &body, bool i
 
 			if (isFunc) {
 				if (haveSomeNamedReturnParams) {
-					int paramQty = m_function->parameters().size();
-					int retQty = m_function->returnParameters().size();
-					m_pusher.push(0, ";; returning named params");
-					int m = m_pusher.getStack().size() - m_startStackSize - paramQty;
-					m_pusher.blockSwap(paramQty, m);
-					m_pusher.drop(m_pusher.getStack().size() - m_startStackSize - retQty);
+					if (functionModifiers().empty()) {
+						// stack: params... returnParams... functionVars...
+						int paramQty = m_function->parameters().size();
+						int retQty = m_function->returnParameters().size();
+						m_pusher.push(0, ";; returning named params");
+						int m = m_pusher.getStack().size() - m_startStackSize - paramQty;
+						m_pusher.blockSwap(paramQty, m);
+						m_pusher.drop(m_pusher.getStack().size() - m_startStackSize - retQty);
+					} else {
+						// stack: returnParams... functionVars...
+						int retQty = m_function->returnParameters().size();
+						m_pusher.push(0, ";; returning named params");
+						int m = m_pusher.getStack().size() - m_startStackSize;
+						m_pusher.drop(m - retQty);
+					}
 				} else if (!m_function->returnParameters().empty()) {
 					int delta = (m_pusher.getStack().size() - m_startStackSize);
 					m_pusher.drop(delta);
@@ -432,7 +502,7 @@ void TVMFunctionCompiler::visitFunctionAfterModifiers() {
 	if (m_isPublic) {
 		// emit function result
 		// stack: transaction_id return-params...
-		bool dontEmitReturn = !!getFunction(m_pusher.ctx().getContract(), "tvm_dont_emit_events_on_return");
+		bool dontEmitReturn = getFunction(m_pusher.ctx().getContract(), "tvm_dont_emit_events_on_return") != nullptr;
 		if (!dontEmitReturn) {
 			emitOnPublicFunctionReturn();
 		}
@@ -578,7 +648,7 @@ bool TVMFunctionCompiler::visit(VariableDeclarationStatement const &_variableDec
 		if (tupleExpression && !tupleExpression->isInlineArray()) {
 			ast_vec<Expression> const&  tuple = tupleExpression->components();
 			for (std::size_t i = 0; i < tuple.size(); ++i) {
-				if (!m_pusher.tryImplicitConvert(decls[i]->type(), tuple[i]->annotation().type)) {
+				if (decls[i] == nullptr || !m_pusher.tryImplicitConvert(decls[i]->type(), tuple[i]->annotation().type)) {
 					acceptExpr(tuple[i].get());
 				}
 			}
@@ -592,24 +662,15 @@ bool TVMFunctionCompiler::visit(VariableDeclarationStatement const &_variableDec
 	}
 
 	m_pusher.getStack().change(-(int)decls.size());
-	int cntVars = 0;
-	for (size_t i = 0; i < decls.size(); i++) {
-		if (decls[i]) {
-			m_pusher.push(0, string(";; decl: ") + decls[i]->name());
-			m_pusher.getStack().add(decls[i].get(), true);
-			++cntVars;
+	for (const ASTPointer<VariableDeclaration>& d : decls) {
+		if (d != nullptr) {
+			m_pusher.push(0, string(";; decl: ") + d->name());
+			m_pusher.getStack().add(d.get(), true);
 		} else {
-			if (i == decls.size() - 1) {
-				m_pusher.push(0, "DROP");
-			} else if (i == decls.size() - 2) {
-				m_pusher.push(0, "NIP");
-			} else {
-				m_pusher.blockSwap(1, static_cast<int>(decls.size()) - 1 - i);
-				m_pusher.push(0, "DROP");
-			}
+			m_pusher.getStack().change(+1);
 		}
 	}
-	m_pusher.getStack().ensureSize(saveStackSize + cntVars, "VariableDeclarationStatement");
+	m_pusher.getStack().ensureSize(saveStackSize + static_cast<int>(decls.size()), "VariableDeclarationStatement");
 	return false;
 }
 
@@ -633,11 +694,12 @@ bool TVMFunctionCompiler::visit(IfStatement const &_ifStatement) {
 
 	// header
 	ContInfo ci = getInfo(_ifStatement);
-	bool canUseJmp = _ifStatement.falseStatement() != nullptr?
-	                 getInfo(_ifStatement.trueStatement()).doThatAlways() && getInfo(*_ifStatement.falseStatement()).doThatAlways() :
+	bool canUseJmp = _ifStatement.falseStatement() != nullptr ?
+	                 getInfo(_ifStatement.trueStatement()).doThatAlways() &&
+	                 getInfo(*_ifStatement.falseStatement()).doThatAlways() :
 	                 getInfo(_ifStatement.trueStatement()).doThatAlways();
 	if (canUseJmp) {
-		ControlFlowInfo info {};
+		ControlFlowInfo info{};
 		info.stackSize = m_pusher.getStack().size();
 		info.isLoop = false;
 		info.useJmp = true;
@@ -650,6 +712,20 @@ bool TVMFunctionCompiler::visit(IfStatement const &_ifStatement) {
 	// condition
 	acceptExpr(&_ifStatement.condition(), true);
 	m_pusher.push(-1, ""); // drop condition
+	bool reverseOpcode = false;
+	if (_ifStatement.falseStatement() == nullptr) {
+		while(true) {
+			if (std::regex_match(m_pusher.code().lines.back(), std::regex("(\t*)EQINT 0")) ||
+				std::regex_match(m_pusher.code().lines.back(), std::regex("(\t*)NOT"))) {
+				m_pusher.pollLastOpcode();
+				reverseOpcode ^= true;
+			} else if (std::regex_match(m_pusher.code().lines.back(), std::regex("(\t*)NEQINT 0"))) {
+				m_pusher.pollLastOpcode();
+			} else {
+				break;
+			}
+		}
+	}
 
 	// if
 	m_pusher.startContinuation();
@@ -664,16 +740,18 @@ bool TVMFunctionCompiler::visit(IfStatement const &_ifStatement) {
 		endContinuation2(!canUseJmp);
 
 		if (canUseJmp) {
+			solAssert(!reverseOpcode, "");
 			m_pusher.push(0, "CONDSEL");
 			m_pusher.push(0, "JMPX");
 		} else {
+			solAssert(!reverseOpcode, "");
 			m_pusher.push(0, "IFELSE");
 		}
 	} else {
 		if (canUseJmp) {
-			m_pusher.push(0, "IFJMP");
+			m_pusher.push(0, reverseOpcode ? "IFNOTJMP" : "IFJMP");
 		} else {
-			m_pusher.push(0, "IF");
+			m_pusher.push(0, reverseOpcode ? "IFNOT" : "IF");
 		}
 	}
 
@@ -1060,17 +1138,18 @@ bool TVMFunctionCompiler::visit(EmitStatement const &_emit) {
 	auto event = m_pusher.ctx().getEvent(name);
 	solAssert(event, "");
 	TVMExpressionCompiler ec(m_pusher);
-	ec.encodeOutboundMessageBody2(
-			name,
-			eventCall->arguments(),
-			event->parameterList().parameters(),
-			StackPusherHelper::ReasonOfOutboundMessage::EmitEventExternal);
+	auto pushBody = [&]() {
+		return ec.encodeOutboundMessageBody2(
+				name,
+				eventCall->arguments(),
+				event->parameterList().parameters(),
+				StackPusherHelper::ReasonOfOutboundMessage::EmitEventExternal);
+	};
 
-	if (auto argument = _emit.externalAddress()) {
-		acceptExpr(argument.get());
-		sendExternalMessage(true);
+	if (auto externalAddress = _emit.externalAddress()) {
+		sendExternalMessage(pushBody, externalAddress.get());
 	} else
-		sendExternalMessage();
+		sendExternalMessage(pushBody, nullptr);
 
 	return false;
 }
@@ -1135,11 +1214,24 @@ void TVMFunctionCompiler::generateMainExternal() {
 	m_pusher.push(0, " ");
 }
 
+void TVMFunctionCompiler::setGlobSenderAddressIfNeed() {
+	ContactsUsageScanner sc{*m_pusher.ctx().getContract()};
+	if (sc.haveMsgSender) {
+		m_pusher.pushLines(R"(
+PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_
+SETGLOB 9
+)");
+	}
+}
+
 void TVMFunctionCompiler::generateMainExternalForAbiV1() {
 	m_pusher.generateInternal("main_external", -1);
 	// contract_balance msg_balance msg_cell origin_msg_body_slice
+	m_pusher.push(0, "PUSHINT -1 ; main_external trans id");
+
+	setGlobSenderAddressIfNeed();
+
 	m_pusher.pushLines(R"(
-PUSHINT -1 ; main_external trans id
 PUSH s1    ; originMsgBodySlice
 LDREFRTOS  ; msgBodySlice signSlice
 DUP        ; msgBodySlice signSlice signSlice
@@ -1182,6 +1274,8 @@ void TVMFunctionCompiler::generateMainExternalForAbiV2() {
 //		msg_cell
 //		msg_body_slice
 //		transaction_id = -1
+
+	setGlobSenderAddressIfNeed();
 
 	m_pusher.push(0, "PUSH S1");
 
@@ -1238,7 +1332,7 @@ void TVMFunctionCompiler::pushMsgPubkey() {
 		m_pusher.subTabs();
 	}
 
-	TVMScanner sc{*m_pusher.ctx().getContract()};
+	ContactsUsageScanner sc{*m_pusher.ctx().getContract()};
 	if (sc.haveMsgPubkey) {
 		m_pusher.addTabs();
 		m_pusher.pushS(0);
@@ -1323,6 +1417,12 @@ IF
 }
 
 void TVMFunctionCompiler::generateMainInternal() {
+	// int_msg_info$0  ihr_disabled:Bool  bounce:Bool(#1)  bounced:Bool
+	//                 src:MsgAddress  dest:MsgAddressInt(#4)
+	//                 value:CurrencyCollection(#5,#6)  ihr_fee:Grams  fwd_fee:Grams
+	//                 created_lt:uint64  created_at:uint32
+	//                 = CommonMsgInfoRelaxed;
+
 	std::string s = R"(
 .internal-alias :main_internal,        0
 .internal	:main_internal
@@ -1330,27 +1430,47 @@ void TVMFunctionCompiler::generateMainInternal() {
 ;; Function: main_internal
 ;; param: contract_balance
 ;; param: msg_balance
-;; param: inbound_message
+;; param: int_msg_info
 ;; param: msg_body_slice
 PUSHINT 0  ; main_external trans id
+PUSH S2
+CTOS
+LDSLICE 3
+NIP
+LDI 1     ; bounced tail
+)";
 
+	ContactsUsageScanner sc{*m_pusher.ctx().getContract()};
+	if (sc.haveMsgSender) {
+		s += R"(
+LDMSGADDR   ; bounced src tail
+DROP
+SETGLOB 9
+)";
+	} else {
+		// bounced tail
+		s += "DROP\n";
+		// bounced
+	}
 
+	// bounced
+	if (m_pusher.ctx().haveOnBounceHandler()) {
+		s += R"(
+PUSHCONT {
+	PUSH S1
+	CALL $:onBounce$
+}
+IFJMP
+)";
+	} else {
+		s += "IFRET\n";
+	}
+
+	s += R"(
 PUSH S1    ; body
 SEMPTY     ; isEmpty
 PUSHCONT {
-	PUSH S2     ; inbound_message
-	CTOS        ; inbound_message
-	PUSHINT 3   ; inbound_message 3
-	SDSKIPFIRST ; inbound_message'
-	PLDU 1      ; bounced
-	EQINT 1     ; bounced==1
-	PUSHCONT {
-		CALL $:onBounce$
-	}
-	PUSHCONT {
-		CALL $:receive$
-	}
-	IFELSE
+	CALL $:receive$
 }
 IFJMP
 
@@ -1361,11 +1481,10 @@ PUSHCONT {
 }
 IFNOTJMP
 PUSH2 S1,S1        ; funcId body' funcId funcId
-EQINT 0            ; funcId body' funcId funcId==0
 PUSHCONT {
 	CALL $:receive$
 }
-IFJMP
+IFNOTJMP
 LESSINT first_fun_id            ; funcId body' funcId<first_fun_id
 PUSH S2              ; funcId body' funcId<first_fun_id funcId
 PUSHINT last_fun_id   ; funcId body' funcId<first_fun_id funcId last_fun_id
@@ -1418,8 +1537,6 @@ void TVMFunctionCompiler::fillInlineFunctionsAndConstants(std::string &pattern) 
 
 		if (m_pusher.ctx().haveOnBounceHandler()) {
 			boost::replace_all(pattern, tab + "CALL $:onBounce$", m_pusher.ctx().m_inlinedFunctions.at("onBounce").str(tab));
-		} else {
-			boost::replace_all(pattern, tab + "CALL $:onBounce$", "");
 		}
 	}
 }

@@ -1571,6 +1571,13 @@ ArrayType::ArrayType(DataLocation _location, bool _isString):
 {
 }
 
+TypeResult ArrayType::binaryOperatorResult(Token _operator, const Type *_other) const
+{
+	if (isString() && (_operator == Token::Add || TokenTraits::isCompareOp(_operator)))
+		return Type::commonType(this, _other);
+	return nullptr;
+}
+
 void ArrayType::clearCache() const
 {
 	Type::clearCache();
@@ -1829,6 +1836,23 @@ MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 				false, StateMutability::Pure
 			));
 		}
+	} else {
+		members.emplace_back("substr", TypeProvider::function(
+			TypePointers{TypeProvider::uint(8), TypeProvider::uint(8)},
+			TypePointers{TypeProvider::stringMemory()},
+			strings{string("from"), string("count")},
+			strings{string("substr")},
+			FunctionType::Kind::StringMethod,
+			false, StateMutability::Pure
+		));
+		members.emplace_back("byteLength", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::uint(8)},
+			strings{},
+			strings{string("byteLength")},
+			FunctionType::Kind::StringMethod,
+			false, StateMutability::Pure
+		));
 	}
 	return members;
 }
@@ -2798,6 +2822,8 @@ string FunctionType::richIdentifier() const
 	string id = "t_function_";
 	switch (m_kind)
 	{
+	case Kind::TVMDestAddr: id += "tvmsetextdestaddr"; break;
+	case Kind::StringMethod: id += "stringmethod"; break;
 	case Kind::TVMSetcode: id += "tvmsetcode"; break;
 	case Kind::TVMChecksign: id += "tvmchecksign"; break;
 	case Kind::TVMHash: id += "tvmhash"; break;
@@ -2819,10 +2845,12 @@ string FunctionType::richIdentifier() const
 	case Kind::AddressMakeAddrExtern: id += "addressmakeaddrextern"; break;
 	case Kind::AddressMakeAddrNone: id += "addressmakeaddrnone"; break;
 	case Kind::TVMSliceDecode: id += "tvmslicedecode"; break;
+	case Kind::DecodeFunctionParams: id += "tvmslicedecodefunctionparams"; break;
 	case Kind::TVMSliceSize: id += "tvmslicesize"; break;
 	case Kind::TVMCellToSlice: id += "tvmcelltoslice"; break;
 	case Kind::TVMBuilderMethods: id += "tvmbuildermethods"; break;
 	case Kind::TVMLoadRef: id += "tvmloadref"; break;
+	case Kind::TVMFunctionId: id += "tvmfunctionid"; break;
 	case Kind::AddressMakeAddrStd: id += "addressmakeaddrstd"; break;
 	case Kind::LogTVM: id += "logtvm"; break;
 	case Kind::MappingGetMinKey: id += "mapgetmin"; break;
@@ -3823,6 +3851,14 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				FunctionType::Kind::TVMSetcode,
 				false, StateMutability::Pure
 		));
+		members.emplace_back("setExtDestAddr", TypeProvider::function(
+				TypePointers{TypeProvider::address()},
+				TypePointers{},
+				strings{string()},
+				strings{},
+				FunctionType::Kind::TVMDestAddr,
+				false, StateMutability::Pure
+		));
 		members.emplace_back("setCurrentCode", TypeProvider::function(
 				TypePointers{TypeProvider::tvmcell()},
 				TypePointers{},
@@ -3951,11 +3987,19 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 
 		members.emplace_back("deployAndCallConstructor", TypeProvider::function(
 				TypePointers{TypeProvider::tvmcell(), TypeProvider::address(),
-								 TypeProvider::uint(128), TypeProvider::uint(32)},
+				             TypeProvider::uint(128), TypeProvider::uint(32)},
 				TypePointers{},
 				strings{string(), string(), string(), string()},
 				strings{},
 				FunctionType::Kind::TVMDeploy,
+				true, StateMutability::Pure
+		));
+		members.emplace_back("functionId", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(32)},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMFunctionId,
 				true, StateMutability::Pure
 		));
 
@@ -4082,6 +4126,16 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) co
 			StateMutability::Pure
 	));
 
+	members.emplace_back("decodeFunctionParams", TypeProvider::function(
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::DecodeFunctionParams,
+			true,
+			StateMutability::Pure
+	));
+
 	members.emplace_back("loadUnsigned", TypeProvider::function(
 			TypePointers{TypeProvider::uint(16)},
 			TypePointers{TypeProvider::uint(8)},
@@ -4166,7 +4220,7 @@ MemberList::MemberMap TvmCellType::nativeMembers(const ContractDefinition *) con
 	return members;
 }
 
-MemberList::MemberMap TvmBuilderType::nativeMembers(const ContractDefinition */*_currentScope*/) const
+MemberList::MemberMap TvmBuilderType::nativeMembers(const ContractDefinition *) const
 {
 	MemberList::MemberMap members;
 
@@ -4293,7 +4347,7 @@ VarInteger const* ExtraCurrencyCollectionType::realValueType() const {
 	return TypeProvider::varInteger();
 }
 
-MemberList::MemberMap ExtraCurrencyCollectionType::nativeMembers(ContractDefinition const */*_currentScope*/) const {
+MemberList::MemberMap ExtraCurrencyCollectionType::nativeMembers(ContractDefinition const *) const {
 	MemberList::MemberMap members;
 	appendMapMethods(members, keyType(), valueType());
 	return members;

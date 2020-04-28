@@ -318,8 +318,9 @@ ASTPointer<ContractDefinition> Parser::parseContractDefinition()
 				(currentTokenValue == Token::Function && m_scanner->peekNextToken() != Token::LParen) ||
 				currentTokenValue == Token::Constructor ||
 				currentTokenValue == Token::Receive ||
-				currentTokenValue == Token::Fallback
-			)
+				currentTokenValue == Token::Fallback ||
+				currentTokenValue == Token::onBounce
+					)
 				subNodes.push_back(parseFunctionDefinition());
 			else if (currentTokenValue == Token::Struct)
 				subNodes.push_back(parseStructDefinition());
@@ -600,6 +601,7 @@ ASTPointer<ASTNode> Parser::parseFunctionDefinition()
 		if (
 			m_scanner->currentToken() == Token::Constructor ||
 			m_scanner->currentToken() == Token::Fallback ||
+			m_scanner->currentToken() == Token::onBounce ||
 			m_scanner->currentToken() == Token::Receive
 		)
 		{
@@ -607,6 +609,7 @@ ASTPointer<ASTNode> Parser::parseFunctionDefinition()
 				{Token::Constructor, "constructor"},
 				{Token::Fallback, "fallback function"},
 				{Token::Receive, "receive function"},
+				{Token::onBounce, "onBounce function"},
 			}.at(m_scanner->currentToken());
 			name = make_shared<ASTString>(TokenTraits::toString(m_scanner->currentToken()));
 			string message{
@@ -625,7 +628,7 @@ ASTPointer<ASTNode> Parser::parseFunctionDefinition()
 	}
 	else
 	{
-		solAssert(kind == Token::Constructor || kind == Token::Fallback || kind == Token::Receive, "");
+		solAssert(kind == Token::Constructor || kind == Token::Fallback || kind == Token::onBounce || kind == Token::Receive, "");
 		m_scanner->next();
 		name = make_shared<ASTString>();
 	}
@@ -641,9 +644,9 @@ ASTPointer<ASTNode> Parser::parseFunctionDefinition()
 	}
 	else
 		m_scanner->next(); // just consume the ';'
-	
+
 	m_insideFunctionDefenition = false;
-	
+
 	return nodeFactory.createNode<FunctionDefinition>(
 		name,
 		header.visibility,
@@ -835,18 +838,18 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 			m_scanner->next();
 			value = parseExpression();
 			nodeFactory.setEndPositionFromNode(value);
-		} 
+		}
 	}
-	
+
 	auto elemType = dynamic_cast<ElementaryTypeName * >(type.get());
-	
+
 	auto structType = dynamic_cast<UserDefinedTypeName * >(type.get());
 	if ((location == VariableDeclaration::Location::Unspecified) && m_insideFunctionDefenition &&
-		 (dynamic_cast<Mapping * >(type.get()) || (structType) || 
+		 (dynamic_cast<Mapping * >(type.get()) || (structType) ||
 		  (elemType && (elemType->typeName().toString() == "string" || elemType->typeName().toString() == "bytes")) ||
 		  dynamic_cast<ArrayTypeName * >(type.get())))
 		location = VariableDeclaration::Location::Memory;
-	
+
 	return nodeFactory.createNode<VariableDeclaration>(
 		type,
 		identifier,

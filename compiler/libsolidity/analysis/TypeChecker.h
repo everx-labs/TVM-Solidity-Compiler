@@ -101,6 +101,7 @@ private:
 	void typeCheckFallbackFunction(FunctionDefinition const& _function);
 	void typeCheckReceiveFunction(FunctionDefinition const& _function);
 	void typeCheckConstructor(FunctionDefinition const& _function);
+	void typeCheckOnBounce(FunctionDefinition const& _function);
 
 	/// Performs general number and type checks of arguments against function call and struct ctor FunctionCall node parameters.
 	void typeCheckFunctionGeneralChecks(
@@ -113,6 +114,8 @@ private:
 		FunctionCall const& _functionCall,
 		FunctionTypePointer _functionType
 	);
+
+	FunctionDefinition const* isArgumentAPublicFunction(FunctionCall const& _functionCall);
 
 	void endVisit(InheritanceSpecifier const& _inheritance) override;
 	void endVisit(UsingForDirective const& _usingFor) override;

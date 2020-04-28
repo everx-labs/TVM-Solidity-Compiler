@@ -753,7 +753,8 @@ public:
 		m_functionID(_functionID),
 		m_isInline(_isInline)
 	{
-		solAssert(_kind == Token::Constructor || _kind == Token::Function || _kind == Token::Fallback || _kind == Token::Receive, "");
+		solAssert(_kind == Token::Constructor || _kind == Token::Function ||
+					_kind == Token::Fallback || _kind == Token::Receive || _kind == Token::onBounce, "");
 	}
 
 	void accept(ASTVisitor& _visitor) override;
@@ -763,6 +764,7 @@ public:
 	bool isOrdinary() const { return m_kind == Token::Function; }
 	bool isConstructor() const { return m_kind == Token::Constructor; }
 	bool isFallback() const { return m_kind == Token::Fallback; }
+	bool isOnBounce() const { return m_kind == Token::onBounce; }
 	bool isReceive() const { return m_kind == Token::Receive; }
 	Token kind() const { return m_kind; }
 	bool isPayable() const { return m_stateMutability == StateMutability::Payable; }

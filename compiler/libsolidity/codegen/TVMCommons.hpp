@@ -54,8 +54,8 @@ constexpr bool isIn(T v, Args... args) {
 	return (... || (v == (args)));
 }
 
-constexpr unsigned int str2int(const char* str, int h = 0) {
-	return !str[h] ? 5381 : (str2int(str, h+1) * 33) ^ str[h];
+constexpr uint64_t str2int(const char* str, int i = 0) {
+	return !str[i] ? 5381 : (str2int(str, i+1) * 33) ^ str[i];
 }
 
 template <typename T, typename TT>
@@ -78,62 +78,61 @@ struct ContInfo {
 	bool alwaysContinue = false;
 	ContInfo() = default;
 
-	bool doThatAlways() {
+	bool doThatAlways() const {
 		return alwaysReturns || alwaysBreak || alwaysContinue;
 	}
 };
 
-class TVMScanner: public ASTConstVisitor
+class ContactsUsageScanner: public ASTConstVisitor
 {
 public:
-	explicit TVMScanner(const ASTNode& node) {
-		node.accept(*this);
-		solAssert(m_loopDepth == 0, "");
-	}
-
-protected:
-	bool visit(WhileStatement const&) override {
-		m_loopDepth++;
-		return true;
-	}
-
-	void endVisit(WhileStatement const&) override {
-		m_loopDepth--;
-	}
-
-	bool visit(ForStatement const&) override {
-		m_loopDepth++;
-		return true;
-	}
-
-	void endVisit(ForStatement const&) override {
-		m_loopDepth--;
-	}
-
-	void endVisit(Return const&) override {
-		m_info.canReturn = true;
-	}
-
-	void endVisit(Break const&) override {
-		if (m_loopDepth == 0)
-			m_info.canBreak = true;
-	}
-
-	void endVisit(Continue const&) override {
-		if (m_loopDepth == 0)
-			m_info.canContinue = true;
+	explicit ContactsUsageScanner(ContractDefinition const& cd) {
+		for (ContractDefinition const* base : cd.annotation().linearizedBaseContracts) {
+			base->accept(*this);
+		}
 	}
 
 	bool visit(FunctionCall const& _functionCall) override {
 		auto ma = to<MemberAccess>(&_functionCall.expression());
-        if (ma && ma->memberName() == "pubkey" && ma->expression().annotation().type->category() == Type::Category::Magic) {
-	        auto expr = to<Identifier>(&ma->expression());
-	        if (expr && expr->name() == "msg") {
-		        haveMsgPubkey = true;
-	        }
-        }
+		if (ma && ma->memberName() == "pubkey" && ma->expression().annotation().type->category() == Type::Category::Magic) {
+			auto expr = to<Identifier>(&ma->expression());
+			if (expr && expr->name() == "msg") {
+				haveMsgPubkey = true;
+			}
+		}
+		if (ma && ma->memberName() == "setExtDestAddr" && ma->expression().annotation().type->category() == Type::Category::Magic) {
+			auto expr = to<Identifier>(&ma->expression());
+			if (expr && expr->name() == "tvm") {
+				haveSetExtDesdAddr = true;
+			}
+		}
+		return true;
+	}
+
+	bool visit(MemberAccess const &_node) override {
+		if (_node.expression().annotation().type->category() == Type::Category::Magic) {
+			auto identifier = to<Identifier>(&_node.expression());
+			if (identifier && identifier->name() == "msg" && _node.memberName() == "sender") {
+				haveMsgSender = true;
+			}
+		}
+		return true;
+	}
+
+	bool haveMsgPubkey{};
+	bool haveMsgSender{};
+	bool haveSetExtDesdAddr{};
+};
 
 
+class FunctionUsageScanner: public ASTConstVisitor
+{
+public:
+	explicit FunctionUsageScanner(const ASTNode& node) {
+		node.accept(*this);
+	}
+
+	bool visit(FunctionCall const& _functionCall) override {
 		auto identifier = to<Identifier>(&_functionCall.expression());
 		if (identifier) {
 			auto functionDefinition = to<FunctionDefinition>(identifier->annotation().referencedDeclaration);
@@ -145,13 +144,7 @@ protected:
 		return true;
 	}
 
-private:
-	int m_loopDepth = 0;
-
-public:
-	ContInfo m_info;
-	bool haveMsgPubkey = false;
-	bool havePrivateFunctionCall = false;
+	bool havePrivateFunctionCall{};
 };
 
 template <typename T>
@@ -191,13 +184,13 @@ static bool doesAlways(const Statement* st) {
 	return false;
 }
 
-ContInfo getInfo(const Statement& statement);
-
 bool isAddressOrContractType(const Type* type);
 
 bool isUsualArray(const Type* type);
 
 bool isByteArrayOrString(const Type* type);
+
+bool isString(const Type* type);
 
 struct AddressInfo {
 
