@@ -34,7 +34,7 @@ void TVMABI::generateABI(ContractDefinition const *contract, const vector<Contra
 	for (auto c : m_allContracts) {
 		for (const auto &_function : c->definedFunctions()) {
 			if (_function->isPublic() && !isTvmIntrinsic(_function->name()) && !_function->isConstructor() &&
-			    !_function->isReceive() && !_function->isFallback())
+			    !_function->isReceive() && !_function->isFallback() && !_function->isOnBounce())
 				publicFunctions.push_back(_function);
 		}
 	}
@@ -476,7 +476,7 @@ int DecodeFunctionParams::minBits() {
 
 void DecodeFunctionParams::decodeParameters(const ast_vec<VariableDeclaration> &params) {
 	// slice are on stack
-	solAssert(pusher->getStack().size() == 1, "");
+	solAssert(pusher->getStack().size() >= 1, "");
 
 	std::unique_ptr<DecodePosition> position;
 	switch (pusher->ctx().pragmaHelper().abiVersion()) {
@@ -500,7 +500,7 @@ void DecodeFunctionParams::decodeParameters(const ast_vec<VariableDeclaration> &
 	}
 	pusher->push(-1, "ENDS"); // only ENDS
 
-	solAssert(static_cast<int>(params.size()) == pusher->getStack().size(), "");
+	solAssert(static_cast<int>(params.size()) <= pusher->getStack().size(), "");
 }
 
 void DecodeFunctionParams::loadNextSlice() {

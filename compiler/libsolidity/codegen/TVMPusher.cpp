@@ -197,6 +197,10 @@ void StackPusherHelper::tryPollLastRetOpcode() {
 	}
 }
 
+void StackPusherHelper::pollLastOpcode() {
+	m_code.lines.pop_back();
+}
+
 void StackPusherHelper::append(const CodeLines &oth) {
 	m_code.append(oth);
 }
@@ -550,6 +554,10 @@ void StackPusherHelper::blockSwap(int m, int n) {
 	}
 	if (m == 1 && n == 1) {
 		exchange(0, 1);
+	} else if (m == 1 && n == 2) {
+		push(0, "ROT");
+	} else if (m == 2 && n == 1) {
+		push(0, "ROTREV");
 	} else if (m == 2 && n == 2) {
 		push(0, "SWAP2");
 	} else {
@@ -583,10 +591,10 @@ void StackPusherHelper::dropUnder(int leftCount, int droppedCount) {
 			pushInt(droppedCount);
 			pushInt(leftCount);
 			push(-2, "BLKSWX");
+			drop(droppedCount);
 		} else {
-			blockSwap(droppedCount, leftCount);
+			push(-droppedCount, "BLKDROP2 " + toString(droppedCount) + ", " + toString(leftCount));
 		}
-		drop(droppedCount);
 	};
 
 	if (droppedCount == 0) {
@@ -771,7 +779,6 @@ int StackPusherHelper::encodeFunctionAndParams(const string &functionName, const
                                                 const std::vector<ASTNode const *> &nodes,
                                                 const std::function<void(size_t)> &pushParam,
                                                 const StackPusherHelper::ReasonOfOutboundMessage &reason) {
-	push(+1, "NEWC");
 	push(+1, "PUSHINT $" + functionName + "$");
 	switch (reason) {
 		case ReasonOfOutboundMessage::FunctionReturnExternal:
@@ -787,8 +794,8 @@ int StackPusherHelper::encodeFunctionAndParams(const string &functionName, const
 		default:
 			break;
 	}
-
-	push(-1, "STUR 32");
+	push(+1, "NEWC");
+	push(-1, "STU 32");
 	EncodePosition position{32};
 
 	encodeParameters(types, nodes, pushParam, position);
@@ -863,6 +870,35 @@ StackPusherHelper::int_msg_info(const std::set<int> &isParamOnStack, const std::
 	return {bitString, maxBitStringSize};
 }
 
+std::pair<std::string, int>
+StackPusherHelper::ext_msg_info(const set<int> &isParamOnStack) {
+	// ext_out_msg_info$11 src:MsgAddressInt dest:MsgAddressExt
+	// created_lt:uint64 created_at:uint32 = CommonMsgInfo;
+
+	const std::vector<int> zeroes {2, 2,
+	                               64, 32};
+	std::string bitString = "11";
+	int maxBitStringSize = 0;
+	push(+1, "NEWC");
+	for (int param = 0; param < static_cast<int>(zeroes.size()); ++param) {
+		if (isParamOnStack.count(param) == 0) {
+			bitString += std::string(zeroes[param], '0');
+		} else {
+			appendToBuilder(bitString);
+			bitString = "";
+			if (param == TvmConst::ext_msg_info::dest) {
+				push(-1, "STSLICE");
+				maxBitStringSize += AddressInfo::maxBitLength();
+			} else {
+				solAssert(false, "");
+			}
+		}
+	}
+	maxBitStringSize += bitString.size();
+	return {bitString, maxBitStringSize};
+}
+
+
 void StackPusherHelper::appendToBuilder(const std::string &bitString) {
 	// stack: builder
 	if (bitString.empty()) {
@@ -912,18 +948,33 @@ void StackPusherHelper::sendrawmsg() {
 }
 
 void StackPusherHelper::sendIntMsg(const std::map<int, Expression const *> &exprs,
-                                   const std::map<int, std::string> &constParams, const std::function<int()> &pushBody,
+                                   const std::map<int, std::string> &constParams,
+                                   const std::function<int()> &pushBody,
                                    const std::function<void()> &pushSendrawmsgFlag) {
 	std::set<int> isParamOnStack;
 	for (auto &[param, expr] : exprs | boost::adaptors::reversed) {
 		isParamOnStack.insert(param);
 		TVMExpressionCompiler{*this}.compileNewExpr(expr);
 	}
-	auto [biString, builderSize] = int_msg_info(isParamOnStack, constParams);
+	sendMsg(isParamOnStack, constParams, pushBody, pushSendrawmsgFlag, true);
+}
+
+void StackPusherHelper::sendMsg(const std::set<int>& isParamOnStack,
+                                const std::map<int, std::string> &constParams,
+                                const std::function<int()> &pushBody,
+                                const std::function<void()> &pushSendrawmsgFlag,
+                                bool isInternalMessage ) {
+	std::string bitString;
+	int builderSize;
+	if (isInternalMessage) {
+		std::tie(bitString, builderSize) = int_msg_info(isParamOnStack, constParams);
+	} else {
+		std::tie(bitString, builderSize) = ext_msg_info(isParamOnStack);
+	}
 	// stack: builder
 
 	if (pushBody) {
-		appendToBuilder(biString + "0"); // there is no StateInit
+		appendToBuilder(bitString + "0"); // there is no StateInit
 		++builderSize;
 
 		int bodySize = pushBody();
@@ -957,7 +1008,7 @@ IFELSE
 			push(-1, "STBREF");
 		}
 	} else {
-		appendToBuilder(biString + "00"); // there is no StateInit and no body
+		appendToBuilder(bitString + "00"); // there is no StateInit and no body
 	}
 
 	// stack: builder'
@@ -971,7 +1022,7 @@ IFELSE
 }
 
 CodeLines solidity::frontend::switchSelectorIfNeed(FunctionDefinition const *f) {
-	TVMScanner scanner{*f};
+	FunctionUsageScanner scanner{*f};
 	CodeLines code;
 	if (scanner.havePrivateFunctionCall) {
 		code.push("PUSHINT 1");
@@ -1089,13 +1140,20 @@ void TVMCompilerContext::initMembers(ContractDefinition const *contract) {
 		m_function2contract.insert(pair);
 	}
 
-	for (FunctionDefinition const* f : contract->definedFunctions()) {
-		ignoreIntOverflow |= f->name() == "tvm_ignore_integer_overflow";
-		m_haveSetDestAddr |=  f->name() == "tvm_set_ext_dest_address";
-		haveFallback |= f->isFallback();
-		haveOnBounce |= f->name() == "onBounce";
-		haveReceive  |= f->isReceive();
+	for (ContractDefinition const* base : contract->annotation().linearizedBaseContracts) {
+		for (FunctionDefinition const* f : base->definedFunctions()) {
+			ignoreIntOverflow |= f->name() == "tvm_ignore_integer_overflow"; // delete check override, check pragma
+			m_haveSetDestAddr |=
+					f->name() == "tvm_set_ext_dest_address"; // delete check override, check tvm.set_ext_dest_address
+			haveFallback |= f->isFallback();
+			haveOnBounce |= f->isOnBounce();
+			haveReceive |= f->isReceive();
+		}
 	}
+
+	ContactsUsageScanner sc{*contract};
+	m_haveSetDestAddr |= sc.haveSetExtDesdAddr;
+
 	ignoreIntOverflow |= m_pragmaHelper.haveIgnoreIntOverflow();
 	for (const auto f : getContractFunctions(contract)) {
 		if (isPureFunction(f))
@@ -1600,3 +1658,5 @@ void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, 
 		cast_error(node, "Unsupported value type: " + valueType.toString());
 	}
 }
+
+

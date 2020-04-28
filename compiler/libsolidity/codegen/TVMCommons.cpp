@@ -36,6 +36,9 @@ std::string functionName(FunctionDefinition const *_function) {
 	if (_function->isFallback()) {
 		return "fallback";
 	}
+	if (_function->isOnBounce()) {
+		return "onBounce";
+	}
 	return _function->name();
 }
 
@@ -83,7 +86,7 @@ vector<FunctionDefinition const *> getContractFunctions(ContractDefinition const
 		(void)contractDefinition;	// suppress unused variable error
 		if (functionDefinition->isConstructor())
 			continue;
-		const std::string funName = functionName(functionDefinition); // for fallback and recieve name is empty
+		const std::string funName = functionName(functionDefinition); // for fallback and receive name is empty
 		if (isTvmIntrinsic(funName))
 			continue;
 		// TODO: not needed check?
@@ -98,15 +101,6 @@ const Type *getType(const VariableDeclaration *var) {
 	return var->annotation().type;
 }
 
-ContInfo getInfo(const Statement &statement) {
-	TVMScanner scanner(statement);
-	ContInfo info = scanner.m_info;
-	info.alwaysReturns = doesAlways<Return>(&statement);
-	info.alwaysContinue = doesAlways<Continue>(&statement);
-	info.alwaysBreak = doesAlways<Break>(&statement);
-	return info;
-}
-
 bool isAddressOrContractType(const Type *type) {
 	return to<AddressType>(type) || to<ContractType>(type);
 }
@@ -119,6 +113,11 @@ bool isUsualArray(const Type *type) {
 bool isByteArrayOrString(const Type *type) {
 	auto arrayType = to<ArrayType>(type);
 	return arrayType && arrayType->isByteArray();
+}
+
+bool isString(const Type *type) {
+	auto arrayType = to<ArrayType>(type);
+	return type->category() == Type::Category::StringLiteral || (arrayType && arrayType->isString());
 }
 
 int bitsForEnum(size_t val_count) {
@@ -139,7 +138,7 @@ bool isTvmIntrinsic(const string &name) {
 }
 
 bool isFunctionForInlining(FunctionDefinition const *f) {
-	return ends_with(f->name(), "_inline") || f->isInline() || f->isFallback() || f->isReceive() || f->name() == "onBounce";
+	return ends_with(f->name(), "_inline") || f->isInline() || f->isFallback() || f->isReceive() || f->isOnBounce();
 }
 
 const Type *getType(const Expression *expr) {

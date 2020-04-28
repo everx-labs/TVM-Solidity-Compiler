@@ -17,6 +17,7 @@
  */
 
 #include <boost/algorithm/string/replace.hpp>
+#include <boost/range/adaptor/map.hpp>
 
 #include "TVMABI.hpp"
 #include "TVMContractCompiler.hpp"
@@ -78,14 +79,9 @@ IF
 	m_pusher.pushLines(R"(
 ;; constructor protection
 GETGLOB 6
-PUSHCONT {
-	THROW 51
-}
-PUSHCONT {
-	PUSHINT 1
-	SETGLOB 6
-}
-IFELSE
+THROWIF 51
+PUSHINT 1
+SETGLOB 6
 ;; end constructor protection
 )");
 
@@ -252,7 +248,7 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 	TVMCompilerContext ctx(contract, pragmaHelper);
 	CodeLines code;
 
-	fillInlinedFunctions(ctx, contract);
+	fillInlineFunctions(ctx, contract);
 
 	// generate global constructor which inlines all contract constructors
 	if (!ctx.isStdlib()) {
@@ -266,7 +262,7 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 		ctx.m_currentFunction = _function;
 		solAssert(!ctx.isPureFunction(_function), "");
 		if (_function->isConstructor() || _function->isReceive() || _function->isFallback() ||
-		    _function->name() == "onBounce") {
+			_function->isOnBounce()) {
 			continue;
 		} else if (_function->visibility() == Visibility::TvmGetter) {
 			StackPusherHelper pusher{&ctx};
@@ -355,40 +351,47 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 	return code;
 }
 
-void TVMContractCompiler::fillInlinedFunctions(TVMCompilerContext &ctx, ContractDefinition const *contract) {
+void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractDefinition const *contract) {
+	std::map<std::string, FunctionDefinition const*> inlineFunctions;
 	TVMInlineFunctionChecker inlineFunctionChecker;
-	for (FunctionDefinition const* _function : getContractFunctions(contract)) {
-		if (isFunctionForInlining(_function)) {
-			_function->accept(inlineFunctionChecker);
+	for (ContractDefinition const* base : contract->annotation().linearizedBaseContracts | boost::adaptors::reversed) {
+		for (FunctionDefinition const* function : base->definedFunctions()) {
+			if (isFunctionForInlining(function)) {
+				inlineFunctions[functionName(function)] = function;
+			}
 		}
 	}
+	for (FunctionDefinition const* function : inlineFunctions | boost::adaptors::map_values) {
+		function->accept(inlineFunctionChecker);
+	}
+
 	std::vector<FunctionDefinition const*> order = inlineFunctionChecker.functionOrder();
 
-	for (const auto& _function : order) {
-		std::string fname = functionName(_function);
+	for (const auto& function : order) {
+		std::string fname = functionName(function);
 		CodeLines code;
 		CodeLines codeWithout;
 		bool isFunctionForMainInternal =
-				_function->isReceive() || _function->isFallback() || _function->name() == "onBounce";
+				function->isReceive() || function->isFallback() || function->isOnBounce();
 
-		if (!_function->body().statements().empty() || !_function->modifiers().empty()) {
+		if (!function->body().statements().empty() || !function->modifiers().empty()) {
 			if (isFunctionForMainInternal) {
-				code.append(switchSelectorIfNeed(_function));
-				if (_function->stateMutability() >= StateMutability::NonPayable) {
+				code.append(switchSelectorIfNeed(function));
+				if (function->stateMutability() >= StateMutability::NonPayable) {
 					code.push("CALL $c4_to_c7$");
 					codeWithout.push("CALL $c4_to_c7$");
 				}
 			}
 
-			ctx.m_currentFunction = _function;
+			ctx.m_currentFunction = function;
 			StackPusherHelper pusher{&ctx};
-			TVMFunctionCompiler compiler{pusher, false, 0, _function, 0};
+			TVMFunctionCompiler compiler{pusher, false, 0, function, 0};
 			compiler.makeInlineFunctionCall(true);
 			code.append(pusher.code());
 			codeWithout.append(pusher.code());
 
 			if (isFunctionForMainInternal) {
-				if (_function->stateMutability() >= StateMutability::NonPayable) {
+				if (function->stateMutability() >= StateMutability::NonPayable) {
 					code.push("CALL $c7_to_c4$");
 					codeWithout.push("CALL $c7_to_c4$");
 				}

@@ -41,10 +41,10 @@ public:
 	explicit TVMExpressionCompiler(StackPusherHelper &pusher);
 	void compileNewExpr(const Expression* expr);
 	void acceptExpr2(const Expression* expr, const bool _isResultNeeded);
+	static bool isLiteral(Expression const& _e);
 
 protected:
 	void acceptExpr(const Expression* expr);
-	static bool isLiteral(Expression const& _e);
 	bool isCurrentResultNeeded();
 	void visitStringLiteralAbiV1(Literal const& _node);
 	void visitStringLiteralAbiV2(Literal const& _node);
@@ -59,7 +59,7 @@ protected:
 	void compileUnaryDelete(UnaryOperation const& node);
 	void visit2(UnaryOperation const& _node);
 	static bool argumentsIsGoodForFixedBytes(Type const* a, Type const* b);
-	static string compareAddresses(Token op);
+	void compareAddresses(Token op);
 	bool tryOptimizeBinaryOperation(BinaryOperation const& _node);
 	static std::vector<Expression const*> unroll(BinaryOperation const&  _node);
 	void visit2(BinaryOperation const& _node);
@@ -75,7 +75,7 @@ protected:
 	bool checkAbiMethodCall(FunctionCall const& _functionCall);
 
 public:
-	void encodeOutboundMessageBody2(
+	int encodeOutboundMessageBody2(
 			const string& name,
 			const ast_vec<Expression const>&	arguments,
 			const ast_vec<VariableDeclaration>&	parameters,

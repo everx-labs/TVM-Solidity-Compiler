@@ -87,6 +87,7 @@ struct TVMOptimizer {
 		int fetch_second_int() const {
 			size_t i = rest_.find(',');
 			solAssert(i != string::npos, "");
+			i++;
 			while (i < rest_.size() && is_space(rest_[i]))
 				i++;
 			solAssert(i != rest_.size(), "");
@@ -105,6 +106,19 @@ struct TVMOptimizer {
 			if (is("BLKDROP"))
 				return fetch_int();
 			return 0;
+		}
+
+		int sumBLKSWAP() {
+			if (is("ROT") || is("ROTREV")) {
+				return 3;
+			}
+			if (is("SWAP2")) {
+				return 4;
+			}
+			if (is("BLKSWAP")) {
+				return fetch_first_int() + fetch_second_int();
+			}
+			solAssert(false, "");
 		}
 
 		int get_push_index() const {
@@ -153,6 +167,7 @@ struct TVMOptimizer {
 		bool is_PUSH() const 	{ 	return is("PUSH") || is("DUP"); 		}
 		bool is_PUSHINT() const { 	return is("PUSHINT"); 	}
 		bool is_POP() const 	{ 	return is("POP"); 		}
+		bool isBLKSWAP() const  { return is("ROT") || is("ROTREV") || is("SWAP2") || is("BLKSWAP"); }
 
 		bool is_simple_command(int inp, int outp) const {
 			return is_simple_command_ &&
@@ -177,8 +192,8 @@ struct TVMOptimizer {
 
 		void analyze() {
 			static const set<string> s01 {
-				"PUSHINT", "GETGLOB", "PUSHSLICE", "TRUE", "FALSE", "ZERO",
-				"NEWC", "NEWDICT",
+				"PUSHINT", "GETGLOB", "PUSHSLICE", "TRUE", "FALSE", "ZERO", "NOW",
+				"NEWC", "NEWDICT"
 			};
 			static const set<string> s10 {
 				"DROP", "SETGLOB", "ENDS", "THROWIF", "THROWIFNOT"
@@ -186,12 +201,12 @@ struct TVMOptimizer {
 			static const set<string> s11 {
 				"FITS", "UFITS", "INC", "DEC", "EQINT", "NOT",
 				"SHA256U", "HASHCU", "HASHSU", "CTOS", "INDEX",
-				"FIRST", "SECOND", "THIRD", "PARSEMSGADDR", "SBITS"
+				"FIRST", "SECOND", "THIRD", "PARSEMSGADDR", "SBITS", "ENDC"
 			};
 			static const set<string> s21 {
 				"ADD", "MUL", "SUB", "SUBR", "DIV", "MOD",
-				"OR", "AND", "EQ", "LESS", "NEQ",
-				"SETINDEX", "PAIR", "PLDUX", "INDEXVAR"
+				"OR", "AND", "EQ", "LESS", "NEQ", "GREATER",
+				"SETINDEX", "PAIR", "PLDUX", "INDEXVAR", "STSLICE"
 			};
 			static const set<string> s32 {
 				"DICTUDEL", "DICTIDEL", "DICTDEL"
@@ -203,6 +218,10 @@ struct TVMOptimizer {
 			if (try_simple_command(s21, 2, 1)) return;
 			if (try_simple_command(s32, 3, 2)) return;
 
+			if (is("SWAP"))
+				return set_simple_command(2, 2);
+			if (is("ROT") || is("ROTREV"))
+				return set_simple_command(3, 3);
 			if (is("TUPLE"))
 				return set_simple_command(fetch_int(), 1);
 			if (is("UNTUPLE"))
@@ -263,11 +282,9 @@ struct TVMOptimizer {
 
 		}
 
-		static Result Replace(int remove, const string& cmd, const string& cmd2 = "") {
-			Result res(true, remove);
-			if (!cmd.empty())  res.commands_.push_back(cmd);
-			if (!cmd2.empty()) res.commands_.push_back(cmd2);
-			return res;
+		template <class ...Args>
+		static Result Replace(int remove, Args... cmds) {
+			return Result(true, remove, {cmds...});
 		}
 
 		static Result Comment(const string& cmd) {
@@ -291,8 +308,9 @@ struct TVMOptimizer {
 		if (cmd1.is_SWAP()) {
 			if (cmd2.is_SUB())		return Result::Replace(2, "SUBR");
 			if (cmd2.is("SUBR"))	return Result::Replace(2, "SUB");
-			if (cmd2.is_SWAP())	return Result::Replace(2, "");
-			if (cmd2.is_commutative())	return Result::Replace(1, "");
+			if (cmd2.is_SWAP())		return Result::Replace(2);
+			if (cmd2.is_NIP())		return Result::Replace(2, "DROP");
+			if (cmd2.is_commutative())	return Result::Replace(1);
 		}
 		if (cmd1.is_PUSHINT() && cmd3.is_PUSHINT()) {
 			// TODO: consider INC/DEC as well
@@ -317,18 +335,18 @@ struct TVMOptimizer {
 				if (cmd2.is_SUB()) return Result::Replace(2, "ADDCONST " + std::to_string(-value));
 			}
 		}
-		if (cmd1.is("RET")) {
-			// delete commands after RET
-			if (cmd2.prefix_ == cmd1.prefix_)
-				return Result::Replace(2, "RET");
+		if (cmd1.is("RET") || cmd1.is("THROWANY") || cmd1.is("THROW")) {
+			// delete commands after noreturn opcode
+			if (cmd2.prefix_ == cmd1.prefix_ &&  !cmd2.cmd_.empty())
+				return Result::Replace(2, cmd1.without_prefix());
 		}
 		if (cmd1.is("RET") && cmd2.is("}")) {
 			return Result::Replace(2, "}");
 		}
 		if (cmd2.is_NIP() && cmd3.is_NIP()) {
-			if (cmd1.is_PUSH() && cmd1.get_push_index() == 1) {
-				return Result::Replace(3, "DROP");
-			}
+			// if (cmd1.is_PUSH() && cmd1.get_push_index() == 1) {
+				// return Result::Replace(3, "DROP");
+			// }
 			if (cmd1.is_PUSHINT() || cmd1.is("GETGLOB")) {
 				return Result::Replace(3, "DROP2", cmd1.without_prefix());
 			}
@@ -343,9 +361,12 @@ struct TVMOptimizer {
 			if (n > 15) n = 15;
 			return Result::Replace(n, "BLKSWAP " + toString(n) + ", 1", "BLKDROP " + toString(n));
 		}
-		if (cmd1.is_PUSH() && cmd2.is_PUSH()) {
-			if (cmd4.is_NIP() && cmd5.is_NIP())
-				return Result::Comment(";;;;;;;;;;;;;; PUSH+PUSH+NIP+NIP ");
+		if (cmd1.is_POP() && cmd1.get_pop_index() == 2 && cmd2.is_SWAP()) {
+			// TODO: generalize these cases...
+			if (cmd3.is_simple_command(1, 0))
+				return Result::Replace(3, cmd3.without_prefix(), "NIP");
+			if (cmd3.is_simple_command(1, 1) && cmd4.is_simple_command(1, 0))
+				return Result::Replace(4, cmd3.without_prefix(), cmd4.without_prefix(), "NIP");
 		}
 		if (cmd1.is_PUSHINT() && cmd2.is_PUSHINT() && cmd3.is_PUSHINT()) {
 			int i = idx1, n = 0;
@@ -363,6 +384,9 @@ struct TVMOptimizer {
 				}
 				return res;
 			}
+		}
+		if (cmd1.is_PUSH() && cmd1.get_push_index() == 0 && cmd2.is_SWAP()) {
+			return Result::Replace(2, cmd1.without_prefix());
 		}
 		if (cmd3.is_SWAP()) {
 			bool ok1 = cmd1.is_simple_command(0, 1) || cmd1.is_PUSH();
@@ -388,7 +412,7 @@ struct TVMOptimizer {
 		}
 		if ((cmd1.is_PUSH() || cmd1.is_PUSHINT()) && cmd2.is_drop_kind()) {
 			if (cmd2.is_DROP()) {
-				return Result::Replace(2, "");
+				return Result::Replace(2);
 			} else {
 				return Result::Replace(2, make_DROP(cmd2.get_drop_index()-1));
 			}
@@ -396,7 +420,7 @@ struct TVMOptimizer {
 		if (cmd1.is("BLKPUSH") && cmd2.is_drop_kind()) {
 			int diff = cmd1.fetch_first_int() - cmd2.get_drop_index();
 			if (diff == 0)
-				return Result::Replace(2, "");
+				return Result::Replace(2);
 			if (diff < 0)
 				return Result::Replace(2, make_DROP(-diff));
 			else
@@ -405,11 +429,20 @@ struct TVMOptimizer {
 		if (cmd1.is_simple_command_ && cmd1.outputs_count_ == 1 && cmd2.is_drop_kind()) {
 			int q = cmd1.inputs_count_ + cmd2.get_drop_index() - 1;
 			solAssert(q >= 0, "");
-			if (q == 0) return Result::Replace(2, "");
+			if (q == 0) return Result::Replace(2);
 			return Result::Replace(2, make_DROP(q));
 		}
 		if (cmd1.is_simple_command_ && cmd1.inputs_count_ == 0 && cmd1.outputs_count_ == 1 && cmd2.is_NIP()) {
 			return Result::Replace(2, make_DROP(1), cmd1.without_prefix());
+		}
+		if (cmd1.is_NIP() && cmd2.is_drop_kind()) {
+			return Result::Replace(2, make_DROP(1 + cmd2.get_drop_index()));
+		}
+		if (cmd1.isBLKSWAP() && cmd2.is_drop_kind()) {
+			int n1 = cmd1.sumBLKSWAP();
+			int n2 = cmd2.get_drop_index();
+			if (n2 >= n1)
+				return Result::Replace(2, cmd2.without_prefix());
 		}
 		if (cmd1.is_drop_kind() && cmd2.is_drop_kind()) {
 			int i = idx1, n = 0, total = 0;
@@ -423,144 +456,178 @@ struct TVMOptimizer {
 				return Result::Replace(n, make_DROP(total));
 			}
 		}
-		if ((cmd1.is_PUSH() && cmd1.get_push_index() <= 1) || cmd1.is_simple_command(0, 1)) {
-			vector<int> lines;
-			bool ok = true;
-			int i = idx1, stack_size = 2;
-			while (ok) {
-				lines.push_back(i);
-				i = next_command_line(i);
-				if (!valid(i)) {
-					ok = false;
-					break;
-				}
-				Cmd c = cmd(i);
-				// DBG(c.without_prefix() << " - " << stack_size);
-				if (c.is_PUSH()) {
-					if (c.get_push_index() + 1 == stack_size) {
-						ok = false;
-						break;
-					}
-					stack_size++;
-					continue;
-				}
-				if (c.is_POP()) {
-					if (c.get_pop_index() + 1 == stack_size) {
-						ok = false;
-						break;
-					}
-					stack_size--;
-					continue;
-				}
-				if (c.is("BLKPUSH")) {
-					if (c.fetch_second_int() + 1 < stack_size) {
-						stack_size += c.fetch_first_int();
-						continue;
-					}
-					ok = false;
-					break;
-				}
-				if (c.is_NIP()) {
-					if (stack_size == 2) {
-						lines.push_back(i);
-						break;
-					}
-					if (stack_size > 2) {
-						stack_size--;
-						continue;
-					}
-					ok = false;
-					break;
-				}
-				if (c.is_DROP()) {
-					if (stack_size == 1) {
-						lines.push_back(i);
-						break;
-					}
-					if (stack_size > 1) {
-						stack_size--;
-						continue;
-					}
-					ok = false;
-					break;
-				}
-				if (c.is_simple_command_) {
-					if (stack_size <= c.inputs_count_) {
-						ok = false;
-						break;
-					}
-					stack_size += c.outputs_count_ - c.inputs_count_;
-					continue;
-				}
-				ok = false;
-			}
-			if (ok) {
-				vector<string> commands;
-				stack_size = 2;
-				for (size_t ii = 0; ii < lines.size(); ii++) {
-					auto c = cmd(lines[ii]);
-					if (ii == 0) {
-						if (c.is_PUSH())
-							if (c.get_push_index() == 1) {
-								commands.emplace_back("DROP");
-								commands.emplace_back("DUP");
-							}
-						if (c.is_simple_command(0, 1)) {
-							commands.emplace_back("DROP");
-							commands.emplace_back(c.without_prefix());
-						}
-						continue;
-					}
-					if (ii + 1 == lines.size())
-						continue;
-					// DBG(c.without_prefix() << " - " << stack_size);
-					if (c.is_PUSH()) {
-						if (c.get_push_index() + 1 < stack_size) {
-							commands.push_back(c.without_prefix());
-						} else if (c.get_push_index() + 1 > stack_size) {
-							commands.push_back(make_PUSH(c.get_push_index()-1));
-						} else {
-							solAssert(false, "");
-						}
-						stack_size++;
-						continue;
-					}
-					if (c.is_POP()) {
-						if (c.get_pop_index() + 1 < stack_size) {
-							commands.push_back(c.without_prefix());
-						} else if (c.get_pop_index() + 1 > stack_size) {
-							commands.push_back(make_POP(c.get_pop_index()-1));
-						} else {
-							solAssert(false, "");
-						}
-						stack_size--;
-						continue;
-					}
-					if (c.is("BLKPUSH")) {
-						solAssert(c.fetch_second_int() + 1 < stack_size, "");
-						commands.push_back(c.without_prefix());
-						stack_size += c.fetch_first_int();
-						continue;
-					}
-					if (c.is_simple_command_) {
-						solAssert(stack_size > c.inputs_count_, "");
-						stack_size += c.outputs_count_ - c.inputs_count_;
-						commands.push_back(c.without_prefix());
-						continue;
-					}
-					if (c.is_NIP()) {
-						solAssert(stack_size > 2, "");
-						stack_size--;
-						commands.push_back(c.without_prefix());
-						continue;
-					}
-					solAssert(false, "");
-				}
-				solAssert(stack_size == 2 || stack_size == 1, "");
-				return Result{true, static_cast<int>(lines.size()), commands};
-			}
+		if (cmd1.is_PUSH() && cmd1.get_push_index() == 0) {
+			// Try to remove unneeded DUP..NIP/DROP pair
+			vector<string> commands;
+			int lines_to_remove = 1;
+			if (try_simulate(idx2, 2, lines_to_remove, commands))
+				return Result{true, lines_to_remove, commands};
+		}
+		if (cmd1.is_PUSH() && cmd1.get_push_index() == 1) {
+			// Try to remove unneeded PUSH S1..NIP/DROP pair
+			vector<string> commands{"SWAP"};
+			int lines_to_remove = 1;
+			if (try_simulate(idx2, 3, lines_to_remove, commands))
+				return Result{true, lines_to_remove, commands};
+		}
+		if (cmd1.is_simple_command(0, 1)) {
+			// Try to remove unneeded PUSHINT..NIP/DROP pair
+			vector<string> commands;
+			int lines_to_remove = 1;
+			if (try_simulate(idx2, 1, lines_to_remove, commands))
+				return Result{true, lines_to_remove, commands};
+		}
+		if (cmd1.is_SWAP()) {
+			// Try to remove unneeded SWAP..NIP/DROP pair
+			vector<string> commands{"DROP"};
+			int lines_to_remove = 1;
+			if (try_simulate(idx2, 2, lines_to_remove, commands))
+				return Result{true, lines_to_remove, commands};
+		}
+		if (!cmd1.is_drop_kind()) {
+			// Check if topmost stack element can be dropped
+			vector<string> commands{"DROP"};
+			int lines_to_remove = 0;
+			if (try_simulate(idx1, 1, lines_to_remove, commands))
+				return Result{true, lines_to_remove, commands};
+		}
+		if (false && !cmd1.is_NIP()) {	// TODO: disabled because this makes things worse
+			// Check if second topmost stack element can be dropped
+			vector<string> commands{"NIP"};
+			int lines_to_remove = 0;
+			if (try_simulate(idx1, 2, lines_to_remove, commands))
+				return Result{true, lines_to_remove, commands};
+		}
+		if (cmd1.is("NEWC") && cmd2.is_simple_command(0, 1) &&
+			isIn(cmd3.cmd_, "STUR", "STIR", "STBR", "STBREFR", "STSLICER", "STREFR")) {
+			return Result::Replace(3,
+					cmd2.without_prefix(),
+					"NEWC",
+					cmd3.cmd_.substr(0, cmd3.cmd_.size() - 1) + " " + cmd3.rest());
+		}
+		if (cmd1.is("PUSHCONT") && cmd2.is("}") && (cmd3.is("IF") || cmd3.is("IFNOT"))) {
+			return Result::Replace(3, "DROP");
+		}
+		if (cmd1.is("PUSHCONT") && cmd2.is("}") && cmd3.is("IFJMP")) {
+			return Result::Replace(3, "IFRET");
+		}
+		if (cmd1.is("PUSHCONT") && cmd2.is("}") && cmd3.is("IFNOTJMP")) {
+			return Result::Replace(3, "IFNOTRET");
+		}
+		if (cmd1.is("PUSHCONT") &&
+			cmd2.is("THROW") &&
+			cmd3.is("}") &&
+			(cmd4.is("IF") || cmd4.is("IFJMP"))) {
+			return Result::Replace(4, "THROWIF " + cmd2.rest());
+		}
+		if (cmd1.is("PUSHCONT") &&
+		    cmd2.is("THROW") &&
+		    cmd3.is("}") &&
+		    (cmd4.is("IFNOT") || cmd4.is("IFNOTJMP"))) {
+			return Result::Replace(4, "THROWIFNOT " + cmd2.rest());
+		}
+		if (cmd1.is("GETGLOB") &&
+		    cmd2.is("ISNULL") &&
+		    cmd3.is("DROP")) {
+			return Result::Replace(3, "");
+		}
+		if ((cmd1.is("NOT") || (cmd1.is("EQINT") && cmd1.fetch_int() == 0)) &&
+		    cmd2.is("THROWIFNOT")) {
+			return Result::Replace(2, "THROWIF " + cmd2.rest());
+		}
+		if (cmd1.is("NEQINT") && cmd1.fetch_int() == 0 &&
+		    cmd2.is("THROWIFNOT")) {
+			return Result::Replace(2, "THROWIFNOT " + cmd2.rest());
 		}
 		return Result(false);
+	}
+
+	bool try_simulate(int i, int stack_size, int& remove_count, vector<string>& commands) const {
+		if (!valid(i))
+			return false;
+		bool first_time = true;
+		while (true) {
+			if (first_time) {
+				first_time = false;
+			} else {
+				remove_count++;
+				i = next_command_line(i);
+			}
+			if (!valid(i))
+				return false;
+			Cmd c = cmd(i);
+			// DBG(c.without_prefix() << " - " << stack_size);
+			if (c.is_PUSH()) {
+				if (c.get_push_index() + 1 == stack_size)
+					return false;
+				if (c.get_push_index() + 1 < stack_size) {
+					commands.push_back(c.without_prefix());
+				} else if (c.get_push_index() + 1 > stack_size) {
+					if (c.get_push_index() == 0)
+						return false;	// TODO: this should not happen...
+					commands.push_back(make_PUSH(c.get_push_index()-1));
+				}
+				stack_size++;
+				continue;
+			}
+			if (c.is_POP()) {
+				if (stack_size == 1)
+					return false;
+				if (c.get_pop_index() + 1 == stack_size)
+					return false;
+				if (c.get_pop_index() + 1 < stack_size) {
+					commands.push_back(c.without_prefix());
+				} else if (c.get_pop_index() + 1 > stack_size) {
+					commands.push_back(make_POP(c.get_pop_index()-1));
+				}
+				stack_size--;
+				continue;
+			}
+			if (c.is("BLKPUSH")) {
+				// check if the topmost element is not touched
+				if (c.fetch_second_int() + 1 < stack_size) {
+					commands.push_back(c.without_prefix());
+					stack_size += c.fetch_first_int();
+					continue;
+				}
+				// TODO: support other pushes not touching topmost element...
+				return false;
+			}
+			if (c.is_NIP()) {
+				if (stack_size == 2) {
+					remove_count++;
+					break;
+				}
+				if (stack_size > 2) {
+					stack_size--;
+					commands.push_back(c.without_prefix());
+					continue;
+				}
+				return false;
+			}
+			if (c.is_drop_kind()) {
+				int n = c.get_drop_index();
+				if (stack_size <= n) {
+					if (n > 1)
+						commands.push_back(make_DROP(n - 1));
+					remove_count++;
+					break;
+				} else {
+					commands.push_back(c.without_prefix());
+					stack_size -= n;
+					continue;
+				}
+			}
+			if (c.is_simple_command_) {
+				if (stack_size <= c.inputs_count_)
+					return false;
+				commands.push_back(c.without_prefix());
+				stack_size += c.outputs_count_ - c.inputs_count_;
+				continue;
+			}
+			return false;
+		}
+		return true;
 	}
 
 	Result unsquash_push(const int idx1) const {
@@ -590,11 +657,24 @@ struct TVMOptimizer {
 			}
 		}
 		if (cmd1.is_PUSH() && cmd2.is_PUSH()) {
+			if (cmd1.get_push_index() == 1 && cmd2.get_push_index() == 1) {
+				return Result::Replace(2, "DUP2");
+			}
 			const int si = cmd1.get_push_index();
 			const int sj = cmd2.get_push_index() - 1 == -1? si : cmd2.get_push_index() - 1;
 			if (si <= 15 && sj <= 15) {
 				const std::string newOpcode = (boost::format("PUSH2 S%d, S%d") % si % sj).str();
 				return Result::Replace(2, newOpcode);
+			}
+		}
+		if (cmd1.is("BLKPUSH")) {
+			if (cmd1.fetch_first_int() == 2 && cmd1.fetch_second_int() == 1) {
+				return Result::Replace(1, "DUP2");
+			}
+		}
+		if (cmd1.is("BLKPUSH")) {
+			if (cmd1.fetch_first_int() == 2 && cmd1.fetch_second_int() == 3) {
+				return Result::Replace(1, "OVER2");
 			}
 		}
 		return Result(false);
@@ -635,24 +715,40 @@ struct TVMOptimizer {
 		}
 
 		if (!res.commands_.empty()) {
-			int idx2 = next_command_line(idx1);
-			string pfx = Cmd(lines_[idx2]).prefix_;
+			string prefix = Cmd(lines_[idx1]).prefix_;
+			for (int i = idx1, iter = 0; iter < res.remove_; i = next_command_line(i), ++iter) {
+				string currentPrefix = Cmd(lines_[i]).prefix_;
+				if (prefix.size() > currentPrefix.size()) {
+					prefix = currentPrefix;
+				}
+			}
 
 			if (!linesToRemove.empty()) {
 				// We have removed something, so add replacement commands.
 				for (auto it = res.commands_.rbegin(); it != res.commands_.rend(); it++)
-					insert(linesToRemove.front() + 1, *it, pfx);
+					if (!it->empty()) {
+						insert(linesToRemove.front() + 1, *it, prefix);
+					}
 			} else {
 				// We add only a comment, check if it was not added before.
 				solAssert(res.commands_.size() == 1, "");
 				string cmd = res.commands_.front();
-				if (lines_[idx1] != pfx + cmd) {
-					if (lines_[idx1-1] != pfx + cmd) {
-						insert(idx1, cmd, pfx);
+				if (lines_[idx1] != prefix + cmd) {
+					if (lines_[idx1-1] != prefix + cmd) {
+						insert(idx1, cmd, prefix);
 						idx1++;
 					}
 				}
 			}
+		}
+
+		if (false && !linesToRemove.empty()) {
+			DBG("> Replacing");
+			for (auto it = linesToRemove.rbegin(); it != linesToRemove.rend(); it++)
+				DBG(lines_[*it]);
+			DBG("> with");
+			for (auto s : res.commands_)
+				DBG(s);
 		}
 
 		for (int l : linesToRemove) {

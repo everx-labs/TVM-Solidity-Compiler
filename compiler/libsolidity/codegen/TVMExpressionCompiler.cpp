@@ -103,7 +103,7 @@ void TVMExpressionCompiler::visitStringLiteralAbiV1(Literal const &_node) {
 			std::string slice;
 			for (int index = max(0, start); index < start + step; ++index) {
 				std::stringstream ss;
-				ss << std::hex << std::setfill('0') << std::setw(2) << static_cast<unsigned>(str.at(index));
+				ss << std::hex << std::setfill('0') << std::setw(2) << (static_cast<unsigned>(str.at(index)) & 0xFF);
 				slice += ss.str();
 			}
 			if (slice.size() > 124) { // there is bug in linker or in spec.
@@ -142,7 +142,7 @@ void TVMExpressionCompiler::visitStringLiteralAbiV2(Literal const &_node) {
 			for (int index = start; index < std::min(start + bytesInCell, stringLiteralLength); ++index) {
 				std::stringstream ss;
 				ss << std::hex << std::setfill('0') << std::setw(2)
-				   << static_cast<unsigned>(str.at(index));
+					<< (static_cast<unsigned>(str.at(index)) & 0xFF);
 				slice += ss.str();
 			}
 			if (slice.size() / 2 >= 126) {
@@ -399,20 +399,35 @@ bool TVMExpressionCompiler::argumentsIsGoodForFixedBytes(Type const *a, Type con
 	return to<FixedBytesType>(a)->storageBytes() == to<FixedBytesType>(b)->storageBytes();
 }
 
-string TVMExpressionCompiler::compareAddresses(Token op) {
-	if (op == Token::GreaterThan)
-		return "SDLEXCMP ISPOS";
-	if (op == Token::GreaterThanOrEqual)
-		return "SDLEXCMP ISNNEG";
-	if (op == Token::LessThan)
-		return "SDLEXCMP ISNEG";
-	if (op == Token::LessThanOrEqual)
-		return "SDLEXCMP ISNPOS";
-	if (op == Token::Equal)
-		return "SDEQ";
-	if (op == Token::NotEqual)
-		return "SDEQ NOT";
-	solAssert(false, "Wrong compare operation");
+void TVMExpressionCompiler::compareAddresses(Token op) {
+	switch(op) {
+		case Token::GreaterThan:
+			m_pusher.push(0, "SDLEXCMP");
+			m_pusher.push(0, "ISPOS");
+			break;
+		case Token::GreaterThanOrEqual:
+			m_pusher.push(0, "SDLEXCMP");
+			m_pusher.push(0, "ISNNEG");
+			break;
+		case Token::LessThan:
+			m_pusher.push(0, "SDLEXCMP");
+			m_pusher.push(0, "ISNEG");
+			break;
+		case Token::LessThanOrEqual:
+			m_pusher.push(0, "SDLEXCMP");
+			m_pusher.push(0, "ISNPOS");
+			break;
+		case Token::Equal:
+			m_pusher.push(0, "SDEQ");
+			break;
+		case  Token::NotEqual:
+			m_pusher.push(0, "SDEQ");
+			m_pusher.push(0, "NOT");
+			break;
+		default:
+			solAssert(false, "Wrong compare operation");
+	}
+	m_pusher.push(-2 + 1, "");
 }
 
 bool TVMExpressionCompiler::tryOptimizeBinaryOperation(BinaryOperation const &_node) {
@@ -494,9 +509,32 @@ void TVMExpressionCompiler::visit2(BinaryOperation const &_node) {
 		acceptExpr(&rexp);
 	};
 
+	if (isString(lt) && isString(rt)) {
+		if (op == Token::Add) {
+			acceptExpr(&lexp);
+			m_pusher.push(+1-1,"CTOS");
+			acceptExpr(&rexp);
+			m_pusher.push(+1-1,"CTOS");
+			m_pusher.exchange(0, 1);
+			m_pusher.push(+1, "NEWC");
+			m_pusher.push(-1, "STSLICE");
+			m_pusher.push(-1, "STSLICE");
+			m_pusher.push(+1-1,"ENDC");
+		} else if (TokenTraits::isCompareOp(op)){
+			acceptExpr(&lexp);
+			m_pusher.push(+1-1,"CTOS");
+			acceptExpr(&rexp);
+			m_pusher.push(+1-1,"CTOS");
+			compareAddresses(op);
+		} else {
+			cast_error(_node, "Unsupported binary operation");
+		}
+		return;
+	}
+
 	if (isAddressOrContractType(lt) || isAddressOrContractType(rt)) {
 		acceptLeftAndRight();
-		m_pusher.push(-1, compareAddresses(op));
+		compareAddresses(op);
 		return;
 	}
 
@@ -630,19 +668,19 @@ TVMExpressionCompiler::checkBitFit(Type const *type, Type const *lType, Type con
 }
 
 void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
+	// int_msg_info$0  ihr_disabled:Bool  bounce:Bool  bounced:Bool
+	//                 src:MsgAddress  dest:MsgAddressInt
+	//                 value:CurrencyCollection  ihr_fee:Grams  fwd_fee:Grams
+	//                 created_lt:uint64  created_at:uint32
+	//                 = CommonMsgInfoRelaxed;
+
+	// DEPTH - 5 it's transaction id. Check that it's int msg
+	// DEPTH - 3 it's message cell
 	if (_node.memberName() == "sender") { // msg.sender
-		m_pusher.pushPrivateFunctionOrMacroCall(+1, "sender_address_macro");
+		m_pusher.getGlob(9);
 	} else if (_node.memberName() == "value") { // msg.value
 		m_pusher.pushPrivateFunctionOrMacroCall(+1, "message_balance_macro");
 	} else  if (_node.memberName() == "createdAt") { // msg.createdAt
-		// int_msg_info$0  ihr_disabled:Bool  bounce:Bool  bounced:Bool
-		//                 src:MsgAddress  dest:MsgAddressInt
-		//                 value:CurrencyCollection  ihr_fee:Grams  fwd_fee:Grams
-		//                 created_lt:uint64  created_at:uint32
-		//                 = CommonMsgInfoRelaxed;
-
-		// DEPTH - 5 it's transaction id. Check that it's int msg
-		// DEPTH - 3 it's message cell
 		m_pusher.pushLines(R"(
 DEPTH
 PUSHINT 5
@@ -844,8 +882,7 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 			solAssert(false, "");
 		} else {
 			// index array
-			m_pusher.push(-1 + 2, "UNPAIR"); // index size dict
-			m_pusher.dropUnder(1, 1); // index dict
+			m_pusher.index(1);
 		}
 	}
 
@@ -909,12 +946,12 @@ bool TVMExpressionCompiler::checkAbiMethodCall(FunctionCall const &_functionCall
 	return false;
 }
 
-void TVMExpressionCompiler::encodeOutboundMessageBody2(const string &name, const ast_vec<Expression const> &arguments,
+int TVMExpressionCompiler::encodeOutboundMessageBody2(const string &name, const ast_vec<Expression const> &arguments,
                                                        const ast_vec<VariableDeclaration> &parameters,
                                                        const StackPusherHelper::ReasonOfOutboundMessage reason) {
 	solAssert(m_expressionDepth == -1, "");
 	m_isResultNeeded = true;
-	encodeOutboundMessageBody(name, arguments, parameters, reason);
+	return encodeOutboundMessageBody(name, arguments, parameters, reason);
 }
 
 int TVMExpressionCompiler::encodeOutboundMessageBody(const string &name, const ast_vec<Expression const> &arguments,
@@ -1092,7 +1129,8 @@ const FunctionDefinition *TVMExpressionCompiler::getRemoteFunctionDefinition(con
 bool TVMExpressionCompiler::checkForArrayMethods(FunctionCall const &_functionCall) {
 	auto expr = &_functionCall.expression();
 	auto ma = to<MemberAccess>(expr);
-	if (!ma || !to<ArrayType>(ma->expression().annotation().type))
+	auto array = ma ? to<ArrayType>(ma->expression().annotation().type) : nullptr;
+	if (!ma || !array || array->isString())
 		return false;
 
 	const LValueInfo lValueInfo = expandLValue(&ma->expression(), true);
@@ -1748,7 +1786,21 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 			}
 			collectLValue(lValueInfo, true, false);
 		}
-
+	} else if (isString(getType(&lhs)) && isString(getType(&rhs))) {
+		if (op == Token::AssignAdd) {
+			acceptExpr(&rhs);
+			m_pusher.push(+1-1,"CTOS");
+			const LValueInfo lValueInfo = expandLValue(&lhs, false);
+			m_pusher.push(+1-1,"CTOS");
+			m_pusher.push(+1, "NEWC");
+			m_pusher.push(-1, "STSLICE");
+			m_pusher.push(-1, "STSLICE");
+			m_pusher.push(+1-1,"ENDC");
+			collectLValue(lValueInfo, true, false);
+		} else {
+			cast_error(_assignment, "Unsupported operation.");
+		}
+		return true;
 	} else {
 		string cmd;
 		if      (op == Token::AssignAdd)    { cmd = "ADD"; }
@@ -1793,7 +1845,9 @@ bool TVMExpressionCompiler::tryAssignTuple(Assignment const &_assignment) {
 	}
 
 	acceptExpr(&_assignment.rightHandSide());
-	m_pusher.reverse(lhs->components().size(), 0);
+	if (lhs->components().size() >= 2) {
+		m_pusher.reverse(lhs->components().size(), 0);
+	}
 	for (const auto & i : lhs->components()) {
 		if (!i) {
 			m_pusher.push(-1, "DROP");

@@ -81,7 +81,7 @@ protected:
 	static LocationReturn notNeedsPushContWhenInlining(Block const& _block);
 	CodeLines loadFromC4();
 	void emitOnPublicFunctionReturn();
-	void sendExternalMessage(bool addrIsArgument = false);
+	void sendExternalMessage(const std::function<int()> &pushBody, Expression const* destAddr);
 	void pushReturnParameters(const ast_vec<VariableDeclaration>& returnParameters);
 
 	void acceptExpr(const Expression* expr, const bool isResultNeeded = true);
@@ -110,6 +110,7 @@ protected:
 	bool tryOptimizeReturn(Expression const* expr);
 	static bool areReturnedValuesLiterals(Expression const* expr);
 
+	void setGlobSenderAddressIfNeed();
 	void generateMainExternalForAbiV1();
 	void generateMainExternalForAbiV2();
 

@@ -59,7 +59,7 @@ public:
 	static void proceedContract(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
 	static CodeLines proceedContractMode0(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
 	static CodeLines proceedContractMode1(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
-	static void fillInlinedFunctions(TVMCompilerContext& ctx, ContractDefinition const* contract);
+	static void fillInlineFunctions(TVMCompilerContext& ctx, ContractDefinition const* contract);
 };
 
 }	// end solidity::frontend
