@@ -562,7 +562,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 			}
 			m_pusher.pushPrivateFunctionOrMacroCall(-4, "deploy_contract2_macro");
 		} else {
-//			pushLog("insr");
 			auto identifierAnnotation = to<IdentifierAnnotation>(&_functionCall.expression().annotation());
 			auto functionDefinition = to<FunctionDefinition>(identifierAnnotation->referencedDeclaration);
 			std::vector<Type const*> types;
@@ -571,13 +570,14 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 				types.push_back(functionDefinition->parameters()[i]->annotation().type);
 				nodes.push_back(arguments[i].get());
 			}
+			// DELETE ME
 			m_pusher.push(+1, "NEWC");
-			StackPusherHelper::EncodePosition position{0};
-			m_pusher.encodeParameters(types, nodes, [&](std::size_t index) {
+			EncodePosition position{0, types};
+			EncodeFunctionParams{&m_pusher}.encodeParameters(types, nodes, [&](std::size_t index) {
 				acceptExpr(arguments[index + 4].get());
 			}, position);
-//			pushLog("insr1");
-			m_pusher.pushPrivateFunctionOrMacroCall(-5, "deploy_contract_macro");
+			m_pusher.pushInt(1);
+			m_pusher.pushPrivateFunctionOrMacroCall(-6, "deploy_contract_macro");
 		}
 		return true;
 	}
@@ -1045,13 +1045,27 @@ IF
 	}
 	if (iname == "tvm_migratePubkey") {
 		m_pusher.pushLines(R"(
-PUSHINT 0
-GETGLOB 2
-PUSHINT 64
-DICTUGET
-THROWIFNOT 62
-PLDU 256
-SETGLOB 2
+DEPTH
+TUPLEVAR
+SETGLOB 8
+PUSHCONT {
+	PUSHINT 0
+	GETGLOB 2
+	PUSHINT 64
+	DICTUGET
+	THROWIFNOT 62
+	PLDU 256
+	SETGLOB 2
+}
+PUSHCONT {
+	PRINTSTR hello
+	DROP2
+}
+TRY
+GETGLOB 8
+DUP
+TLEN
+UNTUPLEVAR
 )");
 		return true;
 	}

@@ -1980,6 +1980,11 @@ ASTPointer<Expression> Parser::parsePrimaryExpression()
 			expression = nodeFactory.createNode<ElementaryTypeNameExpression>(expressionType);
 			m_scanner->next();
 		}
+		else if (token == Token::Mapping)
+		{
+			ASTPointer<Mapping> map = parseMapping();
+			expression = nodeFactory.createNode<MappingNameExpression>(map);
+		}
 		else
 			fatalParserError(string("Expected primary expression."));
 		break;

@@ -26,20 +26,6 @@
 
 using namespace solidity::frontend;
 
-class TVMDeprecated: public ASTConstVisitor, private boost::noncopyable {
-public:
-	bool visit(MemberAccess const& _node) override {
-		auto identifier = to<Identifier>(&_node.expression());
-		if (!identifier) {
-			return true;
-		}
-		if (identifier->name() == "tvm" && _node.memberName() == "transfer") {
-			cast_warning(_node, "tvm.transfer(...) is deprecated. Use addr.transfer(...).");
-		}
-		return true;
-	}
-};
-
 TVMTypeChecker::TVMTypeChecker(ContractDefinition const *contractDefinition,
                                std::vector<PragmaDirective const *> const &pragmaDirectives) :
 		contractDefinition{contractDefinition},
@@ -59,8 +45,6 @@ void TVMTypeChecker::check(ContractDefinition const *contractDefinition,
 		checker.checkPragma();
 	}
 	checker.check_onCodeUpgrade();
-	TVMDeprecated d{};
-	contractDefinition->accept(d);
 }
 
 void TVMTypeChecker::checkPragma() {
@@ -222,7 +206,7 @@ void TVMTypeChecker::checkTvmIntrinsic(FunctionDefinition const *f, ContractDefi
 	deprecatedFunctionsReplacement["tvm_accept"] = "tvm.accept()";
 	deprecatedFunctionsReplacement["tvm_unpack_address"] = "address.unpack()";
 	deprecatedFunctionsReplacement["tvm_make_address"] = "address.makeAddrStd()";
-	deprecatedFunctionsReplacement["tvm_transfer"] = "tvm.transfer()";
+	deprecatedFunctionsReplacement["tvm_transfer"] = "address.transfer()";
 	deprecatedFunctionsReplacement["tvm_make_zero_address"] = "address.makeAddrStd()";
 	deprecatedFunctionsReplacement["tvm_setcode"] = "tvm.setcode()";
 	deprecatedFunctionsReplacement["tvm_is_zero_address"] = "address.isNone()";
@@ -289,7 +273,7 @@ void TVMTypeChecker::checkTvmIntrinsic(FunctionDefinition const *f, ContractDefi
 			TypeInfo ti(type3);
 			if (!ti.isNumeric || ti.numBits != 32 || ti.isSigned)
 				cast_error(*(f->parameters()[3].get()),"Constructor id argument should be of type uint32.");
-		}	
+		}
 	}
 }
 

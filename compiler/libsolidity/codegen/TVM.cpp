@@ -36,11 +36,19 @@ void TVMCompilerProceedContract(ContractDefinition const& _contract,
 	if (!TVMContractCompiler::m_optionsEnabled)
 		return;
 
-	std::string mainContract = (TVMContractCompiler::m_mainContractName == "") ?
+	std::string mainContract = (TVMContractCompiler::m_mainContractName.empty()) ?
 				getLastContractName() : TVMContractCompiler::m_mainContractName;
 
-	if (_contract.name() != mainContract)
-		return;
+	if (TVMContractCompiler::m_outputFolder.empty()) {
+		if (_contract.name() != mainContract)
+			return;
+	} else {
+		if (_contract.abstract() || _contract.isInterface())
+			return;
+		TVMContractCompiler::m_outputToFile = true;
+		namespace fs = boost::filesystem;
+		TVMContractCompiler::m_fileName = (fs::path(TVMContractCompiler::m_outputFolder) / _contract.name()).string();
+    }
 
 	for (ContractDefinition const* c : TVMContractCompiler::m_allContracts) {
 		TVMTypeChecker::check(c, *pragmaDirectives);
@@ -78,11 +86,7 @@ void TVMSetAllContracts(const std::vector<ContractDefinition const*>& allContrac
 }
 
 void TVMSetFileName(std::string _fileName) {
-	std::string fileName = _fileName;
-	if (auto point = fileName.find("."); point != std::string::npos)
-		fileName = fileName.substr(0, point);
-
-	TVMContractCompiler::m_fileName = fileName;
+	TVMContractCompiler::m_fileName = boost::filesystem::path(_fileName).stem().string();
 }
 
 bool TVMIsOutputProduced() {

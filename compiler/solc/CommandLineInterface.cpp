@@ -70,6 +70,7 @@
 
 #include <libsolidity/codegen/TVM.h>
 #include <libsolidity/codegen/TVMOptimizations.hpp>
+#include <libsolidity/codegen/TVMContractCompiler.hpp>
 
 #if !defined(STDERR_FILENO)
 	#define STDERR_FILENO 2
@@ -148,7 +149,7 @@ static string const g_strNatspecUser = "userdoc";
 //static string const g_strOptimize = "optimize";
 //static string const g_strOptimizeRuns = "optimize-runs";
 //static string const g_strOptimizeYul = "optimize-yul";
-//static string const g_strOutputDir = "output-dir";
+static string const g_strOutputDir = "output-dir";
 //static string const g_strOverwrite = "overwrite";
 //static string const g_strRevertStrings = "revert-strings";
 
@@ -207,7 +208,7 @@ static string const g_argNatspecUser = g_strNatspecUser;
 //static string const g_argOpcodes = g_strOpcodes;
 //static string const g_argOptimize = g_strOptimize;
 //static string const g_argOptimizeRuns = g_strOptimizeRuns;
-//static string const g_argOutputDir = g_strOutputDir;
+static string const g_argOutputDir = g_strOutputDir;
 //static string const g_argSignatureHashes = g_strSignatureHashes;
 //static string const g_argStandardJSON = g_strStandardJSON;
 //static string const g_argStrictAssembly = g_strStrictAssembly;
@@ -746,11 +747,11 @@ Allowed options)",
 //			po::value<string>()->value_name(boost::join(g_revertStringsArgs, ",")),
 //			"Strip revert (and require) reason strings or add additional debugging information."
 //		)
-//		(
-//			(g_argOutputDir + ",o").c_str(),
-//			po::value<string>()->value_name("path"),
-//			"If given, creates one file per component and contract/file at the specified directory."
-//		)
+		(
+			(g_argOutputDir + ",o").c_str(),
+			po::value<string>()->value_name("path"),
+			"If given, creates one file per component and contract/file at the specified directory."
+		)
 		(
 			(g_argSetContract + ",c").c_str(),
 			po::value<string>()->value_name("contract"),
@@ -883,7 +884,9 @@ Allowed options)",
 
 	const bool tvmMute = m_args.count(g_argTvmMuteFlagWarning);
 	if ((tvmAbi || tvmCode) && !tvmMute) {
-		serr() << "Warning: options --tvm and --tvm-abi are deprecated. Use solc without that options to produce TVM assembly and ABI." << endl;
+		serr() << "Warning: options --tvm and --tvm-abi are deprecated. Use solc without options to produce TVM assembly and ABI:" << endl;
+		serr() << "  solc contract.sol" << endl;
+		serr() << "This command compiles the contract and generates contract.code and contract.abi.json files." << endl;
 	}
 	
 	if (m_args.count(g_argTvmPeephole)) {
@@ -1207,6 +1210,9 @@ bool CommandLineInterface::processInput()
 
 		if (m_args.count(g_argSetContract))
 			m_compiler->setMainContract(m_args[g_argSetContract].as<string>());
+
+		if (m_args.count(g_argOutputDir))
+			TVMContractCompiler::m_outputFolder = m_args[g_argOutputDir].as<string>();
 
 		bool successful = m_compiler->compile();
 

@@ -74,19 +74,7 @@ protected:
 	void visit2(IndexAccess const& indexAccess);
 	bool checkAbiMethodCall(FunctionCall const& _functionCall);
 
-public:
-	int encodeOutboundMessageBody2(
-			const string& name,
-			const ast_vec<Expression const>&	arguments,
-			const ast_vec<VariableDeclaration>&	parameters,
-			const StackPusherHelper::ReasonOfOutboundMessage reason);
-
 protected:
-	int encodeOutboundMessageBody(
-			const string& name,
-			const ast_vec<Expression const>&	arguments,
-			const ast_vec<VariableDeclaration>&	parameters,
-			const StackPusherHelper::ReasonOfOutboundMessage reason);
 	bool checkRemoteMethodCall(FunctionCall const& _functionCall);
 	const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
 	bool checkForArrayMethods(FunctionCall const& _functionCall);

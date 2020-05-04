@@ -943,6 +943,24 @@ void ElementaryTypeNameExpression::accept(ASTConstVisitor& _visitor) const
 	_visitor.endVisit(*this);
 }
 
+void MappingNameExpression::accept(ASTVisitor& _visitor)
+{
+	if (_visitor.visit(*this))
+	{
+		m_type->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void MappingNameExpression::accept(ASTConstVisitor& _visitor) const
+{
+	if (_visitor.visit(*this))
+	{
+		m_type->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
 void Literal::accept(ASTVisitor& _visitor)
 {
 	_visitor.visit(*this);

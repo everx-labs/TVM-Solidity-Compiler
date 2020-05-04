@@ -27,6 +27,7 @@
 
 #include "TVMCommons.hpp"
 #include "TVMConstants.hpp"
+#include "TVMABI.hpp"
 
 using namespace std;
 using namespace solidity;
@@ -36,13 +37,14 @@ using namespace solidity::util;
 
 namespace solidity::frontend {
 
+class StructCompiler;
+
 class TVMStack {
-	int m_size;
+	int m_size{};
 	// map parameters or local variables to their absolute stack position
 	std::map<Declaration const*, int> m_params;
 
 public:
-	TVMStack();
 	int size() const;
 	void change(int diff);
 	bool isParam(Declaration const* name) const;
@@ -70,27 +72,24 @@ class TVMCompilerContext {
 	const ContractDefinition*				m_contract = nullptr;
 	string_map<const FunctionDefinition*>	m_functions;
 	map<const FunctionDefinition*, const ContractDefinition*>	m_function2contract;
-	string_map<const EventDefinition*>		m_events;
 
 	bool haveFallback = false;
 	bool haveOnBounce = false;
 	bool haveReceive = false;
 	bool ignoreIntOverflow = false;
 	bool m_haveSetDestAddr = false;
+	bool m_haveOffChainConstructor = false;
 	PragmaDirectiveHelper const& m_pragmaHelper;
 	std::map<VariableDeclaration const *, int> m_stateVarIndex;
 
-	void addEvent(EventDefinition const *event);
 	void addFunction(FunctionDefinition const* _function);
 	void initMembers(ContractDefinition const* contract);
 
 public:
 	TVMCompilerContext(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
 
-	mutable set<string>		m_remoteFunctions;
-	vector<FunctionDefinition const*>		m_functionsList;
-	FunctionDefinition const*               m_currentFunction = nullptr;
-	map<string, CodeLines>	m_inlinedFunctions;
+	FunctionDefinition const* m_currentFunction = nullptr;
+	map<string, CodeLines> m_inlinedFunctions;
 
 	int getStateVarIndex(VariableDeclaration const *variable) const;
 	std::vector<VariableDeclaration const *> notConstantStateVariables() const;
@@ -104,17 +103,14 @@ public:
 	const ContractDefinition* getContract() const;
 	const ContractDefinition* getContract(const FunctionDefinition* f) const;
 	const FunctionDefinition* getLocalFunction(const string& fname) const;
-	const EventDefinition* getEvent(const string& name) const;
 	bool haveFallbackFunction() const;
 	bool haveReceiveFunction() const;
 	bool haveOnBounceHandler() const;
 	bool ignoreIntegerOverflow() const;
-	std::vector<const EventDefinition*> events() const;
+	bool haveOffChainConstructor() const;
 	FunctionDefinition const* afterSignatureCheck() const;
 	bool storeTimestampInC4() const;
 };
-
-class StructCompiler;
 
 class StackPusherHelper {
 protected:
@@ -165,11 +161,13 @@ public:
 	void preload(const Type* type);
 	void pushZeroAddress();
 	void generateC7ToT4Macro();
+
 	static void addBinaryNumberToString(std::string &s, u256 value, int bitlen = 256);
 	static std::string binaryStringToSlice(const std::string & s);
 	static std::string gramsToBinaryString(Literal const* literal);
 	static std::string gramsToBinaryString(u256 value);
 	std::string literalToSliceAddress(Literal const* literal, bool pushSlice = true);
+
 	bool tryImplicitConvert(Type const *leftType, Type const *rightType);
 	void push(const CodeLines& codeLines);
 	void pushPrivateFunctionOrMacroCall(const int stackDelta, const string& fname);
@@ -207,44 +205,14 @@ public:
 
 	void ensureValueFitsType(const ElementaryTypeNameToken& typeName, const ASTNode& node);
 
-	enum class ReasonOfOutboundMessage {
-		EmitEventExternal,
-		FunctionReturnExternal,
-		RemoteCallInternal
-	};
-
-	class EncodePosition : private boost::noncopyable {
-		int restSliceBits;
-		int restFef;
-		int qtyOfCreatedBuilders;
-
-	public:
-		explicit EncodePosition(int bits);
-		bool needNewCell(Type const* type);
-		int countOfCreatedBuilders() const;
-		int restBits() const { return restSliceBits; }
-	};
-
-	int encodeFunctionAndParams(const string& functionName,
-	                             const std::vector<Type const*>& types,
-	                             const std::vector<ASTNode const*>& nodes,
-	                             const std::function<void(size_t)>& pushParam, const ReasonOfOutboundMessage& reason);
-
-	void encodeParameters(const std::vector<Type const*>& types,
-	                      const std::vector<ASTNode const*>& nodes,
-	                      const std::function<void(size_t)>& pushParam,
-	                      EncodePosition& position);
-
-	void encodeParameter(Type const* type, EncodePosition& position, const std::function<void()>& pushParam, ASTNode const* node);
-	void encodeStruct(const StructType* structType, ASTNode const* node, EncodePosition& position);
 	void pushDefaultValue(Type const* type, bool isResultBuilder = false);
 	void sendIntMsg(const std::map<int, Expression const*>& exprs,
 					const std::map<int, std::string> &constParams,
-	                const std::function<int()> &pushBody,
+	                const std::function<void(int)> &appendBody,
 	                const std::function<void()> &pushSendrawmsgFlag);
 	void sendMsg(const std::set<int>& isParamOnStack,
 				 const std::map<int, std::string> &constParams,
-	             const std::function<int()> &pushBody,
+	             const std::function<void(int)> &appendBody,
 	             const std::function<void()> &pushSendrawmsgFlag,
 	             bool isInternalMessage = true);
 };

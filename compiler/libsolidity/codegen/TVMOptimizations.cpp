@@ -17,6 +17,7 @@
  */
 
 #include "TVMOptimizations.hpp"
+#include "TVMPusher.hpp"
 #include <boost/format.hpp>
 
 namespace solidity::frontend {
@@ -121,19 +122,24 @@ struct TVMOptimizer {
 			solAssert(false, "");
 		}
 
+		int get_index() const {
+			string s = rest();
+			solAssert(isIn(s.at(0), 's', 'S'), "");
+			s.erase(s.begin()); // skipping char S
+			return atoi(s.c_str());
+		}
+
 		int get_push_index() const {
 			solAssert(is_PUSH(), "");
 			if (is_DUP()) return 0;
-			string s = rest();
-			s.erase(s.begin()); // skipping char S
-			return atoi(s.c_str());
+			return get_index();
 		}
 
 		std::pair<int, int> get_push2_indexes() const {
 			solAssert(is("PUSH2"), "");
 			std::string target = rest();
 			std::smatch sm;
-			std::regex re1("[S|s](\\d+),\\s*[S|s](\\d+)");
+			std::regex re1(R"([S|s](\d+),\s*[S|s](\d+))");
 			std::regex_search(target, sm, re1);
 
 			int si = std::stoi(sm[1]);
@@ -433,7 +439,9 @@ struct TVMOptimizer {
 			return Result::Replace(2, make_DROP(q));
 		}
 		if (cmd1.is_simple_command_ && cmd1.inputs_count_ == 0 && cmd1.outputs_count_ == 1 && cmd2.is_NIP()) {
-			return Result::Replace(2, make_DROP(1), cmd1.without_prefix());
+			std::vector<std::string> dropOpcodes = make_DROP(1);
+			dropOpcodes.push_back(cmd1.without_prefix());
+			return Result(true, 2, dropOpcodes);
 		}
 		if (cmd1.is_NIP() && cmd2.is_drop_kind()) {
 			return Result::Replace(2, make_DROP(1 + cmd2.get_drop_index()));
@@ -452,7 +460,6 @@ struct TVMOptimizer {
 				i = next_command_line(i);
 			}
 			if (total > 1) {
-				// TODO: consider (total > 15) case
 				return Result::Replace(n, make_DROP(total));
 			}
 		}
@@ -539,7 +546,106 @@ struct TVMOptimizer {
 		    cmd2.is("THROWIFNOT")) {
 			return Result::Replace(2, "THROWIFNOT " + cmd2.rest());
 		}
+		if (cmd1.is("PUSH")) {
+			// PUSH Sx
+			// XCHG n
+			// BLKDROP n
+			int pushIndex = cmd1.get_index();
+			if (cmd2.is("XCHG")) {
+				int xghIndex = cmd2.get_index();
+				if (cmd3.is_drop_kind()) {
+					int dropedQty = cmd3.get_drop_index();
+					if (xghIndex == dropedQty && dropedQty <= 15) {
+						int i = std::min(pushIndex, xghIndex - 1);
+						int j = std::max(pushIndex, xghIndex - 1);
+						if (i != j) {
+							if (pushIndex + 1 < dropedQty) {
+								std::vector<std::string> opcodes{"XCHG S" + toString(i) + ", S" + toString(j)};
+								std::vector<std::string> dropOpcodes = make_DROP(dropedQty - 1);
+								opcodes.insert(opcodes.end(), dropOpcodes.begin(), dropOpcodes.end());
+								return Result(true, 3, opcodes);
+							}
+						} else {
+							return Result::Replace(3, make_DROP(dropedQty - 1));
+						}
+					}
+				}
+			}
+		}
+		if (cmd1.is("ROT") && cmd2.is("ROTREV")) {
+			return Result::Replace(2);
+		}
+		if (cmd1.is("ROTREV") && cmd2.is("ROT")) {
+			return Result::Replace(2);
+		}
+		if (cmd1.is("PUSHINT") && cmd2.is("STZEROES") && cmd3.is("STSLICECONST") && cmd3.rest() == "0") {
+			return Result::Replace(3, "PUSHINT " + toString(cmd1.fetch_int() + 1), "STZEROES");
+		}
+
+		if (cmd1.is("PUSHSLICE") &&
+			cmd2.is("NEWC") &&
+			cmd3.is("STSLICE") &&
+			cmd4.is("STSLICECONST")) {
+			std::vector<std::string> opcodes = unitSlices(cmd1.rest(), cmd4.rest());
+			opcodes.emplace_back("NEWC");
+			opcodes.emplace_back("STSLICE");
+			return Result(true, 4, opcodes);
+		}
+		if (cmd1.is("PUSHSLICE") &&
+		    cmd2.is("STSLICER") &&
+		    cmd3.is("STSLICECONST")) {
+			std::vector<std::string> opcodes = unitSlices(cmd1.rest(), cmd3.rest());
+			opcodes.emplace_back("STSLICER");
+			return Result(true, 3, opcodes);
+		}
+
 		return Result(false);
+	}
+
+	std::string toBitString(const std::string& slice) const {
+		std::string bitString;
+		if (slice.at(0) == 'x') {
+			for (std::size_t i = 1; i < slice.size(); ++i) {
+				if (i + 2 == slice.size() && slice[i + 1] == '_') {
+					size_t pos{};
+					int value = std::stoi(slice.substr(i, 1), &pos, 16);
+					solAssert(pos == 1, "");
+					int bitLen = 4;
+					while (true) {
+						bool isOne = value % 2 == 1;
+						--bitLen;
+						value /= 2;
+						if (isOne) {
+							break;
+						}
+					}
+					StackPusherHelper::addBinaryNumberToString(bitString, value, bitLen);
+					break;
+				}
+				size_t pos{};
+				int value = std::stoi(slice.substr(i, 1), &pos, 16);
+				solAssert(pos == 1, "");
+				StackPusherHelper::addBinaryNumberToString(bitString, value, 4);
+			}
+		} else {
+			if (isIn(slice, "0", "1")) {
+				return slice;
+			}
+			solAssert(false, "");
+		}
+		return bitString;
+	}
+
+	std::vector<std::string> unitSlices(const std::string& sliceA, const std::string& sliceB) const {
+		const std::string& bitString = toBitString(sliceA) + toBitString(sliceB);
+		std::vector<std::string> opcodes;
+		for (int i = 0; i < static_cast<int>(bitString.length()); i += 4 * TvmConst::MaxPushSliceLength) {
+			opcodes.push_back(bitString.substr(i, std::min(4 * TvmConst::MaxPushSliceLength, static_cast<int>(bitString.length()) - i)));
+		}
+		for (std::string& opcode : opcodes) {
+			opcode = "PUSHSLICE x" + StackPusherHelper::binaryStringToSlice(opcode);
+		}
+		return opcodes;
 	}
 
 	bool try_simulate(int i, int stack_size, int& remove_count, vector<string>& commands) const {
@@ -608,8 +714,10 @@ struct TVMOptimizer {
 			if (c.is_drop_kind()) {
 				int n = c.get_drop_index();
 				if (stack_size <= n) {
-					if (n > 1)
-						commands.push_back(make_DROP(n - 1));
+					if (n > 1) {
+						std::vector<std::string> dropOpcodes = make_DROP(n - 1);
+						commands.insert(commands.end(), dropOpcodes.begin(), dropOpcodes.end());
+					}
 					remove_count++;
 					break;
 				} else {
@@ -680,12 +788,12 @@ struct TVMOptimizer {
 		return Result(false);
 	}
 
-	static string make_DROP(int n) {
+	static std::vector<std::string> make_DROP(int n) {
 		solAssert(n > 0, "");
-		if (n == 1) return "DROP";
-		if (n == 2) return "DROP2";
-		// TODO: use DROPX for n > 15
-		return "BLKDROP " + toString(n);
+		if (n == 1) return {"DROP"};
+		if (n == 2) return {"DROP2"};
+		if (n <= 15) return {"BLKDROP " + toString(n)};
+		return {"PUSHINT " + toString(n), "DROPX"};
 	}
 
 	static string make_PUSH(int n) {

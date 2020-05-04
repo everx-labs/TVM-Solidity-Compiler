@@ -18,14 +18,17 @@
 
 #pragma once
 
-#include "TVMPusher.hpp"
+#include "TVMCommons.hpp"
 
 namespace solidity::frontend {
 
+class StackPusherHelper;
+
 class TVMABI {
 public:
-	static void generateABI(ContractDefinition const* contract, const vector<ContractDefinition const*>& m_allContracts,
-									std::vector<PragmaDirective const *> const& pragmaDirectives, std::ostream* out = &cout);
+	static void generateABI(ContractDefinition const* contract,
+							std::vector<PragmaDirective const *> const& pragmaDirectives, std::ostream* out = &cout);
+	static string getParamTypeString(Type const* type, ASTNode const& node);
 private:
 	static void printData(const Json::Value& json, std::ostream* out);
 	static void print(const Json::Value& json, std::ostream* out);
@@ -36,7 +39,6 @@ private:
 		FunctionDefinition const* funcDef = nullptr
 	);
 	static Json::Value encodeParams(const ast_vec<VariableDeclaration>& params);
-	static string getParamTypeString(Type const* type, ASTNode const& node);
 	static Json::Value setupType(const string& name, const Type* type, ASTNode const& node);
 	static Json::Value setupStructComponents(const StructType* type, ASTNode const& node);
 };
@@ -100,6 +102,65 @@ private:
 	void loadNextSliceIfNeed(const DecodePosition::Algo algo, VariableDeclaration const* variable, bool isRefType);
 	void loadq(const DecodePosition::Algo algo, const std::string& opcodeq, const std::string& opcode);
 	void decodeParameter(VariableDeclaration const* variable, DecodePosition* position);
+private:
+	StackPusherHelper *pusher{};
+};
+
+
+
+
+enum class ReasonOfOutboundMessage {
+	EmitEventExternal,
+	FunctionReturnExternal,
+	RemoteCallInternal
+};
+
+class EncodePosition : private boost::noncopyable {
+	int restSliceBits{};
+	int restFef{};
+	int qtyOfCreatedBuilders{};
+	std::vector<Type const *> types;
+	int currentIndex{};
+	std::vector<bool> isNeedNewCell;
+	int lastRefType{};
+
+public:
+	explicit EncodePosition(int bits, const std::vector<Type const *> &types);
+	bool needNewCell(Type const* type);
+private:
+	bool updateState(int i);
+	void init(Type const* t);
+public:
+	int countOfCreatedBuilders() const;
+};
+
+class EncodeFunctionParams : private boost::noncopyable {
+public:
+	explicit EncodeFunctionParams(StackPusherHelper *pusher) : pusher{pusher} {}
+	void createMsgBodyAndAppendToBuilder2(const ast_vec<Expression const>&	arguments,
+	                                      const ReasonOfOutboundMessage reason,
+	                                      const CallableDeclaration *funcDef,
+	                                      int builderSize);
+
+public:
+	uint32_t calculateFunctionID(const CallableDeclaration *funcDef);
+
+public:
+	void createMsgBodyAndAppendToBuilder(const std::function<void(size_t)>& pushParam,
+	                                     const ReasonOfOutboundMessage& reason,
+	                                     const CallableDeclaration *funcDef,
+	                                     bool encodeReturnParam,
+	                                     const int bitSizeBuilder);
+	void encodeParameters(const std::vector<Type const*>& types,
+	                      const std::vector<ASTNode const*>& nodes,
+	                      const std::function<void(size_t)>& pushParam,
+	                      EncodePosition& position);
+
+private:
+	std::string getTypeString(Type const * type, const CallableDeclaration * funcDef);
+	void encodeParameter(Type const* type, EncodePosition& position, const std::function<void()>& pushParam, ASTNode const* node);
+	void encodeStruct(const StructType* structType, ASTNode const* node, EncodePosition& position);
+
 private:
 	StackPusherHelper *pusher{};
 };
