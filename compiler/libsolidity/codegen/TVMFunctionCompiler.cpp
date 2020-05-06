@@ -249,6 +249,7 @@ IFELSE
 
 void TVMFunctionCompiler::generateTvmGetter(FunctionDefinition const *_function) {
 	m_pusher.generateGlobl(_function->name(), true);
+	decodeFunctionParamsAndLocateVars();
 	visitFunctionWithModifiers();
 	m_pusher.push(0, " ");
 }
@@ -320,9 +321,56 @@ void TVMFunctionCompiler::generateOnTickTock() {
 	m_pusher.push(0, " ");
 }
 
+void TVMFunctionCompiler::decodeFunctionParamsAndLocateVars() {
+	// decode function params
+	// stack: transaction_id arguments-in-slice
+	m_pusher.push(+1, ""); // arguments-in-slice
+	DecodeFunctionParams{&m_pusher}.decodeParameters(m_function->parameters());
+	// stack: transaction_id arguments...
+	m_pusher.getStack().change(-static_cast<int>(m_function->parameters().size()));
+	for (const ASTPointer<VariableDeclaration>& variable: m_function->parameters()) {
+		auto name = variable->name();
+		m_pusher.push(0, string(";; param: ") + name);
+		m_pusher.getStack().add(variable.get(), true);
+	}
+}
+
 void TVMFunctionCompiler::generatePublicFunction() {
 	m_pusher.generateGlobl(m_function->name(), m_function->isPublic());
+
+	// c4_to_c7 if need
+	if (m_function->stateMutability() != StateMutability::Pure) {
+		m_pusher.pushLines(R"(
+GETGLOB 1
+ISNULL
+)");
+		m_pusher.startContinuation();
+		m_pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7");
+		m_pusher.endContinuation();
+		m_pusher.pushLines("IF");
+	}
+
+	decodeFunctionParamsAndLocateVars();
+
 	visitFunctionWithModifiers();
+
+	// c7_to_c4 if need
+	solAssert(m_pusher.getStack().size() == 0, "");
+	if (m_function->stateMutability() == StateMutability::NonPayable ||
+	    m_function->stateMutability() == StateMutability::Payable) {
+		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
+	} else {
+		m_pusher.push(0, "EQINT -1"); // is it ext msg?
+		m_pusher.startContinuation();
+		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
+		m_pusher.endContinuation();
+		m_pusher.push(0, "IF");
+	}
+
+	// set flag meaning function is called
+	m_pusher.push(0, "TRUE");
+	m_pusher.push(0, "SETGLOB 7");
+
 	m_pusher.push(0, " ");
 }
 
@@ -346,40 +394,30 @@ void TVMFunctionCompiler::generatePrivateFunctionWithoutHeader() {
 }
 
 void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
-	const auto& params = m_function->returnParameters();
-	auto count = params.size();
-	if (count == 0) {
+	const std::vector<ASTPointer<VariableDeclaration>>& params = m_function->returnParameters();
+	if (params.empty()) {
 		return;
 	}
-	m_pusher.push( 0, ";; emitting " + toString(count) + " value(s)");
-
-	std::vector<Type const*> types;
-	std::vector<ASTNode const*> nodes;
-	for (const auto & param : params) {
-		types.push_back(param->annotation().type);
-		nodes.push_back(param.get());
-	}
+	m_pusher.push( 0, ";; emitting " + toString(params.size()) + " value(s)");
 
 	const int prevStackSize = m_pusher.getStack().size();
-	auto pushBody = [&]() {
-		return m_pusher.encodeFunctionAndParams(
-				TVMCompilerContext::getFunctionExternalName(m_function),
-				types,
-				nodes,
+	auto appendBody = [&](int builderSize) {
+		return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder(
 				[&](size_t idx) {
 					int pos = (m_pusher.getStack().size() - prevStackSize) +
 					          (static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
 					m_pusher.pushS(pos);
 				},
-				StackPusherHelper::ReasonOfOutboundMessage::FunctionReturnExternal
+				ReasonOfOutboundMessage::FunctionReturnExternal,
+				m_function,
+				true,
+				builderSize
 		);
 	};
-
-
-	sendExternalMessage(pushBody, nullptr);
+	sendExternalMessage(appendBody, nullptr);
 }
 
-void TVMFunctionCompiler::sendExternalMessage(const std::function<int()> &pushBody, Expression const* destAddr) {
+void TVMFunctionCompiler::sendExternalMessage(const std::function<void(int)> &appendBody, Expression const* destAddr) {
 	// stack: builder with encoded params
 	if (m_pusher.ctx().haveSetDestAddr()) {
 		if (destAddr == nullptr) {
@@ -395,9 +433,9 @@ IF
 		} else {
 			acceptExpr(destAddr, true);
 		}
-		m_pusher.sendMsg({TvmConst::ext_msg_info::dest}, {}, pushBody, nullptr, false);
+		m_pusher.sendMsg({TvmConst::ext_msg_info::dest}, {}, appendBody, nullptr, false);
 	} else {
-		m_pusher.sendMsg({}, {}, pushBody, nullptr, false);
+		m_pusher.sendMsg({}, {}, appendBody, nullptr, false);
 	}
 }
 
@@ -502,14 +540,15 @@ void TVMFunctionCompiler::visitFunctionAfterModifiers() {
 	if (m_isPublic) {
 		// emit function result
 		// stack: transaction_id return-params...
+		const int retQty = m_function->returnParameters().size();
+		const int targetStackSize = m_pusher.getStack().size() - retQty;
 		bool dontEmitReturn = getFunction(m_pusher.ctx().getContract(), "tvm_dont_emit_events_on_return") != nullptr;
 		if (!dontEmitReturn) {
 			emitOnPublicFunctionReturn();
 		}
 
-		// drop function result
-		const int retQty = m_function->returnParameters().size();
-		m_pusher.drop(retQty);
+		// drop function result if still on stack
+		m_pusher.drop(m_pusher.getStack().size() - targetStackSize);
 	} else {
 		if (!functionModifiers().empty()) {
 			if (!m_function->returnParameters().empty()) {
@@ -527,31 +566,7 @@ void TVMFunctionCompiler::visitFunctionWithModifiers() {
 	solAssert(m_startStackSize >= 0, "");
 
 	if (m_currentModifier == 0) {
-		if (m_isPublic) {
-			// c4_to_c7 if need
-			if (m_function->stateMutability() != StateMutability::Pure) {
-				m_pusher.pushLines(R"(
-GETGLOB 1
-ISNULL
-)");
-				m_pusher.startContinuation();
-				m_pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7");
-				m_pusher.endContinuation();
-				m_pusher.pushLines("IF");
-			}
-
-			// decode function params
-			// stack: transaction_id arguments-in-slice
-			m_pusher.push(+1, ""); // arguments-in-slice
-			DecodeFunctionParams{&m_pusher}.decodeParameters(m_function->parameters());
-			// stack: transaction_id arguments...
-			m_pusher.getStack().change(-static_cast<int>(m_function->parameters().size()));
-			for (const ASTPointer<VariableDeclaration>& variable: m_function->parameters()) {
-				auto name = variable->name();
-				m_pusher.push(0, string(";; param: ") + name);
-				m_pusher.getStack().add(variable.get(), true);
-			}
-		} else {
+		if (!m_isPublic) {
 			// function params are allocated
 			solAssert(m_pusher.getStack().size() >= static_cast<int>(m_function->parameters().size()), "");
 		}
@@ -583,24 +598,7 @@ ISNULL
 
 
 	if (m_currentModifier == 0) {
-		if (m_isPublic) {
-			// c7_to_c4 if need
-			solAssert(m_pusher.getStack().size() == 0, "");
-			if (m_function->stateMutability() == StateMutability::NonPayable ||
-			    m_function->stateMutability() == StateMutability::Payable) {
-				m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
-			} else {
-				m_pusher.push(0, "EQINT -1"); // is it ext msg?
-				m_pusher.startContinuation();
-				m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
-				m_pusher.endContinuation();
-				m_pusher.push(0, "IF");
-			}
-
-			// set flag meaning function is called
-			m_pusher.push(0, "TRUE");
-			m_pusher.push(0, "SETGLOB 7");
-		} else {
+		if (!m_isPublic) {
 			if (!functionModifiers().empty()) {
 				if (!m_function->returnParameters().empty()) {
 					const int retQty = m_function->returnParameters().size();
@@ -1135,21 +1133,23 @@ bool TVMFunctionCompiler::visit(EmitStatement const &_emit) {
 	solAssert(eventName, "");
 	string name = eventName->name();
 	m_pusher.push(0, ";; emit " + name);
-	auto event = m_pusher.ctx().getEvent(name);
-	solAssert(event, "");
 	TVMExpressionCompiler ec(m_pusher);
-	auto pushBody = [&]() {
-		return ec.encodeOutboundMessageBody2(
-				name,
+	auto identifier = to<Identifier>(&eventCall->expression());
+	Declaration const * decl = identifier->annotation().referencedDeclaration;
+	auto eventDef = to<CallableDeclaration>(decl);
+	solAssert(eventDef, "Event Declaration was not found");
+	auto appendBody = [&](int builderSize) {
+		return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder2(
 				eventCall->arguments(),
-				event->parameterList().parameters(),
-				StackPusherHelper::ReasonOfOutboundMessage::EmitEventExternal);
+				ReasonOfOutboundMessage::EmitEventExternal,
+				eventDef,
+				builderSize);
 	};
 
 	if (auto externalAddress = _emit.externalAddress()) {
-		sendExternalMessage(pushBody, externalAddress.get());
+		sendExternalMessage(appendBody, externalAddress.get());
 	} else
-		sendExternalMessage(pushBody, nullptr);
+		sendExternalMessage(appendBody, nullptr);
 
 	return false;
 }
@@ -1458,6 +1458,8 @@ SETGLOB 9
 		s += R"(
 PUSHCONT {
 	PUSH S1
+	LDSLICE 32
+	NIP
 	CALL $:onBounce$
 }
 IFJMP
@@ -1546,4 +1548,3 @@ bool TVMFunctionCompiler::visit(PlaceholderStatement const &) {
 	tvm.visitFunctionWithModifiers();
 	return false;
 }
-

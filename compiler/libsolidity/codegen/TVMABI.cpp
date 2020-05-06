@@ -15,13 +15,17 @@
  * @date 2019
  */
 
+#include "libsolutil/picosha2.h"
+
 #include "TVMABI.hpp"
+#include "TVMPusher.hpp"
 #include "TVMStructCompiler.hpp"
+#include "TVMExpressionCompiler.hpp"
 
 using namespace solidity::frontend;
 
-void TVMABI::generateABI(ContractDefinition const *contract, const vector<ContractDefinition const *> &m_allContracts,
-								 std::vector<PragmaDirective const *> const &pragmaDirectives, ostream *out) {
+void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaDirective const *> const &pragmaDirectives,
+						ostream *out) {
 
 	PragmaDirectiveHelper pdh{pragmaDirectives};
 	TVMCompilerContext ctx(contract, pdh);
@@ -31,7 +35,8 @@ void TVMABI::generateABI(ContractDefinition const *contract, const vector<Contra
 
 	if (auto main_constr = contract->constructor(); main_constr != nullptr)
 		publicFunctions.push_back(contract->constructor());
-	for (auto c : m_allContracts) {
+
+	for (auto c : contract->annotation().linearizedBaseContracts) {
 		for (const auto &_function : c->definedFunctions()) {
 			if (_function->isPublic() && !isTvmIntrinsic(_function->name()) && !_function->isConstructor() &&
 			    !_function->isReceive() && !_function->isFallback() && !_function->isOnBounce())
@@ -223,6 +228,10 @@ Json::Value TVMABI::processFunction(const string &fname, const ast_vec<VariableD
 		std::ostringstream oss;
 		oss << "0x" << std::hex << std::uppercase << funcDef->functionID();
 		function["id"] = oss.str();
+	} else if (funcDef && funcDef->name() == "offchainConstructor") {
+		std::ostringstream oss;
+		oss << "0x" << std::hex << std::uppercase << 3;
+		function["id"] = oss.str();
 	}
 	function["inputs"] = inputs;
 	function["outputs"] = outputs;
@@ -392,8 +401,7 @@ DecodePositionAbiV2::DecodePositionAbiV2(int minBits, int maxBits, const ast_vec
 	}
 	for (int i = 0; i < static_cast<int>(types.size()); ++i) {
 		Type const* t = types[i];
-		if ((t->category() == Type::Category::Array && to<ArrayType>(t)->isByteArray()) ||
-		    t->category() == Type::Category::TvmCell) {
+		if (isRefType(t)) {
 			lastRefType = i;
 		}
 	}
@@ -620,4 +628,270 @@ void DecodeFunctionParams::decodeParameter(VariableDeclaration const *variable, 
 	} else {
 		cast_error(*variable, "Unsupported parameter type for decoding: " + type->toString());
 	}
+}
+
+
+EncodePosition::EncodePosition(int bits, const std::vector<Type const *> &_types) :
+		restSliceBits{TvmConst::CellBitLength - bits},
+		restFef{4},
+		qtyOfCreatedBuilders{0} {
+
+	for (Type const * t : _types) {
+		init(t);
+	}
+
+	for (int i = 0; i < static_cast<int>(types.size()); ++i) {
+		Type const* t = types[i];
+		if (isRefType(t)) {
+			lastRefType = i;
+		}
+	}
+
+	for (int i = 0; i < static_cast<int>(types.size()); ++i) {
+		isNeedNewCell.push_back(updateState(i));
+	}
+}
+
+bool EncodePosition::needNewCell(Type const *type) {
+	solAssert(*type == *types[currentIndex], "");
+	return isNeedNewCell[currentIndex++];
+}
+
+bool EncodePosition::updateState(int i) {
+	ABITypeSize size(types[i]);
+	solAssert(0 <= size.maxRefs && size.maxRefs <= 1, "");
+
+	restSliceBits -= size.maxBits;
+	restFef -= size.maxRefs;
+
+	if (i == lastRefType && restFef == 0 && i + 1 == static_cast<int>(types.size())) {
+		return false;
+	}
+
+	if (restSliceBits < 0 || restFef == 0) {
+		restSliceBits =  TvmConst::CellBitLength - size.maxBits;
+		restFef = 4 - size.maxRefs;
+		++qtyOfCreatedBuilders;
+		return true;
+	}
+	return false;
+}
+
+void EncodePosition::init(Type const* t) {
+	if (t->category() == Type::Category::Struct) {
+		auto members = to<StructType>(t)->structDefinition().members();
+		for (const auto &m : members) {
+			init(m->type());
+		}
+	} else {
+		types.push_back(t);
+	}
+}
+
+int EncodePosition::countOfCreatedBuilders() const {
+	return qtyOfCreatedBuilders;
+}
+
+void EncodeFunctionParams::createMsgBodyAndAppendToBuilder2(const ast_vec<Expression const> &arguments,
+                                                            const ReasonOfOutboundMessage reason,
+                                                            const CallableDeclaration* funcDef,
+                                                            int builderSize) {
+	const int saveStackSize = pusher->getStack().size();
+	const ast_vec<VariableDeclaration> &parameters = funcDef->parameters();
+	solAssert(parameters.size() == arguments.size(), "");
+	createMsgBodyAndAppendToBuilder(
+			[&](size_t idx) {
+				pusher->push(0, ";; " + parameters[idx]->name());
+				TVMExpressionCompiler{*pusher}.compileNewExpr(arguments[idx].get());
+			},
+			reason,
+			funcDef,
+			false,
+			builderSize
+	);
+	solAssert(saveStackSize == pusher->getStack().size(), "");
+}
+
+uint32_t EncodeFunctionParams::calculateFunctionID(const CallableDeclaration * funcDef) {
+	std::stringstream ss;
+	ss << funcDef->name() << "(";
+	bool comma = false;
+	if (pusher->ctx().pragmaHelper().abiVersion() == 1) {
+		ss << "time";
+		comma = true;
+	}
+	for (const auto& input : funcDef->parameters()) {
+		std::string typestr = getTypeString(input->type(), funcDef);
+		solAssert(!typestr.empty(), "Wrong type in remote function params.");
+		if (comma)
+			ss << ",";
+		ss << typestr;
+		comma = true;
+	}
+	ss << ")";
+	comma = false;
+	if (funcDef->returnParameterList()) {
+		ss << "(";
+		for (const auto& output : funcDef->returnParameters()) {
+			std::string typestr = getTypeString(output->type(), funcDef);
+			solAssert(!typestr.empty(), "Wrong type in remote function params.");
+			if (comma)
+				ss << ",";
+			ss << typestr;
+			comma = true;
+		}
+		ss << ")";
+	}
+	if (pusher->ctx().pragmaHelper().abiVersion() == 2)
+		ss << "v2";
+	else
+		ss << "v1";
+
+	std::string str = ss.str();
+	bytes hash = picosha2::hash256(bytes(
+			str.begin(),
+			str.end()
+	));
+	uint32_t funcID = 0;
+	for (size_t i = 0; i < 4; i++) {
+		funcID <<= 8;
+		funcID += hash[i];
+	}
+
+	return funcID;
+}
+
+void EncodeFunctionParams::createMsgBodyAndAppendToBuilder(const std::function<void(size_t)> &pushParam,
+                                                           const ReasonOfOutboundMessage &reason,
+                                                           const CallableDeclaration * funcDef,
+                                                           bool encodeReturnParam,
+                                                           const int bitSizeBuilder) {
+
+	const ast_vec<VariableDeclaration> &parameters =
+			encodeReturnParam? funcDef->returnParameters() : funcDef->parameters();
+	std::vector<Type const*> types;
+	std::vector<ASTNode const*> nodes;
+	for (const ASTPointer<VariableDeclaration>& param : parameters) {
+		types.push_back(param->annotation().type);
+		nodes.push_back(param.get());
+	}
+
+	uint32_t funcID = calculateFunctionID(funcDef);
+	if (reason == ReasonOfOutboundMessage::FunctionReturnExternal)
+		funcID |= 0x80000000;
+	else if (reason == ReasonOfOutboundMessage::EmitEventExternal)
+		funcID &= 0x7FFFFFFF;
+	else if (reason == ReasonOfOutboundMessage::RemoteCallInternal)
+		funcID &= 0x7FFFFFFF;
+	std::stringstream ss;
+	ss << "x" << std::hex << std::setfill('0') << std::setw(8) << funcID;
+
+	std::unique_ptr<EncodePosition> position = std::make_unique<EncodePosition>(bitSizeBuilder + 32, types);
+	const bool doAppend = position->countOfCreatedBuilders() == 0;
+	if (doAppend) {
+		pusher->stzeroes(1);
+		pusher->push(0, "STSLICECONST " + ss.str());
+	} else {
+		pusher->stones(1);
+		position = std::make_unique<EncodePosition>(32, types);
+		pusher->push(+1, "NEWC");
+		pusher->push(0, "STSLICECONST " + ss.str());
+	}
+	encodeParameters(types, nodes, pushParam, *position);
+	if (!doAppend) {
+		pusher->push(-1, "STBREFR");
+	}
+}
+
+void
+EncodeFunctionParams::encodeParameters(const std::vector<Type const *> &types, const std::vector<ASTNode const *> &nodes,
+                                    const std::function<void(size_t)> &pushParam,
+                                    EncodePosition &position) {
+	// builder must be situated on top stack
+	solAssert(types.size() == nodes.size(), "");
+	for (size_t idx = 0; idx < types.size(); idx++) {
+		auto type = types[idx];
+		encodeParameter(type, position, [&](){pushParam(idx);}, nodes[idx]);
+	}
+	for (int idx = 0; idx < position.countOfCreatedBuilders(); idx++) {
+		pusher->push(-1, "STBREFR");
+	}
+}
+
+std::string EncodeFunctionParams::getTypeString(Type const * type, const CallableDeclaration * funcDef) {
+	if (auto structType = to<StructType>(type)) {
+		std::string ret = "(";
+		for (size_t i = 0; i < structType->structDefinition().members().size(); i++) {
+			if (i != 0) ret += ",";
+			ret += getTypeString(structType->structDefinition().members()[i]->type(), funcDef);
+		}
+		ret += ")";
+		return ret;
+	} else if (auto arrayType = to<ArrayType>(type)) {
+		if (!arrayType->isByteArray())
+			return getTypeString(arrayType->baseType(), funcDef) + "[]";
+	} else if (auto mapping = to<MappingType>(type)) {
+		return "map(" + getTypeString(mapping->keyType(), funcDef) + "," +
+		       getTypeString(mapping->valueType(), funcDef) + ")";
+	}
+
+	return TVMABI::getParamTypeString(type, *funcDef);
+}
+
+void EncodeFunctionParams::encodeParameter(Type const *type, EncodePosition &position,
+                                        const std::function<void()> &pushParam, ASTNode const *node) {
+	// stack: builder...
+	if (auto structType = to<StructType>(type)) {
+		pushParam(); // builder... struct
+		encodeStruct(structType, node, position); // stack: builder...
+	} else {
+		if (position.needNewCell(type)) {
+			pusher->push(+1, "NEWC");
+		}
+
+		if (isIntegralType(type) || isAddressOrContractType(type)) {
+			pushParam();
+			pusher->push(-1, storeIntegralOrAddress(type, true));
+		} else if (auto arrayType = to<ArrayType>(type)) {
+			if (arrayType->isByteArray()) {
+				pushParam();
+				pusher->push(-1, "STREFR");
+			} else {
+				pushParam();
+				// builder array
+				pusher->push(-1 + 2, "UNPAIR"); // builder size dict
+				pusher->exchange(0, 2); // dict size builder
+				pusher->push(-1, "STU 32"); // dict builder
+				pusher->push(-1, "STDICT"); // builder
+			}
+		} else if (to<TvmCellType>(type)) {
+			pushParam();
+			pusher->push(-1, "STREFR");
+		} else if (to<MappingType>(type)) {
+			pushParam();
+			pusher->push(0, "SWAP");
+			pusher->push(-1, "STDICT");
+		} else {
+			cast_error(*node, "Unsupported type for encoding: " + type->toString());
+		}
+	}
+}
+
+void EncodeFunctionParams::encodeStruct(const StructType* structType, ASTNode const* node, EncodePosition& position) {
+	// builder... builder struct
+	const int saveStackSize0 = pusher->getStack().size() - 2;
+	ast_vec<VariableDeclaration> const& members = structType->structDefinition().members();
+	const int memberQty = members.size();
+	pusher->untuple(memberQty); // builder... builder values...
+	pusher->blockSwap(1, memberQty); // builder... values... builder
+	for (int i = 0; i < memberQty; ++i) {
+		encodeParameter(members[i]->type(), position, [&]() {
+			const int index = pusher->getStack().size() - saveStackSize0 - 1 - i;
+			pusher->pushS(index);
+		}, node);
+	}
+
+	// builder... values... builder...
+	const int builderQty = pusher->getStack().size() - saveStackSize0 - memberQty;
+	pusher->dropUnder(builderQty, memberQty);
 }

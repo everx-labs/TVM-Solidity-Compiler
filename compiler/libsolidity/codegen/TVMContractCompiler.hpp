@@ -37,6 +37,9 @@ public:
 	explicit TVMConstructorCompiler(StackPusherHelper& pusher);
 	void dfs(ContractDefinition const* c);
 	void generateConstructors();
+	void generateOffChainConstructor();
+private:
+	void c4ToC7WithMemoryInitAndConstructorProtection();
 };
 
 class TVMContractCompiler: private boost::noncopyable {
@@ -45,6 +48,7 @@ public:
 	static std::string m_mainContractName;
 	static bool m_outputToFile;
 	static std::string m_fileName;
+	static std::string m_outputFolder;
 	static bool m_optionsEnabled;
 	static TvmOption m_tvmOption;
 	static bool m_outputProduced;
@@ -60,6 +64,8 @@ public:
 	static CodeLines proceedContractMode0(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
 	static CodeLines proceedContractMode1(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
 	static void fillInlineFunctions(TVMCompilerContext& ctx, ContractDefinition const* contract);
+
+	static void ensurePathExists();
 };
 
 }	// end solidity::frontend

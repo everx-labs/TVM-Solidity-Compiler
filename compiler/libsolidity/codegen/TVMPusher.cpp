@@ -19,16 +19,17 @@
 #include "TVMPusher.hpp"
 #include "TVMContractCompiler.hpp"
 #include "TVMExpressionCompiler.hpp"
+#include "TVMABI.hpp"
 
 using namespace solidity::frontend;
 
 StackPusherHelper::StackPusherHelper(const TVMCompilerContext *ctx, const int stackSize) :
 		m_ctx(ctx),
 		m_structCompiler{new StructCompiler{this,
-		                                    ctx->notConstantStateVariables(),
-		                                    256 + (m_ctx->storeTimestampInC4()? 64 : 0) + 1, // pubkey + timestamp + constructor_flag
-		                                    1,
-		                                    true}} {
+											ctx->notConstantStateVariables(),
+											256 + (m_ctx->storeTimestampInC4()? 64 : 0) + 1, // pubkey + timestamp + constructor_flag
+											1,
+											true}} {
 	m_stack.change(stackSize);
 }
 
@@ -721,90 +722,6 @@ void StackPusherHelper::ensureValueFitsType(const ElementaryTypeNameToken &typeN
 	}
 }
 
-void StackPusherHelper::encodeParameter(Type const *type, StackPusherHelper::EncodePosition &position,
-                                        const std::function<void()> &pushParam, ASTNode const *node) {
-	// stack: builder...
-	if (auto structType = to<StructType>(type)) {
-		pushParam(); // builder... struct
-		encodeStruct(structType, node, position); // stack: builder...
-	} else {
-		if (position.needNewCell(type)) {
-			push(+1, "NEWC");
-		}
-
-		if (isIntegralType(type) || isAddressOrContractType(type)) {
-			pushParam();
-			push(-1, storeIntegralOrAddress(type, true));
-		} else if (auto arrayType = to<ArrayType>(type)) {
-			if (arrayType->isByteArray()) {
-				pushParam();
-				push(-1, "STREFR");
-			} else {
-				pushParam();
-				// builder array
-				push(-1 + 2, "UNPAIR"); // builder size dict
-				exchange(0, 2); // dict size builder
-				push(-1, "STU 32"); // dict builder
-				push(-1, "STDICT"); // builder
-			}
-		} else if (to<TvmCellType>(type)) {
-			pushParam();
-			push(-1, "STREFR");
-		} else if (to<MappingType>(type)) {
-			pushParam();
-			push(0, "SWAP");
-			push(-1, "STDICT");
-		} else {
-			cast_error(*node, "Unsupported type for encoding: " + type->toString());
-		}
-	}
-}
-
-void
-StackPusherHelper::encodeParameters(const std::vector<Type const *> &types, const std::vector<ASTNode const *> &nodes,
-                                    const std::function<void(size_t)> &pushParam,
-                                    StackPusherHelper::EncodePosition &position) {
-	// builder must be situated on top stack
-	solAssert(types.size() == nodes.size(), "");
-	for (size_t idx = 0; idx < types.size(); idx++) {
-		auto type = types[idx];
-		encodeParameter(type, position, [&](){pushParam(idx);}, nodes[idx]);
-	}
-	for (int idx = 0; idx < position.countOfCreatedBuilders(); idx++) {
-		push(-1, "STBREFR");
-	}
-}
-
-int StackPusherHelper::encodeFunctionAndParams(const string &functionName, const std::vector<Type const *> &types,
-                                                const std::vector<ASTNode const *> &nodes,
-                                                const std::function<void(size_t)> &pushParam,
-                                                const StackPusherHelper::ReasonOfOutboundMessage &reason) {
-	push(+1, "PUSHINT $" + functionName + "$");
-	switch (reason) {
-		case ReasonOfOutboundMessage::FunctionReturnExternal:
-			push(+1, "PUSHINT " + to_string(0x80000000));
-			push(-1, "OR");
-			break;
-
-		case ReasonOfOutboundMessage::EmitEventExternal:
-			push(+1, "PUSHINT " + to_string(0x7fffffff));
-			push(-1, "AND");
-			break;
-
-		default:
-			break;
-	}
-	push(+1, "NEWC");
-	push(-1, "STU 32");
-	EncodePosition position{32};
-
-	encodeParameters(types, nodes, pushParam, position);
-
-	if (position.countOfCreatedBuilders() == 0)
-		return TvmConst::CellBitLength - position.restBits();
-	return -1;
-}
-
 void StackPusherHelper::prepareKeyForDictOperations(Type const *key) {
 	// stack: key dict
 	if (isStringOrStringLiteralOrBytes(key)) {
@@ -826,8 +743,8 @@ StackPusherHelper::int_msg_info(const std::set<int> &isParamOnStack, const std::
 
 	const std::vector<int> zeroes {1, 1, 1,
 									2, 2,
-						            4, 1, 4, 4,
-						            64, 32};
+									4, 1, 4, 4,
+									64, 32};
 	std::string bitString = "0";
 	int maxBitStringSize = 0;
 	push(+1, "NEWC");
@@ -876,7 +793,7 @@ StackPusherHelper::ext_msg_info(const set<int> &isParamOnStack) {
 	// created_lt:uint64 created_at:uint32 = CommonMsgInfo;
 
 	const std::vector<int> zeroes {2, 2,
-	                               64, 32};
+								   64, 32};
 	std::string bitString = "11";
 	int maxBitStringSize = 0;
 	push(+1, "NEWC");
@@ -948,65 +865,38 @@ void StackPusherHelper::sendrawmsg() {
 }
 
 void StackPusherHelper::sendIntMsg(const std::map<int, Expression const *> &exprs,
-                                   const std::map<int, std::string> &constParams,
-                                   const std::function<int()> &pushBody,
-                                   const std::function<void()> &pushSendrawmsgFlag) {
+								   const std::map<int, std::string> &constParams,
+								   const std::function<void(int)> &appendBody,
+								   const std::function<void()> &pushSendrawmsgFlag) {
 	std::set<int> isParamOnStack;
 	for (auto &[param, expr] : exprs | boost::adaptors::reversed) {
 		isParamOnStack.insert(param);
 		TVMExpressionCompiler{*this}.compileNewExpr(expr);
 	}
-	sendMsg(isParamOnStack, constParams, pushBody, pushSendrawmsgFlag, true);
+	sendMsg(isParamOnStack, constParams, appendBody, pushSendrawmsgFlag, true);
 }
 
 void StackPusherHelper::sendMsg(const std::set<int>& isParamOnStack,
-                                const std::map<int, std::string> &constParams,
-                                const std::function<int()> &pushBody,
-                                const std::function<void()> &pushSendrawmsgFlag,
-                                bool isInternalMessage ) {
+								const std::map<int, std::string> &constParams,
+								const std::function<void(int)> &appendBody,
+								const std::function<void()> &pushSendrawmsgFlag,
+								bool isInternalMessage ) {
 	std::string bitString;
-	int builderSize;
+	int msgInfoSize;
 	if (isInternalMessage) {
-		std::tie(bitString, builderSize) = int_msg_info(isParamOnStack, constParams);
+		std::tie(bitString, msgInfoSize) = int_msg_info(isParamOnStack, constParams);
 	} else {
-		std::tie(bitString, builderSize) = ext_msg_info(isParamOnStack);
+		std::tie(bitString, msgInfoSize) = ext_msg_info(isParamOnStack);
 	}
 	// stack: builder
 
-	if (pushBody) {
+	if (appendBody) {
 		appendToBuilder(bitString + "0"); // there is no StateInit
-		++builderSize;
+		++msgInfoSize;
 
-		int bodySize = pushBody();
-		// stack: builder body
-		exchange(0, 1); // stack: body builder
-		if (bodySize == -1) {
-			// check that brembits(builder) > sbits(body)
-			pushLines(R"(
-; merge body and builder
-PUSH S1
-BBITS
-PUSH S1
-BREMBITS
-GREATER
-PUSHCONT {
-	STSLICECONST 1
-	STBREF
-}
-PUSHCONT {
-	STSLICECONST 0
-	STB
-}
-IFELSE
-)");
-			push(-2 + 1, "");
-		} else if (bodySize + builderSize <= TvmConst::CellBitLength) {
-			stzeroes(1);
-			push(-1, "STB");
-		} else {
-			stones(1);
-			push(-1, "STBREF");
-		}
+		// stack: values... builder
+		appendBody(msgInfoSize);
+		// stack: builder body or builder-with-body
 	} else {
 		appendToBuilder(bitString + "00"); // there is no StateInit and no body
 	}
@@ -1030,8 +920,6 @@ CodeLines solidity::frontend::switchSelectorIfNeed(FunctionDefinition const *f) 
 	}
 	return code;
 }
-
-TVMStack::TVMStack() : m_size(0) {}
 
 int TVMStack::size() const {
 	return m_size;
@@ -1066,7 +954,7 @@ int TVMStack::getStackSize(Declaration const *name) const {
 
 void TVMStack::ensureSize(int savedStackSize, const string &location) const {
 	solAssert(savedStackSize == m_size, "stack: " + toString(savedStackSize)
-	                                    + " vs " + toString(m_size) + " at " + location);
+										+ " vs " + toString(m_size) + " at " + location);
 }
 
 string CodeLines::str(const string &indent) const {
@@ -1116,12 +1004,6 @@ void CodeLines::append(const CodeLines &oth) {
 	}
 }
 
-void TVMCompilerContext::addEvent(EventDefinition const *event) {
-	std::string name = event->name();
-	solAssert(m_events.count(name) == 0, "Duplicate event " + name);
-	m_events[name] = event;
-}
-
 void TVMCompilerContext::addFunction(FunctionDefinition const *_function) {
 	if (!_function->isConstructor()) {
 		string name = functionName(_function);
@@ -1132,19 +1014,21 @@ void TVMCompilerContext::addFunction(FunctionDefinition const *_function) {
 void TVMCompilerContext::initMembers(ContractDefinition const *contract) {
 	solAssert(!m_contract, "");
 	m_contract = contract;
-	for (ContractDefinition const* c : getContractsChain(contract)) {
-		for (EventDefinition const *event : c->events())
-			addEvent(event);
-	}
 	for (const auto &pair : getContractFunctionPairs(contract)) {
 		m_function2contract.insert(pair);
 	}
 
 	for (ContractDefinition const* base : contract->annotation().linearizedBaseContracts) {
 		for (FunctionDefinition const* f : base->definedFunctions()) {
-			ignoreIntOverflow |= f->name() == "tvm_ignore_integer_overflow"; // delete check override, check pragma
-			m_haveSetDestAddr |=
-					f->name() == "tvm_set_ext_dest_address"; // delete check override, check tvm.set_ext_dest_address
+			ignoreIntOverflow |= f->name() == "tvm_ignore_integer_overflow";
+			m_haveSetDestAddr |= f->name() == "tvm_set_ext_dest_address";
+			if (f->name() == "offchainConstructor") {
+				if (m_haveOffChainConstructor) {
+					cast_error(*f, "This function can not be overrived/overloaded.");
+				} else {
+					m_haveOffChainConstructor = true;
+				}
+			}
 			haveFallback |= f->isFallback();
 			haveOnBounce |= f->isOnBounce();
 			haveReceive |= f->isReceive();
@@ -1160,20 +1044,13 @@ void TVMCompilerContext::initMembers(ContractDefinition const *contract) {
 			continue;
 		addFunction(f);
 	}
-	for (const auto &pair : getContractFunctionPairs(contract)) {
-		auto f = pair.first;
-		if (!isTvmIntrinsic(f->name()) && !isPureFunction(f) && !isFunctionForInlining(f)) {
-			m_functionsList.push_back(f);
-		}
-	}
-
 	for (VariableDeclaration const *variable: notConstantStateVariables()) {
 		m_stateVarIndex[variable] = 10 + m_stateVarIndex.size();
 	}
 }
 
 TVMCompilerContext::TVMCompilerContext(ContractDefinition const *contract,
-                                       PragmaDirectiveHelper const &pragmaHelper) : m_pragmaHelper{pragmaHelper} {
+									   PragmaDirectiveHelper const &pragmaHelper) : m_pragmaHelper{pragmaHelper} {
 	initMembers(contract);
 }
 
@@ -1255,10 +1132,6 @@ const FunctionDefinition *TVMCompilerContext::getLocalFunction(const string& fna
 	return get_from_map(m_functions, fname, nullptr);
 }
 
-const EventDefinition *TVMCompilerContext::getEvent(const string &name) const {
-	return get_from_map(m_events, name, nullptr);
-}
-
 bool TVMCompilerContext::haveFallbackFunction() const {
 	return haveFallback;
 }
@@ -1275,13 +1148,8 @@ bool TVMCompilerContext::ignoreIntegerOverflow() const {
 	return ignoreIntOverflow;
 }
 
-std::vector<const EventDefinition *> TVMCompilerContext::events() const {
-	std::vector<const EventDefinition*> result;
-	for (const auto& [name, event] : m_events) {
-		(void)name;
-		result.push_back(event);
-	}
-	return result;
+bool TVMCompilerContext::haveOffChainConstructor() const {
+	return m_haveOffChainConstructor;
 }
 
 FunctionDefinition const *TVMCompilerContext::afterSignatureCheck() const {
@@ -1295,54 +1163,6 @@ FunctionDefinition const *TVMCompilerContext::afterSignatureCheck() const {
 
 bool TVMCompilerContext::storeTimestampInC4() const {
 	return haveTimeInAbiHeader() && afterSignatureCheck() == nullptr;
-}
-
-StackPusherHelper::EncodePosition::EncodePosition(int bits) :
-		restSliceBits{TvmConst::CellBitLength - bits},
-		restFef{4},
-		qtyOfCreatedBuilders{0}
-{
-
-}
-
-bool StackPusherHelper::EncodePosition::needNewCell(Type const *type) {
-	ABITypeSize size(type);
-	solAssert(0 <= size.maxRefs && size.maxRefs <= 1, "");
-
-	restSliceBits -= size.maxBits;
-	restFef -= size.maxRefs;
-
-	if (restSliceBits < 0 || restFef == 0) {
-		restSliceBits =  TvmConst::CellBitLength - size.maxBits;
-		restFef = 4 - size.maxRefs;
-		++qtyOfCreatedBuilders;
-		return true;
-	}
-	return false;
-}
-
-int StackPusherHelper::EncodePosition::countOfCreatedBuilders() const {
-	return qtyOfCreatedBuilders;
-}
-
-
-void StackPusherHelper::encodeStruct(const StructType* structType, ASTNode const* node, EncodePosition& position) {
-	// builder... builder struct
-	const int saveStackSize0 = getStack().size() - 2;
-	ast_vec<VariableDeclaration> const& members = structType->structDefinition().members();
-	const int memberQty = members.size();
-	untuple(memberQty); // builder... builder values...
-	blockSwap(1, memberQty); // builder... values... builder
-	for (int i = 0; i < memberQty; ++i) {
-		encodeParameter(members[i]->type(), position, [&]() {
-			const int index = getStack().size() - saveStackSize0 - 1 - i;
-			pushS(index);
-		}, node);
-	}
-
-	// builder... values... builder...
-	const int builderQty = getStack().size() - saveStackSize0 - memberQty;
-	dropUnder(builderQty, memberQty);
 }
 
 void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder) {
@@ -1429,8 +1249,8 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 }
 
 void StackPusherHelper::getFromDict(Type const& keyType, Type const& valueType, ASTNode const& node,
-                                    const DictOperation op,
-                                    const bool resultAsSliceForStruct) {
+									const DictOperation op,
+									const bool resultAsSliceForStruct) {
 	// stack: index dict
 	const Type::Category valueCategory = valueType.category();
 	prepareKeyForDictOperations(&keyType);

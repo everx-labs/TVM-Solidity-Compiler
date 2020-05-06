@@ -252,6 +252,8 @@ bool isIntegralType(const Type* type);
 
 bool isStringOrStringLiteralOrBytes(const Type* type);
 
+bool isRefType(const Type* type);
+
 std::string typeToDictChar(Type const* keyType);
 
 int lengthOfDictKey(Type const* key);
@@ -295,6 +297,9 @@ std::string ASTNode2String(const ASTNode& node, const string& error_messag = "",
 void cast_error(const ASTNode& node, const string& error_message);
 
 void cast_warning(const ASTNode& node, const string& error_message);
+
+[[noreturn]]
+void fatal_error(const string &error_message);
 
 class PragmaDirectiveHelper {
 public:

@@ -1417,7 +1417,7 @@ public:
 
 	Category category() const override { return Category::Mapping; }
 
-	BoolResult isImplicitlyConvertibleTo(const MappingType * _other) const;
+	BoolResult isImplicitlyConvertibleTo(Type const& _other) const override;
 	std::string richIdentifier() const override;
 	bool operator==(Type const& _other) const override;
 	std::string toString(bool _short) const override;

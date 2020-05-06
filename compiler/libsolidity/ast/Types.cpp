@@ -1591,39 +1591,15 @@ BoolResult ArrayType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 	if (_convertTo.category() != category())
 		return false;
 	auto& convertTo = dynamic_cast<ArrayType const&>(_convertTo);
-	if (convertTo.isByteArray() != isByteArray() || convertTo.isString() != isString())
-		return false;
-	// memory/calldata to storage can be converted, but only to a direct storage reference
-	if (convertTo.location() == DataLocation::Storage && location() != DataLocation::Storage && convertTo.isPointer())
-		return false;
-	if (convertTo.location() == DataLocation::CallData && location() != convertTo.location())
-		return false;
-	if (convertTo.location() == DataLocation::Storage && !convertTo.isPointer())
-	{
-		// Less restrictive conversion, since we need to copy anyway.
-		if (!baseType()->isImplicitlyConvertibleTo(*convertTo.baseType()))
-			return false;
-		if (convertTo.isDynamicallySized())
-			return true;
-		return !isDynamicallySized() && convertTo.length() >= length();
+	if (isByteArray() || isString())
+		return convertTo.isByteArray() || convertTo.isString();
+	Type const* t0 = baseType();
+	Type const* t1 = convertTo.baseType();
+	while (dynamic_cast<ArrayType const*>(t0) && dynamic_cast<ArrayType const*>(t1)) {
+		t0 = dynamic_cast<ArrayType const*>(t0)->baseType();
+		t1 = dynamic_cast<ArrayType const*>(t1)->baseType();
 	}
-	else
-	{
-		// Conversion to storage pointer or to memory, we de not copy element-for-element here, so
-		// require that the base type is the same, not only convertible.
-		// This disallows assignment of nested dynamic arrays from storage to memory for now.
-		if (
-			*TypeProvider::withLocationIfReference(location(), baseType()) !=
-			*TypeProvider::withLocationIfReference(location(), convertTo.baseType())
-		)
-			return false;
-		if (isDynamicallySized() != convertTo.isDynamicallySized())
-			return false;
-		// We also require that the size is the same.
-		if (!isDynamicallySized() && length() != convertTo.length())
-			return false;
-		return true;
-	}
+	return *t0 == *t1;
 }
 
 BoolResult ArrayType::isExplicitlyConvertibleTo(Type const& _convertTo) const
@@ -3544,10 +3520,13 @@ Type const* MappingType::encodingType() const
 	return TypeProvider::integer(256, IntegerType::Modifier::Unsigned);
 }
 
-BoolResult MappingType::isImplicitlyConvertibleTo(const MappingType * _other) const
+BoolResult MappingType::isImplicitlyConvertibleTo(Type const& _other) const
 {
-	return keyType()->isImplicitlyConvertibleTo(*_other->keyType()) &&
-			valueType()->isImplicitlyConvertibleTo(*_other->valueType());
+	if (_other.category() != category())
+		return false;
+	auto map = dynamic_cast<MappingType const*>(&_other);
+	return keyType()->isImplicitlyConvertibleTo(*map->keyType()) &&
+	       valueType()->isImplicitlyConvertibleTo(*map->valueType());
 }
 
 string MappingType::richIdentifier() const
@@ -3825,24 +3804,6 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"resetStorage", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMResetStorage, false, StateMutability::NonPayable)},
 			{"log", TypeProvider::function(strings{"bytes32"}, strings{}, FunctionType::Kind::LogTVM,false, StateMutability::Pure)}
 		};
-		members.emplace_back("transfer", TypeProvider::function(
-				TypePointers{TypeProvider::address(), TypeProvider::integer(128, IntegerType::Modifier::Unsigned),
-								 TypeProvider::boolean(), TypeProvider::integer(16, IntegerType::Modifier::Unsigned)},
-				TypePointers{},
-				strings{string(), string(), string(), string()},
-				strings{},
-				FunctionType::Kind::TVMTransfer,
-				false, StateMutability::Pure
-		));
-		members.emplace_back("transfer", TypeProvider::function(
-				TypePointers{TypeProvider::address(), TypeProvider::integer(128, IntegerType::Modifier::Unsigned),
-								 TypeProvider::boolean(), TypeProvider::integer(16, IntegerType::Modifier::Unsigned), TypeProvider::tvmcell()},
-				TypePointers{},
-				strings{string(), string(), string(), string(), string()},
-				strings{},
-				FunctionType::Kind::TVMTransfer,
-				false, StateMutability::Pure
-		));
 		members.emplace_back("setcode", TypeProvider::function(
 				TypePointers{TypeProvider::tvmcell()},
 				TypePointers{},
@@ -3869,14 +3830,6 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 		));
 		members.emplace_back("hash", TypeProvider::function(
 				TypePointers{TypeProvider::tvmcell()},
-				TypePointers{TypeProvider::uint256()},
-				strings{string()},
-				strings{string()},
-				FunctionType::Kind::TVMHash,
-				false, StateMutability::Pure
-		));
-		members.emplace_back("hash", TypeProvider::function(
-				TypePointers{TypeProvider::array(DataLocation::Memory)},
 				TypePointers{TypeProvider::uint256()},
 				strings{string()},
 				strings{string()},
@@ -3994,6 +3947,17 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				FunctionType::Kind::TVMDeploy,
 				true, StateMutability::Pure
 		));
+
+		members.emplace_back("deployAndCallConstructorWithFlag", TypeProvider::function(
+				TypePointers{TypeProvider::tvmcell(), TypeProvider::address(),
+							 TypeProvider::uint(128), TypeProvider::uint(8), TypeProvider::uint(32)},
+				TypePointers{},
+				strings{string(), string(), string(), string(), string()},
+				strings{},
+				FunctionType::Kind::TVMDeploy,
+				true, StateMutability::Pure
+		));
+
 		members.emplace_back("functionId", TypeProvider::function(
 				TypePointers{},
 				TypePointers{TypeProvider::uint(32)},

@@ -23,11 +23,11 @@ bool TVMAnalyzer::visit(Assignment const& _variable) {
 	if (auto ident = dynamic_cast<const Identifier *>(&_variable.leftHandSide()))
 		lefts.push_back(ident);
 	if (auto tuple = dynamic_cast<const TupleExpression *>(&_variable.leftHandSide()))
-		for(auto tup: tuple->components())
+		for (auto tup: tuple->components())
 			if (auto ident = dynamic_cast<const Identifier *>(tup.get()))
 				lefts.push_back(ident);
 
-	for(auto ident: lefts) {
+	for (auto ident: lefts) {
 		if (auto var = dynamic_cast<VariableDeclaration const*>(ident->annotation().referencedDeclaration)) {
 			solAssert(!var->name().empty(), "");
 			if (dynamic_cast<const StructType *>(var->type()) && var->isLocalVariable())
@@ -39,11 +39,11 @@ bool TVMAnalyzer::visit(Assignment const& _variable) {
 	if (auto ident = dynamic_cast<const MemberAccess *>(&_variable.leftHandSide()))
 		lefts2.push_back(ident);
 	if (auto tuple = dynamic_cast<const TupleExpression *>(&_variable.leftHandSide()))
-		for(auto tup: tuple->components())
+		for (auto tup: tuple->components())
 			if (auto ident = dynamic_cast<const MemberAccess *>(tup.get()))
 				lefts2.push_back(ident);
 
-	for(auto member: lefts2) {
+	for (auto member: lefts2) {
 		if (auto ident = dynamic_cast<const Identifier *>(&member->expression()))
 			if (auto var = dynamic_cast<VariableDeclaration const*>(ident->annotation().referencedDeclaration)) {
 				solAssert(!var->name().empty(), "");
@@ -57,11 +57,11 @@ bool TVMAnalyzer::visit(Assignment const& _variable) {
 	if (auto ident = dynamic_cast<const Identifier *>(&_variable.rightHandSide()))
 		rights.push_back(ident);
 	if (auto tuple = dynamic_cast<const TupleExpression *>(&_variable.rightHandSide()))
-		for(auto tup: tuple->components())
+		for (auto tup: tuple->components())
 			if (auto ident = dynamic_cast<const Identifier *>(tup.get()))
 				rights.push_back(ident);
 
-	for(auto ident: rights) {
+	for (auto ident: rights) {
 		if (auto var = dynamic_cast<VariableDeclaration const*>(ident->annotation().referencedDeclaration)) {
 			solAssert(!var->name().empty(), "");
 			if (dynamic_cast<const StructType *>(var->type())) {
@@ -100,7 +100,7 @@ bool TVMAnalyzer::visit(FunctionDefinition const& _function) {
 		else
 			solAssert(!m_currentFunction, "");
 
-	for(auto ret: _function.returnParameters())
+	for (auto ret: _function.returnParameters())
 			m_declaredReturns.push_back(make_pair(ret->id(), ret.get()));
 		return true;
 }
@@ -116,7 +116,7 @@ bool TVMAnalyzer::visit(Return const& _return) {
 				if (auto ident = dynamic_cast<const Identifier*>(tup.get()))
 					rets.push_back(ident);
 
-		for(auto ident: rets) {
+		for (auto ident: rets) {
 			if (auto var = dynamic_cast<VariableDeclaration const*>(ident->annotation().referencedDeclaration)) {
 				solAssert(!var->name().empty(), "");
 				if (dynamic_cast<const StructType *>(var->type())) {
@@ -131,7 +131,7 @@ bool TVMAnalyzer::visit(Return const& _return) {
 }
 
 bool TVMAnalyzer::visit(FunctionCall const& _functionCall) {
-	for(ASTPointer<const Expression> argument: _functionCall.arguments()) {
+	for (ASTPointer<const Expression> argument: _functionCall.arguments()) {
 		if (auto ident = dynamic_cast<const Identifier*>(argument.get())) {
 			if (auto var = dynamic_cast<VariableDeclaration const*>(ident->annotation().referencedDeclaration)) {
 				solAssert(!var->name().empty(), "");

@@ -20,9 +20,6 @@
 #include "TVMPusher.hpp"
 
 
-using namespace solidity::frontend;
-
-
 namespace solidity::frontend {
 
 std::string functionName(FunctionDefinition const *_function) {
@@ -66,6 +63,11 @@ void cast_error(const ASTNode &node, const string &error_message) {
 
 void cast_warning(const ASTNode &node, const string &error_message) {
 	cerr << ASTNode2String(node, error_message, true) << endl;
+}
+
+void fatal_error(const string &error_message) {
+	cerr << error_message << '\n';
+	std::exit(EXIT_FAILURE);
 }
 
 const ContractDefinition *
@@ -152,6 +154,11 @@ bool isIntegralType(const Type *type) {
 bool isStringOrStringLiteralOrBytes(const Type *type) {
 	auto arrayType = to<ArrayType>(type);
 	return type->category() == Type::Category::StringLiteral || (arrayType && arrayType->isByteArray());
+}
+
+bool isRefType(Type const* t) {
+	return (t->category() == Type::Category::Array && to<ArrayType>(t)->isByteArray()) ||
+			t->category() == Type::Category::TvmCell;
 }
 
 std::string typeToDictChar(Type const *keyType) {
@@ -303,6 +310,4 @@ vector<FunctionDefinition const *> getContractFunctions(ContractDefinition const
 	return result;
 }
 
-
-
-}
+} // end namespace solidity::frontend

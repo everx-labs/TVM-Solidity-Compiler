@@ -47,6 +47,7 @@ namespace TvmConst {
 	}
 	const int CellBitLength = 1023;
 	const int ArrayKeyLength = 32;
+	const int MaxPushSliceLength = 249; // PUSHSLICE xSSSS;    SSSS.length() <= MaxPushSliceLength
 
 	namespace RuntimeException {
 		const int ArrayIndexOutOfRange = 50;
@@ -60,7 +61,7 @@ namespace TvmConst {
 	}
 
 	namespace FunctionId {
-		const int First = 3;
+		const int First = 4;
 		const int64_t Last = 0xFFFFFFFD;
 	}
 
@@ -77,6 +78,6 @@ namespace TvmConst {
 	}
 
 	namespace Attributes {
-		const std::string MuteStructWarning = "maybe_unsaved";
+		const std::string MuteStructWarning{"maybe_unsaved"};
 	}
 }

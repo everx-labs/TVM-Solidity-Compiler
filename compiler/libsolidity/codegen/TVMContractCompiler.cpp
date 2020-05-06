@@ -63,32 +63,15 @@ void TVMConstructorCompiler::dfs(ContractDefinition const *c) {
 
 void TVMConstructorCompiler::generateConstructors() {
 	m_pusher.generateGlobl("constructor", true);
-	// copy c4 to c7
-	m_pusher.pushLines(R"(
-GETGLOB 1
-ISNULL
-)");
-	m_pusher.startContinuation();
-	m_pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7_with_init_storage");
 
-	m_pusher.endContinuation();
-	m_pusher.pushLines(R"(
-IF
-)");
-	// generate constructor protection
-	m_pusher.pushLines(R"(
-;; constructor protection
-GETGLOB 6
-THROWIF 51
-PUSHINT 1
-SETGLOB 6
-;; end constructor protection
-)");
+	if (m_pusher.ctx().haveOffChainConstructor()) {
+		m_pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7");
+	} else {
+		c4ToC7WithMemoryInitAndConstructorProtection();
+	}
+
 
 	m_pusher.push(+1, ""); // push encoded params of constructor
-
-
-
 	std::vector<ContractDefinition const*> linearizedBaseContracts =
 			m_pusher.ctx().getContract()->annotation().linearizedBaseContracts; // from derived to base
 	for (ContractDefinition const* c : linearizedBaseContracts) {
@@ -132,7 +115,7 @@ SETGLOB 6
 		}
 
 		TVMFunctionCompiler functionCompiler{m_pusher, false, 0, c->constructor(),
-		                                     m_pusher.getStack().size() - static_cast<int>(c->constructor()->parameters().size())};
+														 m_pusher.getStack().size() - static_cast<int>(c->constructor()->parameters().size())};
 		functionCompiler.makeInlineFunctionCall(false);
 	}
 
@@ -148,6 +131,48 @@ SETGLOB 6
 	m_pusher.push(0, " ");
 }
 
+void TVMConstructorCompiler::generateOffChainConstructor() {
+	FunctionDefinition const* function = m_pusher.ctx().m_currentFunction;
+	if (function->visibility() != Visibility::External) {
+		cast_error(*function, "This function must be defined as \"external\".");
+	}
+
+	m_pusher.generateInternal("offchainConstructor", 3);
+
+	c4ToC7WithMemoryInitAndConstructorProtection();
+
+	TVMFunctionCompiler functionCompiler(m_pusher, true, 0, function, 0);
+	functionCompiler.decodeFunctionParamsAndLocateVars();
+	functionCompiler.visitFunctionWithModifiers();
+
+	m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
+	m_pusher.push(0, "TRUE");
+	m_pusher.push(0, "SETGLOB 7");
+	m_pusher.push(0, " ");
+}
+
+void TVMConstructorCompiler::c4ToC7WithMemoryInitAndConstructorProtection() {
+	// copy c4 to c7
+	m_pusher.pushLines(R"(
+GETGLOB 1
+ISNULL
+)");
+	m_pusher.startContinuation();
+	m_pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7_with_init_storage");
+	m_pusher.endContinuation();
+	m_pusher.push(0, "IF");
+
+	// generate constructor protection
+	m_pusher.pushLines(R"(
+;; constructor protection
+GETGLOB 6
+THROWIF 51
+PUSHINT 1
+SETGLOB 6
+;; end constructor protection
+)");
+}
+
 bool TVMContractCompiler::m_optionsEnabled = false;
 TvmOption TVMContractCompiler::m_tvmOption = TvmOption::Code;
 bool TVMContractCompiler::m_outputProduced = false;
@@ -157,20 +182,24 @@ std::string TVMContractCompiler::m_outputWarnings;
 std::vector<ContractDefinition const*> TVMContractCompiler::m_allContracts;
 std::string TVMContractCompiler::m_mainContractName;
 std::string TVMContractCompiler::m_fileName;
+std::string TVMContractCompiler::m_outputFolder;
 bool TVMContractCompiler::m_outputToFile = false;
 
 void TVMContractCompiler::generateABI(ContractDefinition const *contract,
-                                      std::vector<PragmaDirective const *> const &pragmaDirectives) {
+												  std::vector<PragmaDirective const *> const &pragmaDirectives) {
 	m_outputProduced = true;
 
-	ofstream ofile;
 	if (m_outputToFile) {
+		ofstream ofile;
+		ensurePathExists();
 		ofile.open(m_fileName + ".abi.json");
-		TVMABI::generateABI(contract, m_allContracts, pragmaDirectives, &ofile);
+		if (!ofile)
+			fatal_error("Failed to open the output file: " + m_fileName + ".abi.json");
+		TVMABI::generateABI(contract, pragmaDirectives, &ofile);
 		ofile.close();
 		cout << "ABI was generated and saved to file " << m_fileName << ".abi.json" << endl;
 	} else {
-		TVMABI::generateABI(contract, m_allContracts, pragmaDirectives);
+		TVMABI::generateABI(contract, pragmaDirectives);
 	}
 
 }
@@ -212,7 +241,10 @@ void TVMContractCompiler::proceedContract(ContractDefinition const *contract, Pr
 
 	if (m_outputToFile) {
 		ofstream ofile;
+		ensurePathExists();
 		ofile.open(m_fileName + ".code");
+		if (!ofile)
+			fatal_error("Failed to open the output file: " + m_fileName + ".code");
 		ofile << code.str();
 		ofile.close();
 		cout << "Code was generated and saved to file " << m_fileName << ".code" << endl;
@@ -258,62 +290,57 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 		optimize_and_append_code(code, pusher, g_disable_optimizer);
 	}
 
-	for (FunctionDefinition const* _function : ctx.m_functionsList) {
-		ctx.m_currentFunction = _function;
-		solAssert(!ctx.isPureFunction(_function), "");
-		if (_function->isConstructor() || _function->isReceive() || _function->isFallback() ||
-			_function->isOnBounce()) {
-			continue;
-		} else if (_function->visibility() == Visibility::TvmGetter) {
-			StackPusherHelper pusher{&ctx};
-			TVMFunctionCompiler tvm(pusher, true, 0, _function, 0);
-			tvm.generateTvmGetter(_function);
-			optimize_and_append_code(code, pusher, g_disable_optimizer);
-		} else if (isMacro(_function->name())) {
-			// TODO: These four lines below are copied many times across this file.
-			// 		 Would it be possible to shorted it by making a pattern?
-			StackPusherHelper pusher{&ctx};
-			TVMFunctionCompiler tvm(pusher, false, 0, _function, 0);
-			tvm.generateMacro();
-			optimize_and_append_code(code, pusher, g_disable_optimizer);
-		} else if (_function->name() == "onCodeUpgrade") {
-			StackPusherHelper pusher{&ctx};
-			TVMFunctionCompiler tvm(pusher, false, 0, _function, 0);
-			tvm.generateOnCodeUpgrade();
-			optimize_and_append_code(code, pusher, g_disable_optimizer);
-		} else if (_function->name() == "onTickTock") {
-			StackPusherHelper pusher{&ctx};
-			TVMFunctionCompiler tvm(pusher, false, 0, _function, 0);
-			tvm.generateOnTickTock();
-			optimize_and_append_code(code, pusher, g_disable_optimizer);
-		} else {
-			if (_function->isPublic()) {
-				bool isBaseMethod = _function != getContractFunctions(contract, _function->name()).back();
-				if (!isBaseMethod) {
-					StackPusherHelper pusher0{&ctx};
-					TVMFunctionCompiler tvm0(pusher0, true, 0, _function, 0);
-					tvm0.generatePublicFunction();
-					optimize_and_append_code(code, pusher0, g_disable_optimizer);
-				}
+	for (ContractDefinition const* c : contract->annotation().linearizedBaseContracts | boost::adaptors::reversed) {
+		for (FunctionDefinition const* _function : c->definedFunctions()) {
+			if (_function->isConstructor() || _function->isReceive() || _function->isFallback() ||
+			    _function->isOnBounce() || !_function->isImplemented() || isTvmIntrinsic(_function->name()) ||
+			    isFunctionForInlining(_function)) {
+				continue;
 			}
-			StackPusherHelper pusher{&ctx};
-			TVMFunctionCompiler tvm(pusher, false, 0, _function, 0);
-			tvm.generatePrivateFunction();
-			optimize_and_append_code(code, pusher, g_disable_optimizer);
+			ctx.m_currentFunction = _function;
+			if (_function->visibility() == Visibility::TvmGetter) {
+				StackPusherHelper pusher{&ctx};
+				TVMFunctionCompiler tvm(pusher, true, 0, _function, 0);
+				tvm.generateTvmGetter(_function);
+				optimize_and_append_code(code, pusher, g_disable_optimizer);
+			} else if (isMacro(_function->name())) {
+				// TODO: These four lines below are copied many times across this file.
+				// 		 Would it be possible to shorted it by making a pattern?
+				StackPusherHelper pusher{&ctx};
+				TVMFunctionCompiler tvm(pusher, false, 0, _function, 0);
+				tvm.generateMacro();
+				optimize_and_append_code(code, pusher, g_disable_optimizer);
+			} else if (_function->name() == "onCodeUpgrade") {
+				StackPusherHelper pusher{&ctx};
+				TVMFunctionCompiler tvm(pusher, false, 0, _function, 0);
+				tvm.generateOnCodeUpgrade();
+				optimize_and_append_code(code, pusher, g_disable_optimizer);
+			} else if (_function->name() == "onTickTock") {
+				StackPusherHelper pusher{&ctx};
+				TVMFunctionCompiler tvm(pusher, false, 0, _function, 0);
+				tvm.generateOnTickTock();
+				optimize_and_append_code(code, pusher, g_disable_optimizer);
+			} else if (_function->name() == "offchainConstructor") {
+				StackPusherHelper pusher{&ctx};
+				TVMConstructorCompiler constructorCompiler(pusher);
+				constructorCompiler.generateOffChainConstructor();
+				optimize_and_append_code(code, pusher, g_disable_optimizer);
+			} else {
+				if (_function->isPublic()) {
+					bool isBaseMethod = _function != getContractFunctions(contract, _function->name()).back();
+					if (!isBaseMethod) {
+						StackPusherHelper pusher0{&ctx};
+						TVMFunctionCompiler tvm0(pusher0, true, 0, _function, 0);
+						tvm0.generatePublicFunction();
+						optimize_and_append_code(code, pusher0, g_disable_optimizer);
+					}
+				}
+				StackPusherHelper pusher{&ctx};
+				TVMFunctionCompiler tvm(pusher, false, 0, _function, 0);
+				tvm.generatePrivateFunction();
+				optimize_and_append_code(code, pusher, g_disable_optimizer);
+			}
 		}
-	}
-	for (const auto& fname : ctx.m_remoteFunctions) {
-		StackPusherHelper pusher{&ctx};
-		pusher.generateGlobl(fname, false);
-		pusher.push(0, " ");
-		optimize_and_append_code(code, pusher, g_disable_optimizer);
-	}
-	for (auto event : ctx.events()) {
-		StackPusherHelper pusher{&ctx};
-		const string& ename = event->name();
-		pusher.generateGlobl(ename, false);
-		pusher.push(0, " ");
-		optimize_and_append_code(code, pusher, g_disable_optimizer);
 	}
 
 	if (!ctx.isStdlib()) {
@@ -401,4 +428,17 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 		ctx.m_inlinedFunctions[fname] = code;
 		ctx.m_inlinedFunctions[fname + "_without"] = codeWithout;
 	}
+}
+
+void TVMContractCompiler::ensurePathExists()
+{
+	if (m_outputFolder.empty())
+		return;
+
+	namespace fs = boost::filesystem;
+	// create directory if not existent
+	fs::path p(m_outputFolder);
+	// Do not try creating the directory if the first item is . or ..
+	if (p.filename() != "." && p.filename() != "..")
+		fs::create_directories(p);
 }

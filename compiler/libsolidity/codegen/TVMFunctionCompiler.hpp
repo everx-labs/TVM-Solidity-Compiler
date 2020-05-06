@@ -71,6 +71,8 @@ public:
 	void generatePublicFunction();
 	void generateTvmGetter(FunctionDefinition const* _function);
 
+public:
+	void decodeFunctionParamsAndLocateVars();
 protected:
 	ast_vec<ModifierInvocation> functionModifiers();
 	void endContinuation2(const bool doDrop);
@@ -81,14 +83,16 @@ protected:
 	static LocationReturn notNeedsPushContWhenInlining(Block const& _block);
 	CodeLines loadFromC4();
 	void emitOnPublicFunctionReturn();
-	void sendExternalMessage(const std::function<int()> &pushBody, Expression const* destAddr);
+	void sendExternalMessage(const std::function<void(int)> &appendBody, Expression const* destAddr);
 	void pushReturnParameters(const ast_vec<VariableDeclaration>& returnParameters);
 
 	void acceptExpr(const Expression* expr, const bool isResultNeeded = true);
 
 	void visitModifierOrFunctionBlock(Block const& body, bool isFunc);
 	void visitFunctionAfterModifiers();
+public:
 	void visitFunctionWithModifiers();
+private:
 	void visitForOrWhileCondiction(const ContInfo& ci, const ControlFlowInfo& info, Expression const* condition);
 	bool visitNode(ASTNode const&) override { solAssert(false, "Internal error: unreachable"); }
 

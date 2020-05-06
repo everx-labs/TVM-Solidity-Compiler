@@ -72,12 +72,9 @@ PUSHCONT {
 	; end colValue
 }
 WHILE
-DROP
 ; end for
 ;; return
 ;; push identifier builder
-PUSH S3
-XCHG s4
 BLKDROP 4
 ; end function abi_encode_packed_macro
 
@@ -87,12 +84,13 @@ BLKDROP 4
 ;; param: grams_value
 ;; param: constuctor_id
 ;; param: encodedParams
+;; param: flag
 ; function deploy_contract_macro
 NEWC
 ;; decl: msg_builder
 ;; push identifier grams_value
 ;; push identifier remote_addr
-PUSH2 S3, S4
+PUSH2 S4, S5
 PUSHINT 0
 ;; param: value
 ;; param: remote_addr
@@ -123,7 +121,7 @@ STBR
 PUSHINT 1
 STONES
 ;; push identifier my_contract
-PUSH S5
+PUSH S6
 ;; push identifier msg_builder
 ;; param: x
 ;; param: builder
@@ -169,9 +167,8 @@ IFELSE
 ;; end if
 ;; return
 ;; push identifier builder
-PUSH S1
-XCHG s3
-BLKDROP 3
+XCHG S1, S2
+DROP2
 ; end function store_either_for_cell
 ; expValue
 ; end expValue
@@ -181,10 +178,10 @@ NIP
 NEWC
 ;; decl: body_builder
 ;; push identifier constuctor_id
-PUSH S3
+PUSH S4
 STUR 32
 ;; push identifier encodedParams
-PUSH S2
+PUSH S3
 STBR
 ;; push identifier body_builder
 ;; push identifier msg_builder
@@ -227,9 +224,10 @@ POP s2
 ;; push identifier msg_builder
 PUSH S1
 ENDC
-PUSHINT 1
+;; push identifier flag
+PUSH S3
 SENDRAWMSG
-BLKDROP 7
+BLKDROP 8
 ; end function deploy_contract_macro
 
 .macro deploy_contract2_macro
@@ -319,9 +317,8 @@ IFELSE
 ;; end if
 ;; return
 ;; push identifier builder
-PUSH S1
-XCHG s3
-BLKDROP 3
+XCHG S1, S2
+DROP2
 ; end function store_either_for_cell
 ; expValue
 ; end expValue
@@ -374,9 +371,8 @@ IFELSE
 ;; end if
 ;; return
 ;; push identifier builder
-PUSH S1
-XCHG s3
-BLKDROP 3
+XCHG S1, S2
+DROP2
 ; end function store_either_for_cell
 ; expValue
 ; end expValue

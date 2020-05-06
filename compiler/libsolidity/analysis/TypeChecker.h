@@ -149,6 +149,7 @@ private:
 	bool visit(IndexRangeAccess const& _indexRangeAccess) override;
 	bool visit(Identifier const& _identifier) override;
 	void endVisit(ElementaryTypeNameExpression const& _expr) override;
+	void endVisit(MappingNameExpression const& _expr) override;
 	void endVisit(Literal const& _literal) override;
 	bool visit(Mapping const& _mapping) override;
 

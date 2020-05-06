@@ -34,7 +34,7 @@ protected:
 public:
 	FunctionCallCompiler(StackPusherHelper& m_pusher, TVMExpressionCompiler* exprCompiler);
 	void structConstructorCall(FunctionCall const& _functionCall);
-	void compile(FunctionCall const& _functionCall);
+	void compile(FunctionCall const& _functionCall, bool isCurrentResultNeeded);
 
 protected:
 	bool checkForSuper(MemberAccess const& _node, Type::Category);

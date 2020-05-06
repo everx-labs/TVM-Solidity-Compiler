@@ -2016,6 +2016,31 @@ private:
 };
 
 /**
+ * mapping(uint=>address)
+ * for example slice.decode(mapping(uint=>address))
+ */
+class MappingNameExpression : public PrimaryExpression
+{
+public:
+	MappingNameExpression(
+			int64_t _id,
+			SourceLocation const& _location,
+			ASTPointer<Mapping> const& _type
+	):
+			PrimaryExpression(_id, _location),
+			m_type(_type)
+	{
+	}
+	void accept(ASTVisitor& _visitor) override;
+	void accept(ASTConstVisitor& _visitor) const override;
+
+	Mapping const& type() const { return *m_type; }
+
+private:
+	ASTPointer<Mapping> m_type;
+};
+
+/**
  * A literal string or number. @see ExpressionCompiler::endVisit() is used to actually parse its value.
  */
 class Literal: public PrimaryExpression

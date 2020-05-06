@@ -1269,11 +1269,6 @@ bool TypeChecker::visit(VariableDeclarationStatement const& _statement)
 			var.accept(*this);
 
 			BoolResult result = valueComponentType->isImplicitlyConvertibleTo(*var.annotation().type);
-
-			if (auto map1 = dynamic_cast<const MappingType*>(valueComponentType))
-				if (auto map2 = dynamic_cast<const MappingType*>(var.annotation().type))
-					result = map1->isImplicitlyConvertibleTo(map2);
-
 			if (!result)
 			{
 				auto errorMsg = "Type " +
@@ -2031,7 +2026,14 @@ TypeChecker::isArgumentAPublicFunction(FunctionCall const& _functionCall) {
 		m_errorReporter.fatalTypeError(expr->location(), errorText);
 	}
 	auto identifier = dynamic_cast<Identifier const*>(expr);
-	Declaration const* declaration = identifier->annotation().referencedDeclaration;
+	Declaration const* declaration = nullptr;
+	if (identifier)
+		declaration = identifier->annotation().referencedDeclaration;
+	else if (auto member = dynamic_cast<MemberAccess const *>(expr)) {
+		declaration = member->annotation().referencedDeclaration;
+	}
+	if (!declaration)
+		m_errorReporter.fatalTypeError(expr->location(), errorText);
 	if (!declaration->isPublic()) {
 		m_errorReporter.fatalTypeError(expr->location(), errorText);
 	}
@@ -3066,6 +3068,16 @@ void TypeChecker::endVisit(ElementaryTypeNameExpression const& _expr)
 	_expr.annotation().isPure = true;
 }
 
+void TypeChecker::endVisit(MappingNameExpression const& _expr)
+{
+	_expr.annotation().type = TypeProvider::typeType(TypeProvider::mapping(
+			_expr.type().keyType().annotation().type,
+			_expr.type().valueType().annotation().type,
+			DataLocation::Memory
+			));
+	_expr.annotation().isPure = true;
+}
+
 void TypeChecker::endVisit(Literal const& _literal)
 {
 	if (_literal.looksLikeAddress())
@@ -3174,13 +3186,7 @@ bool TypeChecker::expectType(Expression const& _expression, Type const& _expecte
 {
 	_expression.accept(*this);
 
-
 	BoolResult result = type(_expression)->isImplicitlyConvertibleTo(_expectedType);
-
-	if (auto map1 = dynamic_cast<const MappingType*>(type(_expression)))
-		if (auto map2 = dynamic_cast<const MappingType*>(&_expectedType))
-			result = map1->isImplicitlyConvertibleTo(map2);
-
 
 	if (!result)
 	{
