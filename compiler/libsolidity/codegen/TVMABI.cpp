@@ -360,7 +360,7 @@ DecodePosition::Algo DecodePositionAbiV1::updateStateAndGetLoadAlgo(Type const *
 		maxRestSliceBits = TvmConst::CellBitLength - size.minBits;
 		minUsedRef = size.minRefs;
 		maxUsedRef = size.maxRefs;
-		return NeedLoadNextCell;
+		return LoadNextCell;
 	}
 
 	return JustLoad;
@@ -387,6 +387,7 @@ void Position::loadRef() {
 		usedRefs = 1;
 		++idCell;
 	}
+	solAssert(usedRefs <= 3, "");
 }
 
 int Position::cellNumber() const {
@@ -427,12 +428,18 @@ DecodePosition::Algo DecodePositionAbiV2::updateStateAndGetLoadAlgo(Type const *
 	solAssert(0 <= size.minBits && size.minBits <= size.maxBits, "");
 
 	if (curTypeIndex == lastRefType) {
-		minPos.loadRef();
-		maxPos.loadRef();
 		if (curTypeIndex + 1 == static_cast<int>(types.size())) {
+			minPos.loadRef();
+			maxPos.loadRef();
 			return JustLoad;
 		} else {
-			return CheckBits;
+			int prevMinCellNumber = minPos.cellNumber();
+			minPos.loadRef();
+			maxPos.loadRef();
+			if (prevMinCellNumber == minPos.cellNumber() && minPos.cellNumber() == maxPos.cellNumber()) {
+				return JustLoad;
+			}
+			return CheckBitsAndRefs;
 		}
 	}
 
@@ -448,7 +455,7 @@ DecodePosition::Algo DecodePositionAbiV2::updateStateAndGetLoadAlgo(Type const *
 	if (prevMinCellNumber == prevMaxCellNumber &&
 	    prevMinCellNumber + 1 == minPos.cellNumber() &&
 	    minPos.cellNumber() == maxPos.cellNumber()) {
-		return NeedLoadNextCell;
+		return LoadNextCell;
 	}
 
 	if ((type->category() == Type::Category::Array && to<ArrayType>(type)->isByteArray()) ||
@@ -543,12 +550,29 @@ IF
 )");
 }
 
+void DecodeFunctionParams::checkBitsAndRefsAndLoadNextSlice() {
+	// check that bits==0 and ref==1
+	pusher->pushLines(R"(DUP
+SBITREFS
+EQINT 1
+SWAP
+EQINT 0
+AND
+PUSHCONT {
+	LDREF
+	ENDS
+	CTOS
+}
+IF
+)");
+}
+
 void DecodeFunctionParams::loadNextSliceIfNeed(const DecodePosition::Algo algo, VariableDeclaration const *variable,
                                                bool isRefType) {
 	switch (algo) {
 		case DecodePosition::JustLoad:
 			break;
-		case DecodePosition::NeedLoadNextCell:
+		case DecodePosition::LoadNextCell:
 			loadNextSlice();
 			break;
 		case DecodePosition::CheckBits:
@@ -556,6 +580,9 @@ void DecodeFunctionParams::loadNextSliceIfNeed(const DecodePosition::Algo algo, 
 			break;
 		case DecodePosition::CheckRefs:
 			checkRefsAndLoadNextSlice();
+			break;
+		case DecodePosition::CheckBitsAndRefs:
+			checkBitsAndRefsAndLoadNextSlice();
 			break;
 		case DecodePosition::Unknown:
 			if (isRefType) {
@@ -663,6 +690,7 @@ bool EncodePosition::updateState(int i) {
 
 	restSliceBits -= size.maxBits;
 	restFef -= size.maxRefs;
+	solAssert(restFef >= 0, "");
 
 	if (i == lastRefType && restFef == 0 && i + 1 == static_cast<int>(types.size())) {
 		return false;

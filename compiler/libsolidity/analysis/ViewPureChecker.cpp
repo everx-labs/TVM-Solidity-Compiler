@@ -380,6 +380,8 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::TVM, "setExtDestAddr"},
 			{MagicType::Kind::TVM, "transfer"},
 			{MagicType::Kind::TVM, "transLT"},
+			{MagicType::Kind::TVM, "min"},
+			{MagicType::Kind::TVM, "max"},
 			{MagicType::Kind::MetaType, "creationCode"},
 			{MagicType::Kind::MetaType, "runtimeCode"},
 			{MagicType::Kind::MetaType, "name"},

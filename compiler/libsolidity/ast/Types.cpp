@@ -2827,6 +2827,7 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMBuilderMethods: id += "tvmbuildermethods"; break;
 	case Kind::TVMLoadRef: id += "tvmloadref"; break;
 	case Kind::TVMFunctionId: id += "tvmfunctionid"; break;
+	case Kind::TVMMaxMin: id += "tvmmaxmin"; break;
 	case Kind::AddressMakeAddrStd: id += "addressmakeaddrstd"; break;
 	case Kind::LogTVM: id += "logtvm"; break;
 	case Kind::MappingGetMinKey: id += "mapgetmin"; break;
@@ -3966,7 +3967,22 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				FunctionType::Kind::TVMFunctionId,
 				true, StateMutability::Pure
 		));
-
+		members.emplace_back("max", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::TVMMaxMin,
+				true, StateMutability::Pure
+		));
+		members.emplace_back("min", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::TVMMaxMin,
+				true, StateMutability::Pure
+		));
 		return members;
 	}
 	case Kind::Transaction:

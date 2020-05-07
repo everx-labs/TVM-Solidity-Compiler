@@ -580,6 +580,7 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 		case FunctionType::Kind::TVMDeploy:
 		case FunctionType::Kind::TVMDestAddr:
 		case FunctionType::Kind::TVMFunctionId:
+		case FunctionType::Kind::TVMMaxMin:
 		case FunctionType::Kind::TVMHash:
 		case FunctionType::Kind::TVMLoadRef:
 		case FunctionType::Kind::TVMPubkey:

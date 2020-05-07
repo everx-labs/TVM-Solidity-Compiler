@@ -45,7 +45,7 @@ private:
 
 class DecodePosition : private boost::noncopyable {
 public:
-	enum Algo {JustLoad, NeedLoadNextCell, CheckBits, CheckRefs, Unknown};
+	enum Algo {JustLoad, LoadNextCell, CheckBits, CheckRefs, CheckBitsAndRefs, Unknown};
 	virtual ~DecodePosition() = default;
 	virtual Algo updateStateAndGetLoadAlgo(Type const* type) = 0;
 };
@@ -99,6 +99,7 @@ private:
 	void loadNextSlice();
 	void checkBitsAndLoadNextSlice();
 	void checkRefsAndLoadNextSlice();
+	void checkBitsAndRefsAndLoadNextSlice();
 	void loadNextSliceIfNeed(const DecodePosition::Algo algo, VariableDeclaration const* variable, bool isRefType);
 	void loadq(const DecodePosition::Algo algo, const std::string& opcodeq, const std::string& opcode);
 	void decodeParameter(VariableDeclaration const* variable, DecodePosition* position);
