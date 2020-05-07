@@ -880,22 +880,14 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node, Type::
 	if (_node.memberName() == "cdatasize") { // tvm.cdatasize(cell, uint)
 		pushArgs();
 		m_pusher.push(-2 + 3, "CDATASIZE");
-		return true;
-	}
-	if (_node.memberName() == "pubkey") { // tvm.pubkey
+	} else if (_node.memberName() == "pubkey") { // tvm.pubkey
 		m_pusher.push(+1, "GETGLOB 2");
-		return true;
-	}
-	if (_node.memberName() == "accept") { // tvm.accept
+	} else if (_node.memberName() == "accept") { // tvm.accept
 		m_pusher.push(0, "ACCEPT");
-		return true;
-	}
-	if (_node.memberName() == "hash") { // tvm.hash
+	} else if (_node.memberName() == "hash") { // tvm.hash
 		pushArgs();
 		m_pusher.push(0, "HASHCU");
-		return true;
-	}
-	if (_node.memberName() == "checkSign") { // tvm.checkSign
+	} else if (_node.memberName() == "checkSign") { // tvm.checkSign
 		acceptExpr(arguments[0].get());
 		m_pusher.push(+1, "NEWC");
 		acceptExpr(arguments[1].get());
@@ -905,60 +897,52 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node, Type::
 		m_pusher.push(0, "ENDC CTOS");
 		acceptExpr(arguments[3].get());
 		m_pusher.push(-3+1, "CHKSIGNU");
-		return true;
-	}
-	if (_node.memberName() == "setcode") { // tvm.setcode
+	} else if (_node.memberName() == "setcode") { // tvm.setcode
 		pushArgs();
 		m_pusher.push(-1, "SETCODE");
-		return true;
-	}
-	if (_node.memberName() == "setCurrentCode") { // tvm.setCurrentCode
+	} else if (_node.memberName() == "setCurrentCode") { // tvm.setCurrentCode
 		pushArgs();
 		m_pusher.push(-1+1, "CTOS");
 		m_pusher.push(0, "BLESS");
 		m_pusher.push(-1, "POP c3");
-		return true;
-	}
-	if (_node.memberName() == "commit") { // tvm.commit
+	} else if (_node.memberName() == "commit") { // tvm.commit
 		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
 		m_pusher.push(0, "COMMIT");
-		return true;
-	}
-	if (_node.memberName() == "log") { // tvm.log
+	} else if (_node.memberName() == "log") { // tvm.log
 		auto logstr = arguments[0].get();
 		if (auto literal = to<Literal>(logstr)) {
 			if (literal->value().length() > 15)
-				cast_error(_node, "logtvm param should no more than 15 chars");
-			if (TVMContractCompiler::g_without_logstr) {
-				return true;
+				cast_error(_node, "Parameter string should have length no more than 15 chars");
+			if (!TVMContractCompiler::g_without_logstr) {
+				m_pusher.push(0, "PRINTSTR " + literal->value());
 			}
-			m_pusher.push(0, "PRINTSTR " + literal->value());
 		} else {
-			cast_error(_node, "tvm.log() param should be literal");
+			cast_error(_node, "Parameter should be a literal");
 		}
-		return true;
-	}
-	if (_node.memberName() == "transLT") { // tvm.transLT
+	} else if (_node.memberName() == "transLT") { // tvm.transLT
 		pushArgs();
 		m_pusher.push(+1, "LTIME");
-		return true;
-	}
-	if (_node.memberName() == "resetStorage") { //tvm.resetStorage
+	} else if (_node.memberName() == "resetStorage") { //tvm.resetStorage
 		m_pusher.resetAllStateVars();
-		return true;
-	}
-	if (_node.memberName() == "setExtDestAddr") {
+	} else if (_node.memberName() == "setExtDestAddr") {
 		pushArgs();
 		m_pusher.push(-1, "SETGLOB " + toString(TvmConst::C7::ExtDestAddrIndex));
-		return true;
-	}
-	if (_node.memberName() == "functionId") { // tvm.functionId
+	} else if (_node.memberName() == "functionId") { // tvm.functionId
 		auto callDef = getCallableDeclaration(arguments.at(0).get());
 		EncodeFunctionParams encoder(&m_pusher);
 		m_pusher.push(+1, "PUSHINT " + to_string(encoder.calculateFunctionID(callDef) & 0x7fffffff));
-		return true;
+	} else if (_node.memberName() == "max") {
+		pushArgs();
+		for (int i = 0; i + 1 < static_cast<int>(arguments.size()); ++i)
+			m_pusher.push(-2 + 1, "MAX");
+	} else if (_node.memberName() == "min") {
+		pushArgs();
+		for (int i = 0; i + 1 < static_cast<int>(arguments.size()); ++i)
+			m_pusher.push(-2 + 1, "MIN");
+	} else {
+		return false;
 	}
-	return false;
+	return true;
 }
 
 bool FunctionCallCompiler::checkForMemberAccessTypeType(MemberAccess const &_node, Type::Category category) {
@@ -1215,13 +1199,13 @@ bool FunctionCallCompiler::checkForIdentifier(FunctionCall const &_functionCall)
 		auto logstr = arguments[0].get();
 		if (auto literal = to<Literal>(logstr)) {
 			if (literal->value().length() > 15)
-				cast_error(_functionCall, "logtvm param should no more than 15 chars");
+				cast_error(_functionCall, "Parameter string should have length no more than 15 chars");
 			if (TVMContractCompiler::g_without_logstr) {
 				return true;
 			}
 			m_pusher.push(0, "PRINTSTR " + literal->value());
 		} else {
-			cast_error(_functionCall, "logtvm param should be literal");
+			cast_error(_functionCall, "Parameter should be a literal");
 		}
 		return true;
 	}

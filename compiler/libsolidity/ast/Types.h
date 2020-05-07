@@ -1152,6 +1152,7 @@ public:
 		TVMDeploy, ///< functions to deploy contract from contract
 		TVMDestAddr, ///< tvm.setExtDestAddr()
 		TVMFunctionId, ///< tvm.functionId(function_name)
+		TVMMaxMin,  ///< tvm.min(a, b, ...) or tvm.max(a, b, ...)
 		TVMHash, ///< tvm.hash()
 		TVMPubkey, ///< tvm.pubkey()
 		TVMResetStorage, ///< tvm.resetStorage()

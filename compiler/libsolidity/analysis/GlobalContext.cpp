@@ -49,7 +49,7 @@ int magicVariableToID(std::string const& _name)
 	else if (_name == "log2") return -12;
 	else if (_name == "log3") return -13;
 	else if (_name == "log4") return -14;
-	else if (_name == "logtvm") return -101;
+	else if (_name == "logtvm") return -102;
 	else if (_name == "msg") return -15;
 	else if (_name == "mulmod") return -16;
 	else if (_name == "now") return -17;

@@ -2401,6 +2401,42 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			}
 			break;
 		}
+		case FunctionType::Kind::TVMMaxMin:
+		{
+			if (arguments.size() < 2) {
+				m_errorReporter.fatalTypeError(
+						_functionCall.location(),
+						"This function takes at least two arguments."
+				);
+			}
+
+			auto isIntegerType = [this](ASTPointer<Expression const> arg){
+				Type::Category cat = arg->annotation().type->category();
+				if (cat != Type::Category::Integer && cat != Type::Category::RationalNumber) {
+					m_errorReporter.fatalTypeError(
+							arg->location(),
+							"Argument must have integer type."
+					);
+				}
+			};
+			for (std::size_t i = 0; i < arguments.size(); ++i) {
+				isIntegerType(arguments.at(i));
+			}
+
+			TypePointer result = arguments.at(0)->annotation().type;
+			for (std::size_t i = 1; i < arguments.size(); ++i) {
+				TypePointer rightType = arguments.at(i)->annotation().type;
+				result = Type::commonType(result, rightType);
+				if (result == nullptr) {
+					m_errorReporter.fatalTypeError(
+							arguments.at(i)->location(),
+							"All arguments must have signed or unsigned at the same time."
+					);
+				}
+			}
+			returnTypes.push_back(result);
+			break;
+		}
 		case FunctionType::Kind::ABIEncode:
 		case FunctionType::Kind::ABIEncodePacked:
 		case FunctionType::Kind::ABIEncodeWithSelector:

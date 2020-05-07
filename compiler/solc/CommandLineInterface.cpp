@@ -836,7 +836,7 @@ Allowed options)",
 		(g_argNatspecDev.c_str(), "Natspec developer documentation of all contracts.")
 //		(g_argMetadata.c_str(), "Combined Metadata JSON whose Swarm hash is stored on-chain.")
 		(g_argTvm.c_str(), "Produce TVM assembly (deprecated).")
-		(g_argTvmWithoutLogStr.c_str(), "Intrisic logstr(...) won't produce log strings")
+		(g_argTvmWithoutLogStr.c_str(), "Ignore tvm.log(string) and logtvm(string)")
 		(g_argTvmABI.c_str(), "Produce JSON ABI for contract (deprecated).")
 		(g_argTvmDumpStorage.c_str(), "Dump state vars")
 		(g_argTvmPeephole.c_str(), "Run peephole optimization pass")
@@ -888,7 +888,7 @@ Allowed options)",
 		serr() << "  solc contract.sol" << endl;
 		serr() << "This command compiles the contract and generates contract.code and contract.abi.json files." << endl;
 	}
-	
+
 	if (m_args.count(g_argTvmPeephole)) {
 		for (int i = 1; i < _argc; i++) {
 			string s = _argv[i];
