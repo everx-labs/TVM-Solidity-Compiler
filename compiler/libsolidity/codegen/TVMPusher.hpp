@@ -39,6 +39,27 @@ namespace solidity::frontend {
 
 class StructCompiler;
 
+class DictOperation {
+public:
+	DictOperation(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, ASTNode const& node);
+protected:
+	virtual void doDictOperation() final;
+	virtual void onCell() = 0;
+	virtual void onSmallStruct() = 0;
+	virtual void onLargeStruct() = 0;
+	virtual void onAddress() = 0;
+	virtual void onByteArrayOrString() = 0;
+	virtual void onIntegralOrArrayOrVarInt() = 0;
+	virtual void onMapOrECC() = 0;
+protected:
+	StackPusherHelper& pusher;
+	Type const& keyType;
+	const int keyLength{};
+	Type const& valueType;
+	const Type::Category valueCategory{};
+	ASTNode const& node;
+};
+
 class TVMStack {
 	int m_size{};
 	// map parameters or local variables to their absolute stack position
@@ -77,7 +98,6 @@ class TVMCompilerContext {
 	bool haveOnBounce = false;
 	bool haveReceive = false;
 	bool ignoreIntOverflow = false;
-	bool m_haveSetDestAddr = false;
 	bool m_haveOffChainConstructor = false;
 	PragmaDirectiveHelper const& m_pragmaHelper;
 	std::map<VariableDeclaration const *, int> m_stateVarIndex;
@@ -96,7 +116,6 @@ public:
 	PragmaDirectiveHelper const& pragmaHelper() const;
 	bool haveTimeInAbiHeader() const;
 	bool isStdlib() const;
-	bool haveSetDestAddr() const;
 	string getFunctionInternalName(FunctionDefinition const* _function) const;
 	static string getFunctionExternalName(FunctionDefinition const* _function);
 	bool isPureFunction(FunctionDefinition const* f) const;
@@ -177,7 +196,7 @@ public:
 	void reverse(int i, int j);
 	void dropUnder(int leftCount, int droppedCount);
 	void exchange(int i, int j);
-	static void restoreKeyAfterDictOperations(Type const* keyType, ASTNode const& node);
+	static void checkThatKeyCanBeRestored(Type const* keyType, ASTNode const& node);
 	void prepareKeyForDictOperations(Type const* key);
 	[[nodiscard]]
 	std::pair<std::string, int> int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams);
@@ -190,31 +209,37 @@ public:
 	bool prepareValueForDictOperations(Type const* keyType, Type const* dictValueType, bool isValueBuilder);
 	static TypePointer parseIndexType(Type const* type);
 	static TypePointer parseValueType(IndexAccess const& indexAccess);
-	void setDict(Type const &keyType, Type const &valueType, bool isValueBuilder, ASTNode const& node);
+
+	enum class SetDictOperation { Set, Replace, Add };
+	void setDict(Type const &keyType, Type const &valueType, bool isValueBuilder, ASTNode const& node, SetDictOperation opcode = SetDictOperation::Set);
+
 	bool tryAssignParam(Declaration const* name);
 
-	enum class DictOperation {
-		GetFromArray,
+	enum class GetDictOperation {
 		GetFromMapping,
+		GetSetFromMapping,
+		GetAddFromMapping,
+		GetReplaceFromMapping,
+		GetFromArray,
 		Fetch,
 		Exist
 	};
-
-	void getFromDict(const Type& keyType, const Type& valueType, ASTNode const& node, const DictOperation op,
-	                 const bool resultAsSliceForStruct);
+	void getDict(const Type& keyType, const Type& valueType, ASTNode const& node, const GetDictOperation op,
+	             const bool resultAsSliceForStruct);
 
 	void ensureValueFitsType(const ElementaryTypeNameToken& typeName, const ASTNode& node);
 
 	void pushDefaultValue(Type const* type, bool isResultBuilder = false);
-	void sendIntMsg(const std::map<int, Expression const*>& exprs,
+	void sendIntMsg(const std::map<int, const Expression *> &exprs,
 					const std::map<int, std::string> &constParams,
-	                const std::function<void(int)> &appendBody,
-	                const std::function<void()> &pushSendrawmsgFlag);
+					const std::function<void(int)> &appendBody,
+					const std::function<void()> &pushSendrawmsgFlag);
 	void sendMsg(const std::set<int>& isParamOnStack,
 				 const std::map<int, std::string> &constParams,
-	             const std::function<void(int)> &appendBody,
-	             const std::function<void()> &pushSendrawmsgFlag,
-	             bool isInternalMessage = true);
+				 const std::function<void(int)> &appendBody,
+				 const std::function<void()> &appendStateInit,
+				 const std::function<void()> &pushSendrawmsgFlag,
+				 bool isInternalMessage = true);
 };
 
 CodeLines switchSelectorIfNeed(FunctionDefinition const* f);

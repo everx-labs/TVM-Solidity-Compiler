@@ -145,7 +145,6 @@ private:
 	{
 		return _node ? toJson(*_node) : Json::nullValue;
 	}
-	Json::Value inlineAssemblyIdentifierToJson(std::pair<yul::Identifier const* , InlineAssemblyAnnotation::ExternalIdentifierInfo> _info) const;
 	static std::string location(VariableDeclaration::Location _location);
 	static std::string contractKind(ContractKind _kind);
 	static std::string functionCallKind(FunctionCallKind _kind);

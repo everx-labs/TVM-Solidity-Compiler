@@ -52,9 +52,9 @@ public:
 	static bool m_optionsEnabled;
 	static TvmOption m_tvmOption;
 	static bool m_outputProduced;
-	static std::string m_outputWarnings;
 	static bool g_without_logstr;
 	static bool g_disable_optimizer;
+	static langutil::ErrorReporter* g_errorReporter;
 
 public:
 	static void generateABI(ContractDefinition const* contract, std::vector<PragmaDirective const *> const& pragmaDirectives);

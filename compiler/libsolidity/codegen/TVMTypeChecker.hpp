@@ -36,7 +36,7 @@ private:
 	void checkEncodeDecodeParams();
 	void checkInlineFunctions();
 	static void checkDecodeEncodeParams(FunctionDefinition const* f);
-	static void checkDecodeEncodeParam(VariableDeclaration const* param);
+	static void checkDecodeEncodeParam(Type const* type, const ASTNode &node, int keyLength);
 	static void checkTvmIntrinsic(FunctionDefinition const* f, ContractDefinition const* contractDefinition);
 	void check_onCodeUpgrade();
 

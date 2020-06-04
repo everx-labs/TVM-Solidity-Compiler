@@ -21,9 +21,6 @@
 #include <libsolidity/ast/ExperimentalFeatures.h>
 #include <libsolidity/interface/Version.h>
 
-#include <libyul/optimiser/Semantics.h>
-#include <libyul/AsmData.h>
-
 #include <liblangutil/ErrorReporter.h>
 #include <liblangutil/SemVerHandler.h>
 
@@ -269,17 +266,8 @@ bool SyntaxChecker::visit(UnaryOperation const& _operation)
 	return true;
 }
 
-bool SyntaxChecker::visit(InlineAssembly const& _inlineAssembly)
+bool SyntaxChecker::visit(InlineAssembly const& /*_inlineAssembly*/)
 {
-	if (!m_useYulOptimizer)
-		return false;
-
-	if (yul::MSizeFinder::containsMSize(_inlineAssembly.dialect(), _inlineAssembly.operations()))
-		m_errorReporter.syntaxError(
-			_inlineAssembly.location(),
-			"The msize instruction cannot be used when the Yul optimizer is activated because "
-			"it can change its semantics. Either disable the Yul optimizer or do not use the instruction."
-		);
 	return false;
 }
 

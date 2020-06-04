@@ -516,6 +516,8 @@ public:
 	/// @returns true if the value is not an integer.
 	bool isFractional() const { return m_value.denominator() != 1; }
 
+	bigint numerator() const { return m_value.numerator(); }
+
 	/// @returns true if the value is negative.
 	bool isNegative() const { return m_value < 0; }
 
@@ -704,6 +706,7 @@ public:
 class ExtraCurrencyCollectionType: public Type
 {
 public:
+	explicit ExtraCurrencyCollectionType(DataLocation _location) : m_location{_location} {}
 	Category category() const override { return Category::ExtraCurrencyCollection; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_extracurrencycollection"; }
@@ -717,6 +720,10 @@ public:
 	TypeResult unaryOperatorResult(Token _operator) const override;
 
 	MemberList::MemberMap nativeMembers(ContractDefinition const* _currentScope) const override;
+	bool dataStoredIn(DataLocation _location) const override { return m_location == _location; }
+
+private:
+	DataLocation m_location;
 };
 
 /**
@@ -1150,8 +1157,8 @@ public:
 		TVMCommit, ///< tvm.commit()
 		TVMConfigParam, ///< tvm.configParam()
 		TVMDeploy, ///< functions to deploy contract from contract
-		TVMDestAddr, ///< tvm.setExtDestAddr()
 		TVMFunctionId, ///< tvm.functionId(function_name)
+		TVMEncodeBody, ///< tvm.encodeBody()
 		TVMMaxMin,  ///< tvm.min(a, b, ...) or tvm.max(a, b, ...)
 		TVMHash, ///< tvm.hash()
 		TVMPubkey, ///< tvm.pubkey()
@@ -1165,12 +1172,13 @@ public:
 		ByteArrayPush, ///< .push() to a dynamically sized byte array in storage
 		MappingGetNextKey, ///< .next() for a mapping
 		MappingGetPrevKey, ///< .prev() for a mapping
-		MappingGetMinKey, ///< .min() for a mapping
-		MappingGetMaxKey, ///< .max() for a mapping
-		MappingDelMin, ///< .delMin() for a mapping
+		MappingGetMinMax, ///< .min() or .max() for a mapping
+		MappingDelMinOrMax, ///< .delMin() or .delMax() for a mapping
 		MappingFetch, ///< .fetch() for a mapping
 		MappingExists, ///< .exists() for a mapping
 		MappingEmpty,  ///< .empty() for a mapping
+		MappingReplaceOrAdd,  ///< .replace() or .add() for a mapping
+		MappingGetSet,  ///< .getSet() for a mapping
 		StringMethod,  ///< string methods
 		ObjectCreation, ///< array creation using new
 		Assert, ///< assert()

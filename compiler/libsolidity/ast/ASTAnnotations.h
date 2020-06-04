@@ -32,12 +32,6 @@
 #include <set>
 #include <vector>
 
-namespace solidity::yul
-{
-struct AsmAnalysisInfo;
-struct Identifier;
-struct Dialect;
-}
 
 namespace solidity::frontend
 {
@@ -155,11 +149,6 @@ struct InlineAssemblyAnnotation: StatementAnnotation
 		bool isOffset = false; ///< Whether the intra-slot offset of a storage variable is queried.
 		size_t valueSize = size_t(-1);
 	};
-
-	/// Mapping containing resolved references to external identifiers and their value size
-	std::map<yul::Identifier const*, ExternalIdentifierInfo> externalReferences;
-	/// Information generated during analysis phase.
-	std::shared_ptr<yul::AsmAnalysisInfo> analysisInfo;
 };
 
 struct BlockAnnotation: StatementAnnotation, ScopableAnnotation

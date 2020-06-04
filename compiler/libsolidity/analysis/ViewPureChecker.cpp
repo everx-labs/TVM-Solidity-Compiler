@@ -17,10 +17,7 @@
 
 #include <libsolidity/analysis/ViewPureChecker.h>
 #include <libsolidity/ast/ExperimentalFeatures.h>
-#include <libyul/AsmData.h>
-#include <libyul/backends/evm/EVMDialect.h>
 #include <liblangutil/ErrorReporter.h>
-#include <libevmasm/SemanticInformation.h>
 
 #include <functional>
 #include <variant>
@@ -29,100 +26,6 @@ using namespace std;
 using namespace solidity;
 using namespace solidity::langutil;
 using namespace solidity::frontend;
-
-namespace
-{
-
-class AssemblyViewPureChecker
-{
-public:
-	explicit AssemblyViewPureChecker(
-		yul::Dialect const& _dialect,
-		std::function<void(StateMutability, SourceLocation const&)> _reportMutability
-	):
-		m_dialect(_dialect),
-		m_reportMutability(_reportMutability) {}
-
-	void operator()(yul::Literal const&) {}
-	void operator()(yul::Identifier const&) {}
-	void operator()(yul::ExpressionStatement const& _expr)
-	{
-		std::visit(*this, _expr.expression);
-	}
-	void operator()(yul::Assignment const& _assignment)
-	{
-		std::visit(*this, *_assignment.value);
-	}
-	void operator()(yul::VariableDeclaration const& _varDecl)
-	{
-		if (_varDecl.value)
-			std::visit(*this, *_varDecl.value);
-	}
-	void operator()(yul::FunctionDefinition const& _funDef)
-	{
-		(*this)(_funDef.body);
-	}
-	void operator()(yul::FunctionCall const& _funCall)
-	{
-		if (yul::EVMDialect const* dialect = dynamic_cast<decltype(dialect)>(&m_dialect))
-			if (yul::BuiltinFunctionForEVM const* fun = dialect->builtin(_funCall.functionName.name))
-				if (fun->instruction)
-					checkInstruction(_funCall.location, *fun->instruction);
-
-		for (auto const& arg: _funCall.arguments)
-			std::visit(*this, arg);
-	}
-	void operator()(yul::If const& _if)
-	{
-		std::visit(*this, *_if.condition);
-		(*this)(_if.body);
-	}
-	void operator()(yul::Switch const& _switch)
-	{
-		std::visit(*this, *_switch.expression);
-		for (auto const& _case: _switch.cases)
-		{
-			if (_case.value)
-				(*this)(*_case.value);
-			(*this)(_case.body);
-		}
-	}
-	void operator()(yul::ForLoop const& _for)
-	{
-		(*this)(_for.pre);
-		std::visit(*this, *_for.condition);
-		(*this)(_for.body);
-		(*this)(_for.post);
-	}
-	void operator()(yul::Break const&)
-	{
-	}
-	void operator()(yul::Continue const&)
-	{
-	}
-	void operator()(yul::Leave const&)
-	{
-	}
-	void operator()(yul::Block const& _block)
-	{
-		for (auto const& s: _block.statements)
-			std::visit(*this, s);
-	}
-
-private:
-	void checkInstruction(SourceLocation _location, evmasm::Instruction _instruction)
-	{
-		if (evmasm::SemanticInformation::invalidInViewFunctions(_instruction))
-			m_reportMutability(StateMutability::NonPayable, _location);
-		else if (evmasm::SemanticInformation::invalidInPureFunctions(_instruction))
-			m_reportMutability(StateMutability::View, _location);
-	}
-
-	yul::Dialect const& m_dialect;
-	std::function<void(StateMutability, SourceLocation const&)> m_reportMutability;
-};
-
-}
 
 bool ViewPureChecker::check()
 {
@@ -224,12 +127,8 @@ void ViewPureChecker::endVisit(Identifier const& _identifier)
 	reportMutability(mutability, _identifier.location());
 }
 
-void ViewPureChecker::endVisit(InlineAssembly const& _inlineAssembly)
+void ViewPureChecker::endVisit(InlineAssembly const& /*_inlineAssembly*/)
 {
-	AssemblyViewPureChecker{
-		_inlineAssembly.dialect(),
-		[=](StateMutability _mutability, SourceLocation const& _location) { reportMutability(_mutability, _location); }
-	}(_inlineAssembly.operations());
 }
 
 void ViewPureChecker::reportMutability(
@@ -342,8 +241,15 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 	ASTString const& member = _memberAccess.memberName();
 	switch (_memberAccess.expression().annotation().type->category())
 	{
+	case Type::Category::ExtraCurrencyCollection:
 	case Type::Category::Mapping:
-		if (member == "delMin") {
+		if (member == "delMin" ||
+			member == "delMax" ||
+			member == "replace" ||
+			member == "add" ||
+			member == "getSet" ||
+			member == "getAdd" ||
+			member == "getReplace") {
 			if (_memberAccess.expression().annotation().type->dataStoredIn(DataLocation::Storage))
 				mutability = StateMutability::NonPayable;
 		}
@@ -377,11 +283,12 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::TVM, "setcode"},
 			{MagicType::Kind::TVM, "sendrawmsg"},
 			{MagicType::Kind::TVM, "setCurrentCode"},
-			{MagicType::Kind::TVM, "setExtDestAddr"},
 			{MagicType::Kind::TVM, "transfer"},
 			{MagicType::Kind::TVM, "transLT"},
 			{MagicType::Kind::TVM, "min"},
 			{MagicType::Kind::TVM, "max"},
+			{MagicType::Kind::TVM, "functionId"},
+			{MagicType::Kind::TVM, "encodeBody"},
 			{MagicType::Kind::MetaType, "creationCode"},
 			{MagicType::Kind::MetaType, "runtimeCode"},
 			{MagicType::Kind::MetaType, "name"},

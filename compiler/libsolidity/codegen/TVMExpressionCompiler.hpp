@@ -40,12 +40,14 @@ private:
 public:
 	explicit TVMExpressionCompiler(StackPusherHelper &pusher);
 	void compileNewExpr(const Expression* expr);
-	void acceptExpr2(const Expression* expr, const bool _isResultNeeded);
-	static bool isLiteral(Expression const& _e);
+	void acceptExpr(const Expression* expr, const bool _isResultNeeded);
+	static std::pair<bool, bigint> constValue(Expression const& _e);
+
+
 
 protected:
 	void acceptExpr(const Expression* expr);
-	bool isCurrentResultNeeded();
+	bool isCurrentResultNeeded() const;
 	void visitStringLiteralAbiV1(Literal const& _node);
 	void visitStringLiteralAbiV2(Literal const& _node);
 	void visit2(Literal const& _node);
@@ -78,9 +80,9 @@ protected:
 	bool checkRemoteMethodCall(FunctionCall const& _functionCall);
 	const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
 	bool checkForArrayMethods(FunctionCall const& _functionCall);
-	void mappingDelMin(FunctionCall const& _functionCall);
-	void mappingFetchOrExists(FunctionCall const& _functionCall);
-	void mappingPrevNextMethods(FunctionCall const& _functionCall, bool isNext);
+	void mappingDelMinMax(FunctionCall const& _functionCall, bool isDelMin);
+	void mappingGetSet(FunctionCall const& _functionCall);
+	void mappingPrevNextMethods(FunctionCall const& _functionCall);
 	void mappingMinMaxMethod(FunctionCall const& _functionCall, bool isMin);
 	void mappingEmpty(FunctionCall const& _functionCall);
 	bool checkForMappingOrCurrenciesMethods(FunctionCall const& _functionCall);
@@ -90,7 +92,8 @@ protected:
 	bool fold_constants(const Expression *expr);
 
 public:
-	LValueInfo expandLValue(Expression const* const _expr, const bool withExpandLastValue, bool willNoStackPermutarion = false, bool isLValue = true);
+	LValueInfo expandLValue(Expression const* const _expr, const bool withExpandLastValue,
+	                        bool willNoStackPermutationForLValue = false, bool isLValue = true);
 	void collectLValue(const LValueInfo &lValueInfo, const bool haveValueOnStackTop, bool isValueBuilder);
 
 protected:

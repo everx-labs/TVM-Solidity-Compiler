@@ -21,6 +21,8 @@
 #include "TVMContractCompiler.hpp"
 #include "TVMTypeChecker.hpp"
 
+using namespace solidity::frontend;
+
 static string getLastContractName() {
 	string name;
 	for (auto c : TVMContractCompiler::m_allContracts) {
@@ -31,10 +33,12 @@ static string getLastContractName() {
 	return name;
 }
 
-void TVMCompilerProceedContract(ContractDefinition const& _contract,
+void TVMCompilerProceedContract(langutil::ErrorReporter* errorReporter, ContractDefinition const& _contract,
 								std::vector<PragmaDirective const *> const* pragmaDirectives) {
 	if (!TVMContractCompiler::m_optionsEnabled)
 		return;
+
+	TVMContractCompiler::g_errorReporter = errorReporter;
 
 	std::string mainContract = (TVMContractCompiler::m_mainContractName.empty()) ?
 				getLastContractName() : TVMContractCompiler::m_mainContractName;
@@ -80,7 +84,7 @@ void TVMCompilerEnable(const TvmOption tvmOption, bool without_logstr, bool opti
 	TVMContractCompiler::g_disable_optimizer = !optimize;
 }
 
-void TVMSetAllContracts(const std::vector<ContractDefinition const*>& allContracts, std::string mainContract) {
+void TVMSetAllContracts(const std::vector<ContractDefinition const*>& allContracts, const std::string& mainContract) {
 	TVMContractCompiler::m_allContracts = allContracts;
 	TVMContractCompiler::m_mainContractName = mainContract;
 }
@@ -91,12 +95,4 @@ void TVMSetFileName(std::string _fileName) {
 
 bool TVMIsOutputProduced() {
 	return TVMContractCompiler::m_outputProduced;
-}
-
-void TVMAddWarning(const std::string& msg) {
-	TVMContractCompiler::m_outputWarnings += msg;
-}
-
-const std::string& TVMGetWarning() {
-	return TVMContractCompiler::m_outputWarnings;
 }

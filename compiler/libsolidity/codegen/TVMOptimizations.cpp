@@ -202,7 +202,7 @@ struct TVMOptimizer {
 				"NEWC", "NEWDICT"
 			};
 			static const set<string> s10 {
-				"DROP", "SETGLOB", "ENDS", "THROWIF", "THROWIFNOT"
+				"DROP", "SETGLOB", "ENDS", "THROWIF", "THROWIFNOT", "THROWANY"
 			};
 			static const set<string> s11 {
 				"FITS", "UFITS", "INC", "DEC", "EQINT", "NOT",
@@ -343,7 +343,7 @@ struct TVMOptimizer {
 		}
 		if (cmd1.is("RET") || cmd1.is("THROWANY") || cmd1.is("THROW")) {
 			// delete commands after noreturn opcode
-			if (cmd2.prefix_ == cmd1.prefix_ &&  !cmd2.cmd_.empty())
+			if (cmd2.prefix_.length() >= cmd1.prefix_.length() &&  !cmd2.cmd_.empty())
 				return Result::Replace(2, cmd1.without_prefix());
 		}
 		if (cmd1.is("RET") && cmd2.is("}")) {
@@ -587,18 +587,74 @@ struct TVMOptimizer {
 			cmd3.is("STSLICE") &&
 			cmd4.is("STSLICECONST")) {
 			std::vector<std::string> opcodes = unitSlices(cmd1.rest(), cmd4.rest());
-			opcodes.emplace_back("NEWC");
-			opcodes.emplace_back("STSLICE");
-			return Result(true, 4, opcodes);
+			if (opcodes.size() == 1) {
+				opcodes[0] = "PUSHSLICE " + opcodes[0];
+				opcodes.emplace_back("NEWC");
+				opcodes.emplace_back("STSLICE");
+				return Result(true, 4, opcodes);
+			}
 		}
 		if (cmd1.is("PUSHSLICE") &&
 		    cmd2.is("STSLICER") &&
 		    cmd3.is("STSLICECONST")) {
 			std::vector<std::string> opcodes = unitSlices(cmd1.rest(), cmd3.rest());
-			opcodes.emplace_back("STSLICER");
-			return Result(true, 3, opcodes);
+			if (opcodes.size() == 1) {
+				opcodes[0] = "PUSHSLICE " + opcodes[0];
+				opcodes.emplace_back("STSLICER");
+				return Result(true, 3, opcodes);
+			}
 		}
-
+		if (cmd1.is("PUSHINT") &&
+		    cmd2.is("STZEROES") &&
+		    cmd3.is("STSLICECONST") && cmd3.rest().length() > 1) {
+			std::string::size_type integer = cmd1.fetch_int();
+			std::vector<std::string> opcodes = unitBitString(std::string(integer, '0'), toBitString(cmd3.rest()));
+			if (opcodes.size() == 1) {
+				opcodes[0] = "PUSHSLICE " + opcodes[0];
+				opcodes.emplace_back("STSLICER");
+				return Result(true, 3, opcodes);
+			}
+		}
+		if (cmd1.is("STSLICECONST") &&
+		    cmd2.is("STSLICECONST")) {
+			std::vector<std::string> opcodes = unitSlices(cmd1.rest(), cmd2.rest());
+			if (opcodes.size() == 1 && toBitString(opcodes[0]).length() <= TvmConst::MaxSTSLICECONST) {
+				return Result(true, 2, {"STSLICECONST " + opcodes[0]});
+			}
+		}
+		if (cmd1.is("PUSHSLICE") &&
+			cmd2.is("NEWC") &&
+			cmd3.is("STSLICECONST") &&
+			cmd4.is("STSLICE")) {
+			std::vector<std::string> opcodes = unitSlices(cmd3.rest(), cmd1.rest());
+			if (opcodes.size() == 1) {
+				return Result(true, 4, {"PUSHSLICE " + opcodes[0], "NEWC", "STSLICE"});
+			}
+		}
+		if (cmd1.is("PUSHSLICE") &&
+		    cmd2.is("NEWC") &&
+		    cmd3.is("STSLICE") &&
+		    cmd4.is("PUSHSLICE") &&
+			cmd5.is("STSLICER")) {
+			std::vector<std::string> opcodes = unitSlices(cmd1.rest(), cmd4.rest());
+			if (opcodes.size() == 1) {
+				return Result(true, 5, {"PUSHSLICE " + opcodes[0], "NEWC", "STSLICE"});
+			}
+		}
+		if (cmd1.is("TUPLE") &&
+		    cmd2.is("UNTUPLE") &&
+		    cmd1.fetch_int() == cmd2.fetch_int()) {
+			return Result(true, 2, {});
+		}
+		if (cmd1.is("PAIR") &&
+		    cmd2.is("UNPAIR")) {
+			return Result(true, 2, {});
+		}
+		if (cmd1.is("ROT") &&
+			(cmd2.is("SETGLOB") || (cmd2.is("POP") && cmd2.get_index() >= 3)) &&
+		    cmd3.is("SWAP")) {
+			return Result(true, 3, {"XCHG s2", cmd2.without_prefix()});
+		}
 		return Result(false);
 	}
 
@@ -637,13 +693,17 @@ struct TVMOptimizer {
 	}
 
 	std::vector<std::string> unitSlices(const std::string& sliceA, const std::string& sliceB) const {
-		const std::string& bitString = toBitString(sliceA) + toBitString(sliceB);
+		return unitBitString(toBitString(sliceA), toBitString(sliceB));
+	}
+
+	std::vector<std::string> unitBitString(const std::string& bitStringA, const std::string& bitStringB) const {
+		const std::string& bitString = bitStringA + bitStringB;
 		std::vector<std::string> opcodes;
 		for (int i = 0; i < static_cast<int>(bitString.length()); i += 4 * TvmConst::MaxPushSliceLength) {
 			opcodes.push_back(bitString.substr(i, std::min(4 * TvmConst::MaxPushSliceLength, static_cast<int>(bitString.length()) - i)));
 		}
 		for (std::string& opcode : opcodes) {
-			opcode = "PUSHSLICE x" + StackPusherHelper::binaryStringToSlice(opcode);
+			opcode = "x" + StackPusherHelper::binaryStringToSlice(opcode);
 		}
 		return opcodes;
 	}

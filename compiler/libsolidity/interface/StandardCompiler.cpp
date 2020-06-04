@@ -23,10 +23,7 @@
 #include <libsolidity/interface/StandardCompiler.h>
 
 #include <libsolidity/ast/ASTJsonConverter.h>
-#include <libyul/AssemblyStack.h>
-#include <libyul/Exceptions.h>
 #include <liblangutil/SourceReferenceFormatter.h>
-#include <libevmasm/Instruction.h>
 #include <libsolutil/JSON.h>
 #include <libsolutil/Keccak256.h>
 
@@ -280,43 +277,6 @@ bool isIRRequested(Json::Value const& _outputSelection)
 					return true;
 
 	return false;
-}
-
-Json::Value formatLinkReferences(std::map<size_t, std::string> const& linkReferences)
-{
-	Json::Value ret(Json::objectValue);
-
-	for (auto const& ref: linkReferences)
-	{
-		string const& fullname = ref.second;
-		size_t colon = fullname.rfind(':');
-		solAssert(colon != string::npos, "");
-		string file = fullname.substr(0, colon);
-		string name = fullname.substr(colon + 1);
-
-		Json::Value fileObject = ret.get(file, Json::objectValue);
-		Json::Value libraryArray = fileObject.get(name, Json::arrayValue);
-
-		Json::Value entry = Json::objectValue;
-		entry["start"] = Json::UInt(ref.first);
-		entry["length"] = 20;
-
-		libraryArray.append(entry);
-		fileObject[name] = libraryArray;
-		ret[file] = fileObject;
-	}
-
-	return ret;
-}
-
-Json::Value collectEVMObject(evmasm::LinkerObject const& _object, string const* _sourceMap)
-{
-	Json::Value output = Json::objectValue;
-	output["object"] = _object.toHex();
-	output["opcodes"] = evmasm::disassemble(_object.bytecode);
-	output["sourceMap"] = _sourceMap ? *_sourceMap : "";
-	output["linkReferences"] = formatLinkReferences(_object.linkReferences);
-	return output;
 }
 
 std::optional<Json::Value> checkKeys(Json::Value const& _input, set<string> const& _keys, string const& _name)
@@ -766,8 +726,7 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 
 	StringMap sourceList = std::move(_inputsAndSettings.sources);
 	compilerStack.setSources(sourceList);
-	for (auto const& smtLib2Response: _inputsAndSettings.smtLib2Responses)
-		compilerStack.addSMTLib2Response(smtLib2Response.first, smtLib2Response.second);
+	// TODO: do we need EVMVersion and other stuff?
 	compilerStack.setEVMVersion(_inputsAndSettings.evmVersion);
 	compilerStack.setParserErrorRecovery(_inputsAndSettings.parserErrorRecovery);
 	compilerStack.setRemappings(_inputsAndSettings.remappings);
@@ -857,16 +816,6 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 			"Unimplemented feature (" + _exception.lineInfo() + ")"
 		));
 	}
-	catch (yul::YulException const& _exception)
-	{
-		errors.append(formatErrorWithException(
-			_exception,
-			false,
-			"YulException",
-			"general",
-			"Yul exception"
-		));
-	}
 	catch (util::Exception const& _exception)
 	{
 		errors.append(formatError(
@@ -910,10 +859,6 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 	if (errors.size() > 0)
 		output["errors"] = std::move(errors);
 
-	if (!compilerStack.unhandledSMTLib2Queries().empty())
-		for (string const& query: compilerStack.unhandledSMTLib2Queries())
-			output["auxiliaryInputRequested"]["smtlib2queries"]["0x" + util::keccak256(query).hex()] = query;
-
 	bool const wildcardMatchesExperimental = false;
 
 	output["sources"] = Json::objectValue;
@@ -939,10 +884,6 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 
 		// ABI, storage layout, documentation and metadata
 		Json::Value contractData(Json::objectValue);
-		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "abi", wildcardMatchesExperimental))
-			contractData["abi"] = compilerStack.contractABI(contractName);
-		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "storageLayout", false))
-			contractData["storageLayout"] = compilerStack.storageLayout(contractName);
 		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "metadata", wildcardMatchesExperimental))
 			contractData["metadata"] = compilerStack.metadata(contractName);
 		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "userdoc", wildcardMatchesExperimental))
@@ -956,12 +897,7 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 		if (compilationSuccess && isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "irOptimized", wildcardMatchesExperimental))
 			contractData["irOptimized"] = compilerStack.yulIROptimized(contractName);
 
-		// Ewasm
-		if (compilationSuccess && isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "ewasm.wast", wildcardMatchesExperimental))
-			contractData["ewasm"]["wast"] = compilerStack.ewasm(contractName);
-		if (compilationSuccess && isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "ewasm.wasm", wildcardMatchesExperimental))
-			contractData["ewasm"]["wasm"] = compilerStack.ewasmObject(contractName).toHex();
-
+		// TODO: do we need EVM?
 		// EVM
 		Json::Value evmData(Json::objectValue);
 		if (compilationSuccess && isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "evm.assembly", wildcardMatchesExperimental))
@@ -980,10 +916,6 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 			{ "evm.bytecode", "evm.bytecode.object", "evm.bytecode.opcodes", "evm.bytecode.sourceMap", "evm.bytecode.linkReferences" },
 			wildcardMatchesExperimental
 		))
-			evmData["bytecode"] = collectEVMObject(
-				compilerStack.object(contractName),
-				compilerStack.sourceMapping(contractName)
-			);
 
 		if (compilationSuccess && isArtifactRequested(
 			_inputsAndSettings.outputSelection,
@@ -992,10 +924,6 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 			{ "evm.deployedBytecode", "evm.deployedBytecode.object", "evm.deployedBytecode.opcodes", "evm.deployedBytecode.sourceMap", "evm.deployedBytecode.linkReferences" },
 			wildcardMatchesExperimental
 		))
-			evmData["deployedBytecode"] = collectEVMObject(
-				compilerStack.runtimeObject(contractName),
-				compilerStack.runtimeSourceMapping(contractName)
-			);
 
 		if (!evmData.empty())
 			contractData["evm"] = evmData;
@@ -1014,88 +942,14 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 }
 
 
-Json::Value StandardCompiler::compileYul(InputsAndSettings _inputsAndSettings)
+Json::Value StandardCompiler::compileYul(InputsAndSettings /*_inputsAndSettings*/)
 {
-	if (_inputsAndSettings.sources.size() != 1)
-		return formatFatalError("JSONError", "Yul mode only supports exactly one input file.");
-	if (!_inputsAndSettings.smtLib2Responses.empty())
-		return formatFatalError("JSONError", "Yul mode does not support smtlib2responses.");
-	if (!_inputsAndSettings.remappings.empty())
-		return formatFatalError("JSONError", "Field \"settings.remappings\" cannot be used for Yul.");
-	if (!_inputsAndSettings.libraries.empty())
-		return formatFatalError("JSONError", "Field \"settings.libraries\" cannot be used for Yul.");
-	if (_inputsAndSettings.revertStrings != RevertStrings::Default)
-		return formatFatalError("JSONError", "Field \"settings.debug.revertStrings\" cannot be used for Yul.");
-
-	Json::Value output = Json::objectValue;
-
-	AssemblyStack stack(
-		_inputsAndSettings.evmVersion,
-		AssemblyStack::Language::StrictAssembly,
-		_inputsAndSettings.optimiserSettings
-	);
-	string const& sourceName = _inputsAndSettings.sources.begin()->first;
-	string const& sourceContents = _inputsAndSettings.sources.begin()->second;
-
-	// Inconsistent state - stop here to receive error reports from users
-	if (!stack.parseAndAnalyze(sourceName, sourceContents) && stack.errors().empty())
-		return formatFatalError("InternalCompilerError", "No error reported, but compilation failed.");
-
-	if (!stack.errors().empty())
-	{
-		Json::Value errors = Json::arrayValue;
-		for (auto const& error: stack.errors())
-		{
-			auto err = dynamic_pointer_cast<Error const>(error);
-
-			errors.append(formatErrorWithException(
-				*error,
-				err->type() == Error::Type::Warning,
-				err->typeName(),
-				"general",
-				""
-			));
-		}
-		output["errors"] = errors;
-		return output;
-	}
-
-	// TODO: move this warning to AssemblyStack
-	output["errors"] = Json::arrayValue;
-	output["errors"].append(formatError(true, "Warning", "general", "Yul is still experimental. Please use the output with care."));
-
-	string contractName = stack.parserResult()->name.str();
-
-	bool const wildcardMatchesExperimental = true;
-	if (isArtifactRequested(_inputsAndSettings.outputSelection, sourceName, contractName, "ir", wildcardMatchesExperimental))
-		output["contracts"][sourceName][contractName]["ir"] = stack.print();
-
-	stack.optimize();
-
-	MachineAssemblyObject object = stack.assemble(AssemblyStack::Machine::EVM);
-
-	if (isArtifactRequested(
-		_inputsAndSettings.outputSelection,
-		sourceName,
-		contractName,
-		{ "evm.bytecode", "evm.bytecode.object", "evm.bytecode.opcodes", "evm.bytecode.sourceMap", "evm.bytecode.linkReferences" },
-		wildcardMatchesExperimental
-	))
-		output["contracts"][sourceName][contractName]["evm"]["bytecode"] = collectEVMObject(*object.bytecode, nullptr);
-
-	if (isArtifactRequested(_inputsAndSettings.outputSelection, sourceName, contractName, "irOptimized", wildcardMatchesExperimental))
-		output["contracts"][sourceName][contractName]["irOptimized"] = stack.print();
-	if (isArtifactRequested(_inputsAndSettings.outputSelection, sourceName, contractName, "evm.assembly", wildcardMatchesExperimental))
-		output["contracts"][sourceName][contractName]["evm"]["assembly"] = object.assembly;
-
-	return output;
+	return Json::objectValue;
 }
 
 
 Json::Value StandardCompiler::compile(Json::Value const& _input) noexcept
 {
-	YulStringRepository::reset();
-
 	try
 	{
 		auto parsed = parseInput(_input);

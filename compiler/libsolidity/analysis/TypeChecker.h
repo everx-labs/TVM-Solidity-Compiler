@@ -116,6 +116,8 @@ private:
 	);
 
 	FunctionDefinition const* isArgumentAPublicFunction(FunctionCall const& _functionCall);
+	void areArgumentsValidForFunctionCall(FunctionCall const& _functionCall,
+										  FunctionDefinition const* funcDef);
 
 	void endVisit(InheritanceSpecifier const& _inheritance) override;
 	void endVisit(UsingForDirective const& _usingFor) override;

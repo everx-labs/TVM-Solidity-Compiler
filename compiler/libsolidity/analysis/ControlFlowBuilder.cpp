@@ -361,19 +361,9 @@ bool ControlFlowBuilder::visit(FunctionTypeName const& _functionTypeName)
 	return false;
 }
 
-bool ControlFlowBuilder::visit(InlineAssembly const& _inlineAssembly)
+bool ControlFlowBuilder::visit(InlineAssembly const& /*_inlineAssembly*/)
 {
 	solAssert(!!m_currentNode, "");
-	visitNode(_inlineAssembly);
-	for (auto const& ref: _inlineAssembly.annotation().externalReferences)
-	{
-		if (auto variableDeclaration = dynamic_cast<VariableDeclaration const*>(ref.second.declaration))
-			m_currentNode->variableOccurrences.emplace_back(
-				*variableDeclaration,
-				VariableOccurrence::Kind::InlineAssembly,
-				&_inlineAssembly
-			);
-	}
 	return true;
 }
 

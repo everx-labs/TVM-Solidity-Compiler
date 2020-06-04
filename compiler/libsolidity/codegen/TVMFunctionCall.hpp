@@ -53,7 +53,7 @@ protected:
 	bool checkForTvmCellMethods(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & /*arguments*/);
 	void addressMethod(FunctionCall const &_functionCall);
 	bool checkForTvmConfigParamFunction(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments);
-	bool checkForTvmSendFunction(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments);
+	bool checkForTvmSendFunction(MemberAccess const& _node, const std::vector<ASTPointer<Expression const>> & arguments);
 	bool checkForMsgFunction(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments);
 	bool checkForTvmFunction(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments);
 	bool checkForMemberAccessTypeType(MemberAccess const& _node, Type::Category category);
@@ -63,6 +63,7 @@ protected:
 	bool checkSolidityUnits(FunctionCall const& _functionCall);
 	bool checkForIdentifier(FunctionCall const& _functionCall);
 	bool checkNewExpression(FunctionCall const& _functionCall);
+	bool createNewContract(FunctionCall const &_functionCall);
 	bool checkTvmIntrinsic(FunctionCall const& _functionCall);
 };
 

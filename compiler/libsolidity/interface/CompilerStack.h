@@ -27,13 +27,11 @@
 #include <libsolidity/interface/OptimiserSettings.h>
 #include <libsolidity/interface/Version.h>
 #include <libsolidity/interface/DebugSettings.h>
-#include <libsolidity/formal/SolverInterface.h>
+// #include <libsolidity/formal/SolverInterface.h>
 
 #include <liblangutil/ErrorReporter.h>
 #include <liblangutil/EVMVersion.h>
 #include <liblangutil/SourceLocation.h>
-
-#include <libevmasm/LinkerObject.h>
 
 #include <libsolutil/Common.h>
 #include <libsolutil/FixedHash.h>
@@ -51,14 +49,6 @@
 namespace solidity::langutil
 {
 class Scanner;
-}
-
-
-namespace solidity::evmasm
-{
-class Assembly;
-class AssemblyItem;
-using AssemblyItems = std::vector<AssemblyItem>;
 }
 
 namespace solidity::frontend
@@ -162,7 +152,7 @@ public:
 	void setEVMVersion(langutil::EVMVersion _version = langutil::EVMVersion{});
 
 	/// Set which SMT solvers should be enabled.
-	void setSMTSolverChoice(smt::SMTSolverChoice _enabledSolvers);
+	// void setSMTSolverChoice(smt::SMTSolverChoice _enabledSolvers);
 
 	/// Sets the requested contract names by source.
 	/// If empty, no filtering is performed and every contract
@@ -201,7 +191,7 @@ public:
 
 	/// Adds a response to an SMTLib2 query (identified by the hash of the query input).
 	/// Must be set before parsing.
-	void addSMTLib2Response(util::h256 const& _hash, std::string const& _response);
+	// void addSMTLib2Response(util::h256 const& _hash, std::string const& _response);
 
 	/// Parses all source units that were added
 	/// @returns false on error.
@@ -244,7 +234,7 @@ public:
 
 	/// @returns a list of unhandled queries to the SMT solver (has to be supplied in a second run
 	/// by calling @a addSMTLib2Response).
-	std::vector<std::string> const& unhandledSMTLib2Queries() const { return m_unhandledSMTLib2Queries; }
+	// std::vector<std::string> const& unhandledSMTLib2Queries() const { return m_unhandledSMTLib2Queries; }
 
 	/// @returns a list of the contract names in the sources.
 	std::vector<std::string> contractNames() const;
@@ -263,21 +253,6 @@ public:
 
 	/// @returns the Ewasm text representation of a contract.
 	std::string const& ewasm(std::string const& _contractName) const;
-
-	/// @returns the Ewasm representation of a contract.
-	evmasm::LinkerObject const& ewasmObject(std::string const& _contractName) const;
-
-	/// @returns the assembled object for a contract.
-	evmasm::LinkerObject const& object(std::string const& _contractName) const;
-
-	/// @returns the runtime object for the contract.
-	evmasm::LinkerObject const& runtimeObject(std::string const& _contractName) const;
-
-	/// @returns normal contract assembly items
-	evmasm::AssemblyItems const* assemblyItems(std::string const& _contractName) const;
-
-	/// @returns runtime contract assembly items
-	evmasm::AssemblyItems const* runtimeAssemblyItems(std::string const& _contractName) const;
 
 	/// @returns the string that provides a mapping between bytecode and sourcecode or a nullptr
 	/// if the contract does not (yet) have bytecode.
@@ -299,11 +274,11 @@ public:
 
 	/// @returns a JSON representing the contract ABI.
 	/// Prerequisite: Successful call to parse or compile.
-	Json::Value const& contractABI(std::string const& _contractName) const;
+	// Json::Value const& contractABI(std::string const& _contractName) const;
 
 	/// @returns a JSON representing the storage layout of the contract.
 	/// Prerequisite: Successful call to parse or compile.
-	Json::Value const& storageLayout(std::string const& _contractName) const;
+	// Json::Value const& storageLayout(std::string const& _contractName) const;
 
 	/// @returns a JSON representing the contract's user documentation.
 	/// Prerequisite: Successful call to parse or compile.
@@ -344,15 +319,12 @@ private:
 	{
 		ContractDefinition const* contract = nullptr;
 		std::shared_ptr<Compiler> compiler;
-		evmasm::LinkerObject object; ///< Deployment object (includes the runtime sub-object).
-		evmasm::LinkerObject runtimeObject; ///< Runtime object.
 		std::string yulIR; ///< Experimental Yul IR code.
 		std::string yulIROptimized; ///< Optimized experimental Yul IR code.
 		std::string ewasm; ///< Experimental Ewasm text representation
-		evmasm::LinkerObject ewasmObject; ///< Experimental Ewasm code
 		mutable std::unique_ptr<std::string const> metadata; ///< The metadata json that will be hashed into the chain.
 		mutable std::unique_ptr<Json::Value const> abi;
-		mutable std::unique_ptr<Json::Value const> storageLayout;
+		// mutable std::unique_ptr<Json::Value const> storageLayout;
 		mutable std::unique_ptr<Json::Value const> userDocumentation;
 		mutable std::unique_ptr<Json::Value const> devDocumentation;
 		mutable std::unique_ptr<std::string const> sourceMapping;
@@ -409,16 +381,13 @@ private:
 	/// @returns the metadata CBOR for the given serialised metadata JSON.
 	bytes createCBORMetadata(std::string const& _metadata, bool _experimentalMode);
 
-	/// @returns the computer source mapping string.
-	std::string computeSourceMapping(evmasm::AssemblyItems const& _items) const;
-
 	/// @returns the contract ABI as a JSON object.
 	/// This will generate the JSON object and store it in the Contract object if it is not present yet.
-	Json::Value const& contractABI(Contract const&) const;
+	// Json::Value const& contractABI(Contract const&) const;
 
 	/// @returns the storage layout of the contract as a JSON object.
 	/// This will generate the JSON object and store it in the Contract object if it is not present yet.
-	Json::Value const& storageLayout(Contract const&) const;
+	// Json::Value const& storageLayout(Contract const&) const;
 
 	/// @returns the Natspec User documentation as a JSON object.
 	/// This will generate the JSON object and store it in the Contract object if it is not present yet.
@@ -443,7 +412,7 @@ private:
 	OptimiserSettings m_optimiserSettings;
 	RevertStrings m_revertStrings = RevertStrings::Default;
 	langutil::EVMVersion m_evmVersion;
-	smt::SMTSolverChoice m_enabledSMTSolvers;
+	// smt::SMTSolverChoice m_enabledSMTSolvers;
 	std::map<std::string, std::set<std::string>> m_requestedContractNames;
 	bool m_generateIR;
 	bool m_generateEwasm;
@@ -454,8 +423,8 @@ private:
 	std::map<std::string const, Source> m_sources;
 	// if imported, store AST-JSONS for each filename
 	std::map<std::string, Json::Value> m_sourceJsons;
-	std::vector<std::string> m_unhandledSMTLib2Queries;
-	std::map<util::h256, std::string> m_smtlib2Responses;
+	// std::vector<std::string> m_unhandledSMTLib2Queries;
+	// std::map<util::h256, std::string> m_smtlib2Responses;
 	std::shared_ptr<GlobalContext> m_globalContext;
 	std::vector<Source const*> m_sourceOrder;
 	/// This is updated during compilation.

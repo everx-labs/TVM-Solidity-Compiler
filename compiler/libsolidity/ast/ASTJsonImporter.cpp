@@ -21,14 +21,10 @@
  */
 
 #include <libsolidity/ast/ASTJsonImporter.h>
-#include <libsolidity/ast/AsmJsonImporter.h>
 #include <liblangutil/Scanner.h>
-#include <libyul/Dialect.h>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string.hpp>
 #include <liblangutil/Token.h>
-#include <libyul/AsmParser.h>
-#include <libyul/backends/evm/EVMDialect.h>
 #include <liblangutil/SourceLocation.h>
 #include <liblangutil/Exceptions.h>
 #include <liblangutil/ErrorReporter.h>
@@ -532,13 +528,9 @@ ASTPointer<InlineAssembly> ASTJsonImporter::createInlineAssembly(Json::Value con
 	astAssert(evmVersion.has_value(), "Invalid EVM version!");
 	astAssert(m_evmVersion == evmVersion, "Imported tree evm version differs from configured evm version!");
 
-	yul::Dialect const& dialect = yul::EVMDialect::strictAssemblyForEVM(evmVersion.value());
-	shared_ptr<yul::Block> operations = make_shared<yul::Block>(AsmJsonImporter(m_currentSourceName).createBlock(member(_node, "AST")));
 	return createASTNode<InlineAssembly>(
 		_node,
-		nullOrASTString(_node, "documentation"),
-		dialect,
-		operations
+		nullOrASTString(_node, "documentation")
 	);
 }
 

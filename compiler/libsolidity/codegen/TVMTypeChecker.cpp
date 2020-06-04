@@ -23,6 +23,7 @@
 #include "TVMCommons.hpp"
 #include "TVMTypeChecker.hpp"
 #include "TVMStructCompiler.hpp"
+#include "TVMConstants.hpp"
 
 using namespace solidity::frontend;
 
@@ -160,30 +161,42 @@ void TVMTypeChecker::checkDecodeEncodeParams(FunctionDefinition const *f) {
 	}
 
 	for (const ASTPointer<VariableDeclaration>& param : f->parameters()) {
-		checkDecodeEncodeParam(param.get());
+		checkDecodeEncodeParam(param->type(), *param, 0);
 	}
 
 	for (const ASTPointer<VariableDeclaration>& param : f->returnParameters()) {
-		checkDecodeEncodeParam(param.get());
+		checkDecodeEncodeParam(param->type(), *param, 0);
 	}
 }
 
-void TVMTypeChecker::checkDecodeEncodeParam(VariableDeclaration const *param) {
-	switch (param->type()->category()) {
+void TVMTypeChecker::checkDecodeEncodeParam(Type const* type, const ASTNode &node, int keyLength) {
+
+	switch (type->category()) {
 		case Type::Category::Mapping: {
-			auto mappingType = to<MappingType>(param->type());
+			auto mappingType = to<MappingType>(type);
 			auto intKey = to<IntegerType>(mappingType->keyType());
 			if (!intKey) {
-				cast_error(*param, "Key type must be any of int<M>/uint<M> types with M from 8 to 256");
+				cast_error(node, "Key type must be any of int<M>/uint<M> types with M from 8 to 256");
 			}
 
-			auto valueStruct = to<StructType>(mappingType->valueType());
-			if (valueStruct) {
-				if (!StructCompiler::isCompatibleWithSDK(static_cast<int>(intKey->numBits()), valueStruct)) {
-					cast_error(*param, "Value type is not compatible with SDK");
+			checkDecodeEncodeParam(mappingType->valueType(), node, static_cast<int>(intKey->numBits()));
+			break;
+		}
+		case Type::Category::Array: {
+			auto arrayType = to<ArrayType>(type);
+			if (!arrayType->isByteArray()) {
+				checkDecodeEncodeParam(arrayType->baseType(), node, TvmConst::ArrayKeyLength);
+			}
+			break;
+		}
+		case Type::Category::Struct: {
+			if (keyLength > 0) {
+				auto valueStruct = to<StructType>(type);
+				if (!StructCompiler::isCompatibleWithSDK(keyLength, valueStruct)) {
+					cast_error(node, "Struct is not compatible with SDK. "
+					                 "Struct must have no nested structs and all members of the struct must fit in one cell.");
 				}
 			}
-
 			break;
 		}
 		default:
@@ -224,7 +237,6 @@ void TVMTypeChecker::checkTvmIntrinsic(FunctionDefinition const *f, ContractDefi
 	deprecatedFunctionsReplacement["tvm_insert_pubkey"] = "tvm.insertPubkey()";
 	deprecatedFunctionsReplacement["tvm_build_state_init"] = "tvm.buildStateInit()";
 	deprecatedFunctionsReplacement["tvm_ignore_integer_overflow"] = "pragma ignoreIntOverflow";
-	deprecatedFunctionsReplacement["tvm_set_ext_dest_address"] = "tvm.setExtDestAddr";
 
 	if (auto it = deprecatedFunctionsReplacement.find(f->name()); it != deprecatedFunctionsReplacement.end())
 		cast_warning(*f, "Function is deprecated it will be removed from compiler soon. Use " + it->second + " instead.");

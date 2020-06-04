@@ -26,11 +26,6 @@
 #include <libsolidity/ast/AST.h>
 #include <libsolidity/ast/TypeProvider.h>
 
-#include <libyul/AsmAnalysis.h>
-#include <libyul/AsmAnalysisInfo.h>
-#include <libyul/AsmData.h>
-#include <libyul/backends/evm/EVMDialect.h>
-
 #include <liblangutil/ErrorReporter.h>
 #include <liblangutil/Exceptions.h>
 
@@ -230,15 +225,23 @@ void ReferencesResolver::endVisit(Mapping const& _typeName)
 	TypePointer valueType = _typeName.valueType().annotation().type;
 	// Convert key type to memory.
 	keyType = TypeProvider::withLocationIfReference(DataLocation::Memory, keyType);
-	
+
 //	valueType = ReferenceType::copyForLocationIfReference(_typeName.location(), valueType);
 //	_typeName.annotation().type = make_shared<MappingType>(keyType, valueType, _typeName.location());
 	// Convert value type to storage reference.
 //	valueType = TypeProvider::withLocationIfReference(DataLocation::Storage, valueType);
 //	_typeName.annotation().type = TypeProvider::mapping(keyType, valueType);
-	
+
 	valueType = TypeProvider::withLocationIfReference(_typeName.location(), valueType);
-	_typeName.annotation().type = TypeProvider::mapping(keyType, valueType, _typeName.location());	
+	_typeName.annotation().type = TypeProvider::mapping(keyType, valueType, _typeName.location());
+}
+
+void ReferencesResolver::endVisit(const ElementaryTypeName &_typeName) {
+	if (_typeName.typeName().token() == Token::ExtraCurrencyCollection) {
+		_typeName.annotation().type = TypeProvider::extraCurrencyCollection(_typeName.getLocation());
+	} else {
+		ASTConstVisitor::endVisit(_typeName);
+	}
 }
 
 void ReferencesResolver::endVisit(ArrayTypeName const& _typeName)
@@ -270,27 +273,21 @@ void ReferencesResolver::endVisit(ArrayTypeName const& _typeName)
 //	}
 //	else
 //		_typeName.annotation().type = TypeProvider::array(DataLocation::Storage, baseType);
-			
+
 //			_typeName.annotation().type = make_shared<ArrayType>(_typeName.location(), baseType, lengthType->literalValue(nullptr));
 //	}
 //	else
 //		_typeName.annotation().type = make_shared<ArrayType>(_typeName.location(), baseType);
-	
+
 				_typeName.annotation().type = TypeProvider::array(_typeName.location(), baseType, lengthType->literalValue(nullptr));
 		}
 		else
 			_typeName.annotation().type = TypeProvider::array(_typeName.location(), baseType);
-	
+
 }
 
-bool ReferencesResolver::visit(InlineAssembly const& _inlineAssembly)
+bool ReferencesResolver::visit(InlineAssembly const& /*_inlineAssembly*/)
 {
-	m_resolver.warnVariablesNamedLikeInstructions();
-
-	m_yulAnnotation = &_inlineAssembly.annotation();
-	(*this)(_inlineAssembly.operations());
-	m_yulAnnotation = nullptr;
-
 	return false;
 }
 
@@ -408,90 +405,6 @@ void ReferencesResolver::endVisit(VariableDeclaration const& _variable)
 	_variable.annotation().type = type;
 }
 
-void ReferencesResolver::operator()(yul::FunctionDefinition const& _function)
-{
-	bool wasInsideFunction = m_yulInsideFunction;
-	m_yulInsideFunction = true;
-	this->operator()(_function.body);
-	m_yulInsideFunction = wasInsideFunction;
-}
-
-void ReferencesResolver::operator()(yul::Identifier const& _identifier)
-{
-	bool isSlot = boost::algorithm::ends_with(_identifier.name.str(), "_slot");
-	bool isOffset = boost::algorithm::ends_with(_identifier.name.str(), "_offset");
-
-	auto declarations = m_resolver.nameFromCurrentScope(_identifier.name.str());
-	if (isSlot || isOffset)
-	{
-		// special mode to access storage variables
-		if (!declarations.empty())
-			// the special identifier exists itself, we should not allow that.
-			return;
-		string realName = _identifier.name.str().substr(0, _identifier.name.str().size() - (
-			isSlot ?
-			string("_slot").size() :
-			string("_offset").size()
-		));
-		if (realName.empty())
-		{
-			declarationError(_identifier.location, "In variable names _slot and _offset can only be used as a suffix.");
-			return;
-		}
-		declarations = m_resolver.nameFromCurrentScope(realName);
-	}
-	if (declarations.size() > 1)
-	{
-		declarationError(_identifier.location, "Multiple matching identifiers. Resolving overloaded identifiers is not supported.");
-		return;
-	}
-	else if (declarations.size() == 0)
-		return;
-	if (auto var = dynamic_cast<VariableDeclaration const*>(declarations.front()))
-		if (var->isLocalVariable() && m_yulInsideFunction)
-		{
-			declarationError(_identifier.location, "Cannot access local Solidity variables from inside an inline assembly function.");
-			return;
-		}
-
-	m_yulAnnotation->externalReferences[&_identifier].isSlot = isSlot;
-	m_yulAnnotation->externalReferences[&_identifier].isOffset = isOffset;
-	m_yulAnnotation->externalReferences[&_identifier].declaration = declarations.front();
-}
-
-void ReferencesResolver::operator()(yul::VariableDeclaration const& _varDecl)
-{
-	for (auto const& identifier: _varDecl.variables)
-	{
-		bool isSlot = boost::algorithm::ends_with(identifier.name.str(), "_slot");
-		bool isOffset = boost::algorithm::ends_with(identifier.name.str(), "_offset");
-
-		string namePrefix = identifier.name.str().substr(0, identifier.name.str().find('.'));
-		if (isSlot || isOffset)
-			declarationError(identifier.location, "In variable declarations _slot and _offset can not be used as a suffix.");
-		else if (
-			auto declarations = m_resolver.nameFromCurrentScope(namePrefix);
-			!declarations.empty()
-		)
-		{
-			SecondarySourceLocation ssl;
-			for (auto const* decl: declarations)
-				ssl.append("The shadowed declaration is here:", decl->location());
-			if (!ssl.infos.empty())
-				declarationError(
-					identifier.location,
-					ssl,
-					namePrefix.size() < identifier.name.str().size() ?
-					"The prefix of this declaration conflicts with a declaration outside the inline assembly block." :
-					"This declaration shadows a declaration outside the inline assembly block."
-				);
-		}
-	}
-
-	if (_varDecl.value)
-		visit(*_varDecl.value);
-}
-
 void ReferencesResolver::typeError(SourceLocation const& _location, string const& _description)
 {
 	m_errorOccurred = true;
@@ -521,5 +434,6 @@ void ReferencesResolver::fatalDeclarationError(SourceLocation const& _location, 
 	m_errorOccurred = true;
 	m_errorReporter.fatalDeclarationError(_location, _description);
 }
+
 
 }

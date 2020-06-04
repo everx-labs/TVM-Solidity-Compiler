@@ -25,7 +25,6 @@
 #include <libsolidity/ast/ASTVisitor.h>
 #include <libsolidity/ast/ASTAnnotations.h>
 #include <liblangutil/EVMVersion.h>
-#include <libyul/optimiser/ASTWalker.h>
 
 #include <boost/noncopyable.hpp>
 #include <list>
@@ -46,7 +45,7 @@ class NameAndTypeResolver;
  * Resolves references to declarations (of variables and types) and also establishes the link
  * between a return statement and the return parameter list.
  */
-class ReferencesResolver: private ASTConstVisitor, private yul::ASTWalker
+class ReferencesResolver: private ASTConstVisitor
 {
 public:
 	ReferencesResolver(
@@ -65,9 +64,6 @@ public:
 	bool resolve(ASTNode const& _root);
 
 private:
-	using yul::ASTWalker::visit;
-	using yul::ASTWalker::operator();
-
 	bool visit(Block const& _block) override;
 	void endVisit(Block const& _block) override;
 	bool visit(ForStatement const& _for) override;
@@ -82,14 +78,11 @@ private:
 	void endVisit(UserDefinedTypeName const& _typeName) override;
 	void endVisit(FunctionTypeName const& _typeName) override;
 	void endVisit(Mapping const& _typeName) override;
+	void endVisit(ElementaryTypeName const& _typeName) override;
 	void endVisit(ArrayTypeName const& _typeName) override;
 	bool visit(InlineAssembly const& _inlineAssembly) override;
 	bool visit(Return const& _return) override;
 	void endVisit(VariableDeclaration const& _variable) override;
-
-	void operator()(yul::FunctionDefinition const& _function) override;
-	void operator()(yul::Identifier const& _identifier) override;
-	void operator()(yul::VariableDeclaration const& _varDecl) override;
 
 	/// Adds a new error to the list of errors.
 	void typeError(langutil::SourceLocation const& _location, std::string const& _description);

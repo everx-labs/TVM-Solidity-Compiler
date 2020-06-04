@@ -67,7 +67,6 @@ public:
 	static TvmSliceType const* tvmslice() noexcept {return &m_tvmslice; }
 
 	static TvmBuilderType const* tvmbuilder() noexcept { return &m_tvmbuilder; }
-	static ExtraCurrencyCollectionType const* extraCurrencyCollection() noexcept { return &m_extraCurrencyCollection; }
 
 	static FixedBytesType const* byte() { return fixedBytes(1); }
 	static FixedBytesType const* fixedBytes(unsigned m) { return m_bytesM.at(m - 1).get(); }
@@ -197,6 +196,7 @@ public:
 	static MagicType const* meta(Type const* _type);
 
 	static MappingType const* mapping(Type const* _keyType, Type const* _valueType, DataLocation _location);
+	static ExtraCurrencyCollectionType const* extraCurrencyCollection(DataLocation _location);
 
 private:
 	/// Global TypeProvider instance.
@@ -213,7 +213,6 @@ private:
 	static TvmCellType const m_tvmcell;
 	static TvmSliceType const m_tvmslice;
 	static TvmBuilderType const m_tvmbuilder;
-	static ExtraCurrencyCollectionType const  m_extraCurrencyCollection;
 	static InaccessibleDynamicType const m_inaccessibleDynamic;
 
 	/// These are lazy-initialized because they depend on `byte` being available.
