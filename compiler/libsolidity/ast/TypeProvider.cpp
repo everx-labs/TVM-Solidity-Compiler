@@ -29,7 +29,6 @@ BoolType const TypeProvider::m_boolean{};
 TvmCellType const TypeProvider::m_tvmcell{};
 TvmSliceType const TypeProvider::m_tvmslice{};
 TvmBuilderType const TypeProvider::m_tvmbuilder{};
-ExtraCurrencyCollectionType const  TypeProvider::m_extraCurrencyCollection{};
 InaccessibleDynamicType const TypeProvider::m_inaccessibleDynamic{};
 
 /// The string and bytes unique_ptrs are initialized when they are first used because
@@ -259,7 +258,7 @@ Type const* TypeProvider::fromElementaryTypeName(ElementaryTypeNameToken const& 
 	case Token::TvmBuilder:
 		return tvmbuilder();
 	case Token::ExtraCurrencyCollection:
-		return extraCurrencyCollection();
+		return extraCurrencyCollection(DataLocation::Memory);
 	case Token::Bytes:
 		return bytesStorage();
 	case Token::String:
@@ -579,4 +578,8 @@ MagicType const* TypeProvider::meta(Type const* _type)
 MappingType const* TypeProvider::mapping(Type const* _keyType, Type const* _valueType, DataLocation _location)
 {
 	return createAndGet<MappingType>(_keyType, _valueType, _location);
+}
+
+ExtraCurrencyCollectionType const *TypeProvider::extraCurrencyCollection(DataLocation _location) {
+	return createAndGet<ExtraCurrencyCollectionType>(_location);
 }

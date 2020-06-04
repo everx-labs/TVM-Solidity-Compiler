@@ -39,7 +39,7 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 	for (auto c : contract->annotation().linearizedBaseContracts) {
 		for (const auto &_function : c->definedFunctions()) {
 			if (_function->isPublic() && !isTvmIntrinsic(_function->name()) && !_function->isConstructor() &&
-			    !_function->isReceive() && !_function->isFallback() && !_function->isOnBounce())
+				!_function->isReceive() && !_function->isFallback() && !_function->isOnBounce())
 				publicFunctions.push_back(_function);
 		}
 	}
@@ -219,7 +219,7 @@ void TVMABI::print(const Json::Value &json, ostream *out) {
 }
 
 Json::Value TVMABI::processFunction(const string &fname, const ast_vec<VariableDeclaration> &params,
-                                    const ast_vec<VariableDeclaration> &retParams, FunctionDefinition const* funcDef) {
+									const ast_vec<VariableDeclaration> &retParams, FunctionDefinition const* funcDef) {
 	Json::Value function;
 	Json::Value inputs  = encodeParams(params);
 	Json::Value outputs = encodeParams(retParams);
@@ -271,7 +271,7 @@ string TVMABI::getParamTypeString(Type const *type, ASTNode const &node) {
 			return "bytes";
 		}
 		if (isIntegralType(arrayBaseType) || isAddressOrContractType(arrayBaseType) ||
-		    to<StructType>(arrayBaseType) || to<ArrayType>(arrayBaseType)) {
+			to<StructType>(arrayBaseType) || to<ArrayType>(arrayBaseType)) {
 
 			return getParamTypeString(arrayBaseType, node) + "[]";
 		}
@@ -283,7 +283,7 @@ string TVMABI::getParamTypeString(Type const *type, ASTNode const &node) {
 	} else if (category == Type::Category::Mapping) {
 		auto mapping = to<MappingType>(type);
 		return "map(" + getParamTypeString(mapping->keyType(), node) + "," +
-		       getParamTypeString(mapping->valueType(), node) + ")";
+			   getParamTypeString(mapping->valueType(), node) + ")";
 	}
 	cast_error(node, "Unsupported param type " + type->toString(true));
 }
@@ -453,13 +453,13 @@ DecodePosition::Algo DecodePositionAbiV2::updateStateAndGetLoadAlgo(Type const *
 	}
 
 	if (prevMinCellNumber == prevMaxCellNumber &&
-	    prevMinCellNumber + 1 == minPos.cellNumber() &&
-	    minPos.cellNumber() == maxPos.cellNumber()) {
+		prevMinCellNumber + 1 == minPos.cellNumber() &&
+		minPos.cellNumber() == maxPos.cellNumber()) {
 		return LoadNextCell;
 	}
 
 	if ((type->category() == Type::Category::Array && to<ArrayType>(type)->isByteArray()) ||
-	    type->category() == Type::Category::TvmCell) {
+		type->category() == Type::Category::TvmCell) {
 		return CheckRefs;
 	}
 
@@ -472,21 +472,17 @@ DecodeFunctionParams::DecodeFunctionParams(StackPusherHelper *pusher) :
 }
 
 int DecodeFunctionParams::maxBits() {
+	// external inbound message
 	int maxUsed = 1 + 512 + // signature
-	              (pusher->ctx().pragmaHelper().havePubkey()? 1 + 256 : 0) +
-	              (pusher->ctx().haveTimeInAbiHeader()? 64 : 0) +
-	              (pusher->ctx().pragmaHelper().haveExpire()? 32 : 0) +
-	              32; // functionID
+				  (pusher->ctx().pragmaHelper().havePubkey()? 1 + 256 : 0) +
+				  (pusher->ctx().haveTimeInAbiHeader()? 64 : 0) +
+				  (pusher->ctx().pragmaHelper().haveExpire()? 32 : 0) +
+				  32; // functionID
 	return maxUsed;
 }
 
 int DecodeFunctionParams::minBits() {
-	int minUsed = 1 + // signature
-	              (pusher->ctx().pragmaHelper().havePubkey()? 1 : 0) +
-	              (pusher->ctx().haveTimeInAbiHeader()? 64 : 0) +
-	              (pusher->ctx().pragmaHelper().haveExpire()? 32 : 0) +
-	              32; // functionID
-	return minUsed;
+	return 32; // internal inbound message
 }
 
 void DecodeFunctionParams::decodeParameters(const ast_vec<VariableDeclaration> &params) {
@@ -568,7 +564,7 @@ IF
 }
 
 void DecodeFunctionParams::loadNextSliceIfNeed(const DecodePosition::Algo algo, VariableDeclaration const *variable,
-                                               bool isRefType) {
+											   bool isRefType) {
 	switch (algo) {
 		case DecodePosition::JustLoad:
 			break;
@@ -635,18 +631,14 @@ void DecodeFunctionParams::decodeParameter(VariableDeclaration const *variable, 
 		solAssert(ti.isNumeric, "");
 		DecodePosition::Algo algo = position->updateStateAndGetLoadAlgo(type);
 		loadq(algo,
-		      (ti.isSigned ? "LDIQ " : "LDUQ ") + toString(ti.numBits),
-		      (ti.isSigned ? "LDI " : "LDU ") + toString(ti.numBits));
+			  (ti.isSigned ? "LDIQ " : "LDUQ ") + toString(ti.numBits),
+			  (ti.isSigned ? "LDI " : "LDU ") + toString(ti.numBits));
 	} else if (auto arrayType = to<ArrayType>(type)) {
 		if (arrayType->isByteArray()) {
 			loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type), variable, true);
 			pusher->push(+1, "LDREF");
 		} else {
 			loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type), variable, false);
-			auto baseStructType = to<StructType>(arrayType->baseType());
-			if (baseStructType && !StructCompiler::isCompatibleWithSDK(TvmConst::ArrayKeyLength, baseStructType)) {
-				cast_error(*variable, "Only arrays of plane little (<= 1023 bits) struct are supported");
-			}
 			pusher->loadArray();
 		}
 	} else if (to<MappingType>(type)) {
@@ -721,9 +713,9 @@ int EncodePosition::countOfCreatedBuilders() const {
 }
 
 void EncodeFunctionParams::createMsgBodyAndAppendToBuilder2(const ast_vec<Expression const> &arguments,
-                                                            const ReasonOfOutboundMessage reason,
-                                                            const CallableDeclaration* funcDef,
-                                                            int builderSize) {
+															const ReasonOfOutboundMessage reason,
+															const CallableDeclaration* funcDef,
+															int builderSize) {
 	const int saveStackSize = pusher->getStack().size();
 	const ast_vec<VariableDeclaration> &parameters = funcDef->parameters();
 	solAssert(parameters.size() == arguments.size(), "");
@@ -737,19 +729,39 @@ void EncodeFunctionParams::createMsgBodyAndAppendToBuilder2(const ast_vec<Expres
 			false,
 			builderSize
 	);
-	solAssert(saveStackSize == pusher->getStack().size(), "");
+			solAssert(saveStackSize == pusher->getStack().size(), "");
 }
 
-uint32_t EncodeFunctionParams::calculateFunctionID(const CallableDeclaration * funcDef) {
+void EncodeFunctionParams::createDefaultConstructorMessage(const int bitSizeBuilder)
+{
+	std::vector<ASTPointer<VariableDeclaration>> vect;
+	uint32_t funcID = calculateFunctionID("constructor", vect, &vect);
+	funcID &= 0x7FFFFFFFu;
 	std::stringstream ss;
-	ss << funcDef->name() << "(";
+	ss << "x" << std::hex << std::setfill('0') << std::setw(8) << funcID;
+
+	if (bitSizeBuilder < (1023 - 32 - 1)) {
+		pusher->stzeroes(1);
+		pusher->push(0, "STSLICECONST " + ss.str());
+	} else {
+		pusher->stones(1);
+		pusher->push(+1, "NEWC");
+		pusher->push(0, "STSLICECONST " + ss.str());
+		pusher->push(-1, "STBREFR");
+	}
+}
+
+uint32_t EncodeFunctionParams::calculateFunctionID(const std::string name, const std::vector<ASTPointer<VariableDeclaration>> inputs,
+												   const std::vector<ASTPointer<VariableDeclaration>> * outputs) {
+	std::stringstream ss;
+	ss << name << "(";
 	bool comma = false;
 	if (pusher->ctx().pragmaHelper().abiVersion() == 1) {
 		ss << "time";
 		comma = true;
 	}
-	for (const auto& input : funcDef->parameters()) {
-		std::string typestr = getTypeString(input->type(), funcDef);
+	for (const auto& input : inputs) {
+		std::string typestr = getTypeString(input->type(), *input);
 		solAssert(!typestr.empty(), "Wrong type in remote function params.");
 		if (comma)
 			ss << ",";
@@ -758,10 +770,10 @@ uint32_t EncodeFunctionParams::calculateFunctionID(const CallableDeclaration * f
 	}
 	ss << ")";
 	comma = false;
-	if (funcDef->returnParameterList()) {
+	if (outputs) {
 		ss << "(";
-		for (const auto& output : funcDef->returnParameters()) {
-			std::string typestr = getTypeString(output->type(), funcDef);
+		for (const auto& output : *outputs) {
+			std::string typestr = getTypeString(output->type(), *output);
 			solAssert(!typestr.empty(), "Wrong type in remote function params.");
 			if (comma)
 				ss << ",";
@@ -782,59 +794,89 @@ uint32_t EncodeFunctionParams::calculateFunctionID(const CallableDeclaration * f
 	));
 	uint32_t funcID = 0;
 	for (size_t i = 0; i < 4; i++) {
-		funcID <<= 8;
+		funcID <<= 8u;
 		funcID += hash[i];
 	}
 
 	return funcID;
 }
 
+
+uint32_t EncodeFunctionParams::calculateFunctionID(const CallableDeclaration *declaration) {
+	auto functionDefinition = to<FunctionDefinition>(declaration);
+	if (functionDefinition != nullptr && functionDefinition->functionID() != 0) {
+		return functionDefinition->functionID();
+	}
+
+	std::string name;
+	if (functionDefinition != nullptr && functionDefinition->isConstructor())
+		name = "constructor";
+	else
+		name = declaration->name();
+
+	return calculateFunctionID(name, declaration->parameters(), declaration->returnParameterList() ?
+								   &declaration->returnParameters() : nullptr);
+}
+
 void EncodeFunctionParams::createMsgBodyAndAppendToBuilder(const std::function<void(size_t)> &pushParam,
-                                                           const ReasonOfOutboundMessage &reason,
-                                                           const CallableDeclaration * funcDef,
-                                                           bool encodeReturnParam,
-                                                           const int bitSizeBuilder) {
+														   const ReasonOfOutboundMessage &reason,
+														   const CallableDeclaration * funcDef,
+														   bool encodeReturnParam,
+														   const int bitSizeBuilder) {
 
 	const ast_vec<VariableDeclaration> &parameters =
 			encodeReturnParam? funcDef->returnParameters() : funcDef->parameters();
-	std::vector<Type const*> types;
-	std::vector<ASTNode const*> nodes;
-	for (const ASTPointer<VariableDeclaration>& param : parameters) {
-		types.push_back(param->annotation().type);
-		nodes.push_back(param.get());
-	}
-
-	uint32_t funcID = calculateFunctionID(funcDef);
-	if (reason == ReasonOfOutboundMessage::FunctionReturnExternal)
-		funcID |= 0x80000000;
-	else if (reason == ReasonOfOutboundMessage::EmitEventExternal)
-		funcID &= 0x7FFFFFFF;
-	else if (reason == ReasonOfOutboundMessage::RemoteCallInternal)
-		funcID &= 0x7FFFFFFF;
-	std::stringstream ss;
-	ss << "x" << std::hex << std::setfill('0') << std::setw(8) << funcID;
+	std::vector<Type const*> types = getParams(parameters).first;
 
 	std::unique_ptr<EncodePosition> position = std::make_unique<EncodePosition>(bitSizeBuilder + 32, types);
 	const bool doAppend = position->countOfCreatedBuilders() == 0;
 	if (doAppend) {
 		pusher->stzeroes(1);
-		pusher->push(0, "STSLICECONST " + ss.str());
 	} else {
 		pusher->stones(1);
 		position = std::make_unique<EncodePosition>(32, types);
 		pusher->push(+1, "NEWC");
-		pusher->push(0, "STSLICECONST " + ss.str());
 	}
-	encodeParameters(types, nodes, pushParam, *position);
+
+	createMsgBody(pushParam, reason, funcDef, encodeReturnParam, *position);
+
 	if (!doAppend) {
 		pusher->push(-1, "STBREFR");
 	}
 }
 
+void EncodeFunctionParams::createMsgBody(const std::function<void (size_t)> &pushParam,
+										 const ReasonOfOutboundMessage &reason,
+										 const CallableDeclaration *funcDef,
+										 bool encodeReturnParam,
+										 EncodePosition &position)
+{
+	const ast_vec<VariableDeclaration> &parameters =
+			encodeReturnParam? funcDef->returnParameters() : funcDef->parameters();
+	std::vector<Type const*> types;
+	std::vector<ASTNode const*> nodes;
+	std::tie(types, nodes) = getParams(parameters);
+
+	uint32_t funcID = calculateFunctionID(funcDef);
+	switch (reason) {
+		case ReasonOfOutboundMessage::FunctionReturnExternal:
+			funcID |= 0x80000000;
+			break;
+		case ReasonOfOutboundMessage::EmitEventExternal:
+		case ReasonOfOutboundMessage::RemoteCallInternal:
+			funcID &= 0x7FFFFFFFu;
+			break;
+	}
+	std::stringstream ss;
+	ss << "x" << std::hex << std::setfill('0') << std::setw(8) << funcID;
+	pusher->push(0, "STSLICECONST " + ss.str());
+	encodeParameters(types, nodes, pushParam, position);
+}
+
 void
 EncodeFunctionParams::encodeParameters(const std::vector<Type const *> &types, const std::vector<ASTNode const *> &nodes,
-                                    const std::function<void(size_t)> &pushParam,
-                                    EncodePosition &position) {
+									const std::function<void(size_t)> &pushParam,
+									EncodePosition &position) {
 	// builder must be situated on top stack
 	solAssert(types.size() == nodes.size(), "");
 	for (size_t idx = 0; idx < types.size(); idx++) {
@@ -846,28 +888,28 @@ EncodeFunctionParams::encodeParameters(const std::vector<Type const *> &types, c
 	}
 }
 
-std::string EncodeFunctionParams::getTypeString(Type const * type, const CallableDeclaration * funcDef) {
+std::string EncodeFunctionParams::getTypeString(Type const * type, const ASTNode &node) {
 	if (auto structType = to<StructType>(type)) {
 		std::string ret = "(";
 		for (size_t i = 0; i < structType->structDefinition().members().size(); i++) {
 			if (i != 0) ret += ",";
-			ret += getTypeString(structType->structDefinition().members()[i]->type(), funcDef);
+			ret += getTypeString(structType->structDefinition().members()[i]->type(), node);
 		}
 		ret += ")";
 		return ret;
 	} else if (auto arrayType = to<ArrayType>(type)) {
 		if (!arrayType->isByteArray())
-			return getTypeString(arrayType->baseType(), funcDef) + "[]";
+			return getTypeString(arrayType->baseType(), node) + "[]";
 	} else if (auto mapping = to<MappingType>(type)) {
-		return "map(" + getTypeString(mapping->keyType(), funcDef) + "," +
-		       getTypeString(mapping->valueType(), funcDef) + ")";
+		return "map(" + getTypeString(mapping->keyType(), node) + "," +
+			   getTypeString(mapping->valueType(), node) + ")";
 	}
 
-	return TVMABI::getParamTypeString(type, *funcDef);
+	return TVMABI::getParamTypeString(type, node);
 }
 
 void EncodeFunctionParams::encodeParameter(Type const *type, EncodePosition &position,
-                                        const std::function<void()> &pushParam, ASTNode const *node) {
+										const std::function<void()> &pushParam, ASTNode const *node) {
 	// stack: builder...
 	if (auto structType = to<StructType>(type)) {
 		pushParam(); // builder... struct

@@ -50,20 +50,20 @@ public:
 	};
 
 	class Node {
-		int maxBits{0};
-		int maxRefs{0};
-		int skipData;
-		int skipRef;
-	public:
+	private:
+		const int skipData{};
 		std::vector<Field> fields;
 		std::vector<int> children;
-
-		Node (int skipData, int skipRef);
-		bool tryAddField(const Field &f, bool useAllRefs = false);
-		void removeFirstField(int index);
+	public:
+		explicit Node (int skipData);
+		bool tryAddField(const Field &f, bool useAllRefs = false, bool withDeleteChild = false);
+		void removeField(int index);
 		bool tryAddChild(int child);
 		void removeChildIfHave(int v);
-		int maxBitLength() const { return maxBits; }
+		int maxBits() const;
+		int maxRefs() const;
+		const std::vector<Field>& getFields() const { return fields; }
+		const std::vector<int>& getChildren() const { return children; }
 	};
 
 	struct PathToStructMember {
@@ -91,11 +91,11 @@ private:
 public:
 	StructCompiler(StackPusherHelper *pusher, StructType const* structType);
 	StructCompiler(StackPusherHelper *pusher, std::vector<VariableDeclaration const*> variableDeclarations,
-	               int skipData, int skipRef, bool isC4);
+	               int skipData, bool isC4);
 	void createDefaultStruct(bool resultIsBuilder = false);
 	void pushMember(const std::string &memberName, bool isStructTuple, bool returnStructAsSlice);
 	void setMemberForTuple(const std::string &memberName);
-	void structConstructor(ast_vec<ASTString> const& names);
+	void structConstructor(ast_vec<ASTString> const& names, const std::function<void(int)>& pushParam);
 	void tupleToBuilder();
 	void stateVarsToBuilder();
 	void expandStruct(const std::string &memberName, bool doPushMemberOnStack);
@@ -103,6 +103,7 @@ public:
 	void convertSliceToTuple();
 	void sliceToStateVarsToC7();
 	static bool isCompatibleWithSDK(int keyLength, StructType const* structType);
+private:
 	bool isCompatibleWithSDK(int keyLength) const;
 public:
 	const std::vector<Node>& getNodes() { return nodes; }
@@ -111,7 +112,6 @@ private:
 	void createDefaultStructDfs(int v);
 	void createStructDfs(int v, const std::map<std::string, int>& argStackSize);
 	void stateVarsToBuilderDfs(const int v);
-	void convertSliceToTupleDfs(int v, std::vector<std::string>& names);
 	void sliceToStateVarsToC7Dfs(int v);
 	void load(const VariableDeclaration *vd, bool reverseOrder);
 	// return true if on stack there are (value, slice) else false if (slice, value)
@@ -125,7 +125,6 @@ private:
 	void split(int bitQty, int refQty);
 	void merge(const FieldSizeInfo& fieldSizeInfo);
 	static std::vector<VariableDeclaration const*> fVariableDeclarations(StructDefinition const* structDefinition);
-	void sortOnStack(std::vector<std::string>& order);
 }; // end StructCompiler
 } // end solidity::frontend
 

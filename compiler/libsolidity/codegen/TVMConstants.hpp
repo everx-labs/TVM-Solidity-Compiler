@@ -48,6 +48,7 @@ namespace TvmConst {
 	const int CellBitLength = 1023;
 	const int ArrayKeyLength = 32;
 	const int MaxPushSliceLength = 249; // PUSHSLICE xSSSS;    SSSS.length() <= MaxPushSliceLength
+	const int MaxSTSLICECONST = 7 * 8; // STSLICECONST xSSSS;    SSSS.length() <= MaxSTSLICECONST
 
 	namespace RuntimeException {
 		const int ArrayIndexOutOfRange = 50;

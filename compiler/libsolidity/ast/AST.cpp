@@ -41,6 +41,9 @@ void Mapping::setLocation(DataLocation _location) {
 		map->setLocation(_location);
 	if (auto arr = dynamic_cast<ArrayTypeName*>(m_valueType.get()))
 		arr->setLocation(_location);
+	if (auto cc = dynamic_cast<ElementaryTypeName*>(m_valueType.get()))
+		if (cc->typeName().token() == Token::ExtraCurrencyCollection)
+			cc->setLocation(_location);
 }
 
 void ArrayTypeName::setLocation(DataLocation _location) {
@@ -49,6 +52,13 @@ void ArrayTypeName::setLocation(DataLocation _location) {
 		map->setLocation(_location);
 	if (auto arr = dynamic_cast<ArrayTypeName*>(m_baseType.get()))
 		arr->setLocation(_location);
+	if (auto cc = dynamic_cast<ElementaryTypeName*>(m_baseType.get()))
+		if (cc->typeName().token() == Token::ExtraCurrencyCollection)
+			cc->setLocation(_location);
+}
+
+void ElementaryTypeName::setLocation(DataLocation _location) {
+	m_location = _location;
 }
 
 ASTNode::ASTNode(int64_t _id, SourceLocation const& _location):

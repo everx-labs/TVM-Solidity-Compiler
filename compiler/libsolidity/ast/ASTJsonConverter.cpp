@@ -23,11 +23,6 @@
 
 #include <libsolidity/ast/AST.h>
 
-#include <libyul/AsmJsonConverter.h>
-#include <libyul/AsmData.h>
-#include <libyul/AsmPrinter.h>
-#include <libyul/backends/evm/EVMDialect.h>
-
 #include <libsolutil/JSON.h>
 #include <libsolutil/UTF8.h>
 
@@ -185,17 +180,6 @@ void ASTJsonConverter::appendExpressionAttributes(
 		make_pair("argumentTypes", typePointerToJson(_annotation.arguments))
 	};
 	_attributes += exprAttributes;
-}
-
-Json::Value ASTJsonConverter::inlineAssemblyIdentifierToJson(pair<yul::Identifier const* ,InlineAssemblyAnnotation::ExternalIdentifierInfo> _info) const
-{
-	Json::Value tuple(Json::objectValue);
-	tuple["src"] = sourceLocationToString(_info.first->location);
-	tuple["declaration"] = idOrNull(_info.second.declaration);
-	tuple["isSlot"] = Json::Value(_info.second.isSlot);
-	tuple["isOffset"] = Json::Value(_info.second.isOffset);
-	tuple["valueSize"] = Json::Value(Json::LargestUInt(_info.second.valueSize));
-	return tuple;
 }
 
 void ASTJsonConverter::print(ostream& _stream, ASTNode const& _node)
@@ -491,30 +475,8 @@ bool ASTJsonConverter::visit(ArrayTypeName const& _node)
 	return false;
 }
 
-bool ASTJsonConverter::visit(InlineAssembly const& _node)
+bool ASTJsonConverter::visit(InlineAssembly const& /*_node*/)
 {
-	vector<pair<string, Json::Value>> externalReferences;
-
-	for (auto const& it: _node.annotation().externalReferences)
-		if (it.first)
-			externalReferences.emplace_back(make_pair(
-				it.first->name.str(),
-				inlineAssemblyIdentifierToJson(it)
-			));
-
-	Json::Value externalReferencesJson = Json::arrayValue;
-
-	for (auto&& it: boost::range::sort(externalReferences))
-		externalReferencesJson.append(std::move(it.second));
-
-	setJsonNode(_node, "InlineAssembly", {
-			m_legacy ?
-			make_pair("operations", Json::Value(yul::AsmPrinter()(_node.operations()))) :
-			make_pair("AST", Json::Value(yul::AsmJsonConverter(sourceIndexFromLocation(_node.location()))(_node.operations()))),
-		make_pair("externalReferences", std::move(externalReferencesJson)),
-		make_pair("evmVersion", dynamic_cast<solidity::yul::EVMDialect const&>(_node.dialect()).evmVersion().name())
-	});
-
 	return false;
 }
 

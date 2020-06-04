@@ -39,8 +39,6 @@ set(sources
 	ast/ASTAnnotations.h
 	ast/ASTEnums.h
 	ast/ASTForward.h
-	ast/AsmJsonImporter.cpp
-	ast/AsmJsonImporter.h
 	ast/ASTJsonConverter.cpp
 	ast/ASTJsonConverter.h
 	ast/ASTUtils.cpp
@@ -53,75 +51,15 @@ set(sources
 	ast/Types.h
 	ast/TypeProvider.cpp
 	ast/TypeProvider.h
-	codegen/ABIFunctions.cpp
-	codegen/ABIFunctions.h
-	codegen/ArrayUtils.cpp
-	codegen/ArrayUtils.h
-	codegen/Compiler.cpp
-	codegen/Compiler.h
-	codegen/CompilerContext.cpp
-	codegen/CompilerContext.h
-	codegen/CompilerUtils.cpp
-	codegen/CompilerUtils.h
-	codegen/ContractCompiler.cpp
-	codegen/ContractCompiler.h
-	codegen/ExpressionCompiler.cpp
-	codegen/ExpressionCompiler.h
-	codegen/LValue.cpp
-	codegen/LValue.h
-	codegen/MultiUseYulFunctionCollector.h
-	codegen/MultiUseYulFunctionCollector.cpp
-	codegen/YulUtilFunctions.h
-	codegen/YulUtilFunctions.cpp
-	codegen/ir/IRGenerator.cpp
-	codegen/ir/IRGenerator.h
-	codegen/ir/IRGeneratorForStatements.cpp
-	codegen/ir/IRGeneratorForStatements.h
-	codegen/ir/IRGenerationContext.cpp
-	codegen/ir/IRGenerationContext.h
-	codegen/ir/IRLValue.cpp
-	codegen/ir/IRLValue.h
-	formal/BMC.cpp
-	formal/BMC.h
-	formal/CHC.cpp
-	formal/CHC.h
-	formal/CHCSmtLib2Interface.cpp
-	formal/CHCSmtLib2Interface.h
-	formal/CHCSolverInterface.h
-	formal/EncodingContext.cpp
-	formal/EncodingContext.h
-	formal/ModelChecker.cpp
-	formal/ModelChecker.h
-	formal/SMTEncoder.cpp
-	formal/SMTEncoder.h
-	formal/SMTLib2Interface.cpp
-	formal/SMTLib2Interface.h
-	formal/SMTPortfolio.cpp
-	formal/SMTPortfolio.h
-	formal/SolverInterface.h
-	formal/SSAVariable.cpp
-	formal/SSAVariable.h
-	formal/SymbolicTypes.cpp
-	formal/SymbolicTypes.h
-	formal/SymbolicVariables.cpp
-	formal/SymbolicVariables.h
-	formal/VariableUsage.cpp
-	formal/VariableUsage.h
-	interface/ABI.cpp
-	interface/ABI.h
 	interface/CompilerStack.cpp
 	interface/CompilerStack.h
 	interface/DebugSettings.h
-	interface/GasEstimator.cpp
-	interface/GasEstimator.h
 	interface/Natspec.cpp
 	interface/Natspec.h
 	interface/OptimiserSettings.h
 	interface/ReadFile.h
 	interface/StandardCompiler.cpp
 	interface/StandardCompiler.h
-	interface/StorageLayout.cpp
-	interface/StorageLayout.h
 	interface/Version.cpp
 	interface/Version.h
 	parsing/DocStringParser.cpp
@@ -186,7 +124,7 @@ if (NOT (${Z3_FOUND} OR ${CVC4_FOUND}))
 endif()
 
 add_library(solidity ${sources} ${z3_SRCS} ${cvc4_SRCS})
-target_link_libraries(solidity PUBLIC yul evmasm langutil solutil Boost::boost Boost::filesystem Boost::system)
+target_link_libraries(solidity PUBLIC langutil solutil Boost::boost Boost::filesystem Boost::system)
 
 if (${Z3_FOUND})
   target_link_libraries(solidity PUBLIC z3::libz3)

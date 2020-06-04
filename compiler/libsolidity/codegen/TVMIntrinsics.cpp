@@ -680,39 +680,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		}
 		return true;
 	}
-	if (iname == "require") {
-		if (arguments.size() == 1) {
-			acceptExpr(arguments[0].get());
-			m_pusher.push(-1, "THROWIFNOT 100");
-		} else if (arguments.size() == 2 || arguments.size() == 3) {
-			if (arguments.size() == 3)
-				acceptExpr(arguments[2].get());
-			if (TVMExpressionCompiler::isLiteral(*arguments[1].get())) {
-				auto literal = to<Literal>(arguments[1].get());
-				u256 exceptionCode = literal->annotation().type->literalValue(literal);
-				if (exceptionCode >= 65536)
-					cast_error(_functionCall, "Exception code should be in range 0 to 65535.");
-				if (exceptionCode < 2048) {
-					acceptExpr(arguments[0].get());
-					if (arguments.size() == 3)
-						m_pusher.push(-2, "THROWARGIFNOT " + toString(exceptionCode));
-					else
-						m_pusher.push(-1, "THROWIFNOT " + toString(exceptionCode));
-					return true;
-				}
-			}
-			acceptExpr(arguments[1].get());
-			acceptExpr(arguments[0].get());
-			if (arguments.size() == 3)
-				m_pusher.push(-3, "THROWARGANYIFNOT");
-			else
-				m_pusher.push(-2, "THROWANYIFNOT");
-		} else {
-			cast_error(_functionCall, "\"require\" takes from one to three arguments.");
-		}
-
-		return true;
-	}
 	if (iname == "tvm_plddict" || iname == "tvm_iszero") {
 		checkArgCount(1);
 		acceptExpr(arguments[0].get());
@@ -995,11 +962,6 @@ DROP ; b r
 		m_pusher.push(0, "BLESS");
 		return true;
 	}
-	if (iname == "tvm_set_ext_dest_address") {
-		acceptExpr(arguments[0].get());
-		m_pusher.push(-1, "SETGLOB " + toString(TvmConst::C7::ExtDestAddrIndex));
-		return true;
-	}
 	if (iname == "tvm_stack") {
 		m_pusher.push(+1, "DEPTH");
 		return true;
@@ -1058,7 +1020,6 @@ PUSHCONT {
 	SETGLOB 2
 }
 PUSHCONT {
-	PRINTSTR hello
 	DROP2
 }
 TRY

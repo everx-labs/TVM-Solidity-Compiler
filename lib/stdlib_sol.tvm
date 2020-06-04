@@ -82,16 +82,15 @@ BLKDROP 4
 ;; param: my_contract
 ;; param: remote_addr
 ;; param: grams_value
-;; param: constuctor_id
-;; param: encodedParams
+;; param: body
 ;; param: flag
 ; function deploy_contract_macro
 NEWC
 ;; decl: msg_builder
 ;; push identifier grams_value
 ;; push identifier remote_addr
-PUSH2 S4, S5
-PUSHINT 0
+PUSH2 S3, S4
+PUSHINT -1
 ;; param: value
 ;; param: remote_addr
 ;; param: bounce
@@ -121,7 +120,7 @@ STBR
 PUSHINT 1
 STONES
 ;; push identifier my_contract
-PUSH S6
+PUSH S5
 ;; push identifier msg_builder
 ;; param: x
 ;; param: builder
@@ -175,22 +174,14 @@ DROP2
 ; colValue
 NIP
 ; end colValue
-NEWC
-;; decl: body_builder
-;; push identifier constuctor_id
-PUSH S4
-STUR 32
-;; push identifier encodedParams
-PUSH S3
-STBR
-;; push identifier body_builder
+;; push identifier body
 ;; push identifier msg_builder
 ;; param: x
 ;; param: builder
 ; function store_either_for_builder
 ;; if
 ;; push identifier builder
-PUSH3 S0, S1, S1
+PUSH3 S2, S0, S0
 BREMBITS
 ;; push identifier x
 PUSH S2
@@ -219,15 +210,15 @@ NIP
 ; expValue
 ; end expValue
 ; colValue
-POP s2
+NIP
 ; end colValue
 ;; push identifier msg_builder
-PUSH S1
+DUP
 ENDC
 ;; push identifier flag
-PUSH S3
+PUSH S2
 SENDRAWMSG
-BLKDROP 8
+BLKDROP 6
 ; end function deploy_contract_macro
 
 .macro deploy_contract2_macro
@@ -241,7 +232,7 @@ NEWC
 ;; push identifier grams
 ;; push identifier remote_addr
 PUSH2 S2, S3
-PUSHINT 0
+PUSHINT -1
 ;; param: value
 ;; param: remote_addr
 ;; param: bounce
@@ -780,19 +771,4 @@ IFNOT
 ;; end if
 ;; returning named params
 ; end function message_balance_macro
-
-.macro address2uint_macro
-;; param: slice
-; function address2uint_macro
-;; push identifier slice
-;; decl: addr
-;; return
-;; push identifier addr
-;; push identifier addr
-PARSEMSGADDR
-INDEX 3
-DUP
-SBITS
-PLDUX
-; end function address2uint_macro
 

@@ -25,10 +25,6 @@
 #include <libsolidity/ast/ASTUtils.h>
 #include <libsolidity/ast/TypeProvider.h>
 
-#include <libyul/AsmAnalysis.h>
-#include <libyul/AsmAnalysisInfo.h>
-#include <libyul/AsmData.h>
-
 #include <liblangutil/ErrorReporter.h>
 
 #include <libsolutil/Algorithms.h>
@@ -743,133 +739,8 @@ void TypeChecker::endVisit(FunctionTypeName const& _funType)
 		solAssert(fun.interfaceType(false), "External function type uses internal types.");
 }
 
-bool TypeChecker::visit(InlineAssembly const& _inlineAssembly)
+bool TypeChecker::visit(InlineAssembly const& /*_inlineAssembly*/)
 {
-	// External references have already been resolved in a prior stage and stored in the annotation.
-	// We run the resolve step again regardless.
-	yul::ExternalIdentifierAccess::Resolver identifierAccess = [&](
-		yul::Identifier const& _identifier,
-		yul::IdentifierContext _context,
-		bool
-	)
-	{
-		auto ref = _inlineAssembly.annotation().externalReferences.find(&_identifier);
-		if (ref == _inlineAssembly.annotation().externalReferences.end())
-			return size_t(-1);
-		Declaration const* declaration = ref->second.declaration;
-		solAssert(!!declaration, "");
-		bool requiresStorage = ref->second.isSlot || ref->second.isOffset;
-		if (auto var = dynamic_cast<VariableDeclaration const*>(declaration))
-		{
-			solAssert(var->type(), "Expected variable type!");
-			if (var->isConstant())
-			{
-				var = rootVariableDeclaration(*var);
-
-				if (!var->value())
-				{
-					m_errorReporter.typeError(_identifier.location, "Constant has no value.");
-					return size_t(-1);
-				}
-				else if (!type(*var)->isValueType() || (
-					dynamic_cast<Literal const*>(var->value().get()) == nullptr &&
-					type(*var->value())->category() != Type::Category::RationalNumber
-				))
-				{
-					m_errorReporter.typeError(_identifier.location, "Only direct number constants and references to such constants are supported by inline assembly.");
-					return size_t(-1);
-				}
-				else if (_context == yul::IdentifierContext::LValue)
-				{
-					m_errorReporter.typeError(_identifier.location, "Constant variables cannot be assigned to.");
-					return size_t(-1);
-				}
-				else if (requiresStorage)
-				{
-					m_errorReporter.typeError(_identifier.location, "The suffixes _offset and _slot can only be used on non-constant storage variables.");
-					return size_t(-1);
-				}
-			}
-
-			if (requiresStorage)
-			{
-				if (!var->isStateVariable() && !var->type()->dataStoredIn(DataLocation::Storage))
-				{
-					m_errorReporter.typeError(_identifier.location, "The suffixes _offset and _slot can only be used on storage variables.");
-					return size_t(-1);
-				}
-				else if (_context != yul::IdentifierContext::RValue)
-				{
-					m_errorReporter.typeError(_identifier.location, "Storage variables cannot be assigned to.");
-					return size_t(-1);
-				}
-			}
-			else if (!var->isConstant() && var->isStateVariable())
-			{
-				m_errorReporter.typeError(_identifier.location, "Only local variables are supported. To access storage variables, use the _slot and _offset suffixes.");
-				return size_t(-1);
-			}
-			else if (var->type()->dataStoredIn(DataLocation::Storage))
-			{
-				m_errorReporter.typeError(_identifier.location, "You have to use the _slot or _offset suffix to access storage reference variables.");
-				return size_t(-1);
-			}
-			else if (var->type()->sizeOnStack() != 1)
-			{
-				if (var->type()->dataStoredIn(DataLocation::CallData))
-					m_errorReporter.typeError(_identifier.location, "Call data elements cannot be accessed directly. Copy to a local variable first or use \"calldataload\" or \"calldatacopy\" with manually determined offsets and sizes.");
-				else
-					m_errorReporter.typeError(_identifier.location, "Only types that use one stack slot are supported.");
-				return size_t(-1);
-			}
-		}
-		else if (requiresStorage)
-		{
-			m_errorReporter.typeError(_identifier.location, "The suffixes _offset and _slot can only be used on storage variables.");
-			return size_t(-1);
-		}
-		else if (_context == yul::IdentifierContext::LValue)
-		{
-			if (dynamic_cast<MagicVariableDeclaration const*>(declaration))
-				return size_t(-1);
-
-			m_errorReporter.typeError(_identifier.location, "Only local variables can be assigned to in inline assembly.");
-			return size_t(-1);
-		}
-
-		if (_context == yul::IdentifierContext::RValue)
-		{
-			solAssert(!!declaration->type(), "Type of declaration required but not yet determined.");
-			if (dynamic_cast<FunctionDefinition const*>(declaration))
-			{
-			}
-			else if (dynamic_cast<VariableDeclaration const*>(declaration))
-			{
-			}
-			else if (auto contract = dynamic_cast<ContractDefinition const*>(declaration))
-			{
-				if (!contract->isLibrary())
-				{
-					m_errorReporter.typeError(_identifier.location, "Expected a library.");
-					return size_t(-1);
-				}
-			}
-			else
-				return size_t(-1);
-		}
-		ref->second.valueSize = 1;
-		return size_t(1);
-	};
-	solAssert(!_inlineAssembly.annotation().analysisInfo, "");
-	_inlineAssembly.annotation().analysisInfo = make_shared<yul::AsmAnalysisInfo>();
-	yul::AsmAnalyzer analyzer(
-		*_inlineAssembly.annotation().analysisInfo,
-		m_errorReporter,
-		_inlineAssembly.dialect(),
-		identifierAccess
-	);
-	if (!analyzer.analyze(_inlineAssembly.operations()))
-		return false;
 	return true;
 }
 
@@ -2044,6 +1915,19 @@ TypeChecker::isArgumentAPublicFunction(FunctionCall const& _functionCall) {
 	return functionDeclaration;
 }
 
+void TypeChecker::areArgumentsValidForFunctionCall(const FunctionCall &_functionCall, const FunctionDefinition *funcDef)
+{
+	std::vector<ASTPointer<VariableDeclaration>> params = funcDef->parameters();
+	auto arguments = _functionCall.arguments();
+	std::vector<ASTPointer<Expression const>> args(arguments.begin() + 1,
+												   arguments.end());
+	if (params.size() != args.size())
+		m_errorReporter.fatalTypeError(_functionCall.location(), "Wrong argument number for a function call.");
+
+	for (size_t i = 0; i < params.size(); i++)
+		expectType(*args[i], *params[i]->annotation().type);
+
+}
 
 void TypeChecker::typeCheckFunctionGeneralChecks(
 	FunctionCall const& _functionCall,
@@ -2309,6 +2193,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 	// Determine function call kind and function type for this FunctionCall node
 	FunctionCallAnnotation& funcCallAnno = _functionCall.annotation();
 	FunctionTypePointer functionType = nullptr;
+	FunctionDefinition const* funcDef = nullptr;
 
 	// Determine and assign function call kind, lvalue, purity and function type for this FunctionCall node
 	switch (expressionType->category())
@@ -2449,8 +2334,11 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		case FunctionType::Kind::MetaType:
 			returnTypes = typeCheckMetaTypeFunctionAndRetrieveReturnType(_functionCall);
 			break;
+		case FunctionType::Kind::TVMEncodeBody:
 		case FunctionType::Kind::TVMFunctionId:
-			isArgumentAPublicFunction(_functionCall);
+			funcDef = isArgumentAPublicFunction(_functionCall);
+			if (functionType->kind() == FunctionType::Kind::TVMEncodeBody)
+				areArgumentsValidForFunctionCall(_functionCall, funcDef);
 			[[fallthrough]];
 		default:
 		{
@@ -2499,6 +2387,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	bool setGas = false;
 	bool setFlag = false;
 	bool setCurrencies = false;
+	bool setStateInit = false;
 
 	FunctionType::Kind kind = expressionFunctionType->kind();
 	if (
@@ -2553,8 +2442,18 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		}
 		else if (name == "currencies")
 		{
-			expectType(*_functionCallOptions.options()[i], *TypeProvider::extraCurrencyCollection());
+			expectType(*_functionCallOptions.options()[i], *TypeProvider::extraCurrencyCollection(DataLocation::Memory));
 			setCheckOption(setCurrencies, "currencies", expressionFunctionType->currenciesSet());
+		}
+		else if (name == "stateInit")
+		{
+			if (!dynamic_cast<const NewExpression *>(&_functionCallOptions.expression()))
+				m_errorReporter.typeError(
+					_functionCallOptions.location(),
+					"Option \"stateInit\" can be set only for \"new\" expression.");
+
+			expectType(*_functionCallOptions.options()[i], *TypeProvider::tvmcell());
+			setCheckOption(setStateInit, "stateInit", expressionFunctionType->currenciesSet());
 		}
 		else if (name == "value")
 		{
@@ -2567,11 +2466,6 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 				m_errorReporter.typeError(
 					_functionCallOptions.location(),
 					"Cannot set option \"value\" for staticcall."
-				);
-			else if (!expressionFunctionType->isPayable())
-				m_errorReporter.typeError(
-					_functionCallOptions.location(),
-					"Cannot set option \"value\" on a non-payable function type."
 				);
 			else
 			{
@@ -2597,7 +2491,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		else
 			m_errorReporter.typeError(
 				_functionCallOptions.location(),
-				"Unknown call option \"" + name + "\". Valid options are \"salt\", \"value\" and \"gas\"."
+				"Unknown call option \"" + name + "\". Valid options are \"currencies\", \"stateInit\", \"flag\", \"salt\", \"value\" and \"gas\"."
 			);
 	}
 
@@ -3116,33 +3010,33 @@ void TypeChecker::endVisit(MappingNameExpression const& _expr)
 
 void TypeChecker::endVisit(Literal const& _literal)
 {
-	if (_literal.looksLikeAddress())
-	{
-		// Assign type here if it even looks like an address. This prevents double errors for invalid addresses
-		_literal.annotation().type = TypeProvider::payableAddress();
-
-		string msg;
-		if (_literal.valueWithoutUnderscores().length() != 42) // "0x" + 40 hex digits
-			// looksLikeAddress enforces that it is a hex literal starting with "0x"
-			msg =
-				"This looks like an address but is not exactly 40 hex digits. It is " +
-				to_string(_literal.valueWithoutUnderscores().length() - 2) +
-				" hex digits.";
-		else if (!_literal.passesAddressChecksum())
-		{
-			msg = "This looks like an address but has an invalid checksum.";
-			if (!_literal.getChecksummedAddress().empty())
-				msg += " Correct checksummed address: \"" + _literal.getChecksummedAddress() + "\".";
-		}
-
-		if (!msg.empty())
-			m_errorReporter.syntaxError(
-				_literal.location(),
-				msg +
-				" If this is not used as an address, please prepend '00'. " +
-				"For more information please see https://solidity.readthedocs.io/en/develop/types.html#address-literals"
-			);
-	}
+//	if (_literal.looksLikeAddress())
+//	{
+//		// Assign type here if it even looks like an address. This prevents double errors for invalid addresses
+//		_literal.annotation().type = TypeProvider::payableAddress();
+//
+//		string msg;
+//		if (_literal.valueWithoutUnderscores().length() != 42) // "0x" + 40 hex digits
+//			// looksLikeAddress enforces that it is a hex literal starting with "0x"
+//			msg =
+//				"This looks like an address but is not exactly 40 hex digits. It is " +
+//				to_string(_literal.valueWithoutUnderscores().length() - 2) +
+//				" hex digits.";
+//		else if (!_literal.passesAddressChecksum())
+//		{
+//			msg = "This looks like an address but has an invalid checksum.";
+//			if (!_literal.getChecksummedAddress().empty())
+//				msg += " Correct checksummed address: \"" + _literal.getChecksummedAddress() + "\".";
+//		}
+//
+//		if (!msg.empty())
+//			m_errorReporter.syntaxError(
+//				_literal.location(),
+//				msg +
+//				" If this is not used as an address, please prepend '00'. " +
+//				"For more information please see https://solidity.readthedocs.io/en/develop/types.html#address-literals"
+//			);
+//	}
 
 	if (_literal.isHexNumber() && _literal.subDenomination() != Literal::SubDenomination::None)
 		m_errorReporter.fatalTypeError(

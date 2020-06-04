@@ -203,8 +203,8 @@ PUSHCONT {
 			if (v->isPublic()) {
 				m_pusher.pushInt(TvmConst::C4::PersistenceMembersStartIndex + shift++); // index
 				m_pusher.pushS(1); // index dict
-				m_pusher.getFromDict(getKeyTypeOfC4(), *v->type(), *v, StackPusherHelper::DictOperation::GetFromMapping,
-				                     false);
+				m_pusher.getDict(getKeyTypeOfC4(), *v->type(), *v, StackPusherHelper::GetDictOperation::GetFromMapping,
+				                 false);
 			} else {
 				m_pusher.pushDefaultValue(v->type());
 			}
@@ -336,6 +336,22 @@ void TVMFunctionCompiler::decodeFunctionParamsAndLocateVars() {
 }
 
 void TVMFunctionCompiler::generatePublicFunction() {
+	/* stack:
+	 * transaction data (see internal or external main)
+	 * decoded function params
+	 * stack of modifer0
+	 * stack of modifer1
+	 * stack of modifer2
+	 * ....
+	 * stack of function [drop return and function stack]
+	 * rest stack of modifer2 [drop stack modifer2]
+	 * rest stack of modifer1 [drop stack modifer1]
+	 * rest stack of modifer0 [drop stack modifer0]
+	 * [drop function params]
+	 */
+
+
+
 	m_pusher.generateGlobl(m_function->name(), m_function->isPublic());
 
 	// c4_to_c7 if need
@@ -398,7 +414,12 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 	if (params.empty()) {
 		return;
 	}
+
 	m_pusher.push( 0, ";; emitting " + toString(params.size()) + " value(s)");
+	m_pusher.pushS(m_pusher.getStack().size());
+	m_pusher.push(-1 + 1, "EQINT -1"); // is it ext msg?
+	m_pusher.push(-1, ""); // fix stack
+	m_pusher.startContinuation();
 
 	const int prevStackSize = m_pusher.getStack().size();
 	auto appendBody = [&](int builderSize) {
@@ -414,29 +435,19 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 				builderSize
 		);
 	};
-	sendExternalMessage(appendBody, nullptr);
-}
 
-void TVMFunctionCompiler::sendExternalMessage(const std::function<void(int)> &appendBody, Expression const* destAddr) {
-	// stack: builder with encoded params
-	if (m_pusher.ctx().haveSetDestAddr()) {
-		if (destAddr == nullptr) {
-			m_pusher.push(+1, "GETGLOB " + toString(TvmConst::C7::ExtDestAddrIndex));
-			m_pusher.pushLines(R"(DUP
-ISNULL
-PUSHCONT {
-	DROP
-	PUSHSLICE x2_
-}
-IF
-)");
-		} else {
-			acceptExpr(destAddr, true);
-		}
-		m_pusher.sendMsg({TvmConst::ext_msg_info::dest}, {}, appendBody, nullptr, false);
-	} else {
-		m_pusher.sendMsg({}, {}, appendBody, nullptr, false);
-	}
+	//	ext_in_msg_info$10 src:MsgAddressExt dest:MsgAddressInt
+	//	import_fee:Grams = CommonMsgInfo;
+	m_pusher.pushS(m_pusher.getStack().size() + 2); // get external address of sender
+	m_pusher.push(0, "CTOS");
+	m_pusher.push(+1, "LDU 2");
+	m_pusher.push(+1, "LDMSGADDR");
+	m_pusher.push(-1, "DROP");
+	m_pusher.push(-1, "NIP");
+	m_pusher.sendMsg({TvmConst::ext_msg_info::dest}, {}, appendBody, nullptr, nullptr, false);
+
+	m_pusher.endContinuation();
+	m_pusher.push(0, "IF");
 }
 
 void TVMFunctionCompiler::visitModifierOrFunctionBlock(Block const &body, bool isFunc) {
@@ -542,8 +553,8 @@ void TVMFunctionCompiler::visitFunctionAfterModifiers() {
 		// stack: transaction_id return-params...
 		const int retQty = m_function->returnParameters().size();
 		const int targetStackSize = m_pusher.getStack().size() - retQty;
-		bool dontEmitReturn = getFunction(m_pusher.ctx().getContract(), "tvm_dont_emit_events_on_return") != nullptr;
-		if (!dontEmitReturn) {
+		bool emitReturn = getFunction(m_pusher.ctx().getContract(), "tvm_dont_emit_events_on_return") == nullptr;
+		if (emitReturn) {
 			emitOnPublicFunctionReturn();
 		}
 
@@ -558,7 +569,6 @@ void TVMFunctionCompiler::visitFunctionAfterModifiers() {
 			}
 		}
 	}
-
 	m_pusher.push(0, "; end " + text);
 }
 
@@ -634,7 +644,7 @@ void TVMFunctionCompiler::pushReturnParameters(const ast_vec<VariableDeclaration
 
 void TVMFunctionCompiler::acceptExpr(const Expression *expr, const bool isResultNeeded) {
 	solAssert(expr, "");
-	TVMExpressionCompiler(m_pusher).acceptExpr2(expr, isResultNeeded);
+	TVMExpressionCompiler(m_pusher).acceptExpr(expr, isResultNeeded);
 }
 
 bool TVMFunctionCompiler::visit(VariableDeclarationStatement const &_variableDeclarationStatement) {
@@ -680,7 +690,7 @@ bool TVMFunctionCompiler::visit(Block const &) {
 bool TVMFunctionCompiler::visit(ExpressionStatement const &_expressionStatement) {
 	auto savedStackSize = m_pusher.getStack().size();
 	acceptExpr(&_expressionStatement.expression(), false);
-	m_pusher.getStack().ensureSize(savedStackSize, ASTNode2String(_expressionStatement));
+	m_pusher.getStack().ensureSize(savedStackSize, _expressionStatement.location().text());
 	return false;
 }
 
@@ -1055,7 +1065,7 @@ bool TVMFunctionCompiler::visit(Return const &_return) {
 	auto expr = _return.expression();
 	if (expr) {
 		if (!tryOptimizeReturn(expr)) {
-			if (!areReturnedValuesLiterals(expr)) {
+			if (!isConstNumberOrConstTuple(expr)) {
 				acceptExpr(expr);
 			}
 		}
@@ -1071,7 +1081,7 @@ bool TVMFunctionCompiler::visit(Return const &_return) {
 
 	const int functionSlots = m_pusher.getStack().size() - m_startStackSize;
 	int revertDelta = functionSlots - retCount;
-	if (expr && areReturnedValuesLiterals(expr)) {
+	if (expr && isConstNumberOrConstTuple(expr)) {
 		m_pusher.drop(functionSlots);
 		acceptExpr(expr);
 	} else {
@@ -1147,9 +1157,11 @@ bool TVMFunctionCompiler::visit(EmitStatement const &_emit) {
 	};
 
 	if (auto externalAddress = _emit.externalAddress()) {
-		sendExternalMessage(appendBody, externalAddress.get());
-	} else
-		sendExternalMessage(appendBody, nullptr);
+		acceptExpr(externalAddress.get(), true);
+		m_pusher.sendMsg({TvmConst::ext_msg_info::dest}, {}, appendBody, nullptr, nullptr, false);
+	} else {
+		m_pusher.sendMsg({}, {}, appendBody, nullptr, nullptr, false);
+	}
 
 	return false;
 }
@@ -1184,19 +1196,18 @@ bool TVMFunctionCompiler::tryOptimizeReturn(Expression const *expr) {
 	return false;
 }
 
-bool TVMFunctionCompiler::areReturnedValuesLiterals(Expression const *expr) {
-	auto literal = to<Literal>(expr);
-	if (literal) {
+bool TVMFunctionCompiler::isConstNumberOrConstTuple(Expression const *expr) {
+	if (expr->annotation().isPure) {
 		return true;
-	} else if (auto tuple = to<TupleExpression>(expr)) {
+	}
+	if (auto tuple = to<TupleExpression>(expr)) {
 		for (const ASTPointer<Expression>& comp : tuple->components()) {
-			if (to<Literal>(comp.get()) == nullptr) {
+			if (!comp->annotation().isPure) {
 				return false;
 			}
 		}
 		return true;
 	}
-
 	return false;
 }
 
@@ -1525,7 +1536,7 @@ void TVMFunctionCompiler::fillInlineFunctionsAndConstants(std::string &pattern) 
 			if (m_pusher.ctx().haveFallbackFunction()) {
 				boost::replace_all(pattern, tab + "CALL $:receive$", m_pusher.ctx().m_inlinedFunctions.at("fallback").str(tab));
 			} else {
-				boost::replace_all(pattern, tab + "CALL $:receive$", tab + "THROW 59");
+				boost::replace_all(pattern, tab + "CALL $:receive$", "");
 			}
 		}
 
@@ -1540,6 +1551,11 @@ void TVMFunctionCompiler::fillInlineFunctionsAndConstants(std::string &pattern) 
 		if (m_pusher.ctx().haveOnBounceHandler()) {
 			boost::replace_all(pattern, tab + "CALL $:onBounce$", m_pusher.ctx().m_inlinedFunctions.at("onBounce").str(tab));
 		}
+	}
+
+	size_t pos = std::string::npos;
+	while ((pos  = pattern.find("\n\n") )!= std::string::npos) {
+		pattern.erase(pos, 1);
 	}
 }
 

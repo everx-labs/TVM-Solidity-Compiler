@@ -276,6 +276,9 @@ void VariableDeclaration::accept(ASTConstVisitor& _visitor) const
 			if (auto arr = dynamic_cast<ArrayTypeName*>(m_typeName.get()))
 				if (m_location != Location::Memory)
 					arr->setLocation(DataLocation::Storage);
+			if (auto currency = dynamic_cast<ElementaryTypeName*>(m_typeName.get()))
+				if (m_location != Location::Memory)
+					currency->setLocation(DataLocation::Storage);
 			m_typeName->accept(_visitor);
 		}
 		if (m_overrides)

@@ -108,7 +108,7 @@ void TVMConstructorCompiler::generateConstructors() {
 				areParamsOnStack.insert(parent);
 				for (int i = 0; i < static_cast<int>(parent->constructor()->parameters().size()); ++i) {
 					m_pusher.push(0, "; decl " + parent->name() + "::" + parent->constructor()->parameters()[i]->name());
-					TVMExpressionCompiler(m_pusher).acceptExpr2((*m_args[parent])[i].get(), true);
+					TVMExpressionCompiler(m_pusher).acceptExpr((*m_args[parent])[i].get(), true);
 					m_pusher.getStack().add(parent->constructor()->parameters()[i].get(), false);
 				}
 			}
@@ -178,7 +178,7 @@ TvmOption TVMContractCompiler::m_tvmOption = TvmOption::Code;
 bool TVMContractCompiler::m_outputProduced = false;
 bool TVMContractCompiler::g_without_logstr = false;
 bool TVMContractCompiler::g_disable_optimizer = false;
-std::string TVMContractCompiler::m_outputWarnings;
+langutil::ErrorReporter* TVMContractCompiler::g_errorReporter{};
 std::vector<ContractDefinition const*> TVMContractCompiler::m_allContracts;
 std::string TVMContractCompiler::m_mainContractName;
 std::string TVMContractCompiler::m_fileName;
@@ -208,12 +208,12 @@ void TVMContractCompiler::printStorageScheme(int v, const std::vector<StructComp
 	for (int i = 0; i < tabs; ++i) {
 		std::cout << " ";
 	}
-	for (const StructCompiler::Field& field : nodes[v].fields) {
+	for (const StructCompiler::Field& field : nodes[v].getFields()) {
 		std::cout << " " << field.member->name();
 	}
 	std::cout << std::endl;
 
-	for (const int to : nodes[v].children) {
+	for (const int to : nodes[v].getChildren()) {
 		printStorageScheme(to, nodes, tabs + 1);
 	}
 }

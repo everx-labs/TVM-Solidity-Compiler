@@ -242,22 +242,6 @@ vector<Declaration const*> NameAndTypeResolver::cleanedDeclarations(
 
 void NameAndTypeResolver::warnVariablesNamedLikeInstructions()
 {
-	for (auto const& instruction: evmasm::c_instructions)
-	{
-		string const instructionName{boost::algorithm::to_lower_copy(instruction.first)};
-		auto declarations = nameFromCurrentScope(instructionName, true);
-		for (Declaration const* const declaration: declarations)
-		{
-			solAssert(!!declaration, "");
-			if (dynamic_cast<MagicVariableDeclaration const* const>(declaration))
-				// Don't warn the user for what the user did not.
-				continue;
-			m_errorReporter.warning(
-				declaration->location(),
-				"Variable is shadowed in inline assembly by an instruction of the same name"
-			);
-		}
-	}
 }
 
 void NameAndTypeResolver::setScope(ASTNode const* _node)

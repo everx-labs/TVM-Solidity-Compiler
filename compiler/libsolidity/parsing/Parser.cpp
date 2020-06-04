@@ -23,13 +23,10 @@
 #include <libsolidity/parsing/Parser.h>
 
 #include <libsolidity/interface/Version.h>
-#include <libyul/AsmParser.h>
-#include <libyul/backends/evm/EVMDialect.h>
 #include <liblangutil/ErrorReporter.h>
 #include <liblangutil/Scanner.h>
 #include <liblangutil/SemVerHandler.h>
 #include <liblangutil/SourceLocation.h>
-#include <libyul/backends/evm/EVMDialect.h>
 #include <cctype>
 #include <vector>
 
@@ -844,10 +841,15 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 	auto elemType = dynamic_cast<ElementaryTypeName * >(type.get());
 
 	auto structType = dynamic_cast<UserDefinedTypeName * >(type.get());
-	if ((location == VariableDeclaration::Location::Unspecified) && m_insideFunctionDefenition &&
-		 (dynamic_cast<Mapping * >(type.get()) || (structType) ||
-		  (elemType && (elemType->typeName().toString() == "string" || elemType->typeName().toString() == "bytes")) ||
-		  dynamic_cast<ArrayTypeName * >(type.get())))
+	if (
+		(location == VariableDeclaration::Location::Unspecified) && m_insideFunctionDefenition &&
+		(dynamic_cast<Mapping * >(type.get()) ||
+			structType ||
+			(elemType && (elemType->typeName().toString() == "string" ||
+							elemType->typeName().toString() == "bytes" ||
+	                        elemType->typeName().toString() == "ExtraCurrencyCollection")) ||
+			dynamic_cast<ArrayTypeName * >(type.get())
+    ))
 		location = VariableDeclaration::Location::Memory;
 
 	return nodeFactory.createNode<VariableDeclaration>(
@@ -1254,28 +1256,10 @@ ASTPointer<Statement> Parser::parseStatement()
 	return statement;
 }
 
-ASTPointer<InlineAssembly> Parser::parseInlineAssembly(ASTPointer<ASTString> const& _docString)
+ASTPointer<InlineAssembly> Parser::parseInlineAssembly(ASTPointer<ASTString> const& /*_docString*/)
 {
-	RecursionGuard recursionGuard(*this);
-	SourceLocation location = currentLocation();
-
-	expectToken(Token::Assembly);
-	yul::Dialect const& dialect = yul::EVMDialect::strictAssemblyForEVM(m_evmVersion);
-	if (m_scanner->currentToken() == Token::StringLiteral)
-	{
-		if (m_scanner->currentLiteral() != "evmasm")
-			fatalParserError("Only \"evmasm\" supported.");
-		// This can be used in the future to set the dialect.
-		m_scanner->next();
-	}
-
-	yul::Parser asmParser(m_errorReporter, dialect);
-	shared_ptr<yul::Block> block = asmParser.parse(m_scanner, true);
-	if (block == nullptr)
-		BOOST_THROW_EXCEPTION(FatalError());
-
-	location.end = block->location.end;
-	return make_shared<InlineAssembly>(nextID(), location, _docString, dialect, block);
+	solAssert(false, "Inline assembly is disabled.");
+	return nullptr;
 }
 
 ASTPointer<IfStatement> Parser::parseIfStatement(ASTPointer<ASTString> const& _docString)

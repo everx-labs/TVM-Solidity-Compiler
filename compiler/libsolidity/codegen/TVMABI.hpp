@@ -141,24 +141,31 @@ public:
 	void createMsgBodyAndAppendToBuilder2(const ast_vec<Expression const>&	arguments,
 	                                      const ReasonOfOutboundMessage reason,
 	                                      const CallableDeclaration *funcDef,
-	                                      int builderSize);
+										  int builderSize);
+	void createDefaultConstructorMessage(const int bitSizeBuilder);
 
 public:
-	uint32_t calculateFunctionID(const CallableDeclaration *funcDef);
-
+	uint32_t calculateFunctionID(const CallableDeclaration *declaration);
+	uint32_t calculateFunctionID(const std::string name, const std::vector<ASTPointer<VariableDeclaration> > inputs, const std::vector<ASTPointer<VariableDeclaration> > *outputs);
 public:
 	void createMsgBodyAndAppendToBuilder(const std::function<void(size_t)>& pushParam,
 	                                     const ReasonOfOutboundMessage& reason,
 	                                     const CallableDeclaration *funcDef,
 	                                     bool encodeReturnParam,
-	                                     const int bitSizeBuilder);
+										 const int bitSizeBuilder);
+
+	void createMsgBody(const std::function<void(size_t)>& pushParam,
+					   const ReasonOfOutboundMessage& reason,
+					   const CallableDeclaration *funcDef,
+					   bool encodeReturnParam, EncodePosition &position);
+
 	void encodeParameters(const std::vector<Type const*>& types,
 	                      const std::vector<ASTNode const*>& nodes,
 	                      const std::function<void(size_t)>& pushParam,
 	                      EncodePosition& position);
 
 private:
-	std::string getTypeString(Type const * type, const CallableDeclaration * funcDef);
+	std::string getTypeString(Type const * type, const ASTNode &node);
 	void encodeParameter(Type const* type, EncodePosition& position, const std::function<void()>& pushParam, ASTNode const* node);
 	void encodeStruct(const StructType* structType, ASTNode const* node, EncodePosition& position);
 

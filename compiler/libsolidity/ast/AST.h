@@ -29,7 +29,6 @@
 #include <libsolidity/parsing/Token.h>
 
 #include <liblangutil/SourceLocation.h>
-#include <libevmasm/Instruction.h>
 #include <libsolutil/FixedHash.h>
 
 #include <boost/noncopyable.hpp>
@@ -1084,7 +1083,7 @@ public:
 		SourceLocation const& _location,
 		ElementaryTypeNameToken const& _elem,
 		std::optional<StateMutability> _stateMutability = {}
-	): TypeName(_id, _location), m_type(_elem), m_stateMutability(_stateMutability)
+	): TypeName(_id, _location), m_type(_elem), m_stateMutability(_stateMutability), m_location(DataLocation::Memory)
 	{
 		solAssert(!_stateMutability.has_value() || _elem.token() == Token::Address, "");
 	}
@@ -1096,9 +1095,13 @@ public:
 
 	std::optional<StateMutability> const& stateMutability() const { return m_stateMutability; }
 
+	void setLocation(DataLocation _location);
+	DataLocation getLocation() const { return m_location; }
+
 private:
 	ElementaryTypeNameToken m_type;
 	std::optional<StateMutability> m_stateMutability; ///< state mutability for address type
+	DataLocation m_location; ///< for ExtraCurrencyCollection type
 };
 
 /**
@@ -1245,22 +1248,13 @@ public:
 	InlineAssembly(
 		int64_t _id,
 		SourceLocation const& _location,
-		ASTPointer<ASTString> const& _docString,
-		yul::Dialect const& _dialect,
-		std::shared_ptr<yul::Block> const& _operations
+		ASTPointer<ASTString> const& _docString
 	):
-		Statement(_id, _location, _docString), m_dialect(_dialect), m_operations(_operations) {}
+		Statement(_id, _location, _docString) {}
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 
-	yul::Dialect const& dialect() const { return m_dialect; }
-	yul::Block const& operations() const { return *m_operations; }
-
 	InlineAssemblyAnnotation& annotation() const override;
-
-private:
-	yul::Dialect const& m_dialect;
-	std::shared_ptr<yul::Block> m_operations;
 };
 
 /**

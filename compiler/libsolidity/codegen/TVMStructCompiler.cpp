@@ -67,6 +67,7 @@ StructCompiler::FieldSizeInfo::FieldSizeInfo(Type const* type, ASTNode const& no
 			maxRefLength = 1;
 			break;
 		case Type::Category::Mapping:
+		case Type::Category::ExtraCurrencyCollection:
 			isBitFixed = true;
 			isRefFixed = false;
 			maxBitLength = 1;
@@ -101,33 +102,31 @@ StructCompiler::Field::Field(const int memberIndex, VariableDeclaration const* m
 		member{member} {
 }
 
-StructCompiler::Node::Node(const int skipData, const int skipRef) : skipData{skipData}, skipRef{skipRef} {
+StructCompiler::Node::Node(const int skipData) : skipData{skipData} {
 }
 
-bool StructCompiler::Node::tryAddField(const StructCompiler::Field &f, bool useAllRefs) {
+bool StructCompiler::Node::tryAddField(const StructCompiler::Field &f, bool useAllRefs, bool withDeleteChild) {
 	const int refLimit = useAllRefs? 4 : 2;
-	if (!(maxBits + skipData + f.fieldSizeInfo.maxBitLength <= TvmConst::CellBitLength &&
-	      maxRefs + skipRef + f.fieldSizeInfo.maxRefLength <= refLimit)) {
+	if (withDeleteChild) {
+		solAssert(maxRefs() >= 1, "");
+	}
+	if (!(maxBits() + skipData + f.fieldSizeInfo.maxBitLength <= TvmConst::CellBitLength &&
+         (maxRefs() + (withDeleteChild? - 1 : 0)) + f.fieldSizeInfo.maxRefLength <= refLimit)) {
 		return false;
 	}
-	maxBits += f.fieldSizeInfo.maxBitLength;
-	maxRefs += f.fieldSizeInfo.maxRefLength;
 	fields.push_back(f);
 	return true;
 }
 
-void StructCompiler::Node::removeFirstField(int index) {
-	maxBits -= fields[index].fieldSizeInfo.maxBitLength;
-	maxRefs -= fields[index].fieldSizeInfo.maxRefLength;
+void StructCompiler::Node::removeField(int index) {
 	fields.erase(fields.begin() + index);
 }
 
 bool StructCompiler::Node::tryAddChild(int child) {
-	solAssert(maxRefs + skipRef <= 4, "");
-	if (maxRefs + skipRef == 4) {
+	solAssert(maxRefs() <= 4, "");
+	if (maxRefs() == 4) {
 		return false;
 	}
-	++maxRefs;
 	children.push_back(child);
 	return true;
 }
@@ -135,9 +134,25 @@ bool StructCompiler::Node::tryAddChild(int child) {
 void StructCompiler::Node::removeChildIfHave(int v) {
 	auto it = std::find(children.begin(), children.end(), v);
 	if (it != children.end()) {
-		--maxRefs;
 		children.erase(it);
 	}
+}
+
+int StructCompiler::Node::maxBits() const {
+	int b = 0;
+	for (const Field& f : fields) {
+		b += f.fieldSizeInfo.maxBitLength;
+	}
+	return b;
+}
+
+int StructCompiler::Node::maxRefs() const {
+	int r = 0;
+	for (const Field& f : fields) {
+		r += f.fieldSizeInfo.maxRefLength;
+	}
+	r += children.size();
+	return r;
 }
 
 StructCompiler::PathToStructMember::PathToStructMember(const std::vector<int> &nodes, const std::vector<int> &childRef,
@@ -149,31 +164,24 @@ StructCompiler::PathToStructMember::PathToStructMember(const std::vector<int> &n
 }
 
 StructCompiler::StructCompiler(StackPusherHelper *pusher, StructType const *structType) :
-		StructCompiler{pusher, fVariableDeclarations(&structType->structDefinition()), 0, 0, false} {
+		StructCompiler{pusher, fVariableDeclarations(&structType->structDefinition()), 0, false} {
 }
 
 StructCompiler::StructCompiler(StackPusherHelper *pusher, std::vector<VariableDeclaration const *> _variableDeclarations,
-		const int skipData, const int skipRef, bool isC4)
+		const int skipData, bool isC4)
 		:
 		variableDeclarations{std::move(_variableDeclarations)},
 		pusher{pusher}
 	{
-	nodes.emplace_back(Node(skipData, skipRef));
 
 	int memberIndex = 0;
 	int parent = 0;
+	nodes.emplace_back(Node(skipData));
 	for (const auto &member : variableDeclarations) {
 		const Field f{memberIndex, member};
-		bool isNodeFound = false;
-		for (Node& node : nodes) {
-			if (node.tryAddField(f)) {
-				isNodeFound = true;
-				break;
-			}
-		}
-
-		if (!isNodeFound) {
-			nodes.emplace_back(Node(0, 0));
+		bool ok = nodes.back().tryAddField(f);
+		if (!ok) {
+			nodes.emplace_back(Node(0));
 			solAssert(nodes.back().tryAddField(f), "");
 
 			int v = static_cast<int>(nodes.size()) - 1;
@@ -187,28 +195,34 @@ StructCompiler::StructCompiler(StackPusherHelper *pusher, std::vector<VariableDe
 		++memberIndex;
 	}
 
-	bool doSome {};
+	bool doSome{};
 	do {
 		doSome = false;
 		for (int v = 1; v < static_cast<int>(nodes.size()); ++v) {
-			for (int fieldInd = 0; fieldInd < static_cast<int>(nodes[v].fields.size());) {
-				bool doMove = false;
-				for (int v0 = 0; v0 < v; ++v0) {
-					if (nodes[v0].tryAddField(nodes[v].fields[fieldInd], true)) {
-						nodes[v].removeFirstField(fieldInd);
-						doMove = true;
+			for (int fieldInd = 0;
+			     !doSome && fieldInd < (isC4? static_cast<int>(nodes[v].getFields().size()) : std::min<int>(nodes[v].getFields().size(), 1));
+				++fieldInd) {
+				for (int v0 = isC4 ? 0 : v - 1; !doSome && v0 < v; ++v0) {
+					if (nodes[v0].tryAddField(nodes[v].getFields()[fieldInd], true)) {
+						nodes[v].removeField(fieldInd);
 						doSome = true;
-						break;
+					} else {
+						bool vIsChildOfV0 = std::find(nodes[v0].getChildren().begin(), nodes[v0].getChildren().end(), v) !=
+						                    nodes[v0].getChildren().end();
+						if (nodes[v].getFields().size() == 1 &&
+							vIsChildOfV0 &&
+							v + 1 == static_cast<int>(nodes.size()) &&
+						    nodes[v0].tryAddField(nodes[v].getFields()[fieldInd], true, true)) {
+							nodes[v].removeField(fieldInd);
+							doSome = true;
+						}
 					}
-				}
-				if (!doMove) {
-					++fieldInd;
 				}
 			}
 		}
-		if (nodes.size() >= 2 && nodes.back().fields.empty() && nodes.back().fields.empty()) {
+		if (nodes.size() >= 2 && nodes.back().getFields().empty()) {
 			int v = static_cast<int>(nodes.size()) - 1;
-			for (Node& node : nodes) {
+			for (Node &node : nodes) {
 				node.removeChildIfHave(v);
 			}
 			nodes.pop_back();
@@ -216,16 +230,6 @@ StructCompiler::StructCompiler(StackPusherHelper *pusher, std::vector<VariableDe
 			doSome = true;
 		}
 	} while (doSome);
-
-	if (isC4 || !isCompatibleWithSDK(TvmConst::ArrayKeyLength)) {
-		for (Node &node : nodes) {
-			std::stable_sort(node.fields.begin(), node.fields.end(), [](const Field &a, const Field &b) {
-				const bool l = a.fieldSizeInfo.isBitFixed && a.fieldSizeInfo.isRefFixed;
-				const bool r = b.fieldSizeInfo.isBitFixed && b.fieldSizeInfo.isRefFixed;
-				return l > r;
-			});
-		}
-	}
 
 	std::vector<int> nodePath;
 	std::vector<int> refPath;
@@ -270,45 +274,33 @@ void StructCompiler::setMemberForTuple(const std::string &memberName) {
 	pusher->set_index(paths.at(memberName).field.memberIndex);
 }
 
-void StructCompiler::structConstructor(std::vector<ASTPointer<ASTString>> const& names) {
-	std::vector<std::string> order;
+void StructCompiler::structConstructor(std::vector<ASTPointer<ASTString>> const& names,
+										const std::function<void(int)>& pushParam) {
 	if (names.empty()) {
-		// where args are located
-		int saveStackSize = pusher->getStack().size();
-		for (const VariableDeclaration *vd : variableDeclarations) {
-			if (vd->type()->category() != Type::Category::Mapping) {
-				--saveStackSize;
-			}
-		}
-
 		int i{};
 		for (const VariableDeclaration *vd : variableDeclarations) {
 			if (vd->type()->category() == Type::Category::Mapping) {
 				pusher->pushDefaultValue(vd->type(), false);
-				int topQty = pusher->getStack().size() - saveStackSize - 1 - i;
-				pusher->blockSwap(topQty, 1);
+			} else {
+				pushParam(i++);
 			}
-			order.push_back(vd->name());
-			++i;
 		}
 	} else {
-		for (const ASTPointer<ASTString> &n : names) {
-			order.push_back(*n.get());
-		}
 		for (const VariableDeclaration *vd : variableDeclarations) {
+			auto it = std::find_if(names.begin(), names.end(), [vd](const ASTPointer<ASTString>& name){
+				return vd->name() == *name;
+			});
 			if (vd->type()->category() == Type::Category::Mapping) {
-				auto it = std::find(order.begin(), order.end(), vd->name());
-				solAssert(it == order.end(), "");
+				solAssert(it == names.end(), "");
 				pusher->pushDefaultValue(vd->type());
-				order.push_back(vd->name());
+			} else {
+				int index = it - names.begin();
+				pushParam(index);
 			}
 		}
 	}
 
-	solAssert(order.size() == variableDeclarations.size(), "");
-	sortOnStack(order);
-	const int argQty = static_cast<int>(variableDeclarations.size());
-	pusher->tuple(argQty);
+	pusher->tuple(variableDeclarations.size());
 }
 
 void StructCompiler::tupleToBuilder() {
@@ -416,10 +408,42 @@ void StructCompiler::collectStruct(const std::string &memberName, bool isValueBu
 }
 
 void StructCompiler::convertSliceToTuple() {
-	std::vector<std::string> names;
-	convertSliceToTupleDfs(0, names);
-	sortOnStack(names);
-	pusher->tuple(names.size());
+	std::deque<int> q;
+	q.push_back(0);
+
+	std::vector<int> stackSize(nodes.size(), -1);
+	stackSize[0] = pusher->getStack().size();
+
+	while (!q.empty()) {
+		int v = q.front();
+		q.pop_front();
+
+		int currentStackSize = pusher->getStack().size();
+		pusher->blockSwap(1, currentStackSize - stackSize.at(v));
+		for (int to = v + 1; to < static_cast<int>(stackSize.size()); ++to) {
+			--stackSize[to];
+		}
+		if (v != 0) {
+			pusher->push(0, "CTOS");
+		}
+
+		for (const int to : nodes[v].getChildren()) {
+			pusher->push(+1, "LDREF");
+			stackSize[to] = pusher->getStack().size() - 1;
+			q.push_back(to);
+		}
+
+		std::size_t iter = 0;
+		for (const Field &f : nodes[v].getFields()) {
+			if (iter + 1 == nodes[v].getFields().size()) {
+				preload(f.member, false); // field // here we delete rest of slice
+			} else {
+				load(f.member, false); // field struct
+			}
+			++iter;
+		}
+	}
+	pusher->tuple(variableDeclarations.size());
 }
 
 void StructCompiler::sliceToStateVarsToC7() {
@@ -439,22 +463,22 @@ bool StructCompiler::isCompatibleWithSDK(int keyLength) const {
 		}
 	}
 	return nodes.size() == 1 &&
-		2 + static_cast<int>(std::ceil(log2(keyLength + 1)+ 1e-5)) + keyLength + nodes[0].maxBitLength() <= TvmConst::CellBitLength; // 2 is gotten from hml_long$10
+		2 + static_cast<int>(std::ceil(log2(keyLength + 1)+ 1e-5)) + keyLength + nodes[0].maxBits() <= TvmConst::CellBitLength; // 2 is gotten from hml_long$10
 }
 
 
 void StructCompiler::dfs(int v, std::vector<int> &nodePath, std::vector<int> &refPath) {
 	nodePath.push_back(v);
 	std::vector<FieldSizeInfo> skippedField{};
-	bool childRefInArray = nodes[v].children.empty();
-	for (int i = 0, n = static_cast<int>(nodes[v].fields.size()); i < n; ++i) {
-		const Field &f = nodes[v].fields[i];
+	bool childRefInArray = nodes[v].getChildren().empty();
+	for (int i = 0, n = static_cast<int>(nodes[v].getFields().size()); i < n; ++i) {
+		const Field &f = nodes[v].getFields()[i];
 		if (f.fieldSizeInfo.maxRefLength > 0 && !childRefInArray) {
 			std::vector<FieldSizeInfo> newSkippedField{};
-			FieldSizeInfo childRef{true, true, 0, static_cast<int>(nodes[v].children.size())};
+			FieldSizeInfo childRef{true, true, 0, static_cast<int>(nodes[v].getChildren().size())};
 			newSkippedField.push_back(childRef);
 			for (int j = 0; j < i; ++j) {
-				const Field &fj = nodes[v].fields[j];
+				const Field &fj = nodes[v].getFields()[j];
 				if (!newSkippedField.back().tryMerge(fj.fieldSizeInfo)) {
 					newSkippedField.push_back(fj.fieldSizeInfo);
 				}
@@ -471,7 +495,7 @@ void StructCompiler::dfs(int v, std::vector<int> &nodePath, std::vector<int> &re
 	}
 
 	int idRef = 0;
-	for (const int to : nodes[v].children) {
+	for (const int to : nodes[v].getChildren()) {
 		refPath.push_back(idRef);
 		dfs(to, nodePath, refPath);
 
@@ -484,7 +508,7 @@ void StructCompiler::dfs(int v, std::vector<int> &nodePath, std::vector<int> &re
 void StructCompiler::createDefaultStructDfs(int v) {
 	pusher->push(+1, "NEWC");
 
-	for (const int to : nodes[v].children) {
+	for (const int to : nodes[v].getChildren()) {
 		createDefaultStructDfs(to);
 		pusher->push(-1, "STBREFR");
 	}
@@ -496,8 +520,8 @@ void StructCompiler::createDefaultStructDfs(int v) {
 						f.member->type()->category() == Type::Category::Mapping);
 	};
 
-	const std::vector<Field> &fields = nodes[v].fields;
-	const int n = nodes[v].fields.size();
+	const std::vector<Field> &fields = nodes[v].getFields();
+	const int n = nodes[v].getFields().size();
 	for (int l = 0, r; l < n; l = r) {
 		r = l + 1;
 		const Field& f = fields[l];
@@ -526,12 +550,12 @@ void StructCompiler::createDefaultStructDfs(int v) {
 void StructCompiler::createStructDfs(const int v, const std::map<std::string, int> &argStackSize) {
 	pusher->push(+1, "NEWC");
 
-	for (const int to : nodes[v].children) {
+	for (const int to : nodes[v].getChildren()) {
 		createStructDfs(to, argStackSize);
 		pusher->push(-1, "STBREFR");
 	}
 
-	for (const Field &f : nodes[v].fields) {
+	for (const Field &f : nodes[v].getFields()) {
 		const int curStackSize = pusher->getStack().size();
 		const int index = curStackSize - 1 - argStackSize.at(f.member->name());
 		pusher->pushS(index);
@@ -541,12 +565,12 @@ void StructCompiler::createStructDfs(const int v, const std::map<std::string, in
 
 void StructCompiler::stateVarsToBuilderDfs(const int v) {
 	int cntValues = 0;
-	for (const int to : nodes[v].children) {
+	for (const int to : nodes[v].getChildren()) {
 		pusher->push(+1, "NEWC");
 		++cntValues;
 		stateVarsToBuilderDfs(to);
 	}
-	for (const Field &f : nodes[v].fields) {
+	for (const Field &f : nodes[v].getFields()) {
 		pusher->getGlob(f.member);
 		if (isUsualArray(f.member->type())) {
 			pusher->untuple(2); // size dict
@@ -559,60 +583,32 @@ void StructCompiler::stateVarsToBuilderDfs(const int v) {
 	if (cntValues + 1 >= 2) {
 		pusher->reverse(cntValues + 1, 0);
 	}
-	for (const int to : nodes[v].children) {
+	for (const int to : nodes[v].getChildren()) {
 		(void) to;
 		pusher->push(-1, "STBREF");
 	}
-	for (const Field &f : nodes[v].fields) {
+	for (const Field &f : nodes[v].getFields()) {
 		store(f.member, false, false, true);
-	}
-}
-
-void StructCompiler::convertSliceToTupleDfs(int v, std::vector<std::string>& names) {
-	// struct
-
-	for (const int to : nodes[v].children) {
-		// members... struct
-		int stackSizeForStruct = pusher->getStack().size();
-		pusher->push(+1, "LDREFRTOS"); // members... struct child
-		convertSliceToTupleDfs(to, names);
-		// members... struct members...
-
-		const int memberQty = pusher->getStack().size() - stackSizeForStruct;
-		pusher->blockSwap(1, memberQty);
-		// members... struct
-	}
-
-	// members... struct
-	std::size_t iter = 0;
-	for (Field &f : nodes[v].fields) {
-		if (iter + 1 == nodes[v].fields.size()) {
-			preload(f.member, false); // field
-		} else {
-			load(f.member, false); // field slice
-		}
-		names.push_back(f.member->name());
-		++iter;
 	}
 }
 
 void StructCompiler::sliceToStateVarsToC7Dfs(const int v) {
 	// slice
-	for (const int to : nodes[v].children) {
+	for (const int to : nodes[v].getChildren()) {
 		pusher->push(+1, "LDREFRTOS"); // slice child[i]
 		sliceToStateVarsToC7Dfs(to);
 	}
 
-	if (nodes[v].fields.empty()) {
+	if (nodes[v].getFields().empty()) {
 		pusher->push(-1, "ENDS");
 		return;
 	}
 
 	// slice
 	std::vector<Field> fields;
-	for (std::size_t i = 0; i < nodes[v].fields.size(); ++i) {
-		Field &f = nodes[v].fields[i];
-		if (i + 1 == nodes[v].fields.size()) {
+	for (std::size_t i = 0; i < nodes[v].getFields().size(); ++i) {
+		const Field &f = nodes[v].getFields()[i];
+		if (i + 1 == nodes[v].getFields().size()) {
 			preload(f.member, false); // field
 			pusher->setGlob(f.member);
 		} else {
@@ -720,10 +716,11 @@ void StructCompiler::preload(const VariableDeclaration *vd, bool returnStructAsS
 			break;
 		}
 		case Type::Category::Mapping:
+		case Type::Category::ExtraCurrencyCollection:
 			pusher->push(-1 + 1, "PLDDICT");
 			break;
 		default:
-			solAssert(false, "");
+			cast_error(*vd, "Unsupported type in struct");
 	}
 }
 
@@ -765,6 +762,7 @@ void StructCompiler::store(const VariableDeclaration *vd, bool reverse, bool isV
 			}
 			break;
 		case Type::Category::Mapping:
+		case Type::Category::ExtraCurrencyCollection:
 			if (reverse) {
 				pusher->push(0, "SWAP"); // builder dict
 			}
@@ -799,7 +797,7 @@ void StructCompiler::store(const VariableDeclaration *vd, bool reverse, bool isV
 			break;
 		}
 		default:
-			solAssert(false, "");
+			cast_error(*vd, "Unsupported type in struct");
 	}
 }
 
@@ -923,21 +921,4 @@ std::vector<VariableDeclaration const *> StructCompiler::fVariableDeclarations(S
 	}
 	return result;
 }
-
-void StructCompiler::sortOnStack(std::vector<std::string> &order) {
-	const int n = static_cast<int>(order.size());
-	for (int i = 0; i < n; ++i) {
-		if (variableDeclarations[i]->name() != order[i]) {
-			for (int j = i + 1; j < n; ++j) {
-				if (variableDeclarations[i]->name() == order[j]) {
-					pusher->exchange(n - 1 - j, n - 1 - i);
-					swap(order[i], order[j]);
-					break;
-				}
-				solAssert(j + 1 != n, "");
-			}
-		}
-	}
-}
-
 

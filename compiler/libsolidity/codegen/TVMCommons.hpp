@@ -100,12 +100,6 @@ public:
 				haveMsgPubkey = true;
 			}
 		}
-		if (ma && ma->memberName() == "setExtDestAddr" && ma->expression().annotation().type->category() == Type::Category::Magic) {
-			auto expr = to<Identifier>(&ma->expression());
-			if (expr && expr->name() == "tvm") {
-				haveSetExtDesdAddr = true;
-			}
-		}
 		return true;
 	}
 
@@ -121,7 +115,6 @@ public:
 
 	bool haveMsgPubkey{};
 	bool haveMsgSender{};
-	bool haveSetExtDesdAddr{};
 };
 
 
@@ -214,10 +207,10 @@ struct AddressInfo {
 int bitsForEnum(size_t val_count);
 
 struct TypeInfo {
-	bool isNumeric {false};
-	bool isSigned {false};
-	int numBits {0};
-	Type::Category category {Type::Category::Integer};
+	bool isNumeric{};
+	bool isSigned{};
+	int numBits{};
+	Type::Category category{};
 
 	explicit TypeInfo(const Type* type) {
 		if (auto* integerType = to<IntegerType>(type)) {
@@ -237,6 +230,7 @@ struct TypeInfo {
 			isSigned = false;
 			numBits = bitsForEnum(enumType->numberOfMembers());
 		}
+		category = type->category();
 	}
 };
 
@@ -264,10 +258,6 @@ IntegerType getKeyTypeOfArray();
 
 string storeIntegralOrAddress(const Type* type, bool reverse);
 
-bool isExpressionExactTypeKnown(Expression const* expr);
-
-bool isNonNegative(Expression const* expr);
-
 vector<ContractDefinition const*> getContractsChain(ContractDefinition const* contract);
 
 vector<std::pair<FunctionDefinition const*, ContractDefinition const*>>
@@ -290,8 +280,6 @@ vector<FunctionDefinition const*> getContractFunctions(ContractDefinition const*
 const ContractDefinition* getSuperContract(const ContractDefinition* currentContract,
 											const ContractDefinition* mainContract,
 											const string& fname);
-
-std::string ASTNode2String(const ASTNode& node, const string& error_messag = "", bool isWarning = false);
 
 [[noreturn]]
 void cast_error(const ASTNode& node, const string& error_message);
@@ -399,5 +387,17 @@ struct ABITypeSize {
 		}
 	}
 };
+
+template<typename T>
+std::pair<std::vector<Type const*>, std::vector<ASTNode const*>>
+getParams(T parameters) {
+	std::vector<Type const*> types;
+	std::vector<ASTNode const*> nodes;
+	for (auto param : parameters) {
+		types.push_back(param->annotation().type);
+		nodes.push_back(param.get());
+	}
+	return std::make_pair(types, nodes);
+}
 
 } // end solidity::frontend

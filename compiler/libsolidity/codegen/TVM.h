@@ -19,9 +19,8 @@
 #pragma once
 
 #include <vector>
+#include <liblangutil/ErrorReporter.h>
 #include <libsolidity/ast/ASTForward.h>
-
-using namespace solidity::frontend;
 
 enum class TvmOption {
 	Code,
@@ -32,5 +31,9 @@ enum class TvmOption {
 
 void TVMSetFileName(std::string _fileName);
 void TVMCompilerEnable(const TvmOption tvmOption, bool without_logstr, bool optimize);
-void TVMSetAllContracts(const std::vector<ContractDefinition const*>& allContracts, std::string mainContract);
+void TVMSetAllContracts(const std::vector<solidity::frontend::ContractDefinition const*>& allContracts,
+						const std::string& mainContract);
 bool TVMIsOutputProduced();
+void TVMCompilerProceedContract(solidity::langutil::ErrorReporter* errorReporter,
+								solidity::frontend::ContractDefinition const& _contract,
+                                std::vector<solidity::frontend::PragmaDirective const *> const* pragmaDirectives);

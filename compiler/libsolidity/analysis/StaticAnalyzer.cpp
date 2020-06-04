@@ -256,21 +256,8 @@ bool StaticAnalyzer::visit(MemberAccess const& _memberAccess)
 	return true;
 }
 
-bool StaticAnalyzer::visit(InlineAssembly const& _inlineAssembly)
+bool StaticAnalyzer::visit(InlineAssembly const& /*_inlineAssembly*/)
 {
-	if (!m_currentFunction)
-		return true;
-
-	for (auto const& ref: _inlineAssembly.annotation().externalReferences)
-	{
-		if (auto var = dynamic_cast<VariableDeclaration const*>(ref.second.declaration))
-		{
-			solAssert(!var->name().empty(), "");
-			if (var->isLocalVariable())
-				m_localVarUseCount[make_pair(var->id(), var)] += 1;
-		}
-	}
-
 	return true;
 }
 

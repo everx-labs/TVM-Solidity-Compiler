@@ -49,11 +49,11 @@ FunctionCallCompiler::FunctionCallCompiler(StackPusherHelper &m_pusher, TVMExpre
 void FunctionCallCompiler::structConstructorCall(FunctionCall const &_functionCall) {
 	auto const& type = dynamic_cast<TypeType const&>(*_functionCall.expression().annotation().type);
 	auto const& structType = dynamic_cast<StructType const&>(*type.actualType());
-	for (const ASTPointer<Expression const> &arg : _functionCall.arguments()) {
-		acceptExpr(arg.get());
-	}
+	auto pushParam = [&](int index) {
+		acceptExpr(_functionCall.arguments().at(index).get());
+	};
 	StructCompiler structCompiler{&m_pusher, &structType};
-	structCompiler.structConstructor(_functionCall.names()); // create struct and drop args
+	structCompiler.structConstructor(_functionCall.names(), pushParam);
 }
 
 void FunctionCallCompiler::compile(FunctionCall const &_functionCall, bool isCurrentResultNeeded) {
@@ -76,7 +76,7 @@ void FunctionCallCompiler::compile(FunctionCall const &_functionCall, bool isCur
 			} else if (checkForTvmBuilderMethods(*ma, category, arguments)) {
 			} else if (checkForStringMethods(*ma, arguments)) {
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "tvm") {
-				if (checkForTvmSendFunction(*ma, category, arguments)) {
+				if (checkForTvmSendFunction(*ma, arguments)) {
 				} else if (checkForTvmConfigParamFunction(*ma, category, arguments)) {
 				} else if (checkForTvmFunction(*ma, category, arguments)) {
 				} else if (checkForTvmDeployMethods(*ma, category, arguments, _functionCall)) {
@@ -227,43 +227,41 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 	}
 
 	if (_node.memberName() == "deployAndCallConstructor") {
+		cast_warning(_node, R"(Function is deprecated. Use "new Contract{}();" instead.)");
 		for (size_t i = 0; i < 4; i++)
 			acceptExpr(arguments[i].get());
 		std::vector<Type const*> types;
 		std::vector<ASTNode const*> nodes;
-		for (size_t i = 4; i < arguments.size(); ++i) {
-			types.push_back(arguments[i]->annotation().type);
-			nodes.push_back(arguments[i].get());
-		}
+		std::tie(types, nodes) = getParams(std::vector(arguments.begin() + 4, arguments.end()));
 		m_pusher.push(+1, "NEWC");
-		// FIXME function id is a part of body
+		m_pusher.push(-1, "STU 32");
+
 		EncodePosition position{32, types};
 		EncodeFunctionParams{&m_pusher}.encodeParameters(types, nodes, [&](std::size_t index) {
 			acceptExpr(arguments[index + 4].get());
 		}, position);
 		m_pusher.pushInt(1);
-		m_pusher.pushPrivateFunctionOrMacroCall(-6, "deploy_contract_macro");
+		m_pusher.pushPrivateFunctionOrMacroCall(-5, "deploy_contract_macro");
 		return true;
 	}
 
 	if(_node.memberName() == "deployAndCallConstructorWithFlag") {
+		cast_warning(_node, R"(Function is deprecated. Use "new Contract{}();" instead.)");
 		for (size_t i = 0; i < 5; i++)
 			if (i != 3)
 				acceptExpr(arguments[i].get());
 		std::vector<Type const*> types;
 		std::vector<ASTNode const*> nodes;
-		for (size_t i = 5; i < arguments.size(); ++i) {
-			types.push_back(arguments[i]->annotation().type);
-			nodes.push_back(arguments[i].get());
-		}
+		std::tie(types, nodes) = getParams(std::vector(arguments.begin() + 5, arguments.end()));
 		m_pusher.push(+1, "NEWC");
-		// FIXME function id is a part of body
+		m_pusher.push(-1, "STU 32");
+
 		EncodePosition position{32, types};
 		EncodeFunctionParams{&m_pusher}.encodeParameters(types, nodes, [&](std::size_t index) {
 			acceptExpr(arguments[index + 5].get());
 		}, position);
 		acceptExpr(arguments[3].get());
-		m_pusher.pushPrivateFunctionOrMacroCall(-6, "deploy_contract_macro");
+		m_pusher.pushPrivateFunctionOrMacroCall(-5, "deploy_contract_macro");
 		return true;
 	}
 
@@ -342,9 +340,13 @@ bool FunctionCallCompiler::checkForTvmSliceMethods(MemberAccess const &_node, Ty
 				m_exprCompiler->expandLValue(&_node.expression(),true, false, _node.expression().annotation().isLValue);
 		std::string cmd = "LD";
 		cmd += (_node.memberName() == "loadSigned" ? "I" : "U");
-		if (auto bitsLiteral = to<Literal>(arguments[0].get()))
-			m_pusher.push(-1 + 2, cmd + " " + bitsLiteral->value());
-		else {
+		const auto& [ok, val] = TVMExpressionCompiler::constValue(*arguments[0]);
+		if (ok) {
+			if (val < 1 || val > 256) {
+				cast_error(*arguments[0], "The value must be in the range 1 - 256.");
+			}
+			m_pusher.push(-1 + 2, cmd + " " + val.str());
+		} else {
 			acceptExpr(arguments[0].get());
 			m_pusher.push(-2 + 2, cmd + "X");
 		}
@@ -415,12 +417,18 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 			std::string cmd = "ST";
 			cmd += (_node.memberName() == "storeSigned" ? "I" : "U");
 			acceptExpr(arguments[0].get());
-			if (auto bitsLiteral = to<Literal>(arguments[1].get()))
-				m_pusher.push(-1, cmd + "R " + bitsLiteral->value());
-			else {
+			const auto& [ok, val] = TVMExpressionCompiler::constValue(*arguments[1]);
+			if (ok) {
+				if (val < 1 || val > 256) {
+					cast_error(*arguments[1], "The value must be in the range 1 - 256.");
+				}
+				m_pusher.push(-1, cmd + "R " + val.str());
+			} else {
 				acceptExpr(arguments[1].get());
 				m_pusher.push(-2, cmd + "XR");
 			}
+		} else {
+			solAssert(false, "");
 		}
 
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
@@ -767,12 +775,10 @@ bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_n
 	return false;
 }
 
-bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node, Type::Category /*category*/,
-                                                   const std::vector<ASTPointer<Expression const>> &arguments) {
-	if (_node.memberName().find("send") == std::string::npos)
-		return false;
-
+bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node, const std::vector<ASTPointer<Expression const>> &arguments) {
 	if (_node.memberName() == "sendMsg") { // tvm.sendMsg(dest_address, funcId_literal)
+		cast_warning(_node, "Function is deprecated it will be removed from compiler soon. "
+		                    "Use MyContract(...).funcName{value:123, flag:1}(arg0, arg1, ...);");
 		m_pusher.push(+1, "NEWC");
 		std::string s;
 		s += "0"; // int_msg_info$0
@@ -835,9 +841,10 @@ bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node, Ty
 			acceptExpr(arg.get());
 		}
 		m_pusher.push(-2, "SENDRAWMSG");
-		return true;
+	}  else {
+		return false;
 	}
-	cast_error(_node, "Unsupported tvm.send* function.");
+	return true;
 }
 
 bool FunctionCallCompiler::checkForMsgFunction(MemberAccess const &_node, Type::Category category,
@@ -924,13 +931,25 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node, Type::
 		m_pusher.push(+1, "LTIME");
 	} else if (_node.memberName() == "resetStorage") { //tvm.resetStorage
 		m_pusher.resetAllStateVars();
-	} else if (_node.memberName() == "setExtDestAddr") {
-		pushArgs();
-		m_pusher.push(-1, "SETGLOB " + toString(TvmConst::C7::ExtDestAddrIndex));
 	} else if (_node.memberName() == "functionId") { // tvm.functionId
 		auto callDef = getCallableDeclaration(arguments.at(0).get());
 		EncodeFunctionParams encoder(&m_pusher);
 		m_pusher.push(+1, "PUSHINT " + to_string(encoder.calculateFunctionID(callDef) & 0x7fffffff));
+	} else if (_node.memberName() == "encodeBody") { // tvm.encodeBody
+		auto callDef = getCallableDeclaration(arguments.at(0).get());
+		m_pusher.push(+1, "NEWC");
+		std::vector<Type const*> types = getParams(callDef->parameters()).first;
+		auto position = EncodePosition(32, types);
+		const ast_vec<VariableDeclaration> &parameters = callDef->parameters();
+
+		EncodeFunctionParams{&m_pusher}.createMsgBody(
+					[&](size_t idx) {
+						m_pusher.push(0, ";; " + parameters[idx]->name());
+						TVMExpressionCompiler{m_pusher}.compileNewExpr(arguments[idx + 1].get());
+					},
+					ReasonOfOutboundMessage::RemoteCallInternal,
+					callDef, false, position);
+		m_pusher.push(+1-1, "ENDC");
 	} else if (_node.memberName() == "max") {
 		pushArgs();
 		for (int i = 0; i + 1 < static_cast<int>(arguments.size()); ++i)
@@ -971,6 +990,12 @@ bool FunctionCallCompiler::checkAddressThis(FunctionCall const &_functionCall) {
 }
 
 void FunctionCallCompiler::typeConversion(FunctionCall const &_functionCall) {
+	auto printError = [&]() {
+		const std::string from = _functionCall.arguments()[0]->annotation().type->toString(true);
+		const std::string to = _functionCall.annotation().type->toString(true);
+		cast_error(_functionCall, "Unsupported casting from " + from + " to " + to + ".");
+	};
+
 	auto arguments = _functionCall.arguments();
 	Type::Category argCategory = arguments[0]->annotation().type->category();
 	Type const* argType = arguments[0]->annotation().type;
@@ -981,7 +1006,7 @@ void FunctionCallCompiler::typeConversion(FunctionCall const &_functionCall) {
 			acceptExpr(arg.get());
 		solAssert(arguments.size() == 1, "");
 	};
-	auto conversionToAddress = [&_functionCall, &argCategory, &acceptArg, &arguments, this](){
+	auto conversionToAddress = [&](){
 		switch (argCategory) {
 			case Type::Category::Contract:
 			case Type::Category::Address:
@@ -999,7 +1024,7 @@ void FunctionCallCompiler::typeConversion(FunctionCall const &_functionCall) {
 				break;
 			}
 			default:
-				cast_error(_functionCall, "Unsupported casting.");
+				printError();
 		}
 	};
 
@@ -1017,14 +1042,9 @@ void FunctionCallCompiler::typeConversion(FunctionCall const &_functionCall) {
 					diff = 8 * static_cast<int>(etn->type().typeName().firstNumber()) -
 					       8 * static_cast<int>(fixedBytesType->storageBytes());
 				} else if (argCategory == Type::Category::Address) {
-					m_pusher.pushPrivateFunctionOrMacroCall(-1 + 1, "address2uint_macro");
-					diff = 8 * static_cast<int>(etn->type().typeName().firstNumber()) - static_cast<int>(256);
-					if (diff < 0) {
-						cast_warning(_functionCall,
-						             "Such conversion can cause loss of data. Only first bytes are used in such assignment.");
-					}
+					cast_error(_functionCall, "Unsupported type conversion. Use address.wid or address.value.");
 				} else {
-					cast_error(_functionCall, "Unsupported casting.");
+					printError();
 				}
 
 				if (diff > 0) {
@@ -1058,15 +1078,7 @@ void FunctionCallCompiler::typeConversion(FunctionCall const &_functionCall) {
 					// nothing to do here
 					acceptArg();
 				} else if (argCategory == Type::Category::Contract || argCategory == Type::Category::Address) {
-					auto literal = to<Literal>(arguments[0].get());
-					if (literal) {
-						const u256 value = literal->annotation().type->literalValue(literal);
-						m_pusher.push(+1, "PUSHINT " + toString(value));
-					} else {
-						acceptArg();
-						m_pusher.pushPrivateFunctionOrMacroCall(-1 + 1, "address2uint_macro");
-						cast_warning(_functionCall, "Workchain id is lost in this conversion.");
-					}
+					cast_error(_functionCall, "Unsupported type conversion. Use address.wid or address.value.");
 				} else {
 					defaultActionForCasting();
 				}
@@ -1077,7 +1089,7 @@ void FunctionCallCompiler::typeConversion(FunctionCall const &_functionCall) {
 				if (isStringOrStringLiteralOrBytes(argType)) {
 					acceptArg(); // nothing to do here
 				} else {
-					cast_error(_functionCall, "Unsupported casting.");
+					printError();
 				}
 				break;
 			}
@@ -1089,23 +1101,13 @@ void FunctionCallCompiler::typeConversion(FunctionCall const &_functionCall) {
 			conversionToAddress();
 		} else if (auto enumDef = to<EnumDefinition>(identifier->annotation().referencedDeclaration)) {
 
-			if (auto e = to<UnaryOperation>(_functionCall.arguments()[0].get())) {
-				auto literal = to<Literal>(&e->subExpression());
-				if ((e->getOperator() == Token::Sub) && (literal)) {
-					const auto* type = literal->annotation().type;
-					u256 value = type->literalValue(literal);
-					if (value != 0)
-						cast_error(_functionCall, "Argument for enum casting should not be negative.");
-					m_pusher.pushInt(0);
-					return;
+			const auto& [ok, value] = TVMExpressionCompiler::constValue(*_functionCall.arguments()[0]);
+			if (ok) {
+				if (value < 0 || value >= enumDef->members().size()) {
+					cast_error(_functionCall, "The value must be in the range 1 - " +
+												toString(enumDef->members().size()) + ".");
 				}
-			}
-			if (auto literal = to<Literal>(_functionCall.arguments()[0].get())) {
-				const auto* type = literal->annotation().type;
-				u256 value = type->literalValue(literal);
-				if (value >= enumDef->members().size())
-					cast_error(_functionCall, "Argument for enum casting should not exceed enum limit.");
-				m_pusher.push(+1, "PUSHINT " + toString(value));
+				m_pusher.push(+1, "PUSHINT " + value.str());
 				return;
 			}
 
@@ -1159,14 +1161,29 @@ bool FunctionCallCompiler::checkSolidityUnits(FunctionCall const &_functionCall)
 		return false;
 	}
 
-	string iname = identifier->name();
-	if (iname == "sha256") {
+	const string& name = identifier->name();
+	const std::vector<ASTPointer<Expression const>>& arguments = _functionCall.arguments();
+
+	auto checkAndParseExceptionCode = [](Expression const* e) -> std::pair<bool, bigint> {
+		const auto& [ok, val] = TVMExpressionCompiler::constValue(*e);
+		if (ok) {
+			if (val >= 65536 || val < 0) {
+				cast_error(*e, "Exception code must be in the range 0 - 65535.");
+			}
+			return {true, val};
+		}
+		TypeInfo ti{e->annotation().type};
+		if (ti.category != Type::Category::Integer || ti.isSigned) {
+			cast_error(*e, "Exception code must be an unsigned number.");
+		}
+		return {false, bigint{}};
+	};
+
+	if (name == "sha256") {
 		acceptExpr(_functionCall.arguments()[0].get());
 		m_pusher.push(0, "CTOS");
 		m_pusher.push(0, "SHA256U");
-		return true;
-	}
-	if (iname == "selfdestruct") {
+	} else if (name == "selfdestruct") {
 		m_pusher.push(+1, "NEWC");
 		m_pusher.push(+1-1, "ENDC");
 		m_pusher.push(-1, "SETCODE");
@@ -1181,9 +1198,54 @@ bool FunctionCallCompiler::checkSolidityUnits(FunctionCall const &_functionCall)
 				constParams,
 				nullptr,
 				[&](){ m_pusher.push(+1, "PUSHINT " + toString(TvmConst::SENDRAWMSG::CarryAllMoney)); });
-		return true;
+	} else if (name == "require") {
+		if (arguments.size() == 1) {
+			acceptExpr(arguments[0].get());
+			m_pusher.push(-1, "THROWIFNOT 100");
+		} else if (arguments.size() == 2 || arguments.size() == 3) {
+			if (arguments.size() == 3)
+				acceptExpr(arguments[2].get());
+			const auto &[ok, exceptionCode] = checkAndParseExceptionCode(arguments[1].get());
+			if (ok && exceptionCode < 2048) {
+				acceptExpr(arguments[0].get());
+				if (arguments.size() == 3)
+					m_pusher.push(-2, "THROWARGIFNOT " + toString(exceptionCode));
+				else
+					m_pusher.push(-1, "THROWIFNOT " + toString(exceptionCode));
+			} else {
+				acceptExpr(arguments[1].get());
+				acceptExpr(arguments[0].get());
+				if (arguments.size() == 3)
+					m_pusher.push(-3, "THROWARGANYIFNOT");
+				else
+					m_pusher.push(-2, "THROWANYIFNOT");
+			}
+		} else {
+			cast_error(_functionCall, R"("require" takes from one to three arguments.)");
+		}
+	} else if (name == "revert") {
+		if (arguments.empty()) {
+			m_pusher.push(0, "THROW 100");
+		} else {
+			if (!isIn(static_cast<int>(arguments.size()), 1, 2)) {
+				cast_error(_functionCall, R"("revert" takes up to two arguments.)");
+			}
+			const auto &[ok, exceptionCode] = checkAndParseExceptionCode(arguments[0].get());
+			bool withArg = arguments.size() == 2;
+			if (withArg) {
+				acceptExpr(arguments[1].get());
+			}
+			if (ok && exceptionCode < 2048) {
+				m_pusher.push(withArg? -1 : 0, (withArg? "THROWARG " : "THROW ") + toString(exceptionCode));
+			} else {
+				acceptExpr(arguments[0].get());
+				m_pusher.push(withArg? -2 : -1, withArg? "THROWARGANY" : "THROWANY");
+			}
+		}
+	} else {
+		return false;
 	}
-	return false;
+	return true;
 }
 
 bool FunctionCallCompiler::checkForIdentifier(FunctionCall const &_functionCall) {
@@ -1227,14 +1289,108 @@ bool FunctionCallCompiler::checkForIdentifier(FunctionCall const &_functionCall)
 	return true;
 }
 
+bool FunctionCallCompiler::createNewContract(FunctionCall const &_functionCall) {
+	const FunctionCallOptions * functionOptions = to<FunctionCallOptions>(&_functionCall.expression());
+	const NewExpression * newExpr = to<NewExpression>(&functionOptions->expression());
+	if (!newExpr)
+		return false;
+	const TypePointer type = newExpr->typeName().annotation().type;
+	if (type->category() != Type::Category::Contract)
+		cast_error(_functionCall, "Flags in \"new\" expression can be used only for contract creating.");
+
+	std::map<int, std::function<void()>> exprs;
+
+	std::map<int, std::string> constParams = {{TvmConst::int_msg_info::ihr_disabled, "1"},
+											  {TvmConst::int_msg_info::bounce,       "1"},
+											  {TvmConst::int_msg_info::currency,     "0"}};
+	Expression const *sendrawmsgFlag{};
+	int stateInitStack{};
+	int destAddressStack{};
+
+	std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
+	for (const auto &option: optionNames)
+		if (!isIn(*option, "flag", "value", "stateInit"))
+			cast_error(_functionCall, "Unsupported option: " + *option);
+	auto stateIt = find_if(optionNames.begin(), optionNames.end(),  [](auto el) { return *el == "stateInit"; });
+	if (stateIt != optionNames.end()) {
+		size_t index = stateIt - optionNames.begin();
+		acceptExpr(functionOptions->options()[index].get()); // stack: stateInit
+		stateInitStack = m_pusher.getStack().size();
+
+		m_pusher.pushS(0);
+		m_pusher.push(-1+1, "HASHCU");
+		m_pusher.pushPrivateFunctionOrMacroCall(-1 + 1, "make_std_address_with_zero_wid_macro");
+		destAddressStack = m_pusher.getStack().size();
+		// stack: stateInit destAddress
+	} else {
+		cast_error(_functionCall, R"(Options "value" and "stateInit" are obligatory.)");
+	}
+	auto valueIt = find_if(optionNames.begin(), optionNames.end(),  [](auto el) { return *el == "value"; });
+	if (valueIt != optionNames.end()){
+		exprs[TvmConst::int_msg_info::grams] = [&](){
+			size_t index = valueIt - optionNames.begin();
+			TVMExpressionCompiler{m_pusher}.compileNewExpr(functionOptions->options()[index].get());
+		};
+	} else {
+		cast_error(_functionCall, R"(Options "value" and "stateInit" are obligatory.)");
+	}
+	exprs[TvmConst::int_msg_info::dest] = [&](){
+		int stackIndex = m_pusher.getStack().size() - destAddressStack;
+		m_pusher.pushS(stackIndex);
+	};
+
+
+	auto arguments = _functionCall.arguments();
+	auto constructor = (to<ContractType>(type))->contractDefinition().constructor();
+
+	std::function<void(int)> appendBody = [&](int builderSize) {
+		if (constructor)
+			return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder2(arguments,
+											ReasonOfOutboundMessage::RemoteCallInternal,
+											constructor, builderSize);
+		else
+			return EncodeFunctionParams{&m_pusher}.createDefaultConstructorMessage(builderSize);
+	};
+
+	std::function<void()> appendStateInit = [&]() {
+		m_pusher.stones(1);
+		int stackIndex = m_pusher.getStack().size() - stateInitStack;
+		m_pusher.pushS(stackIndex);
+		m_pusher.push(-1, "STREFR");
+	};
+
+	auto flagIt = find_if(optionNames.begin(), optionNames.end(),  [](auto el) { return *el == "flag"; });
+	if (flagIt != optionNames.end())
+		sendrawmsgFlag = functionOptions->options()[flagIt - optionNames.begin()].get();
+
+	std::set<int> isParamOnStack;
+	for (auto &[param, expr] : exprs | boost::adaptors::reversed) {
+		isParamOnStack.insert(param);
+		expr();
+	}
+
+	if (sendrawmsgFlag)
+		m_pusher.sendMsg(isParamOnStack, constParams, appendBody, appendStateInit, [&]() { acceptExpr(sendrawmsgFlag); }, true);
+	else
+		m_pusher.sendMsg(isParamOnStack, constParams, appendBody, appendStateInit, nullptr, true);
+
+	// stack: stateInit destAddress
+	m_pusher.dropUnder(1, 1);
+	return true;
+}
+
 bool FunctionCallCompiler::checkNewExpression(FunctionCall const &_functionCall) {
+
+	if (to<FunctionCallOptions>(&_functionCall.expression())) {
+		return createNewContract(_functionCall);
+	}
 
 	if (to<NewExpression>(&_functionCall.expression()) == nullptr) {
 		return false;
 	}
 	Type const *resultType = _functionCall.annotation().type;
 	if (resultType->category() == Type::Category::Contract) {
-		cast_error(_functionCall, "Unsupported such contract creating. Use tvm_deploy_contract(...)");
+		cast_error(_functionCall, "Unsupported contract creating. Use call options: \"stateInit\", \"value\", \"flag\"");
 	}
 
 	int size = m_pusher.getStack().size();
@@ -1249,11 +1405,7 @@ bool FunctionCallCompiler::checkNewExpression(FunctionCall const &_functionCall)
 	const IntegerType key = getKeyTypeOfArray();
 	Type const* arrayBaseType = arrayType->baseType();
 
-	{
-		CodeLines code;
-		code.push("DUP");
-		m_pusher.pushCont(code);
-	}
+	m_pusher.pushS(0);
 	{
 		StackPusherHelper pusherHelper(&m_pusher.ctx(), 1);
 		pusherHelper.push(0, "DEC"); // dict size sizeIter'
@@ -1265,7 +1417,7 @@ bool FunctionCallCompiler::checkNewExpression(FunctionCall const &_functionCall)
 		pusherHelper.push(0, "POP S3"); // dict' size sizeIter'
 		m_pusher.pushCont(pusherHelper.code());
 	}
-	m_pusher.push(-2, "WHILE");
+	m_pusher.push(-2, "REPEAT");
 	// dict size 0
 	m_pusher.drop(1);  // dict size
 

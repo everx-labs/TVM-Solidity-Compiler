@@ -18,6 +18,7 @@
 
 #include "TVMCommons.hpp"
 #include "TVMPusher.hpp"
+#include "TVMContractCompiler.hpp"
 
 
 namespace solidity::frontend {
@@ -45,29 +46,18 @@ bool ends_with(const string &str, const string &suffix) {
 	return 0 == str.compare(str.size()-suffix.size(), suffix.size(), suffix);
 }
 
-std::string ASTNode2String(const ASTNode &node, const string &error_messag, bool isWarning) {
-	ErrorList		m_errors;
-	ErrorReporter	m_errorReporter(m_errors);
-	m_errorReporter.parserError(node.location(), error_messag);
-	string message = SourceReferenceFormatter::formatExceptionInformation(
-			*(m_errorReporter.errors())[0],
-			isWarning ? "Warning" : "Error"
-	);
-	return message;
-}
-
 void cast_error(const ASTNode &node, const string &error_message) {
-	cerr << ASTNode2String(node, error_message) << endl;
-	std::exit(EXIT_FAILURE);
+	TVMContractCompiler::g_errorReporter->fatalParserError(node.location(), error_message);
+	BOOST_THROW_EXCEPTION(FatalError()); // never throw, just for [[noreturn]]
 }
 
 void cast_warning(const ASTNode &node, const string &error_message) {
-	cerr << ASTNode2String(node, error_message, true) << endl;
+	TVMContractCompiler::g_errorReporter->warning(node.location(), error_message);
 }
 
 void fatal_error(const string &error_message) {
-	cerr << error_message << '\n';
-	std::exit(EXIT_FAILURE);
+	TVMContractCompiler::g_errorReporter->error(Error::Type::TypeError, SourceLocation(), error_message);
+	BOOST_THROW_EXCEPTION(FatalError()); // never throw, just for [[noreturn]]
 }
 
 const ContractDefinition *
@@ -207,41 +197,6 @@ string storeIntegralOrAddress(const Type *type, bool reverse) {
 		return cmd + " " + toString(ti.numBits);
 	}
 	solAssert(false, "Unsupported param type " + type->toString());
-}
-
-bool isExpressionExactTypeKnown(Expression const *expr) {
-	if (to<Literal>(expr)) return true;
-	if (to<Identifier>(expr)) return true;
-	if (to<FunctionCall>(expr)) return true;
-	if (to<IndexAccess>(expr)) return true;
-	if (to<MemberAccess>(expr)) return true;
-	return false;
-}
-
-bool isNonNegative(Expression const *expr) {
-	auto type = getType(expr);
-	if (isExpressionExactTypeKnown(expr)) {
-		if (auto type2 = to<RationalNumberType>(type)) {
-			if (!type2->integerType()->isSigned())
-				return true;
-		}
-		if (auto type2 = to<IntegerType>(type)) {
-			if (!type2->isSigned())
-				return true;
-		}
-	}
-	if (auto binaryOp = to<BinaryOperation>(expr)) {
-		if (isNonNegative(&binaryOp->leftExpression()) && isNonNegative(&binaryOp->rightExpression())) {
-			switch (binaryOp->getOperator()) {
-				case Token::Add:
-				case Token::Mul:
-					return true;
-				default:
-					break;
-			}
-		}
-	}
-	return false;
 }
 
 vector<ContractDefinition const *> getContractsChain(ContractDefinition const *contract) {

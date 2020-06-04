@@ -450,7 +450,7 @@ MemberList::MemberMap AddressType::nativeMembers(ContractDefinition const*) cons
 {
 	MemberList::MemberMap members = {
 		{"balance", TypeProvider::uint256()},
-		{"currencies", TypeProvider::extraCurrencyCollection()},
+		{"currencies", TypeProvider::extraCurrencyCollection(DataLocation::Memory)},
 		{"wid", TypeProvider::integer(8, IntegerType::Modifier::Signed)},
 		{"value", TypeProvider::uint256()},
 		{"call", TypeProvider::function(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareCall, false, StateMutability::Payable)},
@@ -485,7 +485,7 @@ MemberList::MemberMap AddressType::nativeMembers(ContractDefinition const*) cons
 								 TypeProvider::boolean(),
 								 TypeProvider::integer(16, IntegerType::Modifier::Unsigned),
 								 TypeProvider::tvmcell(),
-								 TypeProvider::extraCurrencyCollection()},
+								 TypeProvider::extraCurrencyCollection(DataLocation::Memory)},
 				TypePointers{},
 				strings{string("value"), string("bounce"), string("flag"), string("body"), string("currencies")},
 				strings{},
@@ -1470,6 +1470,8 @@ BoolResult ContractType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 			&dynamic_cast<ContractType const&>(_convertTo).contractDefinition()
 		) != bases.end();
 	}
+	if (_convertTo.category() == Category::Address)
+		return true;
 	return false;
 }
 
@@ -1834,46 +1836,36 @@ MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 }
 
 static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType, Type const* valueType) {
-	members.emplace_back("min", TypeProvider::function(
-			TypePointers{},
-			TypePointers{keyType, valueType, TypeProvider::boolean()},
-			strings{},
-			strings{string(), string(), string()},
-			FunctionType::Kind::MappingGetMinKey,
-			false, StateMutability::Pure
-	));
-	members.emplace_back("max", TypeProvider::function(
-			TypePointers{},
-			TypePointers{keyType, valueType, TypeProvider::boolean()},
-			strings{},
-			strings{string(), string(), string()},
-			FunctionType::Kind::MappingGetMaxKey,
-			false, StateMutability::Pure
-	));
-	members.emplace_back("delMin", TypeProvider::function(
-			TypePointers{},
-			TypePointers{keyType, valueType},
-			strings{},
-			strings{string(), string()},
-			FunctionType::Kind::MappingDelMin,
-			false, StateMutability::Pure
-	));
-	members.emplace_back("next", TypeProvider::function(
-			TypePointers{keyType},
-			TypePointers{keyType, valueType, TypeProvider::boolean()},
-			strings{string()},
-			strings{string(), string(), string()},
-			FunctionType::Kind::MappingGetNextKey,
-			false, StateMutability::Pure
-	));
-	members.emplace_back("prev", TypeProvider::function(
-			TypePointers{keyType},
-			TypePointers{keyType, valueType, TypeProvider::boolean()},
-			strings{string()},
-			strings{string(), string(), string()},
-			FunctionType::Kind::MappingGetPrevKey,
-			false, StateMutability::Pure
-	));
+	for (const std::string& name : {"min", "max"}) {
+		members.emplace_back(name, TypeProvider::function(
+				TypePointers{},
+				TypePointers{keyType, valueType, TypeProvider::boolean()},
+				strings{},
+				strings{string(), string(), string()},
+				FunctionType::Kind::MappingGetMinMax,
+				false, StateMutability::Pure
+		));
+	}
+	for (const std::string& name : {"delMin", "delMax"}) {
+		members.emplace_back(name, TypeProvider::function(
+				TypePointers{},
+				TypePointers{keyType, valueType},
+				strings{},
+				strings{string(), string()},
+				FunctionType::Kind::MappingDelMinOrMax,
+				false, StateMutability::Pure
+		));
+	}
+	for (const std::string& name : {"next", "prev", "nextOrEq", "prevOrEq"}) {
+		members.emplace_back(name, TypeProvider::function(
+				TypePointers{keyType},
+				TypePointers{keyType, valueType, TypeProvider::boolean()},
+				strings{string()},
+				strings{string(), string(), string()},
+				FunctionType::Kind::MappingGetNextKey,
+				false, StateMutability::Pure
+		));
+	}
 	members.emplace_back("fetch", TypeProvider::function(
 			TypePointers{keyType},
 			TypePointers{TypeProvider::boolean(), valueType},
@@ -1898,6 +1890,26 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 			FunctionType::Kind::MappingEmpty,
 			false, StateMutability::Pure
 	));
+	for (const std::string& name : {"replace", "add"}) {
+		members.emplace_back(name, TypeProvider::function(
+				TypePointers{keyType, valueType},
+				TypePointers{TypeProvider::boolean()},
+				strings{string(), string()},
+				strings{string()},
+				FunctionType::Kind::MappingReplaceOrAdd,
+				false, StateMutability::Pure
+		));
+	}
+	for (const std::string& name : {"getSet", "getAdd", "getReplace"}) {
+		members.emplace_back(name, TypeProvider::function(
+				TypePointers{keyType, valueType},
+				TypePointers{valueType, TypeProvider::boolean()},
+				strings{string(), string()},
+				strings{string(), string()},
+				FunctionType::Kind::MappingGetSet,
+				false, StateMutability::Pure
+		));
+	}
 }
 
 MemberList::MemberMap MappingType::nativeMembers(ContractDefinition const*) const
@@ -2798,7 +2810,6 @@ string FunctionType::richIdentifier() const
 	string id = "t_function_";
 	switch (m_kind)
 	{
-	case Kind::TVMDestAddr: id += "tvmsetextdestaddr"; break;
 	case Kind::StringMethod: id += "stringmethod"; break;
 	case Kind::TVMSetcode: id += "tvmsetcode"; break;
 	case Kind::TVMChecksign: id += "tvmchecksign"; break;
@@ -2827,17 +2838,19 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMBuilderMethods: id += "tvmbuildermethods"; break;
 	case Kind::TVMLoadRef: id += "tvmloadref"; break;
 	case Kind::TVMFunctionId: id += "tvmfunctionid"; break;
+	case Kind::TVMEncodeBody: id += "tvmencodebody"; break;
 	case Kind::TVMMaxMin: id += "tvmmaxmin"; break;
 	case Kind::AddressMakeAddrStd: id += "addressmakeaddrstd"; break;
 	case Kind::LogTVM: id += "logtvm"; break;
-	case Kind::MappingGetMinKey: id += "mapgetmin"; break;
-	case Kind::MappingGetMaxKey: id += "mapgetmax"; break;
+	case Kind::MappingGetMinMax: id += "mapgetminmax"; break;
 	case Kind::MappingGetNextKey: id += "mapgetnext"; break;
 	case Kind::MappingGetPrevKey: id += "mapgetprev"; break;
 	case Kind::MappingFetch: id += "mapfetch"; break;
 	case Kind::MappingExists: id += "mapexists"; break;
-	case Kind::MappingDelMin: id += "mapdelmin"; break;
+	case Kind::MappingDelMinOrMax: id += "mapdelmin"; break;
 	case Kind::MappingEmpty: id += "mapempty"; break;
+	case Kind::MappingReplaceOrAdd: id += "mappingreplaceoradd"; break;
+	case Kind::MappingGetSet: id += "mappingsetget"; break;
 	case Kind::Declaration: id += "declaration"; break;
 	case Kind::Internal: id += "internal"; break;
 	case Kind::External: id += "external"; break;
@@ -3560,20 +3573,6 @@ TypeResult MappingType::unaryOperatorResult(Token _operator) const {
 TypeResult MappingType::interfaceType(bool _inLibrary) const
 {
 	solAssert(keyType()->interfaceType(_inLibrary).get(), "Must be an elementary type!");
-
-	if (_inLibrary)
-	{
-		auto iType = valueType()->interfaceType(_inLibrary);
-
-		if (!iType.get())
-		{
-			solAssert(!iType.message().empty(), "Expected detailed error message!");
-			return iType;
-		}
-	}
-	else
-		return TypeResult::err("Only libraries are allowed to use the mapping type in public or external functions.");
-
 	return this;
 }
 
@@ -3793,7 +3792,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"value", TypeProvider::uint256()},
 			{"data", TypeProvider::array(DataLocation::CallData)},
 			{"sig", TypeProvider::fixedBytes(4)},
-			{"currencies", TypeProvider::extraCurrencyCollection()},
+			{"currencies", TypeProvider::extraCurrencyCollection(DataLocation::Memory)},
 		});
 	case Kind::TVM: {
 		MemberList::MemberMap members = {
@@ -3811,14 +3810,6 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				strings{string()},
 				strings{},
 				FunctionType::Kind::TVMSetcode,
-				false, StateMutability::Pure
-		));
-		members.emplace_back("setExtDestAddr", TypeProvider::function(
-				TypePointers{TypeProvider::address()},
-				TypePointers{},
-				strings{string()},
-				strings{},
-				FunctionType::Kind::TVMDestAddr,
 				false, StateMutability::Pure
 		));
 		members.emplace_back("setCurrentCode", TypeProvider::function(
@@ -3967,6 +3958,16 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				FunctionType::Kind::TVMFunctionId,
 				true, StateMutability::Pure
 		));
+
+		members.emplace_back("encodeBody", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::tvmcell()},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMEncodeBody,
+				true, StateMutability::Pure
+		));
+
 		members.emplace_back("max", TypeProvider::function(
 				TypePointers{},
 				TypePointers{},
