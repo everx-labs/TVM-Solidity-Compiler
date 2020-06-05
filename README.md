@@ -1,10 +1,6 @@
 # Sol2TVM Compiler
 
-Port of the Solidity smart-contract [compiler](https://github.com/ethereum/solidity) generating TVM bytecode for TON blockchain. Please refer to upstream README.md for information on the language itself.
-
-## Build and Install
-
-Original Instructions about how to build and install the Solidity compiler can be found in the [Solidity documentation](https://solidity.readthedocs.io/en/latest/installing-solidity.html#building-from-source).
+Port of the Solidity smart-contract [compiler](https://github.com/ethereum/solidity) generating TVM bytecode for TON blockchain. Please refer to the upstream README.md for information on the language itself.
 
 ### Ubuntu Linux
 
@@ -12,16 +8,11 @@ Original Instructions about how to build and install the Solidity compiler can b
 git clone git@github.com:tonlabs/TON-Solidity-Compiler.git
 cd TON-Solidity-Compiler/compiler
 sh ./scripts/install_deps.sh
+sh ./scripts/install_lib_variable.sh
 mkdir build
 cd build
 cmake .. -DUSE_CVC4=OFF -DUSE_Z3=OFF -DTESTS=OFF -DCMAKE_BUILD_TYPE=Debug
 make -j8
-```
-
-To facilitate work with other TON tools add path to stdlib_sol.tvm into environment variables:
-
-```shell
-sh ./pub/compiler/scripts/install_lib_variable.sh
 ```
 
 ### Windows 10
@@ -43,11 +34,11 @@ To facilitate work with other TON tools add path to stdlib_sol.tvm into environm
 
 ## Usage
 
+[Step-by-step guide](https://docs.ton.dev/86757ecb2/p/950f8a-write-smart-contract-in-solidity)
 [Described in the samples repository](https://github.com/tonlabs/samples/tree/master/solidity)
 
 TVM linker repository: https://github.com/tonlabs/TVM-linker
-
-All other relevant binaries, if needed, can be found inside TON Labs Node SE distribution at https://ton.dev/.
+TONOS-cli repostory: https://github.com/tonlabs/tonos-cli
 
 ## Recent changes
 
