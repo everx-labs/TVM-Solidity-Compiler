@@ -29,8 +29,10 @@ namespace TvmConst {
 		const int TempFunctionReturnBuffer = 8;
 	}
 	namespace SENDRAWMSG {
-		const int DefaultFlag  = 1;
-		const int CarryAllMoney  = 128;
+		const int DefaultFlag = 1;
+		const int DestroyAccount = 32;
+		const int CarryAllMoney = 128;
+		const int SelfDestruct = CarryAllMoney | DestroyAccount;
 	}
 	namespace Message {
 		const int functionIdLength = 32;

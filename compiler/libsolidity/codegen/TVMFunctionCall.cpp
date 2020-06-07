@@ -232,7 +232,7 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 			acceptExpr(arguments[i].get());
 		std::vector<Type const*> types;
 		std::vector<ASTNode const*> nodes;
-		std::tie(types, nodes) = getParams(std::vector(arguments.begin() + 4, arguments.end()));
+		std::tie(types, nodes) = getParams(arguments, 4);
 		m_pusher.push(+1, "NEWC");
 		m_pusher.push(-1, "STU 32");
 
@@ -252,7 +252,7 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 				acceptExpr(arguments[i].get());
 		std::vector<Type const*> types;
 		std::vector<ASTNode const*> nodes;
-		std::tie(types, nodes) = getParams(std::vector(arguments.begin() + 5, arguments.end()));
+		std::tie(types, nodes) = getParams(arguments, 5);
 		m_pusher.push(+1, "NEWC");
 		m_pusher.push(-1, "STU 32");
 
@@ -1184,20 +1184,16 @@ bool FunctionCallCompiler::checkSolidityUnits(FunctionCall const &_functionCall)
 		m_pusher.push(0, "CTOS");
 		m_pusher.push(0, "SHA256U");
 	} else if (name == "selfdestruct") {
-		m_pusher.push(+1, "NEWC");
-		m_pusher.push(+1-1, "ENDC");
-		m_pusher.push(-1, "SETCODE");
-
 		const std::map<int, std::string> constParams {
 				{TvmConst::int_msg_info::ihr_disabled, "1"},
-				{TvmConst::int_msg_info::grams,  StackPusherHelper::gramsToBinaryString(1000)}, // TODO why not 0? Is here bug in local node?
+				{TvmConst::int_msg_info::grams,  StackPusherHelper::gramsToBinaryString(1'000)},
 				{TvmConst::int_msg_info::bounce,  "0"},
 		};
 		m_pusher.sendIntMsg(
 				{{TvmConst::int_msg_info::dest, _functionCall.arguments()[0].get()}},
 				constParams,
 				nullptr,
-				[&](){ m_pusher.push(+1, "PUSHINT " + toString(TvmConst::SENDRAWMSG::CarryAllMoney)); });
+				[&](){ m_pusher.push(+1, "PUSHINT " + toString(TvmConst::SENDRAWMSG::SelfDestruct)); });
 	} else if (name == "require") {
 		if (arguments.size() == 1) {
 			acceptExpr(arguments[0].get());

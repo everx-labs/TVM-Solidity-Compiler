@@ -314,8 +314,8 @@ public:
 	std::tuple<bool, PragmaDirective const *> haveHeader(const std::string& str) const {
 		for (PragmaDirective const *pd : pragmaDirectives) {
 			if (pd->literals().size() == 2 &&
-			    pd->literals()[0] == "AbiHeader" &&
-			    pd->literals()[1] == str) {
+				pd->literals()[0] == "AbiHeader" &&
+				pd->literals()[1] == str) {
 				return {true, pd};
 			}
 		}
@@ -390,12 +390,12 @@ struct ABITypeSize {
 
 template<typename T>
 std::pair<std::vector<Type const*>, std::vector<ASTNode const*>>
-getParams(T parameters) {
+getParams(const ast_vec<T>& params, size_t offset = 0) {
 	std::vector<Type const*> types;
 	std::vector<ASTNode const*> nodes;
-	for (auto param : parameters) {
-		types.push_back(param->annotation().type);
-		nodes.push_back(param.get());
+	for (auto it = params.begin() + offset; it != params.end(); it++) {
+		types.push_back(getType(it->get()));
+		nodes.push_back(it->get());
 	}
 	return std::make_pair(types, nodes);
 }
