@@ -116,6 +116,7 @@ TON Solidity compiler expands Solidity language with different API functions to 
       * [tvm.functionId()](#tvmfunctionid)
       * [tvm.encodeBody()](#tvmencodebody)
       * [tvm.min() and tvm.max()](#tvmmin-and-tvmmax)
+  * [selfdestruct](#selfdestruct)
 
 ## Detailed description
 
@@ -1221,6 +1222,18 @@ uint max = tvm.max(uint a, uint b, ...);
 ```
 
 This function returns the minimal (maximal) value of the passed arguments.
+
+##### selfdestruct
+
+```TVMSolidity
+address dest_addr = msg.sender;
+selfdestruct(dest_addr);
+```
+Create and send the message that carry all the remaining balance
+of the current smart contract and destroy the current account.
+
+See example of how to use **selfdestruct** function:
+* [Kamikaze](https://github.com/tonlabs/samples/blob/master/solidity/8_Kamikaze.sol)
 
 [1]: https://ton.org/tvm.pdf        "TVM"
 [2]: https://ton.org/tblkch.pdf     "TBLKCH"
