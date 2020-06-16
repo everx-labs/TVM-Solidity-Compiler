@@ -372,8 +372,7 @@ ISNULL
 
 	// c7_to_c4 if need
 	solAssert(m_pusher.getStack().size() == 0, "");
-	if (m_function->stateMutability() == StateMutability::NonPayable ||
-	    m_function->stateMutability() == StateMutability::Payable) {
+	if (m_function->stateMutability() == StateMutability::NonPayable) {
 		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
 	} else {
 		m_pusher.push(0, "EQINT -1"); // is it ext msg?

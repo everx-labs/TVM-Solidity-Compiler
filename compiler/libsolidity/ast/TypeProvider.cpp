@@ -40,8 +40,7 @@ unique_ptr<ArrayType> TypeProvider::m_stringStorage;
 unique_ptr<ArrayType> TypeProvider::m_stringMemory;
 
 TupleType const TypeProvider::m_emptyTuple{};
-AddressType const TypeProvider::m_payableAddress{StateMutability::Payable};
-AddressType const TypeProvider::m_address{StateMutability::NonPayable};
+AddressType const TypeProvider::m_address{};
 VarInteger const TypeProvider::m_varInteger{};
 
 array<unique_ptr<IntegerType>, 32> const TypeProvider::m_intM{{
@@ -188,7 +187,6 @@ void TypeProvider::reset()
 	clearCache(m_stringStorage);
 	clearCache(m_stringMemory);
 	clearCache(m_emptyTuple);
-	clearCache(m_payableAddress);
 	clearCache(m_address);
 	clearCaches(instance().m_intM);
 	clearCaches(instance().m_uintM);
@@ -208,7 +206,7 @@ inline T const* TypeProvider::createAndGet(Args&& ... _args)
 	return static_cast<T const*>(instance().m_generalTypes.back().get());
 }
 
-Type const* TypeProvider::fromElementaryTypeName(ElementaryTypeNameToken const& _type, std::optional<StateMutability> _stateMutability)
+Type const* TypeProvider::fromElementaryTypeName(ElementaryTypeNameToken const& _type)
 {
 	solAssert(
 		TokenTraits::isElementaryTypeName(_type.token()),
@@ -241,14 +239,7 @@ Type const* TypeProvider::fromElementaryTypeName(ElementaryTypeNameToken const& 
 	case Token::UFixed:
 		return fixedPoint(128, 18, FixedPointType::Modifier::Unsigned);
 	case Token::Address:
-	{
-		if (_stateMutability)
-		{
-			solAssert(*_stateMutability == StateMutability::Payable, "");
-			return payableAddress();
-		}
 		return address();
-	}
 	case Token::Bool:
 		return boolean();
 	case Token::TvmCell:
@@ -303,7 +294,7 @@ TypePointer TypeProvider::fromElementaryTypeName(string const& _name)
 		if (nameParts.size() == 2)
 		{
 			if (nameParts[1] == "payable")
-				return payableAddress();
+				return address();
 			else
 				solAssert(false, "Invalid state mutability for address type: " + nameParts[1]);
 		}

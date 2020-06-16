@@ -53,7 +53,7 @@ public:
 
 	/// @name Factory functions
 	/// Factory functions that convert an AST @ref TypeName to a Type.
-	static Type const* fromElementaryTypeName(ElementaryTypeNameToken const& _type, std::optional<StateMutability> _stateMutability = {});
+	static Type const* fromElementaryTypeName(ElementaryTypeNameToken const& _type);
 
 	/// Converts a given elementary type name with optional data location
 	/// suffix " storage", " calldata" or " memory" to a type pointer. If suffix not given, defaults to " storage".
@@ -88,7 +88,6 @@ public:
 
 	static ArraySliceType const* arraySlice(ArrayType const& _arrayType);
 
-	static AddressType const* payableAddress() noexcept { return &m_payableAddress; }
 	static AddressType const* address() noexcept { return &m_address; }
 	static VarInteger const* varInteger() noexcept { return &m_varInteger; }
 
@@ -223,7 +222,6 @@ private:
 	static std::unique_ptr<ArrayType> m_stringMemory;
 
 	static TupleType const m_emptyTuple;
-	static AddressType const m_payableAddress;
 	static AddressType const m_address;
 	static VarInteger const m_varInteger;
 	static std::array<std::unique_ptr<IntegerType>, 32> const m_intM;

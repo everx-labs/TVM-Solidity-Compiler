@@ -766,7 +766,6 @@ public:
 	bool isOnBounce() const { return m_kind == Token::onBounce; }
 	bool isReceive() const { return m_kind == Token::Receive; }
 	Token kind() const { return m_kind; }
-	bool isPayable() const { return m_stateMutability == StateMutability::Payable; }
 	std::vector<ASTPointer<ModifierInvocation>> const& modifiers() const { return m_functionModifiers; }
 	Block const& body() const { solAssert(m_body, ""); return *m_body; }
 	bool isVisibleInContract() const override
@@ -1081,11 +1080,9 @@ public:
 	ElementaryTypeName(
 		int64_t _id,
 		SourceLocation const& _location,
-		ElementaryTypeNameToken const& _elem,
-		std::optional<StateMutability> _stateMutability = {}
-	): TypeName(_id, _location), m_type(_elem), m_stateMutability(_stateMutability), m_location(DataLocation::Memory)
+		ElementaryTypeNameToken const& _elem
+	): TypeName(_id, _location), m_type(_elem), m_location(DataLocation::Memory)
 	{
-		solAssert(!_stateMutability.has_value() || _elem.token() == Token::Address, "");
 	}
 
 	void accept(ASTVisitor& _visitor) override;
@@ -1093,14 +1090,11 @@ public:
 
 	ElementaryTypeNameToken const& typeName() const { return m_type; }
 
-	std::optional<StateMutability> const& stateMutability() const { return m_stateMutability; }
-
 	void setLocation(DataLocation _location);
 	DataLocation getLocation() const { return m_location; }
 
 private:
 	ElementaryTypeNameToken m_type;
-	std::optional<StateMutability> m_stateMutability; ///< state mutability for address type
 	DataLocation m_location; ///< for ExtraCurrencyCollection type
 };
 
@@ -1153,7 +1147,6 @@ public:
 		return m_visibility == Visibility::Default ? Visibility::Internal : m_visibility;
 	}
 	StateMutability stateMutability() const { return m_stateMutability; }
-	bool isPayable() const { return m_stateMutability == StateMutability::Payable; }
 
 private:
 	ASTPointer<ParameterList> m_parameterTypes;

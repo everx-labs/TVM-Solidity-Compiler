@@ -113,29 +113,7 @@ bool ReferencesResolver::visit(Identifier const& _identifier)
 bool ReferencesResolver::visit(ElementaryTypeName const& _typeName)
 {
 	if (!_typeName.annotation().type)
-	{
 		_typeName.annotation().type = TypeProvider::fromElementaryTypeName(_typeName.typeName());
-		if (_typeName.stateMutability().has_value())
-		{
-			// for non-address types this was already caught by the parser
-			solAssert(_typeName.annotation().type->category() == Type::Category::Address, "");
-			switch (*_typeName.stateMutability())
-			{
-				case StateMutability::Payable:
-					_typeName.annotation().type = TypeProvider::payableAddress();
-					break;
-				case StateMutability::NonPayable:
-					_typeName.annotation().type = TypeProvider::address();
-					break;
-				default:
-					m_errorReporter.typeError(
-						_typeName.location(),
-						"Address types can only be payable or non-payable."
-					);
-					break;
-			}
-		}
-	}
 	return true;
 }
 
@@ -196,12 +174,6 @@ void ReferencesResolver::endVisit(FunctionTypeName const& _typeName)
 		break;
 	default:
 		fatalTypeError(_typeName.location(), "Invalid visibility, can only be \"external\" or \"internal\".");
-		return;
-	}
-
-	if (_typeName.isPayable() && _typeName.visibility() != Visibility::External)
-	{
-		fatalTypeError(_typeName.location(), "Only external function types can be payable.");
 		return;
 	}
 

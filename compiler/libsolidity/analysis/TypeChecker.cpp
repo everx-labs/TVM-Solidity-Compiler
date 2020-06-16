@@ -266,9 +266,6 @@ TypePointers TypeChecker::typeCheckABIDecodeAndRetrieveReturnType(FunctionCall c
 			// data locations. Furthermore, storage can be a little dangerous and
 			// calldata is not really implemented anyway.
 			actualType = TypeProvider::withLocationIfReference(DataLocation::Memory, actualType);
-			// We force address payable for address types.
-			if (actualType->category() == Type::Category::Address)
-				actualType = TypeProvider::payableAddress();
 			solAssert(
 				!actualType->dataStoredIn(DataLocation::CallData) &&
 				!actualType->dataStoredIn(DataLocation::Storage),
@@ -310,8 +307,6 @@ TypePointers TypeChecker::typeCheckTVMSliceDecodeAndRetrieveReturnType(FunctionC
 			// calldata is not really implemented anyway.
 			actualType = TypeProvider::withLocationIfReference(DataLocation::Memory, actualType);
 			// We force address payable for address types.
-			if (actualType->category() == Type::Category::Address)
-				actualType = TypeProvider::payableAddress();
 			solAssert(
 				!actualType->dataStoredIn(DataLocation::CallData) &&
 				!actualType->dataStoredIn(DataLocation::Storage),
@@ -460,13 +455,6 @@ bool TypeChecker::visit(FunctionDefinition const& _function)
 			m_errorReporter.typeError(_function.location(), "\"virtual\" and \"private\" cannot be used together.");
 	}
 
-	if (_function.isPayable())
-	{
-		if (isLibraryFunction)
-			m_errorReporter.typeError(_function.location(), "Library functions cannot be payable.");
-		if (_function.isOrdinary() && !_function.isPartOfExternalInterface())
-			m_errorReporter.typeError(_function.location(), "Internal functions cannot be payable.");
-	}
 	auto checkArgumentAndReturnParameter = [&](VariableDeclaration const& var) {
 		if (type(var)->category() == Type::Category::Mapping)
 		{
@@ -1610,12 +1598,6 @@ TypePointer TypeChecker::typeCheckTypeConversionAndRetrieveReturnType(
 				argType->category() == Type::Category::Address
 			)
 			{
-				solAssert(dynamic_cast<ContractType const*>(resultType)->isPayable(), "");
-				solAssert(
-					dynamic_cast<AddressType const*>(argType)->stateMutability() <
-						StateMutability::Payable,
-					""
-				);
 				SecondarySourceLocation ssl;
 				if (
 					auto const* identifier = dynamic_cast<Identifier const*>(arguments.front().get())
@@ -1662,14 +1644,9 @@ TypePointer TypeChecker::typeCheckTypeConversionAndRetrieveReturnType(
 					"\"."
 				);
 		}
-		if (auto addressType = dynamic_cast<AddressType const*>(resultType))
-			if (addressType->stateMutability() != StateMutability::Payable)
-			{
-				bool payable = false;
-				if (argType->category() != Type::Category::Address)
-					payable = argType->isExplicitlyConvertibleTo(*TypeProvider::payableAddress());
-				resultType = payable ? TypeProvider::payableAddress() : TypeProvider::address();
-			}
+		if (dynamic_cast<AddressType const*>(resultType)) {
+			resultType = TypeProvider::address();
+		}
 	}
 	return resultType;
 }
@@ -1723,13 +1700,6 @@ void TypeChecker::typeCheckFallbackFunction(FunctionDefinition const& _function)
 
 	if (_function.inContractKind() == ContractKind::Library)
 		m_errorReporter.typeError(_function.location(), "Libraries cannot have fallback functions.");
-	if (_function.stateMutability() != StateMutability::NonPayable && _function.stateMutability() != StateMutability::Payable)
-		m_errorReporter.typeError(
-			_function.location(),
-			"Fallback function must be payable or non-payable, but is \"" +
-			stateMutabilityToString(_function.stateMutability()) +
-			"\"."
-		);
 	if (_function.visibility() != Visibility::External)
 		m_errorReporter.typeError(_function.location(), "Fallback function must be defined as \"external\".");
 	if (!_function.returnParameters().empty())
@@ -1750,13 +1720,6 @@ void TypeChecker::typeCheckReceiveFunction(FunctionDefinition const& _function)
 	if (_function.inContractKind() == ContractKind::Library)
 		m_errorReporter.typeError(_function.location(), "Libraries cannot have receive ether functions.");
 
-	if (_function.stateMutability() != StateMutability::Payable)
-		m_errorReporter.typeError(
-			_function.location(),
-			"Receive ether function must be payable, but is \"" +
-			stateMutabilityToString(_function.stateMutability()) +
-			"\"."
-		);
 	if (_function.visibility() != Visibility::External)
 		m_errorReporter.typeError(_function.location(), "Receive ether function must be defined as \"external\".");
 	if (!_function.returnParameters().empty())
@@ -1771,7 +1734,7 @@ void TypeChecker::typeCheckConstructor(FunctionDefinition const& _function)
 	solAssert(_function.isConstructor(), "");
 	if (!_function.returnParameters().empty())
 		m_errorReporter.typeError(_function.returnParameterList()->location(), "Non-empty \"returns\" directive for constructor.");
-	if (_function.stateMutability() != StateMutability::NonPayable && _function.stateMutability() != StateMutability::Payable)
+	if (_function.stateMutability() != StateMutability::NonPayable)
 		m_errorReporter.typeError(
 			_function.location(),
 			"Constructor must be payable or non-payable, but is \"" +
@@ -2635,7 +2598,7 @@ bool TypeChecker::visit(MemberAccess const& _memberAccess)
 		}
 		else if (exprType->category() == Type::Category::Contract)
 		{
-			for (auto const& addressMember: TypeProvider::payableAddress()->nativeMembers(nullptr))
+			for (auto const& addressMember: TypeProvider::address()->nativeMembers(nullptr))
 				if (addressMember.name == memberName)
 				{
 					Identifier const* var = dynamic_cast<Identifier const*>(&_memberAccess.expression());
@@ -2643,19 +2606,6 @@ bool TypeChecker::visit(MemberAccess const& _memberAccess)
 					errorMsg += " Use \"address(" + varName + ")." + memberName + "\" to access this address member.";
 					break;
 				}
-		}
-		else if (auto addressType = dynamic_cast<AddressType const*>(exprType))
-		{
-			// Trigger error when using send or transfer with a non-payable fallback function.
-			if (memberName == "send" || memberName == "transfer")
-			{
-				solAssert(
-					addressType->stateMutability() != StateMutability::Payable,
-					"Expected address not-payable as members were not found"
-				);
-
-				errorMsg = "\"send\" and \"transfer\" are only available for objects of type \"address payable\", not \"" + exprType->toString() + "\".";
-			}
 		}
 
 		m_errorReporter.fatalTypeError(
@@ -2994,7 +2944,7 @@ bool TypeChecker::visit(Identifier const& _identifier)
 
 void TypeChecker::endVisit(ElementaryTypeNameExpression const& _expr)
 {
-	_expr.annotation().type = TypeProvider::typeType(TypeProvider::fromElementaryTypeName(_expr.type().typeName(), _expr.type().stateMutability()));
+	_expr.annotation().type = TypeProvider::typeType(TypeProvider::fromElementaryTypeName(_expr.type().typeName()));
 	_expr.annotation().isPure = true;
 }
 

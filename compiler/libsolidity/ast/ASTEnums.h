@@ -30,7 +30,7 @@ namespace solidity::frontend
 {
 
 // How a function can mutate the EVM state.
-enum class StateMutability { Pure, View, NonPayable, Payable };
+enum class StateMutability { Pure, View, NonPayable };
 
 /// Visibility ordered from restricted to unrestricted.
 enum class Visibility { Default, Private, Internal, Public, TvmGetter, External };
@@ -45,8 +45,6 @@ inline std::string stateMutabilityToString(StateMutability const& _stateMutabili
 		return "view";
 	case StateMutability::NonPayable:
 		return "nonpayable";
-	case StateMutability::Payable:
-		return "payable";
 	default:
 		solAssert(false, "Unknown state mutability.");
 	}

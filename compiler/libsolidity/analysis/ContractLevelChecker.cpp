@@ -448,10 +448,10 @@ void ContractLevelChecker::checkBaseABICompatibility(ContractDefinition const& _
 void ContractLevelChecker::checkPayableFallbackWithoutReceive(ContractDefinition const& _contract)
 {
 	if (auto const* fallback = _contract.fallbackFunction())
-		if (fallback->isPayable() && !_contract.interfaceFunctionList().empty() && !_contract.receiveFunction())
+		if (!_contract.interfaceFunctionList().empty() && !_contract.receiveFunction())
 			m_errorReporter.warning(
 				_contract.location(),
-				"This contract has a payable fallback function, but no receive ether function. Consider adding a receive ether function.",
-				SecondarySourceLocation{}.append("The payable fallback function is defined here.", fallback->location())
+				"This contract has a fallback function, but no receive function. Consider adding a receive function.",
+				SecondarySourceLocation{}.append("The fallback function is defined here.", fallback->location())
 			);
 }

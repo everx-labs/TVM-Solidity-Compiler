@@ -146,8 +146,7 @@ case $(uname -s) in
                     base-devel \
                     boost \
                     cmake \
-                    git \
-                    cvc4
+                    git
                 ;;
 
 #------------------------------------------------------------------------------
@@ -173,41 +172,7 @@ case $(uname -s) in
             Debian*)
                 #Debian
                 . /etc/os-release
-                install_z3=""
-                case $VERSION_ID in
-                    7)
-                        #wheezy
-                        echo "Installing solidity dependencies on Debian Wheezy (7.x)."
-                        echo "ERROR - 'install_deps.sh' doesn't have Debian Wheezy support yet."
-                        echo "See http://solidity.readthedocs.io/en/latest/installing-solidity.html for manual instructions."
-                        echo "If you would like to get 'install_deps.sh' working for Debian Wheezy, that would be fantastic."
-                        echo "Drop us a message at https://gitter.im/ethereum/solidity-dev."
-                        echo "See also https://github.com/ethereum/webthree-umbrella/issues/495 where we are working through Alpine support."
-                        exit 1
-                        ;;
-                    8)
-                        #jessie
-                        echo "Installing solidity dependencies on Debian Jesse (8.x)."
-                        ;;
-                    9)
-                        #stretch
-                        echo "Installing solidity dependencies on Debian Stretch (9.x)."
-                        install_z3="libz3-dev"
-                        ;;
-                    10)
-                        #buster
-                        echo "Installing solidity dependencies on Debian Buster (10.x)."
-                        install_z3="libz3-dev"
-                        ;;
-                    *)
-                        #other Debian
-                        echo "Installing solidity dependencies on unknown Debian version."
-                        echo "ERROR - This might not work, but we are trying anyway."
-                        echo "Drop us a message at https://gitter.im/ethereum/solidity-dev"
-                        install_z3="libz3-dev"
-                        ;;
-                esac
-
+                
                 # Install "normal packages"
                 sudo apt-get -y update
                 sudo apt-get -y install \
@@ -217,8 +182,7 @@ case $(uname -s) in
                     gcc \
                     git \
                     libboost-all-dev \
-                    unzip \
-                    "$install_z3"
+                    unzip
 
 
                 ;;
@@ -267,77 +231,13 @@ case $(uname -s) in
             Ubuntu|LinuxMint)
                 #LinuxMint is a distro on top of Ubuntu.
                 #Ubuntu
-                install_z3=""
-                case $(lsb_release -cs) in
-                    trusty|qiana|rebecca|rafaela|rosa)
-                        echo "Installing solidity dependencies on Ubuntu Trusty Tahr (14.04)."
-                        echo "Or, you may also be running Linux Mint Qiana / Rebecca / Rafaela / Rosa (base: Ubuntu Trusty Tahr (14.04).)"
-                        ;;
-                    utopic)
-                        echo "Installing solidity dependencies on Ubuntu Utopic Unicorn (14.10)."
-                        ;;
-                    vivid)
-                        echo "Installing solidity dependencies on Ubuntu Vivid Vervet (15.04)."
-                        ;;
-                    wily)
-                        echo "Installing solidity dependencies on Ubuntu Wily Werewolf (15.10)."
-                        ;;
-                    xenial|sarah|serena|sonya|sylvia)
-                        echo "Installing solidity dependencies on Ubuntu Xenial Xerus (16.04)."
-                        echo "Or, you may also be running Linux Mint Sarah / Serena / Sonya / Sylvia (base: Ubuntu Xenial Xerus (16.04).)"
-                        install_z3="libz3-dev"
-                        ;;
-                    yakkety)
-                        echo "Installing solidity dependencies on Ubuntu Yakkety Yak (16.10)."
-                        install_z3="libz3-dev"
-                        ;;
-                    zesty)
-                        echo "Installing solidity dependencies on Ubuntu Zesty (17.04)."
-                        install_z3="libz3-dev"
-                        ;;
-                    artful)
-                        echo "Installing solidity dependencies on Ubuntu Artful (17.10)."
-                        install_z3="libz3-dev"
-                        ;;
-                    bionic)
-                        echo "Installing solidity dependencies on Ubuntu Bionic (18.04)."
-                        install_z3="libz3-dev"
-                        ;;
-                    betsy)
-                        #do not try anything for betsy.
-                        echo "Linux Mint Betsy is not supported at the moment as it runs off of Debian."
-                        echo "We only support Sylvia, Sonya, Serena, Sarah, Rosa, Rafaela, Rebecca, and Qiana."
-                        echo "See http://solidity.readthedocs.io/en/latest/installing-solidity.html for manual instructions."
-                        echo "If you would like to get your distro working, that would be fantastic."
-                        echo "Drop us a message at https://gitter.im/ethereum/solidity-dev."
-                        exit 1
-                        ;;
-                    *)
-                        #other Ubuntu
-                        echo "ERROR - Unknown or unsupported Ubuntu version (" $(lsb_release -cs) ")"
-                        echo "ERROR - This might not work, but we are trying anyway."
-                        echo "Please drop us a message at https://gitter.im/ethereum/solidity-dev."
-                        echo "We only support Trusty, Utopic, Vivid, Wily, Xenial, Yakkety, Zesty, Artful and Bionic."
-                        install_z3="libz3-dev"
-                        ;;
-                esac
-
+                
                 sudo apt-get -y update
                 sudo apt-get -y install \
                     build-essential \
                     cmake \
                     git \
-                    libboost-all-dev \
-                    "$install_z3"
-                if [ "$CI" = true ]; then
-                    # install Z3 from PPA if the distribution does not provide it
-                    if ! dpkg -l libz3-dev > /dev/null 2>&1
-                    then
-                        sudo apt-add-repository -y ppa:hvr/z3
-                        sudo apt-get -y update
-                        sudo apt-get -y install libz3-dev
-                    fi
-                fi
+                    libboost-all-dev
                 ;;
 
 #------------------------------------------------------------------------------

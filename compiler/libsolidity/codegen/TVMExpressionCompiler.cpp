@@ -41,13 +41,22 @@ void TVMExpressionCompiler::acceptExpr(const Expression *expr, const bool _isRes
 	// Recursive call are not allowed.
 	solAssert(m_expressionDepth == -1, "");
 	m_isResultNeeded = _isResultNeeded;
-	acceptExpr(expr);
+	bool doDropResultIfNeeded = acceptExpr(expr);
 	m_expressionDepth = -1;
+
+	if (doDropResultIfNeeded && !m_isResultNeeded) {
+		if (auto t = to<TupleType>(getType(expr))) {
+			m_pusher.drop(t->components().size());
+		} else {
+			m_pusher.drop(1);
+		}
+	}
 }
 
-void TVMExpressionCompiler::acceptExpr(const Expression *expr) {
+bool TVMExpressionCompiler::acceptExpr(const Expression *expr) {
 	const int savedExpressionDepth = m_expressionDepth;
 	++m_expressionDepth;
+	bool doDropResultIfNeeded = true;
 	if (fold_constants(expr)) {
 	} else if (auto e = to<Literal>(expr)) {
 		visit2(*e);
@@ -57,8 +66,10 @@ void TVMExpressionCompiler::acceptExpr(const Expression *expr) {
 		visit2(*e1);
 	} else if (auto e2 = to<UnaryOperation>(expr)) {
 		visit2(*e2);
+		doDropResultIfNeeded = false;
 	} else if (auto e3 = to<Assignment>(expr)) {
 		visit2(*e3);
+		doDropResultIfNeeded = false;
 	} else if (auto e4 = to<TupleExpression>(expr)) {
 		visit2(*e4);
 	} else if (auto e5 = to<MemberAccess>(expr)) {
@@ -66,7 +77,7 @@ void TVMExpressionCompiler::acceptExpr(const Expression *expr) {
 	} else if (auto e6 = to<IndexAccess>(expr)) {
 		visit2(*e6);
 	} else if (auto e7 = to<FunctionCall>(expr)) {
-		visit2(*e7);
+		doDropResultIfNeeded = visit2(*e7);
 	} else if (auto e8 = to<Conditional>(expr)) {
 		visit2(*e8);
 	} else if (auto e9 = to<ElementaryTypeNameExpression>(expr)) {
@@ -78,6 +89,7 @@ void TVMExpressionCompiler::acceptExpr(const Expression *expr) {
 	--m_expressionDepth;
 	solAssert(savedExpressionDepth == m_expressionDepth,
 	          "Internal error: depth exp " + toString(savedExpressionDepth) + " got " + toString(m_expressionDepth));
+	return doDropResultIfNeeded;
 }
 
 std::pair<bool, bigint> TVMExpressionCompiler::constValue(const Expression &_e) {
@@ -278,9 +290,6 @@ void TVMExpressionCompiler::visit2(Identifier const &_identifier) {
 		m_pusher.pushCont(code);
 	} else {
 		cast_error(_identifier, "Unsupported identifier: " + name);
-	}
-	if (!isCurrentResultNeeded()) {
-		m_pusher.drop(1);
 	}
 }
 
@@ -1522,27 +1531,18 @@ bool TVMExpressionCompiler::checkForMappingOrCurrenciesMethods(FunctionCall cons
 	return true;
 }
 
-void TVMExpressionCompiler::visit2(FunctionCall const &_functionCall) {
+bool TVMExpressionCompiler::visit2(FunctionCall const &_functionCall) {
 	if (checkForArrayMethods(_functionCall) || checkRemoteMethodCall(_functionCall)) {
 		// To avoid situation when we call a function of a remote contract and don't save the result.
 		// Remote function can return a result but in fact we don't get it.
-		return;
+		return false;
 	}
 
-	if (checkAbiMethodCall(_functionCall) ||
-	    checkForMappingOrCurrenciesMethods(_functionCall)) {
-		if (!isCurrentResultNeeded()) {
-			if (auto t = to<TupleType>(_functionCall.annotation().type)) {
-				m_pusher.drop(t->components().size());
-			} else {
-				m_pusher.drop(1);
-			}
-		}
-		return ;
+	if (!checkAbiMethodCall(_functionCall) && !checkForMappingOrCurrenciesMethods(_functionCall)) {
+		FunctionCallCompiler fcc(m_pusher, this, _functionCall);
+		fcc.compile();
 	}
-
-	FunctionCallCompiler fcc(m_pusher, this);
-	fcc.compile(_functionCall, isCurrentResultNeeded());
+	return true;
 }
 
 void TVMExpressionCompiler::visit2(Conditional const &_conditional) {

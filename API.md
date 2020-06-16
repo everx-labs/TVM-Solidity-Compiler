@@ -30,7 +30,9 @@ TON Solidity compiler expands Solidity language with different API functions to 
     * [TvmBuilder.storeSigned()](#tvmbuilderstoresigned)
     * [TvmBuilder.storeUnsigned()](#tvmbuilderstoreunsigned)
     * [TvmBuilder.storeRef()](#tvmbuilderstoreref)
-  * Changes in
+  * Changes and extensions in
+    * [struct](#struct)
+      * [struct.unpack()](#structunpack)
     * [string](#string)
       * [string.byteLength()](#stringbytelength)
       * [string.substr()](#stringsubstr)
@@ -374,6 +376,25 @@ See example of how to work with TVM specific types:
 
 * [Message_construction](https://github.com/tonlabs/samples/blob/master/solidity/15_MessageSender.sol)
 * [Message_parsing](https://github.com/tonlabs/samples/blob/master/solidity/15_MessageReceiver.sol)
+
+#### struct
+
+##### struct.unpack()
+
+```TVMSolidity
+    struct MyStruct {
+        uint a;
+        int b;
+        address c;
+    }
+
+    function f() pure public {
+        MyStruct s = MyStruct(1, -1, address(2));
+        (uint a, int b, address c) = s.unpack();
+    }
+```
+
+This method **unpack** all values stored in the struct.
 
 #### bytes
 
@@ -751,7 +772,7 @@ On exception state variables of the contract are reverted to state before
 ```TVMSolidity
 uint a = 5;
 
-require(a == 5); // ok 
+require(a == 5); // ok
 require(a == 6); // throw exception 100
 require(a == 6, 101); // throw exception 101
 require(a == 6, 101, "a is not equal to six"); // throw exception 101 and string
@@ -815,8 +836,8 @@ contract Sink {
 ```
 
 On plain value transfer **receive** function is
-called. See [address.transfer()](#addresstransfer)  
-If there is no **receive** function and **fallback** function
+called. See [address.transfer()](#addresstransfer)
+If there is no **receive** function and **fallback** function exists than
 **fallback** function is called.  
 If there are no **receive** and **fallback** functions, contract
 does nothing on plain value transfer.  
