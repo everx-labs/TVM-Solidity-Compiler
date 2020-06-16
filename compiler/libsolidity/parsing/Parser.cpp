@@ -455,7 +455,7 @@ StateMutability Parser::parseStateMutability()
 	switch (token)
 	{
 		case Token::Payable:
-			stateMutability = StateMutability::Payable;
+			stateMutability = StateMutability::NonPayable;
 			break;
 		case Token::View:
 			stateMutability = StateMutability::View;
@@ -510,6 +510,11 @@ Parser::FunctionHeaderParserResult Parser::parseFunctionHeader(bool _isStateVari
 		}
 		else if (TokenTraits::isStateMutabilitySpecifier(token))
 		{
+			if (token == Token::Payable)
+			{
+				parserWarning("Have no effect in TON. Delete this.");
+			}
+
 			if (result.stateMutability != StateMutability::NonPayable)
 			{
 				parserError(string(
@@ -1038,6 +1043,7 @@ ASTPointer<TypeName> Parser::parseTypeName(bool _allowVar)
 		{
 			if (elemTypeName.token() == Token::Address)
 			{
+				parserWarning("Have no effect in TON. Delete this.");
 				nodeFactory.markEndPosition();
 				stateMutability = parseStateMutability();
 			}
@@ -1047,7 +1053,7 @@ ASTPointer<TypeName> Parser::parseTypeName(bool _allowVar)
 				m_scanner->next();
 			}
 		}
-		type = nodeFactory.createNode<ElementaryTypeName>(elemTypeName, stateMutability);
+		type = nodeFactory.createNode<ElementaryTypeName>(elemTypeName);
 	}
 	else if (token == Token::Var)
 	{
@@ -1767,8 +1773,7 @@ ASTPointer<Expression> Parser::parseLeftHandSideExpression(
 		expectToken(Token::Payable);
 		nodeFactory.markEndPosition();
 		auto expressionType = nodeFactory.createNode<ElementaryTypeName>(
-			ElementaryTypeNameToken(Token::Address, 0, 0),
-			std::make_optional(StateMutability::Payable)
+			ElementaryTypeNameToken(Token::Address, 0, 0)
 		);
 		expression = nodeFactory.createNode<ElementaryTypeNameExpression>(expressionType);
 		expectToken(Token::LParen, false);

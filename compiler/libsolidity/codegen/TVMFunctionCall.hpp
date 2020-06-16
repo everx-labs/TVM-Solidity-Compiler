@@ -27,44 +27,43 @@ class TVMExpressionCompiler;
 class FunctionCallCompiler {
 	StackPusherHelper& m_pusher;
 	TVMExpressionCompiler* const m_exprCompiler;
+	FunctionCall const& m_functionCall;
+	std::vector<ASTPointer<Expression const>> m_arguments;
 
 protected:
 	void acceptExpr(const Expression* expr);
 
 public:
-	FunctionCallCompiler(StackPusherHelper& m_pusher, TVMExpressionCompiler* exprCompiler);
-	void structConstructorCall(FunctionCall const& _functionCall);
-	void compile(FunctionCall const& _functionCall, bool isCurrentResultNeeded);
+	FunctionCallCompiler(StackPusherHelper& m_pusher, TVMExpressionCompiler* exprCompiler, FunctionCall const& _functionCall);
+	void structConstructorCall();
+	void compile();
 
 protected:
+	bool structMethodCall();
 	bool checkForSuper(MemberAccess const& _node, Type::Category);
 	bool checkForTypeTypeMember(MemberAccess const& _node, Type::Category category);
 	// TODO unite with decodeParameter
 	void loadTypeFromSlice(MemberAccess const& _node, TypePointer type);
-	bool checkForTvmDeployMethods(MemberAccess const& _node, Type::Category category,
-									const std::vector<ASTPointer<Expression const>> & arguments,
-									FunctionCall const& _functionCall);
-	bool checkForTvmSliceMethods(MemberAccess const& _node, Type::Category category,
-									const std::vector<ASTPointer<Expression const>> & arguments,
-									FunctionCall const& _functionCall);
+	bool checkForTvmDeployMethods(MemberAccess const& _node, Type::Category category);
+	bool checkForTvmSliceMethods(MemberAccess const& _node, Type::Category category);
 	void store(MemberAccess const& _node, TypePointer type, bool reverse = true);
-	bool checkForStringMethods(MemberAccess const& _node, const std::vector<ASTPointer<Expression const>> & arguments);
-	bool checkForTvmBuilderMethods(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments);
-	bool checkForTvmCellMethods(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & /*arguments*/);
-	void addressMethod(FunctionCall const &_functionCall);
-	bool checkForTvmConfigParamFunction(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments);
-	bool checkForTvmSendFunction(MemberAccess const& _node, const std::vector<ASTPointer<Expression const>> & arguments);
-	bool checkForMsgFunction(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments);
-	bool checkForTvmFunction(MemberAccess const& _node, Type::Category category, const std::vector<ASTPointer<Expression const>> & arguments);
+	bool checkForStringMethods(MemberAccess const& _node);
+	bool checkForTvmBuilderMethods(MemberAccess const& _node, Type::Category category);
+	bool checkForTvmCellMethods(MemberAccess const& _node, Type::Category category);
+	void addressMethod();
+	bool checkForTvmConfigParamFunction(MemberAccess const& _node);
+	bool checkForTvmSendFunction(MemberAccess const& _node);
+	bool checkForMsgFunction(MemberAccess const& _node, Type::Category category);
+	bool checkForTvmFunction(MemberAccess const& _node);
 	bool checkForMemberAccessTypeType(MemberAccess const& _node, Type::Category category);
-	bool checkAddressThis(FunctionCall const& _functionCall);
-	void typeConversion(FunctionCall const& _functionCall);
+	bool checkAddressThis();
+	void typeConversion();
 	bool checkLocalFunctionCall(const Identifier* identifier);
-	bool checkSolidityUnits(FunctionCall const& _functionCall);
-	bool checkForIdentifier(FunctionCall const& _functionCall);
-	bool checkNewExpression(FunctionCall const& _functionCall);
-	bool createNewContract(FunctionCall const &_functionCall);
-	bool checkTvmIntrinsic(FunctionCall const& _functionCall);
+	bool checkSolidityUnits();
+	bool checkForIdentifier();
+	bool checkNewExpression();
+	bool createNewContract();
+	bool checkTvmIntrinsic();
 };
 
 }	// solidity

@@ -83,15 +83,6 @@ else
     else
         pparepo=ethereum-dev
     fi
-    if [ $distribution = disco ]
-    then
-        SMTDEPENDENCY="libz3-static-dev,
-               libcvc4-dev,
-               "
-    else
-        SMTDEPENDENCY="libz3-static-dev,
-               "
-    fi
     CMAKE_OPTIONS=""
 fi
 ppafilesurl=https://launchpad.net/~ethereum/+archive/ubuntu/${pparepo}/+files

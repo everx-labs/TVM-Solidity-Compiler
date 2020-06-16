@@ -347,8 +347,6 @@ protected:
 class AddressType: public Type
 {
 public:
-	explicit AddressType(StateMutability _stateMutability);
-
 	Category category() const override { return Category::Address; }
 
 	std::string richIdentifier() const override;
@@ -373,11 +371,6 @@ public:
 
 	TypePointer encodingType() const override { return this; }
 	TypeResult interfaceType(bool) const override { return this; }
-
-	StateMutability stateMutability(void) const { return m_stateMutability; }
-
-private:
-	StateMutability m_stateMutability;
 };
 
 /**
@@ -765,7 +758,7 @@ public:
 
 	bool operator==(ReferenceType const& _other) const
 	{
-		return location() == _other.location() && isPointer() == _other.isPointer();
+		return /*location() == _other.location() && */isPointer() == _other.isPointer();
 	}
 
 	Type const* withLocation(DataLocation _location, bool _isPointer) const;
@@ -939,10 +932,6 @@ public:
 
 	/// See documentation of m_super
 	bool isSuper() const { return m_super; }
-
-	// @returns true if and only if the contract has a receive ether function or a payable fallback function, i.e.
-	// if it has code that will be executed on plain ether transfers
-	bool isPayable() const;
 
 	ContractDefinition const& contractDefinition() const { return m_contract; }
 
@@ -1347,7 +1336,6 @@ public:
 	/// does not modify the state and is a compile-time constant.
 	/// Currently, this will only return true for internal functions like keccak and ecrecover.
 	bool isPure() const;
-	bool isPayable() const { return m_stateMutability == StateMutability::Payable; }
 	/// @return A shared pointer of StructuredDocumentation.
 	/// Can contain a nullptr in which case indicates absence of documentation.
 	ASTPointer<StructuredDocumentation> documentation() const;

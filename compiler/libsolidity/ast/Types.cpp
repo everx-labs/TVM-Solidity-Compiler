@@ -370,46 +370,29 @@ MemberList::MemberMap Type::boundFunctions(Type const& _type, ContractDefinition
 	return members;
 }
 
-AddressType::AddressType(StateMutability _stateMutability):
-	m_stateMutability(_stateMutability)
-{
-	solAssert(m_stateMutability == StateMutability::Payable || m_stateMutability == StateMutability::NonPayable, "");
-}
-
 string AddressType::richIdentifier() const
 {
-	if (m_stateMutability == StateMutability::Payable)
-		return "t_address_payable";
-	else
-		return "t_address";
+	return "t_address";
 }
 
 BoolResult AddressType::isImplicitlyConvertibleTo(Type const& _other) const
 {
-	if (_other.category() != category())
-		return false;
-	AddressType const& other = dynamic_cast<AddressType const&>(_other);
-
-	return other.m_stateMutability <= m_stateMutability;
+	return _other.category() == category();
 }
 
 BoolResult AddressType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 {
 	if (_convertTo.category() == category())
 		return true;
-	else if (auto const* contractType = dynamic_cast<ContractType const*>(&_convertTo))
-		return (m_stateMutability >= StateMutability::Payable) || !contractType->isPayable();
+	else if (dynamic_cast<ContractType const*>(&_convertTo))
+		return true;
 	return isImplicitlyConvertibleTo(_convertTo) ||
-		_convertTo.category() == Category::Integer ||
-		(_convertTo.category() == Category::FixedBytes && 160 == dynamic_cast<FixedBytesType const&>(_convertTo).numBytes() * 8);
+		_convertTo.category() == Category::Integer;
 }
 
 string AddressType::toString(bool) const
 {
-	if (m_stateMutability == StateMutability::Payable)
-		return "address payable";
-	else
-		return "address";
+	return "address";
 }
 
 string AddressType::canonicalName() const
@@ -440,10 +423,7 @@ TypeResult AddressType::binaryOperatorResult(Token _operator, Type const* _other
 
 bool AddressType::operator==(Type const& _other) const
 {
-	if (_other.category() != category())
-		return false;
-	AddressType const& other = dynamic_cast<AddressType const&>(_other);
-	return other.m_stateMutability == m_stateMutability;
+	return _other.category() == category();
 }
 
 MemberList::MemberMap AddressType::nativeMembers(ContractDefinition const*) const
@@ -453,8 +433,8 @@ MemberList::MemberMap AddressType::nativeMembers(ContractDefinition const*) cons
 		{"currencies", TypeProvider::extraCurrencyCollection(DataLocation::Memory)},
 		{"wid", TypeProvider::integer(8, IntegerType::Modifier::Signed)},
 		{"value", TypeProvider::uint256()},
-		{"call", TypeProvider::function(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareCall, false, StateMutability::Payable)},
-		{"callcode", TypeProvider::function(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareCallCode, false, StateMutability::Payable)},
+		{"call", TypeProvider::function(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareCall, false, StateMutability::NonPayable)},
+		{"callcode", TypeProvider::function(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareCallCode, false, StateMutability::NonPayable)},
 		{"delegatecall", TypeProvider::function(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareDelegateCall, false, StateMutability::NonPayable)},
 		{"staticcall", TypeProvider::function(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareStaticCall, false, StateMutability::View)},
 		{"isStdZero", TypeProvider::function(strings(), strings{"bool"}, FunctionType::Kind::AddressIsZero, false, StateMutability::Pure)},
@@ -477,23 +457,20 @@ MemberList::MemberMap AddressType::nativeMembers(ContractDefinition const*) cons
 			FunctionType::Kind::AddressType,
 			false, StateMutability::Pure
 	));
-	if (m_stateMutability == StateMutability::Payable)
-	{
-		members.emplace_back(MemberList::Member{"send", TypeProvider::function(strings{"uint"}, strings{"bool"}, FunctionType::Kind::Send, false, StateMutability::NonPayable)});
-		members.emplace_back("transfer", TypeProvider::function(
-				TypePointers{TypeProvider::integer(128, IntegerType::Modifier::Unsigned),
-								 TypeProvider::boolean(),
-								 TypeProvider::integer(16, IntegerType::Modifier::Unsigned),
-								 TypeProvider::tvmcell(),
-								 TypeProvider::extraCurrencyCollection(DataLocation::Memory)},
-				TypePointers{},
-				strings{string("value"), string("bounce"), string("flag"), string("body"), string("currencies")},
-				strings{},
-				FunctionType::Kind::TVMTransfer,
-				true,
-				StateMutability::Pure
-		));
-	}
+	members.emplace_back(MemberList::Member{"send", TypeProvider::function(strings{"uint"}, strings{"bool"}, FunctionType::Kind::Send, false, StateMutability::NonPayable)});
+	members.emplace_back("transfer", TypeProvider::function(
+			TypePointers{TypeProvider::integer(128, IntegerType::Modifier::Unsigned),
+							 TypeProvider::boolean(),
+							 TypeProvider::integer(16, IntegerType::Modifier::Unsigned),
+							 TypeProvider::tvmcell(),
+							 TypeProvider::extraCurrencyCollection(DataLocation::Memory)},
+			TypePointers{},
+			strings{string("value"), string("bounce"), string("flag"), string("body"), string("currencies")},
+			strings{},
+			FunctionType::Kind::TVMTransfer,
+			true,
+			StateMutability::Pure
+	));
 	return members;
 }
 
@@ -1447,10 +1424,7 @@ Type const* ContractType::encodingType() const
 	if (isSuper())
 		return nullptr;
 
-	if (isPayable())
-		return TypeProvider::payableAddress();
-	else
-		return TypeProvider::address();
+	return TypeProvider::address();
 }
 
 BoolResult ContractType::isImplicitlyConvertibleTo(Type const& _convertTo) const
@@ -1480,17 +1454,10 @@ BoolResult ContractType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 	if (m_super)
 		return false;
 
-	if (auto const* addressType = dynamic_cast<AddressType const*>(&_convertTo))
-		return isPayable() || (addressType->stateMutability() < StateMutability::Payable);
+	if (dynamic_cast<AddressType const*>(&_convertTo))
+		return true;
 
 	return isImplicitlyConvertibleTo(_convertTo);
-}
-
-bool ContractType::isPayable() const
-{
-	auto receiveFunction = m_contract.receiveFunction();
-	auto fallbackFunction = m_contract.fallbackFunction();
-	return receiveFunction || (fallbackFunction && fallbackFunction->isPayable());
 }
 
 TypeResult ContractType::unaryOperatorResult(Token _operator) const
@@ -2145,7 +2112,7 @@ bool StructType::operator==(Type const& _other) const
 	if (_other.category() != category())
 		return false;
 	StructType const& other = dynamic_cast<StructType const&>(_other);
-	return ReferenceType::operator==(other) && other.m_struct == m_struct;
+	return other.m_struct == m_struct;
 }
 
 
@@ -2231,20 +2198,26 @@ string StructType::toString(bool _short) const
 MemberList::MemberMap StructType::nativeMembers(ContractDefinition const*) const
 {
 	MemberList::MemberMap members;
+	TypePointers types;
 	for (ASTPointer<VariableDeclaration> const& variable: m_struct.members())
 	{
 		TypePointer type = variable->annotation().type;
+		types.push_back(type);
 		solAssert(type, "");
-		// If we are not in storage, skip all members that cannot live outside of storage,
-		// ex. mappings and array of mappings
-		if (location() != DataLocation::Storage && !type->canLiveOutsideStorage())
-			continue;
 		members.emplace_back(
 			variable->name(),
 			copyForLocationIfReference(type),
 			variable.get()
 		);
 	}
+	members.emplace_back("unpack", TypeProvider::function(
+			TypePointers{},
+			types,
+			strings{},
+			strings{types.size()},
+			FunctionType::Kind::TVMBuilderMethods, // TODO rename
+			false, StateMutability::Pure
+	));
 	return members;
 }
 
@@ -2591,7 +2564,7 @@ FunctionType::FunctionType(FunctionDefinition const& _function, Kind _kind):
 		_kind == Kind::Internal || _kind == Kind::External || _kind == Kind::Declaration,
 		"Only internal or external function types or function declaration types can be created from function definitions."
 	);
-	if (_kind == Kind::Internal && m_stateMutability == StateMutability::Payable)
+	if (_kind == Kind::Internal && m_stateMutability == StateMutability::NonPayable)
 		m_stateMutability = StateMutability::NonPayable;
 
 	for (ASTPointer<VariableDeclaration> const& var: _function.parameters())
@@ -2708,8 +2681,6 @@ FunctionType::FunctionType(FunctionTypeName const& _typeName):
 	m_kind(_typeName.visibility() == Visibility::External ? Kind::External : Kind::Internal),
 	m_stateMutability(_typeName.stateMutability())
 {
-	if (_typeName.isPayable())
-		solAssert(m_kind == Kind::External, "Internal payable function type used.");
 	for (auto const& t: _typeName.parameterTypes())
 	{
 		solAssert(t->annotation().type, "Type not set for parameter.");
@@ -2757,8 +2728,6 @@ FunctionTypePointer FunctionType::newExpressionType(ContractDefinition const& _c
 			parameterNames.push_back(var->name());
 			parameters.push_back(var->annotation().type);
 		}
-		if (constructor->isPayable())
-			stateMutability = StateMutability::Payable;
 	}
 
 	return TypeProvider::function(
@@ -2938,14 +2907,6 @@ BoolResult FunctionType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 
 	if (!equalExcludingStateMutability(convertTo))
 		return false;
-
-	// non-payable should not be convertible to payable
-	if (m_stateMutability != StateMutability::Payable && convertTo.stateMutability() == StateMutability::Payable)
-		return false;
-
-	// payable should be convertible to non-payable, because you are free to pay 0 ether
-	if (m_stateMutability == StateMutability::Payable && convertTo.stateMutability() == StateMutability::NonPayable)
-		return true;
 
 	// e.g. pure should be convertible to view, but not the other way around.
 	if (m_stateMutability > convertTo.stateMutability())
@@ -3157,42 +3118,39 @@ MemberList::MemberMap FunctionType::nativeMembers(ContractDefinition const* _sco
 			members.emplace_back("selector", TypeProvider::fixedBytes(4));
 			members.emplace_back("address", TypeProvider::address());
 		}
-		if (m_kind != Kind::BareDelegateCall)
-		{
-			if (isPayable()) {
-				members.emplace_back(
+		if (m_kind != Kind::BareDelegateCall) {
+			members.emplace_back(
 					"value",
 					TypeProvider::function(
-						parseElementaryTypeVector({"uint"}),
-						TypePointers{copyAndSetCallOptions(false, true, false)},
-						strings(1, ""),
-						strings(1, ""),
-						Kind::SetValue,
-						false,
-						StateMutability::Pure,
-						nullptr,
-						m_gasSet,
-						m_valueSet,
-						m_saltSet
+							parseElementaryTypeVector({"uint"}),
+							TypePointers{copyAndSetCallOptions(false, true, false)},
+							strings(1, ""),
+							strings(1, ""),
+							Kind::SetValue,
+							false,
+							StateMutability::Pure,
+							nullptr,
+							m_gasSet,
+							m_valueSet,
+							m_saltSet
 					)
-				);
-				members.emplace_back(
+			);
+			members.emplace_back(
 					"flag",
 					TypeProvider::function(
-						parseElementaryTypeVector({"uint"}),
-						TypePointers{copyAndSetCallOptions(false, false, false)},
-						strings(1, ""),
-						strings(1, ""),
-						Kind::SetFlag,
-						false,
-						StateMutability::Pure,
-						nullptr,
-						m_gasSet,
-						m_valueSet,
-						m_saltSet
+							parseElementaryTypeVector({"uint"}),
+							TypePointers{copyAndSetCallOptions(false, false, false)},
+							strings(1, ""),
+							strings(1, ""),
+							Kind::SetFlag,
+							false,
+							StateMutability::Pure,
+							nullptr,
+							m_gasSet,
+							m_valueSet,
+							m_saltSet
 					)
-				);
-			}
+			);
 		}
 		if (m_kind != Kind::Creation)
 			members.emplace_back(
@@ -3649,7 +3607,7 @@ MemberList::MemberMap TypeType::nativeMembers(ContractDefinition const* _current
 		));
 		members.emplace_back("makeAddrStd", TypeProvider::function(
 				TypePointers{TypeProvider::integer(8, IntegerType::Modifier::Signed), TypeProvider::uint256()},
-				TypePointers{TypeProvider::payableAddress()},
+				TypePointers{TypeProvider::address()},
 				strings{string(), string()},
 				strings{string()},
 				FunctionType::Kind::AddressMakeAddrStd,
@@ -3661,10 +3619,9 @@ MemberList::MemberMap TypeType::nativeMembers(ContractDefinition const* _current
 
 BoolResult TypeType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 {
-	if (auto const* address = dynamic_cast<AddressType const*>(&_convertTo))
-		if (address->stateMutability() == StateMutability::NonPayable)
-			if (auto const* contractType = dynamic_cast<ContractType const*>(m_actualType))
-				return contractType->contractDefinition().isLibrary();
+	if (dynamic_cast<AddressType const*>(&_convertTo))
+		if (auto const* contractType = dynamic_cast<ContractType const*>(m_actualType))
+			return contractType->contractDefinition().isLibrary();
 	return isImplicitlyConvertibleTo(_convertTo);
 }
 
@@ -3776,7 +3733,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 	{
 	case Kind::Block:
 		return MemberList::MemberMap({
-			{"coinbase", TypeProvider::payableAddress()},
+			{"coinbase", TypeProvider::address()},
 			{"timestamp", TypeProvider::uint256()},
 			{"blockhash", TypeProvider::function(strings{"uint"}, strings{"bytes32"}, FunctionType::Kind::BlockHash, false, StateMutability::View)},
 			{"difficulty", TypeProvider::uint256()},
@@ -3785,7 +3742,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 		});
 	case Kind::Message:
 		return MemberList::MemberMap({
-			{"sender", TypeProvider::payableAddress()},
+			{"sender", TypeProvider::address()},
 			{"pubkey", TypeProvider::function(strings(), strings{"uint"}, FunctionType::Kind::MessagePubkey, false, StateMutability::Pure)},
 			{"createdAt", TypeProvider::uint(32)},
 			{"gas", TypeProvider::uint256()},
@@ -3853,7 +3810,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				false, StateMutability::Pure
 		));
 		members.emplace_back("sendMsg", TypeProvider::function(
-				TypePointers{TypeProvider::payableAddress(), TypeProvider::integer(32, IntegerType::Modifier::Unsigned), TypeProvider::integer(8, IntegerType::Modifier::Unsigned)},
+				TypePointers{TypeProvider::address(), TypeProvider::integer(32, IntegerType::Modifier::Unsigned), TypeProvider::integer(8, IntegerType::Modifier::Unsigned)},
 				TypePointers{},
 				strings{string(), string(), string()},
 				strings{},
@@ -3869,7 +3826,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				false, StateMutability::Pure
 		));
 		members.emplace_back("sendMsg", TypeProvider::function(
-				TypePointers{TypeProvider::payableAddress(), TypeProvider::integer(32, IntegerType::Modifier::Unsigned), TypeProvider::integer(8, IntegerType::Modifier::Unsigned), TypeProvider::integer(120, IntegerType::Modifier::Unsigned)},
+				TypePointers{TypeProvider::address(), TypeProvider::integer(32, IntegerType::Modifier::Unsigned), TypeProvider::integer(8, IntegerType::Modifier::Unsigned), TypeProvider::integer(120, IntegerType::Modifier::Unsigned)},
 				TypePointers{},
 				strings{string(), string(), string(), string()},
 				strings{},
@@ -3988,7 +3945,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 	}
 	case Kind::Transaction:
 		return MemberList::MemberMap({
-			{"origin", TypeProvider::payableAddress()},
+			{"origin", TypeProvider::address()},
 			{"gasprice", TypeProvider::uint256()}
 		});
 	case Kind::ABI:

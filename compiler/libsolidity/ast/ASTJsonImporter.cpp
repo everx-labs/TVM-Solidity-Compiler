@@ -473,7 +473,7 @@ ASTPointer<ElementaryTypeName> ASTJsonImporter::createElementaryTypeName(Json::V
 	if (_node.isMember("stateMutability"))
 		mutability = stateMutability(_node);
 
-	return createASTNode<ElementaryTypeName>(_node, elem, mutability);
+	return createASTNode<ElementaryTypeName>(_node, elem);
 }
 
 ASTPointer<UserDefinedTypeName> ASTJsonImporter::createUserDefinedTypeName(Json::Value const& _node)
@@ -1002,7 +1002,7 @@ StateMutability ASTJsonImporter::stateMutability(Json::Value const& _node)
 	else if (mutabilityStr == "nonpayable")
 		return StateMutability::NonPayable;
 	else if (mutabilityStr == "payable")
-		return StateMutability::Payable;
+		return StateMutability::NonPayable;
 	else
 		astAssert(false, "Unknown stateMutability");
 }

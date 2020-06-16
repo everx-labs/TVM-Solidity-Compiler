@@ -46,7 +46,7 @@ public:
 
 
 protected:
-	void acceptExpr(const Expression* expr);
+	bool acceptExpr(const Expression* expr);
 	bool isCurrentResultNeeded() const;
 	void visitStringLiteralAbiV1(Literal const& _node);
 	void visitStringLiteralAbiV2(Literal const& _node);
@@ -86,7 +86,7 @@ protected:
 	void mappingMinMaxMethod(FunctionCall const& _functionCall, bool isMin);
 	void mappingEmpty(FunctionCall const& _functionCall);
 	bool checkForMappingOrCurrenciesMethods(FunctionCall const& _functionCall);
-	void visit2(FunctionCall const& _functionCall);
+	bool visit2(FunctionCall const& _functionCall);
 	void visit2(Conditional const& _conditional);
 	void visit2(ElementaryTypeNameExpression const& _node);
 	bool fold_constants(const Expression *expr);

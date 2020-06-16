@@ -64,7 +64,7 @@ void ViewPureChecker::endVisit(FunctionDefinition const& _funDef)
 	solAssert(m_currentFunction == &_funDef, "");
 	if (
 		m_bestMutabilityAndLocation.mutability < _funDef.stateMutability() &&
-		_funDef.stateMutability() != StateMutability::Payable &&
+		_funDef.stateMutability() != StateMutability::NonPayable &&
 		_funDef.isImplemented() &&
 		!_funDef.body().statements().empty() &&
 		!_funDef.isConstructor() &&
@@ -134,7 +134,7 @@ void ViewPureChecker::endVisit(InlineAssembly const& /*_inlineAssembly*/)
 void ViewPureChecker::reportMutability(
 	StateMutability _mutability,
 	SourceLocation const& _location,
-	std::optional<SourceLocation> const& _nestedLocation
+	std::optional<SourceLocation> const&
 )
 {
 	if (_mutability > m_bestMutabilityAndLocation.mutability)
@@ -144,10 +144,7 @@ void ViewPureChecker::reportMutability(
 
 	// Check for payable here, because any occurrence of `msg.value`
 	// will set mutability to payable.
-	if (_mutability == StateMutability::View || (
-		_mutability == StateMutability::Payable &&
-		m_currentFunction->stateMutability() == StateMutability::Pure
-	))
+	if (_mutability == StateMutability::View)
 	{
 		m_errorReporter.typeError(
 			_location,
@@ -166,27 +163,6 @@ void ViewPureChecker::reportMutability(
 			"requires non-payable (the default) or payable."
 		);
 		m_errors = true;
-	}
-	else if (_mutability == StateMutability::Payable)
-	{
-		// We do not warn for library functions because they cannot be payable anyway.
-		// Also internal functions should be allowed to use `msg.value`.
-		if (m_currentFunction->isPublic() && m_currentFunction->inContractKind() != ContractKind::Library)
-		{
-			if (_nestedLocation)
-				m_errorReporter.typeError(
-					_location,
-					SecondarySourceLocation().append("\"msg.value\" or \"callvalue()\" appear here inside the modifier.", *_nestedLocation),
-					"This modifier uses \"msg.value\" or \"callvalue()\" and thus the function has to be payable or internal."
-				);
-			else
-				m_errorReporter.typeError(
-					_location,
-					"\"msg.value\" and \"callvalue()\" can only be used in payable public functions. Make the function "
-					"\"payable\" or use an internal function to avoid this error."
-				);
-			m_errors = true;
-		}
 	}
 	else
 		solAssert(false, "");
@@ -211,9 +187,6 @@ void ViewPureChecker::endVisit(FunctionCall const& _functionCall)
 	} else {
 		mutability = dynamic_cast<FunctionType const&>(*_functionCall.expression().annotation().type).stateMutability();
 	}
-	// We only require "nonpayable" to call a payble function.
-	if (mutability == StateMutability::Payable)
-		mutability = StateMutability::NonPayable;
 	reportMutability(mutability, _functionCall.location());
 }
 
@@ -293,10 +266,8 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::MetaType, "runtimeCode"},
 			{MagicType::Kind::MetaType, "name"},
 		};
-		set<MagicMember> static const payableMembers{
-			{MagicType::Kind::Message, "value"}
-		};
 		set<MagicMember> static const nonpayableMembers{
+			{MagicType::Kind::Message, "value"},
 			{MagicType::Kind::TVM, "commit"},
 			{MagicType::Kind::TVM, "resetStorage"}
 		};
@@ -308,8 +279,6 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			mutability = StateMutability::View;
 		if (nonpayableMembers.count(magicMember))
 			mutability = StateMutability::NonPayable;
-		if (payableMembers.count(magicMember))
-			mutability = StateMutability::Payable;
 
 		break;
 	}

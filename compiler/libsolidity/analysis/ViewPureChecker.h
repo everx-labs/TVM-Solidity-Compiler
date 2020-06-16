@@ -74,7 +74,7 @@ private:
 	langutil::ErrorReporter& m_errorReporter;
 
 	bool m_errors = false;
-	MutabilityAndLocation m_bestMutabilityAndLocation = MutabilityAndLocation{StateMutability::Payable, langutil::SourceLocation()};
+	MutabilityAndLocation m_bestMutabilityAndLocation = MutabilityAndLocation{StateMutability::NonPayable, langutil::SourceLocation()};
 	FunctionDefinition const* m_currentFunction = nullptr;
 	std::map<ModifierDefinition const*, MutabilityAndLocation> m_inferredMutability;
 };

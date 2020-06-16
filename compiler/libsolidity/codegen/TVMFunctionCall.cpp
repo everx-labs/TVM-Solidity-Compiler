@@ -40,74 +40,75 @@ void FunctionCallCompiler::acceptExpr(const Expression *expr) {
 	m_exprCompiler->compileNewExpr(expr);
 }
 
-FunctionCallCompiler::FunctionCallCompiler(StackPusherHelper &m_pusher, TVMExpressionCompiler *exprCompiler) :
+FunctionCallCompiler::FunctionCallCompiler(StackPusherHelper &m_pusher, TVMExpressionCompiler *exprCompiler,
+											FunctionCall const& _functionCall) :
 		m_pusher{m_pusher},
-		m_exprCompiler{exprCompiler} {
+		m_exprCompiler{exprCompiler},
+		m_functionCall{_functionCall},
+		m_arguments{_functionCall.arguments()} {
 
 }
 
-void FunctionCallCompiler::structConstructorCall(FunctionCall const &_functionCall) {
-	auto const& type = dynamic_cast<TypeType const&>(*_functionCall.expression().annotation().type);
+void FunctionCallCompiler::structConstructorCall() {
+	auto const& type = dynamic_cast<TypeType const&>(*m_functionCall.expression().annotation().type);
 	auto const& structType = dynamic_cast<StructType const&>(*type.actualType());
 	auto pushParam = [&](int index) {
-		acceptExpr(_functionCall.arguments().at(index).get());
+		acceptExpr(m_arguments.at(index).get());
 	};
 	StructCompiler structCompiler{&m_pusher, &structType};
-	structCompiler.structConstructor(_functionCall.names(), pushParam);
+	structCompiler.structConstructor(m_functionCall.names(), pushParam);
 }
 
-void FunctionCallCompiler::compile(FunctionCall const &_functionCall, bool isCurrentResultNeeded) {
-	if (checkNewExpression(_functionCall)) {
-	} else if (checkTvmIntrinsic(_functionCall)){
-	} else if (checkAddressThis(_functionCall)) {
-	} else if (checkSolidityUnits(_functionCall)) {
-	} else if (_functionCall.annotation().kind == FunctionCallKind::StructConstructorCall) {
-		structConstructorCall(_functionCall);
-	} else if (_functionCall.annotation().kind == FunctionCallKind::TypeConversion) {
-		typeConversion(_functionCall);
-	} else if (checkForIdentifier(_functionCall)) {
+void FunctionCallCompiler::compile() {
+	auto ma = to<MemberAccess>(&m_functionCall.expression());
+	auto reportError = [&](){ cast_error(m_functionCall, "Unsupported function call"); };
+
+	if (checkNewExpression() ||
+		checkTvmIntrinsic() ||
+		checkAddressThis() ||
+		checkSolidityUnits() ||
+		checkForIdentifier()) {
+	} else if (ma != nullptr && getType(&ma->expression())->category() == Type::Category::Struct) {
+		if (!structMethodCall()) {
+			reportError();
+		}
+	} else if (m_functionCall.annotation().kind == FunctionCallKind::StructConstructorCall) {
+		structConstructorCall();
+	} else if (m_functionCall.annotation().kind == FunctionCallKind::TypeConversion) {
+		typeConversion();
 	} else {
-		auto arguments = _functionCall.arguments();
-		auto expr = &_functionCall.expression();
-		if (auto ma = to<MemberAccess>(expr)) {
+		if (ma != nullptr) {
 			auto category = getType(&ma->expression())->category();
 			auto ident = to<Identifier>(&ma->expression());
-			if (checkForTvmSliceMethods(*ma, category, arguments, _functionCall)) {
-			} else if (checkForTvmBuilderMethods(*ma, category, arguments)) {
-			} else if (checkForStringMethods(*ma, arguments)) {
+			if (checkForTvmSliceMethods(*ma, category)) {
+			} else if (checkForTvmBuilderMethods(*ma, category)) {
+			} else if (checkForStringMethods(*ma)) {
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "tvm") {
-				if (checkForTvmSendFunction(*ma, arguments)) {
-				} else if (checkForTvmConfigParamFunction(*ma, category, arguments)) {
-				} else if (checkForTvmFunction(*ma, category, arguments)) {
-				} else if (checkForTvmDeployMethods(*ma, category, arguments, _functionCall)) {
+				if (checkForTvmSendFunction(*ma) ||
+					checkForTvmConfigParamFunction(*ma) ||
+					checkForTvmFunction(*ma) ||
+					checkForTvmDeployMethods(*ma, category)) {
 				} else {
-					cast_error(_functionCall, "Unsupported function call");
+					cast_error(m_functionCall, "Unsupported function call");
 				}
 			} else {
 				if (!isIn(ma->memberName(), "log", "transfer", "checkSign",
 				          "deployAndCallConstructor")) { // TODO delete log,  checkSign
-					for (const auto &arg : arguments) {
+					for (const auto &arg : m_arguments) {
 						acceptExpr(arg.get());
 					}
 				}
 				if (checkForSuper(*ma, category)) {
 				} else if (ma->expression().annotation().type->category() == Type::Category::Address) {
-					addressMethod(_functionCall);
-				} else if (checkForTvmCellMethods(*ma, category, arguments)) {
+					addressMethod();
+				} else if (checkForTvmCellMethods(*ma, category)) {
 				} else if (checkForMemberAccessTypeType(*ma, category)) {
-				} else if (checkForMsgFunction(*ma, category, arguments)) {
+				} else if (checkForMsgFunction(*ma, category)) {
 				} else if (checkForTypeTypeMember(*ma, category)) {
 				} else {
-					cast_error(_functionCall, "Unsupported function call");
+					cast_error(m_functionCall, "Unsupported function call");
 				}
 			}
-		}
-	}
-	if (!isCurrentResultNeeded) {
-		if (auto t = to<TupleType>(_functionCall.annotation().type)) {
-			m_pusher.drop(t->components().size());
-		} else {
-			m_pusher.drop(1);
 		}
 	}
 }
@@ -195,16 +196,14 @@ void FunctionCallCompiler::loadTypeFromSlice(MemberAccess const &_node, TypePoin
 	}
 }
 
-bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, Type::Category category,
-                                                    const std::vector<ASTPointer<Expression const>> &arguments,
-                                                    FunctionCall const &_functionCall) {
+bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, Type::Category category) {
 	auto pushArgs = [&]() {
-		for (const ASTPointer<const Expression> &e : arguments) {
+		for (const ASTPointer<const Expression> &e : m_arguments) {
 			acceptExpr(e.get());
 		}
 	};
 
-	auto functionType = dynamic_cast<FunctionType const*>(_functionCall.expression().annotation().type);
+	auto functionType = dynamic_cast<FunctionType const*>(m_functionCall.expression().annotation().type);
 	if (category != Type::Category::Magic || functionType->kind() != FunctionType::Kind::TVMDeploy)
 		return false;
 
@@ -229,16 +228,16 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 	if (_node.memberName() == "deployAndCallConstructor") {
 		cast_warning(_node, R"(Function is deprecated. Use "new Contract{}();" instead.)");
 		for (size_t i = 0; i < 4; i++)
-			acceptExpr(arguments[i].get());
+			acceptExpr(m_arguments[i].get());
 		std::vector<Type const*> types;
 		std::vector<ASTNode const*> nodes;
-		std::tie(types, nodes) = getParams(arguments, 4);
+		std::tie(types, nodes) = getParams(m_arguments, 4);
 		m_pusher.push(+1, "NEWC");
 		m_pusher.push(-1, "STU 32");
 
 		EncodePosition position{32, types};
 		EncodeFunctionParams{&m_pusher}.encodeParameters(types, nodes, [&](std::size_t index) {
-			acceptExpr(arguments[index + 4].get());
+			acceptExpr(m_arguments[index + 4].get());
 		}, position);
 		m_pusher.pushInt(1);
 		m_pusher.pushPrivateFunctionOrMacroCall(-5, "deploy_contract_macro");
@@ -249,18 +248,18 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 		cast_warning(_node, R"(Function is deprecated. Use "new Contract{}();" instead.)");
 		for (size_t i = 0; i < 5; i++)
 			if (i != 3)
-				acceptExpr(arguments[i].get());
+				acceptExpr(m_arguments[i].get());
 		std::vector<Type const*> types;
 		std::vector<ASTNode const*> nodes;
-		std::tie(types, nodes) = getParams(arguments, 5);
+		std::tie(types, nodes) = getParams(m_arguments, 5);
 		m_pusher.push(+1, "NEWC");
 		m_pusher.push(-1, "STU 32");
 
 		EncodePosition position{32, types};
 		EncodeFunctionParams{&m_pusher}.encodeParameters(types, nodes, [&](std::size_t index) {
-			acceptExpr(arguments[index + 5].get());
+			acceptExpr(m_arguments[index + 5].get());
 		}, position);
-		acceptExpr(arguments[3].get());
+		acceptExpr(m_arguments[3].get());
 		m_pusher.pushPrivateFunctionOrMacroCall(-5, "deploy_contract_macro");
 		return true;
 	}
@@ -268,9 +267,7 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 	return false;
 }
 
-bool FunctionCallCompiler::checkForTvmSliceMethods(MemberAccess const &_node, Type::Category category,
-                                                   const std::vector<ASTPointer<Expression const>> &arguments,
-                                                   FunctionCall const &_functionCall) {
+bool FunctionCallCompiler::checkForTvmSliceMethods(MemberAccess const &_node, Type::Category category) {
 	if (category != Type::Category::TvmSlice)
 		return false;
 
@@ -305,10 +302,10 @@ bool FunctionCallCompiler::checkForTvmSliceMethods(MemberAccess const &_node, Ty
 	if (_node.memberName() == "decode") {
 		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, false, _node.expression().annotation().isLValue);
 		TypePointers targetTypes;
-		if (auto const* targetTupleType = dynamic_cast<TupleType const*>(_functionCall.annotation().type))
+		if (auto const* targetTupleType = dynamic_cast<TupleType const*>(m_functionCall.annotation().type))
 			targetTypes = targetTupleType->components();
 		else
-			targetTypes = TypePointers{_functionCall.annotation().type};
+			targetTypes = TypePointers{m_functionCall.annotation().type};
 
 		for (auto type: targetTypes) {
 			loadTypeFromSlice(_node, type);
@@ -318,7 +315,7 @@ bool FunctionCallCompiler::checkForTvmSliceMethods(MemberAccess const &_node, Ty
 	}
 	if (_node.memberName() == "decodeFunctionParams") {
 		const int saveStackSize = m_pusher.getStack().size();
-		auto functionDefinition = getCallableDeclaration(arguments.at(0).get());
+		auto functionDefinition = getCallableDeclaration(m_arguments.at(0).get());
 
 		const TVMExpressionCompiler::LValueInfo lValueInfo =
 				m_exprCompiler->expandLValue(&_node.expression(),true, false, _node.expression().annotation().isLValue);
@@ -340,14 +337,14 @@ bool FunctionCallCompiler::checkForTvmSliceMethods(MemberAccess const &_node, Ty
 				m_exprCompiler->expandLValue(&_node.expression(),true, false, _node.expression().annotation().isLValue);
 		std::string cmd = "LD";
 		cmd += (_node.memberName() == "loadSigned" ? "I" : "U");
-		const auto& [ok, val] = TVMExpressionCompiler::constValue(*arguments[0]);
+		const auto& [ok, val] = TVMExpressionCompiler::constValue(*m_arguments[0]);
 		if (ok) {
 			if (val < 1 || val > 256) {
-				cast_error(*arguments[0], "The value must be in the range 1 - 256.");
+				cast_error(*m_arguments[0], "The value must be in the range 1 - 256.");
 			}
 			m_pusher.push(-1 + 2, cmd + " " + val.str());
 		} else {
-			acceptExpr(arguments[0].get());
+			acceptExpr(m_arguments[0].get());
 			m_pusher.push(-2 + 2, cmd + "X");
 		}
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
@@ -397,8 +394,7 @@ void FunctionCallCompiler::store(MemberAccess const &_node, TypePointer type, bo
 	}
 }
 
-bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, Type::Category category,
-                                                     const std::vector<ASTPointer<Expression const>> &arguments) {
+bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, Type::Category category) {
 	if (category != Type::Category::TvmBuilder)
 		return false;
 
@@ -406,25 +402,25 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
 
 		if (_node.memberName() == "storeRef") {
-			acceptExpr(arguments[0].get());
+			acceptExpr(m_arguments[0].get());
 			m_pusher.push(-1, "STBREFR");
 		} else if (_node.memberName() == "store") {
-			for (const auto& argument: arguments) {
+			for (const auto& argument: m_arguments) {
 				acceptExpr(argument.get());
 				store(_node, argument->annotation().type);
 			}
 		} else if (_node.memberName() == "storeSigned" || _node.memberName() == "storeUnsigned") {
 			std::string cmd = "ST";
 			cmd += (_node.memberName() == "storeSigned" ? "I" : "U");
-			acceptExpr(arguments[0].get());
-			const auto& [ok, val] = TVMExpressionCompiler::constValue(*arguments[1]);
+			acceptExpr(m_arguments[0].get());
+			const auto& [ok, val] = TVMExpressionCompiler::constValue(*m_arguments[1]);
 			if (ok) {
 				if (val < 1 || val > 256) {
-					cast_error(*arguments[1], "The value must be in the range 1 - 256.");
+					cast_error(*m_arguments[1], "The value must be in the range 1 - 256.");
 				}
 				m_pusher.push(-1, cmd + "R " + val.str());
 			} else {
-				acceptExpr(arguments[1].get());
+				acceptExpr(m_arguments[1].get());
 				m_pusher.push(-2, cmd + "XR");
 			}
 		} else {
@@ -481,8 +477,7 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 	return false;
 }
 
-bool FunctionCallCompiler::checkForStringMethods(MemberAccess const &_node,
-																  const std::vector<ASTPointer<Expression const>> &arguments) {
+bool FunctionCallCompiler::checkForStringMethods(MemberAccess const &_node) {
 	auto array = to<ArrayType>(_node.expression().annotation().type);
 	if (!array || !array->isString())
 		return false;
@@ -490,7 +485,7 @@ bool FunctionCallCompiler::checkForStringMethods(MemberAccess const &_node,
 	m_pusher.push(+1 - 1, "CTOS");
 
 	if (_node.memberName() == "substr") {
-		for (const auto &arg : arguments) {
+		for (const auto &arg : m_arguments) {
 			acceptExpr(arg.get());
 			m_pusher.push(+1 - 1, "MULCONST 8");
 		}
@@ -510,8 +505,7 @@ bool FunctionCallCompiler::checkForStringMethods(MemberAccess const &_node,
 	return false;
 }
 
-bool FunctionCallCompiler::checkForTvmCellMethods(MemberAccess const &_node, Type::Category category,
-                                                  const std::vector<ASTPointer<Expression const>> &) {
+bool FunctionCallCompiler::checkForTvmCellMethods(MemberAccess const &_node, Type::Category category) {
 	if (category != Type::Category::TvmCell)
 		return false;
 	acceptExpr(&_node.expression());
@@ -524,13 +518,12 @@ bool FunctionCallCompiler::checkForTvmCellMethods(MemberAccess const &_node, Typ
 	return false;
 }
 
-void FunctionCallCompiler::addressMethod(FunctionCall const &_functionCall) {
-	auto _node = to<MemberAccess>(&_functionCall.expression());
-	const std::vector<ASTPointer<Expression const>> arguments = _functionCall.arguments();
-	const std::vector<ASTPointer<ASTString>>& names = _functionCall.names();
+void FunctionCallCompiler::addressMethod() {
+	auto _node = to<MemberAccess>(&m_functionCall.expression());
+	const std::vector<ASTPointer<ASTString>>& names = m_functionCall.names();
 	if (_node->memberName() == "transfer") { // addr.transfer(...)
 		m_pusher.push(0, ";; transfer()");
-		if (!_functionCall.names().empty()) {
+		if (!m_functionCall.names().empty()) {
 			std::map<int, Expression const *> exprs;
 			std::map<int, std::string> constParams{{TvmConst::int_msg_info::ihr_disabled, "1"}, {TvmConst::int_msg_info::bounce, "1"}};
 			std::function<void(int)> appendBody;
@@ -538,22 +531,22 @@ void FunctionCallCompiler::addressMethod(FunctionCall const &_functionCall) {
 
 			exprs[TvmConst::int_msg_info::dest] = &_node->expression();
 			// string("value"), string("bounce"), string("flag"), string("body"), string("currencies")
-			for (int arg = 0; arg < static_cast<int>(arguments.size()); ++arg) {
+			for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
 				switch (str2int(names[arg]->c_str())) {
 					case str2int("value"):
-						exprs[TvmConst::int_msg_info::grams] = arguments[arg].get();
+						exprs[TvmConst::int_msg_info::grams] = m_arguments[arg].get();
 						break;
 					case str2int("bounce"):
-						exprs[TvmConst::int_msg_info::bounce] = arguments[arg].get();
+						exprs[TvmConst::int_msg_info::bounce] = m_arguments[arg].get();
 						constParams.erase(TvmConst::int_msg_info::bounce);
 						break;
 					case str2int("flag"):
-						pushSendrawmsgFlag = [e = arguments[arg], this](){
+						pushSendrawmsgFlag = [e = m_arguments[arg], this](){
 							TVMExpressionCompiler{m_pusher}.compileNewExpr(e.get());
 						};
 						break;
 					case str2int("body"):
-						appendBody = [e = arguments[arg], this](int /*size*/){
+						appendBody = [e = m_arguments[arg], this](int /*size*/){
 							m_pusher.stones(1);
 							TVMExpressionCompiler{m_pusher}.compileNewExpr(e.get());
 							m_pusher.push(-1, "STREFR");
@@ -561,26 +554,26 @@ void FunctionCallCompiler::addressMethod(FunctionCall const &_functionCall) {
 						};
 						break;
 					case str2int("currencies"):
-						exprs[TvmConst::int_msg_info::currency] = arguments[arg].get();
+						exprs[TvmConst::int_msg_info::currency] = m_arguments[arg].get();
 						break;
 				}
 			}
 			m_pusher.sendIntMsg(exprs, constParams, appendBody, pushSendrawmsgFlag);
 		} else {
-			if (arguments.size() == 3) {
+			if (m_arguments.size() == 3) {
 				const std::map<int, Expression const *> exprs{
-						{TvmConst::int_msg_info::grams,  arguments[0].get()},
-						{TvmConst::int_msg_info::bounce, arguments[1].get()},
+						{TvmConst::int_msg_info::grams,  m_arguments[0].get()},
+						{TvmConst::int_msg_info::bounce, m_arguments[1].get()},
 						{TvmConst::int_msg_info::dest,   &_node->expression()},
 				};
 				m_pusher.sendIntMsg(
 						exprs,
 						{{TvmConst::int_msg_info::ihr_disabled, "1"}},
-						nullptr, [&]() { acceptExpr(arguments[2].get()); });
-			} else if (arguments.size() == 4) {
+						nullptr, [&]() { acceptExpr(m_arguments[2].get()); });
+			} else if (m_arguments.size() == 4) {
 				const std::map<int, Expression const *> exprs{
-						{TvmConst::int_msg_info::grams,  arguments[0].get()},
-						{TvmConst::int_msg_info::bounce, arguments[1].get()},
+						{TvmConst::int_msg_info::grams,  m_arguments[0].get()},
+						{TvmConst::int_msg_info::bounce, m_arguments[1].get()},
 						{TvmConst::int_msg_info::dest,   &_node->expression()},
 				};
 
@@ -589,14 +582,14 @@ void FunctionCallCompiler::addressMethod(FunctionCall const &_functionCall) {
 						{{TvmConst::int_msg_info::ihr_disabled, "1"}},
 						[&](int /*size*/) {
 							m_pusher.stones(1);
-							acceptExpr(arguments[3].get());
+							acceptExpr(m_arguments[3].get());
 							m_pusher.push(-1, "STREFR");
 							return false;
 						},
-						[&]() { acceptExpr(arguments[2].get()); });
-			} else if (arguments.size() == 1) {
+						[&]() { acceptExpr(m_arguments[2].get()); });
+			} else if (m_arguments.size() == 1) {
 				m_pusher.sendIntMsg(
-						{{TvmConst::int_msg_info::grams, arguments[0].get()},
+						{{TvmConst::int_msg_info::grams, m_arguments[0].get()},
 						 {TvmConst::int_msg_info::dest,  &_node->expression()}},
 						{{TvmConst::int_msg_info::ihr_disabled, "1"},
 						 {TvmConst::int_msg_info::bounce,       "1"}},
@@ -644,10 +637,9 @@ void FunctionCallCompiler::addressMethod(FunctionCall const &_functionCall) {
 	}
 }
 
-bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_node, Type::Category /*category*/,
-                                                          const std::vector<ASTPointer<Expression const>> &arguments) {
+bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_node) {
 	if (_node.memberName() == "configParam") { // tvm.configParam
-		auto paramNumberLiteral = dynamic_cast<const Literal *>(arguments[0].get());
+		auto paramNumberLiteral = dynamic_cast<const Literal *>(m_arguments[0].get());
 
 		Type const* type = paramNumberLiteral->annotation().type;
 		u256 value = type->literalValue(paramNumberLiteral);
@@ -775,7 +767,7 @@ bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_n
 	return false;
 }
 
-bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node, const std::vector<ASTPointer<Expression const>> &arguments) {
+bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node) {
 	if (_node.memberName() == "sendMsg") { // tvm.sendMsg(dest_address, funcId_literal)
 		cast_warning(_node, "Function is deprecated it will be removed from compiler soon. "
 		                    "Use MyContract(...).funcName{value:123, flag:1}(arg0, arg1, ...);");
@@ -786,18 +778,18 @@ bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node, co
 		s += "1"; // bounce
 		s += "0"; // bounced
 		s += "00"; // src: addr_none$00
-		if (auto dstLiteral = to<Literal>(arguments[0].get())) { // dest
+		if (auto dstLiteral = to<Literal>(m_arguments[0].get())) { // dest
 			s += m_pusher.literalToSliceAddress(dstLiteral, false);
 		} else {
 			m_pusher.push(+1, "PUSHSLICE x" + StackPusherHelper::binaryStringToSlice(s));
 			m_pusher.push(-1, "STSLICER");
 			s = "";
-			acceptExpr(arguments[0].get());
+			acceptExpr(m_arguments[0].get());
 			m_pusher.push(-1, "STSLICER");
 		}
 		// value:CurrencyCollection
-		if (arguments.size() > 3) {
-			if (auto valueLiteral = to<Literal>(arguments[3].get())) { // dest
+		if (m_arguments.size() > 3) {
+			if (auto valueLiteral = to<Literal>(m_arguments[3].get())) { // dest
 				s += StackPusherHelper::gramsToBinaryString(valueLiteral);
 			} else {
 				cast_error(_node, "tvm.sendMsg() forth param should be value literal");
@@ -812,7 +804,7 @@ bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node, co
 		s += "0000"; // fwd_fee:Grams
 		s += std::string(64, '0'); // created_lt:uint64
 		s += std::string(32, '0'); // created_at:uint32
-		if (auto funcidLiteral = to<Literal>(arguments[1].get())) {
+		if (auto funcidLiteral = to<Literal>(m_arguments[1].get())) {
 			Type const* type = funcidLiteral->annotation().type;
 			u256 value = type->literalValue(funcidLiteral);
 			s += "0"; // Maybe (Either StateInit ^StateInit)
@@ -826,7 +818,7 @@ bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node, co
 		m_pusher.push(-1, "STSLICER");
 		m_pusher.push(+1-1, "ENDC");
 
-		if (auto flagLiteral = to<Literal>(arguments[2].get())) {
+		if (auto flagLiteral = to<Literal>(m_arguments[2].get())) {
 			Type const* type = flagLiteral->annotation().type;
 			u256 value = type->literalValue(flagLiteral);
 			m_pusher.push(+1, "PUSHINT " + value.str());
@@ -837,7 +829,7 @@ bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node, co
 		return true;
 	}
 	if (_node.memberName() == "sendrawmsg") { // tvm.sendrawmsg
-		for (const auto &arg : arguments) {
+		for (const auto &arg : m_arguments) {
 			acceptExpr(arg.get());
 		}
 		m_pusher.push(-2, "SENDRAWMSG");
@@ -847,8 +839,7 @@ bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node, co
 	return true;
 }
 
-bool FunctionCallCompiler::checkForMsgFunction(MemberAccess const &_node, Type::Category category,
-                                               const std::vector<ASTPointer<Expression const>> &/*arguments*/) {
+bool FunctionCallCompiler::checkForMsgFunction(MemberAccess const &_node, Type::Category category) {
 	if (category != Type::Category::Magic)
 		return false;
 
@@ -876,10 +867,9 @@ IF
 	return false;
 }
 
-bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node, Type::Category /*category*/,
-                                               const vector<ASTPointer<const Expression>> &arguments) {
+bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 	auto pushArgs = [&]() {
-		for (const ASTPointer<const Expression> &e : arguments) {
+		for (const ASTPointer<const Expression> &e : m_arguments) {
 			acceptExpr(e.get());
 		}
 	};
@@ -895,14 +885,14 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node, Type::
 		pushArgs();
 		m_pusher.push(0, "HASHCU");
 	} else if (_node.memberName() == "checkSign") { // tvm.checkSign
-		acceptExpr(arguments[0].get());
+		acceptExpr(m_arguments[0].get());
 		m_pusher.push(+1, "NEWC");
-		acceptExpr(arguments[1].get());
+		acceptExpr(m_arguments[1].get());
 		m_pusher.push(-1, "STUR 256");
-		acceptExpr(arguments[2].get());
+		acceptExpr(m_arguments[2].get());
 		m_pusher.push(-1, "STUR 256");
 		m_pusher.push(0, "ENDC CTOS");
-		acceptExpr(arguments[3].get());
+		acceptExpr(m_arguments[3].get());
 		m_pusher.push(-3+1, "CHKSIGNU");
 	} else if (_node.memberName() == "setcode") { // tvm.setcode
 		pushArgs();
@@ -916,7 +906,7 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node, Type::
 		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
 		m_pusher.push(0, "COMMIT");
 	} else if (_node.memberName() == "log") { // tvm.log
-		auto logstr = arguments[0].get();
+		auto logstr = m_arguments[0].get();
 		if (auto literal = to<Literal>(logstr)) {
 			if (literal->value().length() > 15)
 				cast_error(_node, "Parameter string should have length no more than 15 chars");
@@ -932,11 +922,11 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node, Type::
 	} else if (_node.memberName() == "resetStorage") { //tvm.resetStorage
 		m_pusher.resetAllStateVars();
 	} else if (_node.memberName() == "functionId") { // tvm.functionId
-		auto callDef = getCallableDeclaration(arguments.at(0).get());
+		auto callDef = getCallableDeclaration(m_arguments.at(0).get());
 		EncodeFunctionParams encoder(&m_pusher);
-		m_pusher.push(+1, "PUSHINT " + to_string(encoder.calculateFunctionID(callDef) & 0x7fffffff));
+		m_pusher.pushInt(encoder.calculateFunctionID(callDef) & 0x7fffffffu);
 	} else if (_node.memberName() == "encodeBody") { // tvm.encodeBody
-		auto callDef = getCallableDeclaration(arguments.at(0).get());
+		auto callDef = getCallableDeclaration(m_arguments.at(0).get());
 		m_pusher.push(+1, "NEWC");
 		std::vector<Type const*> types = getParams(callDef->parameters()).first;
 		auto position = EncodePosition(32, types);
@@ -945,18 +935,18 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node, Type::
 		EncodeFunctionParams{&m_pusher}.createMsgBody(
 					[&](size_t idx) {
 						m_pusher.push(0, ";; " + parameters[idx]->name());
-						TVMExpressionCompiler{m_pusher}.compileNewExpr(arguments[idx + 1].get());
+						TVMExpressionCompiler{m_pusher}.compileNewExpr(m_arguments[idx + 1].get());
 					},
 					ReasonOfOutboundMessage::RemoteCallInternal,
 					callDef, false, position);
 		m_pusher.push(+1-1, "ENDC");
 	} else if (_node.memberName() == "max") {
 		pushArgs();
-		for (int i = 0; i + 1 < static_cast<int>(arguments.size()); ++i)
+		for (int i = 0; i + 1 < static_cast<int>(m_arguments.size()); ++i)
 			m_pusher.push(-2 + 1, "MAX");
 	} else if (_node.memberName() == "min") {
 		pushArgs();
-		for (int i = 0; i + 1 < static_cast<int>(arguments.size()); ++i)
+		for (int i = 0; i + 1 < static_cast<int>(m_arguments.size()); ++i)
 			m_pusher.push(-2 + 1, "MIN");
 	} else {
 		return false;
@@ -969,42 +959,40 @@ bool FunctionCallCompiler::checkForMemberAccessTypeType(MemberAccess const &_nod
 		return false;
 	if (auto identifier = to<Identifier>(&_node.expression())) {
 		const auto& iname = identifier->name();
-		if (auto funcitonType = to<FunctionType>(getType(&_node))) {
+		if (auto functionType = to<FunctionType>(getType(&_node))) {
 			// calling base contract method
 			auto functionName = iname + "_" + _node.memberName();
-			m_pusher.pushCall(functionName, funcitonType);
+			m_pusher.pushCall(functionName, functionType);
 			return true;
 		}
 	}
 	return false;
 }
 
-bool FunctionCallCompiler::checkAddressThis(FunctionCall const &_functionCall) {
-	auto arguments = _functionCall.arguments();
+bool FunctionCallCompiler::checkAddressThis() {
 	// compile  "address(this)"
-	if (isAddressThis(&_functionCall)) {
+	if (isAddressThis(&m_functionCall)) {
 		m_pusher.push(+1, "MYADDR");
 		return true;
 	}
 	return false;
 }
 
-void FunctionCallCompiler::typeConversion(FunctionCall const &_functionCall) {
+void FunctionCallCompiler::typeConversion() {
 	auto printError = [&]() {
-		const std::string from = _functionCall.arguments()[0]->annotation().type->toString(true);
-		const std::string to = _functionCall.annotation().type->toString(true);
-		cast_error(_functionCall, "Unsupported casting from " + from + " to " + to + ".");
+		const std::string from = m_arguments[0]->annotation().type->toString(true);
+		const std::string to = m_functionCall.annotation().type->toString(true);
+		cast_error(m_functionCall, "Unsupported casting from " + from + " to " + to + ".");
 	};
 
-	auto arguments = _functionCall.arguments();
-	Type::Category argCategory = arguments[0]->annotation().type->category();
-	Type const* argType = arguments[0]->annotation().type;
-	Type const* resultType = _functionCall.annotation().type;
+	Type::Category argCategory = m_arguments[0]->annotation().type->category();
+	Type const* argType = m_arguments[0]->annotation().type;
+	Type const* resultType = m_functionCall.annotation().type;
 
-	auto acceptArg = [&arguments, this] () {
-		for (const auto &arg : arguments)
+	auto acceptArg = [this] () {
+		for (const auto &arg : m_arguments)
 			acceptExpr(arg.get());
-		solAssert(arguments.size() == 1, "");
+		solAssert(m_arguments.size() == 1, "");
 	};
 	auto conversionToAddress = [&](){
 		switch (argCategory) {
@@ -1014,7 +1002,7 @@ void FunctionCallCompiler::typeConversion(FunctionCall const &_functionCall) {
 				break;
 			case Type::Category::RationalNumber:
 			case Type::Category::Integer: {
-				auto literal = to<Literal>(arguments[0].get());
+				auto literal = to<Literal>(m_arguments[0].get());
 				if (literal) {
 					m_pusher.literalToSliceAddress(literal);
 				} else {
@@ -1028,7 +1016,7 @@ void FunctionCallCompiler::typeConversion(FunctionCall const &_functionCall) {
 		}
 	};
 
-	if (auto etn = to<ElementaryTypeNameExpression>(&_functionCall.expression())) {
+	if (auto etn = to<ElementaryTypeNameExpression>(&m_functionCall.expression())) {
 		auto defaultActionForCasting = [&acceptArg, &etn, this]() {
 			acceptArg();
 			acceptExpr(etn);
@@ -1038,11 +1026,11 @@ void FunctionCallCompiler::typeConversion(FunctionCall const &_functionCall) {
 				acceptArg();
 				int diff = 0;
 				if (argCategory == Type::Category::FixedBytes) {
-					auto fixedBytesType = to<FixedBytesType>(arguments[0]->annotation().type);
+					auto fixedBytesType = to<FixedBytesType>(m_arguments[0]->annotation().type);
 					diff = 8 * static_cast<int>(etn->type().typeName().firstNumber()) -
 					       8 * static_cast<int>(fixedBytesType->storageBytes());
 				} else if (argCategory == Type::Category::Address) {
-					cast_error(_functionCall, "Unsupported type conversion. Use address.wid or address.value.");
+					cast_error(m_functionCall, "Unsupported type conversion. Use address.wid or address.value.");
 				} else {
 					printError();
 				}
@@ -1078,7 +1066,7 @@ void FunctionCallCompiler::typeConversion(FunctionCall const &_functionCall) {
 					// nothing to do here
 					acceptArg();
 				} else if (argCategory == Type::Category::Contract || argCategory == Type::Category::Address) {
-					cast_error(_functionCall, "Unsupported type conversion. Use address.wid or address.value.");
+					cast_error(m_functionCall, "Unsupported type conversion. Use address.wid or address.value.");
 				} else {
 					defaultActionForCasting();
 				}
@@ -1096,27 +1084,27 @@ void FunctionCallCompiler::typeConversion(FunctionCall const &_functionCall) {
 			default:
 				defaultActionForCasting();
 		}
-	} else if (auto identifier = to<Identifier>(&_functionCall.expression())) {
+	} else if (auto identifier = to<Identifier>(&m_functionCall.expression())) {
 		if (to<ContractDefinition>(identifier->annotation().referencedDeclaration)) {
 			conversionToAddress();
 		} else if (auto enumDef = to<EnumDefinition>(identifier->annotation().referencedDeclaration)) {
 
-			const auto& [ok, value] = TVMExpressionCompiler::constValue(*_functionCall.arguments()[0]);
+			const auto& [ok, value] = TVMExpressionCompiler::constValue(*m_arguments[0]);
 			if (ok) {
 				if (value < 0 || value >= enumDef->members().size()) {
-					cast_error(_functionCall, "The value must be in the range 1 - " +
-												toString(enumDef->members().size()) + ".");
+					cast_error(m_functionCall, "The value must be in the range 1 - " +
+					                           toString(enumDef->members().size()) + ".");
 				}
 				m_pusher.push(+1, "PUSHINT " + value.str());
 				return;
 			}
 
-			acceptExpr(_functionCall.arguments()[0].get());
+			acceptExpr(m_arguments[0].get());
 			m_pusher.push(+1, "DUP");
 			m_pusher.pushInt(enumDef->members().size());
 			m_pusher.push(-1, "GEQ");
 
-			auto type = _functionCall.arguments()[0].get()->annotation().type;
+			auto type = m_arguments[0].get()->annotation().type;
 			TypeInfo ti(type);
 			if (!ti.isNumeric || ti.isSigned)
 			{
@@ -1126,10 +1114,10 @@ void FunctionCallCompiler::typeConversion(FunctionCall const &_functionCall) {
 			}
 			m_pusher.push(-1, "THROWIF 5");
 		} else {
-			cast_error(_functionCall, "Unsupported type conversion");
+			cast_error(m_functionCall, "Unsupported type conversion");
 		}
 	} else {
-		cast_error(_functionCall, "Unsupported type conversion");
+		cast_error(m_functionCall, "Unsupported type conversion");
 	}
 }
 
@@ -1142,6 +1130,9 @@ bool FunctionCallCompiler::checkLocalFunctionCall(const Identifier *identifier) 
 	auto functionType = to<FunctionType>(getType(identifier));
 	auto funDef = to<FunctionDefinition>(identifier->annotation().referencedDeclaration);
 	solAssert(functionType, "#209");
+	for (const auto& arg : m_arguments) {
+		acceptExpr(arg.get());
+	}
 	if (isFunctionForInlining(funDef)) {
 		auto &codeLines = m_pusher.ctx().m_inlinedFunctions.at(functionName);
 		int nParams = functionType->parameterTypes().size();
@@ -1155,14 +1146,13 @@ bool FunctionCallCompiler::checkLocalFunctionCall(const Identifier *identifier) 
 	return true;
 }
 
-bool FunctionCallCompiler::checkSolidityUnits(FunctionCall const &_functionCall) {
-	auto identifier = to<Identifier>(&_functionCall.expression());
+bool FunctionCallCompiler::checkSolidityUnits() {
+	auto identifier = to<Identifier>(&m_functionCall.expression());
 	if (identifier == nullptr) {
 		return false;
 	}
 
 	const string& name = identifier->name();
-	const std::vector<ASTPointer<Expression const>>& arguments = _functionCall.arguments();
 
 	auto checkAndParseExceptionCode = [](Expression const* e) -> std::pair<bool, bigint> {
 		const auto& [ok, val] = TVMExpressionCompiler::constValue(*e);
@@ -1180,7 +1170,7 @@ bool FunctionCallCompiler::checkSolidityUnits(FunctionCall const &_functionCall)
 	};
 
 	if (name == "sha256") {
-		acceptExpr(_functionCall.arguments()[0].get());
+		acceptExpr(m_arguments[0].get());
 		m_pusher.push(0, "CTOS");
 		m_pusher.push(0, "SHA256U");
 	} else if (name == "selfdestruct") {
@@ -1190,51 +1180,51 @@ bool FunctionCallCompiler::checkSolidityUnits(FunctionCall const &_functionCall)
 				{TvmConst::int_msg_info::bounce,  "0"},
 		};
 		m_pusher.sendIntMsg(
-				{{TvmConst::int_msg_info::dest, _functionCall.arguments()[0].get()}},
+				{{TvmConst::int_msg_info::dest, m_arguments[0].get()}},
 				constParams,
 				nullptr,
 				[&](){ m_pusher.push(+1, "PUSHINT " + toString(TvmConst::SENDRAWMSG::SelfDestruct)); });
 	} else if (name == "require") {
-		if (arguments.size() == 1) {
-			acceptExpr(arguments[0].get());
+		if (m_arguments.size() == 1) {
+			acceptExpr(m_arguments[0].get());
 			m_pusher.push(-1, "THROWIFNOT 100");
-		} else if (arguments.size() == 2 || arguments.size() == 3) {
-			if (arguments.size() == 3)
-				acceptExpr(arguments[2].get());
-			const auto &[ok, exceptionCode] = checkAndParseExceptionCode(arguments[1].get());
+		} else if (m_arguments.size() == 2 || m_arguments.size() == 3) {
+			if (m_arguments.size() == 3)
+				acceptExpr(m_arguments[2].get());
+			const auto &[ok, exceptionCode] = checkAndParseExceptionCode(m_arguments[1].get());
 			if (ok && exceptionCode < 2048) {
-				acceptExpr(arguments[0].get());
-				if (arguments.size() == 3)
+				acceptExpr(m_arguments[0].get());
+				if (m_arguments.size() == 3)
 					m_pusher.push(-2, "THROWARGIFNOT " + toString(exceptionCode));
 				else
 					m_pusher.push(-1, "THROWIFNOT " + toString(exceptionCode));
 			} else {
-				acceptExpr(arguments[1].get());
-				acceptExpr(arguments[0].get());
-				if (arguments.size() == 3)
+				acceptExpr(m_arguments[1].get());
+				acceptExpr(m_arguments[0].get());
+				if (m_arguments.size() == 3)
 					m_pusher.push(-3, "THROWARGANYIFNOT");
 				else
 					m_pusher.push(-2, "THROWANYIFNOT");
 			}
 		} else {
-			cast_error(_functionCall, R"("require" takes from one to three arguments.)");
+			cast_error(m_functionCall, R"("require" takes from one to three m_arguments.)");
 		}
 	} else if (name == "revert") {
-		if (arguments.empty()) {
+		if (m_arguments.empty()) {
 			m_pusher.push(0, "THROW 100");
 		} else {
-			if (!isIn(static_cast<int>(arguments.size()), 1, 2)) {
-				cast_error(_functionCall, R"("revert" takes up to two arguments.)");
+			if (!isIn(static_cast<int>(m_arguments.size()), 1, 2)) {
+				cast_error(m_functionCall, R"("revert" takes up to two m_arguments.)");
 			}
-			const auto &[ok, exceptionCode] = checkAndParseExceptionCode(arguments[0].get());
-			bool withArg = arguments.size() == 2;
+			const auto &[ok, exceptionCode] = checkAndParseExceptionCode(m_arguments[0].get());
+			bool withArg = m_arguments.size() == 2;
 			if (withArg) {
-				acceptExpr(arguments[1].get());
+				acceptExpr(m_arguments[1].get());
 			}
 			if (ok && exceptionCode < 2048) {
 				m_pusher.push(withArg? -1 : 0, (withArg? "THROWARG " : "THROW ") + toString(exceptionCode));
 			} else {
-				acceptExpr(arguments[0].get());
+				acceptExpr(m_arguments[0].get());
 				m_pusher.push(withArg? -2 : -1, withArg? "THROWARGANY" : "THROWANY");
 			}
 		}
@@ -1244,9 +1234,8 @@ bool FunctionCallCompiler::checkSolidityUnits(FunctionCall const &_functionCall)
 	return true;
 }
 
-bool FunctionCallCompiler::checkForIdentifier(FunctionCall const &_functionCall) {
-	auto arguments = _functionCall.arguments();
-	auto expr = &_functionCall.expression();
+bool FunctionCallCompiler::checkForIdentifier() {
+	auto expr = &m_functionCall.expression();
 	auto identifier = to<Identifier>(expr);
 	if (!identifier)
 		return false;
@@ -1254,25 +1243,22 @@ bool FunctionCallCompiler::checkForIdentifier(FunctionCall const &_functionCall)
 	string iname = identifier->name();
 
 	if (iname == "logtvm") {
-		auto logstr = arguments[0].get();
+		auto logstr = m_arguments[0].get();
 		if (auto literal = to<Literal>(logstr)) {
 			if (literal->value().length() > 15)
-				cast_error(_functionCall, "Parameter string should have length no more than 15 chars");
+				cast_error(m_functionCall, "Parameter string should have length no more than 15 chars");
 			if (TVMContractCompiler::g_without_logstr) {
 				return true;
 			}
 			m_pusher.push(0, "PRINTSTR " + literal->value());
 		} else {
-			cast_error(_functionCall, "Parameter should be a literal");
+			cast_error(m_functionCall, "Parameter should be a literal");
 		}
-		return true;
-	}
-	for (const auto& arg : arguments) {
-		acceptExpr(arg.get());
-	}
-
-	if (checkLocalFunctionCall(identifier)) {
+	} else  if (checkLocalFunctionCall(identifier)) {
 	} else if (m_pusher.getStack().isParam(identifier->annotation().referencedDeclaration)) {
+		for (const auto& arg : m_arguments) {
+			acceptExpr(arg.get());
+		}
 		// Local variable of functional type
 		acceptExpr(expr);
 		auto functionType = to<FunctionType>(identifier->annotation().type);
@@ -1280,19 +1266,19 @@ bool FunctionCallCompiler::checkForIdentifier(FunctionCall const &_functionCall)
 		int paramCnt = functionType->parameterTypes().size();
 		m_pusher.push(-1 - paramCnt + returnCnt, "CALLX");
 	} else {
-		cast_error(*identifier, "Unknown identifier");
+		return false;
 	}
 	return true;
 }
 
-bool FunctionCallCompiler::createNewContract(FunctionCall const &_functionCall) {
-	const FunctionCallOptions * functionOptions = to<FunctionCallOptions>(&_functionCall.expression());
-	const NewExpression * newExpr = to<NewExpression>(&functionOptions->expression());
+bool FunctionCallCompiler::createNewContract() {
+	auto functionOptions = to<FunctionCallOptions>(&m_functionCall.expression());
+	auto newExpr = to<NewExpression>(&functionOptions->expression());
 	if (!newExpr)
 		return false;
 	const TypePointer type = newExpr->typeName().annotation().type;
 	if (type->category() != Type::Category::Contract)
-		cast_error(_functionCall, "Flags in \"new\" expression can be used only for contract creating.");
+		cast_error(m_functionCall, "Flags in \"new\" expression can be used only for contract creating.");
 
 	std::map<int, std::function<void()>> exprs;
 
@@ -1306,7 +1292,7 @@ bool FunctionCallCompiler::createNewContract(FunctionCall const &_functionCall) 
 	std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
 	for (const auto &option: optionNames)
 		if (!isIn(*option, "flag", "value", "stateInit"))
-			cast_error(_functionCall, "Unsupported option: " + *option);
+			cast_error(m_functionCall, "Unsupported option: " + *option);
 	auto stateIt = find_if(optionNames.begin(), optionNames.end(),  [](auto el) { return *el == "stateInit"; });
 	if (stateIt != optionNames.end()) {
 		size_t index = stateIt - optionNames.begin();
@@ -1319,7 +1305,7 @@ bool FunctionCallCompiler::createNewContract(FunctionCall const &_functionCall) 
 		destAddressStack = m_pusher.getStack().size();
 		// stack: stateInit destAddress
 	} else {
-		cast_error(_functionCall, R"(Options "value" and "stateInit" are obligatory.)");
+		cast_error(m_functionCall, R"(Options "value" and "stateInit" are obligatory.)");
 	}
 	auto valueIt = find_if(optionNames.begin(), optionNames.end(),  [](auto el) { return *el == "value"; });
 	if (valueIt != optionNames.end()){
@@ -1328,7 +1314,7 @@ bool FunctionCallCompiler::createNewContract(FunctionCall const &_functionCall) 
 			TVMExpressionCompiler{m_pusher}.compileNewExpr(functionOptions->options()[index].get());
 		};
 	} else {
-		cast_error(_functionCall, R"(Options "value" and "stateInit" are obligatory.)");
+		cast_error(m_functionCall, R"(Options "value" and "stateInit" are obligatory.)");
 	}
 	exprs[TvmConst::int_msg_info::dest] = [&](){
 		int stackIndex = m_pusher.getStack().size() - destAddressStack;
@@ -1336,12 +1322,11 @@ bool FunctionCallCompiler::createNewContract(FunctionCall const &_functionCall) 
 	};
 
 
-	auto arguments = _functionCall.arguments();
 	auto constructor = (to<ContractType>(type))->contractDefinition().constructor();
 
 	std::function<void(int)> appendBody = [&](int builderSize) {
 		if (constructor)
-			return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder2(arguments,
+			return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder2(m_arguments,
 											ReasonOfOutboundMessage::RemoteCallInternal,
 											constructor, builderSize);
 		else
@@ -1375,25 +1360,25 @@ bool FunctionCallCompiler::createNewContract(FunctionCall const &_functionCall) 
 	return true;
 }
 
-bool FunctionCallCompiler::checkNewExpression(FunctionCall const &_functionCall) {
+bool FunctionCallCompiler::checkNewExpression() {
 
-	if (to<FunctionCallOptions>(&_functionCall.expression())) {
-		return createNewContract(_functionCall);
+	if (to<FunctionCallOptions>(&m_functionCall.expression())) {
+		return createNewContract();
 	}
 
-	if (to<NewExpression>(&_functionCall.expression()) == nullptr) {
+	if (to<NewExpression>(&m_functionCall.expression()) == nullptr) {
 		return false;
 	}
-	Type const *resultType = _functionCall.annotation().type;
+	Type const *resultType = m_functionCall.annotation().type;
 	if (resultType->category() == Type::Category::Contract) {
-		cast_error(_functionCall, "Unsupported contract creating. Use call options: \"stateInit\", \"value\", \"flag\"");
+		cast_error(m_functionCall, R"(Unsupported contract creating. Use call options: "stateInit", "value", "flag")");
 	}
 
 	int size = m_pusher.getStack().size();
 
 	m_pusher.push(0, ";; new " + resultType->toString(true));
 	m_pusher.push(+1, "NEWDICT"); // dict
-	acceptExpr(_functionCall.arguments()[0].get()); // dict size
+	acceptExpr(m_arguments[0].get()); // dict size
 	m_pusher.push(+1, "DUP"); // dict size sizeIter
 
 
@@ -1401,6 +1386,7 @@ bool FunctionCallCompiler::checkNewExpression(FunctionCall const &_functionCall)
 	const IntegerType key = getKeyTypeOfArray();
 	Type const* arrayBaseType = arrayType->baseType();
 
+	// TODO optimize if size is constant and size == 0 or size == 1
 	m_pusher.pushS(0);
 	{
 		StackPusherHelper pusherHelper(&m_pusher.ctx(), 1);
@@ -1409,7 +1395,7 @@ bool FunctionCallCompiler::checkNewExpression(FunctionCall const &_functionCall)
 		// TODO optimize. Locate default value on stack (don't create default value in each iteration)
 		bool isValueBuilder = pusherHelper.prepareValueForDictOperations(&key, arrayBaseType, true); // arr value'
 		pusherHelper.push(2, "PUSH2 S1,S3"); // dict size sizeIter' value sizeIter' dict
-		pusherHelper.setDict(key, *arrayType->baseType(), isValueBuilder, _functionCall); // dict size sizeIter' dict'
+		pusherHelper.setDict(key, *arrayType->baseType(), isValueBuilder, m_functionCall); // dict size sizeIter' dict'
 		pusherHelper.push(0, "POP S3"); // dict' size sizeIter'
 		m_pusher.pushCont(pusherHelper.code());
 	}
@@ -1424,7 +1410,19 @@ bool FunctionCallCompiler::checkNewExpression(FunctionCall const &_functionCall)
 	return true;
 }
 
-bool FunctionCallCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
+bool FunctionCallCompiler::checkTvmIntrinsic() {
 	IntrinsicsCompiler ic(m_pusher);
-	return ic.checkTvmIntrinsic(_functionCall);
+	return ic.checkTvmIntrinsic(m_functionCall);
+}
+
+bool FunctionCallCompiler::structMethodCall() {
+	auto ma = to<MemberAccess>(&m_functionCall.expression());
+	if (ma->memberName() != "unpack") {
+		return false;
+	}
+	acceptExpr(&ma->expression());
+	auto structType = to<StructType>(getType(&ma->expression()));
+	int memberQty = structType->structDefinition().members().size();
+	m_pusher.untuple(memberQty);
+	return true;
 }

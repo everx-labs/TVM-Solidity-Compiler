@@ -14,8 +14,8 @@ cd TON-Solidity-Compiler/compiler
 sh ./scripts/install_deps.sh
 mkdir build
 cd build
-cmake .. -DUSE_CVC4=OFF -DUSE_Z3=OFF -DTESTS=OFF -DCMAKE_BUILD_TYPE=Debug
-make -j8
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build . -- -j8
 ```
 
 To facilitate work with other TON tools add path to stdlib_sol.tvm into environment variables:
@@ -35,7 +35,7 @@ cd TON-Solidity-Compiler\compiler
 cmake -P scripts\install_deps.cmake
 mkdir build
 cd build
-cmake .. -DUSE_CVC4=OFF -DUSE_Z3=OFF -DTESTS=OFF -DCMAKE_BUILD_TYPE=Debug
+cmake ..
 cmake --build . --config Release -j 8
 ```
 
