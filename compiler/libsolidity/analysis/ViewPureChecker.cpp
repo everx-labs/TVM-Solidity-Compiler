@@ -160,7 +160,7 @@ void ViewPureChecker::reportMutability(
 			"Function declared as " +
 			stateMutabilityToString(m_currentFunction->stateMutability()) +
 			", but this expression (potentially) modifies the state and thus "
-			"requires non-payable (the default) or payable."
+			"requires the default."
 		);
 		m_errors = true;
 	}
@@ -187,6 +187,7 @@ void ViewPureChecker::endVisit(FunctionCall const& _functionCall)
 	} else {
 		mutability = dynamic_cast<FunctionType const&>(*_functionCall.expression().annotation().type).stateMutability();
 	}
+
 	reportMutability(mutability, _functionCall.location());
 }
 
@@ -246,6 +247,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::Message, "pubkey"},
 			{MagicType::Kind::Message, "sig"},
 			{MagicType::Kind::Message, "currencies"},
+			{MagicType::Kind::Message, "sender"},
 			{MagicType::Kind::TVM, "accept"},
 			{MagicType::Kind::TVM, "cdatasize"},
 			{MagicType::Kind::TVM, "checkSign"},
