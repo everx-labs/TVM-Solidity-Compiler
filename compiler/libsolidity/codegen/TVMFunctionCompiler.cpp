@@ -1138,15 +1138,9 @@ bool TVMFunctionCompiler::visit(Continue const &) {
 bool TVMFunctionCompiler::visit(EmitStatement const &_emit) {
 	auto eventCall = to<FunctionCall>(&_emit.eventCall());
 	solAssert(eventCall, "");
-	auto eventName = to<Identifier>(&eventCall->expression());
-	solAssert(eventName, "");
-	string name = eventName->name();
-	m_pusher.push(0, ";; emit " + name);
-	TVMExpressionCompiler ec(m_pusher);
-	auto identifier = to<Identifier>(&eventCall->expression());
-	Declaration const * decl = identifier->annotation().referencedDeclaration;
-	auto eventDef = to<CallableDeclaration>(decl);
+	CallableDeclaration const * eventDef = getCallableDeclaration(&eventCall->expression());
 	solAssert(eventDef, "Event Declaration was not found");
+	m_pusher.push(0, ";; emit " + eventDef->name());
 	auto appendBody = [&](int builderSize) {
 		return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder2(
 				eventCall->arguments(),

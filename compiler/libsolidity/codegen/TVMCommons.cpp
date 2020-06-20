@@ -265,4 +265,14 @@ vector<FunctionDefinition const *> getContractFunctions(ContractDefinition const
 	return result;
 }
 
+CallableDeclaration const * getCallableDeclaration(Expression const* expr) {
+	CallableDeclaration const * result = nullptr;
+	auto f = to<FunctionType>(expr->annotation().type);
+	if (f) {
+		result = to<CallableDeclaration>(&f->declaration());
+	}
+	solAssert(result, "Failed to get CallableDeclaration.");
+	return result;
+}
+
 } // end namespace solidity::frontend

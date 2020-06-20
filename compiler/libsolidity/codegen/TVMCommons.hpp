@@ -400,4 +400,6 @@ getParams(const ast_vec<T>& params, size_t offset = 0) {
 	return std::make_pair(types, nodes);
 }
 
+CallableDeclaration const * getCallableDeclaration(Expression const* expr);
+
 } // end solidity::frontend

@@ -25,17 +25,6 @@
 
 using namespace solidity::frontend;
 
-CallableDeclaration const * getCallableDeclaration(Expression const* expr) {
-	CallableDeclaration const * result = nullptr;
-
-	if (auto identifier = to<Identifier>(expr))
-		result = to<CallableDeclaration>(identifier->annotation().referencedDeclaration);
-	else if (auto member = dynamic_cast<MemberAccess const *>(expr))
-		result = to<CallableDeclaration>(member->annotation().referencedDeclaration);
-	solAssert(result, "Failed to get CallableDeclaration.");
-	return result;
-}
-
 void FunctionCallCompiler::acceptExpr(const Expression *expr) {
 	m_exprCompiler->compileNewExpr(expr);
 }

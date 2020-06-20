@@ -2656,7 +2656,7 @@ FunctionType::FunctionType(VariableDeclaration const& _varDecl):
 
 FunctionType::FunctionType(EventDefinition const& _event):
 	m_kind(Kind::Event),
-	m_stateMutability(StateMutability::NonPayable),
+	m_stateMutability(StateMutability::Pure),
 	m_declaration(&_event)
 {
 	for (ASTPointer<VariableDeclaration> const& var: _event.parameters())
