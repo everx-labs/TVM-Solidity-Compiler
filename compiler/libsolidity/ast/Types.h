@@ -162,7 +162,8 @@ public:
 		Address, Integer, RationalNumber, StringLiteral, Bool, FixedPoint, Array, ArraySlice,
 		FixedBytes, Contract, Struct, Function, Enum, Tuple,
 		Mapping, TypeType, Modifier, Magic, Module,
-		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection, VarInteger
+		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection, VarInteger,
+		Optional
 	};
 
 	/// @returns a pointer to _a or _b if the other is implicitly convertible to it or nullptr otherwise
@@ -1110,11 +1111,13 @@ public:
 		AddressIsZero, ///< .isStdZero() .isExternZero() for address
 		AddressUnpack, ///< .unpack() for address
 		AddressType, ///< .getType() for address
+		AddressIsStdAddrWithoutAnyCast, ///< .isStdAddrWithoutAnyCast  for address
 		AddressMakeAddrExtern, ///< .makeAddrExtern() for address
 		AddressMakeAddrNone, ///< .makeAddrNone() for address
 		AddressMakeAddrStd, ///< .makeAddrStd() for address
 		TVMSliceDecode, ///< slice.decode(types)
 		DecodeFunctionParams, ///< slice.decodeFunctionParams(function_name)
+		TVMCellMethods, ///< cell.someMethod()
 		TVMSliceSize, ///< slice.size()
 		TVMLoadRef, ///< slice.loadRef()
 		TVMCellToSlice, ///< cell.toSlice()
@@ -1140,15 +1143,21 @@ public:
 		AddMod, ///< ADDMOD
 		MulMod, ///< MULMOD
 		MessagePubkey, ///< msg.pubkey()
+		MathMaxMin, ///< math.min(a, b, ...) or math.max(a, b, ...)
+		MathMulDiv, ///< math.muldiv()
+		MathMulDivMod, ///< math.muldivmod()
+		MathAbs, ///< math.abs()
+		MathMinMax, ///< math.minmax()
+		MathModpow2, ///< math.modpow2()
 		TVMAccept, ///< tvm.accept()
 		TVMcdatasize, ///< tvm.cdatasize()
 		TVMChecksign, ///< tvm.checkSign()
 		TVMCommit, ///< tvm.commit()
 		TVMConfigParam, ///< tvm.configParam()
+		TVMRawConfigParam, ///< tvm.rawConfigParam()
 		TVMDeploy, ///< functions to deploy contract from contract
 		TVMFunctionId, ///< tvm.functionId(function_name)
 		TVMEncodeBody, ///< tvm.encodeBody()
-		TVMMaxMin,  ///< tvm.min(a, b, ...) or tvm.max(a, b, ...)
 		TVMHash, ///< tvm.hash()
 		TVMPubkey, ///< tvm.pubkey()
 		TVMResetStorage, ///< tvm.resetStorage()
@@ -1168,6 +1177,7 @@ public:
 		MappingEmpty,  ///< .empty() for a mapping
 		MappingReplaceOrAdd,  ///< .replace() or .add() for a mapping
 		MappingGetSet,  ///< .getSet() for a mapping
+		OptionalMethod,  ///< Optional methods
 		StringMethod,  ///< string methods
 		ObjectCreation, ///< array creation using new
 		Assert, ///< assert()
@@ -1223,9 +1233,7 @@ public:
 		bool _arbitraryParameters = false,
 		StateMutability _stateMutability = StateMutability::NonPayable,
 		Declaration const* _declaration = nullptr,
-		bool _gasSet = false,
 		bool _valueSet = false,
-		bool _saltSet = false,
 		bool _bound = false,
 		bool _flagSet = false
 	):
@@ -1236,12 +1244,10 @@ public:
 		m_kind(_kind),
 		m_stateMutability(_stateMutability),
 		m_arbitraryParameters(_arbitraryParameters),
-		m_gasSet(_gasSet),
 		m_valueSet(_valueSet),
 		m_flagSet(_flagSet),
 		m_bound(_bound),
-		m_declaration(_declaration),
-		m_saltSet(_saltSet)
+		m_declaration(_declaration)
 	{
 		solAssert(
 			m_parameterNames.size() == m_parameterTypes.size(),
@@ -1363,16 +1369,15 @@ public:
 		}
 	}
 
-	bool gasSet() const { return m_gasSet; }
 	bool valueSet() const { return m_valueSet; }
 	bool flagSet() const { return m_flagSet; }
+	bool bounceSet() const { return m_bounceSet; }
 	bool currenciesSet() const { return m_currenciesSet; }
-	bool saltSet() const { return m_saltSet; }
 	bool bound() const { return m_bound; }
 
 	/// @returns a copy of this type, where gas or value are set manually. This will never set one
 	/// of the parameters to false.
-	TypePointer copyAndSetCallOptions(bool _setGas, bool _setValue, bool _setSalt, bool setFlag = false) const;
+	TypePointer copyAndSetCallOptions(bool _setValue, bool setFlag = false) const;
 
 	/// @returns a copy of this function type where the location of reference types is changed
 	/// from CallData to Memory. This is the type that would be used when the function is
@@ -1393,13 +1398,12 @@ private:
 	StateMutability m_stateMutability = StateMutability::NonPayable;
 	/// true if the function takes an arbitrary number of arguments of arbitrary types
 	bool const m_arbitraryParameters = false;
-	bool const m_gasSet = false; ///< true iff the gas value to be used is on the stack
-	bool const m_valueSet = false; ///< true iff the value to be sent is on the stack
-	bool const m_flagSet = false; ///< true iff the send flag is on the stack
-	bool const m_currenciesSet = false; ///< true iff the currencies are on the stack
-	bool const m_bound = false; ///< true iff the function is called as arg1.fun(arg2, ..., argn)
+	bool const m_valueSet = false; ///< true if the value to be sent is on the stack
+	bool const m_flagSet = false; ///< true if the send flag is on the stack
+	bool const m_bounceSet = false; ///< true if bounce flag is on the stack
+	bool const m_currenciesSet = false; ///< true if the currencies are on the stack
+	bool const m_bound = false; ///< true if the function is called as arg1.fun(arg2, ..., argn)
 	Declaration const* m_declaration = nullptr;
-	bool m_saltSet = false; ///< true iff the salt value to be used is on the stack
 };
 
 /**
@@ -1437,6 +1441,35 @@ private:
 	TypePointer m_keyType;
 	TypePointer m_valueType;
 	DataLocation m_location;
+};
+
+/**
+ * The type of an Optional<type>.
+ */
+class OptionalType: public Type
+{
+public:
+	OptionalType(Type const* _type):
+		m_type(_type) {}
+
+	Category category() const override { return Category::Optional; }
+
+	BoolResult isImplicitlyConvertibleTo(Type const& _other) const override;
+	std::string richIdentifier() const override;
+	bool operator==(Type const& _other) const override;
+	std::string toString(bool _short) const override;
+	std::string canonicalName() const override;
+	bool canLiveOutsideStorage() const override { return true; }
+	TypeResult binaryOperatorResult(Token, Type const*) const override { return nullptr; }
+	bool hasSimpleZeroValueInMemory() const override { solAssert(false, ""); }
+
+	Type const* valueType() const { return m_type; }
+	MemberList::MemberMap nativeMembers(ContractDefinition const* _currentScope) const override;
+
+	TypeResult unaryOperatorResult(Token _operator) const override;
+
+private:
+	TypePointer m_type;
 };
 
 /**
@@ -1531,7 +1564,8 @@ public:
 		Message, ///< "msg"
 		Transaction, ///< "tx"
 		ABI, ///< "abi"
-		TVM, ///< "tvm
+		TVM, ///< "tvm"
+		Math, ///< "math"
 		MetaType ///< "type(...)"
 	};
 

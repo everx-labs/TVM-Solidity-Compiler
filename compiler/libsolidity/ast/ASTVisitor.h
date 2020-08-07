@@ -62,6 +62,7 @@ public:
 	virtual bool visit(UserDefinedTypeName& _node) { return visitNode(_node); }
 	virtual bool visit(FunctionTypeName& _node) { return visitNode(_node); }
 	virtual bool visit(Mapping& _node) { return visitNode(_node); }
+	virtual bool visit(Optional& _node) { return visitNode(_node); }
 	virtual bool visit(ArrayTypeName& _node) { return visitNode(_node); }
 	virtual bool visit(InlineAssembly& _node) { return visitNode(_node); }
 	virtual bool visit(Block& _node) { return visitNode(_node); }
@@ -94,6 +95,7 @@ public:
 	virtual bool visit(Literal& _node) { return visitNode(_node); }
 	virtual bool visit(StructuredDocumentation& _node) { return visitNode(_node); }
 	virtual bool visit(MappingNameExpression& _node) { return visitNode(_node); }
+	virtual bool visit(OptionalNameExpression& _node) { return visitNode(_node); }
 
 	virtual void endVisit(SourceUnit& _node) { endVisitNode(_node); }
 	virtual void endVisit(PragmaDirective& _node) { endVisitNode(_node); }
@@ -115,6 +117,7 @@ public:
 	virtual void endVisit(UserDefinedTypeName& _node) { endVisitNode(_node); }
 	virtual void endVisit(FunctionTypeName& _node) { endVisitNode(_node); }
 	virtual void endVisit(Mapping& _node) { endVisitNode(_node); }
+	virtual void endVisit(Optional& _node) { endVisitNode(_node); }
 	virtual void endVisit(ArrayTypeName& _node) { endVisitNode(_node); }
 	virtual void endVisit(InlineAssembly& _node) { endVisitNode(_node); }
 	virtual void endVisit(Block& _node) { endVisitNode(_node); }
@@ -147,6 +150,7 @@ public:
 	virtual void endVisit(Literal& _node) { endVisitNode(_node); }
 	virtual void endVisit(StructuredDocumentation& _node) { endVisitNode(_node); }
 	virtual void endVisit(MappingNameExpression& _node) { endVisitNode(_node); }
+	virtual void endVisit(OptionalNameExpression& _node) { endVisitNode(_node); }
 
 protected:
 	/// Generic function called by default for each node, to be overridden by derived classes
@@ -181,6 +185,7 @@ public:
 	virtual bool visit(UserDefinedTypeName const& _node) { return visitNode(_node); }
 	virtual bool visit(FunctionTypeName const& _node) { return visitNode(_node); }
 	virtual bool visit(Mapping const& _node) { return visitNode(_node); }
+	virtual bool visit(Optional const& _node) { return visitNode(_node); }
 	virtual bool visit(ArrayTypeName const& _node) { return visitNode(_node); }
 	virtual bool visit(Block const& _node) { return visitNode(_node); }
 	virtual bool visit(PlaceholderStatement const& _node) { return visitNode(_node); }
@@ -213,6 +218,7 @@ public:
 	virtual bool visit(Literal const& _node) { return visitNode(_node); }
 	virtual bool visit(StructuredDocumentation const& _node) { return visitNode(_node); }
 	virtual bool visit(MappingNameExpression const& _node) { return visitNode(_node); }
+	virtual bool visit(OptionalNameExpression const& _node) { return visitNode(_node); }
 
 	virtual void endVisit(SourceUnit const& _node) { endVisitNode(_node); }
 	virtual void endVisit(PragmaDirective const& _node) { endVisitNode(_node); }
@@ -234,6 +240,7 @@ public:
 	virtual void endVisit(UserDefinedTypeName const& _node) { endVisitNode(_node); }
 	virtual void endVisit(FunctionTypeName const& _node) { endVisitNode(_node); }
 	virtual void endVisit(Mapping const& _node) { endVisitNode(_node); }
+	virtual void endVisit(Optional const& _node) { endVisitNode(_node); }
 	virtual void endVisit(ArrayTypeName const& _node) { endVisitNode(_node); }
 	virtual void endVisit(Block const& _node) { endVisitNode(_node); }
 	virtual void endVisit(PlaceholderStatement const& _node) { endVisitNode(_node); }
@@ -266,6 +273,7 @@ public:
 	virtual void endVisit(Literal const& _node) { endVisitNode(_node); }
 	virtual void endVisit(StructuredDocumentation const& _node) { endVisitNode(_node); }
 	virtual void endVisit(MappingNameExpression const& _node) { endVisitNode(_node); }
+	virtual void endVisit(OptionalNameExpression const& _node) { endVisitNode(_node); }
 
 protected:
 	/// Generic function called by default for each node, to be overridden by derived classes

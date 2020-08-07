@@ -208,6 +208,11 @@ void ReferencesResolver::endVisit(Mapping const& _typeName)
 	_typeName.annotation().type = TypeProvider::mapping(keyType, valueType, _typeName.location());
 }
 
+void ReferencesResolver::endVisit(Optional const& _typeName)
+{
+	_typeName.annotation().type = TypeProvider::optional(_typeName.valueType().annotation().type);
+}
+
 void ReferencesResolver::endVisit(const ElementaryTypeName &_typeName) {
 	if (_typeName.typeName().token() == Token::ExtraCurrencyCollection) {
 		_typeName.annotation().type = TypeProvider::extraCurrencyCollection(_typeName.getLocation());

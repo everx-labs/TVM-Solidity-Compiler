@@ -1184,6 +1184,27 @@ private:
 };
 
 /**
+ * An optional type. Its source form is "Optional<Type>"
+ */
+class Optional: public TypeName
+{
+public:
+	Optional(
+		int64_t _id,
+		SourceLocation const& _location,
+		ASTPointer<TypeName> const& _type
+	):
+		TypeName(_id, _location), m_type(_type) {}
+	void accept(ASTVisitor& _visitor) override;
+	void accept(ASTConstVisitor& _visitor) const override;
+
+	TypeName const& valueType() const { return *m_type; }
+
+private:
+	ASTPointer<TypeName> m_type;
+};
+
+/**
  * An array type, can be "typename[]" or "typename[<expression>]".
  */
 class ArrayTypeName: public TypeName
@@ -2028,6 +2049,30 @@ private:
 };
 
 /**
+ * Optional<type>
+ */
+class OptionalNameExpression : public PrimaryExpression
+{
+public:
+	OptionalNameExpression(
+			int64_t _id,
+			SourceLocation const& _location,
+			ASTPointer<Optional> const& _type
+	):
+			PrimaryExpression(_id, _location),
+			m_type(_type)
+	{
+	}
+	void accept(ASTVisitor& _visitor) override;
+	void accept(ASTConstVisitor& _visitor) const override;
+
+	Optional const& type() const { return *m_type; }
+
+private:
+	ASTPointer<Optional> m_type;
+};
+
+/**
  * A literal string or number. @see ExpressionCompiler::endVisit() is used to actually parse its value.
  */
 class Literal: public PrimaryExpression
@@ -2036,10 +2081,21 @@ public:
 	enum class SubDenomination
 	{
 		None = static_cast<int>(Token::Illegal),
-		Wei = static_cast<int>(Token::SubWei),
-		Szabo = static_cast<int>(Token::SubSzabo),
-		Finney = static_cast<int>(Token::SubFinney),
-		Ether = static_cast<int>(Token::SubEther),
+		Nano = static_cast<int>(Token::SubNano),
+		NTon = static_cast<int>(Token::SubNTon),
+		Nanoton = static_cast<int>(Token::SubNanoton),
+		Micro = static_cast<int>(Token::SubMicro),
+		Microton = static_cast<int>(Token::SubMicroton),
+		Milli = static_cast<int>(Token::SubMilli),
+		Milliton = static_cast<int>(Token::SubMilliton),
+		Ton = static_cast<int>(Token::SubTon),
+		SmallTon = static_cast<int>(Token::SubSmallTon),
+		Kiloton = static_cast<int>(Token::SubKiloton),
+		KTon = static_cast<int>(Token::SubKTon),
+		Megaton = static_cast<int>(Token::SubMegaton),
+		MTon = static_cast<int>(Token::SubMTon),
+		Gigaton = static_cast<int>(Token::SubGigaton),
+		GTon = static_cast<int>(Token::SubGTon),
 		Second = static_cast<int>(Token::SubSecond),
 		Minute = static_cast<int>(Token::SubMinute),
 		Hour = static_cast<int>(Token::SubHour),

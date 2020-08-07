@@ -48,6 +48,7 @@ protected:
 	bool checkForTvmSliceMethods(MemberAccess const& _node, Type::Category category);
 	void store(MemberAccess const& _node, TypePointer type, bool reverse = true);
 	bool checkForStringMethods(MemberAccess const& _node);
+	bool checkForOptionalMethods(MemberAccess const& _node);
 	bool checkForTvmBuilderMethods(MemberAccess const& _node, Type::Category category);
 	bool checkForTvmCellMethods(MemberAccess const& _node, Type::Category category);
 	void addressMethod();
@@ -55,6 +56,7 @@ protected:
 	bool checkForTvmSendFunction(MemberAccess const& _node);
 	bool checkForMsgFunction(MemberAccess const& _node, Type::Category category);
 	bool checkForTvmFunction(MemberAccess const& _node);
+	bool checkForMathFunction(MemberAccess const& _node);
 	bool checkForMemberAccessTypeType(MemberAccess const& _node, Type::Category category);
 	bool checkAddressThis();
 	void typeConversion();

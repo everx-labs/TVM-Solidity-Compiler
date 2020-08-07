@@ -5,17 +5,21 @@ TON Solidity compiler expands Solidity language with different API functions to 
 ## Table of Contents
 
 * [TON specific types](#ton-specific-types)
+  * [TON units](#ton-units)
   * [TvmCell](#tvmcell)
+    * [TvmCell.depth()](#tvmcelldepth)
     * [TvmCell.toSlice()](#tvmcelltoslice)
   * [TvmSlice](#tvmslice)
     * [TvmSlice.size()](#tvmslicesize)
     * [TvmSlice.bits()](#tvmslicebits)
     * [TvmSlice.refs()](#tvmslicerefs)
+    * [TvmSlice.depth()](#tvmslicedepth)
     * [TvmSlice.decode()](#tvmslicedecode)
     * [TvmSlice.loadRef()](#tvmsliceloadref)
     * [TvmSlice.loadRefAsSlice()](#tvmsliceloadrefasslice)
     * [TvmSlice.loadSigned()](#tvmsliceloadsigned)
     * [TvmSlice.loadUnsigned()](#tvmsliceloadunsigned)
+    * [TvmSlice.loadTons()](#tvmsliceloadtons)
     * [TvmSlice.decodeFunctionParams()](#tvmslicedecodefunctionparams)
   * [TvmBuilder](#tvmbuilder)
     * [TvmBuilder.toSlice()](#tvmbuildertoslice)
@@ -26,11 +30,15 @@ TON Solidity compiler expands Solidity language with different API functions to 
     * [TvmBuilder.remBits()](#tvmbuilderrembits)
     * [TvmBuilder.remRefs()](#tvmbuilderremrefs)
     * [TvmBuilder.remBitsAndRefs()](#tvmbuilderrembitsandrefs)
+    * [TvmBuilder.depth()](#tvmbuilderdepth)
     * [TvmBuilder.store()](#tvmbuilderstore)
     * [TvmBuilder.storeSigned()](#tvmbuilderstoresigned)
     * [TvmBuilder.storeUnsigned()](#tvmbuilderstoreunsigned)
     * [TvmBuilder.storeRef()](#tvmbuilderstoreref)
-  * Changes and extensions in
+    * [TvmBuilder.storeTons()](#tvmbuilderstoretons)
+  * [ExtraCurrencyCollection](#extracurrencycollection)
+  * [optional&lt;Type&gt;](#optionaltype)
+  * Changes and extensions in solidity types
     * [struct](#struct)
       * [struct.unpack()](#structunpack)
     * [string](#string)
@@ -52,6 +60,7 @@ TON Solidity compiler expands Solidity language with different API functions to 
       * [Functions](#functions)
         * [address.getType()](#addressgettype)
         * [address.isStdZero()](#addressisstdzero)
+        * [address.isStdAddrWithoutAnyCast()](#addressisstdaddrwithoutanycast)
         * [address.isExternZero()](#addressisexternzero)
         * [address.isNone()](#addressisnone)
         * [address.unpack()](#addressunpack)
@@ -69,10 +78,9 @@ TON Solidity compiler expands Solidity language with different API functions to 
       * [mapping.getSet()](#mappinggetset)
       * [mapping.getAdd()](#mappinggetadd)
       * [mapping.getReplace()](#mappinggetreplace)
-  * [ExtraCurrencyCollection](#extracurrencycollection)
-  * [require, revert](#require-revert)
-    * [require](#require)
-    * [revert](#revert)
+    * [require, revert](#require-revert)
+      * [require](#require)
+      * [revert](#revert)
 * [Pragmas](#pragmas)
   * [ignoreIntOverflow](#ignoreintoverflow)
   * [AbiHeader](#abiheader)
@@ -87,11 +95,13 @@ TON Solidity compiler expands Solidity language with different API functions to 
 * [Events and return](#events-and-return)
   * [extAddr](#extaddr)
   * [return](#return)
+* [External function calls](#external-function-calls)
 * [API functions and members](#api-functions-and-members)
   * [**msg** namespace](#msg-namespace)
     * [msg.pubkey()](#msgpubkey)
     * [msg.createdAt](#msgcreatedat)
     * [msg.currencies](#msgcurrencies)
+    * [msg.data](#msgdata)
   * [**tvm** namespace](#tvm-namespace)
     * [TVM instructions](#tvm-instructions)
       * [tvm.accept()](#tvmaccept)
@@ -101,6 +111,8 @@ TON Solidity compiler expands Solidity language with different API functions to 
       * [tvm.cdatasize()](#tvmcdatasize)
       * [tvm.transLT()](#tvmtranslt)
       * [tvm.configParam()](#tvmconfigparam)
+      * [tvm.rawConfigParam()](#tvmrawconfigparam)
+      * [tvm.rawReserve()](#rawreserve)
     * [Hashing and cryptography](#hashing-and-cryptography)
       * [tvm.hash()](#tvmhash)
       * [tvm.checkSign()](#tvmchecksign)
@@ -117,7 +129,13 @@ TON Solidity compiler expands Solidity language with different API functions to 
       * [tvm.resetStorage()](#tvmresetstorage)
       * [tvm.functionId()](#tvmfunctionid)
       * [tvm.encodeBody()](#tvmencodebody)
-      * [tvm.min() and tvm.max()](#tvmmin-and-tvmmax)
+  * [**math** namespace](#math-namespace)
+    * [math.min() and math.max()](#mathmin-and-mathmax)
+    * [math.abs()](#mathabs)
+    * [math.modpow2()](#mathmodpow2)
+    * [math.minmax()](#mathminmax)
+    * [math.muldiv()](#mathmuldiv)
+    * [math.muldivmod()](#mathmuldivmod)
   * [selfdestruct](#selfdestruct)
 
 ## Detailed description
@@ -126,9 +144,42 @@ TON Solidity compiler expands Solidity language with different API functions to 
 
 TON Solidity compiler expands functionality of some existing types and adds several new TVM specific types: TvmCell, TvmSlice, TvmBuilder and ExtraCurrencyCollection. Full description of this types can be found in [TVM][1] and [TON Blockchain][2] specifications.
 
+#### TON units
+
+A literal number can take a suffix to specify a subdenomination of TON currency, where numbers without a postfix are assumed to be nanotons.
+
+```TVMSolidity
+require(1 nano == 1);
+require(1 nanoton == 1);
+require(1 nTon == 1);
+require(1 micro == 1e3);
+require(1 microton == 1e3);
+require(1 milli == 1e6);
+require(1 milliton == 1e6);
+require(1 Ton == 1e9);
+require(1 ton == 1e9);
+require(1 kiloton == 1e12);
+require(1 kTon == 1e12);
+require(1 megaton == 1e15);
+require(1 MTon == 1e15);
+require(1 gigaton == 1e18);
+require(1 GTon == 1e18);
+```
+
 #### TvmCell
 
 TvmCell represents TVM type Cell. TON Solidity compiler defines the following functions to work with this type:
+
+##### TvmCell.depth()
+
+```TVMSolidity
+TvmCell c;
+uint64 d = c.depth();
+```
+
+Returns the depth of TvmCell **c**. If **c** has no references, then **d** = 0; 
+otherwise **d** is one plus the maximum of depths of cells referred to from **c**.
+If **c** is a Null instead of a Cell, returns zero.
 
 ##### TvmCell.toSlice()
 
@@ -169,6 +220,16 @@ uint8 refs = slice.refs();
 ```
 
 This function returns number of references in the slice.
+
+##### TvmSlice.depth()
+
+```TVMSolidity
+TvmSlice s;
+uint64 d = s.depth();
+```
+
+Returns the depth of TvmSlice **s**. If **s** has no references, then **d = 0**;
+otherwise **d** is one plus the maximum of depths of cells referred to from **s**.
 
 ##### TvmSlice.decode()
 
@@ -223,6 +284,16 @@ uint number = slice.loadUnsigned(bitSize);
 ```
 
 This function loads an unsigned integer with the given **bitSize** from the slice.
+
+##### TvmSlice.loadTons()
+
+```TVMSolidity
+TvmSlice slice;
+// init slice
+uint128 value = slice.loadTons();
+```
+
+This function loads (deserializes) **VarUInteger 16** and return unsigned 128-bit integer. See [TL-B scheme][3].  
 
 ##### TvmSlice.decodeFunctionParams()
 
@@ -313,6 +384,17 @@ TvmBuilder builder;
 
 This function returns the number of data bits and references that can still be stored in the builder.
 
+##### TvmBuilder.depth()
+
+```TVMSolidity
+TvmBuilder b;
+uint64 d = b.depth();
+```
+
+Returns the depth of TvmBuilder **b**. If no cell references are stored
+in **b**, then **d = 0**; otherwise **d** is one plus the maximum of
+depths of cells referred to from **b**.
+
 ##### TvmBuilder.store()
 
 ```TVMSolidity
@@ -377,6 +459,75 @@ See example of how to work with TVM specific types:
 * [Message_construction](https://github.com/tonlabs/samples/blob/master/solidity/15_MessageSender.sol)
 * [Message_parsing](https://github.com/tonlabs/samples/blob/master/solidity/15_MessageReceiver.sol)
 
+##### TvmBuilder.storeTons()
+
+```TVMSolidity
+uint128 value = 1234;
+TvmBuilder b;
+b.storeTons(value);
+```
+
+This function stores (serializes) an integer **value** into **TvmBuilder b**. In builder the value are stored as
+**VarUInteger 16**. See [TL-B scheme][3].
+
+#### ExtraCurrencyCollection
+
+ExtraCurrencyCollection represents TVM type ExtraCurrencyCollection. It has the same functions as **mapping(uint32 => uint256)**:
+
+```TVMSolidity
+ExtraCurrencyCollection curCol;
+uint32 key;
+uint256 value;
+(uint32 minKey, uint256 minKeyValue, bool haveValue) = curCol.min();
+(uint32 nextKey, uint256 nextValue, bool haveValue) = curCol.next(key);
+(uint32 prevKey, uint256 prevValue, bool haveValue) = curCol.prev(key);
+(uint32 firstKey, uint256 value) = curCol.delMin();
+(uint32 firstKey, uint256 value) = curCol.delMax();
+(bool exists, uint256 value) = curCol.fetch(key);
+bool exists = curCol.exists(key);
+bool isEmpty = curCol.empty();
+bool success = curCol.replace(key, value);
+bool success = curCol.add(key, value);
+(uint32 oldValue, bool haveOldValue) = curCol.getSet(key, value);
+(uint32 oldValue, bool haveOldValue) = curCol.getAdd(key, value);
+(uint32 oldValue, bool haveOldValue) = curCol.getReplace(key, value);
+uint256 value = curCol[index];
+```
+
+#### optional&lt;Type&gt;
+
+The template optional type manages an optional contained value, i.e. a value that may or may not be present.
+
+##### optional&lt;Type&gt;.hasValue()
+
+```TVMSolidity
+optional<uint> opt;
+require(!opt.hasValue(), 101);
+```
+
+Checks whether **opt** contains a value.
+
+##### optional&lt;Type&gt;.get()
+
+```TVMSolidity
+optional<uint> opt;
+opt.set(123456);
+require(opt.get() == 123456, 102);
+```
+
+If **opt** contains a value, returns a reference to the contained value.
+Otherwise, throws an exaption.
+
+##### optional&lt;Type&gt;.set()
+
+```TVMSolidity
+optional<uint> opt;
+opt.set(123456);
+require(opt.get() == 123456, 102);
+```
+
+Replaces contents of **opt** with the contents of other.
+
 #### struct
 
 ##### struct.unpack()
@@ -407,7 +558,7 @@ byte a0 = byteArray[index];
 ```
 
 Operator **[]** returns a byte located at position **index**.  
-Warring: **index** must be in range 0 to 203 include.
+Warning: **index** must be in range 0 to 126 include.
 
 ##### bytes.length
 
@@ -417,7 +568,7 @@ uint l = byteArray.length;
 ```
 
 Member **length** returns length of byte array.  
-Warring: if length of array is bigger than 204 than this function return 204.
+Warning: if length of array is bigger than 127 than this function return 127.
 
 #### string
 
@@ -431,7 +582,7 @@ uint8 len = str.byteLength();
 ```
 
 This function returns byte length of the string data.  
-Warring: if length of string is bigger than 204 than this function return 204.
+Warning: if length of string is bigger than 127 than this function return 127.
 
 ##### string.substr()
 
@@ -443,7 +594,7 @@ string substr = str.substr(from, count);
 ```
 
 This function returns a substring starting from the byte with number **from** with byte length **count**.  
-Warring: **from** must be in range 0 to 203 include and **from + count** must be in range 1 to 204 include.
+Warning: **from** must be in range 0 to 127 include and **from + count** must be in range 1 to 127 include.
 
 #### address
 
@@ -539,6 +690,15 @@ bool status = addr.isStdZero();
 
 This function compares **address** with zero **address** of type **addr_std**.
 
+##### address.isStdAddrWithoutAnyCast()
+
+```TVMSolidity
+address addr;
+bool status = addr.isStdAddrWithoutAnyCast();
+```
+
+This function check that **addr** is **addr_std** without any cast.
+
 ##### address.isExternZero()
 
 ```TVMSolidity
@@ -629,9 +789,13 @@ This function computes the minimal (maximal) key of mapping and returns that key
 KeyType key;
 (KeyType nextKey, ValueType nextValue, bool haveValue) = map.next(key);
 (KeyType prevKey, ValueType prevValue, bool haveValue) = map.prev(key);
+
+mapping(uint8 => uint) m;
+(uint8 k, uint v, bool hasValue) = m.next(-1);
+(uint8 k, uint v, bool hasValue) = m.prev(65537);
 ```
 
-This function computes the minimal (maximal) key in mapping that is lexicographically greater (less) than **key** and returns that key, associated value and status flag.
+This function computes the minimal (maximal) key in mapping that is lexicographically greater (less) than **key** and returns that key, associated value and status flag. If KeyType is integer type, argument for this functions can not possibly fit KeyType.
 
 ##### mapping.nextOrEq() and mapping.prevOrEq()
 
@@ -639,9 +803,13 @@ This function computes the minimal (maximal) key in mapping that is lexicographi
 KeyType key;
 (KeyType nextKey, ValueType nextValue, bool haveValue) = map.nextOrEq(key);
 (KeyType prevKey, ValueType prevValue, bool haveValue) = map.prevOrEq(key);
+
+mapping(uint8 => uint) m;
+(uint8 k, uint v, bool hasValue) = m.nextOrEq(-1);
+(uint8 k, uint v, bool hasValue) = m.prevOrEq(65537);
 ```
 
-This function computes the minimal (maximal) key in mapping that is lexicographically greater than or equal to (less than or equal to) **key** and returns that key, associated value and status flag.
+This function computes the minimal (maximal) key in mapping that is lexicographically greater than or equal to (less than or equal to) **key** and returns that key, associated value and status flag. If KeyType is integer type, argument for this functions can not possibly fit KeyType.
 
 ##### mapping.delMin() and mapping.delMax()
 
@@ -737,30 +905,6 @@ ValueType value;
 ```
 
 This function sets the **value** associated with **key**, but only if **key** is present in mapping. On success, returns the **oldValue** associated with the **key**. Otherwise, returns default value.
-
-#### ExtraCurrencyCollection
-
-ExtraCurrencyCollection represents TVM type ExtraCurrencyCollection. It has the same functions as **mapping(uint32 => uint256)**:
-
-```TVMSolidity
-ExtraCurrencyCollection curCol;
-uint32 key;
-uint256 value;
-(uint32 minKey, uint256 minKeyValue, bool haveValue) = curCol.min();
-(uint32 nextKey, uint256 nextValue, bool haveValue) = curCol.next(key);
-(uint32 prevKey, uint256 prevValue, bool haveValue) = curCol.prev(key);
-(uint32 firstKey, uint256 value) = curCol.delMin();
-(uint32 firstKey, uint256 value) = curCol.delMax();
-(bool exists, uint256 value) = curCol.fetch(key);
-bool exists = curCol.exists(key);
-bool isEmpty = curCol.empty();
-bool success = curCol.replace(key, value);
-bool success = curCol.add(key, value);
-(uint32 oldValue, bool haveOldValue) = curCol.getSet(key, value);
-(uint32 oldValue, bool haveOldValue) = curCol.getAdd(key, value);
-(uint32 oldValue, bool haveOldValue) = curCol.getReplace(key, value);
-uint256 value = curCol[index];
-```
 
 #### require, revert
 
@@ -937,6 +1081,29 @@ function f(uint n) public pure {
 Public or external functions (called by external message) send an external message on return. Destination address of that message is the source address of the inbound external message.
 For example, if function **f**  above was called with **n** = 5 by external message, only one external message is sent. Internal call of public or external function doesn't generate external message.
 
+### External function calls
+
+```TVMSolidity
+abstract contract IContract {
+    function f (uint a);
+}
+
+contract Caller {
+    function callExt(address addr) {
+        IContract(addr.f{value: 10 ton}(123);
+        IContract(addr.f{value: 10 ton, flag: 3}(123);
+        IContract(addr.f{value: 10 ton, bounce: true}(123);
+        IContract(addr.f{value: 1 micro, bounce: false, flag: 128}(123);
+        ExtraCurrencyCollection cc;
+        cc[12] = 1000;
+        IContract(addr.f{value: 10 ton, currencies:cc}(123);
+    }
+}
+```
+
+TON Solidity compiler allows to specify different parameters of the outbound message, which is sent via external function call.
+Developer can specify "value", "currencies", "bounce" or "flag" option.
+
 ### API functions and members
 
 #### **msg** namespace
@@ -964,6 +1131,14 @@ ExtraCurrencyCollection c = msg.currencies;
 ```
 
 This member is a field of the internal inbound message.
+
+##### msg.data
+
+```TVMSolidity
+TvmSlice slice = msg.data;
+```
+
+This member is a payload of the inbound message.
 
 #### **tvm** namespace
 
@@ -1040,6 +1215,27 @@ This function executes TVM instruction "LTIME" ([TVM][1] - A.11.4. - F825). This
 
 This function executes TVM instruction "CONFIGPARAM" ([TVM][1] - A.11.4. - F832). This command returns the value of the global configuration parameter with integer index paramNumber. Argument should be an integer literal. Supported paramNumbers: 1, 15, 17, 34.
 
+##### tvm.rawConfigParam()
+
+```TVMSolidity
+(TvmCell cell, bool status) = tvm.rawConfigParam(paramNumber);
+```
+
+This function executes TVM instruction "CONFIGPARAM" ([TVM][1] - A.11.4. - F832). This command returns the value of the global configuration parameter with integer index paramNumber as a cell and boolean status.
+
+##### tvm.rawReserve()
+```TVMSolidity
+tvm.rawReserve(111, 0);
+
+ExtraCurrencyCollection col;
+tvm.rawReserve(10 ton, col, 1);
+
+col[1] = 3;
+tvm.rawReserve(12 * 1e9, col, 2);
+```
+
+This function is a wrapper function for TVM instruction "RAWRESERVE" and "RAWRESERVEX". See [TVM][1].
+
 ##### Hashing and cryptography
 
 ##### tvm.hash()
@@ -1059,10 +1255,21 @@ uint256 hash;
 uint256 SignHighPart;
 uint256 SignLowPart;
 uint256 pubkey;
-bool signatureIsValid = tvm.checkSign(hash, SignHighPart, SignLowPart, pubkey);
+bool signatureIsValid = tvm.checkSign(hash, SignHighPart, SignLowPart, pubkey);  // 1 variant
+
+uint256 hash;
+TvmSlice signature;
+uint256 pubkey;
+bool signatureIsValid = tvm.checkSign(hash, signature, pubkey);  // 2 variant
+
+TvmSlice data;
+TvmSlice signature;
+uint256 pubkey;
+bool signatureIsValid = tvm.checkSign(hash, signature, pubkey);  // 3 variant
 ```
 
-This function executes TVM instruction "CHKSIGNU" ([TVM][1] - A.11.6. - F910). This command checks the Ed25519-signature of a **hash** using public key **pubKey**. Signature is represented by two uint256 **SignHighPart** and **SignLowPart**.
+This function executes TVM instruction "CHKSIGNU" ([TVM][1] - A.11.6. - F910) for variants 1 and 2. This command checks the Ed25519-signature of a **hash** using public key **pubkey**. Signature is represented by two uint256 **SignHighPart** and **SignLowPart** in the first variant and by a slice **signature** in the second variant.
+In the third variant this function executes TVM instruction "CHKSIGNS" ([TVM][1] - A.11.6. - F911). This command checks Ed25519-signature of **data** using public key **pubkey**. Signature is represented by a slice **signature**.
 
 ##### Deploy contract from contract
 
@@ -1217,12 +1424,12 @@ TvmCell body = tvm.encodeBody(function_name, arg0, arg1, arg2, ...);
 ```
 
 This function constructs a function call message body that can be used
-as the [transfer](#addresstransfer) payload.  
+as the payload for [address.transfer()](#addresstransfer).  
 Example:
 
 ```TVMSolidity
-contract Remote {
-    function func(uint256 num, address a, int64 num2) public pure {}
+interface Remote {
+    function func(uint256 num, address a, int64 num2) public pure;
 }
 
 contract Caller {
@@ -1233,16 +1440,82 @@ contract Caller {
 }
 ```
 
-##### tvm.min() and tvm.max()
+#### **math** namespace
+
+##### math.min() and math.max()
 
 ```TVMSolidity
-int min = tvm.min(int a, int b, ...);
-uint max = tvm.min(uint a, uint b, ...);
-int min = tvm.max(int a, int b, ...);
-uint max = tvm.max(uint a, uint b, ...);
+int min = math.min(int a, int b, ...);
+int max = math.max(int a, int b, ...);
+uint min = math.min(uint a, uint b, ...);
+uint max = math.max(uint a, uint b, ...);
 ```
 
 This function returns the minimal (maximal) value of the passed arguments.
+
+##### math.abs()
+
+```TVMSolidity
+int a = math.abs(-4123);
+int b = -333;
+int c = math.abs(b);
+```
+
+This function computes the absolute value of given integer.
+
+##### math.modpow2()
+
+```TVMSolidity
+uint constant pow = 12;
+uint val = 12313;
+uint a = math.modpow2(val, 10);
+uint b = math.modpow2(val, pow);
+```
+
+This function computes the value modulo 2^(second argument). Note that second argument should be a constant integer.
+
+##### math.minmax()
+
+```TVMSolidity
+uint a = 1;
+uint b = 2;
+(a, b) = math.minmax(a, b);
+int c = -1;
+int d = 3;
+(c, d) = math.minmax(c, d);
+```
+
+This function sorts two given numbers.
+
+##### math.muldiv()
+
+```TVMSolidity
+uint a = 3;
+uint b = 2;
+uint c = 5;
+uint d = math.muldiv(a, b, c);
+int e = -1;
+int f = 3;
+int g = 2;
+int h = math.muldiv(e, f, g);
+```
+
+This function executes TVM instruction "MULDIVR" ([TVM][1] - A.5.2. - A985). This instruction multiplies first two arguments and divides the result by third argument. Intermediate result is stored in 514 bit buffer, and final result is rounded to the nearest integer.
+
+##### math.muldivmod()
+
+```TVMSolidity
+uint a = 3;
+uint b = 2;
+uint c = 5;
+(uint d, uint r) = math.muldivmod(a, b, c);
+int e = -1;
+int f = 3;
+int g = 2;
+(int h, int p) = math.muldivmod(e, f, g);
+```
+
+This function executes TVM instruction "MULDIVMOD" ([TVM][1] - A.5.2. - A98C). This instruction multiplies first two arguments, divides the result by third argument and returns the result and the remainder. Intermediate result is stored in 514 bit buffer, and final result is rounded to the floor.
 
 ##### selfdestruct
 
@@ -1258,3 +1531,4 @@ See example of how to use **selfdestruct** function:
 
 [1]: https://ton.org/tvm.pdf        "TVM"
 [2]: https://ton.org/tblkch.pdf     "TBLKCH"
+[3]: https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb "TL-B scheme"

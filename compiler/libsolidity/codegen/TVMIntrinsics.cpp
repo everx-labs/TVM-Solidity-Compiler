@@ -482,28 +482,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		m_pusher.push(0, "SDEMPTY");
 		return true;
 	}
-	if (iname == "tvm_chksignu") {
-		if (arguments.size() == 3) {
-			acceptExpr(arguments[0].get());
-			acceptExpr(arguments[1].get());
-			acceptExpr(arguments[2].get());
-			m_pusher.push(-3 + 1, "CHKSIGNU");
-			return true;
-		} else if (arguments.size() == 4) {
-			acceptExpr(arguments[0].get());
-
-			m_pusher.push(+1, "NEWC");
-			acceptExpr(arguments[1].get());
-			m_pusher.push(-1, "STUR 256");
-			acceptExpr(arguments[2].get());
-			m_pusher.push(-1, "STUR 256");
-			m_pusher.push(0, "ENDC CTOS");
-
-			acceptExpr(arguments[3].get());
-			m_pusher.push(-3+1, "CHKSIGNU");
-			return true;
-		}
-	}
 	if (iname == "tvm_ldrefrtos") {
 		checkArgCount(1);
 		auto builder = ensureParamIsIdentifier(0);

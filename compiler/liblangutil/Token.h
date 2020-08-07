@@ -175,6 +175,7 @@ namespace solidity::langutil
 	K(Memory, "memory", 0)                                             \
 	K(Modifier, "modifier", 0)                                         \
 	K(New, "new", 0)                                                   \
+	K(Optional, "optional", 0)                                         \
 	K(Override, "override", 0)                                         \
 	K(Payable, "payable", 0)                                           \
 	K(Public, "public", 0)                                             \
@@ -196,11 +197,22 @@ namespace solidity::langutil
 	K(Virtual, "virtual", 0)                                           \
 	K(While, "while", 0)                                               \
 	\
-	/* Ether subdenominations */                                       \
-	K(SubWei, "wei", 0)                                                \
-	K(SubSzabo, "szabo", 0)                                            \
-	K(SubFinney, "finney", 0)                                          \
-	K(SubEther, "ether", 0)                                            \
+	/* TON subdenominations*/                                          \
+	K(SubNano, "nano", 0)                                              \
+	K(SubNTon, "nTon", 0)                                              \
+	K(SubNanoton, "nanoton", 0)                                        \
+	K(SubMicro, "micro", 0)                                            \
+	K(SubMicroton, "microton", 0)                                      \
+	K(SubMilli, "milli", 0)                                            \
+	K(SubMilliton, "milliton", 0)                                      \
+	K(SubTon, "Ton", 0)                                                \
+	K(SubSmallTon, "ton", 0)                                                \
+	K(SubKiloton, "kiloton", 0)                                        \
+	K(SubKTon, "kTon", 0)                                              \
+	K(SubMegaton, "megaton", 0)                                        \
+	K(SubMTon, "MTon", 0)                                              \
+	K(SubGigaton, "gigaton", 0)                                        \
+	K(SubGTon, "GTon", 0)                                              \
 	K(SubSecond, "seconds", 0)                                         \
 	K(SubMinute, "minutes", 0)                                         \
 	K(SubHour, "hours", 0)                                             \
@@ -321,7 +333,7 @@ namespace TokenTraits
 			|| op == Token::Pure || op == Token::View || op == Token::Payable;
 	}
 
-	constexpr bool isEtherSubdenomination(Token op) { return op == Token::SubWei || op == Token::SubSzabo || op == Token::SubFinney || op == Token::SubEther; }
+	constexpr bool isTonSubdenomination(Token op) { return (Token::SubNano <= op && op <= Token::SubGTon); }
 	constexpr bool isTimeSubdenomination(Token op) { return op == Token::SubSecond || op == Token::SubMinute || op == Token::SubHour || op == Token::SubDay || op == Token::SubWeek || op == Token::SubYear; }
 	constexpr bool isReservedKeyword(Token op) { return (Token::After <= op && op <= Token::Unchecked); }
 

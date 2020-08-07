@@ -45,6 +45,7 @@ namespace TvmConst {
 			const int ReplayProtection  = 52;
 			const int AddressUnpackException = 53;
 			const int InsertPubkeyException = 55;
+			const int GetOptionalException = 63;
 		}
 	}
 	const int CellBitLength = 1023;

@@ -46,6 +46,8 @@ void TVMTypeChecker::check(ContractDefinition const *contractDefinition,
 		checker.checkPragma();
 	}
 	checker.check_onCodeUpgrade();
+
+	contractDefinition->accept(checker);
 }
 
 void TVMTypeChecker::checkPragma() {
@@ -175,11 +177,18 @@ void TVMTypeChecker::checkDecodeEncodeParam(Type const* type, const ASTNode &nod
 		case Type::Category::Mapping: {
 			auto mappingType = to<MappingType>(type);
 			auto intKey = to<IntegerType>(mappingType->keyType());
-			if (!intKey) {
-				cast_error(node, "Key type must be any of int<M>/uint<M> types with M from 8 to 256");
+			auto addrKey = to<AddressType>(mappingType->keyType());
+			int keyLength{};
+			if (intKey) {
+				keyLength = static_cast<int>(intKey->numBits());
+			} else if (addrKey) {
+				keyLength = AddressInfo::stdAddrLength();
+			} else {
+				cast_error(node, "Key type must be any of int<M>/uint<M> types with M from 8 to 256 or std address.");
 			}
 
-			checkDecodeEncodeParam(mappingType->valueType(), node, static_cast<int>(intKey->numBits()));
+
+			checkDecodeEncodeParam(mappingType->valueType(), node, keyLength);
 			break;
 		}
 		case Type::Category::Array: {
@@ -301,4 +310,28 @@ void TVMTypeChecker::check_onCodeUpgrade() {
 			}
 		}
 	}
+}
+
+bool TVMTypeChecker::visit(const Mapping &_mapping) {
+    if (auto keyType = to<UserDefinedTypeName>(&_mapping.keyType())) {
+        if (keyType->annotation().type->category() == Type::Category::Struct) {
+            auto structType = to<StructType>(_mapping.keyType().annotation().type);
+            int bitLength = 0;
+            StructDefinition const& structDefinition = structType->structDefinition();
+            for (const auto& member : structDefinition.members()) {
+                TypeInfo ti {member->type()};
+                if (!ti.isNumeric) {
+                    cast_error(_mapping.keyType(), "If struct are used as key for mapping than "
+                                                   "fields of struct must have integer types, boolean types, fixed bytes types or enums");
+                    // TODO also print this field (see SecondarySourceLocation)
+                }
+                bitLength += ti.numBits;
+            }
+            if (bitLength > TvmConst::CellBitLength) {
+                cast_error(_mapping.keyType(), "If struct are used as key for mapping than "
+                                               "struct size must be no more than " + toString(TvmConst::CellBitLength) + " bits");
+            }
+        }
+    }
+    return true;
 }

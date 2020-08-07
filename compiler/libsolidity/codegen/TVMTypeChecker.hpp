@@ -19,7 +19,7 @@
 
 namespace solidity::frontend {
 
-class TVMTypeChecker {
+class TVMTypeChecker : private ASTConstVisitor {
 private:
 	explicit TVMTypeChecker(ContractDefinition const* contractDefinition,
 							std::vector<PragmaDirective const *> const& pragmaDirectives);
@@ -39,6 +39,8 @@ private:
 	static void checkDecodeEncodeParam(Type const* type, const ASTNode &node, int keyLength);
 	static void checkTvmIntrinsic(FunctionDefinition const* f, ContractDefinition const* contractDefinition);
 	void check_onCodeUpgrade();
+
+    bool visit(Mapping const& _mapping) override;
 
 private:
 	ContractDefinition const* contractDefinition;

@@ -429,7 +429,7 @@ bool AddressType::operator==(Type const& _other) const
 MemberList::MemberMap AddressType::nativeMembers(ContractDefinition const*) const
 {
 	MemberList::MemberMap members = {
-		{"balance", TypeProvider::uint256()},
+		{"balance", TypeProvider::uint(128)},
 		{"currencies", TypeProvider::extraCurrencyCollection(DataLocation::Memory)},
 		{"wid", TypeProvider::integer(8, IntegerType::Modifier::Signed)},
 		{"value", TypeProvider::uint256()},
@@ -451,17 +451,25 @@ MemberList::MemberMap AddressType::nativeMembers(ContractDefinition const*) cons
 	));
 	members.emplace_back("getType", TypeProvider::function(
 			TypePointers{},
-			TypePointers{TypeProvider::integer(8, IntegerType::Modifier::Unsigned)},
+			TypePointers{TypeProvider::uint(8)},
 			strings{},
 			strings{string()},
 			FunctionType::Kind::AddressType,
 			false, StateMutability::Pure
 	));
-	members.emplace_back(MemberList::Member{"send", TypeProvider::function(strings{"uint"}, strings{"bool"}, FunctionType::Kind::Send, false, StateMutability::NonPayable)});
+	members.emplace_back("isStdAddrWithoutAnyCast", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::boolean()},
+			strings{},
+			strings{string()},
+			FunctionType::Kind::AddressIsStdAddrWithoutAnyCast,
+			false, StateMutability::Pure
+	));
+	// members.emplace_back(MemberList::Member{"send", TypeProvider::function(strings{"uint"}, strings{"bool"}, FunctionType::Kind::Send, false, StateMutability::NonPayable)});
 	members.emplace_back("transfer", TypeProvider::function(
-			TypePointers{TypeProvider::integer(128, IntegerType::Modifier::Unsigned),
+			TypePointers{TypeProvider::uint(128),
 							 TypeProvider::boolean(),
-							 TypeProvider::integer(16, IntegerType::Modifier::Unsigned),
+							 TypeProvider::uint(16),
 							 TypeProvider::tvmcell(),
 							 TypeProvider::extraCurrencyCollection(DataLocation::Memory)},
 			TypePointers{},
@@ -838,16 +846,33 @@ tuple<bool, rational> RationalNumberType::isValidLiteral(Literal const& _literal
 	switch (_literal.subDenomination())
 	{
 		case Literal::SubDenomination::None:
-		case Literal::SubDenomination::Wei:
+		case Literal::SubDenomination::Nano:
+		case Literal::SubDenomination::Nanoton:
+		case Literal::SubDenomination::NTon:
 		case Literal::SubDenomination::Second:
 			break;
-		case Literal::SubDenomination::Szabo:
+		case Literal::SubDenomination::Micro:
+		case Literal::SubDenomination::Microton:
+			value *= bigint("1000");
+			break;
+		case Literal::SubDenomination::Milli:
+		case Literal::SubDenomination::Milliton:
+			value *= bigint("1000000");
+			break;
+		case Literal::SubDenomination::Ton:
+		case Literal::SubDenomination::SmallTon:
+			value *= bigint("1000000000");
+			break;
+		case Literal::SubDenomination::Kiloton:
+		case Literal::SubDenomination::KTon:
 			value *= bigint("1000000000000");
 			break;
-		case Literal::SubDenomination::Finney:
+		case Literal::SubDenomination::Megaton:
+		case Literal::SubDenomination::MTon:
 			value *= bigint("1000000000000000");
 			break;
-		case Literal::SubDenomination::Ether:
+		case Literal::SubDenomination::Gigaton:
+		case Literal::SubDenomination::GTon:
 			value *= bigint("1000000000000000000");
 			break;
 		case Literal::SubDenomination::Minute:
@@ -1825,12 +1850,12 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 	}
 	for (const std::string& name : {"next", "prev", "nextOrEq", "prevOrEq"}) {
 		members.emplace_back(name, TypeProvider::function(
-				TypePointers{keyType},
-				TypePointers{keyType, valueType, TypeProvider::boolean()},
-				strings{string()},
-				strings{string(), string(), string()},
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
 				FunctionType::Kind::MappingGetNextKey,
-				false, StateMutability::Pure
+				true, StateMutability::Pure
 		));
 	}
 	members.emplace_back("fetch", TypeProvider::function(
@@ -2779,6 +2804,7 @@ string FunctionType::richIdentifier() const
 	string id = "t_function_";
 	switch (m_kind)
 	{
+	case Kind::OptionalMethod: id += "optionalmethod"; break;
 	case Kind::StringMethod: id += "stringmethod"; break;
 	case Kind::TVMSetcode: id += "tvmsetcode"; break;
 	case Kind::TVMChecksign: id += "tvmchecksign"; break;
@@ -2792,23 +2818,31 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMTransLT: id += "tvmtranslt"; break;
 	case Kind::TVMResetStorage: id += "tvmresetstorage"; break;
 	case Kind::TVMConfigParam: id += "tvmconfigparam"; break;
+	case Kind::TVMRawConfigParam: id += "tvmrawconfigparam"; break;
 	case Kind::TVMDeploy: id += "tvmdeploy"; break;
 	case Kind::ExtraCurrencyCollectionMethods: id += "extracurrencycollectionmethods"; break;
 	case Kind::MessagePubkey: id += "msgpubkey"; break;
 	case Kind::AddressIsZero: id += "addressiszero"; break;
 	case Kind::AddressUnpack: id += "addressunpack"; break;
 	case Kind::AddressType: id += "addresstype"; break;
+	case Kind::AddressIsStdAddrWithoutAnyCast: id += "addressisstdaddrwithoutanycast"; break;
 	case Kind::AddressMakeAddrExtern: id += "addressmakeaddrextern"; break;
 	case Kind::AddressMakeAddrNone: id += "addressmakeaddrnone"; break;
 	case Kind::TVMSliceDecode: id += "tvmslicedecode"; break;
 	case Kind::DecodeFunctionParams: id += "tvmslicedecodefunctionparams"; break;
 	case Kind::TVMSliceSize: id += "tvmslicesize"; break;
 	case Kind::TVMCellToSlice: id += "tvmcelltoslice"; break;
+	case Kind::TVMCellMethods: id += "tvmcellmethods"; break;
 	case Kind::TVMBuilderMethods: id += "tvmbuildermethods"; break;
 	case Kind::TVMLoadRef: id += "tvmloadref"; break;
 	case Kind::TVMFunctionId: id += "tvmfunctionid"; break;
 	case Kind::TVMEncodeBody: id += "tvmencodebody"; break;
-	case Kind::TVMMaxMin: id += "tvmmaxmin"; break;
+	case Kind::MathMaxMin: id += "mathmaxmin"; break;
+	case Kind::MathMulDiv: id += "mathmuldiv"; break;
+	case Kind::MathMulDivMod: id += "mathmuldivmod"; break;
+	case Kind::MathAbs: id += "mathabs"; break;
+	case Kind::MathMinMax: id += "mathminmax"; break;
+	case Kind::MathModpow2: id += "mathmodpow2"; break;
 	case Kind::AddressMakeAddrStd: id += "addressmakeaddrstd"; break;
 	case Kind::LogTVM: id += "logtvm"; break;
 	case Kind::MappingGetMinMax: id += "mapgetminmax"; break;
@@ -2865,12 +2899,8 @@ string FunctionType::richIdentifier() const
 	}
 	id += "_" + stateMutabilityToString(m_stateMutability);
 	id += identifierList(m_parameterTypes) + "returns" + identifierList(m_returnParameterTypes);
-	if (m_gasSet)
-		id += "gas";
 	if (m_valueSet)
 		id += "value";
-	if (m_saltSet)
-		id += "salt";
 	if (bound())
 		id += "bound_to" + identifierList(selfType());
 	return id;
@@ -3036,11 +3066,7 @@ unsigned FunctionType::sizeOnStack() const
 		break;
 	}
 
-	if (m_gasSet)
-		size++;
 	if (m_valueSet)
-		size++;
-	if (m_saltSet)
 		size++;
 	if (bound())
 		size += m_parameterTypes.front()->sizeOnStack();
@@ -3123,32 +3149,28 @@ MemberList::MemberMap FunctionType::nativeMembers(ContractDefinition const* _sco
 					"value",
 					TypeProvider::function(
 							parseElementaryTypeVector({"uint"}),
-							TypePointers{copyAndSetCallOptions(false, true, false)},
+							TypePointers{copyAndSetCallOptions(true)},
 							strings(1, ""),
 							strings(1, ""),
 							Kind::SetValue,
 							false,
 							StateMutability::Pure,
 							nullptr,
-							m_gasSet,
-							m_valueSet,
-							m_saltSet
+							m_valueSet
 					)
 			);
 			members.emplace_back(
 					"flag",
 					TypeProvider::function(
 							parseElementaryTypeVector({"uint"}),
-							TypePointers{copyAndSetCallOptions(false, false, false)},
+							TypePointers{copyAndSetCallOptions(false)},
 							strings(1, ""),
 							strings(1, ""),
 							Kind::SetFlag,
 							false,
 							StateMutability::Pure,
 							nullptr,
-							m_gasSet,
-							m_valueSet,
-							m_saltSet
+							m_valueSet
 					)
 			);
 		}
@@ -3157,16 +3179,14 @@ MemberList::MemberMap FunctionType::nativeMembers(ContractDefinition const* _sco
 				"gas",
 				TypeProvider::function(
 					parseElementaryTypeVector({"uint"}),
-					TypePointers{copyAndSetCallOptions(true, false, false)},
+					TypePointers{copyAndSetCallOptions(false)},
 					strings(1, ""),
 					strings(1, ""),
 					Kind::SetGas,
 					false,
 					StateMutability::Pure,
 					nullptr,
-					m_gasSet,
-					m_valueSet,
-					m_saltSet
+					m_valueSet
 				)
 			);
 		return members;
@@ -3289,7 +3309,7 @@ bool FunctionType::equalExcludingStateMutability(FunctionType const& _other) con
 		return false;
 
 	//@todo this is ugly, but cannot be prevented right now
-	if (m_gasSet != _other.m_gasSet || m_valueSet != _other.m_valueSet || m_saltSet != _other.m_saltSet)
+	if (m_valueSet != _other.m_valueSet)
 		return false;
 
 	if (bound() != _other.bound())
@@ -3390,7 +3410,7 @@ TypePointers FunctionType::parseElementaryTypeVector(strings const& _types)
 	return pointers;
 }
 
-TypePointer FunctionType::copyAndSetCallOptions(bool _setGas, bool _setValue, bool _setSalt, bool setFlag) const
+TypePointer FunctionType::copyAndSetCallOptions(bool _setValue, bool setFlag) const
 {
 	solAssert(m_kind != Kind::Declaration, "");
 	return TypeProvider::function(
@@ -3402,9 +3422,7 @@ TypePointer FunctionType::copyAndSetCallOptions(bool _setGas, bool _setValue, bo
 		m_arbitraryParameters,
 		m_stateMutability,
 		m_declaration,
-		m_gasSet || _setGas,
 		m_valueSet || _setValue,
-		m_saltSet || _setSalt,
 		m_bound,
 		setFlag
 	);
@@ -3444,9 +3462,7 @@ FunctionTypePointer FunctionType::asCallableFunction(bool _inLibrary, bool _boun
 		m_arbitraryParameters,
 		m_stateMutability,
 		m_declaration,
-		m_gasSet,
 		m_valueSet,
-		m_saltSet,
 		_bound
 	);
 }
@@ -3489,7 +3505,7 @@ bool FunctionType::padArguments() const
 
 Type const* MappingType::encodingType() const
 {
-	return TypeProvider::integer(256, IntegerType::Modifier::Unsigned);
+	return TypeProvider::uint(256);
 }
 
 BoolResult MappingType::isImplicitlyConvertibleTo(Type const& _other) const
@@ -3501,10 +3517,24 @@ BoolResult MappingType::isImplicitlyConvertibleTo(Type const& _other) const
 	       valueType()->isImplicitlyConvertibleTo(*map->valueType());
 }
 
+BoolResult OptionalType::isImplicitlyConvertibleTo(Type const& _other) const
+{
+	if (_other.category() != category())
+		return false;
+	auto opt = dynamic_cast<OptionalType const*>(&_other);
+	return valueType()->isImplicitlyConvertibleTo(*opt->valueType());
+}
+
 string MappingType::richIdentifier() const
 {
 	return "t_mapping" + identifierList(m_keyType, m_valueType);
 }
+
+string OptionalType::richIdentifier() const
+{
+	return "t_optional_" + m_type->richIdentifier();
+}
+
 
 bool MappingType::operator==(Type const& _other) const
 {
@@ -3514,9 +3544,22 @@ bool MappingType::operator==(Type const& _other) const
 	return *other.m_keyType == *m_keyType && *other.m_valueType == *m_valueType;
 }
 
+bool OptionalType::operator==(Type const& _other) const
+{
+	if (_other.category() != category())
+		return false;
+	OptionalType const& other = dynamic_cast<OptionalType const&>(_other);
+	return *other.m_type == *m_type;
+}
+
 string MappingType::toString(bool _short) const
 {
 	return "mapping(" + keyType()->toString(_short) + " => " + valueType()->toString(_short) + ")";
+}
+
+string OptionalType::toString(bool _short) const
+{
+	return "Optional<" + valueType()->toString(_short) + ">";
 }
 
 string MappingType::canonicalName() const
@@ -3524,7 +3567,16 @@ string MappingType::canonicalName() const
 	return "mapping(" + keyType()->canonicalName() + " => " + valueType()->canonicalName() + ")";
 }
 
+string OptionalType::canonicalName() const
+{
+	return "Optional<" + valueType()->canonicalName() + ">";
+}
+
 TypeResult MappingType::unaryOperatorResult(Token _operator) const {
+	return _operator == Token::Delete ? TypeProvider::tuple(std::vector<Type const*>()) : TypePointer();
+}
+
+TypeResult OptionalType::unaryOperatorResult(Token _operator) const {
 	return _operator == Token::Delete ? TypeProvider::tuple(std::vector<Type const*>()) : TypePointer();
 }
 
@@ -3715,6 +3767,8 @@ string MagicType::richIdentifier() const
 	case Kind::MetaType:
 		solAssert(m_typeArgument, "");
 		return "t_magic_meta_type_" + m_typeArgument->richIdentifier();
+	case Kind::Math:
+		return "t_magic_math";
 	}
 	return "";
 }
@@ -3747,7 +3801,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"createdAt", TypeProvider::uint(32)},
 			{"gas", TypeProvider::uint256()},
 			{"value", TypeProvider::uint256()},
-			{"data", TypeProvider::array(DataLocation::CallData)},
+			{"data", TypeProvider::tvmslice()},
 			{"sig", TypeProvider::fixedBytes(4)},
 			{"currencies", TypeProvider::extraCurrencyCollection(DataLocation::Memory)},
 		});
@@ -3761,6 +3815,22 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"resetStorage", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMResetStorage, false, StateMutability::NonPayable)},
 			{"log", TypeProvider::function(strings{"bytes32"}, strings{}, FunctionType::Kind::LogTVM,false, StateMutability::Pure)}
 		};
+		members.emplace_back("rawReserve", TypeProvider::function(
+				TypePointers{TypeProvider::uint256(), TypeProvider::extraCurrencyCollection(DataLocation::Memory),  TypeProvider::uint256()},
+				TypePointers{},
+				strings{string{}, string{}, string{}},
+				strings{},
+				FunctionType::Kind::TVMSetcode,
+				false, StateMutability::Pure
+		));
+		members.emplace_back("rawReserve", TypeProvider::function(
+				TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
+				TypePointers{},
+				strings{string{}, string{}},
+				strings{},
+				FunctionType::Kind::TVMSetcode,
+				false, StateMutability::Pure
+		));
 		members.emplace_back("setcode", TypeProvider::function(
 				TypePointers{TypeProvider::tvmcell()},
 				TypePointers{},
@@ -3801,8 +3871,24 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				FunctionType::Kind::TVMChecksign,
 				false, StateMutability::Pure
 		));
+		members.emplace_back("checkSign", TypeProvider::function(
+				TypePointers{TypeProvider::uint256(), TypeProvider::tvmslice(), TypeProvider::uint256()},
+				TypePointers{TypeProvider::boolean()},
+				strings{string(), string(), string()},
+				strings{string()},
+				FunctionType::Kind::TVMChecksign,
+				false, StateMutability::Pure
+		));
+		members.emplace_back("checkSign", TypeProvider::function(
+				TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice(), TypeProvider::uint256()},
+				TypePointers{TypeProvider::boolean()},
+				strings{string(), string(), string()},
+				strings{string()},
+				FunctionType::Kind::TVMChecksign,
+				false, StateMutability::Pure
+		));
 		members.emplace_back("sendMsg", TypeProvider::function(
-				TypePointers{TypeProvider::uint256(), TypeProvider::integer(32, IntegerType::Modifier::Unsigned), TypeProvider::integer(8, IntegerType::Modifier::Unsigned)},
+				TypePointers{TypeProvider::uint256(), TypeProvider::uint(32), TypeProvider::uint(8)},
 				TypePointers{},
 				strings{string(), string(), string()},
 				strings{},
@@ -3810,7 +3896,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				false, StateMutability::Pure
 		));
 		members.emplace_back("sendMsg", TypeProvider::function(
-				TypePointers{TypeProvider::address(), TypeProvider::integer(32, IntegerType::Modifier::Unsigned), TypeProvider::integer(8, IntegerType::Modifier::Unsigned)},
+				TypePointers{TypeProvider::address(), TypeProvider::uint(32), TypeProvider::uint(8)},
 				TypePointers{},
 				strings{string(), string(), string()},
 				strings{},
@@ -3818,7 +3904,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				false, StateMutability::Pure
 		));
 		members.emplace_back("sendMsg", TypeProvider::function(
-				TypePointers{TypeProvider::uint256(), TypeProvider::integer(32, IntegerType::Modifier::Unsigned), TypeProvider::integer(8, IntegerType::Modifier::Unsigned), TypeProvider::integer(120, IntegerType::Modifier::Unsigned)},
+				TypePointers{TypeProvider::uint256(), TypeProvider::uint(32), TypeProvider::uint(8), TypeProvider::uint(120)},
 				TypePointers{},
 				strings{string(), string(), string(), string()},
 				strings{},
@@ -3826,7 +3912,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				false, StateMutability::Pure
 		));
 		members.emplace_back("sendMsg", TypeProvider::function(
-				TypePointers{TypeProvider::address(), TypeProvider::integer(32, IntegerType::Modifier::Unsigned), TypeProvider::integer(8, IntegerType::Modifier::Unsigned), TypeProvider::integer(120, IntegerType::Modifier::Unsigned)},
+				TypePointers{TypeProvider::address(), TypeProvider::uint(32), TypeProvider::uint(8), TypeProvider::uint(120)},
 				TypePointers{},
 				strings{string(), string(), string(), string()},
 				strings{},
@@ -3834,7 +3920,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				false, StateMutability::Pure
 		));
 		members.emplace_back("sendrawmsg", TypeProvider::function(
-				TypePointers{TypeProvider::tvmcell(), TypeProvider::integer(8, IntegerType::Modifier::Unsigned)},
+				TypePointers{TypeProvider::tvmcell(), TypeProvider::uint(8)},
 				TypePointers{},
 				strings{string(), string()},
 				strings{},
@@ -3843,7 +3929,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 		));
 		members.emplace_back("transLT", TypeProvider::function(
 				TypePointers{},
-				TypePointers{TypeProvider::integer(64, IntegerType::Modifier::Unsigned)},
+				TypePointers{TypeProvider::uint(64)},
 				strings{},
 				strings{string()},
 				FunctionType::Kind::TVMTransLT,
@@ -3857,6 +3943,15 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				strings{},
 				FunctionType::Kind::TVMConfigParam,
 				true, StateMutability::Pure
+		));
+
+		members.emplace_back("rawConfigParam", TypeProvider::function(
+				TypePointers{TypeProvider::integer(32, IntegerType::Modifier::Signed)},
+				TypePointers{TypeProvider::tvmcell(), TypeProvider::boolean()},
+				strings{string()},
+				strings{string(), string()},
+				FunctionType::Kind::TVMRawConfigParam,
+				false, StateMutability::Pure
 		));
 
 		members.emplace_back("buildStateInit", TypeProvider::function(
@@ -3924,13 +4019,16 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				FunctionType::Kind::TVMEncodeBody,
 				true, StateMutability::Pure
 		));
-
+		return members;
+	}
+	case Kind::Math: {
+		MemberList::MemberMap members;
 		members.emplace_back("max", TypeProvider::function(
 				TypePointers{},
 				TypePointers{},
 				strings{},
 				strings{},
-				FunctionType::Kind::TVMMaxMin,
+				FunctionType::Kind::MathMaxMin,
 				true, StateMutability::Pure
 		));
 		members.emplace_back("min", TypeProvider::function(
@@ -3938,7 +4036,47 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				TypePointers{},
 				strings{},
 				strings{},
-				FunctionType::Kind::TVMMaxMin,
+				FunctionType::Kind::MathMaxMin,
+				true, StateMutability::Pure
+		));
+		members.emplace_back("minmax", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::MathMinMax,
+				true, StateMutability::Pure
+		));
+		members.emplace_back("muldiv", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::MathMulDiv,
+				true, StateMutability::Pure
+		));
+		members.emplace_back("muldivmod", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::MathMulDivMod,
+				true, StateMutability::Pure
+		));
+		members.emplace_back("abs", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::MathAbs,
+				true, StateMutability::Pure
+		));
+		members.emplace_back("modpow2", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(256)},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::MathModpow2,
 				true, StateMutability::Pure
 		));
 		return members;
@@ -4034,6 +4172,8 @@ string MagicType::toString(bool _short) const
 	case Kind::MetaType:
 		solAssert(m_typeArgument, "");
 		return "type(" + m_typeArgument->toString(_short) + ")";
+	case Kind::Math:
+		return "math";
 	}
 	solAssert(false, "Unknown kind of magic.");
 	return {};
@@ -4048,7 +4188,40 @@ TypePointer MagicType::typeArgument() const
 
 TypePointer InaccessibleDynamicType::decodingType() const
 {
-	return TypeProvider::integer(256, IntegerType::Modifier::Unsigned);
+	return TypeProvider::uint(256);
+}
+
+MemberList::MemberMap OptionalType::nativeMembers(ContractDefinition const*) const
+{
+	MemberList::MemberMap members;
+	members.emplace_back("hasValue", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::boolean()},
+			strings{},
+			strings{string()},
+			FunctionType::Kind::OptionalMethod,
+			false,
+			StateMutability::Pure
+	));
+	members.emplace_back("get", TypeProvider::function(
+			TypePointers{},
+			TypePointers{valueType()},
+			strings{},
+			strings{string()},
+			FunctionType::Kind::OptionalMethod,
+			false,
+			StateMutability::Pure
+	));
+	members.emplace_back("set", TypeProvider::function(
+			TypePointers{valueType()},
+			TypePointers{},
+			strings{string()},
+			strings{},
+			FunctionType::Kind::OptionalMethod,
+			false,
+			StateMutability::Pure
+	));
+	return members;
 }
 
 MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) const {
@@ -4094,6 +4267,16 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) co
 			StateMutability::Pure
 	));
 
+	members.emplace_back("loadTons", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::uint(128)},
+			strings{},
+			strings{string()},
+			FunctionType::Kind::TVMLoadRef,
+			false,
+			StateMutability::Pure
+	));
+
 	members.emplace_back("size", TypeProvider::function(
 			TypePointers{},
 			TypePointers{TypeProvider::uint(16), TypeProvider::uint(8)},
@@ -4115,6 +4298,15 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) co
 	members.emplace_back("refs", TypeProvider::function(
 			TypePointers{},
 			TypePointers{TypeProvider::uint(8)},
+			strings{},
+			strings{string()},
+			FunctionType::Kind::TVMSliceSize,
+			false, StateMutability::Pure
+	));
+
+	members.emplace_back("depth", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::uint(64)},
 			strings{},
 			strings{string()},
 			FunctionType::Kind::TVMSliceSize,
@@ -4146,6 +4338,15 @@ MemberList::MemberMap TvmCellType::nativeMembers(const ContractDefinition *) con
 {
 	MemberList::MemberMap members;
 
+    members.emplace_back("depth", TypeProvider::function(
+            TypePointers{},
+            TypePointers{TypeProvider::uint(64)},
+            strings{},
+            strings{string()},
+            FunctionType::Kind::TVMCellMethods,
+            false, StateMutability::Pure
+    ));
+
 	members.emplace_back("toSlice", TypeProvider::function(
 			TypePointers{},
 			TypePointers{TypeProvider::tvmslice()},
@@ -4161,6 +4362,15 @@ MemberList::MemberMap TvmCellType::nativeMembers(const ContractDefinition *) con
 MemberList::MemberMap TvmBuilderType::nativeMembers(const ContractDefinition *) const
 {
 	MemberList::MemberMap members;
+
+    members.emplace_back("depth", TypeProvider::function(
+            TypePointers{},
+            TypePointers{TypeProvider::uint(64)},
+            strings{},
+            strings{string()},
+            FunctionType::Kind::TVMBuilderMethods,
+            false, StateMutability::Pure
+    ));
 
 	members.emplace_back("bits", TypeProvider::function(
 			TypePointers{},
@@ -4265,6 +4475,14 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ContractDefinition *) 
 			TypePointers{TypeProvider::uint(256), TypeProvider::uint(16)},
 			TypePointers{},
 			strings{string(), string()},
+			strings{},
+			FunctionType::Kind::TVMBuilderMethods,
+			false, StateMutability::Pure
+	));
+	members.emplace_back("storeTons", TypeProvider::function(
+			TypePointers{TypeProvider::uint(128)},
+			TypePointers{},
+			strings{string()},
 			strings{},
 			FunctionType::Kind::TVMBuilderMethods,
 			false, StateMutability::Pure

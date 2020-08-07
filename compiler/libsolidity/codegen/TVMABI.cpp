@@ -68,7 +68,6 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 		Json::Value functions(Json::arrayValue);
 		for (FunctionDefinition const* f : publicFunctions) {
 			auto fname = TVMCompilerContext::getFunctionExternalName(f);
-			// DBG("#### " << fname << " " << used.count(fname));
 			if (used.count(fname)) {
 				continue;
 			}
@@ -292,15 +291,28 @@ Json::Value TVMABI::setupType(const string &name, const Type *type, ASTNode cons
 	Json::Value json(Json::objectValue);
 	json["name"] = name;
 	json["type"] = getParamTypeString(type, node);
+
+	auto setupComponents = [&](Type const* type){
+		json["components"] = setupStructComponents(to<StructType>(type), node);
+	};
+
 	switch (type->category()) {
 		case Type::Category::Struct:
-			json["components"] = setupStructComponents(to<StructType>(type), node);
+			setupComponents(type);
 			break;
 		case Type::Category::Array: {
 			auto arrayType = to<ArrayType>(type);
 			Type const *arrayBaseType = arrayType->baseType();
 			if (arrayBaseType->category() == Type::Category::Struct) {
-				json["components"] = setupStructComponents(to<StructType>(arrayBaseType), node);
+				setupComponents(arrayBaseType);
+			}
+			break;
+		}
+		case Type::Category::Mapping: {
+			auto mappingType = to<MappingType>(type);
+			Type const *valueType = mappingType->valueType();
+			if (valueType->category() == Type::Category::Struct) {
+				setupComponents(valueType);
 			}
 			break;
 		}

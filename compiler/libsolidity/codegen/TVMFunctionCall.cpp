@@ -72,6 +72,7 @@ void FunctionCallCompiler::compile() {
 			if (checkForTvmSliceMethods(*ma, category)) {
 			} else if (checkForTvmBuilderMethods(*ma, category)) {
 			} else if (checkForStringMethods(*ma)) {
+			} else if (checkForOptionalMethods(*ma)) {
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "tvm") {
 				if (checkForTvmSendFunction(*ma) ||
 					checkForTvmConfigParamFunction(*ma) ||
@@ -80,9 +81,13 @@ void FunctionCallCompiler::compile() {
 				} else {
 					cast_error(m_functionCall, "Unsupported function call");
 				}
+			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "math") {
+				if (checkForMathFunction(*ma)) {
+				} else {
+					cast_error(m_functionCall, "Unsupported function call");
+				}
 			} else {
-				if (!isIn(ma->memberName(), "log", "transfer", "checkSign",
-				          "deployAndCallConstructor")) { // TODO delete log,  checkSign
+				if (!isIn(ma->memberName(), "transfer", "deployAndCallConstructor")) {
 					for (const auto &arg : m_arguments) {
 						acceptExpr(arg.get());
 					}
@@ -109,7 +114,7 @@ bool FunctionCallCompiler::checkForSuper(MemberAccess const &_node, Type::Catego
 	m_pusher.push(0, ";; super");
 	string fname = _node.memberName();
 	auto super = getSuperContract(m_pusher.ctx().getContract(m_pusher.ctx().m_currentFunction),
-	                              m_pusher.ctx().getContract(), fname);
+								  m_pusher.ctx().getContract(), fname);
 	solAssert(super, "#1000");
 	if (getFunction(super, fname)) {
 		auto functionName = super->name() + "_" + fname;
@@ -275,17 +280,9 @@ bool FunctionCallCompiler::checkForTvmSliceMethods(MemberAccess const &_node, Ty
 		m_pusher.push(-1+1, "SREFS");
 		return true;
 	}
-	if (_node.memberName() == "loadRefAsSlice") {
-		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, false, _node.expression().annotation().isLValue);
-		m_pusher.push(-1+2, "LDREFRTOS");
-		m_pusher.exchange(0, 1);
-		m_exprCompiler->collectLValue(lValueInfo, true, false);
-		return true;
-	}
-	if (_node.memberName() == "loadRef") {
-		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, false, _node.expression().annotation().isLValue);
-		m_pusher.push(-1+2, "LDREF");
-		m_exprCompiler->collectLValue(lValueInfo, true, false);
+	if (_node.memberName() == "depth") {
+		acceptExpr(&_node.expression());
+		m_pusher.push(-1 + 1, "SDEPTH");
 		return true;
 	}
 	if (_node.memberName() == "decode") {
@@ -321,21 +318,33 @@ bool FunctionCallCompiler::checkForTvmSliceMethods(MemberAccess const &_node, Ty
 		return true;
 	}
 
-	if (_node.memberName() == "loadUnsigned" || _node.memberName() == "loadSigned") {
+	if (boost::starts_with(_node.memberName(), "load")) {
 		const TVMExpressionCompiler::LValueInfo lValueInfo =
-				m_exprCompiler->expandLValue(&_node.expression(),true, false, _node.expression().annotation().isLValue);
-		std::string cmd = "LD";
-		cmd += (_node.memberName() == "loadSigned" ? "I" : "U");
-		const auto& [ok, val] = TVMExpressionCompiler::constValue(*m_arguments[0]);
-		if (ok) {
-			if (val < 1 || val > 256) {
-				cast_error(*m_arguments[0], "The value must be in the range 1 - 256.");
+				m_exprCompiler->expandLValue(&_node.expression(), true, false, _node.expression().annotation().isLValue);
+		if (_node.memberName() == "loadRefAsSlice") {
+			m_pusher.push(-1 + 2, "LDREFRTOS");
+			m_pusher.exchange(0, 1);
+		} else if (_node.memberName() == "loadRef") {
+			m_pusher.push(-1 + 2, "LDREF");
+		} else if (_node.memberName() == "loadUnsigned" || _node.memberName() == "loadSigned") {
+			std::string cmd = "LD";
+			cmd += (_node.memberName() == "loadSigned" ? "I" : "U");
+			const auto&[ok, val] = TVMExpressionCompiler::constValue(*m_arguments[0]);
+			if (ok) {
+				if (val < 1 || val > 256) {
+					cast_error(*m_arguments[0], "The value must be in the range 1 - 256.");
+				}
+				m_pusher.push(-1 + 2, cmd + " " + val.str());
+			} else {
+				acceptExpr(m_arguments[0].get());
+				m_pusher.push(-2 + 2, cmd + "X");
 			}
-			m_pusher.push(-1 + 2, cmd + " " + val.str());
+		} else if (_node.memberName() == "loadTons") {
+			m_pusher.push(-1 + 2, "LDVARUINT16");
 		} else {
-			acceptExpr(m_arguments[0].get());
-			m_pusher.push(-2 + 2, cmd + "X");
+			solAssert(false, "");
 		}
+
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
 		return true;
 	}
@@ -387,7 +396,8 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 	if (category != Type::Category::TvmBuilder)
 		return false;
 
-	if (_node.memberName().size() >= 5 && _node.memberName().substr(0,5) == "store") {
+
+	if (boost::starts_with(_node.memberName(), "store")) {
 		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
 
 		if (_node.memberName() == "storeRef") {
@@ -412,6 +422,9 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 				acceptExpr(m_arguments[1].get());
 				m_pusher.push(-2, cmd + "XR");
 			}
+		} else if (_node.memberName() == "storeTons") {
+			acceptExpr(m_arguments[0].get());
+			m_pusher.push(-1, "STGRAMS");
 		} else {
 			solAssert(false, "");
 		}
@@ -420,7 +433,7 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 		return true;
 	}
 
-	acceptExpr(&_node.expression());
+	acceptExpr(&_node.expression()); // TODO may return false?
 
 	if (_node.memberName() == "bits") {
 		m_pusher.push(-1+1, "BBITS");
@@ -463,6 +476,11 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 		return true;
 	}
 
+    if (_node.memberName() == "depth") {
+        m_pusher.push(-1 + 1, "BDEPTH");
+        return true;
+    }
+
 	return false;
 }
 
@@ -494,13 +512,49 @@ bool FunctionCallCompiler::checkForStringMethods(MemberAccess const &_node) {
 	return false;
 }
 
+bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
+	auto optional = to<OptionalType>(_node.expression().annotation().type);
+	if (!optional)
+		return false;
+
+	if (_node.memberName() == "hasValue") {
+		acceptExpr(&_node.expression());
+		m_pusher.push(+1 - 1, "ISNULL");
+		m_pusher.push(0, "NOT");
+		return true;
+	}
+
+	if (_node.memberName() == "get") {
+		acceptExpr(&_node.expression());
+		m_pusher.pushS(0);
+		m_pusher.push(+1 - 1, "ISNULL");
+		m_pusher.push(-1, "THROWIF " + toString(TvmConst::Message::Exception::GetOptionalException));
+		return true;
+	}
+
+	if (_node.memberName() == "set") {
+		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), false);
+		acceptExpr(m_arguments[0].get());
+		m_exprCompiler->collectLValue(lValueInfo, true, false);
+		return true;
+	}
+
+	return false;
+}
+
 bool FunctionCallCompiler::checkForTvmCellMethods(MemberAccess const &_node, Type::Category category) {
 	if (category != Type::Category::TvmCell)
 		return false;
-	acceptExpr(&_node.expression());
 
 	if (_node.memberName() == "toSlice") {
-		m_pusher.push(-1+1, "CTOS");
+        acceptExpr(&_node.expression());
+		m_pusher.push(-1 + 1, "CTOS");
+		return true;
+	}
+
+    if (_node.memberName() == "depth") {
+		acceptExpr(&_node.expression());
+		m_pusher.push(-1 + 1, "CDEPTH");
 		return true;
 	}
 
@@ -512,22 +566,43 @@ void FunctionCallCompiler::addressMethod() {
 	const std::vector<ASTPointer<ASTString>>& names = m_functionCall.names();
 	if (_node->memberName() == "transfer") { // addr.transfer(...)
 		m_pusher.push(0, ";; transfer()");
-		if (!m_functionCall.names().empty()) {
-			std::map<int, Expression const *> exprs;
-			std::map<int, std::string> constParams{{TvmConst::int_msg_info::ihr_disabled, "1"}, {TvmConst::int_msg_info::bounce, "1"}};
-			std::function<void(int)> appendBody;
-			std::function<void()> pushSendrawmsgFlag;
 
-			exprs[TvmConst::int_msg_info::dest] = &_node->expression();
+		std::map<int, Expression const *> exprs;
+		std::map<int, std::string> constParams{{TvmConst::int_msg_info::ihr_disabled, "1"}, {TvmConst::int_msg_info::bounce, "1"}};
+		std::function<void(int)> appendBody;
+		std::function<void()> pushSendrawmsgFlag;
+
+		auto setValue = [&](Expression const* expr) {
+			const auto& [ok, value] = TVMExpressionCompiler::constValue(*expr);
+			if (ok) {
+				constParams[TvmConst::int_msg_info::grams] = StackPusherHelper::gramsToBinaryString(u256(value));
+			} else {
+				exprs[TvmConst::int_msg_info::grams] = expr;
+			}
+		};
+
+		auto setBounce = [&](auto expr){
+			const auto& [ok, value] = TVMExpressionCompiler::constBool(*expr);
+			if (ok) {
+				constParams[TvmConst::int_msg_info::bounce] = value? "1" : "0";
+			} else {
+				exprs[TvmConst::int_msg_info::bounce] = expr;
+				constParams.erase(TvmConst::int_msg_info::bounce);
+			}
+		};
+
+		exprs[TvmConst::int_msg_info::dest] = &_node->expression();
+
+		int argumentQty = static_cast<int>(m_arguments.size());
+		if (!m_functionCall.names().empty()) {
 			// string("value"), string("bounce"), string("flag"), string("body"), string("currencies")
-			for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
+			for (int arg = 0; arg < argumentQty; ++arg) {
 				switch (str2int(names[arg]->c_str())) {
 					case str2int("value"):
-						exprs[TvmConst::int_msg_info::grams] = m_arguments[arg].get();
+						setValue(m_arguments[arg].get());
 						break;
 					case str2int("bounce"):
-						exprs[TvmConst::int_msg_info::bounce] = m_arguments[arg].get();
-						constParams.erase(TvmConst::int_msg_info::bounce);
+						setBounce(m_arguments[arg].get());
 						break;
 					case str2int("flag"):
 						pushSendrawmsgFlag = [e = m_arguments[arg], this](){
@@ -547,86 +622,82 @@ void FunctionCallCompiler::addressMethod() {
 						break;
 				}
 			}
-			m_pusher.sendIntMsg(exprs, constParams, appendBody, pushSendrawmsgFlag);
 		} else {
-			if (m_arguments.size() == 3) {
-				const std::map<int, Expression const *> exprs{
-						{TvmConst::int_msg_info::grams,  m_arguments[0].get()},
-						{TvmConst::int_msg_info::bounce, m_arguments[1].get()},
-						{TvmConst::int_msg_info::dest,   &_node->expression()},
+			solAssert(isIn(argumentQty, 1, 3, 4), "");
+
+			setValue(m_arguments[0].get());
+			if (argumentQty >= 3) {
+				setBounce(m_arguments[1].get());
+				pushSendrawmsgFlag = [&]() { acceptExpr(m_arguments[2].get()); };
+			}
+			if (argumentQty >= 4) {
+				appendBody = [&](int /*size*/) {
+					m_pusher.stones(1);
+					acceptExpr(m_arguments[3].get());
+					m_pusher.push(-1, "STREFR");
+					return false;
 				};
-				m_pusher.sendIntMsg(
-						exprs,
-						{{TvmConst::int_msg_info::ihr_disabled, "1"}},
-						nullptr, [&]() { acceptExpr(m_arguments[2].get()); });
-			} else if (m_arguments.size() == 4) {
-				const std::map<int, Expression const *> exprs{
-						{TvmConst::int_msg_info::grams,  m_arguments[0].get()},
-						{TvmConst::int_msg_info::bounce, m_arguments[1].get()},
-						{TvmConst::int_msg_info::dest,   &_node->expression()},
-				};
-
-				m_pusher.sendIntMsg(
-						exprs,
-						{{TvmConst::int_msg_info::ihr_disabled, "1"}},
-						[&](int /*size*/) {
-							m_pusher.stones(1);
-							acceptExpr(m_arguments[3].get());
-							m_pusher.push(-1, "STREFR");
-							return false;
-						},
-						[&]() { acceptExpr(m_arguments[2].get()); });
-			} else if (m_arguments.size() == 1) {
-				m_pusher.sendIntMsg(
-						{{TvmConst::int_msg_info::grams, m_arguments[0].get()},
-						 {TvmConst::int_msg_info::dest,  &_node->expression()}},
-						{{TvmConst::int_msg_info::ihr_disabled, "1"},
-						 {TvmConst::int_msg_info::bounce,       "1"}},
-						nullptr, nullptr);
-
-
-			} else {
-				solAssert(false, "");
 			}
 		}
-		return;
-	}
-	if (_node->memberName() == "isStdZero") {
+		m_pusher.sendIntMsg(exprs, constParams, appendBody, pushSendrawmsgFlag);
+	} else if (_node->memberName() == "isStdZero") {
 		m_pusher.push(0, ";; address.isStdZero()");
 		acceptExpr(&_node->expression());
 		m_pusher.pushZeroAddress();
 		m_pusher.push(-2 + 1, "SDEQ");
-		return;
-	}
-	if (_node->memberName() == "isExternZero") {
+	} else if (_node->memberName() == "isExternZero") {
 		m_pusher.push(0, ";; address.isExternZero()");
 		acceptExpr(&_node->expression());
 		m_pusher.push(+1, "PUSHSLICE x401_");
 		m_pusher.push(-2 + 1, "SDEQ");
-		return;
-	}
-	if (_node->memberName() == "isNone") {
+	} else if (_node->memberName() == "isNone") {
 		m_pusher.push(0, ";; address.isNone()");
 		acceptExpr(&_node->expression());
 		m_pusher.push(+1, "PUSHSLICE x2_");
 		m_pusher.push(-2 + 1, "SDEQ");
-		return ;
-	}
-	if (_node->memberName() == "unpack") {
+	} else if (_node->memberName() == "unpack") {
 		m_pusher.push(0, ";; address.unpack()");
 		acceptExpr(&_node->expression());
 		m_pusher.pushPrivateFunctionOrMacroCall(-1 + 2, "unpack_address_macro");
-		return;
-	}
-	if (_node->memberName() == "getType") {
+	} else if (_node->memberName() == "getType") {
 		m_pusher.push(0, ";; address.getType()");
 		acceptExpr(&_node->expression());
 		m_pusher.push(+1 - 1, "PLDU 2");
-		return;
+	} else if (_node->memberName() == "isStdAddrWithoutAnyCast") {
+		m_pusher.push(0, ";; addr.isStdAddrWithoutAnyCast()");
+		acceptExpr(&_node->expression());
+		// t = (2, u, x, s); check that len(t) == 4 and t[0] == 2 and t[1] is null
+		m_pusher.pushLines(R"(
+PARSEMSGADDR
+DUP
+TLEN
+EQINT 4
+PUSHCONT {
+	UNPACKFIRST 2
+	ISNULL
+	SWAP
+	EQINT 2
+	AND
+}
+PUSHCONT {
+	DROP
+	FALSE
+}
+IFELSE
+)");
+
+	} else {
+		solAssert(false, "");
 	}
 }
 
 bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_node) {
+	if (_node.memberName() == "rawConfigParam") { // tvm.rawConfigParam
+		acceptExpr(m_arguments[0].get());
+		m_pusher.push(-1 + 2, "CONFIGPARAM");
+		m_pusher.push(0, "NULLSWAPIFNOT");
+		return true;
+	}
 	if (_node.memberName() == "configParam") { // tvm.configParam
 		auto paramNumberLiteral = dynamic_cast<const Literal *>(m_arguments[0].get());
 
@@ -759,7 +830,7 @@ bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_n
 bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node) {
 	if (_node.memberName() == "sendMsg") { // tvm.sendMsg(dest_address, funcId_literal)
 		cast_warning(_node, "Function is deprecated it will be removed from compiler soon. "
-		                    "Use MyContract(...).funcName{value:123, flag:1}(arg0, arg1, ...);");
+							"Use MyContract(...).funcName{value:123, flag:1}(arg0, arg1, ...);");
 		m_pusher.push(+1, "NEWC");
 		std::string s;
 		s += "0"; // int_msg_info$0
@@ -874,15 +945,26 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		pushArgs();
 		m_pusher.push(0, "HASHCU");
 	} else if (_node.memberName() == "checkSign") { // tvm.checkSign
-		acceptExpr(m_arguments[0].get());
-		m_pusher.push(+1, "NEWC");
-		acceptExpr(m_arguments[1].get());
-		m_pusher.push(-1, "STUR 256");
-		acceptExpr(m_arguments[2].get());
-		m_pusher.push(-1, "STUR 256");
-		m_pusher.push(0, "ENDC CTOS");
-		acceptExpr(m_arguments[3].get());
-		m_pusher.push(-3+1, "CHKSIGNU");
+		size_t cnt = m_arguments.size();
+		if (getType(m_arguments[0].get())->category() == Type::Category::TvmSlice) {
+			pushArgs();
+			m_pusher.push(-3+1, "CHKSIGNS");
+		} else {
+			acceptExpr(m_arguments[0].get());
+			if (cnt == 4) {
+				m_pusher.push(+1, "NEWC");
+				acceptExpr(m_arguments[1].get());
+				m_pusher.push(-1, "STUR 256");
+				acceptExpr(m_arguments[2].get());
+				m_pusher.push(-1, "STUR 256");
+				m_pusher.push(0, "ENDC");
+				m_pusher.push(0, "CTOS");
+			} else {
+				acceptExpr(m_arguments[1].get());
+			}
+			acceptExpr(m_arguments[cnt - 1].get());
+			m_pusher.push(-3+1, "CHKSIGNU");
+		}
 	} else if (_node.memberName() == "setcode") { // tvm.setcode
 		pushArgs();
 		m_pusher.push(-1, "SETCODE");
@@ -929,7 +1011,30 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 					ReasonOfOutboundMessage::RemoteCallInternal,
 					callDef, false, position);
 		m_pusher.push(+1-1, "ENDC");
-	} else if (_node.memberName() == "max") {
+	} else if (_node.memberName() == "rawReserve") {
+		pushArgs();
+		int n = m_arguments.size();
+		solAssert(isIn(n, 2, 3), "");
+		m_pusher.push(-n, n == 2? "RAWRESERVE" : "RAWRESERVEX");
+	} else {
+		return false;
+	}
+	return true;
+}
+
+std::string checkValFitsType(TypePointer type) {
+	TypeInfo ti{type};
+	return (ti.isSigned ? "FITS " : "UFITS ") + toString(ti.numBits);
+}
+
+bool FunctionCallCompiler::checkForMathFunction(const MemberAccess &_node) {
+	auto pushArgs = [&]() {
+		for (const ASTPointer<const Expression> &e : m_arguments) {
+			acceptExpr(e.get());
+		}
+	};
+	auto ret = m_functionCall.annotation().type;
+	if (_node.memberName() == "max") {
 		pushArgs();
 		for (int i = 0; i + 1 < static_cast<int>(m_arguments.size()); ++i)
 			m_pusher.push(-2 + 1, "MAX");
@@ -937,6 +1042,40 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		pushArgs();
 		for (int i = 0; i + 1 < static_cast<int>(m_arguments.size()); ++i)
 			m_pusher.push(-2 + 1, "MIN");
+	} else if (_node.memberName() == "minmax") {
+		pushArgs();
+		m_pusher.push(-2 + 2, "MINMAX");
+	} else if (_node.memberName() == "muldiv") {
+		pushArgs();
+		m_pusher.push(-3 + 1, "MULDIVR");
+		if (!m_pusher.ctx().ignoreIntegerOverflow()) {
+			m_pusher.push(0, checkValFitsType(ret));
+		}
+	} else if (_node.memberName() == "muldivmod") {
+		pushArgs();
+		m_pusher.push(-3 + 2, "MULDIVMOD");
+		if (!m_pusher.ctx().ignoreIntegerOverflow()) {
+			auto retTuple = to<TupleType>(ret);
+			m_pusher.push(0, checkValFitsType(retTuple->components()[0]));
+		}
+	} else if (_node.memberName() == "abs") {
+		pushArgs();
+		m_pusher.push(-1 + 1, "ABS");
+		if (!m_pusher.ctx().ignoreIntegerOverflow()) {
+			m_pusher.push(0, checkValFitsType(ret));
+		}
+	} else if (_node.memberName() == "modpow2") {
+		acceptExpr(m_arguments[0].get());
+		const Expression * expression = m_arguments[1].get();
+		const auto& [ok, value] = TVMExpressionCompiler::constValue(*expression);
+		if (ok) {
+			if (value < 0 || value >= 256) {
+				cast_error(m_functionCall, "Second argument must be in the range 1 - 255.");
+			}
+			m_pusher.push(-1 + 1, "MODPOW2 " + value.str());
+		} else {
+			cast_error(m_functionCall, "Second argument must be a constant integer.");
+		}
 	} else {
 		return false;
 	}
@@ -1017,7 +1156,7 @@ void FunctionCallCompiler::typeConversion() {
 				if (argCategory == Type::Category::FixedBytes) {
 					auto fixedBytesType = to<FixedBytesType>(m_arguments[0]->annotation().type);
 					diff = 8 * static_cast<int>(etn->type().typeName().firstNumber()) -
-					       8 * static_cast<int>(fixedBytesType->storageBytes());
+						   8 * static_cast<int>(fixedBytesType->storageBytes());
 				} else if (argCategory == Type::Category::Address) {
 					cast_error(m_functionCall, "Unsupported type conversion. Use address.wid or address.value.");
 				} else {
@@ -1082,7 +1221,7 @@ void FunctionCallCompiler::typeConversion() {
 			if (ok) {
 				if (value < 0 || value >= enumDef->members().size()) {
 					cast_error(m_functionCall, "The value must be in the range 1 - " +
-					                           toString(enumDef->members().size()) + ".");
+											   toString(enumDef->members().size()) + ".");
 				}
 				m_pusher.push(+1, "PUSHINT " + value.str());
 				return;
@@ -1165,7 +1304,7 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 	} else if (name == "selfdestruct") {
 		const std::map<int, std::string> constParams {
 				{TvmConst::int_msg_info::ihr_disabled, "1"},
-				{TvmConst::int_msg_info::grams,  StackPusherHelper::gramsToBinaryString(1'000)},
+				{TvmConst::int_msg_info::grams, StackPusherHelper::gramsToBinaryString(1'000)}, // TODO use 0?
 				{TvmConst::int_msg_info::bounce,  "0"},
 		};
 		m_pusher.sendIntMsg(

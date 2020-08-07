@@ -41,8 +41,8 @@ void DictOperation::doDictOperation() {
 		} else {
 			onLargeStruct();
 		}
-	} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract)) {
-		onAddress();
+	} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract, Type::Category::TvmSlice)) {
+		onSlice();
 	} else if (isByteArrayOrString(&valueType)) {
 		onByteArrayOrString();
 	} else if (isIntegralType(&valueType) || isUsualArray(&valueType) || valueCategory == Type::Category::VarInteger) {
@@ -73,9 +73,14 @@ StructCompiler &StackPusherHelper::structCompiler() {
 	return *m_structCompiler;
 }
 
-void StackPusherHelper::generateC7ToT4Macro() {
+void StackPusherHelper::generateC7ToT4Macro(bool isMacro) {
+	push(+1, ""); // fix stack, allocate builder
+	if (isMacro) {
+        pushLines(".macro c7_to_c4_macro");
+    } else {
+        generateGlobl("c7_to_c4", false);
+	}
 	pushLines(R"(
-.macro	c7_to_c4
 GETGLOB 2
 NEWC
 STU 256
@@ -104,6 +109,7 @@ bool
 StackPusherHelper::prepareValueForDictOperations(Type const *keyType, Type const *dictValueType, bool isValueBuilder) {
 	// value
 	if (isIntegralType(dictValueType)) {
+        // TODO what if len(keyType) + len(dictValueType) + epsilon > 1023
 		if (!isValueBuilder) {
 			push(0, "NEWC");
 			push(0, storeIntegralOrAddress(dictValueType, false));
@@ -218,7 +224,7 @@ protected:
 		opcode += "REF";
 	}
 
-	void onAddress() override {
+	void onSlice() override {
 		if (isValueBuilder) {
 			opcode += "B";
 		}
@@ -311,12 +317,14 @@ void StackPusherHelper::push(int stackDiff, const string &cmd) {
 	m_stack.change(stackDiff);
 }
 
-void StackPusherHelper::startContinuation() {
+void StackPusherHelper::startContinuation(int deltaStack) {
 	m_code.startContinuation();
+    m_stack.change(deltaStack);
 }
 
-void StackPusherHelper::endContinuation() {
+void StackPusherHelper::endContinuation(int deltaStack) {
 	m_code.endContinuation();
+    m_stack.change(deltaStack);
 }
 
 TVMStack &StackPusherHelper::getStack() {
@@ -713,10 +721,14 @@ void StackPusherHelper::exchange(int i, int j) {
 	}
 }
 
-void StackPusherHelper::checkThatKeyCanBeRestored(Type const *keyType, ASTNode const &node) {
+void StackPusherHelper::recoverKeyAfterDictOperation(Type const *keyType, ASTNode const &node) {
 	if (isStringOrStringLiteralOrBytes(keyType)) {
 		cast_error(node, "Unsupported for mapping key type: " + keyType->toString(true));
 	}
+    if (keyType->category() == Type::Category::Struct) {
+        StructCompiler sc{this, to<StructType>(keyType)};
+        sc.convertSliceToTuple();
+    }
 }
 
 TypePointer StackPusherHelper::parseIndexType(Type const *type) {
@@ -786,11 +798,14 @@ void StackPusherHelper::ensureValueFitsType(const ElementaryTypeNameToken &typeN
 }
 
 void StackPusherHelper::prepareKeyForDictOperations(Type const *key) {
-	// stack: key dict
+	// stack: key
 	if (isStringOrStringLiteralOrBytes(key)) {
-		push(+1, "PUSH s1"); // str dict str
 		push(-1 + 1, "HASHCU"); // str dict hash
-		push(-1, "POP s2"); // hash dict
+	} else if (key->category() == Type::Category::Struct) {
+	    StructCompiler sc{this, to<StructType>(key)};
+        sc.tupleToBuilder();
+        push(0, "ENDC");
+        push(0, "CTOS");
 	}
 }
 
@@ -1026,9 +1041,13 @@ int TVMStack::getStackSize(Declaration const *name) const {
 	return m_params.at(name);
 }
 
-void TVMStack::ensureSize(int savedStackSize, const string &location) const {
+void TVMStack::ensureSize(int savedStackSize, const string &location, const ASTNode* node) const {
+    if (node != nullptr && savedStackSize != m_size) {
+        cast_error(*node, string{} + "oops" + "stack: " + toString(savedStackSize)
+                                   + " vs " + toString(m_size) + " at " + location);
+    }
 	solAssert(savedStackSize == m_size, "stack: " + toString(savedStackSize)
-										+ " vs " + toString(m_size) + " at " + location);
+	            + " vs " + toString(m_size) + " at " + location);
 }
 
 string CodeLines::str(const string &indent) const {
@@ -1313,6 +1332,9 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 			pushCont(pusherHelper.code());
 			break;
 		}
+		case Type::Category::Optional:
+			push(+1, "NULL");
+			break;
 		default:
 			solAssert(false, "");
 	}
@@ -1333,8 +1355,6 @@ public:
 	void getDict() {
 		// if op == GetSetFromMapping than stack: value key dict
 		// else                            stack: key dict
-		pusher.prepareKeyForDictOperations(&keyType);
-
 		pusher.pushInt(keyLength); // push int on stack
 		const int stackDelta = isIn(op, StackPusherHelper::GetDictOperation::GetSetFromMapping,
 		                                StackPusherHelper::GetDictOperation::GetAddFromMapping,
@@ -1535,7 +1555,7 @@ protected:
 		}
 	}
 
-	void onAddress() override {
+	void onSlice() override {
 		onByteArrayOrString();
 	}
 
