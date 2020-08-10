@@ -425,6 +425,24 @@ void Mapping::accept(ASTConstVisitor& _visitor) const
 	_visitor.endVisit(*this);
 }
 
+void Optional::accept(ASTVisitor& _visitor)
+{
+	if (_visitor.visit(*this))
+	{
+		m_type->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void Optional::accept(ASTConstVisitor& _visitor) const
+{
+	if (_visitor.visit(*this))
+	{
+		m_type->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
 void ArrayTypeName::accept(ASTVisitor& _visitor)
 {
 	if (_visitor.visit(*this))
@@ -956,6 +974,24 @@ void MappingNameExpression::accept(ASTVisitor& _visitor)
 }
 
 void MappingNameExpression::accept(ASTConstVisitor& _visitor) const
+{
+	if (_visitor.visit(*this))
+	{
+		m_type->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void OptionalNameExpression::accept(ASTVisitor& _visitor)
+{
+	if (_visitor.visit(*this))
+	{
+		m_type->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void OptionalNameExpression::accept(ASTConstVisitor& _visitor) const
 {
 	if (_visitor.visit(*this))
 	{

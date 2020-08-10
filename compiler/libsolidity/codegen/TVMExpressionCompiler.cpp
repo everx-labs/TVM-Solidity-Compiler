@@ -45,11 +45,7 @@ void TVMExpressionCompiler::acceptExpr(const Expression *expr, const bool _isRes
 	m_expressionDepth = -1;
 
 	if (doDropResultIfNeeded && !m_isResultNeeded) {
-		if (auto t = to<TupleType>(getType(expr))) {
-			m_pusher.drop(t->components().size());
-		} else {
-			m_pusher.drop(1);
-		}
+		m_pusher.drop(returnParamQty(*expr));
 	}
 }
 
@@ -93,14 +89,57 @@ bool TVMExpressionCompiler::acceptExpr(const Expression *expr) {
 }
 
 std::pair<bool, bigint> TVMExpressionCompiler::constValue(const Expression &_e) {
-	bool isConst = _e.annotation().isPure && _e.annotation().type->category() == Type::Category::RationalNumber;
-	if (!isConst){
+	auto f = [](VariableDeclaration const*  vd) -> std::pair<bool, bigint> {
+		if (vd != nullptr && vd->isConstant() && vd->value() != nullptr) {
+			return constValue(*vd->value());
+		}
 		return {false, 0};
+	};
+
+	if (_e.annotation().isPure) {
+		if (auto ident = to<Identifier>(&_e)) {
+			IdentifierAnnotation &identifierAnnotation = ident->annotation();
+			const auto *vd = to<VariableDeclaration>(identifierAnnotation.referencedDeclaration);
+			return f(vd);
+		} else if (_e.annotation().type->category() == Type::Category::RationalNumber) {
+			auto number = dynamic_cast<RationalNumberType const *>(_e.annotation().type);
+			if (!number) {
+				number = number;
+			}
+			solAssert(number, "");
+			solAssert(!number->isFractional(), "");
+			bigint val = number->numerator();
+			solAssert(!number->isFractional(), "");
+			return {true, val};
+		}
+	} else {
+		// MyLibName.const_variable
+		auto memberAccess = to<MemberAccess>(&_e);
+		if (memberAccess) {
+			auto identifier = to<Identifier>(&memberAccess->expression());
+			if (identifier && identifier->annotation().type->category() == Type::Category::TypeType) {
+				auto vd = to<VariableDeclaration>(memberAccess->annotation().referencedDeclaration);
+				return f(vd);
+			}
+		}
 	}
-	auto number = dynamic_cast<RationalNumberType const *>(_e.annotation().type);
-	bigint val = number->numerator();
-	solAssert(!number->isFractional(), "");
-	return {true, val};
+	return {false, 0};
+}
+
+std::pair<bool, bool> TVMExpressionCompiler::constBool(Expression const& _e) {
+	auto l = to<Literal>(&_e);
+	if (l != nullptr && isIn(l->token(), Token::TrueLiteral, Token::FalseLiteral)) {
+		return {true, l->token() == Token::TrueLiteral};
+	}
+	return {false, false};
+}
+
+int TVMExpressionCompiler::returnParamQty(Expression const& _e) {
+	if (auto t = to<TupleType>(getType(&_e))) {
+		return t->components().size();
+	} else {
+		return 1;
+	}
 }
 
 bool TVMExpressionCompiler::isCurrentResultNeeded() const {
@@ -346,9 +385,8 @@ void TVMExpressionCompiler::compileUnaryDelete(UnaryOperation const &node) {
 			collectLValue(lValueInfo, true, lValueInfo.isValueBuilder);
 		} else { // mapping
 			m_pusher.push(+1, "PUSH S1");                            // ... index dict index
-			m_pusher.push(0, "SWAP");                                // ... index index dict
-			TypePointer const dictKey = StackPusherHelper::parseIndexType(indexAccess->baseExpression().annotation().type);
-			m_pusher.prepareKeyForDictOperations(dictKey); // ..index index' dict
+            TypePointer const dictKey = StackPusherHelper::parseIndexType(indexAccess->baseExpression().annotation().type);
+			m_pusher.push(0, "SWAP");                                // ... index index' dict
 			m_pusher.pushInt(lengthOfDictKey(dictKey)); // ..index index dict nbits
 			m_pusher.push(-3 + 2, "DICT" + typeToDictChar(dictKey) + "DEL");  // ... index dict' {-1,0}
 			m_pusher.push(-1, "DROP");                               // ... index dict'
@@ -674,8 +712,11 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 	//                 created_lt:uint64  created_at:uint32
 	//                 = CommonMsgInfoRelaxed;
 
-	// DEPTH - 5 it's transaction id. Check that it's int msg
-	// DEPTH - 3 it's message cell
+	// (DEPTH - 3) - message cell
+	// (DEPTH - 4) - slice with payload (message body)
+	// (DEPTH - 5) - transaction id (-2, -1, 0) for int, ext and ticktock
+
+
 	if (_node.memberName() == "sender") { // msg.sender
 		m_pusher.getGlob(9);
 	} else if (_node.memberName() == "value") { // msg.value
@@ -741,23 +782,25 @@ PUSHCONT {
 IFELSE
 )");
 		m_pusher.push(+1, ""); // fix stack
+	} else if (_node.memberName() == "data") {
+		m_pusher.pushLines(R"(
+DEPTH
+PUSHINT 4
+SUB
+PICK
+)");
+		m_pusher.push(+1, ""); // fix stack
 	} else {
 		cast_error(_node, "Unsupported magic");
 	}
 }
 
-bool TVMExpressionCompiler::visitMagic(MemberAccess const &_node) {
+void TVMExpressionCompiler::visitMagic(MemberAccess const &_node) {
 	auto identifier = to<Identifier>(&_node.expression());
-	if (!identifier) {
-		return false;
+	if (identifier && identifier->name() == "msg") {
+		return visitMsgMagic(_node);
 	}
-
-	if (identifier->name() == "msg") {
-		visitMsgMagic(_node);
-	} else {
-		cast_error(_node, "Unsupported magic");
-	}
-	return true;
+	cast_error(_node, "Unsupported magic");
 }
 
 void TVMExpressionCompiler::visit2(MemberAccess const &_node) {
@@ -781,10 +824,11 @@ void TVMExpressionCompiler::visit2(MemberAccess const &_node) {
 	}
 
 	if (category == Type::Category::Magic) {
-		visitMagic(_node);
-		return ;
+		return visitMagic(_node);
 	}
-	if (checkForAddressMemberAccess(_node, category)) return;
+	if (checkForAddressMemberAccess(_node, category)) {
+		return;
+	}
 
 	if (category == Type::Category::Array)
 		return visitMemberAccessArray(_node);
@@ -792,10 +836,15 @@ void TVMExpressionCompiler::visit2(MemberAccess const &_node) {
 	if (category == Type::Category::FixedBytes)
 		return visitMemberAccessFixedBytes(_node, to<FixedBytesType>(getType(&_node.expression())));
 
-	if (auto type = to<TypeType>(_node.expression().annotation().type)) {
-		if (auto enumType = dynamic_cast<EnumType const *>(type->actualType())) {
+	if (category == Type::Category::TypeType) {
+		auto typeType = to<TypeType>(_node.expression().annotation().type);
+		if (auto enumType = dynamic_cast<EnumType const *>(typeType->actualType())) {
 			unsigned int value = enumType->memberValue(_node.memberName());
 			m_pusher.push(+1, "PUSHINT " + toString(value));
+			return;
+		}
+
+		if (fold_constants(&_node)) {
 			return;
 		}
 	}
@@ -892,6 +941,7 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 		}
 	} else {
 		compileNewExpr(indexAccess.indexExpression()); // index
+		m_pusher.prepareKeyForDictOperations(indexAccess.indexExpression()->annotation().type);
 		acceptExpr(&indexAccess.baseExpression()); // index dict
 	}
 
@@ -960,8 +1010,7 @@ bool TVMExpressionCompiler::checkRemoteMethodCall(FunctionCall const &_functionC
 	const ast_vec<Expression const> arguments = _functionCall.arguments();
 
 	std::map<int, Expression const *> exprs;
-	std::map<int, std::string> constParams = {{TvmConst::int_msg_info::ihr_disabled, "1"},
-	                                          {TvmConst::int_msg_info::bounce,       "1"}};
+	std::map<int, std::string> constParams = {{TvmConst::int_msg_info::ihr_disabled, "1"}};
 	std::function<void(int)> appendBody;
 	Expression const *sendrawmsgFlag{};
 
@@ -974,8 +1023,18 @@ bool TVMExpressionCompiler::checkRemoteMethodCall(FunctionCall const &_functionC
 		// parse options they are stored in two vectors: names and options
 		std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
 		for (const auto &option: optionNames)
-			if (!isIn(*option, "flag", "value", "currencies"))
+			if (!isIn(*option, "flag", "value", "currencies", "bounce"))
 				cast_error(_functionCall, "Unsupported function call option: " + *option);
+
+		// Search for bounce option
+		auto bounceIt = std::find_if(optionNames.begin(), optionNames.end(),
+										 [](auto el) { return *el == "bounce"; });
+		if (bounceIt != optionNames.end()) {
+			size_t index = bounceIt - optionNames.begin();
+			exprs[TvmConst::int_msg_info::bounce] = functionOptions->options()[index].get();
+		} else {
+			constParams[TvmConst::int_msg_info::bounce] = "1";
+		}
 
 		// Search for currencies option
 		auto currenciesIt = std::find_if(optionNames.begin(), optionNames.end(),
@@ -1021,6 +1080,7 @@ bool TVMExpressionCompiler::checkRemoteMethodCall(FunctionCall const &_functionC
 		}
 	} else {
 		constParams[TvmConst::int_msg_info::grams] = StackPusherHelper::gramsToBinaryString(10'000'000);
+		constParams[TvmConst::int_msg_info::bounce] = "1";
 
 		Expression const *currentExpression = &_functionCall.expression();
 		while (true) {
@@ -1181,9 +1241,10 @@ public:
 	}
 
 private:
-	void assignMap() {
+	void decodeKeyAndAssignMap() {
 		// D value key
-		StackPusherHelper::checkThatKeyCanBeRestored(&keyType, node);
+        pusher.recoverKeyAfterDictOperation(&keyType, node);
+		
 		const int cntOfValuesOnStack = pusher.getStack().size() - stackSize;  // mapLValue... map value key
 		pusher.blockSwap(cntOfValuesOnStack - 2, 2); // value key mapLValue... map
 		ec.collectLValue(lValueInfo, true, false); // value key
@@ -1194,13 +1255,13 @@ protected:
 	void onCell() override {
 		pusher.push(-2 + 4, opcode + "REF"); //  D value key -1
 		pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
-		assignMap(); // key value
+		decodeKeyAndAssignMap(); // key value
 	}
 
 	void onSmallStruct() override {
 		pusher.push(-2 + 4, opcode); //  D value key -1
 		pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
-		assignMap(); // key value
+		decodeKeyAndAssignMap(); // key value
 		StructCompiler sc{&pusher, to<StructType>(&valueType)};
 		sc.convertSliceToTuple();
 	}
@@ -1208,28 +1269,28 @@ protected:
 	void onLargeStruct() override {
 		pusher.push(-2 + 4, opcode + "REF"); //  D cellValue key -1
 		pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
-		assignMap(); // key cellValue
+		decodeKeyAndAssignMap(); // key cellValue
 		pusher.push(0, "CTOS");
 		StructCompiler sc{&pusher, to<StructType>(&valueType)};
 		sc.convertSliceToTuple();
 	}
 
-	void onAddress() override {
+	void onSlice() override {
 		pusher.push(-2 + 4, opcode); //  D value key -1
 		pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
-		assignMap(); // key cellValue
+		decodeKeyAndAssignMap(); // key cellValue
 	}
 
 	void onByteArrayOrString() override {
 		pusher.push(-2 + 4, opcode + "REF"); //  D cellValue key -1
 		pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
-		assignMap(); // key cellValue
+		decodeKeyAndAssignMap(); // key cellValue
 	}
 
 	void onIntegralOrArrayOrVarInt() override {
 		pusher.push(-2 + 4, opcode); //  D cellValue key -1
 		pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
-		assignMap(); // key cellValue
+		decodeKeyAndAssignMap(); // key cellValue
 		pusher.preload(&valueType);
 	}
 
@@ -1267,10 +1328,12 @@ void TVMExpressionCompiler::mappingGetSet(FunctionCall const &_functionCall) {
 	const ASTString &memberName = memberAccess->memberName();
 	if (memberName == "fetch") {
 		compileNewExpr(_functionCall.arguments()[0].get()); // index
+        m_pusher.prepareKeyForDictOperations(keyType);
 		compileNewExpr(&memberAccess->expression()); // index dict
 		m_pusher.getDict(*keyType, *valueType, _functionCall, StackPusherHelper::GetDictOperation::Fetch, false);
 	} else if (memberName == "exists") {
 		compileNewExpr(_functionCall.arguments()[0].get()); // index
+        m_pusher.prepareKeyForDictOperations(keyType);
 		compileNewExpr(&memberAccess->expression()); // index dict
 		m_pusher.getDict(*keyType, *valueType, _functionCall,
 		                 StackPusherHelper::GetDictOperation::Exist, false);
@@ -1281,8 +1344,8 @@ void TVMExpressionCompiler::mappingGetSet(FunctionCall const &_functionCall) {
 		compileNewExpr(_functionCall.arguments()[1].get()); // lValue... map value
 		bool isValueBuilder = m_pusher.prepareValueForDictOperations(keyType, valueType, false); // lValue... map value'
 		compileNewExpr(_functionCall.arguments()[0].get()); // mapLValue... map value key
+        m_pusher.prepareKeyForDictOperations(keyType);
 		m_pusher.push(0, "ROT"); // mapLValue... value key map
-
 
 		int returnVars{};
 		if (isIn(memberName, "replace", "add")) {
@@ -1322,7 +1385,7 @@ void TVMExpressionCompiler::mappingGetSet(FunctionCall const &_functionCall) {
 class DictPrevNext : public DictOperation {
 public:
 	DictPrevNext(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, ASTNode const& node, const std::string& oper) :
-			DictOperation{pusher, keyType, valueType, node}, oper{oper}, pusherHelperOk{&pusher.ctx()} {
+			DictOperation{pusher, keyType, valueType, node}, oper{oper} {
 
 	}
 
@@ -1343,60 +1406,59 @@ public:
 
 		pusher.push(-3 + 3, dictOpcode); // value key -1 or 0
 
-		StackPusherHelper::checkThatKeyCanBeRestored(&keyType, node);
-		pusherHelperOk.push(0, "SWAP"); // key value
-
+		pusher.startContinuation();
+        pusher.recoverKeyAfterDictOperation(&keyType, node);
+        pusher.push(0, "SWAP"); // key value
 		doDictOperation();
+        pusher.push(+1, "TRUE");
+        pusher.endContinuation();
+        pusher.push(-3, ""); // fix stake
 
-		pusherHelperOk.push(0, "TRUE");
+        pusher.startContinuation();
+		pusher.pushDefaultValue(&keyType);
+		pusher.pushDefaultValue(&valueType);
+		pusher.push(0, "FALSE");
+        pusher.endContinuation();
+        pusher.push(-3, ""); // fix stake
 
-		StackPusherHelper pusherHelperFail(&pusher.ctx());
-		pusherHelperFail.pushDefaultValue(&keyType);
-		pusherHelperFail.pushDefaultValue(&valueType);
-		pusherHelperFail.push(0, "FALSE");
-
-		pusher.pushCont(pusherHelperOk.code());
-		pusher.pushCont(pusherHelperFail.code());
-		pusher.push(-2, ""); // fix stack
 		pusher.push(0, "IFELSE");
+        pusher.push(+3, ""); // fix stake
 	}
 
 protected:
 	void onCell() override {
-		pusherHelperOk.push(0, "PLDREF");
-	}
+        pusher.push(0, "PLDREF");
+    }
 
 	void onSmallStruct() override {
-		StructCompiler sc{&pusherHelperOk, to<StructType>(&valueType)};
-		sc.convertSliceToTuple();
+        StructCompiler sc{&pusher, to<StructType>(&valueType)};
+        sc.convertSliceToTuple();
 	}
 
 	void onLargeStruct() override {
-		pusherHelperOk.push(0, "LDREFRTOS");
-		pusherHelperOk.push(0, "NIP");
-		StructCompiler sc{&pusherHelperOk, to<StructType>(&valueType)};
+		pusher.push(0, "LDREFRTOS");
+		pusher.push(0, "NIP");
+		StructCompiler sc{&pusher, to<StructType>(&valueType)};
 		sc.convertSliceToTuple();
 	}
 
-	void onAddress() override {
-
+	void onSlice() override {
 	}
 
 	void onByteArrayOrString() override {
-		pusherHelperOk.push(0, "PLDREF");
+        pusher.push(0, "PLDREF");
 	}
 
 	void onIntegralOrArrayOrVarInt() override {
-		pusherHelperOk.preload(&valueType);
+        pusher.preload(&valueType);
 	}
 
 	void onMapOrECC() override {
-		pusherHelperOk.push(0, "PLDREF");
+        pusher.push(0, "PLDREF");
 	}
 
 private:
 	const std::string oper;
-	StackPusherHelper pusherHelperOk;
 };
 
 void TVMExpressionCompiler::mappingPrevNextMethods(FunctionCall const &_functionCall) {
@@ -1407,9 +1469,9 @@ void TVMExpressionCompiler::mappingPrevNextMethods(FunctionCall const &_function
 	std::tie(keyType, valueType) = dictKeyValue(memberAccess);
 
 	compileNewExpr(_functionCall.arguments()[0].get()); // index
-	compileNewExpr(&memberAccess->expression()); // index dict
-	m_pusher.prepareKeyForDictOperations(keyType);
-	m_pusher.pushInt(lengthOfDictKey(keyType)); // index dict nbits
+    m_pusher.prepareKeyForDictOperations(keyType); // index'
+    compileNewExpr(&memberAccess->expression()); // index' dict
+	m_pusher.pushInt(lengthOfDictKey(keyType)); // index' dict nbits
 
 	DictPrevNext compiler{m_pusher, *keyType, *valueType, _functionCall, memberAccess->memberName()};
 	compiler.prevNext();
@@ -1418,69 +1480,105 @@ void TVMExpressionCompiler::mappingPrevNextMethods(FunctionCall const &_function
 class DictMinMax : public DictOperation {
 public:
 	DictMinMax(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, ASTNode const& node, bool isMin) :
-		DictOperation{pusher, keyType, valueType, node}, isMin{isMin}, pusherHelperOk{&pusher.ctx()} {
+		DictOperation{pusher, keyType, valueType, node}, isMin{isMin} {
 
 	}
 
 	void minMax() {
-		StackPusherHelper::checkThatKeyCanBeRestored(&keyType, node);
-
 		// stack: dict nbits
 		dictOpcode = "DICT" + typeToDictChar(&keyType) + (isMin? "MIN" : "MAX");
-		pusherHelperOk.push(0, "SWAP"); // key value
+
 
 		doDictOperation();
+        pusher.push(+1, "TRUE");
+        pusher.endContinuation();
+        pusher.push(-3, ""); // fix stake
 
-		pusher.push(-2 + 3, dictOpcode); // (value, key, -1) or 0
+        pusher.startContinuation();
+		pusher.pushDefaultValue(&keyType);
+		pusher.pushDefaultValue(&valueType);
+		pusher.push(+1, "FALSE");
+        pusher.endContinuation();
+        pusher.push(-3, ""); // fix stake
 
-		pusherHelperOk.push(0, "TRUE");
-		pusher.pushCont(pusherHelperOk.code());
-
-		StackPusherHelper pusherHelperFail(&pusher.ctx());
-		pusherHelperFail.pushDefaultValue(&keyType);
-		pusherHelperFail.pushDefaultValue(&valueType);
-		pusherHelperFail.push(0, "FALSE");
-		pusher.pushCont(pusherHelperFail.code());
-
-		pusher.push(-2, "IFELSE");
+		pusher.push(0, "IFELSE");
+        pusher.push(+3, ""); // fix stake
 	}
 
 protected:
 	void onCell() override {
 		dictOpcode += "REF";
+        pusher.push(-2 + 3, dictOpcode); // (value, key, -1) or 0
+        pusher.push(-1, ""); // fix stake
+        pusher.startContinuation();
+        pusher.recoverKeyAfterDictOperation(&keyType, node);
+        pusher.push(0, "SWAP"); // key value
 	}
 
 	void onSmallStruct() override {
-		StructCompiler sc{&pusherHelperOk, to<StructType>(&valueType)};
+        pusher.push(-2 + 3, dictOpcode); // (value, key, -1) or 0
+        pusher.push(-1, ""); // fix stake
+        pusher.startContinuation();
+        pusher.recoverKeyAfterDictOperation(&keyType, node);
+        pusher.push(0, "SWAP"); // key value
+
+        StructCompiler sc{&pusher, to<StructType>(&valueType)};
 		sc.convertSliceToTuple();
 	}
 
 	void onLargeStruct() override {
 		dictOpcode += "REF";
-		pusherHelperOk.push(0, "CTOS");
-		StructCompiler sc{&pusherHelperOk, to<StructType>(&valueType)};
+        pusher.push(-2 + 3, dictOpcode); // (value, key, -1) or 0
+        pusher.push(-1, ""); // fix stake
+        pusher.startContinuation();
+        pusher.recoverKeyAfterDictOperation(&keyType, node);
+        pusher.push(0, "SWAP"); // key value
+
+        pusher.push(0, "CTOS");
+		StructCompiler sc{&pusher, to<StructType>(&valueType)};
 		sc.convertSliceToTuple();
 	}
 
-	void onAddress() override {
+	void onSlice() override {
+        pusher.push(-2 + 3, dictOpcode); // (value, key, -1) or 0
+        pusher.push(-1, ""); // fix stake
+        pusher.startContinuation();
+        pusher.recoverKeyAfterDictOperation(&keyType, node);
+        pusher.push(0, "SWAP"); // key value
 	}
 
 	void onByteArrayOrString() override {
 		dictOpcode += "REF";
+        pusher.push(-2 + 3, dictOpcode); // (value, key, -1) or 0
+        pusher.push(-1, ""); // fix stake
+        pusher.startContinuation();
+        pusher.recoverKeyAfterDictOperation(&keyType, node);
+        pusher.push(0, "SWAP"); // key value
 	}
 
 	void onIntegralOrArrayOrVarInt() override {
-		pusherHelperOk.preload(&valueType);
+        pusher.push(-2 + 3, dictOpcode); // (value, key, -1) or 0
+        pusher.push(-1, ""); // fix stake
+        pusher.startContinuation();
+        pusher.recoverKeyAfterDictOperation(&keyType, node);
+        pusher.push(0, "SWAP"); // key value
+
+        pusher.preload(&valueType);
 	}
 
 	void onMapOrECC() override {
-		pusherHelperOk.preload(&valueType);
+        pusher.push(-2 + 3, dictOpcode); // (value, key, -1) or 0
+        pusher.push(-1, ""); // fix stake
+        pusher.startContinuation();
+        pusher.recoverKeyAfterDictOperation(&keyType, node);
+        pusher.push(0, "SWAP"); // key value
+
+        pusher.preload(&valueType);
 	}
 
 private:
 	const bool isMin{};
 	std::string dictOpcode;
-	StackPusherHelper pusherHelperOk;
 };
 
 void TVMExpressionCompiler::mappingMinMaxMethod(FunctionCall const &_functionCall, bool isMin) {
@@ -1546,20 +1644,21 @@ bool TVMExpressionCompiler::visit2(FunctionCall const &_functionCall) {
 }
 
 void TVMExpressionCompiler::visit2(Conditional const &_conditional) {
+	const int paramQty = returnParamQty(_conditional.trueExpression());
 	compileNewExpr(&_conditional.condition());
 	m_pusher.push(-1, ""); // fix stack
 
 	m_pusher.startContinuation();
 	compileNewExpr(&_conditional.trueExpression());
 	m_pusher.endContinuation();
-	m_pusher.push(-1, ""); // fix stack
+	m_pusher.push(-paramQty, ""); // fix stack
 
 	m_pusher.startContinuation();
 	compileNewExpr(&_conditional.falseExpression());
 	m_pusher.endContinuation();
-	m_pusher.push(-1, ""); // fix stack
+	m_pusher.push(-paramQty, ""); // fix stack
 
-	m_pusher.push(+1, "IFELSE");
+	m_pusher.push(paramQty, "IFELSE");
 }
 
 void TVMExpressionCompiler::visit2(ElementaryTypeNameExpression const &_node) {
@@ -1622,6 +1721,7 @@ TVMExpressionCompiler::expandLValue(Expression const *const _expr, const bool wi
 			if (isIn(index->baseExpression().annotation().type->category(), Type::Category::Mapping, Type::Category::ExtraCurrencyCollection)) {
 				// dict1
 				compileNewExpr(index->indexExpression());
+                m_pusher.prepareKeyForDictOperations(index->indexExpression()->annotation().type);
 				// dict1 index
 				m_pusher.push(0, "SWAP");
 				// index dict1
@@ -1714,7 +1814,6 @@ TVMExpressionCompiler::collectLValue(const LValueInfo &lValueInfo, const bool ha
 					TypePointer const valueDictType = StackPusherHelper::parseValueType(*indexAccess);
 					bool isMapValueBuilder = m_pusher.prepareValueForDictOperations(keyType, valueDictType, isCurrentValueBuilder);
 					m_pusher.push(0, "ROTREV"); // value index dict
-					m_pusher.prepareKeyForDictOperations(keyType);
 					m_pusher.setDict(*keyType, *valueDictType, isMapValueBuilder, *lValueInfo.expressions[i]); // dict'
 				}
 				if (lValueInfo.isResultBuilder[i]) {
@@ -1732,7 +1831,6 @@ TVMExpressionCompiler::collectLValue(const LValueInfo &lValueInfo, const bool ha
 					auto valueDictType = getType(indexAccess);
 					bool isArrValueBuilder = m_pusher.prepareValueForDictOperations(keyType, valueDictType, isCurrentValueBuilder);
 					m_pusher.push(0, "ROTREV"); // size value index dict
-					m_pusher.prepareKeyForDictOperations(keyType);
 					m_pusher.setDict(*keyType, *valueDictType, isArrValueBuilder, *lValueInfo.expressions[i]); // size dict'
 				}
 
@@ -1931,6 +2029,7 @@ bool TVMExpressionCompiler::fold_constants(const Expression *expr) {
 		m_pusher.push(+1, "PUSHINT " + val.str());
 		return true;
 	}
+
 	return false;
 }
 

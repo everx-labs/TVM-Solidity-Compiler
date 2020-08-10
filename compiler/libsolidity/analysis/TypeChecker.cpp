@@ -170,37 +170,10 @@ TypePointers TypeChecker::getReturnTypesForTVMConfig(FunctionCall const& _functi
 //        uint16 /*total*/,
 //        uint16 /*main*/,
 //        uint64 /*total_weight*/,
-//        mapping(uint16 => ValidatorDescr73) memory,
+//        mapping(uint16 => TvmSlice) memory,
 //        bool ok
 //    ) { }
 	if (paramNumber == "34") {
-		if (m_structs.count("ValidatorDescr73") == 0) {
-			m_errorReporter.typeError(_functionCall.location(), "ValidatorDescr73 struct declaration not found.");
-			return {};
-		}
-
-		auto validator = m_structs["ValidatorDescr73"];
-
-//		struct ValidatorDescr73 {
-//			 uint8 validator_addr73;
-//			 uint32 ed25519_pubkey;
-//			 uint256 pubkey;
-//			 uint64 weight;
-//			 uint256 adnl_addr;
-//		}
-
-		// scheck struct to be valid
-		auto members = validator->structDefinition().members();
-		if ((members.size() != 5) ||
-			(members[0]->type()->toString() != "uint8") ||
-			(members[1]->type()->toString() != "uint32") ||
-			(members[2]->type()->toString() != "uint256") ||
-			(members[3]->type()->toString() != "uint64") ||
-			 (members[4]->type()->toString() != "uint256")) {
-			m_errorReporter.typeError(_functionCall.location(), "ValidatorDescr73 struct is not valid for this function.");
-			return {};
-		}
-
 		auto ret = TypePointers{TypeProvider::integer(8, IntegerType::Modifier::Unsigned),
 									  TypeProvider::integer(32, IntegerType::Modifier::Unsigned),
 									  TypeProvider::integer(32, IntegerType::Modifier::Unsigned),
@@ -208,7 +181,7 @@ TypePointers TypeChecker::getReturnTypesForTVMConfig(FunctionCall const& _functi
 									  TypeProvider::integer(16, IntegerType::Modifier::Unsigned),
 									  TypeProvider::integer(64, IntegerType::Modifier::Unsigned),
 									  TypeProvider::mapping(TypeProvider::integer(16, IntegerType::Modifier::Unsigned),
-																validator, DataLocation::Memory),
+																TypeProvider::tvmslice(), DataLocation::Memory),
 									  TypeProvider::boolean()};
 		return ret;
 	}
@@ -2208,6 +2181,46 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		break;
 	}
 
+	auto isIntegerType = [this](ASTPointer<Expression const> arg){
+		Type::Category cat = arg->annotation().type->category();
+		if (cat != Type::Category::Integer && cat != Type::Category::RationalNumber) {
+			m_errorReporter.fatalTypeError(
+					arg->location(),
+					"Argument must have integer type."
+			);
+		}
+	};
+
+	auto checkArgNumAndIsInteger = [&](vector<ASTPointer<Expression const>> const& arguments,
+		size_t arguments_cnt, std::function<bool(size_t, size_t)> cmpOperator,
+			std::string errorMsg){
+			if (!cmpOperator(arguments.size(), arguments_cnt)) {
+				m_errorReporter.fatalTypeError(
+						_functionCall.location(),
+						errorMsg
+				);
+			}
+
+			for (std::size_t i = 0; i < arguments.size(); ++i) {
+				isIntegerType(arguments.at(i));
+			}
+	};
+
+	auto getCommonType = [&](vector<ASTPointer<Expression const>> const& arguments){
+		TypePointer result = arguments.at(0)->annotation().type;
+		for (std::size_t i = 1; i < arguments.size(); ++i) {
+			TypePointer rightType = arguments.at(i)->annotation().type;
+			result = Type::commonType(result, rightType);
+			if (result == nullptr) {
+				m_errorReporter.fatalTypeError(
+						arguments.at(i)->location(),
+						"All arguments must have signed or unsigned integer type at the same time."
+				);
+			}
+		}
+		return result;
+	};
+
 	// Determine return types
 	switch (funcCallAnno.kind)
 	{
@@ -2249,40 +2262,51 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			}
 			break;
 		}
-		case FunctionType::Kind::TVMMaxMin:
+		case FunctionType::Kind::MathMaxMin:
 		{
-			if (arguments.size() < 2) {
+			checkArgNumAndIsInteger(arguments, 2, std::greater_equal<size_t>(), "This function takes at least two arguments.");
+			TypePointer result = getCommonType(arguments);
+			returnTypes.push_back(result);
+			break;
+		}
+		case FunctionType::Kind::MathMinMax:
+		{
+			checkArgNumAndIsInteger(arguments, 2, std::equal_to<size_t>(), "This function takes two arguments.");
+			TypePointer result = getCommonType(arguments);
+			returnTypes.push_back(result);
+			returnTypes.push_back(result);
+			break;
+		}
+		case FunctionType::Kind::MathMulDiv:
+		case FunctionType::Kind::MathMulDivMod:
+		{
+			checkArgNumAndIsInteger(arguments, 3, std::equal_to<size_t>(), "This function takes three arguments.");
+			TypePointer result = getCommonType(arguments);
+			returnTypes.push_back(result);
+			if (functionType->kind() == FunctionType::Kind::MathMulDivMod)
+				returnTypes.push_back(result);
+			break;
+		}
+		case FunctionType::Kind::MathAbs:
+		{
+			checkArgNumAndIsInteger(arguments, 1, std::equal_to<size_t>(), "This function takes one argument.");
+			TypePointer type = arguments[0]->annotation().type;
+			returnTypes.push_back(type->mobileType());
+			break;
+		}
+		case FunctionType::Kind::MathModpow2:
+		{
+			checkArgNumAndIsInteger(arguments, 2, std::equal_to<size_t>(), "This function takes two arguments.");
+			bool isConst = arguments[1]->annotation().isPure &&
+					((arguments[1]->annotation().type->category() == Type::Category::RationalNumber) ||
+					(arguments[1]->annotation().type->category() == Type::Category::Integer));
+			if (!isConst) {
 				m_errorReporter.fatalTypeError(
-						_functionCall.location(),
-						"This function takes at least two arguments."
+						arguments.at(1)->location(),
+						"Second argument for this function should be a constant integer."
 				);
 			}
-
-			auto isIntegerType = [this](ASTPointer<Expression const> arg){
-				Type::Category cat = arg->annotation().type->category();
-				if (cat != Type::Category::Integer && cat != Type::Category::RationalNumber) {
-					m_errorReporter.fatalTypeError(
-							arg->location(),
-							"Argument must have integer type."
-					);
-				}
-			};
-			for (std::size_t i = 0; i < arguments.size(); ++i) {
-				isIntegerType(arguments.at(i));
-			}
-
-			TypePointer result = arguments.at(0)->annotation().type;
-			for (std::size_t i = 1; i < arguments.size(); ++i) {
-				TypePointer rightType = arguments.at(i)->annotation().type;
-				result = Type::commonType(result, rightType);
-				if (result == nullptr) {
-					m_errorReporter.fatalTypeError(
-							arguments.at(i)->location(),
-							"All arguments must have signed or unsigned at the same time."
-					);
-				}
-			}
-			returnTypes.push_back(result);
+			returnTypes.push_back(arguments.at(0)->annotation().type);
 			break;
 		}
 		case FunctionType::Kind::ABIEncode:
@@ -2297,6 +2321,46 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		case FunctionType::Kind::MetaType:
 			returnTypes = typeCheckMetaTypeFunctionAndRetrieveReturnType(_functionCall);
 			break;
+		case FunctionType::Kind::MappingGetNextKey:
+		{
+			if (arguments.size() != 1) {
+				m_errorReporter.fatalTypeError(
+						_functionCall.location(),
+						"This function takes one argument."
+				);
+			}
+			auto memberAccess = dynamic_cast<const MemberAccess *>(&_functionCall.expression());
+			auto mapType = dynamic_cast<const MappingType *>(memberAccess->expression().annotation().type);
+			const Type * keyType;
+			const Type * valueType;
+			if (mapType == nullptr) {
+				auto eccType = dynamic_cast<const ExtraCurrencyCollectionType *>(memberAccess->expression().annotation().type);
+				keyType = eccType->keyType();
+				valueType = eccType->valueType();
+			} else {
+				keyType = mapType->keyType();
+				valueType = mapType->valueType();
+			}
+            auto arg0Type = arguments[0]->annotation().type;
+			if (keyType->category() == Type::Category::Integer) {
+				auto category = arg0Type->category();
+				if (category != Type::Category::Integer && category != Type::Category::RationalNumber) {
+					m_errorReporter.fatalTypeError(
+							_functionCall.location(),
+							"The argument of this function should have integer type."
+					);
+				}
+			} else if (*arg0Type != *keyType) {
+                m_errorReporter.fatalTypeError(
+                        _functionCall.location(),
+                        string("The argument of this function should have ") + keyType->toString(true) + " type."
+                );
+			}
+			returnTypes.push_back(keyType);
+			returnTypes.push_back(valueType);
+			returnTypes.push_back(TypeProvider::boolean());
+			break;
+		}
 		case FunctionType::Kind::TVMEncodeBody:
 		case FunctionType::Kind::TVMFunctionId:
 			funcDef = isArgumentAPublicFunction(_functionCall);
@@ -2345,12 +2409,11 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		return false;
 	}
 
-	bool setSalt = false;
 	bool setValue = false;
-	bool setGas = false;
 	bool setFlag = false;
 	bool setCurrencies = false;
 	bool setStateInit = false;
+	bool setBounce = false;
 
 	FunctionType::Kind kind = expressionFunctionType->kind();
 	if (
@@ -2385,18 +2448,10 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	for (size_t i = 0; i < _functionCallOptions.names().size(); ++i)
 	{
 		string const& name = *(_functionCallOptions.names()[i]);
-		if (name == "salt")
+		if (name == "bounce")
 		{
-			if (kind == FunctionType::Kind::Creation)
-			{
-				setCheckOption(setSalt, "salt", expressionFunctionType->saltSet());
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::fixedBytes(32));
-			}
-			else
-				m_errorReporter.typeError(
-					_functionCallOptions.location(),
-					"Function call option \"salt\" can only be used with \"new\"."
-				);
+			expectType(*_functionCallOptions.options()[i], *TypeProvider::boolean());
+			setCheckOption(setBounce, "bounce", expressionFunctionType->bounceSet());
 		}
 		else if (name == "flag")
 		{
@@ -2437,34 +2492,14 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 				setCheckOption(setValue, "value", expressionFunctionType->valueSet());
 			}
 		}
-		else if (name == "gas")
-		{
-			if (kind == FunctionType::Kind::Creation)
-				m_errorReporter.typeError(
-					_functionCallOptions.location(),
-					"Function call option \"gas\" cannot be used with \"new\"."
-				);
-			else
-			{
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::uint256());
-
-				setCheckOption(setGas, "gas", expressionFunctionType->gasSet());
-			}
-		}
 		else
 			m_errorReporter.typeError(
 				_functionCallOptions.location(),
-				"Unknown call option \"" + name + "\". Valid options are \"currencies\", \"stateInit\", \"flag\", \"salt\", \"value\" and \"gas\"."
+				"Unknown call option \"" + name + "\". Valid options are \"currencies\", \"stateInit\", \"flag\", \"bounce\" and \"value\"."
 			);
 	}
 
-	if (setSalt && !m_evmVersion.hasCreate2())
-		m_errorReporter.typeError(
-			_functionCallOptions.location(),
-			"Unsupported call option \"salt\" (requires Constantinople-compatible VMs)."
-		);
-
-	_functionCallOptions.annotation().type = expressionFunctionType->copyAndSetCallOptions(setGas, setValue, setSalt, setFlag);
+	_functionCallOptions.annotation().type = expressionFunctionType->copyAndSetCallOptions(setValue, setFlag);
 	return false;
 }
 
@@ -2958,6 +2993,14 @@ void TypeChecker::endVisit(MappingNameExpression const& _expr)
 	_expr.annotation().isPure = true;
 }
 
+void TypeChecker::endVisit(OptionalNameExpression const& _expr)
+{
+	_expr.annotation().type = TypeProvider::typeType(TypeProvider::optional(
+			_expr.type().valueType().annotation().type
+			));
+	_expr.annotation().isPure = true;
+}
+
 void TypeChecker::endVisit(Literal const& _literal)
 {
 //	if (_literal.looksLikeAddress())
@@ -3022,10 +3065,13 @@ bool TypeChecker::visit(Mapping const& _mapping)
 					"Library types cannot be used as mapping keys."
 				);
 		}
-		else if (keyType->annotation().type->category() != Type::Category::Enum)
+		else if (
+            keyType->annotation().type->category() != Type::Category::Enum &&
+            keyType->annotation().type->category() != Type::Category::Struct
+        )
 			m_errorReporter.typeError(
 				keyType->location(),
-				"Only elementary types, contract types or enums are allowed as mapping keys."
+				"Only elementary types, contract types, structures (fitted in one cell) or enums are allowed as mapping keys."
 			);
 	}
 	else

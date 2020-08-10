@@ -60,7 +60,7 @@ protected:
 public:
 	void makeInlineFunctionCall(bool alloc);
 
-	void generateC4ToC7(bool withInitMemory);
+	void generateC4ToC7(bool withInitMemory, bool asMacro = true);
 	void generateMacro();
 	void generateMainExternal();
 	void generateMainInternal();

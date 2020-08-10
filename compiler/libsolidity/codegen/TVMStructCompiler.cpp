@@ -81,6 +81,12 @@ StructCompiler::FieldSizeInfo::FieldSizeInfo(Type const* type, ASTNode const& no
 			maxRefLength = 1;
 			break;
 		}
+		case Type::Category::Optional:
+			isBitFixed = true;
+			isRefFixed = false;
+			maxBitLength = 1;
+			maxRefLength = 1;
+			break;
 		default:
 			cast_error(node, "Unsupported in struct");
 	}
@@ -111,7 +117,7 @@ bool StructCompiler::Node::tryAddField(const StructCompiler::Field &f, bool useA
 		solAssert(maxRefs() >= 1, "");
 	}
 	if (!(maxBits() + skipData + f.fieldSizeInfo.maxBitLength <= TvmConst::CellBitLength &&
-         (maxRefs() + (withDeleteChild? - 1 : 0)) + f.fieldSizeInfo.maxRefLength <= refLimit)) {
+		 (maxRefs() + (withDeleteChild? - 1 : 0)) + f.fieldSizeInfo.maxRefLength <= refLimit)) {
 		return false;
 	}
 	fields.push_back(f);
@@ -156,8 +162,8 @@ int StructCompiler::Node::maxRefs() const {
 }
 
 StructCompiler::PathToStructMember::PathToStructMember(const std::vector<int> &nodes, const std::vector<int> &childRef,
-                                                       vector<FieldSizeInfo> skippedFields, StructCompiler::Field field,
-                                                       const bool haveDataOrRefsAfterMember) :
+													   vector<FieldSizeInfo> skippedFields, StructCompiler::Field field,
+													   const bool haveDataOrRefsAfterMember) :
 		nodes{nodes}, childRef{childRef}, skippedFields{std::move(skippedFields)}, field{field},
 		haveDataOrRefsAfterMember{haveDataOrRefsAfterMember} {
 	solAssert(nodes.size() == childRef.size() + 1, "");
@@ -200,7 +206,7 @@ StructCompiler::StructCompiler(StackPusherHelper *pusher, std::vector<VariableDe
 		doSome = false;
 		for (int v = 1; v < static_cast<int>(nodes.size()); ++v) {
 			for (int fieldInd = 0;
-			     !doSome && fieldInd < (isC4? static_cast<int>(nodes[v].getFields().size()) : std::min<int>(nodes[v].getFields().size(), 1));
+				 !doSome && fieldInd < (isC4? static_cast<int>(nodes[v].getFields().size()) : std::min<int>(nodes[v].getFields().size(), 1));
 				++fieldInd) {
 				for (int v0 = isC4 ? 0 : v - 1; !doSome && v0 < v; ++v0) {
 					if (nodes[v0].tryAddField(nodes[v].getFields()[fieldInd], true)) {
@@ -208,11 +214,11 @@ StructCompiler::StructCompiler(StackPusherHelper *pusher, std::vector<VariableDe
 						doSome = true;
 					} else {
 						bool vIsChildOfV0 = std::find(nodes[v0].getChildren().begin(), nodes[v0].getChildren().end(), v) !=
-						                    nodes[v0].getChildren().end();
+											nodes[v0].getChildren().end();
 						if (nodes[v].getFields().size() == 1 &&
 							vIsChildOfV0 &&
 							v + 1 == static_cast<int>(nodes.size()) &&
-						    nodes[v0].tryAddField(nodes[v].getFields()[fieldInd], true, true)) {
+							nodes[v0].tryAddField(nodes[v].getFields()[fieldInd], true, true)) {
 							nodes[v].removeField(fieldInd);
 							doSome = true;
 						}
@@ -487,7 +493,7 @@ void StructCompiler::dfs(int v, std::vector<int> &nodePath, std::vector<int> &re
 			childRefInArray = true;
 		}
 		paths.emplace(f.member->name(), PathToStructMember{nodePath, refPath, skippedField, f,
-		                                                   i + 1 != n || (i + 1 == n && !childRefInArray)});
+														   i + 1 != n || (i + 1 == n && !childRefInArray)});
 
 		if (skippedField.empty() || !skippedField.back().tryMerge(f.fieldSizeInfo)) {
 			skippedField.push_back(f.fieldSizeInfo);
@@ -635,9 +641,32 @@ void StructCompiler::load(const VariableDeclaration *vd, bool reverseOrder) {
 	// reverseOrder? slice member : member slice
 }
 
-bool StructCompiler::fastLoad(const VariableDeclaration *vd) {
-	Type const *type = vd->type();
-	switch (vd->type()->category()) {
+bool StructCompiler::fastLoad(const VariableDeclaration *vd, const Type * childType) {
+	// slice
+	Type const *type = (childType == nullptr) ? vd->type() : childType;
+	switch (type->category()) {
+		case Type::Category::Optional: {
+            const int saveStakeSize = pusher->getStack().size();
+			auto opt = to<OptionalType>(vd->type());
+
+			pusher->push(+1, "LDOPTREF"); // value slice
+			pusher->exchange(0, 1); // slice value
+			pusher->pushS(0); // slice value value
+			pusher->push(-1 + 1, "ISNULL"); // slice value isNull
+
+			pusher->push(-1, ""); // fix stack
+
+			pusher->startContinuation();
+			// slice value
+			pusher->push(0, "CTOS"); // slice sliceValue
+			preload(vd, false, opt->valueType(), true); // slice value
+			pusher->endContinuation();
+
+			pusher->push(0, "IFNOT");
+
+            solAssert(saveStakeSize + 1 == pusher->getStack().size(), "");
+			return false;
+		}
 		case Type::Category::TvmCell:
 			pusher->push(-1 + 2, "LDREF");
 			return true;
@@ -677,10 +706,45 @@ bool StructCompiler::fastLoad(const VariableDeclaration *vd) {
 	}
 }
 
-void StructCompiler::preload(const VariableDeclaration *vd, bool returnStructAsSlice) {
+void StructCompiler::preload(const VariableDeclaration *vd, bool returnStructAsSlice, const Type* type,
+                             bool useCurrentSlice) {
+	const int stackSize = pusher->getStack().size();
 	// on stack there is slice
-	Type const *type = vd->type();
-	switch (vd->type()->category()) {
+	if (type == nullptr) {
+		type = vd->type();
+	}
+	switch (type->category()) {
+		case Type::Category::Optional: {
+			auto opt = to<OptionalType>(type);
+
+			pusher->pushS(0);
+			pusher->push(-1 + 1, "PLDI 1"); // slice hasVal
+
+			pusher->push(-1, ""); // fix stack
+
+			// have value
+			int savedStake0 = pusher->getStack().size();
+			pusher->startContinuation();
+			// stack: slice
+			pusher->push(-1 + 1, "PLDREF");
+			pusher->push(-1 + 1, "CTOS");
+			preload(vd, returnStructAsSlice, opt->valueType(), true);
+			pusher->endContinuation();
+			pusher->getStack().ensureSize(savedStake0);
+
+			// no value
+			int savedStake1 = pusher->getStack().size();
+			pusher->startContinuation();
+			// stack: slice
+			pusher->drop();
+			pusher->push(+1, "NULL");
+			pusher->endContinuation();
+			pusher->getStack().ensureSize(savedStake1);
+
+			pusher->push(0, "IFELSE");
+
+			break;
+		}
 		case Type::Category::Address:
 		case Type::Category::Contract:
 			if (paths.at(vd->name()).haveDataOrRefsAfterMember) {
@@ -692,8 +756,10 @@ void StructCompiler::preload(const VariableDeclaration *vd, bool returnStructAsS
 			pusher->push(0, "PLDREF");
 			break;
 		case Type::Category::Struct:
-			pusher->push(-1 + 2, "LDREFRTOS");
-			pusher->push(-1, "NIP");
+		    if (!useCurrentSlice){
+                pusher->push(-1 + 2, "LDREFRTOS");
+                pusher->push(-1, "NIP");
+            }
 			if (!returnStructAsSlice) {
 				auto structType = to<StructType>(type);
 				StructCompiler sc{pusher, structType};
@@ -722,19 +788,61 @@ void StructCompiler::preload(const VariableDeclaration *vd, bool returnStructAsS
 		default:
 			cast_error(*vd, "Unsupported type in struct");
 	}
+	pusher->getStack().ensureSize(stackSize);
 }
 
-void StructCompiler::store(const VariableDeclaration *vd, bool reverse, bool isValueBuilder, bool isArrayUntupled) {
-	// value   builder
-	// builder value    - reverse order
-	Type const *type = vd->type();
-	switch (vd->type()->category()) {
+void StructCompiler::store(const VariableDeclaration *vd, bool reverse, bool isValueBuilder,
+                           bool isArrayUntupled, const Type *childType, bool storeAsRefForStruct) {
+	// value   builder  -> reverse = false
+	// builder value    -> reverse = true
+	const int stackSize = pusher->getStack().size();
+	int deltaStack = 1;
+	Type const *type = (childType == nullptr) ? vd->type() : childType;
+	switch (type->category()) {
+		case Type::Category::Optional: {
+			auto optType = to<OptionalType>(type);
+
+			if (!reverse)
+				pusher->exchange(0, 1);	// builder value
+			pusher->pushS(0);	// builder value value
+			pusher->push(-1 + 1, "ISNULL");	// builder value isnull
+			pusher->push(-1 + 1, "NOT");	// builder value !isnull
+
+			pusher->push(-1, ""); // fix stack
+
+			pusher->getStack().ensureSize(stackSize);
+			pusher->startContinuation();
+			// builder value
+			pusher->push(+1, "NEWC"); // builder value builder
+			store(vd, false, false, false, optType->valueType(), false); // builder builderWithValue
+			pusher->exchange(0, 1); // builderWithValue builder
+			pusher->stones(1);
+			pusher->push(-1, "STBREF");	// builder
+			pusher->endContinuation();
+			pusher->push(+1, ""); // fix stack
+
+			pusher->getStack().ensureSize(stackSize);
+			pusher->startContinuation();
+			// builder value
+			pusher->drop(1); // builder
+			pusher->stzeroes(1);
+			pusher->endContinuation();
+			pusher->push(+1, ""); // fix stack
+
+			pusher->push(0, "IFELSE");
+			pusher->push(-1, ""); // fix stack
+
+			break;
+		}
 		case Type::Category::TvmCell:
 			pusher->push(-1, reverse? "STREFR" : "STREF"); // builder
 			break;
 		case Type::Category::Struct: {
 			if (isValueBuilder) {
-				pusher->push(-1, reverse? "STBREFR" : "STBREF"); // builder
+			    if (storeAsRefForStruct)
+				    pusher->push(-1, reverse? "STBREFR" : "STBREF"); // builder
+                else
+                    solAssert(false, "TODO");
 			} else {
 				if (!reverse) {
 					pusher->push(0, "SWAP"); // builder struct
@@ -743,7 +851,12 @@ void StructCompiler::store(const VariableDeclaration *vd, bool reverse, bool isV
 				auto st = to<StructType>(type);
 				StructCompiler sc{pusher, st};
 				sc.tupleToBuilder();
-				pusher->push(-1, "STBREFR"); // builder
+				if (storeAsRefForStruct)
+				    pusher->push(-1, "STBREFR"); // builder
+                else {
+                    pusher->push(-1, "STBR"); // builder
+                    // TODO opt this: don't create builder in `tupleToBuilder` and don't append this.
+                }
 			}
 			break;
 		}
@@ -779,6 +892,7 @@ void StructCompiler::store(const VariableDeclaration *vd, bool reverse, bool isV
 					pusher->push(-1, reverse ? "STBR" : "STB");
 				} else {
 					if (isArrayUntupled) {
+						deltaStack = 2;
 						solAssert(!reverse, "");
 						// dict size builder
 						pusher->push(-1, "STU 32");
@@ -799,6 +913,8 @@ void StructCompiler::store(const VariableDeclaration *vd, bool reverse, bool isV
 		default:
 			cast_error(*vd, "Unsupported type in struct");
 	}
+
+	pusher->getStack().ensureSize(stackSize - deltaStack);
 }
 
 void StructCompiler::skip(int bits, int refs) {

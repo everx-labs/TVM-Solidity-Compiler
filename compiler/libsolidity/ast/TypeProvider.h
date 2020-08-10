@@ -148,8 +148,7 @@ public:
 	);
 
 	/// @returns a highly customized FunctionType, use with care.
-	static FunctionType const* function(
-		TypePointers const& _parameterTypes,
+	static FunctionType const* function(TypePointers const& _parameterTypes,
 		TypePointers const& _returnParameterTypes,
 		strings _parameterNames = strings{},
 		strings _returnParameterNames = strings{},
@@ -157,9 +156,7 @@ public:
 		bool _arbitraryParameters = false,
 		StateMutability _stateMutability = StateMutability::NonPayable,
 		Declaration const* _declaration = nullptr,
-		bool _gasSet = false,
 		bool _valueSet = false,
-		bool _saltSet = false,
 		bool _bound = false,
 		bool _flagSet = false
 	);
@@ -195,7 +192,10 @@ public:
 	static MagicType const* meta(Type const* _type);
 
 	static MappingType const* mapping(Type const* _keyType, Type const* _valueType, DataLocation _location);
+
 	static ExtraCurrencyCollectionType const* extraCurrencyCollection(DataLocation _location);
+
+	static OptionalType const* optional(Type const* _type);
 
 private:
 	/// Global TypeProvider instance.
@@ -227,7 +227,7 @@ private:
 	static std::array<std::unique_ptr<IntegerType>, 32> const m_intM;
 	static std::array<std::unique_ptr<IntegerType>, 32> const m_uintM;
 	static std::array<std::unique_ptr<FixedBytesType>, 32> const m_bytesM;
-	static std::array<std::unique_ptr<MagicType>, 5> const m_magics;        ///< MagicType's except MetaType
+	static std::array<std::unique_ptr<MagicType>, 6> const m_magics;        ///< MagicType's except MetaType
 
 	std::map<std::pair<unsigned, unsigned>, std::unique_ptr<FixedPointType>> m_ufixedMxN{};
 	std::map<std::pair<unsigned, unsigned>, std::unique_ptr<FixedPointType>> m_fixedMxN{};

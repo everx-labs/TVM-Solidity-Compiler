@@ -175,6 +175,17 @@ int lengthOfDictKey(Type const *key) {
 		return 256;
 	}
 
+    auto structType = to<StructType>(key);
+	if (structType) {
+        int bitLength = 0;
+        StructDefinition const &structDefinition = structType->structDefinition();
+        for (const auto &member : structDefinition.members()) {
+            TypeInfo ti{member->type()};
+            solAssert(ti.isNumeric, "");
+            bitLength += ti.numBits;
+        }
+        return bitLength;
+    }
 	solAssert(false, "");
 }
 

@@ -115,9 +115,12 @@ private:
 	void sliceToStateVarsToC7Dfs(int v);
 	void load(const VariableDeclaration *vd, bool reverseOrder);
 	// return true if on stack there are (value, slice) else false if (slice, value)
-	bool fastLoad(const VariableDeclaration *vd);
-	void preload(const VariableDeclaration *vd, bool returnStructAsSlice);
-	void store(const VariableDeclaration *vd, bool reverse, bool isValueBuilder = false, bool isArrayUntupled = false);
+    [[nodiscard]]
+	bool fastLoad(const VariableDeclaration *vd, const Type *childType = nullptr);
+	void preload(const VariableDeclaration *vd, bool returnStructAsSlice, const Type *childType = nullptr,
+                    bool useCurrentSlice = false);
+	void store(const VariableDeclaration *vd, bool reverse, bool isValueBuilder = false, bool isArrayUntupled = false,
+                const Type *childType = nullptr, bool storeAsRefForStruct = true);
 	void skip(int bits, int refs);
 	void skip(const FieldSizeInfo& si);
 	void skip(const std::vector<FieldSizeInfo> &fieldInfo);

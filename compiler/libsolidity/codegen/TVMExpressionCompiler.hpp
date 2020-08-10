@@ -42,6 +42,8 @@ public:
 	void compileNewExpr(const Expression* expr);
 	void acceptExpr(const Expression* expr, const bool _isResultNeeded);
 	static std::pair<bool, bigint> constValue(Expression const& _e);
+	static std::pair<bool, bool> constBool(Expression const& _e);
+	static int returnParamQty(Expression const& _e);
 
 
 
@@ -67,7 +69,7 @@ protected:
 	void visit2(BinaryOperation const& _node);
 	void checkBitFit(Type const* type, Type const* lType, Type const* rType, const std::string& opcode);
 	void visitMsgMagic(MemberAccess const& _node);
-	bool visitMagic(MemberAccess const& _node);
+	void visitMagic(MemberAccess const& _node);
 	void visit2(MemberAccess const& _node);
 	bool checkForAddressMemberAccess(MemberAccess const& _node, Type::Category category);
 	void visitMemberAccessArray(MemberAccess const& _node);

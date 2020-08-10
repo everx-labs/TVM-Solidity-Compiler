@@ -326,6 +326,7 @@ ASTPointer<ContractDefinition> Parser::parseContractDefinition()
 			else if (
 				currentTokenValue == Token::Identifier ||
 				currentTokenValue == Token::Mapping ||
+				currentTokenValue == Token::Optional ||
 				currentTokenValue == Token::LBrack ||
 				TokenTraits::isElementaryTypeName(currentTokenValue) ||
 				(currentTokenValue == Token::Function && m_scanner->peekNextToken() == Token::LParen)
@@ -1065,6 +1066,8 @@ ASTPointer<TypeName> Parser::parseTypeName(bool _allowVar)
 		type = parseFunctionType();
 	else if (token == Token::Mapping)
 		type = parseMapping();
+	else if (token == Token::Optional)
+		type = parseOptional();
 	else if (token == Token::Identifier)
 		type = parseUserDefinedTypeName();
 	else
@@ -1119,6 +1122,20 @@ ASTPointer<Mapping> Parser::parseMapping()
 	expectToken(Token::RParen);
 	return nodeFactory.createNode<Mapping>(keyType, valueType);
 }
+
+ASTPointer<Optional> Parser::parseOptional()
+{
+	RecursionGuard recursionGuard(*this);
+	ASTNodeFactory nodeFactory(*this);
+	expectToken(Token::Optional);
+	expectToken(Token::LessThan);
+	bool const allowVar = false;
+	ASTPointer<TypeName> valueType = parseTypeName(allowVar);
+	nodeFactory.markEndPosition();
+	expectToken(Token::GreaterThan);
+	return nodeFactory.createNode<Optional>(valueType);
+}
+
 
 ASTPointer<ParameterList> Parser::parseParameterList(
 	VarDeclParserOptions const& _options,
@@ -1873,7 +1890,7 @@ ASTPointer<Expression> Parser::parsePrimaryExpression()
 		expression = nodeFactory.createNode<Literal>(token, getLiteralAndAdvance());
 		break;
 	case Token::Number:
-		if (TokenTraits::isEtherSubdenomination(m_scanner->peekNextToken()))
+		if (TokenTraits::isTonSubdenomination(m_scanner->peekNextToken()))
 		{
 			ASTPointer<ASTString> literal = getLiteralAndAdvance();
 			nodeFactory.markEndPosition();
@@ -1974,6 +1991,11 @@ ASTPointer<Expression> Parser::parsePrimaryExpression()
 			ASTPointer<Mapping> map = parseMapping();
 			expression = nodeFactory.createNode<MappingNameExpression>(map);
 		}
+		else if (token == Token::Optional)
+		{
+			ASTPointer<Optional> opt = parseOptional();
+			expression = nodeFactory.createNode<OptionalNameExpression>(opt);
+		}
 		else
 			fatalParserError(string("Expected primary expression."));
 		break;
@@ -2055,7 +2077,7 @@ Parser::LookAheadInfo Parser::peekStatementType() const
 	Token token(m_scanner->currentToken());
 	bool mightBeTypeName = (TokenTraits::isElementaryTypeName(token) || token == Token::Identifier);
 
-	if (token == Token::Mapping || token == Token::Function || token == Token::Var || token == Token::LBrack)
+	if (token == Token::Mapping || token == Token::Optional || token == Token::Function || token == Token::Var || token == Token::LBrack)
 		return LookAheadInfo::VariableDeclaration;
 	if (mightBeTypeName)
 	{

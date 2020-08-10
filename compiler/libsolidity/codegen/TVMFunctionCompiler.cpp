@@ -171,8 +171,16 @@ SETGLOB 6   ; pubkey [timestamp]
 	return pusherHelper.code();
 }
 
-void TVMFunctionCompiler::generateC4ToC7(bool withInitMemory) {
-	m_pusher.pushLines(std::string{".macro\t"} + (withInitMemory? "c4_to_c7_with_init_storage": "c4_to_c7"));
+void TVMFunctionCompiler::generateC4ToC7(bool withInitMemory, bool asMacro) {
+    const std::string& name = withInitMemory? "c4_to_c7_with_init_storage": "c4_to_c7";
+    if (withInitMemory) {
+        m_pusher.generateMacro(name);
+    } else {
+        if (asMacro)
+            m_pusher.generateMacro(name + "_macro");
+        else
+            m_pusher.generateGlobl(name, false);
+    }
 	m_pusher.pushLines(R"(
 PUSHROOT
 CTOS        ; c4
@@ -293,7 +301,7 @@ void TVMFunctionCompiler::generateOnCodeUpgrade() {
 
 	makeInlineFunctionCall(true);
 
-	m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
+	m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4_macro");
 	m_pusher.push(0, "COMMIT");
 	m_pusher.push(0, "THROW 0");
 	m_pusher.push(0, " ");
@@ -310,13 +318,13 @@ void TVMFunctionCompiler::generateOnTickTock() {
 		m_pusher.getStack().add(variable.get(), false);
 	}
 	if (m_function->stateMutability() != StateMutability::Pure) {
-		m_pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7");
+		m_pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7_macro");
 	}
 
 	visitFunctionWithModifiers();
 
 	if (m_function->stateMutability() != StateMutability::Pure) {
-		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
+		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4_macro");
 	}
 	m_pusher.push(0, " ");
 }
@@ -677,7 +685,7 @@ bool TVMFunctionCompiler::visit(VariableDeclarationStatement const &_variableDec
 			m_pusher.getStack().change(+1);
 		}
 	}
-	m_pusher.getStack().ensureSize(saveStackSize + static_cast<int>(decls.size()), "VariableDeclarationStatement");
+	m_pusher.getStack().ensureSize(saveStackSize + static_cast<int>(decls.size()), "VariableDeclarationStatement", &_variableDeclarationStatement);
 	return false;
 }
 

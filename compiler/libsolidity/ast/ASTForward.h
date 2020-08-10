@@ -61,6 +61,7 @@ class ElementaryTypeName;
 class UserDefinedTypeName;
 class FunctionTypeName;
 class Mapping;
+class Optional;
 class ArrayTypeName;
 class InlineAssembly;
 class Statement;

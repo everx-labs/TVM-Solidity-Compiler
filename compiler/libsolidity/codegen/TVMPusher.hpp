@@ -47,7 +47,7 @@ protected:
 	virtual void onCell() = 0;
 	virtual void onSmallStruct() = 0;
 	virtual void onLargeStruct() = 0;
-	virtual void onAddress() = 0;
+	virtual void onSlice() = 0;
 	virtual void onByteArrayOrString() = 0;
 	virtual void onIntegralOrArrayOrVarInt() = 0;
 	virtual void onMapOrECC() = 0;
@@ -73,7 +73,7 @@ public:
 	int getOffset(Declaration const* name) const;
 	int getOffset(int stackPos) const;
 	int getStackSize(Declaration const* name) const;
-	void ensureSize(int savedStackSize, const string& location) const;
+	void ensureSize(int savedStackSize, const string& location = "", const ASTNode* node = nullptr) const;
 };
 
 struct CodeLines {
@@ -154,8 +154,8 @@ public:
 	[[nodiscard]]
 	const TVMCompilerContext& ctx() const;
 	void push(int stackDiff, const string& cmd);
-	void startContinuation();
-	void endContinuation();
+	void startContinuation(int deltaStack = 0);
+	void endContinuation(int deltaStack = 0);
 	StructCompiler& structCompiler();
 	TVMStack& getStack();
 	void pushLog(const std::string& str);
@@ -179,7 +179,7 @@ public:
 	void load(const Type* type);
 	void preload(const Type* type);
 	void pushZeroAddress();
-	void generateC7ToT4Macro();
+	void generateC7ToT4Macro(bool isMacro);
 
 	static void addBinaryNumberToString(std::string &s, u256 value, int bitlen = 256);
 	static std::string binaryStringToSlice(const std::string & s);
@@ -191,12 +191,12 @@ public:
 	void push(const CodeLines& codeLines);
 	void pushPrivateFunctionOrMacroCall(const int stackDelta, const string& fname);
 	void pushCall(const string& functionName, const FunctionType* ft);
-	void drop(int cnt);
+	void drop(int cnt = 1);
 	void blockSwap(int m, int n);
 	void reverse(int i, int j);
 	void dropUnder(int leftCount, int droppedCount);
 	void exchange(int i, int j);
-	static void checkThatKeyCanBeRestored(Type const* keyType, ASTNode const& node);
+	void recoverKeyAfterDictOperation(Type const* keyType, ASTNode const& node);
 	void prepareKeyForDictOperations(Type const* key);
 	[[nodiscard]]
 	std::pair<std::string, int> int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams);

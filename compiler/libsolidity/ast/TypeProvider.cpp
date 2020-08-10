@@ -148,12 +148,13 @@ array<unique_ptr<FixedBytesType>, 32> const TypeProvider::m_bytesM{{
 	{make_unique<FixedBytesType>(32)}
 }};
 
-array<unique_ptr<MagicType>, 5> const TypeProvider::m_magics{{
+array<unique_ptr<MagicType>, 6> const TypeProvider::m_magics{{
 	{make_unique<MagicType>(MagicType::Kind::Block)},
 	{make_unique<MagicType>(MagicType::Kind::Message)},
 	{make_unique<MagicType>(MagicType::Kind::Transaction)},
 	{make_unique<MagicType>(MagicType::Kind::ABI)},
-	{make_unique<MagicType>(MagicType::Kind::TVM)}
+	{make_unique<MagicType>(MagicType::Kind::TVM)},
+	{make_unique<MagicType>(MagicType::Kind::Math)}
 	// MetaType is stored separately
 }};
 
@@ -461,9 +462,7 @@ FunctionType const* TypeProvider::function(
 	bool _arbitraryParameters,
 	StateMutability _stateMutability,
 	Declaration const* _declaration,
-	bool _gasSet,
 	bool _valueSet,
-	bool _saltSet,
 	bool _bound,
 	bool _flagSet
 )
@@ -477,9 +476,7 @@ FunctionType const* TypeProvider::function(
 		_arbitraryParameters,
 		_stateMutability,
 		_declaration,
-		_gasSet,
 		_valueSet,
-		_saltSet,
 		_bound,
 		_flagSet
 	);
@@ -571,6 +568,12 @@ MappingType const* TypeProvider::mapping(Type const* _keyType, Type const* _valu
 	return createAndGet<MappingType>(_keyType, _valueType, _location);
 }
 
-ExtraCurrencyCollectionType const *TypeProvider::extraCurrencyCollection(DataLocation _location) {
+ExtraCurrencyCollectionType const *TypeProvider::extraCurrencyCollection(DataLocation _location)
+{
 	return createAndGet<ExtraCurrencyCollectionType>(_location);
+}
+
+OptionalType const* TypeProvider::optional(Type const* _type)
+{
+	return createAndGet<OptionalType>(_type);
 }

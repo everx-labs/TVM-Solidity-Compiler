@@ -352,15 +352,26 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 		}
 		{
 			StackPusherHelper pusher{&ctx};
-			pusher.generateC7ToT4Macro();
+			pusher.generateC7ToT4Macro(false);
 			optimize_and_append_code(code, pusher, g_disable_optimizer);
 		}
+        {
+            StackPusherHelper pusher{&ctx};
+            pusher.generateC7ToT4Macro(true);
+            optimize_and_append_code(code, pusher, g_disable_optimizer);
+        }
 		{
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler tvm(pusher);
-			tvm.generateC4ToC7(false);
+			tvm.generateC4ToC7(false, false);
 			optimize_and_append_code(code, pusher, g_disable_optimizer);
 		}
+        {
+            StackPusherHelper pusher{&ctx};
+            TVMFunctionCompiler tvm(pusher);
+            tvm.generateC4ToC7(false, true);
+            optimize_and_append_code(code, pusher, g_disable_optimizer);
+        }
 		{
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler tvm(pusher);
@@ -405,8 +416,8 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 			if (isFunctionForMainInternal) {
 				code.append(switchSelectorIfNeed(function));
 				if (function->stateMutability() >= StateMutability::NonPayable) {
-					code.push("CALL $c4_to_c7$");
-					codeWithout.push("CALL $c4_to_c7$");
+					code.push("CALL $c4_to_c7_macro$");
+					codeWithout.push("CALL $c4_to_c7_macro$");
 				}
 			}
 
@@ -419,8 +430,8 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 
 			if (isFunctionForMainInternal) {
 				if (function->stateMutability() >= StateMutability::NonPayable) {
-					code.push("CALL $c7_to_c4$");
-					codeWithout.push("CALL $c7_to_c4$");
+					code.push("CALL $c7_to_c4_macro$$");
+					codeWithout.push("CALL $c7_to_c4_macro$");
 				}
 			}
 		}
