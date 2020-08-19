@@ -229,6 +229,7 @@ public:
 
 	void ensureValueFitsType(const ElementaryTypeNameToken& typeName, const ASTNode& node);
 
+	void pushNull();
 	void pushDefaultValue(Type const* type, bool isResultBuilder = false);
 	void sendIntMsg(const std::map<int, const Expression *> &exprs,
 					const std::map<int, std::string> &constParams,

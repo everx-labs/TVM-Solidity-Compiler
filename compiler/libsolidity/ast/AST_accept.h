@@ -429,7 +429,8 @@ void Optional::accept(ASTVisitor& _visitor)
 {
 	if (_visitor.visit(*this))
 	{
-		m_type->accept(_visitor);
+		for (ASTPointer<TypeName>& t : m_types)
+			t->accept(_visitor);
 	}
 	_visitor.endVisit(*this);
 }
@@ -438,7 +439,8 @@ void Optional::accept(ASTConstVisitor& _visitor) const
 {
 	if (_visitor.visit(*this))
 	{
-		m_type->accept(_visitor);
+		for (const ASTPointer<TypeName>& t : m_types)
+			t->accept(_visitor);
 	}
 	_visitor.endVisit(*this);
 }

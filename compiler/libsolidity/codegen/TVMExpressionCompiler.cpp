@@ -1347,7 +1347,6 @@ void TVMExpressionCompiler::mappingGetSet(FunctionCall const &_functionCall) {
         m_pusher.prepareKeyForDictOperations(keyType);
 		m_pusher.push(0, "ROT"); // mapLValue... value key map
 
-		int returnVars{};
 		if (isIn(memberName, "replace", "add")) {
 			StackPusherHelper::SetDictOperation op;
 			if (memberName == "replace") {
@@ -1358,7 +1357,6 @@ void TVMExpressionCompiler::mappingGetSet(FunctionCall const &_functionCall) {
 				solAssert(false, "");
 			}
 			m_pusher.setDict(*keyType, *valueType, isValueBuilder, _functionCall, op); // mapLValue... map {0, -1}
-			returnVars = 1;
 		} else {
 			StackPusherHelper::GetDictOperation op;
 			if (memberName == "getSet") {
@@ -1371,12 +1369,11 @@ void TVMExpressionCompiler::mappingGetSet(FunctionCall const &_functionCall) {
 				solAssert(false, "");
 			}
 			m_pusher.getDict(*keyType, *valueType, _functionCall, op, false);
-			// mapLValue... map {oldValue -1, defaultValue 0}
-			returnVars = 2;
+			// mapLValue... map optValue
 		}
-		const int cntOfValuesOnStack = m_pusher.getStack().size() - stackSize;  // mapLValue... map returnVars...
-		m_pusher.blockSwap(cntOfValuesOnStack - returnVars, returnVars); // returnVars... mapLValue... map
-		collectLValue(lValueInfo, true, false); // returnVars...
+		const int cntOfValuesOnStack = m_pusher.getStack().size() - stackSize;  // mapLValue... map optValue
+		m_pusher.blockSwap(cntOfValuesOnStack - 1, 1); // optValue mapLValue... map
+		collectLValue(lValueInfo, true, false); // optValue
 	} else {
 		solAssert(false, "");
 	}
@@ -1404,25 +1401,23 @@ public:
 			solAssert(false, "");
 		}
 
-		pusher.push(-3 + 3, dictOpcode); // value key -1 or 0
+		pusher.push(-3 + 1, dictOpcode); // value key -1 or 0
+		int ss = pusher.getStack().size();
 
 		pusher.startContinuation();
         pusher.recoverKeyAfterDictOperation(&keyType, node);
         pusher.push(0, "SWAP"); // key value
 		doDictOperation();
-        pusher.push(+1, "TRUE");
+		pusher.push(0, "TUPLE 2");
         pusher.endContinuation();
-        pusher.push(-3, ""); // fix stake
 
-        pusher.startContinuation();
-		pusher.pushDefaultValue(&keyType);
-		pusher.pushDefaultValue(&valueType);
-		pusher.push(0, "FALSE");
-        pusher.endContinuation();
-        pusher.push(-3, ""); // fix stake
+		pusher.startContinuation();
+		pusher.push(0, "NULL");
+		pusher.endContinuation();
 
 		pusher.push(0, "IFELSE");
-        pusher.push(+3, ""); // fix stake
+
+		pusher.getStack().ensureSize(ss);
 	}
 
 protected:
@@ -1488,92 +1483,61 @@ public:
 		// stack: dict nbits
 		dictOpcode = "DICT" + typeToDictChar(&keyType) + (isMin? "MIN" : "MAX");
 
-
 		doDictOperation();
-        pusher.push(+1, "TRUE");
+		pusher.push(0, "TUPLE 2");
         pusher.endContinuation();
-        pusher.push(-3, ""); // fix stake
 
-        pusher.startContinuation();
-		pusher.pushDefaultValue(&keyType);
-		pusher.pushDefaultValue(&valueType);
-		pusher.push(+1, "FALSE");
-        pusher.endContinuation();
-        pusher.push(-3, ""); // fix stake
+		pusher.startContinuation();
+		pusher.push(0, "NULL");
+		pusher.endContinuation();
 
 		pusher.push(0, "IFELSE");
-        pusher.push(+3, ""); // fix stake
 	}
 
 protected:
 	void onCell() override {
 		dictOpcode += "REF";
-        pusher.push(-2 + 3, dictOpcode); // (value, key, -1) or 0
-        pusher.push(-1, ""); // fix stake
-        pusher.startContinuation();
-        pusher.recoverKeyAfterDictOperation(&keyType, node);
-        pusher.push(0, "SWAP"); // key value
+		pushOpcodeAndStartCont();
 	}
 
 	void onSmallStruct() override {
-        pusher.push(-2 + 3, dictOpcode); // (value, key, -1) or 0
-        pusher.push(-1, ""); // fix stake
-        pusher.startContinuation();
-        pusher.recoverKeyAfterDictOperation(&keyType, node);
-        pusher.push(0, "SWAP"); // key value
-
+		pushOpcodeAndStartCont();
         StructCompiler sc{&pusher, to<StructType>(&valueType)};
 		sc.convertSliceToTuple();
 	}
 
 	void onLargeStruct() override {
 		dictOpcode += "REF";
-        pusher.push(-2 + 3, dictOpcode); // (value, key, -1) or 0
-        pusher.push(-1, ""); // fix stake
-        pusher.startContinuation();
-        pusher.recoverKeyAfterDictOperation(&keyType, node);
-        pusher.push(0, "SWAP"); // key value
-
+		pushOpcodeAndStartCont();
         pusher.push(0, "CTOS");
 		StructCompiler sc{&pusher, to<StructType>(&valueType)};
 		sc.convertSliceToTuple();
 	}
 
 	void onSlice() override {
-        pusher.push(-2 + 3, dictOpcode); // (value, key, -1) or 0
-        pusher.push(-1, ""); // fix stake
-        pusher.startContinuation();
-        pusher.recoverKeyAfterDictOperation(&keyType, node);
-        pusher.push(0, "SWAP"); // key value
+		pushOpcodeAndStartCont();
 	}
 
 	void onByteArrayOrString() override {
 		dictOpcode += "REF";
-        pusher.push(-2 + 3, dictOpcode); // (value, key, -1) or 0
-        pusher.push(-1, ""); // fix stake
-        pusher.startContinuation();
-        pusher.recoverKeyAfterDictOperation(&keyType, node);
-        pusher.push(0, "SWAP"); // key value
+		pushOpcodeAndStartCont();
 	}
 
 	void onIntegralOrArrayOrVarInt() override {
-        pusher.push(-2 + 3, dictOpcode); // (value, key, -1) or 0
-        pusher.push(-1, ""); // fix stake
-        pusher.startContinuation();
-        pusher.recoverKeyAfterDictOperation(&keyType, node);
-        pusher.push(0, "SWAP"); // key value
-
+		pushOpcodeAndStartCont();
         pusher.preload(&valueType);
 	}
 
 	void onMapOrECC() override {
-        pusher.push(-2 + 3, dictOpcode); // (value, key, -1) or 0
-        pusher.push(-1, ""); // fix stake
-        pusher.startContinuation();
-        pusher.recoverKeyAfterDictOperation(&keyType, node);
-        pusher.push(0, "SWAP"); // key value
-
+		pushOpcodeAndStartCont();
         pusher.preload(&valueType);
+	}
+
+	void pushOpcodeAndStartCont() {
+		pusher.push(-2 + 1, dictOpcode); // (value, key, -1) or 0
+		pusher.startContinuation();
+		pusher.recoverKeyAfterDictOperation(&keyType, node);
+		pusher.push(0, "SWAP"); // key value
 	}
 
 private:

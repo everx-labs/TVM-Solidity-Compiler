@@ -92,7 +92,7 @@ protected:
 public:
 	void visitFunctionWithModifiers();
 private:
-	void visitForOrWhileCondiction(const ContInfo& ci, const ControlFlowInfo& info, Expression const* condition);
+	void visitForOrWhileCondition(const ContInfo& ci, const ControlFlowInfo& info, Expression const* condition);
 	bool visitNode(ASTNode const&) override { solAssert(false, "Internal error: unreachable"); }
 
 	bool visit(VariableDeclarationStatement const& _variableDeclarationStatement) override;

@@ -19,7 +19,6 @@
 #include "TVMPusher.hpp"
 #include "TVMContractCompiler.hpp"
 #include "TVMExpressionCompiler.hpp"
-#include "TVMABI.hpp"
 
 using namespace solidity::frontend;
 
@@ -76,9 +75,9 @@ StructCompiler &StackPusherHelper::structCompiler() {
 void StackPusherHelper::generateC7ToT4Macro(bool isMacro) {
 	push(+1, ""); // fix stack, allocate builder
 	if (isMacro) {
-        pushLines(".macro c7_to_c4_macro");
-    } else {
-        generateGlobl("c7_to_c4", false);
+		pushLines(".macro c7_to_c4_macro");
+	} else {
+		generateGlobl("c7_to_c4", false);
 	}
 	pushLines(R"(
 GETGLOB 2
@@ -109,7 +108,7 @@ bool
 StackPusherHelper::prepareValueForDictOperations(Type const *keyType, Type const *dictValueType, bool isValueBuilder) {
 	// value
 	if (isIntegralType(dictValueType)) {
-        // TODO what if len(keyType) + len(dictValueType) + epsilon > 1023
+		// TODO what if len(keyType) + len(dictValueType) + epsilon > 1023
 		if (!isValueBuilder) {
 			push(0, "NEWC");
 			push(0, storeIntegralOrAddress(dictValueType, false));
@@ -167,7 +166,7 @@ StackPusherHelper::prepareValueForDictOperations(Type const *keyType, Type const
 class DictSet : public DictOperation {
 public:
 	DictSet(StackPusherHelper& pusher, Type const &keyType, Type const &valueType, bool isValueBuilder, ASTNode const &node,
-	        StackPusherHelper::SetDictOperation operation)  :
+			StackPusherHelper::SetDictOperation operation)  :
 		DictOperation{pusher, keyType, valueType, node},
 		isValueBuilder{isValueBuilder},
 		operation{operation} {
@@ -247,7 +246,7 @@ private:
 };
 
 void StackPusherHelper::setDict(Type const &keyType, Type const &valueType, bool isValueBuilder, ASTNode const &node,
-                                SetDictOperation operation) {
+								SetDictOperation operation) {
 	DictSet d{*this, keyType, valueType, isValueBuilder, node, operation};
 	d.dictSet();
 }
@@ -319,12 +318,12 @@ void StackPusherHelper::push(int stackDiff, const string &cmd) {
 
 void StackPusherHelper::startContinuation(int deltaStack) {
 	m_code.startContinuation();
-    m_stack.change(deltaStack);
+	m_stack.change(deltaStack);
 }
 
 void StackPusherHelper::endContinuation(int deltaStack) {
 	m_code.endContinuation();
-    m_stack.change(deltaStack);
+	m_stack.change(deltaStack);
 }
 
 TVMStack &StackPusherHelper::getStack() {
@@ -725,10 +724,10 @@ void StackPusherHelper::recoverKeyAfterDictOperation(Type const *keyType, ASTNod
 	if (isStringOrStringLiteralOrBytes(keyType)) {
 		cast_error(node, "Unsupported for mapping key type: " + keyType->toString(true));
 	}
-    if (keyType->category() == Type::Category::Struct) {
-        StructCompiler sc{this, to<StructType>(keyType)};
-        sc.convertSliceToTuple();
-    }
+	if (keyType->category() == Type::Category::Struct) {
+		StructCompiler sc{this, to<StructType>(keyType)};
+		sc.convertSliceToTuple();
+	}
 }
 
 TypePointer StackPusherHelper::parseIndexType(Type const *type) {
@@ -802,10 +801,10 @@ void StackPusherHelper::prepareKeyForDictOperations(Type const *key) {
 	if (isStringOrStringLiteralOrBytes(key)) {
 		push(-1 + 1, "HASHCU"); // str dict hash
 	} else if (key->category() == Type::Category::Struct) {
-	    StructCompiler sc{this, to<StructType>(key)};
-        sc.tupleToBuilder();
-        push(0, "ENDC");
-        push(0, "CTOS");
+		StructCompiler sc{this, to<StructType>(key)};
+		sc.tupleToBuilder();
+		push(0, "ENDC");
+		push(0, "CTOS");
 	}
 }
 
@@ -1042,12 +1041,12 @@ int TVMStack::getStackSize(Declaration const *name) const {
 }
 
 void TVMStack::ensureSize(int savedStackSize, const string &location, const ASTNode* node) const {
-    if (node != nullptr && savedStackSize != m_size) {
-        cast_error(*node, string{} + "oops" + "stack: " + toString(savedStackSize)
-                                   + " vs " + toString(m_size) + " at " + location);
-    }
-	solAssert(savedStackSize == m_size, "stack: " + toString(savedStackSize)
-	            + " vs " + toString(m_size) + " at " + location);
+	if (node != nullptr && savedStackSize != m_size) {
+		cast_error(*node, string{} + "Stake size error: expected: " + toString(savedStackSize)
+								   + " but real: " + toString(m_size) + " at " + location);
+	}
+	solAssert(savedStackSize == m_size, "stack: exp:" + toString(savedStackSize)
+				+ " real: " + toString(m_size) + " at " + location);
 }
 
 string CodeLines::str(const string &indent) const {
@@ -1250,6 +1249,10 @@ bool TVMCompilerContext::storeTimestampInC4() const {
 	return haveTimeInAbiHeader() && afterSignatureCheck() == nullptr;
 }
 
+void StackPusherHelper::pushNull() {
+	push(+1, "NULL");
+}
+
 void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder) {
 	Type::Category cat = type->category();
 	switch (cat) {
@@ -1344,23 +1347,33 @@ class GetFromDict : public DictOperation {
 public:
 	GetFromDict(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, ASTNode const& node,
 				const StackPusherHelper::GetDictOperation op,
-                const bool resultAsSliceForStruct) :
+				const bool resultAsSliceForStruct) :
 		DictOperation{pusher, keyType, valueType, node},
-		haveValue{&pusher.ctx()}, // for Fetch
 		op{op},
 		resultAsSliceForStruct{resultAsSliceForStruct} {
 
 	}
 
 	void getDict() {
-		// if op == GetSetFromMapping than stack: value key dict
-		// else                            stack: key dict
-		pusher.pushInt(keyLength); // push int on stack
-		const int stackDelta = isIn(op, StackPusherHelper::GetDictOperation::GetSetFromMapping,
-		                                StackPusherHelper::GetDictOperation::GetAddFromMapping,
-		                                StackPusherHelper::GetDictOperation::GetReplaceFromMapping)? -4 + 3 : -3 + 2;
+		pusher.pushInt(keyLength); // push keyLength on stack
+		// if op == GetSetFromMapping than stack: value key dict keyLength
+		// else                            stack: key dict keyLength
 
-		haveValue.push(0, "SWAP");
+		const int saveStake = pusher.getStack().size();
+		int stackDelta{};
+		switch (op) {
+			case StackPusherHelper::GetDictOperation::GetSetFromMapping:
+			case StackPusherHelper::GetDictOperation::GetAddFromMapping:
+			case StackPusherHelper::GetDictOperation::GetReplaceFromMapping:
+				stackDelta = -4 + 2;
+				break;
+			case StackPusherHelper::GetDictOperation::Fetch:
+			case StackPusherHelper::GetDictOperation::Exist:
+			case StackPusherHelper::GetDictOperation::GetFromMapping:
+			case StackPusherHelper::GetDictOperation::GetFromArray:
+				stackDelta = -3 + 1;
+				break;
+		}
 
 		std::string opcode = "DICT" + typeToDictChar(&keyType);
 		switch (op) {
@@ -1376,10 +1389,10 @@ public:
 				else
 					solAssert(false, "");
 
-				if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract) || isByteArrayOrString(&valueType)){ // TOOO to var and use that
+				if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract) || isByteArrayOrString(&valueType)) {
 					// do nothing
 				} else if (valueCategory == Type::Category::TvmCell ||
-				           (valueCategory == Type::Category::Struct && !StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(&valueType)))) {
+						   (valueCategory == Type::Category::Struct && !StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(&valueType)))) {
 					opcode += "REF";
 				} else {
 					opcode += "B";
@@ -1390,9 +1403,9 @@ public:
 			case StackPusherHelper::GetDictOperation::GetFromArray:
 			case StackPusherHelper::GetDictOperation::GetFromMapping:
 				opcode += "GET";
-				if (isIn(valueCategory, Type::Category::TvmCell) ||
-				    (valueCategory == Type::Category::Struct && !StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(&valueType))) ||
-				    isByteArrayOrString(&valueType)) {
+				if (valueCategory == Type::Category::TvmCell ||
+					(valueCategory == Type::Category::Struct && !StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(&valueType))) ||
+					isByteArrayOrString(&valueType)) {
 					opcode += "REF";
 				}
 				break;
@@ -1401,6 +1414,7 @@ public:
 		pusher.push(stackDelta, opcode);
 
 		doDictOperation();
+		pusher.getStack().ensureSize(saveStake + stackDelta);
 	}
 
 protected:
@@ -1408,21 +1422,19 @@ protected:
 		switch (op) {
 			case StackPusherHelper::GetDictOperation::GetFromMapping:
 				pushContinuationWithDefaultValue();
-				pusher.push(-2, "IFNOT");
+				pusher.push(0, "IFNOT");
 				break;
 			case StackPusherHelper::GetDictOperation::GetSetFromMapping:
 			case StackPusherHelper::GetDictOperation::GetReplaceFromMapping:
-				pusher.pushS(0);
-				pushContinuationWithDefaultValue(StatusFlag::Non, true);
-				pusher.push(-2, "IFNOT");
+				pushContinuationWithNull();
+				pusher.push(0, "IFNOT");
 				break;
 			case StackPusherHelper::GetDictOperation::GetAddFromMapping:
-				pusher.pushS(0);
-				pushContinuationWithDefaultValue(StatusFlag::Non, true);
-				pusher.push(-2, "IF");
+				pushContinuationWithNull();
+				pusher.push(0, "IF");
 				break;
 			case StackPusherHelper::GetDictOperation::GetFromArray:
-				pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+				pusher.push(0, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
 				break;
 			case StackPusherHelper::GetDictOperation::Fetch:
 				fetchValue();
@@ -1439,7 +1451,7 @@ protected:
 			case StackPusherHelper::GetDictOperation::GetFromMapping:
 				if (resultAsSliceForStruct) {
 					pushContinuationWithDefaultValue();
-					pusher.push(-2, "IFNOT");
+					pusher.push(0, "IFNOT");
 				} else {
 					// ok
 					pusher.startContinuation();
@@ -1448,8 +1460,8 @@ protected:
 					// fail
 					pusher.startContinuation();
 					sc.createDefaultStruct(false);
-					pusher.endContinuation();
-					pusher.push(-2, "IFELSE");
+					pusher.endContinuation(-1);
+					pusher.push(0, "IFELSE");
 				}
 				break;
 			case StackPusherHelper::GetDictOperation::GetSetFromMapping:
@@ -1458,36 +1470,35 @@ protected:
 				// ok
 				pusher.startContinuation();
 				sc.convertSliceToTuple();
-				pusher.push(0, "TRUE");
 				pusher.endContinuation();
 				// fail
-				pushContinuationWithDefaultValue(StatusFlag::False);
+				pushContinuationWithNull();
 				//
-				pusher.push(-1, "IFELSE");
+				pusher.push(0, "IFELSE");
 				break;
 			}
 			case StackPusherHelper::GetDictOperation::GetAddFromMapping: {
 				solAssert(!resultAsSliceForStruct, "");
 				// ok
-				pushContinuationWithDefaultValue(StatusFlag::True);
+				pushContinuationWithNull();
 				// fail
 				pusher.startContinuation();
 				sc.convertSliceToTuple();
-				pusher.push(0, "FALSE");
 				pusher.endContinuation();
 				//
-				pusher.push(-1, "IFELSE");
+				pusher.push(0, "IFELSE");
 				break;
 			}
 			case StackPusherHelper::GetDictOperation::GetFromArray:
-				pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+				pusher.push(0, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
 				if (!resultAsSliceForStruct) {
 					sc.convertSliceToTuple();
 				}
 				break;
 			case StackPusherHelper::GetDictOperation::Fetch: {
-				StructCompiler{&haveValue, to<StructType>(&valueType)}.convertSliceToTuple();
-				fetchValue();
+				fetchValue([&]() {
+					StructCompiler{&pusher, to<StructType>(&valueType)}.convertSliceToTuple();
+				});
 				break;
 			}
 			case StackPusherHelper::GetDictOperation::Exist:
@@ -1495,18 +1506,19 @@ protected:
 				break;
 		}
 	}
+
 	void onLargeStruct() override {
 		StructCompiler sc{&pusher, to<StructType>(&valueType)};
 		switch (op) {
 			case StackPusherHelper::GetDictOperation::GetFromMapping: {
-				StackPusherHelper pusherHelper(&pusher.ctx());
-				pusherHelper.push(-1 + 1, "CTOS");
+				pusher.startContinuation();
+				pusher.push(0, "CTOS");
 				if (!resultAsSliceForStruct) {
-					StructCompiler{&pusherHelper, to<StructType>(&valueType)}.convertSliceToTuple();
+					StructCompiler{&pusher, to<StructType>(&valueType)}.convertSliceToTuple();
 				}
-				pusher.pushCont(pusherHelper.code());
+				pusher.endContinuation();
 				pushContinuationWithDefaultValue();
-				pusher.push(-3, "IFELSE");
+				pusher.push(0, "IFELSE");
 				break;
 			}
 			case StackPusherHelper::GetDictOperation::GetSetFromMapping:
@@ -1516,37 +1528,35 @@ protected:
 				pusher.startContinuation();
 				pusher.push(0, "CTOS");
 				sc.convertSliceToTuple();
-				pusher.push(0, "TRUE");
 				pusher.endContinuation();
 				// fail
-				pushContinuationWithDefaultValue(StatusFlag::False);
-				pusher.push(-1, ""); // fix stack
+				pushContinuationWithNull();
 				//
 				pusher.push(0, "IFELSE");
 				break;
 			case StackPusherHelper::GetDictOperation::GetAddFromMapping:
 				solAssert(!resultAsSliceForStruct, "");
 				// ok
-				pushContinuationWithDefaultValue(StatusFlag::True);
+				pushContinuationWithNull();
 				// fail
 				pusher.startContinuation();
 				pusher.push(0, "CTOS");
 				sc.convertSliceToTuple();
-				pusher.push(0, "FALSE");
 				pusher.endContinuation();
-				pusher.push(-1, "IFELSE");
+				pusher.push(0, "IFELSE");
 				break;
 			case StackPusherHelper::GetDictOperation::GetFromArray:
-				pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-				pusher.push(-1 + 1, "CTOS");
+				pusher.push(0, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+				pusher.push(0, "CTOS");
 				if (!resultAsSliceForStruct) {
 					sc.convertSliceToTuple();
 				}
 				break;
 			case StackPusherHelper::GetDictOperation::Fetch: {
-				haveValue.push(0, "CTOS");
-				StructCompiler{&haveValue, to<StructType>(&valueType)}.convertSliceToTuple();
-				fetchValue();
+			    fetchValue([&]() {
+					pusher.push(0, "CTOS");
+					StructCompiler{&pusher, to<StructType>(&valueType)}.convertSliceToTuple();
+				});
 				break;
 			}
 			case StackPusherHelper::GetDictOperation::Exist:
@@ -1563,21 +1573,19 @@ protected:
 		switch (op) {
 			case StackPusherHelper::GetDictOperation::GetFromMapping:
 				pushContinuationWithDefaultValue();
-				pusher.push(-2, "IFNOT");
+				pusher.push(0, "IFNOT");
 				break;
 			case StackPusherHelper::GetDictOperation::GetSetFromMapping:
 			case StackPusherHelper::GetDictOperation::GetReplaceFromMapping:
-				pusher.pushS(0);
-				pushContinuationWithDefaultValue(StatusFlag::Non, true);
-				pusher.push(-2, "IFNOT");
+				pushContinuationWithNull();
+				pusher.push(0, "IFNOT");
 				break;
 			case StackPusherHelper::GetDictOperation::GetAddFromMapping:
-				pusher.pushS(0);
-				pushContinuationWithDefaultValue(StatusFlag::Non, true);
-				pusher.push(-2, "IF");
+				pushContinuationWithNull();
+				pusher.push(0, "IF");
 				break;
 			case StackPusherHelper::GetDictOperation::GetFromArray:
-				pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+				pusher.push(0, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
 				break;
 			case StackPusherHelper::GetDictOperation::Fetch: {
 				fetchValue();
@@ -1592,13 +1600,13 @@ protected:
 	void onIntegralOrArrayOrVarInt() override {
 		switch (op) {
 			case StackPusherHelper::GetDictOperation::GetFromMapping: {
-				StackPusherHelper pusherHelper(&pusher.ctx());
-
-				pusherHelper.preload(&valueType);
-				pusher.pushCont(pusherHelper.code());
+				pusher.startContinuation();
+				pusher.preload(&valueType);
+				pusher.endContinuation();
 
 				pushContinuationWithDefaultValue();
-				pusher.push(-3, "IFELSE");
+
+				pusher.push(0, "IFELSE");
 				break;
 			}
 			case StackPusherHelper::GetDictOperation::GetSetFromMapping:
@@ -1606,32 +1614,30 @@ protected:
 				// ok
 				pusher.startContinuation();
 				pusher.preload(&valueType);
-				pusher.push(0, "TRUE");
 				pusher.endContinuation();
 				// fail
-				pushContinuationWithDefaultValue(StatusFlag::False);
-				pusher.push(-1, ""); // fix stack
+				pushContinuationWithNull();
 				//
 				pusher.push(0, "IFELSE");
 				break;
 			case StackPusherHelper::GetDictOperation::GetAddFromMapping:
 				// ok
-				pushContinuationWithDefaultValue(StatusFlag::True);
+				pushContinuationWithNull();
 				// fail
 				pusher.startContinuation();
 				pusher.preload(&valueType);
-				pusher.push(0, "FALSE");
 				pusher.endContinuation();
 				//
-				pusher.push(-1, "IFELSE");
+				pusher.push(0, "IFELSE");
 				break;
 			case StackPusherHelper::GetDictOperation::GetFromArray:
-				pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+				pusher.push(0, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
 				pusher.preload(&valueType);
 				break;
 			case StackPusherHelper::GetDictOperation::Fetch: {
-				haveValue.preload(&valueType);
-				fetchValue();
+				fetchValue([&](){
+					pusher.preload(&valueType);
+				});
 				break;
 			}
 			case StackPusherHelper::GetDictOperation::Exist:
@@ -1645,71 +1651,54 @@ protected:
 	}
 
 private:
-	enum class StatusFlag { True, False, Non };
-
-	void pushContinuationWithDefaultValue(StatusFlag flag = StatusFlag::Non, bool doSwap = false) {
-		StackPusherHelper pusherHelper(&pusher.ctx());
-		if (valueCategory == Type::Category::Struct) {
-			if (resultAsSliceForStruct) {
-				pusherHelper.pushDefaultValue(&valueType, true);
-				pusherHelper.push(0, "ENDC");
-				pusherHelper.push(0, "CTOS");
-			} else {
-				pusherHelper.pushDefaultValue(&valueType, false);
-			}
-		} else {
-			pusherHelper.pushDefaultValue(&valueType);
-		}
-
-		switch (flag) {
-			case StatusFlag::True:
-				pusherHelper.push(+1, "TRUE");
-				break;
-			case StatusFlag::False:
-				pusherHelper.push(+1, "FALSE");
-				break;
-			case StatusFlag::Non:
-				break;
-		}
-		if (doSwap) {
-			pusherHelper.exchange(0, 1);
-		}
-		pusher.pushCont(pusherHelper.code());
+	void pushContinuationWithNull() {
+		pusher.startContinuation();
+		pusher.pushNull();
+		pusher.endContinuation(-1);
 	}
 
-	void fetchValue() {
-		StackPusherHelper noValue(&pusher.ctx());
-		if (valueCategory == Type::Category::Struct) {
-			noValue.push(0, "NULL"); // TODO use NULLSWAPIFNOT
+	void pushContinuationWithDefaultValue() {
+		pusher.startContinuation();
+		if (valueCategory == Type::Category::Struct && resultAsSliceForStruct) {
+			pusher.pushDefaultValue(&valueType, true);
+			pusher.push(-1, ""); // fix stack
+			pusher.push(0, "ENDC");
+			pusher.push(0, "CTOS");
 		} else {
-			noValue.pushDefaultValue(&valueType, false);
+			pusher.pushDefaultValue(&valueType);
+			pusher.push(-1, ""); // fix stack
 		}
+		pusher.endContinuation();
+	}
 
-		pusher.push(0, "DUP");
-		pusher.pushCont(haveValue.code());
-		pusher.pushCont(noValue.code());
-		pusher.push(-2, "IFELSE");
+	void fetchValue(const std::function<void()>& decodeValue = nullptr) {
+		pusher.push(0, "NULLSWAPIFNOT");
+		if (decodeValue != nullptr) {
+			pusher.startContinuation();
+			decodeValue();
+			pusher.endContinuation();
+			pusher.push(0, "IF");
+		} else {
+			pusher.push(0, "DROP");
+		}
 	}
 
 	void checkExist() {
-		StackPusherHelper nip(&pusher.ctx());
-		nip.push(+1, ""); // fix stack
-		nip.push(-1, "NIP"); // delete value
-
 		pusher.push(0, "DUP");
-		pusher.pushCont(nip.code());
-		pusher.push(-2, "IF");
+		pusher.startContinuation();
+		pusher.push(0, "NIP");
+		pusher.endContinuation();
+		pusher.push(0, "IF");
 	}
 
 protected:
-	StackPusherHelper haveValue;
 	const StackPusherHelper::GetDictOperation op;
 	const bool resultAsSliceForStruct;
 };
 
 void StackPusherHelper::getDict(Type const& keyType, Type const& valueType, ASTNode const& node,
-                                const GetDictOperation op,
-                                const bool resultAsSliceForStruct) {
+								const GetDictOperation op,
+								const bool resultAsSliceForStruct) {
 
 	GetFromDict d(*this, keyType, valueType, node, op, resultAsSliceForStruct);
 	d.getDict();

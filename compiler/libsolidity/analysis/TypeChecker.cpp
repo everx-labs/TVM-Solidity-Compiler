@@ -2356,9 +2356,8 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
                         string("The argument of this function should have ") + keyType->toString(true) + " type."
                 );
 			}
-			returnTypes.push_back(keyType);
-			returnTypes.push_back(valueType);
-			returnTypes.push_back(TypeProvider::boolean());
+			std::vector<Type const*> members = {keyType, valueType};
+			returnTypes.push_back(TypeProvider::optional(TypeProvider::tuple(members)));
 			break;
 		}
 		case FunctionType::Kind::TVMEncodeBody:
@@ -2996,7 +2995,7 @@ void TypeChecker::endVisit(MappingNameExpression const& _expr)
 void TypeChecker::endVisit(OptionalNameExpression const& _expr)
 {
 	_expr.annotation().type = TypeProvider::typeType(TypeProvider::optional(
-			_expr.type().valueType().annotation().type
+			_expr.type().annotation().type
 			));
 	_expr.annotation().isPure = true;
 }

@@ -292,8 +292,8 @@ Allowed options)",
 		(g_argTvmDumpStorage.c_str(), "Dump state vars")
 		(g_argTvmPeephole.c_str(), "Run peephole optimization pass")
 		(g_argTvmOptimize.c_str(), "Optimize produced TVM assembly code")
-		(g_argTvmUnsavedStructs.c_str(), "Enable struct usage analizer")
-		(g_argTvmMuteFlagWarning.c_str(), "Mute warning about --tvm and --tvm-abi flags. Use at your own risk.");
+		(g_argTvmUnsavedStructs.c_str(), "Enable struct usage analizer");
+//		(g_argTvmMuteFlagWarning.c_str(), "Mute warning about --tvm and --tvm-abi flags. Use at your own risk.");
 	desc.add(outputComponents);
 
 	po::options_description allOptions = desc;
@@ -333,12 +333,12 @@ Allowed options)",
 	else op = TvmOption::CodeAndAbi;
 	TVMCompilerEnable(op, m_args.count(g_argTvmWithoutLogStr), m_args.count(g_argTvmOptimize) > 0);
 
-	const bool tvmMute = m_args.count(g_argTvmMuteFlagWarning);
-	if ((tvmAbi || tvmCode) && !tvmMute) {
-		serr() << "Warning: options --tvm and --tvm-abi are deprecated. Use solc without options to produce TVM assembly and ABI:" << endl;
-		serr() << "  solc contract.sol" << endl;
-		serr() << "This command compiles the contract and generates contract.code and contract.abi.json files." << endl;
-	}
+//	const bool tvmMute = m_args.count(g_argTvmMuteFlagWarning);
+//	if ((tvmAbi || tvmCode) && !tvmMute) {
+//		serr() << "Warning: options --tvm and --tvm-abi are deprecated. Use solc without options to produce TVM assembly and ABI:" << endl;
+//		serr() << "  solc contract.sol" << endl;
+//		serr() << "This command compiles the contract and generates contract.code and contract.abi.json files." << endl;
+//	}
 
 	if (m_args.count(g_argTvmPeephole)) {
 		for (int i = 1; i < _argc; i++) {
@@ -348,7 +348,7 @@ Allowed options)",
 				return false;
 			}
 		}
-		serr() << "Missign filename." << endl;
+		serr() << "Missing filename." << endl;
 		return false;
 	}
 

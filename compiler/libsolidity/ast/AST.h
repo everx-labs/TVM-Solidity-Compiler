@@ -1184,7 +1184,7 @@ private:
 };
 
 /**
- * An optional type. Its source form is "Optional<Type>"
+ * An optional type. Its source form is "optional(Type)"
  */
 class Optional: public TypeName
 {
@@ -1192,16 +1192,16 @@ public:
 	Optional(
 		int64_t _id,
 		SourceLocation const& _location,
-		ASTPointer<TypeName> const& _type
+		std::vector<ASTPointer<TypeName>> const& _types
 	):
-		TypeName(_id, _location), m_type(_type) {}
+		TypeName(_id, _location), m_types(_types) {}
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 
-	TypeName const& valueType() const { return *m_type; }
+	std::vector<ASTPointer<TypeName>> const& maybeTypes() const { return m_types; }
 
 private:
-	ASTPointer<TypeName> m_type;
+	std::vector<ASTPointer<TypeName>> m_types;
 };
 
 /**
@@ -2050,6 +2050,7 @@ private:
 
 /**
  * Optional<type>
+ * for example slice.decode(optional(uint))
  */
 class OptionalNameExpression : public PrimaryExpression
 {

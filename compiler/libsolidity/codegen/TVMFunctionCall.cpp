@@ -527,8 +527,11 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 	if (_node.memberName() == "get") {
 		acceptExpr(&_node.expression());
 		m_pusher.pushS(0);
-		m_pusher.push(+1 - 1, "ISNULL");
+		m_pusher.push(-1 + 1, "ISNULL");
 		m_pusher.push(-1, "THROWIF " + toString(TvmConst::Message::Exception::GetOptionalException));
+		if (auto tt = to<TupleType>(m_functionCall.annotation().type)) {
+			m_pusher.untuple(tt->components().size());
+		}
 		return true;
 	}
 
@@ -538,6 +541,13 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
 		return true;
 	}
+
+    if (_node.memberName() == "reset") {
+        const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), false);
+        m_pusher.pushDefaultValue(optional);
+        m_exprCompiler->collectLValue(lValueInfo, true, false);
+        return true;
+    }
 
 	return false;
 }

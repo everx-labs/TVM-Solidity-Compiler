@@ -38,6 +38,10 @@ TON Solidity compiler expands Solidity language with different API functions to 
     * [TvmBuilder.storeTons()](#tvmbuilderstoretons)
   * [ExtraCurrencyCollection](#extracurrencycollection)
   * [optional&lt;Type&gt;](#optionaltype)
+    * [optional&lt;Type&gt;.hasValue()](#optionaltypehasvalue)
+    * [optional&lt;Type&gt;.get()](#optionaltypeget)
+    * [optional&lt;Type&gt;.set()](#optionaltypeset)
+    * [optional&lt;Type&gt;.reset()](#optionaltypereset)
   * Changes and extensions in solidity types
     * [struct](#struct)
       * [struct.unpack()](#structunpack)
@@ -112,7 +116,7 @@ TON Solidity compiler expands Solidity language with different API functions to 
       * [tvm.transLT()](#tvmtranslt)
       * [tvm.configParam()](#tvmconfigparam)
       * [tvm.rawConfigParam()](#tvmrawconfigparam)
-      * [tvm.rawReserve()](#rawreserve)
+      * [tvm.rawReserve()](#tvmrawreserve)
     * [Hashing and cryptography](#hashing-and-cryptography)
       * [tvm.hash()](#tvmhash)
       * [tvm.checkSign()](#tvmchecksign)
@@ -478,19 +482,21 @@ ExtraCurrencyCollection represents TVM type ExtraCurrencyCollection. It has the 
 ExtraCurrencyCollection curCol;
 uint32 key;
 uint256 value;
-(uint32 minKey, uint256 minKeyValue, bool haveValue) = curCol.min();
-(uint32 nextKey, uint256 nextValue, bool haveValue) = curCol.next(key);
-(uint32 prevKey, uint256 prevValue, bool haveValue) = curCol.prev(key);
+optional(uint32, uint256) res = curCol.min();
+optional(uint32, uint256) res = curCol.next(key);
+optional(uint32, uint256) res = curCol.prev(key);
+optional(uint32, uint256) res = curCol.nextOrEq(key);
+optional(uint32, uint256) res = curCol.prevOrEq(key);
 (uint32 firstKey, uint256 value) = curCol.delMin();
 (uint32 firstKey, uint256 value) = curCol.delMax();
-(bool exists, uint256 value) = curCol.fetch(key);
+optional(uint256) value = curCol.fetch(key);
 bool exists = curCol.exists(key);
 bool isEmpty = curCol.empty();
 bool success = curCol.replace(key, value);
 bool success = curCol.add(key, value);
-(uint32 oldValue, bool haveOldValue) = curCol.getSet(key, value);
-(uint32 oldValue, bool haveOldValue) = curCol.getAdd(key, value);
-(uint32 oldValue, bool haveOldValue) = curCol.getReplace(key, value);
+optional(uint256) res = curCol.getSet(key, value);
+optional(uint256) res = curCol.getAdd(key, value);
+optional(uint256) res = curCol.getReplace(key, value);
 uint256 value = curCol[index];
 ```
 
@@ -501,7 +507,7 @@ The template optional type manages an optional contained value, i.e. a value tha
 ##### optional&lt;Type&gt;.hasValue()
 
 ```TVMSolidity
-optional<uint> opt;
+optional(uint) opt;
 require(!opt.hasValue(), 101);
 ```
 
@@ -510,7 +516,7 @@ Checks whether **opt** contains a value.
 ##### optional&lt;Type&gt;.get()
 
 ```TVMSolidity
-optional<uint> opt;
+optional(uint) opt;
 opt.set(123456);
 require(opt.get() == 123456, 102);
 ```
@@ -521,12 +527,24 @@ Otherwise, throws an exaption.
 ##### optional&lt;Type&gt;.set()
 
 ```TVMSolidity
-optional<uint> opt;
+optional(uint) opt;
 opt.set(123456);
 require(opt.get() == 123456, 102);
 ```
 
 Replaces contents of **opt** with the contents of other.
+
+##### optional&lt;Type&gt;.reset()
+
+```TVMSolidity
+optional(uint) opt;
+opt.set(123456);
+// do something with opt
+opt.reset();
+require(!opt.hasValue());
+```
+
+Delete contents of **opt**.
 
 #### struct
 
@@ -777,39 +795,49 @@ In code examples below identifier **map** defines object of **mapping(KeyType =>
 ##### mapping.min() and mapping.max()
 
 ```TVMSolidity
-(KeyType key, ValueType value, bool haveValue) = map.min();
-(KeyType key, ValueType value, bool haveValue) = map.max();
+optional(KeyType, ValueType) minPair = map.min();
+optional(KeyType, ValueType) maxPair = map.max();
+if (minPair.hasValue()) {
+    (KeyType key, ValueType value) = minPair.get(); // unpack optional value
+    // using key and value 
+}
 ```
 
-This function computes the minimal (maximal) key of mapping and returns that key, associated value and true for **haveValue**. If mapping is empty, this function returns default values and false for **haveValue**.
+This function computes the minimal (maximal) key of mapping and returns optional value containing that key and associated value. If mapping is empty, this function returns empty optional.
 
 ##### mapping.next() and mapping.prev()
 
 ```TVMSolidity
 KeyType key;
-(KeyType nextKey, ValueType nextValue, bool haveValue) = map.next(key);
-(KeyType prevKey, ValueType prevValue, bool haveValue) = map.prev(key);
+// init key
+optional(KeyType, ValueType) nextPair = map.next(key);
+optional(KeyType, ValueType) prevPair = map.prev(key);
+
+if (nextPair.hasValue()) {
+    (KeyType nextKey, ValueType nextValue) = nextPair.get(); // unpack optional value
+    // using nextKey and nextValue
+}
 
 mapping(uint8 => uint) m;
-(uint8 k, uint v, bool hasValue) = m.next(-1);
-(uint8 k, uint v, bool hasValue) = m.prev(65537);
+optional(uint8, uint) = m.next(-1); // ok, param for next/prev can be negative 
+optional(uint8, uint) = m.prev(65537); // ok, param for next/prev can not possibly fit to KeyType (uint8 in this case)
 ```
 
-This function computes the minimal (maximal) key in mapping that is lexicographically greater (less) than **key** and returns that key, associated value and status flag. If KeyType is integer type, argument for this functions can not possibly fit KeyType.
+This function computes the minimal (maximal) key in mapping that is lexicographically greater (less) than **key** and returns optional value containing that key and associated value. If there is no such key than return empty optional. If KeyType is integer type, argument for this functions can not possibly fit KeyType.
 
 ##### mapping.nextOrEq() and mapping.prevOrEq()
 
 ```TVMSolidity
 KeyType key;
-(KeyType nextKey, ValueType nextValue, bool haveValue) = map.nextOrEq(key);
-(KeyType prevKey, ValueType prevValue, bool haveValue) = map.prevOrEq(key);
+optional(KeyType, ValueType) pair0 = map.nextOrEq(key);
+optional(KeyType, ValueType) pair1 = map.prevOrEq(key);
 
 mapping(uint8 => uint) m;
-(uint8 k, uint v, bool hasValue) = m.nextOrEq(-1);
-(uint8 k, uint v, bool hasValue) = m.prevOrEq(65537);
+optional(uint8, uint) pair2 = m.nextOrEq(-1);
+optional(uint8, uint) pair3 = m.prevOrEq(65537);
 ```
 
-This function computes the minimal (maximal) key in mapping that is lexicographically greater than or equal to (less than or equal to) **key** and returns that key, associated value and status flag. If KeyType is integer type, argument for this functions can not possibly fit KeyType.
+This function computes the minimal (maximal) key in mapping that is lexicographically greater than or equal to (less than or equal to) **key** and returns optional value containing that key and associated value. If there is no such key than return empty optional. If KeyType is integer type, argument for this functions can not possibly fit KeyType.
 
 ##### mapping.delMin() and mapping.delMax()
 
@@ -825,18 +853,13 @@ This function computes the minimal (maximal) key in mapping that is lexicographi
 
 ```TVMSolidity
 KeyType key;
-(bool exists, ValueType value) = map.fetch(key);
-```
-
-This function checks whether **key** presents in the mapping and returns status flag and associated value(if it exists).
-If the value has struct type and key doesn't present in the mapping than value is NULL. Use value only in such constructions:
-
-```TVMSolidity
-(bool ok, MyStruct value) = map.fetch(key);
-if (ok) {
-    // use value here
+optional(ValueType) optValue = map.fetch(key);
+if (optValue.hasValue()) {
+    ValueType value = optValue.get();
 }
 ```
+
+This function checks whether **key** presents in the mapping and returns optional associated value. If there is no such key than return empty optional.
 
 ##### mapping.exists()
 
@@ -880,18 +903,18 @@ This function sets the value associated with **key** only if the **key** is not 
 ```TVMSolidity
 KeyType key;
 ValueType value;
-(ValueType oldValue, bool haveOldValue) = map.getSet(key, value);
+optional(ValueType) oldValue = map.getSet(key, value);
 ```
 
 This function sets the **value** associated with **key**, but also
-returns the **oldValue** associated with the **key**, if present. Else it returns default value.
+returns the **oldValue** associated with the **key**, if present. Else it returns empty optional.
 
 ##### mapping.getAdd()
 
 ```TVMSolidity
 KeyType key;
 ValueType value;
-(ValueType oldValue, bool haveOldValue) = map.getAdd(key, value);
+optional(ValueType) oldValue = map.getAdd(key, value);
 ```
 
 This function sets the **value** associated with **key**, but only if **key** is not present in mapping. Otherwise, just returns the **oldValue** without changing the dictionary.
@@ -901,7 +924,7 @@ This function sets the **value** associated with **key**, but only if **key** is
 ```TVMSolidity
 KeyType key;
 ValueType value;
-(ValueType oldValue, bool haveOldValue) = map.getReplace(key, value);
+optional(ValueType) oldValue = map.getReplace(key, value);
 ```
 
 This function sets the **value** associated with **key**, but only if **key** is present in mapping. On success, returns the **oldValue** associated with the **key**. Otherwise, returns default value.

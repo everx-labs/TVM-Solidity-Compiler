@@ -210,7 +210,17 @@ void ReferencesResolver::endVisit(Mapping const& _typeName)
 
 void ReferencesResolver::endVisit(Optional const& _typeName)
 {
-	_typeName.annotation().type = TypeProvider::optional(_typeName.valueType().annotation().type);
+	std::vector<ASTPointer<TypeName>> const& comp = _typeName.maybeTypes();
+	std::vector<Type const*> types;
+	for (const ASTPointer<TypeName>& c : comp) {
+		types.emplace_back(c->annotation().type);
+	}
+
+	if (comp.size() == 1) {
+		_typeName.annotation().type = TypeProvider::optional(types.at(0));
+	} else {
+		_typeName.annotation().type = TypeProvider::optional(TypeProvider::tuple(types));
+	}
 }
 
 void ReferencesResolver::endVisit(const ElementaryTypeName &_typeName) {
