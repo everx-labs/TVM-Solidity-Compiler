@@ -1125,15 +1125,38 @@ ASTPointer<Mapping> Parser::parseMapping()
 
 ASTPointer<Optional> Parser::parseOptional()
 {
+//	RecursionGuard recursionGuard(*this);
+//	ASTNodeFactory nodeFactory(*this);
+//	expectToken(Token::Optional);
+//	expectToken(Token::LessThan);
+//	bool const allowVar = false;
+//	ASTPointer<TypeName> valueType = parseTypeName(allowVar);
+//	expectToken(Token::GreaterThan);
+//	nodeFactory.markEndPosition();
+//	return nodeFactory.createNode<Optional>(valueType);
+
 	RecursionGuard recursionGuard(*this);
 	ASTNodeFactory nodeFactory(*this);
 	expectToken(Token::Optional);
-	expectToken(Token::LessThan);
+//	expectToken(Token::LessThan);
+	expectToken(Token::LParen);
 	bool const allowVar = false;
-	ASTPointer<TypeName> valueType = parseTypeName(allowVar);
+	vector<ASTPointer<TypeName>> components;
+
+	while (true) {
+		ASTPointer<TypeName> cur = parseTypeName(allowVar);
+		components.emplace_back(std::move(cur));
+		Token token = m_scanner->currentToken();
+		if (token != Token::Comma) {
+			break;
+		}
+		expectToken(Token::Comma);
+	}
+
+//	expectToken(Token::GreaterThan);
+	expectToken(Token::RParen);
 	nodeFactory.markEndPosition();
-	expectToken(Token::GreaterThan);
-	return nodeFactory.createNode<Optional>(valueType);
+	return nodeFactory.createNode<Optional>(components);
 }
 
 

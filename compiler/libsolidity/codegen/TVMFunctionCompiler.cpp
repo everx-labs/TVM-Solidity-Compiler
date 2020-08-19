@@ -378,6 +378,8 @@ ISNULL
 
 	visitFunctionWithModifiers();
 
+    m_pusher.getStack().ensureSize(0, "");
+
 	// c7_to_c4 if need
 	solAssert(m_pusher.getStack().size() == 0, "");
 	if (m_function->stateMutability() == StateMutability::NonPayable) {
@@ -884,7 +886,7 @@ void TVMFunctionCompiler::doWhile(WhileStatement const &_whileStatement) {
 }
 
 void
-TVMFunctionCompiler::visitForOrWhileCondiction(const ContInfo &ci, const TVMFunctionCompiler::ControlFlowInfo &info,
+TVMFunctionCompiler::visitForOrWhileCondition(const ContInfo &ci, const TVMFunctionCompiler::ControlFlowInfo &info,
                                                Expression const *condition) {
 	int stackSize = m_pusher.getStack().size();
 	m_pusher.startContinuation();
@@ -907,7 +909,7 @@ TVMFunctionCompiler::visitForOrWhileCondiction(const ContInfo &ci, const TVMFunc
 		m_pusher.push(-1, ""); // fix stack
 	}
 	m_pusher.endContinuation();
-	m_pusher.getStack().ensureSize(stackSize, "visitForOrWhileCondiction");
+	m_pusher.getStack().ensureSize(stackSize, "visitForOrWhileCondition");
 }
 
 bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
@@ -927,7 +929,7 @@ bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
 	int saveStackSize = m_pusher.getStack().size();
 
 	// condition
-	visitForOrWhileCondiction(ci, info, &_whileStatement.condition());
+	visitForOrWhileCondition(ci, info, &_whileStatement.condition());
 
 	m_pusher.getStack().ensureSize(saveStackSize, "while condition");
 
@@ -1004,7 +1006,7 @@ bool TVMFunctionCompiler::visit(ForStatement const &_forStatement) {
 	m_controlFlowInfo.push_back(info);
 
 	// condition
-	visitForOrWhileCondiction(ci, info, _forStatement.condition());
+	visitForOrWhileCondition(ci, info, _forStatement.condition());
 
 	// body and loopExpression
 	m_pusher.startContinuation();

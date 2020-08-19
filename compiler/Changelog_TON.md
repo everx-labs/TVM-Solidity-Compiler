@@ -1,3 +1,12 @@
+### 0.29 (2020-08-19)
+
+APIs for common TON-specific functionality:
+ * Supported optional type
+ * Added methods for optional type: set, hasValue, get 
+
+Changed APIs to handle mappings: fetch, min, max, prev, next and ect.
+
+
 ### 0.20 (2020-03-30)
 
 APIs for common TON-specific functionality:

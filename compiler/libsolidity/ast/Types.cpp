@@ -1829,11 +1829,12 @@ MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 
 static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType, Type const* valueType) {
 	for (const std::string& name : {"min", "max"}) {
+		std::vector<Type const*> types = {keyType, valueType};
 		members.emplace_back(name, TypeProvider::function(
 				TypePointers{},
-				TypePointers{keyType, valueType, TypeProvider::boolean()},
+				TypePointers{TypeProvider::optional(TypeProvider::tuple(types))},
 				strings{},
-				strings{string(), string(), string()},
+				strings{string()},
 				FunctionType::Kind::MappingGetMinMax,
 				false, StateMutability::Pure
 		));
@@ -1860,9 +1861,9 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 	}
 	members.emplace_back("fetch", TypeProvider::function(
 			TypePointers{keyType},
-			TypePointers{TypeProvider::boolean(), valueType},
-			strings{string()},
-			strings{string(), string()},
+			TypePointers{TypeProvider::optional(valueType)},
+			strings{string{}},
+			strings{string{}},
 			FunctionType::Kind::MappingFetch,
 			false, StateMutability::Pure
 	));
@@ -1895,9 +1896,9 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 	for (const std::string& name : {"getSet", "getAdd", "getReplace"}) {
 		members.emplace_back(name, TypeProvider::function(
 				TypePointers{keyType, valueType},
-				TypePointers{valueType, TypeProvider::boolean()},
+				TypePointers{TypeProvider::optional(valueType)},
 				strings{string(), string()},
-				strings{string(), string()},
+				strings{string()},
 				FunctionType::Kind::MappingGetSet,
 				false, StateMutability::Pure
 		));
@@ -3559,7 +3560,7 @@ string MappingType::toString(bool _short) const
 
 string OptionalType::toString(bool _short) const
 {
-	return "Optional<" + valueType()->toString(_short) + ">";
+	return "optional(" + valueType()->toString(_short) + ")";
 }
 
 string MappingType::canonicalName() const
@@ -3569,7 +3570,7 @@ string MappingType::canonicalName() const
 
 string OptionalType::canonicalName() const
 {
-	return "Optional<" + valueType()->canonicalName() + ">";
+	return "optional(" + valueType()->canonicalName() + ")";
 }
 
 TypeResult MappingType::unaryOperatorResult(Token _operator) const {
@@ -4221,6 +4222,15 @@ MemberList::MemberMap OptionalType::nativeMembers(ContractDefinition const*) con
 			false,
 			StateMutability::Pure
 	));
+    members.emplace_back("reset", TypeProvider::function(
+            TypePointers{},
+            TypePointers{},
+            strings{},
+            strings{},
+            FunctionType::Kind::OptionalMethod,
+            false,
+            StateMutability::Pure
+    ));
 	return members;
 }
 
