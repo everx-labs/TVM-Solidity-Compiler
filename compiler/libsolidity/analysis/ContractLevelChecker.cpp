@@ -73,6 +73,7 @@ void ContractLevelChecker::checkDuplicateFunctions(ContractDefinition const& _co
 	FunctionDefinition const* fallback = nullptr;
 	FunctionDefinition const* receive = nullptr;
 	FunctionDefinition const* onBounce = nullptr;
+	FunctionDefinition const* onTickTock = nullptr;
 	for (FunctionDefinition const* function: _contract.definedFunctions())
 		if (function->isConstructor())
 		{
@@ -113,6 +114,17 @@ void ContractLevelChecker::checkDuplicateFunctions(ContractDefinition const& _co
 					"Only one receive function is allowed."
 				);
 			receive = function;
+		}
+		else if (function->isOnTickTock())
+		{
+			if (onTickTock) {
+				m_errorReporter.declarationError(
+						function->location(),
+						SecondarySourceLocation().append("Another declaration is here:", receive->location()),
+						"Only one onTickTock function is allowed."
+				);
+			}
+			onTickTock = function;
 		}
 		else
 		{

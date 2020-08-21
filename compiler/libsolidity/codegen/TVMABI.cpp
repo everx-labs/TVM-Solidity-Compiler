@@ -39,7 +39,7 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 	for (auto c : contract->annotation().linearizedBaseContracts) {
 		for (const auto &_function : c->definedFunctions()) {
 			if (_function->isPublic() && !isTvmIntrinsic(_function->name()) && !_function->isConstructor() &&
-				!_function->isReceive() && !_function->isFallback() && !_function->isOnBounce())
+				!_function->isReceive() && !_function->isFallback() && !_function->isOnBounce() && !_function->isOnTickTock())
 				publicFunctions.push_back(_function);
 		}
 	}
@@ -226,10 +226,6 @@ Json::Value TVMABI::processFunction(const string &fname, const ast_vec<VariableD
 	if (funcDef && (funcDef->functionID() != 0)) {
 		std::ostringstream oss;
 		oss << "0x" << std::hex << std::uppercase << funcDef->functionID();
-		function["id"] = oss.str();
-	} else if (funcDef && funcDef->name() == "offchainConstructor") {
-		std::ostringstream oss;
-		oss << "0x" << std::hex << std::uppercase << 3;
 		function["id"] = oss.str();
 	}
 	function["inputs"] = inputs;

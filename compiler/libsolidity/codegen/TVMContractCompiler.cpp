@@ -64,12 +64,7 @@ void TVMConstructorCompiler::dfs(ContractDefinition const *c) {
 void TVMConstructorCompiler::generateConstructors() {
 	m_pusher.generateGlobl("constructor", true);
 
-	if (m_pusher.ctx().haveOffChainConstructor()) {
-		m_pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7");
-	} else {
-		c4ToC7WithMemoryInitAndConstructorProtection();
-	}
-
+	c4ToC7WithMemoryInitAndConstructorProtection();
 
 	m_pusher.push(+1, ""); // push encoded params of constructor
 	std::vector<ContractDefinition const*> linearizedBaseContracts =
@@ -131,25 +126,6 @@ void TVMConstructorCompiler::generateConstructors() {
 	m_pusher.push(0, " ");
 }
 
-void TVMConstructorCompiler::generateOffChainConstructor() {
-	FunctionDefinition const* function = m_pusher.ctx().m_currentFunction;
-	if (function->visibility() != Visibility::External) {
-		cast_error(*function, "This function must be defined as \"external\".");
-	}
-
-	m_pusher.generateInternal("offchainConstructor", 3);
-
-	c4ToC7WithMemoryInitAndConstructorProtection();
-
-	TVMFunctionCompiler functionCompiler(m_pusher, true, 0, function, 0);
-	functionCompiler.decodeFunctionParamsAndLocateVars();
-	functionCompiler.visitFunctionWithModifiers();
-
-	m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
-	m_pusher.push(0, "TRUE");
-	m_pusher.push(0, "SETGLOB 7");
-	m_pusher.push(0, " ");
-}
 
 void TVMConstructorCompiler::c4ToC7WithMemoryInitAndConstructorProtection() {
 	// copy c4 to c7
@@ -293,12 +269,19 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 	for (ContractDefinition const* c : contract->annotation().linearizedBaseContracts | boost::adaptors::reversed) {
 		for (FunctionDefinition const* _function : c->definedFunctions()) {
 			if (_function->isConstructor() || _function->isReceive() || _function->isFallback() ||
-			    _function->isOnBounce() || !_function->isImplemented() || isTvmIntrinsic(_function->name()) ||
+			    _function->isOnBounce() ||
+				!_function->isImplemented() || isTvmIntrinsic(_function->name()) ||
 			    isFunctionForInlining(_function)) {
 				continue;
 			}
+
 			ctx.m_currentFunction = _function;
-			if (_function->visibility() == Visibility::TvmGetter) {
+			if (_function->isOnTickTock()) {
+				StackPusherHelper pusher{&ctx};
+				TVMFunctionCompiler tvm(pusher, false, 0, _function, 0);
+				tvm.generateOnTickTock();
+				optimize_and_append_code(code, pusher, g_disable_optimizer);
+			} else if (_function->visibility() == Visibility::TvmGetter) {
 				StackPusherHelper pusher{&ctx};
 				TVMFunctionCompiler tvm(pusher, true, 0, _function, 0);
 				tvm.generateTvmGetter(_function);
@@ -314,16 +297,6 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 				StackPusherHelper pusher{&ctx};
 				TVMFunctionCompiler tvm(pusher, false, 0, _function, 0);
 				tvm.generateOnCodeUpgrade();
-				optimize_and_append_code(code, pusher, g_disable_optimizer);
-			} else if (_function->name() == "onTickTock") {
-				StackPusherHelper pusher{&ctx};
-				TVMFunctionCompiler tvm(pusher, false, 0, _function, 0);
-				tvm.generateOnTickTock();
-				optimize_and_append_code(code, pusher, g_disable_optimizer);
-			} else if (_function->name() == "offchainConstructor") {
-				StackPusherHelper pusher{&ctx};
-				TVMConstructorCompiler constructorCompiler(pusher);
-				constructorCompiler.generateOffChainConstructor();
 				optimize_and_append_code(code, pusher, g_disable_optimizer);
 			} else {
 				if (_function->isPublic()) {
@@ -346,32 +319,15 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 	if (!ctx.isStdlib()) {
 		{
 			StackPusherHelper pusher{&ctx};
-			TVMFunctionCompiler tvm(pusher);
-			tvm.generateMainExternal();
+			pusher.generateC7ToT4Macro();
 			optimize_and_append_code(code, pusher, g_disable_optimizer);
 		}
 		{
 			StackPusherHelper pusher{&ctx};
-			pusher.generateC7ToT4Macro(false);
-			optimize_and_append_code(code, pusher, g_disable_optimizer);
-		}
-        {
-            StackPusherHelper pusher{&ctx};
-            pusher.generateC7ToT4Macro(true);
-            optimize_and_append_code(code, pusher, g_disable_optimizer);
-        }
-		{
-			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler tvm(pusher);
-			tvm.generateC4ToC7(false, false);
+			tvm.generateC4ToC7(false);
 			optimize_and_append_code(code, pusher, g_disable_optimizer);
 		}
-        {
-            StackPusherHelper pusher{&ctx};
-            TVMFunctionCompiler tvm(pusher);
-            tvm.generateC4ToC7(false, true);
-            optimize_and_append_code(code, pusher, g_disable_optimizer);
-        }
 		{
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler tvm(pusher);
@@ -384,60 +340,71 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 			tvm.generateMainInternal();
 			optimize_and_append_code(code, pusher, g_disable_optimizer);
 		}
+		{
+			StackPusherHelper pusher{&ctx};
+			TVMFunctionCompiler tvm(pusher);
+			tvm.generateMainExternal();
+			optimize_and_append_code(code, pusher, g_disable_optimizer);
+		}
 	}
 
 	return code;
 }
 
 void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractDefinition const *contract) {
-	std::map<std::string, FunctionDefinition const*> inlineFunctions;
+	std::map<std::string, FunctionDefinition const *> inlineFunctions;
 	TVMInlineFunctionChecker inlineFunctionChecker;
-	for (ContractDefinition const* base : contract->annotation().linearizedBaseContracts | boost::adaptors::reversed) {
-		for (FunctionDefinition const* function : base->definedFunctions()) {
+	for (ContractDefinition const *base : contract->annotation().linearizedBaseContracts | boost::adaptors::reversed) {
+		for (FunctionDefinition const *function : base->definedFunctions()) {
 			if (isFunctionForInlining(function)) {
 				inlineFunctions[functionName(function)] = function;
 			}
 		}
 	}
-	for (FunctionDefinition const* function : inlineFunctions | boost::adaptors::map_values) {
+	for (FunctionDefinition const *function : inlineFunctions | boost::adaptors::map_values) {
 		function->accept(inlineFunctionChecker);
 	}
 
-	std::vector<FunctionDefinition const*> order = inlineFunctionChecker.functionOrder();
+	std::vector<FunctionDefinition const *> order = inlineFunctionChecker.functionOrder();
 
-	for (const auto& function : order) {
-		std::string fname = functionName(function);
-		CodeLines code;
-		CodeLines codeWithout;
-		bool isFunctionForMainInternal =
-				function->isReceive() || function->isFallback() || function->isOnBounce();
+	for (FunctionDefinition const * function : order) {
+		StackPusherHelper pusher{&ctx};
+		const bool isSpecialFunction = function->isReceive() || function->isFallback() || function->isOnBounce();
+		bool doSelectorSwitch{};
 
 		if (!function->body().statements().empty() || !function->modifiers().empty()) {
-			if (isFunctionForMainInternal) {
-				code.append(switchSelectorIfNeed(function));
-				if (function->stateMutability() >= StateMutability::NonPayable) {
-					code.push("CALL $c4_to_c7_macro$");
-					codeWithout.push("CALL $c4_to_c7_macro$");
+			if (isSpecialFunction) {
+				FunctionUsageScanner scanner{*function};
+				doSelectorSwitch = scanner.havePrivateFunctionCall;
+				if (function->stateMutability() >= StateMutability::View) {
+					doSelectorSwitch = true;
+					pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7");
 				}
 			}
 
 			ctx.m_currentFunction = function;
-			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler compiler{pusher, false, 0, function, 0};
 			compiler.makeInlineFunctionCall(true);
-			code.append(pusher.code());
-			codeWithout.append(pusher.code());
 
-			if (isFunctionForMainInternal) {
+			if (isSpecialFunction) {
 				if (function->stateMutability() >= StateMutability::NonPayable) {
-					code.push("CALL $c7_to_c4_macro$$");
-					codeWithout.push("CALL $c7_to_c4_macro$");
+					pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
 				}
 			}
 		}
 
+		const std::string fname = functionName(function);
+		if (function->isFallback()) {
+			ctx.m_inlinedFunctions[fname + "_without_selector_switch"] = pusher.code();
+		}
+		CodeLines code;
+		if (doSelectorSwitch) {
+			StackPusherHelper switcher{&ctx};
+			switcher.switchSelector();
+			code.append(switcher.code());
+		}
+		code.append(pusher.code());
 		ctx.m_inlinedFunctions[fname] = code;
-		ctx.m_inlinedFunctions[fname + "_without"] = codeWithout;
 	}
 }
 

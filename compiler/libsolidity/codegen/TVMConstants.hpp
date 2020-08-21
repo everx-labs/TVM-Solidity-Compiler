@@ -65,7 +65,7 @@ namespace TvmConst {
 	}
 
 	namespace FunctionId {
-		const int First = 4;
+		const int First = 3;
 		const int64_t Last = 0xFFFFFFFD;
 	}
 

@@ -98,7 +98,6 @@ class TVMCompilerContext {
 	bool haveOnBounce = false;
 	bool haveReceive = false;
 	bool ignoreIntOverflow = false;
-	bool m_haveOffChainConstructor = false;
 	PragmaDirectiveHelper const& m_pragmaHelper;
 	std::map<VariableDeclaration const *, int> m_stateVarIndex;
 
@@ -126,7 +125,6 @@ public:
 	bool haveReceiveFunction() const;
 	bool haveOnBounceHandler() const;
 	bool ignoreIntegerOverflow() const;
-	bool haveOffChainConstructor() const;
 	FunctionDefinition const* afterSignatureCheck() const;
 	bool storeTimestampInC4() const;
 };
@@ -179,7 +177,7 @@ public:
 	void load(const Type* type);
 	void preload(const Type* type);
 	void pushZeroAddress();
-	void generateC7ToT4Macro(bool isMacro);
+	void generateC7ToT4Macro();
 
 	static void addBinaryNumberToString(std::string &s, u256 value, int bitlen = 256);
 	static std::string binaryStringToSlice(const std::string & s);
@@ -241,8 +239,10 @@ public:
 				 const std::function<void()> &appendStateInit,
 				 const std::function<void()> &pushSendrawmsgFlag,
 				 bool isInternalMessage = true);
+
+	void switchSelector();
 };
 
-CodeLines switchSelectorIfNeed(FunctionDefinition const* f);
+
 
 } // end solidity::frontend

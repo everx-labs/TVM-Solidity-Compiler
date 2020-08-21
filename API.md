@@ -92,6 +92,7 @@ TON Solidity compiler expands Solidity language with different API functions to 
   * [receive](#receive)
   * [fallback](#fallback)
   * [onBounce](#onbounce)
+  * [onTickTock](#onticktock)
   * [onCodeUpgrade](#oncodeupgrade)
   * [afterSignatureCheck](#aftersignaturecheck)
 * [Function specifiers](#function-specifiers)
@@ -1030,7 +1031,7 @@ If no **receive** function is defined and **fallback** function exists,
 #### onBounce
 
 ```TVMSolidity
-onBounce(TvmSlice slice) external override {
+onBounce(TvmSlice body) external {
     /*...*/
 }
 ```
@@ -1040,6 +1041,21 @@ onBounce(TvmSlice slice) external override {
 See example of how to use **onBounce** function:
 
 * [onBounceHandler](https://github.com/tonlabs/samples/blob/master/solidity/16_onBounceHandler.sol)
+
+
+#### onTickTock
+
+```TVMSolidity
+onTickTock(bool isTock) external {
+    /*...*/
+}
+```
+
+**onTickTock** function is executed on tick and tock transactions.
+That transactions are automatically invoked for certain special accounts.
+See ([TBLKCH][2] - 4.2.4.)
+For tick transactions **isTock** is false, for tock transactions - true.
+
 
 #### onCodeUpgrade
 
@@ -1431,7 +1447,7 @@ function f() public pure returns (uint) {
 }
 
 function getFuncID() public pure returns (uint32) {
-    uint32 functionId == tvm.functionId(f);
+    uint32 functionId = tvm.functionId(f);
     return functionId;
 }
 ```

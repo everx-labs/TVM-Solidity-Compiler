@@ -72,13 +72,9 @@ StructCompiler &StackPusherHelper::structCompiler() {
 	return *m_structCompiler;
 }
 
-void StackPusherHelper::generateC7ToT4Macro(bool isMacro) {
+void StackPusherHelper::generateC7ToT4Macro() {
 	push(+1, ""); // fix stack, allocate builder
-	if (isMacro) {
-		pushLines(".macro c7_to_c4_macro");
-	} else {
-		generateGlobl("c7_to_c4", false);
-	}
+	generateGlobl("c7_to_c4", false);
 	pushLines(R"(
 GETGLOB 2
 NEWC
@@ -999,16 +995,6 @@ void StackPusherHelper::sendMsg(const std::set<int>& isParamOnStack,
 	sendrawmsg();
 }
 
-CodeLines solidity::frontend::switchSelectorIfNeed(FunctionDefinition const *f) {
-	FunctionUsageScanner scanner{*f};
-	CodeLines code;
-	if (scanner.havePrivateFunctionCall) {
-		code.push("PUSHINT 1");
-		code.push("CALL 1");
-	}
-	return code;
-}
-
 int TVMStack::size() const {
 	return m_size;
 }
@@ -1113,13 +1099,6 @@ void TVMCompilerContext::initMembers(ContractDefinition const *contract) {
 	for (ContractDefinition const* base : contract->annotation().linearizedBaseContracts) {
 		for (FunctionDefinition const* f : base->definedFunctions()) {
 			ignoreIntOverflow |= f->name() == "tvm_ignore_integer_overflow";
-			if (f->name() == "offchainConstructor") {
-				if (m_haveOffChainConstructor) {
-					cast_error(*f, "This function can not be overrived/overloaded.");
-				} else {
-					m_haveOffChainConstructor = true;
-				}
-			}
 			haveFallback |= f->isFallback();
 			haveOnBounce |= f->isOnBounce();
 			haveReceive |= f->isReceive();
@@ -1230,10 +1209,6 @@ bool TVMCompilerContext::haveOnBounceHandler() const {
 
 bool TVMCompilerContext::ignoreIntegerOverflow() const {
 	return ignoreIntOverflow;
-}
-
-bool TVMCompilerContext::haveOffChainConstructor() const {
-	return m_haveOffChainConstructor;
 }
 
 FunctionDefinition const *TVMCompilerContext::afterSignatureCheck() const {
@@ -1702,6 +1677,12 @@ void StackPusherHelper::getDict(Type const& keyType, Type const& valueType, ASTN
 
 	GetFromDict d(*this, keyType, valueType, node, op, resultAsSliceForStruct);
 	d.getDict();
+}
+
+
+void StackPusherHelper::switchSelector() {
+	push(0, "PUSHINT 1");
+	push(0, "CALL 1");
 }
 
 

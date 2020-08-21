@@ -98,7 +98,8 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 	std::set<CallableDeclaration const*> functions;
 	for (ContractDefinition const* cd : contractDefinition->annotation().linearizedBaseContracts | boost::adaptors::reversed) {
 		for (FunctionDefinition const *f : cd->definedFunctions()) {
-			if (f->isConstructor() || f->isReceive() || f->isFallback() || isTvmIntrinsic(f->name())) {
+			if (f->isConstructor() || f->isReceive() || f->isFallback() || f->isFallback() ||
+				f->isOnTickTock() || isTvmIntrinsic(f->name())) {
 				continue;
 			}
 
