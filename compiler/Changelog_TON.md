@@ -1,3 +1,10 @@
+### 0.30 (2020-08-21)
+
+APIs for common TON-specific functionality:
+ * Supported tick and tock transactions. See onTickTock function.
+Bug fixes.
+
+
 ### 0.29 (2020-08-19)
 
 APIs for common TON-specific functionality:

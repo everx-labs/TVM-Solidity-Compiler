@@ -753,7 +753,9 @@ public:
 		m_isInline(_isInline)
 	{
 		solAssert(_kind == Token::Constructor || _kind == Token::Function ||
-					_kind == Token::Fallback || _kind == Token::Receive || _kind == Token::onBounce, "");
+					_kind == Token::Fallback || _kind == Token::Receive || _kind == Token::onBounce ||
+					_kind == Token::onTickTock
+					, "");
 	}
 
 	void accept(ASTVisitor& _visitor) override;
@@ -765,6 +767,7 @@ public:
 	bool isFallback() const { return m_kind == Token::Fallback; }
 	bool isOnBounce() const { return m_kind == Token::onBounce; }
 	bool isReceive() const { return m_kind == Token::Receive; }
+	bool isOnTickTock() const { return m_kind == Token::onTickTock; }
 	Token kind() const { return m_kind; }
 	std::vector<ASTPointer<ModifierInvocation>> const& modifiers() const { return m_functionModifiers; }
 	Block const& body() const { solAssert(m_body, ""); return *m_body; }

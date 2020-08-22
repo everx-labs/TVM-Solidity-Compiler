@@ -102,6 +102,7 @@ private:
 	void typeCheckReceiveFunction(FunctionDefinition const& _function);
 	void typeCheckConstructor(FunctionDefinition const& _function);
 	void typeCheckOnBounce(FunctionDefinition const& _function);
+	void typeCheckOnTickTock(FunctionDefinition const& _function);
 
 	/// Performs general number and type checks of arguments against function call and struct ctor FunctionCall node parameters.
 	void typeCheckFunctionGeneralChecks(

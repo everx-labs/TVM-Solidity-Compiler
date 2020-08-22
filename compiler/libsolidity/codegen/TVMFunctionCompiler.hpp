@@ -60,7 +60,7 @@ protected:
 public:
 	void makeInlineFunctionCall(bool alloc);
 
-	void generateC4ToC7(bool withInitMemory, bool asMacro = true);
+	void generateC4ToC7(bool withInitMemory);
 	void generateMacro();
 	void generateMainExternal();
 	void generateMainInternal();
@@ -122,6 +122,7 @@ private:
 	void defaultReplayProtection();
 	void expire();
 	void callPublicFunction();
+	static std::string protectFromWrongFunctionId();
 	void fillInlineFunctionsAndConstants(std::string& pattern);
 };
 

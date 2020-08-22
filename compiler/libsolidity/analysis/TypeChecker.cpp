@@ -520,6 +520,8 @@ bool TypeChecker::visit(FunctionDefinition const& _function)
 		typeCheckConstructor(_function);
 	else if (_function.isOnBounce())
 		typeCheckOnBounce(_function);
+	else if (_function.isOnTickTock())
+		typeCheckOnTickTock(_function);
 
 	return false;
 }
@@ -1729,8 +1731,20 @@ void TypeChecker::typeCheckOnBounce(const FunctionDefinition &_function) {
 	if (!_function.returnParameters().empty())
 		m_errorReporter.typeError(_function.returnParameterList()->location(), "onBounce function cannot return values.");
 	if (_function.parameters().size() != 1 || _function.parameters().at(0)->type()->category() != Type::Category::TvmSlice)
-		m_errorReporter.typeError(_function.parameterList().location(), "onBounce function should take one parameter (TvmSlice type).");
+		m_errorReporter.typeError(_function.parameterList().location(), "onBounce function should take one parameter (TvmSlice body).");
+}
 
+
+void TypeChecker::typeCheckOnTickTock(const FunctionDefinition &_function) {
+	if (_function.inContractKind() == ContractKind::Library)
+		m_errorReporter.typeError(_function.location(), "Libraries cannot have onTickTock functions.");
+
+	if (_function.visibility() != Visibility::External)
+		m_errorReporter.typeError(_function.location(), "onTickTock function must be defined as \"external\".");
+	if (!_function.returnParameters().empty())
+		m_errorReporter.typeError(_function.returnParameterList()->location(), "onTickTock function cannot return values.");
+	if (_function.parameters().size() != 1 || _function.parameters().at(0)->type()->category() != Type::Category::Bool)
+		m_errorReporter.typeError(_function.parameterList().location(), "onTickTock function should take one parameter (bool isTock).");
 }
 
 void TypeChecker::typeCheckABIEncodeFunctions(

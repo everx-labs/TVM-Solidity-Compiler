@@ -183,6 +183,7 @@ namespace solidity::langutil
 	K(Private, "private", 0)                                           \
 	K(Pure, "pure", 0)                                                 \
 	K(Receive, "receive", 0)                                           \
+	K(onTickTock, "onTickTock", 0)                                     \
 	K(Return, "return", 0)                                             \
 	K(Returns, "returns", 0)                                           \
 	K(Storage, "storage", 0)                                           \

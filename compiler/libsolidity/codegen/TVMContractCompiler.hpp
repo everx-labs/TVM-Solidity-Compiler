@@ -37,7 +37,6 @@ public:
 	explicit TVMConstructorCompiler(StackPusherHelper& pusher);
 	void dfs(ContractDefinition const* c);
 	void generateConstructors();
-	void generateOffChainConstructor();
 private:
 	void c4ToC7WithMemoryInitAndConstructorProtection();
 };

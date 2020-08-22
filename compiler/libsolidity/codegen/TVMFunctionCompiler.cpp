@@ -171,15 +171,12 @@ SETGLOB 6   ; pubkey [timestamp]
 	return pusherHelper.code();
 }
 
-void TVMFunctionCompiler::generateC4ToC7(bool withInitMemory, bool asMacro) {
+void TVMFunctionCompiler::generateC4ToC7(bool withInitMemory) {
     const std::string& name = withInitMemory? "c4_to_c7_with_init_storage": "c4_to_c7";
     if (withInitMemory) {
         m_pusher.generateMacro(name);
     } else {
-        if (asMacro)
-            m_pusher.generateMacro(name + "_macro");
-        else
-            m_pusher.generateGlobl(name, false);
+		m_pusher.generateGlobl(name, false);
     }
 	m_pusher.pushLines(R"(
 PUSHROOT
@@ -297,11 +294,11 @@ void TVMFunctionCompiler::makeInlineFunctionCall(bool alloc) {
 
 void TVMFunctionCompiler::generateOnCodeUpgrade() {
 	m_pusher.generateInternal("onCodeUpgrade", 2);
-	m_pusher.append(switchSelectorIfNeed(m_function));
+	m_pusher.switchSelector();
 
 	makeInlineFunctionCall(true);
 
-	m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4_macro");
+	m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
 	m_pusher.push(0, "COMMIT");
 	m_pusher.push(0, "THROW 0");
 	m_pusher.push(0, " ");
@@ -317,14 +314,20 @@ void TVMFunctionCompiler::generateOnTickTock() {
 		m_pusher.push(0, string(";; param: ") + variable->name());
 		m_pusher.getStack().add(variable.get(), false);
 	}
-	if (m_function->stateMutability() != StateMutability::Pure) {
-		m_pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7_macro");
+
+	bool isPure = m_function->stateMutability() == StateMutability::Pure;
+	FunctionUsageScanner sc{*m_function};
+	if (!isPure || sc.havePrivateFunctionCall) {
+		m_pusher.switchSelector();
+	}
+	if (!isPure) {
+		m_pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7");
 	}
 
 	visitFunctionWithModifiers();
 
-	if (m_function->stateMutability() != StateMutability::Pure) {
-		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4_macro");
+	if (!isPure) {
+		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
 	}
 	m_pusher.push(0, " ");
 }
@@ -1417,17 +1420,39 @@ void TVMFunctionCompiler::callPublicFunction() {
 	// msg_body
 	std::string s = R"(
 LDU  32 ; funcId body
+PUSH S1 ; funcId body funcId
+)";
+
+	s += protectFromWrongFunctionId();
+	s += R"(
 SWAP    ; body funcId
 CALL 1
 GETGLOB 7
 ISNULL
 PUSHCONT {
-	CALL $:fallback_without$
+	CALL $fallback_without_selector_switch$
 }
 IF
 )";
 	fillInlineFunctionsAndConstants(s);
 	m_pusher.pushLines(s);
+}
+
+std::string TVMFunctionCompiler::protectFromWrongFunctionId() {
+	// stack: functionId ? functionId
+	std::string s = R"(
+LESSINT first_fun_id            ; funcId body' funcId<first_fun_id
+PUSH S2              ; funcId body' funcId<first_fun_id funcId
+PUSHINT last_fun_id   ; funcId body' funcId<first_fun_id funcId last_fun_id
+GREATER              ; funcId body' funcId<first_fun_id funcId>last_fun_id
+OR                   ; funcId body' funcId<first_fun_id||funcId>last_fun_id
+PUSHCONT {
+	CALL $fallback$
+}
+IFJMP
+)";
+	// stack: functionId`
+	return s;
 }
 
 void TVMFunctionCompiler::generateMainInternal() {
@@ -1493,7 +1518,7 @@ IFJMP
 PUSH S1            ; body
 LDUQ 32            ; [funcId] body' ok
 PUSHCONT {
-	CALL $:fallback$
+	CALL $fallback$
 }
 IFNOTJMP
 PUSH2 S1,S1        ; funcId body' funcId funcId
@@ -1501,23 +1526,18 @@ PUSHCONT {
 	CALL $:receive$
 }
 IFNOTJMP
-LESSINT first_fun_id            ; funcId body' funcId<first_fun_id
-PUSH S2              ; funcId body' funcId<first_fun_id funcId
-PUSHINT last_fun_id   ; funcId body' funcId<first_fun_id funcId last_fun_id
-GREATER              ; funcId body' funcId<first_fun_id funcId>last_fun_id
-OR                   ; funcId body' funcId<first_fun_id||funcId>last_fun_id
-PUSHCONT {
-	CALL $:fallback$
-}
-IFJMP
+)";
 
-SWAP  ; bodyLen body' funcId
+	s += protectFromWrongFunctionId();
+
+	s += R"(
+SWAP  ; body' funcId
 CALL 1
 
 GETGLOB 7
 ISNULL
 PUSHCONT {
-	CALL $:fallback_without$
+	CALL $fallback_without_selector_switch$
 }
 IF
 )";
@@ -1544,11 +1564,14 @@ void TVMFunctionCompiler::fillInlineFunctionsAndConstants(std::string &pattern) 
 		}
 
 		if (m_pusher.ctx().haveFallbackFunction()) {
-			boost::replace_all(pattern, tab + "CALL $:fallback_without$", m_pusher.ctx().m_inlinedFunctions.at("fallback_without").str(tab));
-			boost::replace_all(pattern, tab + "CALL $:fallback$", m_pusher.ctx().m_inlinedFunctions.at("fallback").str(tab));
+			boost::replace_all(pattern, tab + "CALL $fallback_without_selector_switch$",
+							   m_pusher.ctx().m_inlinedFunctions.at("fallback_without_selector_switch").str(tab));
+			boost::replace_all(pattern, tab + "CALL $fallback$",
+					  m_pusher.ctx().m_inlinedFunctions.at("fallback").str(tab));
+
 		} else {
-			boost::replace_all(pattern, tab + "CALL $:fallback_without$", tab + "THROW 60");
-			boost::replace_all(pattern, tab + "CALL $:fallback$", tab + "THROW 60");
+			boost::replace_all(pattern, tab + "CALL $fallback_without_selector_switch$", tab + "THROW 60");
+			boost::replace_all(pattern, tab + "CALL $fallback$", tab + "THROW 60");
 		}
 
 		if (m_pusher.ctx().haveOnBounceHandler()) {
@@ -1556,8 +1579,8 @@ void TVMFunctionCompiler::fillInlineFunctionsAndConstants(std::string &pattern) 
 		}
 	}
 
-	size_t pos = std::string::npos;
-	while ((pos  = pattern.find("\n\n") )!= std::string::npos) {
+	size_t pos{};
+	while ((pos = pattern.find("\n\n"))!= std::string::npos) {
 		pattern.erase(pos, 1);
 	}
 }

@@ -316,7 +316,8 @@ ASTPointer<ContractDefinition> Parser::parseContractDefinition()
 				currentTokenValue == Token::Constructor ||
 				currentTokenValue == Token::Receive ||
 				currentTokenValue == Token::Fallback ||
-				currentTokenValue == Token::onBounce
+				currentTokenValue == Token::onBounce ||
+				currentTokenValue == Token::onTickTock
 					)
 				subNodes.push_back(parseFunctionDefinition());
 			else if (currentTokenValue == Token::Struct)
@@ -605,7 +606,8 @@ ASTPointer<ASTNode> Parser::parseFunctionDefinition()
 			m_scanner->currentToken() == Token::Constructor ||
 			m_scanner->currentToken() == Token::Fallback ||
 			m_scanner->currentToken() == Token::onBounce ||
-			m_scanner->currentToken() == Token::Receive
+			m_scanner->currentToken() == Token::Receive ||
+			m_scanner->currentToken() == Token::onTickTock
 		)
 		{
 			std::string expected = std::map<Token, std::string>{
@@ -613,6 +615,7 @@ ASTPointer<ASTNode> Parser::parseFunctionDefinition()
 				{Token::Fallback, "fallback function"},
 				{Token::Receive, "receive function"},
 				{Token::onBounce, "onBounce function"},
+				{Token::onTickTock, "onTickTock function"},
 			}.at(m_scanner->currentToken());
 			name = make_shared<ASTString>(TokenTraits::toString(m_scanner->currentToken()));
 			string message{
@@ -631,7 +634,8 @@ ASTPointer<ASTNode> Parser::parseFunctionDefinition()
 	}
 	else
 	{
-		solAssert(kind == Token::Constructor || kind == Token::Fallback || kind == Token::onBounce || kind == Token::Receive, "");
+		solAssert(kind == Token::Constructor || kind == Token::Fallback || kind == Token::onBounce ||
+				  kind == Token::Receive || kind == Token::onTickTock, "");
 		m_scanner->next();
 		name = make_shared<ASTString>();
 	}
@@ -1125,24 +1129,12 @@ ASTPointer<Mapping> Parser::parseMapping()
 
 ASTPointer<Optional> Parser::parseOptional()
 {
-//	RecursionGuard recursionGuard(*this);
-//	ASTNodeFactory nodeFactory(*this);
-//	expectToken(Token::Optional);
-//	expectToken(Token::LessThan);
-//	bool const allowVar = false;
-//	ASTPointer<TypeName> valueType = parseTypeName(allowVar);
-//	expectToken(Token::GreaterThan);
-//	nodeFactory.markEndPosition();
-//	return nodeFactory.createNode<Optional>(valueType);
-
 	RecursionGuard recursionGuard(*this);
 	ASTNodeFactory nodeFactory(*this);
 	expectToken(Token::Optional);
-//	expectToken(Token::LessThan);
 	expectToken(Token::LParen);
 	bool const allowVar = false;
 	vector<ASTPointer<TypeName>> components;
-
 	while (true) {
 		ASTPointer<TypeName> cur = parseTypeName(allowVar);
 		components.emplace_back(std::move(cur));
@@ -1152,8 +1144,6 @@ ASTPointer<Optional> Parser::parseOptional()
 		}
 		expectToken(Token::Comma);
 	}
-
-//	expectToken(Token::GreaterThan);
 	expectToken(Token::RParen);
 	nodeFactory.markEndPosition();
 	return nodeFactory.createNode<Optional>(components);
