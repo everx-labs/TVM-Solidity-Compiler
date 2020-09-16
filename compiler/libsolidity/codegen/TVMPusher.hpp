@@ -94,9 +94,6 @@ class TVMCompilerContext {
 	string_map<const FunctionDefinition*>	m_functions;
 	map<const FunctionDefinition*, const ContractDefinition*>	m_function2contract;
 
-	bool haveFallback = false;
-	bool haveOnBounce = false;
-	bool haveReceive = false;
 	bool ignoreIntOverflow = false;
 	PragmaDirectiveHelper const& m_pragmaHelper;
 	std::map<VariableDeclaration const *, int> m_stateVarIndex;
@@ -121,9 +118,6 @@ public:
 	const ContractDefinition* getContract() const;
 	const ContractDefinition* getContract(const FunctionDefinition* f) const;
 	const FunctionDefinition* getLocalFunction(const string& fname) const;
-	bool haveFallbackFunction() const;
-	bool haveReceiveFunction() const;
-	bool haveOnBounceHandler() const;
 	bool ignoreIntegerOverflow() const;
 	FunctionDefinition const* afterSignatureCheck() const;
 	bool storeTimestampInC4() const;

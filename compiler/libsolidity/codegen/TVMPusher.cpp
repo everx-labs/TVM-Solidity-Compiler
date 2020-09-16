@@ -1099,9 +1099,6 @@ void TVMCompilerContext::initMembers(ContractDefinition const *contract) {
 	for (ContractDefinition const* base : contract->annotation().linearizedBaseContracts) {
 		for (FunctionDefinition const* f : base->definedFunctions()) {
 			ignoreIntOverflow |= f->name() == "tvm_ignore_integer_overflow";
-			haveFallback |= f->isFallback();
-			haveOnBounce |= f->isOnBounce();
-			haveReceive |= f->isReceive();
 		}
 	}
 
@@ -1163,6 +1160,9 @@ string TVMCompilerContext::getFunctionInternalName(FunctionDefinition const *_fu
 	if (_function->name() == "onCodeUpgrade") {
 		return ":onCodeUpgrade";
 	}
+	if (_function->isFallback()) {
+		return "fallback";
+	}
 	return _function->name() + "_internal";
 }
 
@@ -1193,18 +1193,6 @@ const ContractDefinition *TVMCompilerContext::getContract(const FunctionDefiniti
 
 const FunctionDefinition *TVMCompilerContext::getLocalFunction(const string& fname) const {
 	return get_from_map(m_functions, fname, nullptr);
-}
-
-bool TVMCompilerContext::haveFallbackFunction() const {
-	return haveFallback;
-}
-
-bool TVMCompilerContext::haveReceiveFunction() const {
-	return haveReceive;
-}
-
-bool TVMCompilerContext::haveOnBounceHandler() const {
-	return haveOnBounce;
 }
 
 bool TVMCompilerContext::ignoreIntegerOverflow() const {

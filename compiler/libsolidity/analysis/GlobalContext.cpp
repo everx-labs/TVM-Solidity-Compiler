@@ -94,7 +94,7 @@ inline vector<shared_ptr<MagicVariableDeclaration const>> constructMagicVariable
 		magicVarDecl("math", TypeProvider::magic(MagicType::Kind::Math)),
 		magicVarDecl("msg", TypeProvider::magic(MagicType::Kind::Message)),
 		magicVarDecl("mulmod", TypeProvider::function(strings{"uint256", "uint256", "uint256"}, strings{"uint256"}, FunctionType::Kind::MulMod, false, StateMutability::Pure)),
-		magicVarDecl("now", TypeProvider::uint256()),
+		magicVarDecl("now", TypeProvider::uint(32)),
 		magicVarDecl("require", TypeProvider::function(strings{"bool"}, strings{}, FunctionType::Kind::Require, true, StateMutability::Pure)),
 		magicVarDecl("revert", TypeProvider::function(strings(), strings(), FunctionType::Kind::Revert, true, StateMutability::Pure)),
 		magicVarDecl("ripemd160", TypeProvider::function(strings{"bytes memory"}, strings{"bytes20"}, FunctionType::Kind::RIPEMD160, false, StateMutability::Pure)),
@@ -127,7 +127,7 @@ vector<Declaration const*> GlobalContext::declarations() const
 {
 	vector<Declaration const*> declarations;
 	declarations.reserve(m_magicVariables.size());
-	for (ASTPointer<Declaration const> const& variable: m_magicVariables)
+	for (auto& variable: m_magicVariables)
 		declarations.push_back(variable.get());
 	return declarations;
 }

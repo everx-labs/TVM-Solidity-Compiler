@@ -402,4 +402,6 @@ getParams(const ast_vec<T>& params, size_t offset = 0) {
 
 CallableDeclaration const * getCallableDeclaration(Expression const* expr);
 
+bool isEmptyFunction(FunctionDefinition const* f);
+
 } // end solidity::frontend

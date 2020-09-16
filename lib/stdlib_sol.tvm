@@ -588,23 +588,6 @@ XCHG s3
 BLKDROP 3
 ; end function make_std_address_with_wid_macro
 
-.macro make_std_address_with_zero_wid_macro
-;; param: _address
-; function make_std_address_with_zero_wid_macro
-;; decl: builder
-PUSHINT 1024
-NEWC
-STU 11
-;; push identifier _address
-PUSH S1
-STUR 256
-;; return
-;; push identifier builder
-ENDC
-CTOS
-NIP
-; end function make_std_address_with_zero_wid_macro
-
 .macro send_external_message_with_dest_macro
 ;; param: dest
 ;; param: body
@@ -711,8 +694,8 @@ GETPARAM 6
 
 .macro replay_protection_macro
 ;; param: msg_timestamp
+; function replay_protection_macro
 PUSHCONT {
-	; function replay_protection_macro
 	;; if
 	GETGLOB 3
 	;; push identifier msg_timestamp
@@ -745,9 +728,9 @@ PUSHCONT {
 	;; end if
 	PUSHINT 52
 	THROW 52
-	; end function replay_protection_macro
 }
 CALLX
+; end function replay_protection_macro
 
 .macro message_balance_macro
 ; function message_balance_macro

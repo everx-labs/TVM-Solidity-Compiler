@@ -175,6 +175,15 @@ FunctionDefinition const* ContractDefinition::receiveFunction() const
 	return nullptr;
 }
 
+FunctionDefinition const* ContractDefinition::onBounceFunction() const
+{
+	for (ContractDefinition const* contract: annotation().linearizedBaseContracts)
+		for (FunctionDefinition const* f: contract->definedFunctions())
+			if (f->isOnBounce())
+				return f;
+	return nullptr;
+}
+
 vector<EventDefinition const*> const& ContractDefinition::interfaceEvents() const
 {
 	if (!m_interfaceEvents)

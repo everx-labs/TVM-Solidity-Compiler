@@ -60,6 +60,7 @@ TON Solidity compiler expands Solidity language with different API functions to 
       * [Members](#members)
         * [address.wid](#addresswid)
         * [address.value](#addressvalue)
+        * [address.balance](#addressbalance)
         * [address.currencies](#addresscurrencies)
       * [Functions](#functions)
         * [address.getType()](#addressgettype)
@@ -95,6 +96,7 @@ TON Solidity compiler expands Solidity language with different API functions to 
   * [onTickTock](#onticktock)
   * [onCodeUpgrade](#oncodeupgrade)
   * [afterSignatureCheck](#aftersignaturecheck)
+  * [keyword inline](#keyword-inline)
 * [Function specifiers](#function-specifiers)
   * [functionID()](#functionid)
 * [Events and return](#events-and-return)
@@ -103,9 +105,10 @@ TON Solidity compiler expands Solidity language with different API functions to 
 * [External function calls](#external-function-calls)
 * [API functions and members](#api-functions-and-members)
   * [**msg** namespace](#msg-namespace)
+    * [msg.value](#msgvalue)
+    * [msg.currencies](#msgcurrencies)
     * [msg.pubkey()](#msgpubkey)
     * [msg.createdAt](#msgcreatedat)
-    * [msg.currencies](#msgcurrencies)
     * [msg.data](#msgdata)
   * [**tvm** namespace](#tvm-namespace)
     * [TVM instructions](#tvm-instructions)
@@ -124,9 +127,10 @@ TON Solidity compiler expands Solidity language with different API functions to 
     * [Deploy contract from contract](#deploy-contract-from-contract)
       * [tvm.insertPubkey()](#tvminsertpubkey)
       * [tvm.buildStateInit()](#tvmbuildstateinit)
+      * [tvm.buildEmptyData()](#tvmbuildemptydata)
       * [tvm.deploy()](#tvmdeploy)
-      * [tvm.deployAndCallConstructor()](#tvmdeployandcallconstructor)
-      * [tvm.deployAndCallConstructorWithFlag()](#tvmdeployandcallconstructorwithflag)
+      * [tvm.deployAndCallConstructor() - deprecated](#tvmdeployandcallconstructor---deprecated)
+      * [tvm.deployAndCallConstructorWithFlag() - deprecated](#tvmdeployandcallconstructorwithflag---deprecated)
       * [Deploy via new](#deploy-via-new)
     * [Others](#others)
       * [tvm.pubkey()](#tvmpubkey)
@@ -139,7 +143,7 @@ TON Solidity compiler expands Solidity language with different API functions to 
     * [math.abs()](#mathabs)
     * [math.modpow2()](#mathmodpow2)
     * [math.minmax()](#mathminmax)
-    * [math.muldiv()](#mathmuldiv)
+    * [math.muldiv() math.muldivr() math.muldivc()](#mathmuldiv-mathmuldivr-mathmuldivc)
     * [math.muldivmod()](#mathmuldivmod)
   * [selfdestruct](#selfdestruct)
 
@@ -157,18 +161,18 @@ A literal number can take a suffix to specify a subdenomination of TON currency,
 require(1 nano == 1);
 require(1 nanoton == 1);
 require(1 nTon == 1);
-require(1 micro == 1e3);
-require(1 microton == 1e3);
-require(1 milli == 1e6);
-require(1 milliton == 1e6);
-require(1 Ton == 1e9);
-require(1 ton == 1e9);
-require(1 kiloton == 1e12);
-require(1 kTon == 1e12);
-require(1 megaton == 1e15);
-require(1 MTon == 1e15);
-require(1 gigaton == 1e18);
-require(1 GTon == 1e18);
+require(1 ton == 1e9 nanoton);
+require(1 Ton == 1e9 nanoton);
+require(1 micro == 1e-6 ton);
+require(1 microton == 1e-6 ton);
+require(1 milli == 1e-3 ton);
+require(1 milliton == 1e-3 ton);
+require(1 kiloton == 1e3 ton);
+require(1 kTon == 1e3 ton);
+require(1 megaton == 1e6 ton);
+require(1 MTon == 1e6 ton);
+require(1 gigaton == 1e9 ton);
+require(1 GTon == 1e9 ton);
 ```
 
 #### TvmCell
@@ -523,7 +527,7 @@ require(opt.get() == 123456, 102);
 ```
 
 If **opt** contains a value, returns a reference to the contained value.
-Otherwise, throws an exaption.
+Otherwise, throws an exception.
 
 ##### optional&lt;Type&gt;.set()
 
@@ -678,6 +682,14 @@ uint address_value = addr.value;
 
 This member of **address** type allows to obtain the address value of **addr_std**.
 
+#####  address.balance
+
+```TVMSolidity
+uint128 b = address(this).balance;
+```
+
+This member returns the balance of **this** contract in nanotons.
+
 ##### address.currencies
 
 ```TVMSolidity
@@ -767,6 +779,7 @@ address destination = msg.sender;
 destination.transfer({value:122, bounce:false, flag:128, body:cell, currencies:c});
 destination.transfer({value:122, bounce:false, flag:128, body:cell});
 destination.transfer({value:122, bounce:false, flag:128});
+destination.transfer(10000, true)
 destination.transfer(10000, true, 1)
 destination.transfer(10000, false, 128, cell)
 ```
@@ -1086,6 +1099,20 @@ See example of how to define this function:
 
 * [Custom replay protection](https://github.com/tonlabs/samples/blob/master/solidity/14_CustomReplayProtection.sol)
 
+#### keyword inline
+
+```TVMSolidity
+function getSum(uint a, uint b) public returns (uint) {
+    return sum(a, b);
+}
+
+function sum(uint a, uint b) private inline returns (uint) {
+    return a + b;
+}
+```
+The **inline** specifiers instruct the compiler to insert a copy of the function body into each place the function is called.
+Keyword can be used only for private and internal functions.
+
 ### Function specifiers
 
 #### functionID()
@@ -1147,6 +1174,23 @@ Developer can specify "value", "currencies", "bounce" or "flag" option.
 
 #### **msg** namespace
 
+##### msg.value
+
+```TVMSolidity
+uint128 value = msg.value;
+```
+
+The balance of inbound message in nanograms.
+
+##### msg.currencies
+
+```TVMSolidity
+ExtraCurrencyCollection c = msg.currencies;
+```
+
+The collections of arbitrary currencies contained in balance of
+inbound message.
+
 ##### msg.pubkey()
 
 ```TVMSolidity
@@ -1162,14 +1206,6 @@ uint32 created_at = msg.createdAt;
 ```
 
 This member is a field **created_at** of the external inbound message.
-
-##### msg.currencies
-
-```TVMSolidity
-ExtraCurrencyCollection c = msg.currencies;
-```
-
-This member is a field of the internal inbound message.
 
 ##### msg.data
 
@@ -1327,10 +1363,21 @@ This function inserts a public key into contract's data field.
 ```TVMSolidity
 TvmCell code;
 TvmCell data;
-TvmCell StateInit = tvm.buildStateInit(code, data);
+TvmCell stateInit = tvm.buildStateInit(code, data);
 ```
 
 This function generates a StateInit ([TBLKCH][2] - 3.1.7.) from code and data cells.
+
+##### tvm.buildEmptyData()
+
+```TVMSolidity
+uint256 publicKey = 0x12345678;
+TvmCell data = tvm.buildEmptyData(publicKey);
+```
+
+This function generates a persistent storage of the contract that
+contains only public key. **data** can be used to generate StateInit
+ ([TBLKCH][2] - 3.1.7.).
 
 ##### tvm.deploy()
 
@@ -1350,7 +1397,7 @@ addr        - address of the contract;
 value       - amount of currency in nano tons that will be sent to the new contract address;  
 payload     - encoded message of constructor call.
 
-##### tvm.deployAndCallConstructor()
+##### tvm.deployAndCallConstructor() - deprecated
 
 ```TVMSolidity
 TvmCell stateInit;
@@ -1360,7 +1407,7 @@ uint32 constructor_id;
 tvm.deployAndCallConstructor(stateInit, addr, value, constructor_id[, <list_of_constructor_arguments>])
 ```
 
-This function is equal to tvm.deploy() but it takes not body of a constructor call but builds it and then attaches to the constructor message.
+**Deprecated. Used [Deploy via new](#deploy-via-new).** This function is equal to tvm.deploy() but it takes not body of a constructor call but builds it and then attaches to the constructor message.
 
 Arguments:  
 stateInit      - contract's StateInit;  
@@ -1369,7 +1416,7 @@ value          - amount of currency in nano tons that will be sent to the new co
 constructor_id - identifier of constructor function;  
 \<list_of_constructor_arguments\>.
 
-##### tvm.deployAndCallConstructorWithFlag()
+##### tvm.deployAndCallConstructorWithFlag() - deprecated
 
 ```TVMSolidity
 TvmCell stateInit;
@@ -1380,7 +1427,7 @@ uint32 constructor_id;
 tvm.deployAndCallConstructorWithFlag(stateInit, addr, value, flag, constructor_id[, <list_of_constructor_arguments>])
 ```
 
-This function is equal to tvm.deployAndCallConstructor() but sends the message with an appropriate flag.
+**Deprecated. Used [Deploy via new](#deploy-via-new).** This function is equal to tvm.deployAndCallConstructor() but sends the message with an appropriate flag.
 
 See example of how to deploy contract from contract:
 
@@ -1389,10 +1436,11 @@ See example of how to deploy contract from contract:
 ##### Deploy via new
 
 ```TVMSolidity
-TvmCell stateInitWithKey;
+TvmCell stateInit;
 uint initialValue;
+uint8 wid; // workchain id
 uint8 sendRawMsgFlag;
-address newWallet = new SimpleWallet{stateInit:stateInitWithKey, value:initialValue, flag:sendRawMsgFlag}();
+address newWallet = new SimpleWallet{stateInit:stateInit, value:initialValue, wid:wid, flag:sendRawMsgFlag}();
 ```
 
 Developer can deploy contract from contract using **new** expression. Detailed description can be found in [doc](https://github.com/tonlabs/samples/blob/master/solidity/17_ContractProducer.md).  
@@ -1526,20 +1574,19 @@ int d = 3;
 
 This function sorts two given numbers.
 
-##### math.muldiv()
+##### math.muldiv() math.muldivr() math.muldivc()
 
 ```TVMSolidity
-uint a = 3;
-uint b = 2;
-uint c = 5;
-uint d = math.muldiv(a, b, c);
-int e = -1;
-int f = 3;
-int g = 2;
-int h = math.muldiv(e, f, g);
+require(math.muldiv(3, 7, 2) == 10);
+require(math.muldivr(3, 7, 2) == 11);
+require(math.muldivc(3, 7, 2) == 11);
 ```
 
-This function executes TVM instruction "MULDIVR" ([TVM][1] - A.5.2. - A985). This instruction multiplies first two arguments and divides the result by third argument. Intermediate result is stored in 514 bit buffer, and final result is rounded to the nearest integer.
+This functions multiplies two values and then divides the result by a third value. The return value is rounded.  
+Round mode "floor" is used for `muldiv`.  
+Round mode "nearest integer" is used for `muldivr`.  
+Round mode "ceiling" is used for `muldivc`.  
+See also ([TVM][1] - cf. 1.5.6) about the round modes.
 
 ##### math.muldivmod()
 

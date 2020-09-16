@@ -130,7 +130,7 @@ bool isTvmIntrinsic(const string &name) {
 }
 
 bool isFunctionForInlining(FunctionDefinition const *f) {
-	return ends_with(f->name(), "_inline") || f->isInline() || f->isFallback() || f->isReceive() || f->isOnBounce();
+	return ends_with(f->name(), "_inline") || f->isInline() || f->isReceive() || f->isOnBounce();
 }
 
 const Type *getType(const Expression *expr) {
@@ -284,6 +284,10 @@ CallableDeclaration const * getCallableDeclaration(Expression const* expr) {
 	}
 	solAssert(result, "Failed to get CallableDeclaration.");
 	return result;
+}
+
+bool isEmptyFunction(FunctionDefinition const* f) {
+	return f == nullptr || (f->modifiers().empty() && f->body().statements().empty());
 }
 
 } // end namespace solidity::frontend

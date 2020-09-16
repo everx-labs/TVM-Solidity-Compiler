@@ -637,6 +637,7 @@ public:
 	Category category() const override { return Category::TvmCell; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_tvmcell"; }
+	TypeResult unaryOperatorResult(Token _operator) const override;
 	std::string toString(bool) const override { return "TvmCell"; }
 
 	TypePointer encodingType() const override { return this; }
@@ -654,6 +655,7 @@ public:
 	Category category() const override { return Category::TvmSlice; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_tvmslice"; }
+	TypeResult unaryOperatorResult(Token _operator) const override;
 	std::string toString(bool) const override { return "TvmSlice"; }
 
 	TypePointer encodingType() const override { return this; }
@@ -671,6 +673,7 @@ public:
 	Category category() const override { return Category::TvmBuilder; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_tvmbuilder"; }
+	TypeResult unaryOperatorResult(Token _operator) const override;
 	std::string toString(bool) const override { return "TvmBuilder"; }
 
 	TypePointer encodingType() const override { return this; }
@@ -1374,6 +1377,7 @@ public:
 	bool bounceSet() const { return m_bounceSet; }
 	bool currenciesSet() const { return m_currenciesSet; }
 	bool bound() const { return m_bound; }
+	bool wid() const { return m_wid; }
 
 	/// @returns a copy of this type, where gas or value are set manually. This will never set one
 	/// of the parameters to false.
@@ -1403,6 +1407,7 @@ private:
 	bool const m_bounceSet = false; ///< true if bounce flag is on the stack
 	bool const m_currenciesSet = false; ///< true if the currencies are on the stack
 	bool const m_bound = false; ///< true if the function is called as arg1.fun(arg2, ..., argn)
+	bool const m_wid = false; ///< true if the wid is on the stack
 	Declaration const* m_declaration = nullptr;
 };
 

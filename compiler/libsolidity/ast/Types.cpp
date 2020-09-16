@@ -1298,9 +1298,7 @@ BoolResult StringLiteralType::isImplicitlyConvertibleTo(Type const& _convertTo) 
 		return size_t(fixedBytes->numBytes()) >= m_value.size();
 	else if (auto arrayType = dynamic_cast<ArrayType const*>(&_convertTo))
 		return
-			arrayType->isByteArray() &&
-			!(arrayType->dataStoredIn(DataLocation::Storage) && arrayType->isPointer()) &&
-			!(arrayType->isString() && !isValidUTF8());
+			arrayType->isByteArray() && !(arrayType->isString() && !isValidUTF8());
 	else
 		return false;
 }
@@ -3801,7 +3799,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"pubkey", TypeProvider::function(strings(), strings{"uint"}, FunctionType::Kind::MessagePubkey, false, StateMutability::Pure)},
 			{"createdAt", TypeProvider::uint(32)},
 			{"gas", TypeProvider::uint256()},
-			{"value", TypeProvider::uint256()},
+			{"value", TypeProvider::uint(128)},
 			{"data", TypeProvider::tvmslice()},
 			{"sig", TypeProvider::fixedBytes(4)},
 			{"currencies", TypeProvider::extraCurrencyCollection(DataLocation::Memory)},
@@ -3964,6 +3962,15 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				false, StateMutability::Pure
 		));
 
+		members.emplace_back("buildEmptyData", TypeProvider::function(
+				TypePointers{TypeProvider::uint256()},
+				TypePointers{TypeProvider::tvmcell()},
+				strings{{}},
+				strings{{}},
+				FunctionType::Kind::TVMDeploy,
+				false, StateMutability::Pure
+		));
+
 		members.emplace_back("insertPubkey", TypeProvider::function(
 				TypePointers{TypeProvider::tvmcell(), TypeProvider::uint256()},
 				TypePointers{TypeProvider::tvmcell()},
@@ -4048,14 +4055,16 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				FunctionType::Kind::MathMinMax,
 				true, StateMutability::Pure
 		));
-		members.emplace_back("muldiv", TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::MathMulDiv,
-				true, StateMutability::Pure
-		));
+		for(const std::string& code : {"muldiv", "muldivr", "muldivc"}) {
+			members.emplace_back(code, TypeProvider::function(
+					TypePointers{},
+					TypePointers{},
+					strings{},
+					strings{},
+					FunctionType::Kind::MathMulDiv,
+					true, StateMutability::Pure
+			));
+		}
 		members.emplace_back("muldivmod", TypeProvider::function(
 				TypePointers{},
 				TypePointers{},
@@ -4234,6 +4243,12 @@ MemberList::MemberMap OptionalType::nativeMembers(ContractDefinition const*) con
 	return members;
 }
 
+TypeResult TvmSliceType::unaryOperatorResult(Token _operator) const  {
+	if (_operator == Token::Delete)
+		return TypeProvider::emptyTuple();
+	return nullptr;
+}
+
 MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) const {
 	MemberList::MemberMap members;
 
@@ -4344,6 +4359,12 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) co
 	return members;
 }
 
+TypeResult TvmCellType::unaryOperatorResult(Token _operator) const {
+	if (_operator == Token::Delete)
+		return TypeProvider::emptyTuple();
+	return nullptr;
+}
+
 MemberList::MemberMap TvmCellType::nativeMembers(const ContractDefinition *) const
 {
 	MemberList::MemberMap members;
@@ -4367,6 +4388,12 @@ MemberList::MemberMap TvmCellType::nativeMembers(const ContractDefinition *) con
 	));
 
 	return members;
+}
+
+TypeResult TvmBuilderType::unaryOperatorResult(Token _operator) const {
+	if (_operator == Token::Delete)
+		return TypeProvider::emptyTuple();
+	return nullptr;
 }
 
 MemberList::MemberMap TvmBuilderType::nativeMembers(const ContractDefinition *) const

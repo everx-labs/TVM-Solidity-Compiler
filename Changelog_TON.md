@@ -1,3 +1,20 @@
+### 0.31 (2020-09-16)
+
+Breaking changes:
+ * The ``now`` returns ``uint32`` value, not ``uint256``
+ * The ``msg.value`` returns ``uint128`` value, not ``uint256``
+ * Change round mode for ``math.muldiv()``
+
+Compiler Features:
+ * Optimize runtime code (delete duplicate code and useless checks)
+ * Add new math operations: ``math.muldivr()`` and ``math.muldivc()``
+ * Support setting workchain id for deploying contracts via ``new``
+ * Support ``tvm.buildEmptyData(publicKey)`` used for deploying contracts
+
+Bugfixes:
+ * fixed an issue with overridden functionID
+ * fixed an issue with inline function
+
 ### 0.30 (2020-08-21)
 
 APIs for common TON-specific functionality:
