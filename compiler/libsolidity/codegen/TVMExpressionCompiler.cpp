@@ -103,9 +103,6 @@ std::pair<bool, bigint> TVMExpressionCompiler::constValue(const Expression &_e) 
 			return f(vd);
 		} else if (_e.annotation().type->category() == Type::Category::RationalNumber) {
 			auto number = dynamic_cast<RationalNumberType const *>(_e.annotation().type);
-			if (!number) {
-				number = number;
-			}
 			solAssert(number, "");
 			solAssert(!number->isFractional(), "");
 			bigint val = number->numerator();

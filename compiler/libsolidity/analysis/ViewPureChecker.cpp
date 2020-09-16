@@ -117,7 +117,7 @@ void ViewPureChecker::endVisit(Identifier const& _identifier)
 			break;
 		case Type::Category::Integer:
 			solAssert(_identifier.name() == "now", "");
-			mutability = StateMutability::View;
+			mutability = StateMutability::Pure;
 			break;
 		default:
 			break;
@@ -267,6 +267,8 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::Math, "max"},
 			{MagicType::Kind::Math, "minmax"},
 			{MagicType::Kind::Math, "muldiv"},
+			{MagicType::Kind::Math, "muldivr"},
+			{MagicType::Kind::Math, "muldivc"},
 			{MagicType::Kind::Math, "muldivmod"},
 			{MagicType::Kind::Math, "abs"},
 			{MagicType::Kind::Math, "modpow2"},

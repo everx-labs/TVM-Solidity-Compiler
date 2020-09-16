@@ -145,7 +145,8 @@ public:
 	void createDefaultConstructorMessage(const int bitSizeBuilder);
 
 public:
-	uint32_t calculateFunctionID(const CallableDeclaration *declaration);
+	// returns pair (functionID, is_manually_overridden)
+	std::pair<uint32_t, bool> calculateFunctionID(const CallableDeclaration *declaration);
 	uint32_t calculateFunctionID(const std::string name, const std::vector<ASTPointer<VariableDeclaration> > inputs, const std::vector<ASTPointer<VariableDeclaration> > *outputs);
 public:
 	void createMsgBodyAndAppendToBuilder(const std::function<void(size_t)>& pushParam,

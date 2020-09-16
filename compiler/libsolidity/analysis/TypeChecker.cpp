@@ -2427,6 +2427,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	bool setCurrencies = false;
 	bool setStateInit = false;
 	bool setBounce = false;
+	bool setWid = false;
 
 	FunctionType::Kind kind = expressionFunctionType->kind();
 	if (
@@ -2476,12 +2477,22 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 			expectType(*_functionCallOptions.options()[i], *TypeProvider::extraCurrencyCollection(DataLocation::Memory));
 			setCheckOption(setCurrencies, "currencies", expressionFunctionType->currenciesSet());
 		}
+		else if (name == "wid")
+		{
+			if (!dynamic_cast<const NewExpression *>(&_functionCallOptions.expression()))
+				m_errorReporter.typeError(
+						_functionCallOptions.location(),
+						R"(Option "wid" can be set only for "new" expression.)");
+
+			expectType(*_functionCallOptions.options()[i], *TypeProvider::integer(8, IntegerType::Modifier::Signed));
+			setCheckOption(setWid, "wid", expressionFunctionType->currenciesSet());
+		}
 		else if (name == "stateInit")
 		{
 			if (!dynamic_cast<const NewExpression *>(&_functionCallOptions.expression()))
 				m_errorReporter.typeError(
 					_functionCallOptions.location(),
-					"Option \"stateInit\" can be set only for \"new\" expression.");
+					R"(Option "stateInit" can be set only for "new" expression.)");
 
 			expectType(*_functionCallOptions.options()[i], *TypeProvider::tvmcell());
 			setCheckOption(setStateInit, "stateInit", expressionFunctionType->currenciesSet());
@@ -2508,7 +2519,9 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		else
 			m_errorReporter.typeError(
 				_functionCallOptions.location(),
-				"Unknown call option \"" + name + "\". Valid options are \"currencies\", \"stateInit\", \"flag\", \"bounce\" and \"value\"."
+				"Unknown call option \"" +
+				name +
+				R"(". Valid options are "value", "currencies", "bounce", "wid", "stateInit" and "flag".)"
 			);
 	}
 

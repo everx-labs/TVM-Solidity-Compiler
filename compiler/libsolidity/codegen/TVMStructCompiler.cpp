@@ -883,7 +883,7 @@ void StructCompiler::store(const VariableDeclaration *vd, bool reverse, bool isV
 			pusher->push(-1, "STDICT"); // builder
 			break;
 		case Type::Category::Array: {
-			auto arrayType = to<ArrayType>(vd->type());
+			auto arrayType = to<ArrayType>(type);
 			if (arrayType->isByteArray()) {
 				pusher->push(-1, reverse? "STREFR" : "STREF"); // builder
 			} else {

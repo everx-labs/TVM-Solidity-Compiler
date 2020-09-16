@@ -23,6 +23,8 @@
 #include "TVMContractCompiler.hpp"
 #include "TVMABI.hpp"
 
+#include <boost/algorithm/string.hpp>
+
 using namespace solidity::frontend;
 
 void FunctionCallCompiler::acceptExpr(const Expression *expr) {
@@ -69,10 +71,12 @@ void FunctionCallCompiler::compile() {
 		if (ma != nullptr) {
 			auto category = getType(&ma->expression())->category();
 			auto ident = to<Identifier>(&ma->expression());
-			if (checkForTvmSliceMethods(*ma, category)) {
-			} else if (checkForTvmBuilderMethods(*ma, category)) {
-			} else if (checkForStringMethods(*ma)) {
-			} else if (checkForOptionalMethods(*ma)) {
+			if (checkForTvmSliceMethods(*ma, category) ||
+				checkForTvmBuilderMethods(*ma, category) ||
+				checkForStringMethods(*ma) ||
+				checkForOptionalMethods(*ma))
+			{
+
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "tvm") {
 				if (checkForTvmSendFunction(*ma) ||
 					checkForTvmConfigParamFunction(*ma) ||
@@ -92,13 +96,13 @@ void FunctionCallCompiler::compile() {
 						acceptExpr(arg.get());
 					}
 				}
-				if (checkForSuper(*ma, category)) {
-				} else if (ma->expression().annotation().type->category() == Type::Category::Address) {
+				if (ma->expression().annotation().type->category() == Type::Category::Address) {
 					addressMethod();
-				} else if (checkForTvmCellMethods(*ma, category)) {
-				} else if (checkForMemberAccessTypeType(*ma, category)) {
-				} else if (checkForMsgFunction(*ma, category)) {
-				} else if (checkForTypeTypeMember(*ma, category)) {
+				} else if (checkForSuper(*ma, category) ||
+					checkForTvmCellMethods(*ma, category) ||
+					checkForMemberAccessTypeType(*ma, category) ||
+					checkForMsgFunction(*ma, category) ||
+					checkForTypeTypeMember(*ma, category)) {
 				} else {
 					cast_error(m_functionCall, "Unsupported function call");
 				}
@@ -204,6 +208,24 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 	if (_node.memberName() == "buildStateInit") {
 		pushArgs();
 		m_pusher.pushPrivateFunctionOrMacroCall(-2 + 1, "build_state_init_macro");
+		return true;
+	}
+
+	if (_node.memberName() == "buildEmptyData") {
+		pushArgs(); // push public key
+		m_pusher.push(+1, "NEWC");
+		m_pusher.push(-1, ""); // fix stack
+		m_pusher.pushLines(R"(
+STU 256
+PUSHINT 0
+NEWDICT
+PUSHINT 64
+DICTUSETB
+)");
+
+		m_pusher.push(+1, "NEWC");
+		m_pusher.push(-2 + 1, "STDICT");
+		m_pusher.push(0, "ENDC");
 		return true;
 	}
 
@@ -633,11 +655,12 @@ void FunctionCallCompiler::addressMethod() {
 				}
 			}
 		} else {
-			solAssert(isIn(argumentQty, 1, 3, 4), "");
-
+			solAssert(1 <= argumentQty && argumentQty <= 4, "");
 			setValue(m_arguments[0].get());
-			if (argumentQty >= 3) {
+			if (argumentQty >= 2) {
 				setBounce(m_arguments[1].get());
+			}
+			if (argumentQty >= 3) {
 				pushSendrawmsgFlag = [&]() { acceptExpr(m_arguments[2].get()); };
 			}
 			if (argumentQty >= 4) {
@@ -676,18 +699,15 @@ void FunctionCallCompiler::addressMethod() {
 	} else if (_node->memberName() == "isStdAddrWithoutAnyCast") {
 		m_pusher.push(0, ";; addr.isStdAddrWithoutAnyCast()");
 		acceptExpr(&_node->expression());
-		// t = (2, u, x, s); check that len(t) == 4 and t[0] == 2 and t[1] is null
+		// t = (2, u, x, s); check t[0] == 2 and t[1] is null
 		m_pusher.pushLines(R"(
 PARSEMSGADDR
 DUP
-TLEN
-EQINT 4
+FIRST
+EQINT 2
 PUSHCONT {
-	UNPACKFIRST 2
+	SECOND
 	ISNULL
-	SWAP
-	EQINT 2
-	AND
 }
 PUSHCONT {
 	DROP
@@ -1005,7 +1025,13 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 	} else if (_node.memberName() == "functionId") { // tvm.functionId
 		auto callDef = getCallableDeclaration(m_arguments.at(0).get());
 		EncodeFunctionParams encoder(&m_pusher);
-		m_pusher.pushInt(encoder.calculateFunctionID(callDef) & 0x7fffffffu);
+		uint32_t funcID;
+		bool isManuallyOverridden;
+		std::tie(funcID, isManuallyOverridden) = encoder.calculateFunctionID(callDef);
+		if (!isManuallyOverridden) {
+			funcID &= 0x7FFFFFFFu;
+		}
+		m_pusher.pushInt(funcID);
 	} else if (_node.memberName() == "encodeBody") { // tvm.encodeBody
 		auto callDef = getCallableDeclaration(m_arguments.at(0).get());
 		m_pusher.push(+1, "NEWC");
@@ -1055,9 +1081,9 @@ bool FunctionCallCompiler::checkForMathFunction(const MemberAccess &_node) {
 	} else if (_node.memberName() == "minmax") {
 		pushArgs();
 		m_pusher.push(-2 + 2, "MINMAX");
-	} else if (_node.memberName() == "muldiv") {
+	} else if (isIn(_node.memberName(), "muldiv", "muldivr", "muldivc")) {
 		pushArgs();
-		m_pusher.push(-3 + 1, "MULDIVR");
+		m_pusher.push(-3 + 1, boost::to_upper_copy<std::string>(_node.memberName()));
 		if (!m_pusher.ctx().ignoreIntegerOverflow()) {
 			m_pusher.push(0, checkValFitsType(ret));
 		}
@@ -1145,7 +1171,11 @@ void FunctionCallCompiler::typeConversion() {
 					m_pusher.literalToSliceAddress(literal);
 				} else {
 					acceptArg();
-					m_pusher.pushPrivateFunctionOrMacroCall(-1 + 1, "make_std_address_with_zero_wid_macro");
+					m_pusher.push(+1, "NEWC");
+					m_pusher.push(-1 + 1, "STSLICECONST x801_"); // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 // 10 0  00000000 1 = 801
+					m_pusher.push(-1, "STU 256"); // address:bits256
+					m_pusher.push(-1 + 1, "ENDC");
+					m_pusher.push(-1 + 1, "CTOS");
 				}
 				break;
 			}
@@ -1429,17 +1459,36 @@ bool FunctionCallCompiler::createNewContract() {
 
 	std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
 	for (const auto &option: optionNames)
-		if (!isIn(*option, "flag", "value", "stateInit"))
+		if (!isIn(*option, "value", "wid", "stateInit", "flag"))
 			cast_error(m_functionCall, "Unsupported option: " + *option);
-	auto stateIt = find_if(optionNames.begin(), optionNames.end(),  [](auto el) { return *el == "stateInit"; });
+			// TODO support currencies, bounce for new expression 'new D{currencies:c, bounce:b}()'
+	auto stateIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "stateInit"; });
+	auto widIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "wid"; });
 	if (stateIt != optionNames.end()) {
 		size_t index = stateIt - optionNames.begin();
 		acceptExpr(functionOptions->options()[index].get()); // stack: stateInit
 		stateInitStack = m_pusher.getStack().size();
 
 		m_pusher.pushS(0);
-		m_pusher.push(-1+1, "HASHCU");
-		m_pusher.pushPrivateFunctionOrMacroCall(-1 + 1, "make_std_address_with_zero_wid_macro");
+		m_pusher.push(-1 + 1, "HASHCU"); // stack: stateInit hash
+
+		if (widIt != optionNames.end()) {
+			size_t widIndex = widIt - optionNames.begin();
+			acceptExpr(functionOptions->options()[widIndex].get()); // stack: stateInit hash wid
+			m_pusher.push(+1, "NEWC");
+			m_pusher.push(-1 + 1, "STSLICECONST x9_"); // addr_std$10 anycast:(Maybe Anycast) // 10 0 1 = 9
+			m_pusher.push(-1, "STI 8"); // workchain_id:int8
+			m_pusher.push(-1, "STU 256"); // address:bits256
+			m_pusher.push(-1 + 1, "ENDC");
+			m_pusher.push(-1 + 1, "CTOS");
+		} else {
+			m_pusher.push(+1, "NEWC");
+			m_pusher.push(-1 + 1, "STSLICECONST x801_"); // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 // 10 0  00000000 1 = 801
+			m_pusher.push(-1, "STU 256"); // address:bits256
+			m_pusher.push(-1 + 1, "ENDC");
+			m_pusher.push(-1 + 1, "CTOS");
+		}
+
 		destAddressStack = m_pusher.getStack().size();
 		// stack: stateInit destAddress
 	} else {

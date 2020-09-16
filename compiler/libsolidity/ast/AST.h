@@ -489,6 +489,9 @@ public:
 	/// Returns the ether receiver function or nullptr if no receive function was specified.
 	FunctionDefinition const* receiveFunction() const;
 
+	/// Returns the ether onBounce function or nullptr if no onBounce function was specified.
+	FunctionDefinition const* onBounceFunction() const;
+
 	std::string fullyQualifiedName() const { return sourceUnitName() + ":" + name(); }
 
 	TypePointer type() const override;

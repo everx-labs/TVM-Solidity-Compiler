@@ -35,19 +35,22 @@ class TVMFunctionCompiler: public ASTConstVisitor, private boost::noncopyable
 
 
 	const int m_startStackSize{};
-	const bool m_isPublic{};
+	const bool m_doEmitReturnParams{};
+	const bool m_haveExternalDecoration{};
 	const int m_currentModifier{};
 	FunctionDefinition const* m_function{};
+	ContractDefinition const *m_contract{};
 
 public:
-	explicit TVMFunctionCompiler(StackPusherHelper& pusher);
+	TVMFunctionCompiler(StackPusherHelper& pusher, ContractDefinition const *contract);
 
 	TVMFunctionCompiler(
 		StackPusherHelper& pusher,
-		bool isPublic,
+		bool doEmitReturnParams,
+		bool haveExternalDecoration,
 		int modifier,
 		FunctionDefinition const* f,
-		const int startStackSize
+		int startStackSize
 	);
 
 protected:
@@ -58,8 +61,6 @@ protected:
 	};
 
 public:
-	void makeInlineFunctionCall(bool alloc);
-
 	void generateC4ToC7(bool withInitMemory);
 	void generateMacro();
 	void generateMainExternal();
@@ -67,7 +68,7 @@ public:
 	void generateOnCodeUpgrade();
 	void generateOnTickTock();
 	void generatePrivateFunction();
-	void generatePrivateFunctionWithoutHeader();
+	void generateFallback();
 	void generatePublicFunction();
 	void generateTvmGetter(FunctionDefinition const* _function);
 
@@ -90,7 +91,7 @@ protected:
 	void visitModifierOrFunctionBlock(Block const& body, bool isFunc);
 	void visitFunctionAfterModifiers();
 public:
-	void visitFunctionWithModifiers();
+	void visitFunctionWithModifiers(bool doAllocateParams);
 private:
 	void visitForOrWhileCondition(const ContInfo& ci, const ControlFlowInfo& info, Expression const* condition);
 	bool visitNode(ASTNode const&) override { solAssert(false, "Internal error: unreachable"); }
@@ -124,6 +125,9 @@ private:
 	void callPublicFunction();
 	static std::string protectFromWrongFunctionId();
 	void fillInlineFunctionsAndConstants(std::string& pattern);
+	void pushC4ToC7IfNeed();
+	void pushC7ToC4IfNeed();
+	std::string pushReceive();
 };
 
 }	// end solidity::frontend

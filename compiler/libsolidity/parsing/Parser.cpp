@@ -185,7 +185,11 @@ ASTPointer<PragmaDirective> Parser::parsePragmaDirective()
 		);
 	}
 
-	return nodeFactory.createNode<PragmaDirective>(tokens, literals);
+	ASTPointer<PragmaDirective> pd = nodeFactory.createNode<PragmaDirective>(tokens, literals);
+	if (literals.size() == 2 && literals[0] == "experimental" && literals[1] == "ABIEncoderV2") {
+		m_errorReporter.warning(pd->location(), "Have no effect in TON. Delete this.");
+	}
+	return pd;
 }
 
 ASTPointer<ImportDirective> Parser::parseImportDirective()

@@ -810,10 +810,10 @@ uint32_t EncodeFunctionParams::calculateFunctionID(const std::string name, const
 }
 
 
-uint32_t EncodeFunctionParams::calculateFunctionID(const CallableDeclaration *declaration) {
+std::pair<uint32_t, bool> EncodeFunctionParams::calculateFunctionID(const CallableDeclaration *declaration) {
 	auto functionDefinition = to<FunctionDefinition>(declaration);
 	if (functionDefinition != nullptr && functionDefinition->functionID() != 0) {
-		return functionDefinition->functionID();
+		return std::make_pair(functionDefinition->functionID(), true);
 	}
 
 	std::string name;
@@ -822,8 +822,9 @@ uint32_t EncodeFunctionParams::calculateFunctionID(const CallableDeclaration *de
 	else
 		name = declaration->name();
 
-	return calculateFunctionID(name, declaration->parameters(), declaration->returnParameterList() ?
-								   &declaration->returnParameters() : nullptr);
+	uint32_t id = calculateFunctionID(name, declaration->parameters(), declaration->returnParameterList() ?
+								      &declaration->returnParameters() : nullptr);
+	return std::make_pair(id, false);									
 }
 
 void EncodeFunctionParams::createMsgBodyAndAppendToBuilder(const std::function<void(size_t)> &pushParam,
@@ -865,14 +866,18 @@ void EncodeFunctionParams::createMsgBody(const std::function<void (size_t)> &pus
 	std::vector<ASTNode const*> nodes;
 	std::tie(types, nodes) = getParams(parameters);
 
-	uint32_t funcID = calculateFunctionID(funcDef);
+	uint32_t funcID;
+	bool isManuallyOverridden;
+	std::tie(funcID, isManuallyOverridden) = calculateFunctionID(funcDef);
 	switch (reason) {
 		case ReasonOfOutboundMessage::FunctionReturnExternal:
 			funcID |= 0x80000000;
 			break;
 		case ReasonOfOutboundMessage::EmitEventExternal:
 		case ReasonOfOutboundMessage::RemoteCallInternal:
-			funcID &= 0x7FFFFFFFu;
+			if (!isManuallyOverridden) {
+				funcID &= 0x7FFFFFFFu;
+			}
 			break;
 	}
 	std::stringstream ss;
