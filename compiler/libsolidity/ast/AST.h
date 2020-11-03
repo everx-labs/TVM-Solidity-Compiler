@@ -257,8 +257,10 @@ public:
 		int64_t _id,
 		SourceLocation const& _location,
 		std::vector<Token> const& _tokens,
-		std::vector<ASTString> const& _literals
-	): ASTNode(_id, _location), m_tokens(_tokens), m_literals(_literals)
+		std::vector<ASTString> const& _literals,
+		ASTPointer<Expression> _parameter = nullptr
+	): ASTNode(_id, _location), m_tokens(_tokens), m_literals(_literals),
+		m_parameter(_parameter)
 	{}
 
 	void accept(ASTVisitor& _visitor) override;
@@ -267,12 +269,15 @@ public:
 	std::vector<Token> const& tokens() const { return m_tokens; }
 	std::vector<ASTString> const& literals() const { return m_literals; }
 
+	ASTPointer<Expression> parameter() const { return m_parameter; }
 private:
 
 	/// Sequence of tokens following the "pragma" keyword.
 	std::vector<Token> m_tokens;
 	/// Sequence of literals following the "pragma" keyword.
 	std::vector<ASTString> m_literals;
+	/// Arbitrary pragma parameter.
+	ASTPointer<Expression> m_parameter;
 };
 
 /**
@@ -1442,27 +1447,34 @@ public:
 class WhileStatement: public BreakableStatement
 {
 public:
+
+	enum class LoopType {
+		DO_WHILE,
+		WHILE_DO,
+		REPEAT
+	};
+
 	WhileStatement(
 		int64_t _id,
 		SourceLocation const& _location,
 		ASTPointer<ASTString> const& _docString,
 		ASTPointer<Expression> const& _condition,
 		ASTPointer<Statement> const& _body,
-		bool _isDoWhile
+		LoopType loopType
 	):
 		BreakableStatement(_id, _location, _docString), m_condition(_condition), m_body(_body),
-		m_isDoWhile(_isDoWhile) {}
+		m_loopType(loopType) {}
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 
 	Expression const& condition() const { return *m_condition; }
 	Statement const& body() const { return *m_body; }
-	bool isDoWhile() const { return m_isDoWhile; }
+	LoopType loopType() const { return m_loopType; }
 
 private:
 	ASTPointer<Expression> m_condition;
 	ASTPointer<Statement> m_body;
-	bool m_isDoWhile;
+	LoopType m_loopType;
 };
 
 /**

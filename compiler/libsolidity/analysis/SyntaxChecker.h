@@ -96,6 +96,7 @@ private:
 
 	/// Flag that indicates whether some version pragma was present.
 	bool m_versionPragmaFound = false;
+	bool m_msgValuePragmaFound = false;
 
 	int m_inLoopDepth = 0;
 	bool m_isInterface = false;

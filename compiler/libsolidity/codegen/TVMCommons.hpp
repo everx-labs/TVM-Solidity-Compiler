@@ -70,16 +70,19 @@ bool ends_with(const string& str, const string& suffix);
 std::string functionName(FunctionDefinition const* _function);
 
 struct ContInfo {
-	bool canReturn		= false;
-	bool canBreak		= false;
-	bool canContinue	= false;
-	bool alwaysReturns	= false;
-	bool alwaysBreak	= false;
-	bool alwaysContinue = false;
-	ContInfo() = default;
+	bool canReturn{};
+	bool canBreak{};
+	bool canContinue{};
+	bool alwaysReturns{};
+	bool alwaysBreak{};
+	bool alwaysContinue{};
 
 	bool doThatAlways() const {
 		return alwaysReturns || alwaysBreak || alwaysContinue;
+	}
+
+	bool mayDoThat() const {
+		return canReturn || canBreak || canContinue;
 	}
 };
 
@@ -332,6 +335,15 @@ public:
 		return false;
 	}
 
+	ASTPointer<Expression> haveMsgValue() const {
+		for (PragmaDirective const *pd : pragmaDirectives) {
+			if (pd->literals().size() == 1 &&
+				pd->literals()[0] == "msgValue") {
+				return pd->parameter();
+			}
+		}
+		return nullptr;
+	}
 private:
 	std::vector<PragmaDirective const *> const& pragmaDirectives;
 };
@@ -400,7 +412,7 @@ getParams(const ast_vec<T>& params, size_t offset = 0) {
 	return std::make_pair(types, nodes);
 }
 
-CallableDeclaration const * getCallableDeclaration(Expression const* expr);
+CallableDeclaration const * getFunctionDeclarationOrConstructor(Expression const* expr);
 
 bool isEmptyFunction(FunctionDefinition const* f);
 

@@ -79,9 +79,9 @@ protected:
 	bool checkAbiMethodCall(FunctionCall const& _functionCall);
 
 protected:
+	std::string getDefaultMsgValue();
 	bool checkRemoteMethodCall(FunctionCall const& _functionCall);
 	const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
-	bool checkForArrayMethods(FunctionCall const& _functionCall);
 	void mappingDelMinMax(FunctionCall const& _functionCall, bool isDelMin);
 	void mappingGetSet(FunctionCall const& _functionCall);
 	void mappingPrevNextMethods(FunctionCall const& _functionCall);

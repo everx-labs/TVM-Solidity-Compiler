@@ -175,8 +175,7 @@ void ViewPureChecker::reportMutability(
 	);
 }
 
-void ViewPureChecker::endVisit(FunctionCall const& _functionCall)
-{
+void ViewPureChecker::endVisit(FunctionCall const& _functionCall) {
 	if (_functionCall.annotation().kind != FunctionCallKind::FunctionCall)
 		return;
 
@@ -185,9 +184,20 @@ void ViewPureChecker::endVisit(FunctionCall const& _functionCall)
 	if (ma && ma->expression().annotation().type->category() == Type::Category::Contract) {
 		mutability = StateMutability::Pure; // call function of another contract
 	} else {
-		mutability = dynamic_cast<FunctionType const&>(*_functionCall.expression().annotation().type).stateMutability();
+		bool isLibCall{};
+		if (ma) {
+			if (auto libFunction = dynamic_cast<FunctionDefinition const*>(ma->annotation().referencedDeclaration)) {
+				DeclarationAnnotation const &da = libFunction->annotation();
+				if (da.contract->contractKind() == ContractKind::Library) {
+					isLibCall = true;
+					mutability = StateMutability::NonPayable; // TODO: check mutability more detail
+				}
+			}
+		}
+		if (!isLibCall) {
+			mutability = dynamic_cast<FunctionType const &>(*_functionCall.expression().annotation().type).stateMutability();
+		}
 	}
-
 	reportMutability(mutability, _functionCall.location());
 }
 
@@ -242,42 +252,50 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::ABI, "encodeWithSelector"},
 			{MagicType::Kind::ABI, "encodeWithSignature"},
 			{MagicType::Kind::Block, "blockhash"},
-			{MagicType::Kind::Message, "createdAt"},
-			{MagicType::Kind::Message, "data"},
-			{MagicType::Kind::Message, "pubkey"},
-			{MagicType::Kind::Message, "sig"},
-			{MagicType::Kind::Message, "currencies"},
-			{MagicType::Kind::Message, "sender"},
-			{MagicType::Kind::TVM, "accept"},
-			{MagicType::Kind::TVM, "cdatasize"},
-			{MagicType::Kind::TVM, "checkSign"},
-			{MagicType::Kind::TVM, "configParam"},
-			{MagicType::Kind::TVM, "rawConfigParam"},
-			{MagicType::Kind::TVM, "hash"},
-			{MagicType::Kind::TVM, "log"},
-			{MagicType::Kind::TVM, "sendMsg"},
-			{MagicType::Kind::TVM, "setcode"},
-			{MagicType::Kind::TVM, "sendrawmsg"},
-			{MagicType::Kind::TVM, "setCurrentCode"},
-			{MagicType::Kind::TVM, "transfer"},
-			{MagicType::Kind::TVM, "transLT"},
-			{MagicType::Kind::TVM, "functionId"},
-			{MagicType::Kind::TVM, "encodeBody"},
-			{MagicType::Kind::Math, "min"},
+			{MagicType::Kind::Block, "timestamp"},
+			{MagicType::Kind::Math, "abs"},
+			{MagicType::Kind::Math, "divc"},
+			{MagicType::Kind::Math, "divr"},
 			{MagicType::Kind::Math, "max"},
+			{MagicType::Kind::Math, "min"},
 			{MagicType::Kind::Math, "minmax"},
+			{MagicType::Kind::Math, "modpow2"},
 			{MagicType::Kind::Math, "muldiv"},
-			{MagicType::Kind::Math, "muldivr"},
 			{MagicType::Kind::Math, "muldivc"},
 			{MagicType::Kind::Math, "muldivmod"},
-			{MagicType::Kind::Math, "abs"},
-			{MagicType::Kind::Math, "modpow2"},
+			{MagicType::Kind::Math, "muldivr"},
+			{MagicType::Kind::Message, "createdAt"},
+			{MagicType::Kind::Message, "currencies"},
+			{MagicType::Kind::Message, "data"},
+			{MagicType::Kind::Message, "pubkey"},
+			{MagicType::Kind::Message, "sender"},
+			{MagicType::Kind::Message, "sig"},
+			{MagicType::Kind::Message, "value"},
 			{MagicType::Kind::MetaType, "creationCode"},
-			{MagicType::Kind::MetaType, "runtimeCode"},
 			{MagicType::Kind::MetaType, "name"},
+			{MagicType::Kind::MetaType, "runtimeCode"},
+			{MagicType::Kind::Transaction, "timestamp"},
+			{MagicType::Kind::TVM, "accept"},
+			{MagicType::Kind::TVM, "checkSign"},
+			{MagicType::Kind::TVM, "configParam"},
+			{MagicType::Kind::TVM, "encodeBody"},
+			{MagicType::Kind::TVM, "exit"},
+			{MagicType::Kind::TVM, "exit1"},
+			{MagicType::Kind::TVM, "functionId"},
+			{MagicType::Kind::TVM, "hash"},
+			{MagicType::Kind::TVM, "log"},
+			{MagicType::Kind::TVM, "rawConfigParam"},
+			{MagicType::Kind::TVM, "sendMsg"},
+			{MagicType::Kind::TVM, "sendrawmsg"},
+			{MagicType::Kind::TVM, "setcode"},
+			{MagicType::Kind::TVM, "setCurrentCode"},
+			{MagicType::Kind::TVM, "transfer"},
+			{MagicType::Kind::Rnd, "getSeed"},
+			{MagicType::Kind::Rnd, "next"},
+			{MagicType::Kind::Rnd, "setSeed"},
+			{MagicType::Kind::Rnd, "shuffle"},
 		};
 		set<MagicMember> static const nonpayableMembers{
-			{MagicType::Kind::Message, "value"},
 			{MagicType::Kind::TVM, "commit"},
 			{MagicType::Kind::TVM, "resetStorage"}
 		};

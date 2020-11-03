@@ -349,14 +349,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		m_pusher.push(+1, "NOW");
 		return true;
 	}
-	if (iname == "tvm_block_lt") {
-		m_pusher.push(+1,   "BLOCKLT");
-		return true;
-	}
-	if (iname == "tvm_trans_lt") {
-		m_pusher.push(+1,   "LTIME");
-		return true;
-	}
 	if (iname == "tvm_rand_seed") {
 		m_pusher.pushPrivateFunctionOrMacroCall(+1, "get_rand_seed_macro");
 		return true;
@@ -535,8 +527,8 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		if (to<TvmCellType>(type3)){
 			if (arguments.size() != 4) {
 				cast_error(_functionCall,
-				           "Correct argument types: (TvmCell my_contract, address addr, uint128 grams, TvmCell payload) "
-				           "or (TvmCell my_contract, address addr, uint128 gram, uint constuctor_id, some_type0 constuctor_param0, some_type1 constuctor_param1, ...)");
+				           "Correct argument types: (TvmCell my_contract, address addr, uint128 tons, TvmCell payload) "
+				           "or (TvmCell my_contract, address addr, uint128 tons, uint constructor_id, some_type, constructor_param0, some_type1 constructor_param1, ...)");
 			}
 			m_pusher.pushPrivateFunctionOrMacroCall(-4, "deploy_contract2_macro");
 		} else {

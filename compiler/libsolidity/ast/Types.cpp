@@ -537,6 +537,8 @@ BoolResult IntegerType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 
 BoolResult IntegerType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 {
+	 if (auto arrayType = dynamic_cast<ArrayType const*>(&_convertTo))
+		 return arrayType->isString();
 	return _convertTo.category() == category() ||
 		_convertTo.category() == Category::Address ||
 		_convertTo.category() == Category::Contract ||
@@ -1775,35 +1777,62 @@ string ArrayType::signatureInExternalFunction(bool _structsByName) const
 MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 {
 	MemberList::MemberMap members;
+
+	if (isByteArray())
+	{
+		members.emplace_back("toSlice", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{},
+			strings{{}},
+			FunctionType::Kind::ByteToSlice,
+			false, StateMutability::Pure
+		));
+		members.emplace_back("dataSize", TypeProvider::function(
+				{TypeProvider::uint256()},
+				{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()},
+				{{}},
+				{{}, {}, {}},
+				FunctionType::Kind::TVMDataSize,
+				{}, StateMutability::Pure
+		));
+		members.emplace_back("dataSizeQ", TypeProvider::function(
+			{TypeProvider::uint256()},
+			{TypeProvider::optional(TypeProvider::tuple({TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()}))},
+			{{}},
+			{{}},
+			FunctionType::Kind::TVMDataSize,
+			{}, StateMutability::Pure
+		));
+	}
+
 	if (!isString())
 	{
 		members.emplace_back("length", TypeProvider::uint256());
-		{
-			members.emplace_back("push", TypeProvider::function(
-				TypePointers{},
-				TypePointers{baseType()},
-				strings{},
-				strings{string()},
-				isByteArray() ? FunctionType::Kind::ByteArrayPush : FunctionType::Kind::ArrayPush,
-				false, StateMutability::Pure
-			));
-			members.emplace_back("push", TypeProvider::function(
-				TypePointers{baseType()},
-				TypePointers{},
-				strings{string()},
-				strings{},
-				isByteArray() ? FunctionType::Kind::ByteArrayPush : FunctionType::Kind::ArrayPush,
-				false, StateMutability::Pure
-			));
-			members.emplace_back("pop", TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::ArrayPop,
-				false, StateMutability::Pure
-			));
-		}
+		members.emplace_back("push", TypeProvider::function(
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			isByteArray() ? FunctionType::Kind::ByteArrayPush : FunctionType::Kind::ArrayPush,
+			false, StateMutability::Pure
+		));
+		members.emplace_back("push", TypeProvider::function(
+			TypePointers{baseType()},
+			TypePointers{},
+			strings{string()},
+			strings{},
+			isByteArray() ? FunctionType::Kind::ByteArrayPush : FunctionType::Kind::ArrayPush,
+			false, StateMutability::Pure
+		));
+		members.emplace_back("pop", TypeProvider::function(
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::ArrayPop,
+			false, StateMutability::Pure
+		));
 	} else {
 		members.emplace_back("substr", TypeProvider::function(
 			TypePointers{TypeProvider::uint(8), TypeProvider::uint(8)},
@@ -1826,8 +1855,16 @@ MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 }
 
 static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType, Type const* valueType) {
+	members.emplace_back("at", TypeProvider::function(
+		TypePointers{keyType},
+		TypePointers{valueType},
+		{{}},
+		{{}},
+		FunctionType::Kind::MappingAt,
+		false, StateMutability::Pure
+	));
+	std::vector<Type const*> types = {keyType, valueType};
 	for (const std::string& name : {"min", "max"}) {
-		std::vector<Type const*> types = {keyType, valueType};
 		members.emplace_back(name, TypeProvider::function(
 				TypePointers{},
 				TypePointers{TypeProvider::optional(TypeProvider::tuple(types))},
@@ -1840,9 +1877,9 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 	for (const std::string& name : {"delMin", "delMax"}) {
 		members.emplace_back(name, TypeProvider::function(
 				TypePointers{},
-				TypePointers{keyType, valueType},
+				TypePointers{TypeProvider::optional(TypeProvider::tuple(types))},
 				strings{},
-				strings{string(), string()},
+				strings{string()},
 				FunctionType::Kind::MappingDelMinOrMax,
 				false, StateMutability::Pure
 		));
@@ -2805,20 +2842,42 @@ string FunctionType::richIdentifier() const
 	{
 	case Kind::OptionalMethod: id += "optionalmethod"; break;
 	case Kind::StringMethod: id += "stringmethod"; break;
-	case Kind::TVMSetcode: id += "tvmsetcode"; break;
-	case Kind::TVMChecksign: id += "tvmchecksign"; break;
-	case Kind::TVMHash: id += "tvmhash"; break;
-	case Kind::TVMTransfer: id += "tvmtransfer"; break;
+
+	case Kind::DecodeFunctionParams: id += "tvmslicedecodefunctionparams"; break;
+	case Kind::TVMSliceDataSize: id += "tvmslicedatasize"; break;
+	case Kind::TVMSliceDecode: id += "tvmslicedecode"; break;
+	case Kind::TVMSliceSize: id += "tvmslicesize"; break;
+
+	case Kind::TVMCellDepth: id += "tvmcelldepth"; break;
+	case Kind::TVMCellToSlice: id += "tvmcelltoslice"; break;
+	case Kind::TVMDataSize: id += "tvmdatasize"; break;
+	case Kind::TVMDataSizeQ: id += "tvmdatasizeq"; break;
+
+	case Kind::HexString: id += "hexstring"; break;
+	case Kind::Format: id += "format"; break;
+	case Kind::Stoi: id += "stoi"; break;
+	case Kind::LogTVM: id += "logtvm"; break;
 	case Kind::TVMAccept: id += "tvmaccept"; break;
+	case Kind::TVMBuilderMethods: id += "tvmbuildermethods"; break;
+
+	case Kind::TVMChecksign: id += "tvmchecksign"; break;
 	case Kind::TVMCommit: id += "tvmcommit"; break;
-	case Kind::TVMPubkey: id += "tvmpubkey"; break;
-	case Kind::TVMcdatasize: id += "tvmcdatasize"; break;
-	case Kind::TVMSendMsg: id += "tvmsendmsg"; break;
-	case Kind::TVMTransLT: id += "tvmtranslt"; break;
-	case Kind::TVMResetStorage: id += "tvmresetstorage"; break;
 	case Kind::TVMConfigParam: id += "tvmconfigparam"; break;
-	case Kind::TVMRawConfigParam: id += "tvmrawconfigparam"; break;
 	case Kind::TVMDeploy: id += "tvmdeploy"; break;
+	case Kind::TVMEncodeBody: id += "tvmencodebody"; break;
+	case Kind::TVMExit1: id += "tvmexit1"; break;
+	case Kind::TVMExit: id += "tvmexit"; break;
+	case Kind::TVMFunctionId: id += "tvmfunctionid"; break;
+	case Kind::TVMHash: id += "tvmhash"; break;
+	case Kind::TVMLoadRef: id += "tvmloadref"; break;
+	case Kind::TVMPubkey: id += "tvmpubkey"; break;
+	case Kind::TVMRawConfigParam: id += "tvmrawconfigparam"; break;
+	case Kind::TVMResetStorage: id += "tvmresetstorage"; break;
+	case Kind::TVMSendMsg: id += "tvmsendmsg"; break;
+	case Kind::TVMSetcode: id += "tvmsetcode"; break;
+	case Kind::TVMTransfer: id += "tvmtransfer"; break;
+	case Kind::TXtimestamp: id += "txtimestamp"; break;
+
 	case Kind::ExtraCurrencyCollectionMethods: id += "extracurrencycollectionmethods"; break;
 	case Kind::MessagePubkey: id += "msgpubkey"; break;
 	case Kind::AddressIsZero: id += "addressiszero"; break;
@@ -2827,23 +2886,18 @@ string FunctionType::richIdentifier() const
 	case Kind::AddressIsStdAddrWithoutAnyCast: id += "addressisstdaddrwithoutanycast"; break;
 	case Kind::AddressMakeAddrExtern: id += "addressmakeaddrextern"; break;
 	case Kind::AddressMakeAddrNone: id += "addressmakeaddrnone"; break;
-	case Kind::TVMSliceDecode: id += "tvmslicedecode"; break;
-	case Kind::DecodeFunctionParams: id += "tvmslicedecodefunctionparams"; break;
-	case Kind::TVMSliceSize: id += "tvmslicesize"; break;
-	case Kind::TVMCellToSlice: id += "tvmcelltoslice"; break;
-	case Kind::TVMCellMethods: id += "tvmcellmethods"; break;
-	case Kind::TVMBuilderMethods: id += "tvmbuildermethods"; break;
-	case Kind::TVMLoadRef: id += "tvmloadref"; break;
-	case Kind::TVMFunctionId: id += "tvmfunctionid"; break;
-	case Kind::TVMEncodeBody: id += "tvmencodebody"; break;
-	case Kind::MathMaxMin: id += "mathmaxmin"; break;
-	case Kind::MathMulDiv: id += "mathmuldiv"; break;
-	case Kind::MathMulDivMod: id += "mathmuldivmod"; break;
+	case Kind::AddressMakeAddrStd: id += "addressmakeaddrstd"; break;
+
 	case Kind::MathAbs: id += "mathabs"; break;
+	case Kind::MathDivC: id += "divc"; break;
+	case Kind::MathDivR: id += "divr"; break;
+	case Kind::MathMaxMin: id += "mathmaxmin"; break;
 	case Kind::MathMinMax: id += "mathminmax"; break;
 	case Kind::MathModpow2: id += "mathmodpow2"; break;
-	case Kind::AddressMakeAddrStd: id += "addressmakeaddrstd"; break;
-	case Kind::LogTVM: id += "logtvm"; break;
+	case Kind::MathMulDiv: id += "mathmuldiv"; break;
+	case Kind::MathMulDivMod: id += "mathmuldivmod"; break;
+
+	case Kind::MappingAt: id += "mappingat"; break;
 	case Kind::MappingGetMinMax: id += "mapgetminmax"; break;
 	case Kind::MappingGetNextKey: id += "mapgetnext"; break;
 	case Kind::MappingGetPrevKey: id += "mapgetprev"; break;
@@ -2853,6 +2907,7 @@ string FunctionType::richIdentifier() const
 	case Kind::MappingEmpty: id += "mapempty"; break;
 	case Kind::MappingReplaceOrAdd: id += "mappingreplaceoradd"; break;
 	case Kind::MappingGetSet: id += "mappingsetget"; break;
+
 	case Kind::Declaration: id += "declaration"; break;
 	case Kind::Internal: id += "internal"; break;
 	case Kind::External: id += "external"; break;
@@ -2883,9 +2938,12 @@ string FunctionType::richIdentifier() const
 	case Kind::BlockHash: id += "blockhash"; break;
 	case Kind::AddMod: id += "addmod"; break;
 	case Kind::MulMod: id += "mulmod"; break;
+
 	case Kind::ArrayPush: id += "arraypush"; break;
 	case Kind::ArrayPop: id += "arraypop"; break;
 	case Kind::ByteArrayPush: id += "bytearraypush"; break;
+	case Kind::ByteToSlice: id += "bytetoslice"; break;
+
 	case Kind::ObjectCreation: id += "objectcreation"; break;
 	case Kind::Assert: id += "assert"; break;
 	case Kind::Require: id += "require"; break;
@@ -2895,6 +2953,11 @@ string FunctionType::richIdentifier() const
 	case Kind::ABIEncodeWithSignature: id += "abiencodewithsignature"; break;
 	case Kind::ABIDecode: id += "abidecode"; break;
 	case Kind::MetaType: id += "metatype"; break;
+
+	case Kind::RndGetSeed: id += "rndgetseed"; break;
+	case Kind::RndNext: id += "rndnext"; break;
+	case Kind::RndSetSeed: id += "rndsetseed"; break;
+	case Kind::RndShuffle: id += "rndshuffle"; break;
 	}
 	id += "_" + stateMutabilityToString(m_stateMutability);
 	id += identifierList(m_parameterTypes) + "returns" + identifierList(m_returnParameterTypes);
@@ -3768,6 +3831,8 @@ string MagicType::richIdentifier() const
 		return "t_magic_meta_type_" + m_typeArgument->richIdentifier();
 	case Kind::Math:
 		return "t_magic_math";
+	case Kind::Rnd:
+		return "t_magic_rnd";
 	}
 	return "";
 }
@@ -3787,7 +3852,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 	case Kind::Block:
 		return MemberList::MemberMap({
 			{"coinbase", TypeProvider::address()},
-			{"timestamp", TypeProvider::uint256()},
+			{"timestamp", TypeProvider::uint(64)},
 			{"blockhash", TypeProvider::function(strings{"uint"}, strings{"bytes32"}, FunctionType::Kind::BlockHash, false, StateMutability::View)},
 			{"difficulty", TypeProvider::uint256()},
 			{"number", TypeProvider::uint256()},
@@ -3807,12 +3872,12 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 	case Kind::TVM: {
 		MemberList::MemberMap members = {
 			{"pubkey", TypeProvider::function(strings(), strings{"uint"}, FunctionType::Kind::TVMPubkey, false, StateMutability::Pure)},
-			{"cdatasize", TypeProvider::function(strings{"TvmCell", "uint"}, strings{"uint", "uint", "uint"}, FunctionType::Kind::TVMPubkey, false, StateMutability::Pure)},
-			{"cdatasize", TypeProvider::function(strings{"bytes memory", "uint"}, strings{"uint", "uint", "uint"}, FunctionType::Kind::TVMPubkey, false, StateMutability::Pure)},
 			{"accept", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMAccept, false, StateMutability::Pure)},
 			{"commit", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMCommit, false, StateMutability::NonPayable)},
 			{"resetStorage", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMResetStorage, false, StateMutability::NonPayable)},
-			{"log", TypeProvider::function(strings{"bytes32"}, strings{}, FunctionType::Kind::LogTVM,false, StateMutability::Pure)}
+			{"log", TypeProvider::function(strings{"bytes32"}, strings{}, FunctionType::Kind::LogTVM, false, StateMutability::Pure)},
+			{"exit", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit, false, StateMutability::Pure)},
+			{"exit1", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit1, false, StateMutability::Pure)}
 		};
 		members.emplace_back("rawReserve", TypeProvider::function(
 				TypePointers{TypeProvider::uint256(), TypeProvider::extraCurrencyCollection(DataLocation::Memory),  TypeProvider::uint256()},
@@ -3926,14 +3991,6 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				FunctionType::Kind::TVMSendMsg,
 				false, StateMutability::Pure
 		));
-		members.emplace_back("transLT", TypeProvider::function(
-				TypePointers{},
-				TypePointers{TypeProvider::uint(64)},
-				strings{},
-				strings{string()},
-				FunctionType::Kind::TVMTransLT,
-				false, StateMutability::Pure
-		));
 
 		members.emplace_back("configParam", TypeProvider::function(
 				TypePointers{},
@@ -4029,8 +4086,42 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 		));
 		return members;
 	}
+	case Kind::Rnd: {
+		MemberList::MemberMap members = {
+			{
+				"next",
+				TypeProvider::function({}, {}, {}, {}, FunctionType::Kind::RndNext, true, StateMutability::Pure)
+			},
+			{
+				"setSeed",
+				TypeProvider::function({TypeProvider::uint256()}, {}, {{}}, {}, FunctionType::Kind::RndSetSeed, false, StateMutability::Pure)
+			},
+			{
+				"getSeed",
+				TypeProvider::function({}, {TypeProvider::uint256()}, {}, {{}}, FunctionType::Kind::RndGetSeed, false, StateMutability::Pure)
+			},
+			{
+				"shuffle",
+				TypeProvider::function({}, {}, {}, {}, FunctionType::Kind::RndShuffle, true, StateMutability::Pure)
+			}
+		};
+		return members;
+	}
 	case Kind::Math: {
-		MemberList::MemberMap members;
+		MemberList::MemberMap members = {
+			{
+				"divc",
+				TypeProvider::function(
+					{}, {}, {}, {}, FunctionType::Kind::MathDivC, false, StateMutability::Pure
+				)
+			},
+			{
+				"divr",
+				TypeProvider::function(
+						{}, {}, {}, {}, FunctionType::Kind::MathDivR, false, StateMutability::Pure
+				)
+			}
+		};
 		members.emplace_back("max", TypeProvider::function(
 				TypePointers{},
 				TypePointers{},
@@ -4094,7 +4185,8 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 	case Kind::Transaction:
 		return MemberList::MemberMap({
 			{"origin", TypeProvider::address()},
-			{"gasprice", TypeProvider::uint256()}
+			{"gasprice", TypeProvider::uint256()},
+			{"timestamp", TypeProvider::uint(64)},
 		});
 	case Kind::ABI:
 		return MemberList::MemberMap({
@@ -4184,6 +4276,8 @@ string MagicType::toString(bool _short) const
 		return "type(" + m_typeArgument->toString(_short) + ")";
 	case Kind::Math:
 		return "math";
+	case Kind::Rnd:
+		return "rnd";
 	}
 	solAssert(false, "Unknown kind of magic.");
 	return {};
@@ -4250,7 +4344,32 @@ TypeResult TvmSliceType::unaryOperatorResult(Token _operator) const  {
 }
 
 MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) const {
-	MemberList::MemberMap members;
+	MemberList::MemberMap members = {
+		{
+			"dataSize",
+			TypeProvider::function(
+				{TypeProvider::uint256()},
+				{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()},
+				{{}},
+				{{}, {}, {}},
+				FunctionType::Kind::TVMSliceDataSize,
+				true,
+				StateMutability::Pure
+			)
+		},
+		{
+			"dataSizeQ",
+			TypeProvider::function(
+				{TypeProvider::uint256()},
+				{TypeProvider::optional(TypeProvider::tuple({TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()}))},
+				{{}},
+				{{}},
+				FunctionType::Kind::TVMSliceDataSize,
+				true,
+				StateMutability::Pure
+			)
+		}
+	};
 
 	members.emplace_back("decode", TypeProvider::function(
 			TypePointers{},
@@ -4374,7 +4493,7 @@ MemberList::MemberMap TvmCellType::nativeMembers(const ContractDefinition *) con
             TypePointers{TypeProvider::uint(64)},
             strings{},
             strings{string()},
-            FunctionType::Kind::TVMCellMethods,
+            FunctionType::Kind::TVMCellDepth,
             false, StateMutability::Pure
     ));
 
@@ -4386,6 +4505,25 @@ MemberList::MemberMap TvmCellType::nativeMembers(const ContractDefinition *) con
 			FunctionType::Kind::TVMCellToSlice,
 			false, StateMutability::Pure
 	));
+
+	members.emplace_back("dataSize", TypeProvider::function(
+		{TypeProvider::uint256()},
+		{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()},
+		{{}},
+		{{}, {}, {}},
+		FunctionType::Kind::TVMDataSize,
+		{}, StateMutability::Pure
+	));
+
+	members.emplace_back("dataSizeQ", TypeProvider::function(
+			{TypeProvider::uint256()},
+			{TypeProvider::optional(TypeProvider::tuple({TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()}))},
+			{{}},
+			{{}},
+			FunctionType::Kind::TVMDataSize,
+			{}, StateMutability::Pure
+	));
+
 
 	return members;
 }

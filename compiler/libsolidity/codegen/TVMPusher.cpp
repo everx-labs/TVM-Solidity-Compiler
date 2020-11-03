@@ -53,7 +53,7 @@ void DictOperation::doDictOperation() {
 	}
 }
 
-StackPusherHelper::StackPusherHelper(const TVMCompilerContext *ctx, const int stackSize) :
+StackPusherHelper::StackPusherHelper(TVMCompilerContext *ctx, const int stackSize) :
 		m_ctx(ctx),
 		m_structCompiler{new StructCompiler{this,
 											ctx->notConstantStateVariables(),
@@ -98,6 +98,29 @@ ENDC
 POP C4
 )");
 	push(0, " ");
+}
+
+std::string stringToBytes(std::string str) {
+	std::string slice;
+	for (size_t index = 0; index < str.length(); ++index) {
+		std::stringstream ss;
+		ss << std::hex << std::setfill('0') << std::setw(2)
+			<< (static_cast<unsigned>(str.at(index)) & 0xFF);
+		slice += ss.str();
+	}
+	return slice;
+}
+
+void StackPusherHelper::storeStringInABuilder(string str) {
+	size_t maxSlice = (TvmConst::MaxPushSliceLength >> 1);
+	pushLines
+(R"(
+PUSHSLICE x)" + ((str.length() <= maxSlice) ?  stringToBytes(str)
+: (stringToBytes(str.substr(0, maxSlice)) + R"(
+STSLICER
+PUSHSLICE x)" + stringToBytes(str.substr(maxSlice)))) + R"(
+STSLICER
+)");
 }
 
 bool
@@ -256,6 +279,20 @@ void StackPusherHelper::tryPollLastRetOpcode() {
 	}
 }
 
+bool StackPusherHelper::tryPollConvertBuilderToSlice() {
+	int n = m_code.lines.size();
+	if (n >= 2 &&
+		std::regex_match(m_code.lines[n - 1], std::regex("(\t*)CTOS")) &&
+		std::regex_match(m_code.lines[n - 2], std::regex("(\t*)ENDC"))
+	)
+	{
+		m_code.lines.pop_back();
+		m_code.lines.pop_back();
+		return true;
+	}
+	return false;
+}
+
 void StackPusherHelper::pollLastOpcode() {
 	m_code.lines.pop_back();
 }
@@ -303,7 +340,7 @@ CodeLines StackPusherHelper::code() const {
 	return m_code;
 }
 
-const TVMCompilerContext &StackPusherHelper::ctx() const {
+TVMCompilerContext &StackPusherHelper::ctx() {
 	return *m_ctx;
 }
 
@@ -514,13 +551,17 @@ std::string StackPusherHelper::binaryStringToSlice(const std::string &_s) {
 	return ans;
 }
 
-std::string StackPusherHelper::gramsToBinaryString(Literal const *literal) {
+std::string StackPusherHelper::tonsToBinaryString(Literal const *literal) {
 	Type const* type = literal->annotation().type;
 	u256 value = type->literalValue(literal);
-	return gramsToBinaryString(value);
+	return tonsToBinaryString(value);
 }
 
-std::string StackPusherHelper::gramsToBinaryString(u256 value) {
+std::string StackPusherHelper::tonsToBinaryString(u256 value) {
+	return tonsToBinaryString(bigint(value));
+}
+
+std::string StackPusherHelper::tonsToBinaryString(bigint value) {
 	std::string s;
 	int len = 256;
 	for (int i = 0; i < 256; ++i) {
@@ -531,7 +572,7 @@ std::string StackPusherHelper::gramsToBinaryString(u256 value) {
 		s += value % 2 == 0? "0" : "1";
 		value /= 2;
 	}
-	solAssert(len < 120, "Gram value should fit 120 bit");
+	solAssert(len < 120, "Ton value should fit 120 bit");
 	while (len % 8 != 0) {
 		s += "0";
 		len++;
@@ -841,7 +882,7 @@ StackPusherHelper::int_msg_info(const std::set<int> &isParamOnStack, const std::
 					push(-1, "STSLICE");
 					maxBitStringSize += AddressInfo::maxBitLength();
 					break;
-				case TvmConst::int_msg_info::grams:
+				case TvmConst::int_msg_info::tons:
 					exchange(0, 1);
 					push(-1, "STGRAMS");
 					maxBitStringSize += 4 + 16 * 8;
@@ -1210,6 +1251,10 @@ FunctionDefinition const *TVMCompilerContext::afterSignatureCheck() const {
 
 bool TVMCompilerContext::storeTimestampInC4() const {
 	return haveTimeInAbiHeader() && afterSignatureCheck() == nullptr;
+}
+
+void TVMCompilerContext::addLib(FunctionDefinition const* f) {
+	m_libFunctions.insert(f);
 }
 
 void StackPusherHelper::pushNull() {

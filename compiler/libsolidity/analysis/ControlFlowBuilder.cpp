@@ -157,45 +157,52 @@ bool ControlFlowBuilder::visit(WhileStatement const& _whileStatement)
 	solAssert(!!m_currentNode, "");
 	visitNode(_whileStatement);
 
-	if (_whileStatement.isDoWhile())
-	{
-		auto afterWhile = newLabel();
-		auto whileBody = createLabelHere();
-		auto condition = newLabel();
+	switch (_whileStatement.loopType()) {
+		case WhileStatement::LoopType::DO_WHILE: {
+			auto afterWhile = newLabel();
+			auto whileBody = createLabelHere();
+			auto condition = newLabel();
 
-		{
-			BreakContinueScope scope(*this, afterWhile, condition);
-			appendControlFlow(_whileStatement.body());
+			{
+				BreakContinueScope scope(*this, afterWhile, condition);
+				appendControlFlow(_whileStatement.body());
+			}
+
+			placeAndConnectLabel(condition);
+			appendControlFlow(_whileStatement.condition());
+
+			connect(m_currentNode, whileBody);
+			placeAndConnectLabel(afterWhile);
+			break;
 		}
 
-		placeAndConnectLabel(condition);
-		appendControlFlow(_whileStatement.condition());
+		case WhileStatement::LoopType::WHILE_DO: {
+			auto whileCondition = createLabelHere();
 
-		connect(m_currentNode, whileBody);
-		placeAndConnectLabel(afterWhile);
-	}
-	else
-	{
-		auto whileCondition = createLabelHere();
+			appendControlFlow(_whileStatement.condition());
 
-		appendControlFlow(_whileStatement.condition());
+			auto nodes = splitFlow<2>();
 
-		auto nodes = splitFlow<2>();
+			auto whileBody = nodes[0];
+			auto afterWhile = nodes[1];
 
-		auto whileBody = nodes[0];
-		auto afterWhile = nodes[1];
+			m_currentNode = whileBody;
+			{
+				BreakContinueScope scope(*this, afterWhile, whileCondition);
+				appendControlFlow(_whileStatement.body());
+			}
 
-		m_currentNode = whileBody;
-		{
-			BreakContinueScope scope(*this, afterWhile, whileCondition);
-			appendControlFlow(_whileStatement.body());
+			connect(m_currentNode, whileCondition);
+
+			m_currentNode = afterWhile;
+			break;
 		}
 
-		connect(m_currentNode, whileCondition);
-
-		m_currentNode = afterWhile;
+		case WhileStatement::LoopType::REPEAT: {
+			// TODO implement
+			break;
+		}
 	}
-
 
 	return false;
 }

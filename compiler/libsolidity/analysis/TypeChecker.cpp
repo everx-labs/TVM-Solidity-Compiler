@@ -845,7 +845,16 @@ void TypeChecker::endVisit(TryStatement const& _tryStatement)
 
 bool TypeChecker::visit(WhileStatement const& _whileStatement)
 {
-	expectType(_whileStatement.condition(), *TypeProvider::boolean());
+	switch (_whileStatement.loopType()) {
+		case WhileStatement::LoopType::WHILE_DO:
+		case WhileStatement::LoopType::DO_WHILE:
+			expectType(_whileStatement.condition(), *TypeProvider::boolean());
+			break;
+		case WhileStatement::LoopType::REPEAT:
+			expectType(_whileStatement.condition(), *TypeProvider::uint256());
+			break;
+	}
+
 	_whileStatement.body().accept(*this);
 	return false;
 }
@@ -1836,47 +1845,38 @@ void TypeChecker::typeCheckABIEncodeFunctions(
 }
 
 FunctionDefinition const*
-TypeChecker::isArgumentAPublicFunction(FunctionCall const& _functionCall) {
-	std::vector<ASTPointer<Expression const>> arguments = _functionCall.arguments();
-	const std::string errorText = "This function takes one argument (identifier of public function)";
-	if (arguments.empty()) {
-		m_errorReporter.fatalTypeError(_functionCall.location(), errorText);
-	}
-	Expression const* expr = arguments.at(0).get();
+TypeChecker::getFunctionDefinition(Expression const* expr) {
 	if (expr->annotation().type->category() != Type::Category::Function) {
-		m_errorReporter.fatalTypeError(expr->location(), errorText);
+		return nullptr;
 	}
 	auto identifier = dynamic_cast<Identifier const*>(expr);
-	Declaration const* declaration = nullptr;
+	Declaration const* declaration{};
 	if (identifier)
 		declaration = identifier->annotation().referencedDeclaration;
 	else if (auto member = dynamic_cast<MemberAccess const *>(expr)) {
 		declaration = member->annotation().referencedDeclaration;
 	}
-	if (!declaration)
-		m_errorReporter.fatalTypeError(expr->location(), errorText);
-	if (!declaration->isPublic()) {
-		m_errorReporter.fatalTypeError(expr->location(), errorText);
+	if (declaration == nullptr) {
+		return nullptr;
 	}
-	auto functionDeclaration = dynamic_cast<FunctionDefinition const*>(declaration);
-	if (functionDeclaration == nullptr) {
-		m_errorReporter.fatalTypeError(expr->location(), errorText);
-	}
-	return functionDeclaration;
+	return dynamic_cast<FunctionDefinition const*>(declaration);
 }
 
-void TypeChecker::areArgumentsValidForFunctionCall(const FunctionCall &_functionCall, const FunctionDefinition *funcDef)
-{
-	std::vector<ASTPointer<VariableDeclaration>> params = funcDef->parameters();
-	auto arguments = _functionCall.arguments();
-	std::vector<ASTPointer<Expression const>> args(arguments.begin() + 1,
-												   arguments.end());
-	if (params.size() != args.size())
-		m_errorReporter.fatalTypeError(_functionCall.location(), "Wrong argument number for a function call.");
-
-	for (size_t i = 0; i < params.size(); i++)
-		expectType(*args[i], *params[i]->annotation().type);
-
+std::pair<bool, FunctionDefinition const*>
+TypeChecker::getConstructorDefinition(Expression const* expr) {
+	if (expr->annotation().type->category() != Type::Category::TypeType) {
+		return {};
+	}
+	auto tt = dynamic_cast<const TypeType*>(expr->annotation().type);
+	auto contractType = dynamic_cast<const ContractType*>(tt->actualType());
+	if (contractType == nullptr) {
+		return {};
+	}
+	FunctionDefinition const* constr = contractType->contractDefinition().constructor();
+	if (constr == nullptr) {
+		return {true, nullptr};
+	}
+	return {true, constr};
 }
 
 void TypeChecker::typeCheckFunctionGeneralChecks(
@@ -2111,6 +2111,43 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 	}
 }
 
+FunctionDefinition const*
+TypeChecker::checkPubFunctionOrContractTypeAndGetDefinition(Expression const& arg) {
+	FunctionDefinition const* funcDef = getFunctionDefinition(&arg);
+	if (funcDef) {
+		if (!funcDef->isPublic()) {
+			m_errorReporter.fatalTypeError(
+				arg.location(),
+				SecondarySourceLocation().append("Declaration is here:", funcDef->location()),
+				"Public/external function (or contract type) required, but \"" +
+						Declaration::visibilityToString(funcDef->visibility()) +
+				"\" function is provided."
+			);
+		}
+		return funcDef;
+	}
+
+	const auto &[isContract, constructorDef] = getConstructorDefinition(&arg);
+	if (!isContract) {
+		m_errorReporter.fatalTypeError(
+			arg.location(),
+			"Function or contract type required, but " +
+			type(arg)->toString(true) +
+			" provided."
+		);
+	}
+	if (constructorDef && !constructorDef->isPublic()) {
+		m_errorReporter.fatalTypeError(
+			arg.location(),
+			SecondarySourceLocation().append("Declaration is here:", constructorDef->location()),
+			"Contract with public constructor required, but \"" +
+					Declaration::visibilityToString(constructorDef->visibility()) +
+			"\" constructor provided."
+		);
+	}
+	return constructorDef;
+}
+
 bool TypeChecker::visit(FunctionCall const& _functionCall)
 {
 	vector<ASTPointer<Expression const>> const& arguments = _functionCall.arguments();
@@ -2143,7 +2180,6 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 	// Determine function call kind and function type for this FunctionCall node
 	FunctionCallAnnotation& funcCallAnno = _functionCall.annotation();
 	FunctionTypePointer functionType = nullptr;
-	FunctionDefinition const* funcDef = nullptr;
 
 	// Determine and assign function call kind, lvalue, purity and function type for this FunctionCall node
 	switch (expressionType->category())
@@ -2270,31 +2306,64 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		}
 		case FunctionType::Kind::DecodeFunctionParams:
 		{
-			FunctionDefinition const* functionDeclaration = isArgumentAPublicFunction(_functionCall);
-			for(const ASTPointer<VariableDeclaration>& vd : functionDeclaration->parameters()){
-				returnTypes.push_back(vd->type());
+			if (arguments.size() != 1) {
+				m_errorReporter.fatalTypeError(
+					_functionCall.location(),
+					string("Must take one argument.")
+				);
 			}
+			FunctionDefinition const* functionDeclaration = checkPubFunctionOrContractTypeAndGetDefinition(*arguments.front().get());
+			if (functionDeclaration != nullptr) { // if nullptr => default constructor
+				for (const ASTPointer<VariableDeclaration> &vd : functionDeclaration->parameters()) {
+					returnTypes.push_back(vd->type());
+				}
+			}
+			break;
+		}
+		case FunctionType::Kind::RndNext:
+		{
+			checkArgNumAndIsInteger(arguments, 1, std::less_equal<>(), "Must take at most one argument.");
+			if (arguments.empty()) {
+				returnTypes.push_back(TypeProvider::uint256());
+			} else {
+				TypePointer result = arguments.at(0)->annotation().type;
+				result = result->mobileType();
+				returnTypes.push_back(result);
+			}
+			break;
+		}
+		case FunctionType::Kind::RndShuffle:
+		{
+			checkArgNumAndIsInteger(arguments, 1, std::less_equal<>(), "Must take at most one argument.");
 			break;
 		}
 		case FunctionType::Kind::MathMaxMin:
 		{
-			checkArgNumAndIsInteger(arguments, 2, std::greater_equal<size_t>(), "This function takes at least two arguments.");
+			checkArgNumAndIsInteger(arguments, 2, std::greater_equal<>(), "This function takes at least two arguments.");
 			TypePointer result = getCommonType(arguments);
 			returnTypes.push_back(result);
 			break;
 		}
 		case FunctionType::Kind::MathMinMax:
 		{
-			checkArgNumAndIsInteger(arguments, 2, std::equal_to<size_t>(), "This function takes two arguments.");
+			checkArgNumAndIsInteger(arguments, 2, std::equal_to<>(), "This function takes two arguments.");
 			TypePointer result = getCommonType(arguments);
 			returnTypes.push_back(result);
+			returnTypes.push_back(result);
+			break;
+		}
+		case FunctionType::Kind::MathDivR:
+		case FunctionType::Kind::MathDivC:
+		{
+			checkArgNumAndIsInteger(arguments, 2, std::equal_to<>(), "Must take two arguments.");
+			TypePointer result = getCommonType(arguments);
 			returnTypes.push_back(result);
 			break;
 		}
 		case FunctionType::Kind::MathMulDiv:
 		case FunctionType::Kind::MathMulDivMod:
 		{
-			checkArgNumAndIsInteger(arguments, 3, std::equal_to<size_t>(), "This function takes three arguments.");
+			checkArgNumAndIsInteger(arguments, 3, std::equal_to<>(), "This function takes three arguments.");
 			TypePointer result = getCommonType(arguments);
 			returnTypes.push_back(result);
 			if (functionType->kind() == FunctionType::Kind::MathMulDivMod)
@@ -2303,14 +2372,14 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		}
 		case FunctionType::Kind::MathAbs:
 		{
-			checkArgNumAndIsInteger(arguments, 1, std::equal_to<size_t>(), "This function takes one argument.");
+			checkArgNumAndIsInteger(arguments, 1, std::equal_to<>(), "This function takes one argument.");
 			TypePointer type = arguments[0]->annotation().type;
 			returnTypes.push_back(type->mobileType());
 			break;
 		}
 		case FunctionType::Kind::MathModpow2:
 		{
-			checkArgNumAndIsInteger(arguments, 2, std::equal_to<size_t>(), "This function takes two arguments.");
+			checkArgNumAndIsInteger(arguments, 2, std::equal_to<>(), "This function takes two arguments.");
 			bool isConst = arguments[1]->annotation().isPure &&
 					((arguments[1]->annotation().type->category() == Type::Category::RationalNumber) ||
 					(arguments[1]->annotation().type->category() == Type::Category::Integer));
@@ -2376,9 +2445,52 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		}
 		case FunctionType::Kind::TVMEncodeBody:
 		case FunctionType::Kind::TVMFunctionId:
-			funcDef = isArgumentAPublicFunction(_functionCall);
-			if (functionType->kind() == FunctionType::Kind::TVMEncodeBody)
-				areArgumentsValidForFunctionCall(_functionCall, funcDef);
+		{
+			if (arguments.empty() || (functionType->kind() == FunctionType::Kind::TVMFunctionId && arguments.size() != 1)) {
+				m_errorReporter.fatalTypeError(
+						_functionCall.location(),
+						string("Must take ") +
+						(functionType->kind() == FunctionType::Kind::TVMFunctionId ? "one argument."
+																				   : "at least one argument.")
+				);
+			}
+
+			FunctionDefinition const* functionDeclaration =
+					checkPubFunctionOrContractTypeAndGetDefinition(*arguments.front().get());
+
+			if (functionType->kind() == FunctionType::Kind::TVMEncodeBody) {
+				if (functionDeclaration) {
+					std::vector<ASTPointer<VariableDeclaration>> const &params = functionDeclaration->parameters();
+					if (params.size() + 1 != arguments.size()) {
+						m_errorReporter.fatalTypeError(
+							_functionCall.location(),
+							SecondarySourceLocation()
+								.append("Declaration is here:", functionDeclaration->location()),
+							"Wrong argument count: " +
+							toString(arguments.size()) +
+							" arguments given but expected " +
+							toString(params.size() + 1) +
+							"."
+						);
+					}
+					for (size_t i = 0; i < params.size(); i++)
+						expectType(*arguments[i + 1], *params[i]->annotation().type);
+				} else {
+					if (arguments.size() >= 2) {
+						auto tt = dynamic_cast<const TypeType*>(arguments.front()->annotation().type);
+						auto contractType = dynamic_cast<const ContractType*>(tt->actualType());
+						const auto& contractDefinition = contractType->contractDefinition();
+						m_errorReporter.fatalTypeError(
+							_functionCall.location(),
+							SecondarySourceLocation().append("Declaration is here:", contractDefinition.location()),
+							"Wrong argument count: " +
+							toString(arguments.size()) +
+							" arguments given but expected 0. Default constructor have no parameters."
+						);
+					}
+				}
+			}
+		}
 			[[fallthrough]];
 		default:
 		{

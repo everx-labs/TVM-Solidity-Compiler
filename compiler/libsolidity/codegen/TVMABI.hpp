@@ -142,12 +142,17 @@ public:
 	                                      const ReasonOfOutboundMessage reason,
 	                                      const CallableDeclaration *funcDef,
 										  int builderSize);
-	void createDefaultConstructorMessage(const int bitSizeBuilder);
+	void createDefaultConstructorMsgBodyAndAppendToBuilder(const int bitSizeBuilder);
+	void createDefaultConstructorMessage2();
 
-public:
 	// returns pair (functionID, is_manually_overridden)
+	uint32_t defaultConstructorFunctionID();
 	std::pair<uint32_t, bool> calculateFunctionID(const CallableDeclaration *declaration);
-	uint32_t calculateFunctionID(const std::string name, const std::vector<ASTPointer<VariableDeclaration> > inputs, const std::vector<ASTPointer<VariableDeclaration> > *outputs);
+	uint32_t calculateFunctionID(
+			const std::string name,
+			const std::vector<ASTPointer<VariableDeclaration> > inputs,
+			const std::vector<ASTPointer<VariableDeclaration> > *outputs
+	);
 public:
 	void createMsgBodyAndAppendToBuilder(const std::function<void(size_t)>& pushParam,
 	                                     const ReasonOfOutboundMessage& reason,

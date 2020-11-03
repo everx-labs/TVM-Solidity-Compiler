@@ -111,6 +111,9 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 	}
 	else if (_pragma.literals()[0] == "solidity")
 	{
+		if (m_versionPragmaFound) {
+			m_errorReporter.syntaxError(_pragma.location(), "solidity version pragma shouldn't be specified more than once.");
+		}
 		vector<Token> tokens(_pragma.tokens().begin() + 1, _pragma.tokens().end());
 		vector<string> literals(_pragma.literals().begin() + 1, _pragma.literals().end());
 		SemVerMatchExpressionParser parser(tokens, literals);
@@ -135,6 +138,16 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 	else if (_pragma.literals()[0] == "ignoreIntOverflow")
 	{
 		return true;
+	}
+	else if (_pragma.literals()[0] == "msgValue")
+	{
+		if (m_msgValuePragmaFound) {
+			m_errorReporter.syntaxError(_pragma.location(), "msgValue pragma shouldn't be specified more than once.");
+		}
+		if (_pragma.parameter() == nullptr) {
+			m_errorReporter.syntaxError(_pragma.location(), "Correct format: pragma msgValue <value_in_nanotons>");
+		}
+		m_msgValuePragmaFound = true;
 	}
 	else
 		m_errorReporter.syntaxError(_pragma.location(), "Unknown pragma \"" + _pragma.literals()[0] + "\"");

@@ -157,9 +157,11 @@ ASTPointer<ASTNode> ASTJsonImporter::convertJsonToASTNode(Json::Value const& _js
 	if (nodeType == "TryStatement")
 		return createTryStatement(_json);
 	if (nodeType == "WhileStatement")
-		return createWhileStatement(_json, false);
+		return createWhileStatement(_json, WhileStatement::LoopType::WHILE_DO);
 	if (nodeType == "DoWhileStatement")
-		return createWhileStatement(_json, true);
+		return createWhileStatement(_json, WhileStatement::LoopType::DO_WHILE);
+	if (nodeType == "RepeatStatement")
+		return createWhileStatement(_json, WhileStatement::LoopType::REPEAT);
 	if (nodeType == "ForStatement")
 		return createForStatement(_json);
 	if (nodeType == "Continue")
@@ -590,14 +592,17 @@ ASTPointer<TryStatement> ASTJsonImporter::createTryStatement(Json::Value const& 
 	);
 }
 
-ASTPointer<WhileStatement> ASTJsonImporter::createWhileStatement(Json::Value const&  _node, bool _isDoWhile=false)
+ASTPointer<WhileStatement> ASTJsonImporter::createWhileStatement(
+		Json::Value const&  _node,
+		WhileStatement::LoopType loopType = WhileStatement::LoopType::WHILE_DO
+)
 {
 	return createASTNode<WhileStatement>(
 		_node,
 		nullOrASTString(_node, "documentation"),
 		convertJsonToASTNode<Expression>(member(_node, "condition")),
 		convertJsonToASTNode<Statement>(member(_node, "body")),
-		_isDoWhile
+		loopType
 	);
 }
 
