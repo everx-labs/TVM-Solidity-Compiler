@@ -1,3 +1,24 @@
+### 0.32 (2020-11-03)
+
+Compiler Features:
+ * Support some math function: ``math.divc()`` and ``math.divr()``.
+ * Support ``tvm.exit()`` and ``tvm.exit1()``.
+ * Support ``bytes.toSlice()``.
+ * Support ``tvm.functionId`` and ``tvm.decodeFunctionParams`` for contract constructor.
+ * Support ``mapping.at``.
+ * Support api for *SmartContractInfo*: ``tx.timestamp``, ``block.timestamp``.
+ * Support api for getting info about size of DAG: ``cell.dataSize``, ``slice.dataSize`` and another.
+ * Support api functions for converting integer or address to a string: ``format()``, ``string(int)`` and ``hexstring``.
+ * Support api for pseudo-random number generator: ``rnd.next()``,
+``rnd.shuffle()``  and another.
+ * Support function library calls via library name and object.
+ * Support pragma to specify default message value: ``pragma msgValue``.
+ * Support api function for converting string into an integer ``stoi()``.
+ * Support control structure ``repeat`` which repeats block of code arbitrary amount of times.
+ * Changed mapping api function ``delMin`` to return optional.
+
+Some little gas optimizations.
+
 ### 0.31 (2020-09-16)
 
 Breaking changes:

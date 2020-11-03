@@ -175,6 +175,19 @@ struct TVMOptimizer {
 		bool is_POP() const 	{ 	return is("POP"); 		}
 		bool isBLKSWAP() const  { return is("ROT") || is("ROTREV") || is("SWAP2") || is("BLKSWAP"); }
 
+		bool is_const_add() const { return is("INC") || is("DEC") || is("ADDCONST"); }
+
+		int get_add_num() const {
+			solAssert(is_const_add(), "");
+			if (is("INC"))
+				return 1;
+			if (is("DEC"))
+				return -1;
+			if (is("ADDCONST"))
+				return fetch_int();
+			solUnimplemented("");
+		}
+
 		bool is_simple_command(int inp, int outp) const {
 			return is_simple_command_ &&
 				   inp == inputs_count_ &&
@@ -528,22 +541,26 @@ struct TVMOptimizer {
 			return Result::Replace(4, "THROWIF " + cmd2.rest());
 		}
 		if (cmd1.is("PUSHCONT") &&
-		    cmd2.is("THROW") &&
-		    cmd3.is("}") &&
-		    (cmd4.is("IFNOT") || cmd4.is("IFNOTJMP"))) {
+			cmd2.is("THROW") &&
+			cmd3.is("}") &&
+			(cmd4.is("IFNOT") || cmd4.is("IFNOTJMP"))) {
 			return Result::Replace(4, "THROWIFNOT " + cmd2.rest());
 		}
 		if (cmd1.is("GETGLOB") &&
-		    cmd2.is("ISNULL") &&
-		    cmd3.is("DROP")) {
+			cmd2.is("ISNULL") &&
+			cmd3.is("DROP")) {
 			return Result::Replace(3, "");
 		}
 		if ((cmd1.is("NOT") || (cmd1.is("EQINT") && cmd1.fetch_int() == 0)) &&
-		    cmd2.is("THROWIFNOT")) {
+			cmd2.is("THROWIFNOT")) {
 			return Result::Replace(2, "THROWIF " + cmd2.rest());
 		}
 		if (cmd1.is("NEQINT") && cmd1.fetch_int() == 0 &&
-		    cmd2.is("THROWIFNOT")) {
+			cmd2.is("THROWIFNOT")) {
+			return Result::Replace(2, "THROWIFNOT " + cmd2.rest());
+		}
+		if (cmd1.is("NOT") &&
+			cmd2.is("THROWIF")) {
 			return Result::Replace(2, "THROWIFNOT " + cmd2.rest());
 		}
 		if (cmd1.is("PUSH")) {
@@ -595,8 +612,8 @@ struct TVMOptimizer {
 			}
 		}
 		if (cmd1.is("PUSHSLICE") &&
-		    cmd2.is("STSLICER") &&
-		    cmd3.is("STSLICECONST")) {
+			cmd2.is("STSLICER") &&
+			cmd3.is("STSLICECONST")) {
 			std::vector<std::string> opcodes = unitSlices(cmd1.rest(), cmd3.rest());
 			if (opcodes.size() == 1) {
 				opcodes[0] = "PUSHSLICE " + opcodes[0];
@@ -605,8 +622,8 @@ struct TVMOptimizer {
 			}
 		}
 		if (cmd1.is("PUSHINT") &&
-		    cmd2.is("STZEROES") &&
-		    cmd3.is("STSLICECONST") && cmd3.rest().length() > 1) {
+			cmd2.is("STZEROES") &&
+			cmd3.is("STSLICECONST") && cmd3.rest().length() > 1) {
 			std::string::size_type integer = cmd1.fetch_int();
 			std::vector<std::string> opcodes = unitBitString(std::string(integer, '0'), toBitString(cmd3.rest()));
 			if (opcodes.size() == 1) {
@@ -616,7 +633,7 @@ struct TVMOptimizer {
 			}
 		}
 		if (cmd1.is("STSLICECONST") &&
-		    cmd2.is("STSLICECONST")) {
+			cmd2.is("STSLICECONST")) {
 			std::vector<std::string> opcodes = unitSlices(cmd1.rest(), cmd2.rest());
 			if (opcodes.size() == 1 && toBitString(opcodes[0]).length() <= TvmConst::MaxSTSLICECONST) {
 				return Result(true, 2, {"STSLICECONST " + opcodes[0]});
@@ -632,9 +649,9 @@ struct TVMOptimizer {
 			}
 		}
 		if (cmd1.is("PUSHSLICE") &&
-		    cmd2.is("NEWC") &&
-		    cmd3.is("STSLICE") &&
-		    cmd4.is("PUSHSLICE") &&
+			cmd2.is("NEWC") &&
+			cmd3.is("STSLICE") &&
+			cmd4.is("PUSHSLICE") &&
 			cmd5.is("STSLICER")) {
 			std::vector<std::string> opcodes = unitSlices(cmd1.rest(), cmd4.rest());
 			if (opcodes.size() == 1) {
@@ -642,19 +659,35 @@ struct TVMOptimizer {
 			}
 		}
 		if (cmd1.is("TUPLE") &&
-		    cmd2.is("UNTUPLE") &&
-		    cmd1.fetch_int() == cmd2.fetch_int()) {
+			cmd2.is("UNTUPLE") &&
+			cmd1.fetch_int() == cmd2.fetch_int()) {
 			return Result(true, 2, {});
 		}
 		if (cmd1.is("PAIR") &&
-		    cmd2.is("UNPAIR")) {
+			cmd2.is("UNPAIR")) {
 			return Result(true, 2, {});
 		}
 		if (cmd1.is("ROT") &&
 			(cmd2.is("SETGLOB") || (cmd2.is("POP") && cmd2.get_index() >= 3)) &&
-		    cmd3.is("SWAP")) {
+			cmd3.is("SWAP")) {
 			return Result(true, 3, {"XCHG s2", cmd2.without_prefix()});
 		}
+		if (cmd1.is("SETGLOB") && cmd2.is("GETGLOB") && cmd1.rest() == cmd2.rest()) {
+			return Result(true, 2, {"DUP", "SETGLOB " + cmd2.rest()});
+		}
+		if (cmd1.is_const_add() && cmd2.is_const_add()) {
+			int final_add = cmd1.get_add_num() + cmd2.get_add_num();
+			if (-128 <= final_add && final_add <= 127)
+				return Result(true, 2, {"ADDCONST " + std::to_string(final_add)});
+		}
+		if (cmd1.is_const_add() && cmd3.is_const_add()) {
+			if (cmd2.is("UFITS") && cmd4.is("UFITS") && cmd2.rest() == cmd4.rest()) {
+				int final_add = cmd1.get_add_num() + cmd3.get_add_num();
+				if (-128 <= final_add && final_add <= 127)
+					return Result(true, 4, {"ADDCONST " + std::to_string(final_add), "UFITS " + cmd2.rest()});
+			}
+		}
+
 		return Result(false);
 	}
 

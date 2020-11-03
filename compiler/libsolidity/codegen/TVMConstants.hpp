@@ -35,6 +35,7 @@ namespace TvmConst {
 		const int SelfDestruct = CarryAllMoney | DestroyAccount;
 	}
 	namespace Message {
+		const int DefaultMsgValue = 10'000 * 1'000; // 10'000 gas * 1'000 ton / gas (in workchain)
 		const int functionIdLength = 32;
 		const int timestampLength = 64;
 		namespace ReplayProtection {
@@ -60,10 +61,6 @@ namespace TvmConst {
 		const int MessageIsExpired = 57;
 	}
 
-	namespace C7 {
-		const int ExtDestAddrIndex = 4;
-	}
-
 	namespace FunctionId {
 		const int First = 3;
 		const int64_t Last = 0xFFFFFFFD;
@@ -73,7 +70,7 @@ namespace TvmConst {
 		const int ihr_disabled = 0;
 		const int bounce = 1;
 		const int dest = 4;
-		const int grams = 5;
+		const int tons = 5;
 		const int currency = 6;
 	}
 

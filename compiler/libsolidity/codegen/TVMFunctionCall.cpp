@@ -71,12 +71,15 @@ void FunctionCallCompiler::compile() {
 		if (ma != nullptr) {
 			auto category = getType(&ma->expression())->category();
 			auto ident = to<Identifier>(&ma->expression());
-			if (checkForTvmSliceMethods(*ma, category) ||
+			if (category == Type::Category::Array) {
+				arrayMethods(*ma);
+			} else if (category == Type::Category::TvmSlice) {
+				sliceMethods(*ma);
+			} else if (
 				checkForTvmBuilderMethods(*ma, category) ||
-				checkForStringMethods(*ma) ||
 				checkForOptionalMethods(*ma))
 			{
-
+				// nothing
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "tvm") {
 				if (checkForTvmSendFunction(*ma) ||
 					checkForTvmConfigParamFunction(*ma) ||
@@ -85,37 +88,37 @@ void FunctionCallCompiler::compile() {
 				} else {
 					cast_error(m_functionCall, "Unsupported function call");
 				}
+			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "rnd") {
+				rndFunction(*ma);
+			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "msg") {
+				msgFunction(*ma);
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "math") {
-				if (checkForMathFunction(*ma)) {
+				mathFunction(*ma);
+			} else if (category == Type::Category::Address) {
+				addressMethod();
+			} else if (category == Type::Category::TvmCell) {
+				cellMethods(*ma);
+			} else if (isSuper(&ma->expression())) {
+				superFunctionCall(*ma);
+			} else if (category == Type::Category::TypeType) {
+				if (checkBaseContractCall(*ma, category)) {
+					// nothing
 				} else {
-					cast_error(m_functionCall, "Unsupported function call");
+					typeTypeMethods(*ma);
 				}
 			} else {
-				if (!isIn(ma->memberName(), "transfer", "deployAndCallConstructor")) {
-					for (const auto &arg : m_arguments) {
-						acceptExpr(arg.get());
-					}
-				}
-				if (ma->expression().annotation().type->category() == Type::Category::Address) {
-					addressMethod();
-				} else if (checkForSuper(*ma, category) ||
-					checkForTvmCellMethods(*ma, category) ||
-					checkForMemberAccessTypeType(*ma, category) ||
-					checkForMsgFunction(*ma, category) ||
-					checkForTypeTypeMember(*ma, category)) {
-				} else {
-					cast_error(m_functionCall, "Unsupported function call");
-				}
+				cast_error(m_functionCall, "Unsupported function call");
 			}
 		}
 	}
 }
 
-bool FunctionCallCompiler::checkForSuper(MemberAccess const &_node, Type::Category) {
-	// argument are on stack
-	if (!isSuper(&_node.expression()))
-		return false;
+void FunctionCallCompiler::superFunctionCall(MemberAccess const &_node) {
+	for (const auto &arg : m_arguments)
+		acceptExpr(arg.get());
 	m_pusher.push(0, ";; super");
+
+	// TODO use annotation to get super class
 	string fname = _node.memberName();
 	auto super = getSuperContract(m_pusher.ctx().getContract(m_pusher.ctx().m_currentFunction),
 								  m_pusher.ctx().getContract(), fname);
@@ -125,15 +128,17 @@ bool FunctionCallCompiler::checkForSuper(MemberAccess const &_node, Type::Catego
 		m_pusher.push( 0, ";; Super call " + functionName);
 		if (auto ft = to<FunctionType>(getType(&_node))) {
 			m_pusher.pushCall(functionName, ft);
-			return true;
+			return;
 		}
 	}
 	solAssert(false, "");
 }
 
-bool FunctionCallCompiler::checkForTypeTypeMember(MemberAccess const &_node, Type::Category category) {
-	if (category != Type::Category::TypeType)
-		return false;
+void FunctionCallCompiler::typeTypeMethods(MemberAccess const &_node) {
+	for (const auto &arg : m_arguments) {
+		acceptExpr(arg.get());
+	}
+
 	if (_node.memberName() == "makeAddrExtern") {
 		// addr_extern$01 len:(## 9) external_address:(bits len) = MsgAddressExt;
 		m_pusher.push(0, ";; address.makeAddrExtern()");
@@ -146,19 +151,15 @@ bool FunctionCallCompiler::checkForTypeTypeMember(MemberAccess const &_node, Typ
 		m_pusher.push(-3 + 1, "STUX"); // builder'''
 		m_pusher.push(0, "ENDC");
 		m_pusher.push(0, "CTOS"); // extAddress
-		return true;
-	}
-	if (_node.memberName() == "makeAddrNone") {
+	} else if (_node.memberName() == "makeAddrNone") {
 		m_pusher.push(0, ";; address.makeAddrNone()");
 		m_pusher.push(+1, "PUSHSLICE x2_");
-		return true;
-	}
-	if (_node.memberName() == "makeAddrStd") {
+	} else if (_node.memberName() == "makeAddrStd") {
 		m_pusher.push(0, ";; address.makeAddrStd()");
 		m_pusher.pushPrivateFunctionOrMacroCall(-2 + 1, "make_std_address_with_wid_macro");
-		return true;
+	} else {
+		solAssert(false, "");
 	}
-	return false;
 }
 
 void FunctionCallCompiler::loadTypeFromSlice(MemberAccess const &_node, TypePointer type) {
@@ -283,31 +284,38 @@ DICTUSETB
 	return false;
 }
 
-bool FunctionCallCompiler::checkForTvmSliceMethods(MemberAccess const &_node, Type::Category category) {
-	if (category != Type::Category::TvmSlice)
-		return false;
-
-	if (_node.memberName() == "size") {
+void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
+	if (_node.memberName() == "dataSize") {
+		acceptExpr(&_node.expression());
+		acceptExpr(m_arguments.at(0).get());
+		m_pusher.push(-2 + 3, "SDATASIZE");
+	} else if (_node.memberName() == "dataSizeQ") {
+		acceptExpr(&_node.expression());
+		acceptExpr(m_arguments.at(0).get());
+		m_pusher.pushLines(R"(
+SDATASIZEQ
+PUSHCONT {
+	TRIPLE
+}
+PUSHCONT {
+	NULL
+}
+IFELSE
+)");
+		m_pusher.push(-2 + 1, ""); // fix stake
+	} else if (_node.memberName() == "size") {
 		acceptExpr(&_node.expression());
 		m_pusher.push(-1+2, "SBITREFS");
-		return true;
-	}
-	if (_node.memberName() == "bits") {
+	} else if (_node.memberName() == "bits") {
 		acceptExpr(&_node.expression());
 		m_pusher.push(-1+1, "SBITS");
-		return true;
-	}
-	if (_node.memberName() == "refs") {
+	} else if (_node.memberName() == "refs") {
 		acceptExpr(&_node.expression());
 		m_pusher.push(-1+1, "SREFS");
-		return true;
-	}
-	if (_node.memberName() == "depth") {
+	} else if (_node.memberName() == "depth") {
 		acceptExpr(&_node.expression());
 		m_pusher.push(-1 + 1, "SDEPTH");
-		return true;
-	}
-	if (_node.memberName() == "decode") {
+	} else if (_node.memberName() == "decode") {
 		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, false, _node.expression().annotation().isLValue);
 		TypePointers targetTypes;
 		if (auto const* targetTupleType = dynamic_cast<TupleType const*>(m_functionCall.annotation().type))
@@ -319,28 +327,23 @@ bool FunctionCallCompiler::checkForTvmSliceMethods(MemberAccess const &_node, Ty
 			loadTypeFromSlice(_node, type);
 		}
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
-		return true;
-	}
-	if (_node.memberName() == "decodeFunctionParams") {
+	} else if (_node.memberName() == "decodeFunctionParams") {
 		const int saveStackSize = m_pusher.getStack().size();
-		auto functionDefinition = getCallableDeclaration(m_arguments.at(0).get());
-
+		auto functionDefinition = getFunctionDeclarationOrConstructor(m_arguments.at(0).get());
 		const TVMExpressionCompiler::LValueInfo lValueInfo =
 				m_exprCompiler->expandLValue(&_node.expression(),true, false, _node.expression().annotation().isLValue);
+		if (functionDefinition) {
+			DecodeFunctionParams decoder{&m_pusher};
+			decoder.decodeParameters(functionDefinition->parameters());
 
-		DecodeFunctionParams decoder{&m_pusher};
-		decoder.decodeParameters(functionDefinition->parameters());
+			const int saveStackSize2 = m_pusher.getStack().size();
+			const int paramQty = functionDefinition->parameters().size();
+			m_pusher.blockSwap(saveStackSize2 - saveStackSize - paramQty, paramQty);
 
-		const int saveStackSize2 = m_pusher.getStack().size();
-		const int paramQty = functionDefinition->parameters().size();
-		m_pusher.blockSwap(saveStackSize2 - saveStackSize - paramQty, paramQty);
-
-		m_pusher.push(+1, "PUSHSLICE x8_");
+			m_pusher.push(+1, "PUSHSLICE x8_");
+		}
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
-		return true;
-	}
-
-	if (boost::starts_with(_node.memberName(), "load")) {
+	} else if (boost::starts_with(_node.memberName(), "load")) {
 		const TVMExpressionCompiler::LValueInfo lValueInfo =
 				m_exprCompiler->expandLValue(&_node.expression(), true, false, _node.expression().annotation().isLValue);
 		if (_node.memberName() == "loadRefAsSlice") {
@@ -368,9 +371,9 @@ bool FunctionCallCompiler::checkForTvmSliceMethods(MemberAccess const &_node, Ty
 		}
 
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
-		return true;
+	} else {
+		solAssert(false, "");
 	}
-	return false;
 }
 
 void FunctionCallCompiler::store(MemberAccess const &_node, TypePointer type, bool reverse) {
@@ -506,14 +509,10 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 	return false;
 }
 
-bool FunctionCallCompiler::checkForStringMethods(MemberAccess const &_node) {
-	auto array = to<ArrayType>(_node.expression().annotation().type);
-	if (!array || !array->isString())
-		return false;
-	acceptExpr(&_node.expression());
-	m_pusher.push(+1 - 1, "CTOS");
-
+void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 	if (_node.memberName() == "substr") {
+		acceptExpr(&_node.expression());
+		m_pusher.push(+1 - 1, "CTOS");
 		for (const auto &arg : m_arguments) {
 			acceptExpr(arg.get());
 			m_pusher.push(+1 - 1, "MULCONST 8");
@@ -522,16 +521,74 @@ bool FunctionCallCompiler::checkForStringMethods(MemberAccess const &_node) {
 		m_pusher.push(+1, "NEWC");
 		m_pusher.push(-1, "STSLICE");
 		m_pusher.push(+1 - 1, "ENDC");
-		return true;
-	}
-
-	if (_node.memberName() == "byteLength") {
+	} else if (_node.memberName() == "byteLength") {
+		acceptExpr(&_node.expression());
+		m_pusher.push(+1 - 1, "CTOS");
 		m_pusher.push(-1 + 1, "SBITS");
 		m_pusher.push(-1 + 1, "RSHIFT 3");
-		return true;
+	} else if (_node.memberName() == "dataSize") {
+		acceptExpr(&_node.expression());
+		acceptExpr(m_arguments.at(0).get());
+		m_pusher.push(-2  + 3, "CDATASIZE");
+	} else if (_node.memberName() == "toSlice") {
+		m_exprCompiler->compileNewExpr(&_node.expression());
+		m_pusher.push(-1 + 1, "CTOS");
+	} else if (_node.memberName() == "dataSizeQ") {
+		acceptExpr(&_node.expression());
+		acceptExpr(m_arguments.at(0).get());
+		m_pusher.pushLines(R"(
+CDATASIZEQ
+PUSHCONT {
+	TRIPLE
+}
+PUSHCONT {
+	NULL
+}
+IFELSE
+)");
+		m_pusher.push(-2 + 1, ""); // fix stake
+	} else if (_node.memberName() == "push") {
+		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
+		auto arrayBaseType = to<ArrayType>(getType(&_node.expression()))->baseType();
+		const IntegerType key = getKeyTypeOfArray();
+		bool isValueBuilder{};
+		if (m_functionCall.arguments().empty()) {
+			isValueBuilder = arrayBaseType->category() == Type::Category::Struct;
+			m_pusher.pushDefaultValue(arrayBaseType, isValueBuilder);
+		} else {
+			m_exprCompiler->compileNewExpr(m_functionCall.arguments()[0].get());
+			isValueBuilder = false;
+		}
+		// stack: arr value
+		m_pusher.push(0, ";; array.push(..)");
+		isValueBuilder = m_pusher.prepareValueForDictOperations(&key, arrayBaseType, isValueBuilder); // arr value'
+		m_pusher.exchange(0, 1); // value' arr
+		m_pusher.push(-1 + 2, "UNPAIR");  // value' size dict
+		m_pusher.push(+1, "PUSH S1"); // value' size dict size
+		m_pusher.push(0, "INC"); // value' size dict newSize
+		m_pusher.exchange(0, 3); // newSize size dict value'
+		m_pusher.push(0, "ROTREV"); // newSize value' size dict
+		m_pusher.setDict(key, *arrayBaseType, isValueBuilder, m_functionCall); // newSize dict'
+		m_pusher.push(-2 + 1, "PAIR");  // arr
+		m_exprCompiler->collectLValue(lValueInfo, true, false);
+	} else if (_node.memberName() == "pop") {
+		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
+		// arr
+		m_pusher.push(-1 + 2, "UNPAIR"); // size dict
+		m_pusher.push(+1, "PUSH s1"); // size dict size
+		m_pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::PopFromEmptyArray)); // size dict
+		m_pusher.push(0, "SWAP"); // dict size
+		m_pusher.push(0, "DEC"); // dict newSize
+		m_pusher.push(0, "DUP"); // dict newSize newSize
+		m_pusher.push(+1, "ROT"); // newSize newSize dict
+		m_pusher.pushInt(TvmConst::ArrayKeyLength); // newSize newSize dict 32
+		m_pusher.push(-3 + 2, "DICTUDEL"); // newSize dict ?
+		m_pusher.drop(1);  // newSize dict
+		m_pusher.push(-2 + 1, "PAIR");  // arr
+		m_exprCompiler->collectLValue(lValueInfo, true, false);
+	} else {
+		solAssert(false, "");
 	}
-
-	return false;
 }
 
 bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
@@ -574,23 +631,34 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 	return false;
 }
 
-bool FunctionCallCompiler::checkForTvmCellMethods(MemberAccess const &_node, Type::Category category) {
-	if (category != Type::Category::TvmCell)
-		return false;
-
+void FunctionCallCompiler::cellMethods(MemberAccess const &_node) {
 	if (_node.memberName() == "toSlice") {
         acceptExpr(&_node.expression());
 		m_pusher.push(-1 + 1, "CTOS");
-		return true;
-	}
-
-    if (_node.memberName() == "depth") {
+	} else if (_node.memberName() == "depth") {
 		acceptExpr(&_node.expression());
 		m_pusher.push(-1 + 1, "CDEPTH");
-		return true;
+ 	} else if (_node.memberName() == "dataSize") {
+		acceptExpr(&_node.expression());
+		acceptExpr(m_arguments.at(0).get());
+		m_pusher.push(-2 + 3, "CDATASIZE");
+	} else if (_node.memberName() == "dataSizeQ") {
+		acceptExpr(&_node.expression());
+		acceptExpr(m_arguments.at(0).get());
+		m_pusher.pushLines(R"(
+CDATASIZEQ
+PUSHCONT {
+	TRIPLE
+}
+PUSHCONT {
+	NULL
+}
+IFELSE
+)");
+		m_pusher.push(-2 + 1, ""); // fix stake
+	} else {
+		solAssert(false, "");
 	}
-
-	return false;
 }
 
 void FunctionCallCompiler::addressMethod() {
@@ -607,9 +675,9 @@ void FunctionCallCompiler::addressMethod() {
 		auto setValue = [&](Expression const* expr) {
 			const auto& [ok, value] = TVMExpressionCompiler::constValue(*expr);
 			if (ok) {
-				constParams[TvmConst::int_msg_info::grams] = StackPusherHelper::gramsToBinaryString(u256(value));
+				constParams[TvmConst::int_msg_info::tons] = StackPusherHelper::tonsToBinaryString(u256(value));
 			} else {
-				exprs[TvmConst::int_msg_info::grams] = expr;
+				exprs[TvmConst::int_msg_info::tons] = expr;
 			}
 		};
 
@@ -880,7 +948,7 @@ bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node) {
 		// value:CurrencyCollection
 		if (m_arguments.size() > 3) {
 			if (auto valueLiteral = to<Literal>(m_arguments[3].get())) { // dest
-				s += StackPusherHelper::gramsToBinaryString(valueLiteral);
+				s += StackPusherHelper::tonsToBinaryString(valueLiteral);
 			} else {
 				cast_error(_node, "tvm.sendMsg() forth param should be value literal");
 			}
@@ -929,17 +997,9 @@ bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node) {
 	return true;
 }
 
-bool FunctionCallCompiler::checkForMsgFunction(MemberAccess const &_node, Type::Category category) {
-	if (category != Type::Category::Magic)
-		return false;
-
-	auto identifier = to<Identifier>(&_node.expression());
-	if (!identifier) {
-		return false;
-	}
-	if (identifier->name() == "msg") {
-		if (_node.memberName() == "pubkey") { // msg.pubkey
-			m_pusher.pushLines(R"(
+void FunctionCallCompiler::msgFunction(MemberAccess const &_node) {
+	if (_node.memberName() == "pubkey") { // msg.pubkey
+		m_pusher.pushLines(R"(
 GETGLOB 5
 DUP
 ISNULL
@@ -949,12 +1009,48 @@ PUSHCONT {
 }
 IF
 )");
-			m_pusher.push(+1, ""); // fix stack
-			return true;
-		}
+		m_pusher.push(+1, ""); // fix stack
+	} else {
+		cast_error(_node, "Unsupported function call");
 	}
-	cast_error(_node, "Unsupported magic");
-	return false;
+}
+
+void FunctionCallCompiler::rndFunction(MemberAccess const &_node) {
+	Type const* expressionType = getType(&m_functionCall.expression());
+	auto functionType = dynamic_cast<FunctionType const*>(expressionType);
+	switch (functionType->kind()) {
+		case FunctionType::Kind::RndNext:
+			if (m_arguments.empty()) {
+				m_pusher.push(+1, "RANDU256");
+			} else {
+				acceptExpr(m_arguments.at(0).get());
+				m_pusher.push(-1 + 1, "RAND");
+			}
+			break;
+		case FunctionType::Kind::RndSetSeed:
+		{
+			acceptExpr(m_arguments.at(0).get());
+			m_pusher.push(-1, "SETRAND");
+			break;
+		}
+		case FunctionType::Kind::RndGetSeed:
+		{
+			m_pusher.push(+1, "RANDSEED");
+			break;
+		}
+		case FunctionType::Kind::RndShuffle:
+		{
+			if (m_arguments.empty()) {
+				m_pusher.push(+1, "LTIME");
+			} else {
+				acceptExpr(m_arguments.at(0).get());
+			}
+			m_pusher.push(-1, "ADDRAND");
+			break;
+		}
+		default:
+			cast_error(_node, "Unsupported function call");
+	}
 }
 
 bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
@@ -964,10 +1060,7 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		}
 	};
 
-	if (_node.memberName() == "cdatasize") { // tvm.cdatasize(cell, uint)
-		pushArgs();
-		m_pusher.push(-2 + 3, "CDATASIZE");
-	} else if (_node.memberName() == "pubkey") { // tvm.pubkey
+	if (_node.memberName() == "pubkey") { // tvm.pubkey
 		m_pusher.push(+1, "GETGLOB 2");
 	} else if (_node.memberName() == "accept") { // tvm.accept
 		m_pusher.push(0, "ACCEPT");
@@ -1017,41 +1110,57 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		} else {
 			cast_error(_node, "Parameter should be a literal");
 		}
-	} else if (_node.memberName() == "transLT") { // tvm.transLT
-		pushArgs();
-		m_pusher.push(+1, "LTIME");
 	} else if (_node.memberName() == "resetStorage") { //tvm.resetStorage
 		m_pusher.resetAllStateVars();
 	} else if (_node.memberName() == "functionId") { // tvm.functionId
-		auto callDef = getCallableDeclaration(m_arguments.at(0).get());
+		auto callDef = getFunctionDeclarationOrConstructor(m_arguments.at(0).get());
 		EncodeFunctionParams encoder(&m_pusher);
 		uint32_t funcID;
-		bool isManuallyOverridden;
-		std::tie(funcID, isManuallyOverridden) = encoder.calculateFunctionID(callDef);
+		bool isManuallyOverridden{};
+		if (callDef == nullptr) {
+			funcID = encoder.defaultConstructorFunctionID();
+		} else {
+			std::tie(funcID, isManuallyOverridden) = encoder.calculateFunctionID(callDef);
+		}
 		if (!isManuallyOverridden) {
 			funcID &= 0x7FFFFFFFu;
 		}
 		m_pusher.pushInt(funcID);
 	} else if (_node.memberName() == "encodeBody") { // tvm.encodeBody
-		auto callDef = getCallableDeclaration(m_arguments.at(0).get());
 		m_pusher.push(+1, "NEWC");
-		std::vector<Type const*> types = getParams(callDef->parameters()).first;
-		auto position = EncodePosition(32, types);
-		const ast_vec<VariableDeclaration> &parameters = callDef->parameters();
-
-		EncodeFunctionParams{&m_pusher}.createMsgBody(
+		CallableDeclaration const* callDef = getFunctionDeclarationOrConstructor(m_arguments.at(0).get());
+		if (callDef == nullptr) { // if no constructor (default constructor)
+			EncodeFunctionParams{&m_pusher}.createDefaultConstructorMessage2();
+		} else {
+			std::vector<Type const *> types = getParams(callDef->parameters()).first;
+			auto position = EncodePosition(32, types);
+			const ast_vec<VariableDeclaration> &parameters = callDef->parameters();
+			EncodeFunctionParams{&m_pusher}.createMsgBody(
 					[&](size_t idx) {
 						m_pusher.push(0, ";; " + parameters[idx]->name());
 						TVMExpressionCompiler{m_pusher}.compileNewExpr(m_arguments[idx + 1].get());
 					},
 					ReasonOfOutboundMessage::RemoteCallInternal,
 					callDef, false, position);
-		m_pusher.push(+1-1, "ENDC");
+		}
+		m_pusher.push(+1 - 1, "ENDC");
 	} else if (_node.memberName() == "rawReserve") {
 		pushArgs();
 		int n = m_arguments.size();
 		solAssert(isIn(n, 2, 3), "");
 		m_pusher.push(-n, n == 2? "RAWRESERVE" : "RAWRESERVEX");
+	} else if (isIn(_node.memberName(), "exit", "exit1")) {
+		m_pusher.getGlob(1);
+		m_pusher.push(-1 + 1, "ISNULL");
+		m_pusher.push(-1, ""); // fix stack
+		m_pusher.startContinuation();
+		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
+		m_pusher.endContinuation();
+		m_pusher.push(0, "IFNOT");
+		if (_node.memberName() == "exit")
+			m_pusher.push(0, "THROW 0");
+		else
+			m_pusher.push(0, "THROW 1");
 	} else {
 		return false;
 	}
@@ -1063,7 +1172,7 @@ std::string checkValFitsType(TypePointer type) {
 	return (ti.isSigned ? "FITS " : "UFITS ") + toString(ti.numBits);
 }
 
-bool FunctionCallCompiler::checkForMathFunction(const MemberAccess &_node) {
+void FunctionCallCompiler::mathFunction(const MemberAccess &_node) {
 	auto pushArgs = [&]() {
 		for (const ASTPointer<const Expression> &e : m_arguments) {
 			acceptExpr(e.get());
@@ -1081,6 +1190,9 @@ bool FunctionCallCompiler::checkForMathFunction(const MemberAccess &_node) {
 	} else if (_node.memberName() == "minmax") {
 		pushArgs();
 		m_pusher.push(-2 + 2, "MINMAX");
+	} else if (isIn(_node.memberName(), "divr", "divc")) {
+		pushArgs();
+		m_pusher.push(-2 + 1, boost::to_upper_copy<std::string>(_node.memberName()));
 	} else if (isIn(_node.memberName(), "muldiv", "muldivr", "muldivc")) {
 		pushArgs();
 		m_pusher.push(-3 + 1, boost::to_upper_copy<std::string>(_node.memberName()));
@@ -1113,12 +1225,11 @@ bool FunctionCallCompiler::checkForMathFunction(const MemberAccess &_node) {
 			cast_error(m_functionCall, "Second argument must be a constant integer.");
 		}
 	} else {
-		return false;
+		cast_error(m_functionCall, "Unsupported function call");
 	}
-	return true;
 }
 
-bool FunctionCallCompiler::checkForMemberAccessTypeType(MemberAccess const &_node, Type::Category category) {
+bool FunctionCallCompiler::checkBaseContractCall(MemberAccess const &_node, Type::Category category) {
 	if (category != Type::Category::TypeType)
 		return false;
 	if (auto identifier = to<Identifier>(&_node.expression())) {
@@ -1140,6 +1251,87 @@ bool FunctionCallCompiler::checkAddressThis() {
 		return true;
 	}
 	return false;
+}
+
+std::string convertToStr(bool hex = true, bool endc = true, bool leading_zeros = false, int digits_cnt = 64) {
+	std::string ret = R"(
+;; convert int to string
+DUP
+LESSINT 0
+SWAP
+ABS
+PUSHINT 1
+PUSHCONT {
+	PUSH S1
+	PUSHINT )" + to_string(hex ? 16 : 10) + R"(
+	GEQ
+}
+PUSHCONT {
+	INC
+	SWAP
+	PUSHINT )" + to_string(hex ? 16 : 10) + R"(
+	DIVMOD
+	XCHG S2
+}
+WHILE
+NEWC
+)";
+	if (leading_zeros) {
+		ret += "PUSHINT " + to_string(digits_cnt) + "\n";
+		ret += R"(
+PUSH S2
+SUB
+DUP
+ISNEG
+PUSHCONT {
+	DROP
+	ZERO
+}
+IF
+PUSHCONT {
+	PUSHINT 48
+	STUR 8
+}
+REPEAT
+)";
+	}
+	ret += string(R"(
+PUSHCONT {
+	PUSH S1
+	NEQINT 0
+}
+PUSHCONT {
+	SWAP
+	DEC
+	XCHG S2)")
+	+ (hex ? R"(
+	DUP
+	PUSHINT 10
+	GEQ
+	PUSHCONT {
+		ADDCONST 55
+	}
+	PUSHCONT {
+		ADDCONST 48
+	}
+	IFELSE)"
+	: R"(
+	ADDCONST 48)") + R"(
+	STUR 8
+}
+WHILE
+NIP
+SWAP
+PUSHCONT {
+	NEWC
+	STSLICECONST x2D
+	STB
+}
+IF
+)";
+	if (endc)
+		ret += "ENDC\n";
+	return ret;
 }
 
 void FunctionCallCompiler::typeConversion() {
@@ -1244,6 +1436,10 @@ void FunctionCallCompiler::typeConversion() {
 			case Token::String: {
 				if (isStringOrStringLiteralOrBytes(argType)) {
 					acceptArg(); // nothing to do here
+				} else if ((argCategory == Type::Category::Integer) ||
+				(argCategory == Type::Category::RationalNumber)) {
+					acceptArg();
+					m_pusher.pushLines(convertToStr(false));
 				} else {
 					printError();
 				}
@@ -1344,7 +1540,7 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 	} else if (name == "selfdestruct") {
 		const std::map<int, std::string> constParams {
 				{TvmConst::int_msg_info::ihr_disabled, "1"},
-				{TvmConst::int_msg_info::grams, StackPusherHelper::gramsToBinaryString(1'000)}, // TODO use 0?
+				{TvmConst::int_msg_info::tons, StackPusherHelper::tonsToBinaryString(u256(1'000))}, // TODO use 0?
 				{TvmConst::int_msg_info::bounce,  "0"},
 		};
 		m_pusher.sendIntMsg(
@@ -1360,6 +1556,9 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 			if (m_arguments.size() == 3)
 				acceptExpr(m_arguments[2].get());
 			const auto &[ok, exceptionCode] = checkAndParseExceptionCode(m_arguments[1].get());
+			if (ok && exceptionCode <= 1) {
+				cast_error(*m_arguments[1].get(), "Error code must be at least two");
+			}
 			if (ok && exceptionCode < 2048) {
 				acceptExpr(m_arguments[0].get());
 				if (m_arguments.size() == 3)
@@ -1368,6 +1567,17 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 					m_pusher.push(-1, "THROWIFNOT " + toString(exceptionCode));
 			} else {
 				acceptExpr(m_arguments[1].get());
+				if (!ok) {
+					m_pusher.pushLines(R"(
+DUP
+LESSINT 2
+PUSHCONT {
+	DROP
+	PUSHINT 100
+}
+IF
+)");
+				}
 				acceptExpr(m_arguments[0].get());
 				if (m_arguments.size() == 3)
 					m_pusher.push(-3, "THROWARGANYIFNOT");
@@ -1389,10 +1599,24 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 			if (withArg) {
 				acceptExpr(m_arguments[1].get());
 			}
+			if (ok && exceptionCode <= 1) {
+				cast_error(*m_arguments[0].get(), "Error code must be at least two");
+			}
 			if (ok && exceptionCode < 2048) {
 				m_pusher.push(withArg? -1 : 0, (withArg? "THROWARG " : "THROW ") + toString(exceptionCode));
 			} else {
 				acceptExpr(m_arguments[0].get());
+				if (!ok) {
+					m_pusher.pushLines(R"(
+DUP
+LESSINT 2
+PUSHCONT {
+	DROP
+	PUSHINT 100
+}
+IF
+)");
+				}
 				m_pusher.push(withArg? -2 : -1, withArg? "THROWARGANY" : "THROWANY");
 			}
 		}
@@ -1421,6 +1645,227 @@ bool FunctionCallCompiler::checkForIdentifier() {
 			m_pusher.push(0, "PRINTSTR " + literal->value());
 		} else {
 			cast_error(m_functionCall, "Parameter should be a literal");
+		}
+	} else if (iname == "format") {
+		auto literal = to<Literal>(m_arguments[0].get());
+		if (!literal)
+			cast_error(m_functionCall, "First parameter should be a literal string");
+		std::string formatStr = literal->value();
+		size_t pos = 0;
+		std::vector<std::pair<std::string, bool> > substrings;
+		while (true) {
+			pos = formatStr.find('{', pos);
+			size_t close_pos = formatStr.find('}', pos);
+			if (pos == string::npos || close_pos == string::npos)
+				break;
+			if ((close_pos - pos != 1) && (close_pos - pos != 3)) {
+				pos++;
+				continue;
+			}
+			bool isHex = false;
+			if (close_pos - pos == 3) {
+				if (formatStr[close_pos - 2] != ':') {
+					pos++;
+					continue;
+				}
+				char formatCharacter = formatStr[close_pos - 1];
+				if (formatCharacter != 'x')
+					cast_error(m_functionCall, "The only supported specified format is x");
+				isHex = true;
+			}
+			substrings.emplace_back(formatStr.substr(0, pos), isHex);
+			formatStr = formatStr.substr(close_pos + 1);
+			pos = 0;
+		}
+		if (substrings.size() + 1 != m_arguments.size())
+			cast_error(m_functionCall, "Number of arguments is not equal to the number of placeholders!");
+		m_pusher.push(+1, "NEWC");
+		for(size_t it = 0; it < substrings.size(); it++) {
+			if (substrings[it].first.length())
+				m_pusher.storeStringInABuilder(substrings[it].first);
+			Type::Category cat = m_arguments[it + 1]->annotation().type->category();
+			if (cat == Type::Category::Integer || cat == Type::Category::RationalNumber) {
+				acceptExpr(m_arguments[it + 1].get());
+				m_pusher.pushLines(convertToStr(substrings[it].second, false));
+				m_pusher.push(-1, "STBR");
+			} else if (cat == Type::Category::Address) {
+				acceptExpr(m_arguments[it + 1].get());
+				m_pusher.pushLines(R"(
+LDU 3
+NIP
+LDI 8
+LDU 256
+DROP
+SWAP
+)");
+				m_pusher.pushLines(convertToStr(true, false));
+
+				m_pusher.pushLines(R"(
+STSLICECONST x3A
+SWAP
+)");
+				m_pusher.pushLines(convertToStr(true, false));
+				m_pusher.push(0, "STBR");
+				m_pusher.push(-1, "STBR");
+			} else {
+				cast_error(*m_arguments[it + 1].get(), "Unsupported argument type");
+			}
+		}
+		if (formatStr.length())
+			m_pusher.storeStringInABuilder(formatStr);
+		m_pusher.push(0, "ENDC");
+	} else if (iname == "stoi") {
+		m_pusher.push(+1, "TRUE");
+		acceptExpr(m_arguments[0].get());
+		m_pusher.push(0, "CTOS");
+		m_pusher.pushS(0);
+		m_pusher.push(+1, "PLDU 8");
+
+		m_pusher.push(0, "EQINT 45");
+		m_pusher.pushS(0);
+		m_pusher.pushLines(
+R"(
+PUSHCONT {
+	SWAP
+	PUSHINT 8
+	SDSKIPFIRST
+}
+PUSHCONT {
+	SWAP
+}
+IFELSE
+)");
+		m_pusher.pushS(0);
+		m_pusher.pushInt(16);
+		m_pusher.push(-2+1, "SCHKBITSQ");
+		m_pusher.pushLines(
+R"(
+PUSHCONT {
+	DUP
+	PLDU 16
+	PUSHINT 12408
+	EQUAL
+}
+PUSHCONT {
+	FALSE
+}
+IFELSE
+PUSHINT 0
+ROTREV
+PUSHCONT {
+	PUSHINT 16
+	SDSKIPFIRST
+	PUSHCONT {
+		DUP
+		PUSHINT 8
+		SCHKBITSQ
+	}
+	PUSHCONT {
+		LDU 8
+		SWAP
+		DUP
+		PUSHINT 65
+		GEQ
+		PUSHCONT {
+			DUP
+			PUSHINT 97
+			GEQ
+			PUSHCONT {
+				ADDCONST -87
+			}
+			PUSHCONT {
+				ADDCONST -55
+			}
+			IFELSE
+		}
+		PUSHCONT {
+			ADDCONST -48
+		}
+		IFELSE
+		DUP
+		GTINT 15
+		PUSH S1
+		ISNEG
+		OR
+		PUSHCONT {
+			BLKSWAP 1, 4
+			DROP
+			FALSE
+			BLKSWAP 4, 1
+		}
+		IF
+		BLKSWAP 1, 2
+		MULCONST 16
+		ADD
+		SWAP
+	}
+	WHILE
+}
+PUSHCONT {
+	PUSHCONT {
+		DUP
+		PUSHINT 8
+		SCHKBITSQ
+	}
+	PUSHCONT {
+		LDU 8
+		SWAP
+		ADDCONST -48
+		DUP
+		GTINT 9
+		PUSH S1
+		ISNEG
+		OR
+		PUSHCONT {
+			BLKSWAP 1, 4
+			DROP
+			FALSE
+			BLKSWAP 4, 1
+		}
+		IF
+		BLKSWAP 1, 2
+		MULCONST 10
+		ADD
+		SWAP
+	}
+	WHILE
+}
+IFELSE
+DROP
+SWAP
+PUSHCONT {
+	NEGATE
+}
+IF
+SWAP
+)");
+		m_pusher.push(-4, "");
+	}else if (iname == "hexstring") {
+		Type::Category cat = m_arguments[0]->annotation().type->category();
+		if (cat == Type::Category::Integer || cat == Type::Category::RationalNumber) {
+			TypeInfo ti{m_arguments[0]->annotation().type};
+			acceptExpr(m_arguments[0].get());
+			m_pusher.pushLines(convertToStr(true, true, true, ti.numBits / 4));
+		} else if (cat == Type::Category::Address) {
+			acceptExpr(m_arguments[0].get());
+			m_pusher.pushLines(R"(
+LDU 3
+NIP
+LDI 8
+LDU 256
+DROP
+SWAP
+)");
+			m_pusher.pushLines(convertToStr(true, false));
+			m_pusher.pushLines(R"(
+STSLICECONST x3A
+SWAP
+)");
+			m_pusher.pushLines(convertToStr(true, false, true));
+			m_pusher.push(0, "STBR");
+			m_pusher.push(0, "ENDC");
+		} else {
+			cast_error(m_functionCall, "Parameter should be integer or address");
 		}
 	} else  if (checkLocalFunctionCall(identifier)) {
 	} else if (m_pusher.getStack().isParam(identifier->annotation().referencedDeclaration)) {
@@ -1496,7 +1941,7 @@ bool FunctionCallCompiler::createNewContract() {
 	}
 	auto valueIt = find_if(optionNames.begin(), optionNames.end(),  [](auto el) { return *el == "value"; });
 	if (valueIt != optionNames.end()){
-		exprs[TvmConst::int_msg_info::grams] = [&](){
+		exprs[TvmConst::int_msg_info::tons] = [&](){
 			size_t index = valueIt - optionNames.begin();
 			TVMExpressionCompiler{m_pusher}.compileNewExpr(functionOptions->options()[index].get());
 		};
@@ -1517,7 +1962,7 @@ bool FunctionCallCompiler::createNewContract() {
 											ReasonOfOutboundMessage::RemoteCallInternal,
 											constructor, builderSize);
 		else
-			return EncodeFunctionParams{&m_pusher}.createDefaultConstructorMessage(builderSize);
+			return EncodeFunctionParams{&m_pusher}.createDefaultConstructorMsgBodyAndAppendToBuilder(builderSize);
 	};
 
 	std::function<void()> appendStateInit = [&]() {

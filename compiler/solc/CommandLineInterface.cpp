@@ -390,21 +390,6 @@ bool CommandLineInterface::processInput()
 				));
 			auto path = boost::filesystem::path(_path);
 			auto canonicalPath = boost::filesystem::weakly_canonical(path);
-			bool isAllowed = false;
-			for (auto const& allowedDir: m_allowedDirectories)
-			{
-				// If dir is a prefix of boostPath, we are fine.
-				if (
-					std::distance(allowedDir.begin(), allowedDir.end()) <= std::distance(canonicalPath.begin(), canonicalPath.end()) &&
-					std::equal(allowedDir.begin(), allowedDir.end(), canonicalPath.begin())
-				)
-				{
-					isAllowed = true;
-					break;
-				}
-			}
-			if (!isAllowed)
-				return ReadCallback::Result{false, "File outside of allowed directories."};
 
 			if (!boost::filesystem::exists(canonicalPath))
 				return ReadCallback::Result{false, "File not found."};

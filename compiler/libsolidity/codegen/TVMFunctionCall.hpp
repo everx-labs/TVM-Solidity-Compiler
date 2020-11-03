@@ -40,24 +40,25 @@ public:
 
 protected:
 	bool structMethodCall();
-	bool checkForSuper(MemberAccess const& _node, Type::Category);
-	bool checkForTypeTypeMember(MemberAccess const& _node, Type::Category category);
+	void superFunctionCall(MemberAccess const& _node);
+	void typeTypeMethods(MemberAccess const& _node);
 	// TODO unite with decodeParameter
 	void loadTypeFromSlice(MemberAccess const& _node, TypePointer type);
 	bool checkForTvmDeployMethods(MemberAccess const& _node, Type::Category category);
-	bool checkForTvmSliceMethods(MemberAccess const& _node, Type::Category category);
+	void sliceMethods(MemberAccess const& _node);
 	void store(MemberAccess const& _node, TypePointer type, bool reverse = true);
-	bool checkForStringMethods(MemberAccess const& _node);
+	void arrayMethods(MemberAccess const& _node);
 	bool checkForOptionalMethods(MemberAccess const& _node);
 	bool checkForTvmBuilderMethods(MemberAccess const& _node, Type::Category category);
-	bool checkForTvmCellMethods(MemberAccess const& _node, Type::Category category);
+	void cellMethods(MemberAccess const& _node);
 	void addressMethod();
 	bool checkForTvmConfigParamFunction(MemberAccess const& _node);
 	bool checkForTvmSendFunction(MemberAccess const& _node);
-	bool checkForMsgFunction(MemberAccess const& _node, Type::Category category);
+	void msgFunction(MemberAccess const& _node);
+	void rndFunction(MemberAccess const& _node);
 	bool checkForTvmFunction(MemberAccess const& _node);
-	bool checkForMathFunction(MemberAccess const& _node);
-	bool checkForMemberAccessTypeType(MemberAccess const& _node, Type::Category category);
+	void mathFunction(MemberAccess const& _node);
+	bool checkBaseContractCall(MemberAccess const& _node, Type::Category category);
 	bool checkAddressThis();
 	void typeConversion();
 	bool checkLocalFunctionCall(const Identifier* identifier);

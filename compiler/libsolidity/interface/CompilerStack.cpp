@@ -230,7 +230,12 @@ bool CompilerStack::parse()
 		else
 		{
 			source.ast->annotation().path = path;
-			for (auto const& newSource: loadMissingSources(*source.ast, path))
+			std::string absPath;
+			if (boost::filesystem::path(path).is_absolute())
+				absPath = path;
+			else
+				absPath = boost::filesystem::canonical(path).string();
+			for (auto const& newSource: loadMissingSources(*source.ast, absPath))
 			{
 				string const& newPath = newSource.first;
 				string const& newContents = newSource.second;
@@ -493,6 +498,12 @@ bool CompilerStack::compile()
 		for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
 			if (auto pragma = dynamic_cast<PragmaDirective const *>(node.get())) {
 				pragmaDirectives.push_back(pragma);
+			}
+		}
+		for(auto pragma: pragmaDirectives) {
+			if (pragma->parameter()) {
+				TypeChecker typeChecker(m_evmVersion, m_errorReporter);
+				typeChecker.checkTypeRequirements(*pragma->parameter().get());
 			}
 		}
 		for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
@@ -815,10 +826,14 @@ StringMap CompilerStack::loadMissingSources(SourceUnit const& _ast, std::string 
 				continue;
 
 			ReadCallback::Result result{false, string("File not supplied initially.")};
-			if (m_readFile)
-				result = m_readFile(ReadCallback::kindString(ReadCallback::Kind::ReadFile),
-									(boost::filesystem::path(_sourcePath).remove_filename() / importPath).string());
-
+			if (m_readFile) {
+				std::string path;
+				if (importPath.find('/') == std::string::npos)
+					path = (boost::filesystem::path(_sourcePath).remove_filename() / importPath).string();
+				else
+					path = importPath;
+				result = m_readFile(ReadCallback::kindString(ReadCallback::Kind::ReadFile), path);
+			}
 			if (result.success)
 				newSources[importPath] = result.responseOrErrorMessage;
 			else

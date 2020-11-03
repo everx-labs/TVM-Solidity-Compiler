@@ -221,7 +221,6 @@ void TVMTypeChecker::checkTvmIntrinsic(FunctionDefinition const *f, ContractDefi
 
 	std::map<std::string, std::string> deprecatedFunctionsReplacement;
 
-	deprecatedFunctionsReplacement["tvm_trans_lt"] = "tvm.transLT()";
 	deprecatedFunctionsReplacement["tvm_sender_pubkey"] = "msg.pubkey()";
 	deprecatedFunctionsReplacement["tvm_my_public_key"] = "tvm.pubkey()";
 	deprecatedFunctionsReplacement["tvm_chksignu"] = "tvm.checkSign()";
@@ -237,7 +236,6 @@ void TVMTypeChecker::checkTvmIntrinsic(FunctionDefinition const *f, ContractDefi
 	deprecatedFunctionsReplacement["tvm_make_external_address"] = "address.makeAddrExtern()";
 	deprecatedFunctionsReplacement["tvm_commit"] = "tvm.commit()";
 	deprecatedFunctionsReplacement["tvm_logstr"] = "tvm.log()";
-	deprecatedFunctionsReplacement["tvm_tree_cell_size"] = "tvm.cdatasize()";
 	deprecatedFunctionsReplacement["tvm_reset_storage"] = "tvm.resetStorage()";
 	deprecatedFunctionsReplacement["tvm_config_param1"] = "tvm.configParam()";
 	deprecatedFunctionsReplacement["tvm_config_param15"] = "tvm.configParam()";

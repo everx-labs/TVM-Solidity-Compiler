@@ -109,11 +109,7 @@ void TVMConstructorCompiler::generateConstructors() {
 			}
 		}
 
-		TVMFunctionCompiler functionCompiler{
-			m_pusher, false, true, 0, c->constructor(),
-			m_pusher.getStack().size() - static_cast<int>(c->constructor()->parameters().size())
-		};
-		functionCompiler.visitFunctionWithModifiers(false);
+		TVMFunctionCompiler::generateFunctionWithModifiers(m_pusher, c->constructor(), false);
 	}
 
 	if (!haveConstructor) {
@@ -245,8 +241,7 @@ TVMContractCompiler::proceedContractMode0(ContractDefinition const *contract, Pr
 	for (FunctionDefinition const* _function : getContractFunctions(contract)) {
 		TVMCompilerContext ctx(contract, pragmaHelper);
 		StackPusherHelper pusher{&ctx};
-		TVMFunctionCompiler tvm{pusher, false, false, 0, _function, 0};
-		tvm.visitFunctionWithModifiers(true);
+		TVMFunctionCompiler::generateFunctionWithModifiers(pusher, _function, true);
 		optimize_and_append_code(code, pusher, g_disable_optimizer);
 	}
 	return code;
@@ -254,7 +249,7 @@ TVMContractCompiler::proceedContractMode0(ContractDefinition const *contract, Pr
 
 CodeLines
 TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, PragmaDirectiveHelper const &pragmaHelper) {
-	TVMCompilerContext ctx(contract, pragmaHelper);
+	TVMCompilerContext ctx{contract, pragmaHelper};
 	CodeLines code;
 
 	fillInlineFunctions(ctx, contract);
@@ -282,47 +277,36 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 					isFallBackGenerated = true;
 					if (!isEmptyFunction(_function)) {
 						StackPusherHelper pusher{&ctx};
-						TVMFunctionCompiler tvm(pusher, false, true, 0, _function, 0);
-						tvm.generateFallback();
+						TVMFunctionCompiler::generateFallback(pusher, _function);
 						optimize_and_append_code(code, pusher, g_disable_optimizer);
 					}
 				}
 			} else if (_function->isOnTickTock()) {
 				StackPusherHelper pusher{&ctx};
-				TVMFunctionCompiler tvm{pusher, false, true, 0, _function, 0};
-				tvm.generateOnTickTock();
+				TVMFunctionCompiler::generateOnTickTock(pusher, _function);
 				optimize_and_append_code(code, pusher, g_disable_optimizer);
 			} else if (_function->visibility() == Visibility::TvmGetter) {
-				StackPusherHelper pusher{&ctx};
-				TVMFunctionCompiler tvm{pusher, false, true, 0, _function, 0};
-				tvm.generateTvmGetter(_function);
-				optimize_and_append_code(code, pusher, g_disable_optimizer);
+				cast_error(*_function, "Not supported yet");
 			} else if (isMacro(_function->name())) {
-				// TODO: These four lines below are copied many times across this file.
-				// 		 Would it be possible to shorted it by making a pattern?
 				StackPusherHelper pusher{&ctx};
-				TVMFunctionCompiler tvm{pusher, false, true, 0, _function, 0};
-				tvm.generateMacro();
+				TVMFunctionCompiler::generateMacro(pusher, _function);
 				optimize_and_append_code(code, pusher, g_disable_optimizer);
 			} else if (_function->name() == "onCodeUpgrade") {
 				StackPusherHelper pusher{&ctx};
-				TVMFunctionCompiler tvm{pusher, false, true, 0, _function, 0};
-				tvm.generateOnCodeUpgrade();
+				TVMFunctionCompiler::generateOnCodeUpgrade(pusher, _function);
 				optimize_and_append_code(code, pusher, g_disable_optimizer);
 			} else {
 				if (_function->isPublic()) {
 					bool isBaseMethod = _function != getContractFunctions(contract, _function->name()).back();
 					if (!isBaseMethod) {
-						StackPusherHelper pusher0{&ctx};
-						TVMFunctionCompiler tvm0{pusher0, true, true, 0, _function, 0};
-						tvm0.generatePublicFunction();
-						optimize_and_append_code(code, pusher0, g_disable_optimizer);
+						StackPusherHelper pusher{&ctx};
+						TVMFunctionCompiler::generatePublicFunction(pusher, _function);
+						optimize_and_append_code(code, pusher, g_disable_optimizer);
 					}
 				}
 				if (_function->visibility() <= Visibility::Public) {
 					StackPusherHelper pusher{&ctx};
-					TVMFunctionCompiler tvm{pusher, false, false, 0, _function, 0};
-					tvm.generatePrivateFunction();
+					TVMFunctionCompiler::generatePrivateFunction(pusher, _function);
 					optimize_and_append_code(code, pusher, g_disable_optimizer);
 				}
 			}
@@ -337,28 +321,41 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 		}
 		{
 			StackPusherHelper pusher{&ctx};
-			TVMFunctionCompiler tvm{pusher, contract};
-			tvm.generateC4ToC7(false);
+			TVMFunctionCompiler::generateC4ToC7(pusher, contract, false);
 			optimize_and_append_code(code, pusher, g_disable_optimizer);
 		}
 		{
 			StackPusherHelper pusher{&ctx};
-			TVMFunctionCompiler tvm{pusher, contract};
-			tvm.generateC4ToC7(true);
+			TVMFunctionCompiler::generateC4ToC7(pusher, contract, true);
 			optimize_and_append_code(code, pusher, g_disable_optimizer);
 		}
 		{
 			StackPusherHelper pusher{&ctx};
-			TVMFunctionCompiler tvm{pusher, contract};
-			tvm.generateMainInternal();
+			TVMFunctionCompiler::generateMainInternal(pusher, contract);
 			optimize_and_append_code(code, pusher, g_disable_optimizer);
 		}
 		{
 			StackPusherHelper pusher{&ctx};
-			TVMFunctionCompiler tvm{pusher, contract};
-			tvm.generateMainExternal();
+			TVMFunctionCompiler::generateMainExternal(pusher, contract);
 			optimize_and_append_code(code, pusher, g_disable_optimizer);
 		}
+	}
+
+	for (FunctionDefinition const *func : ctx.getLibFunctions()) {
+		if (!func->modifiers().empty()) {
+			cast_error(*func->modifiers().at(0).get(),
+					   "Modifiers for library functions are not supported yet.");
+		}
+
+		if (!func->parameters().empty()) {
+			StackPusherHelper pusher{&ctx};
+			TVMFunctionCompiler::generateLibraryFunction(pusher, func);
+			optimize_and_append_code(code, pusher, g_disable_optimizer);
+		}
+		StackPusherHelper pusher{&ctx};
+		const std::string name = func->annotation().contract->name() + "_no_obj_" + func->name();
+		TVMFunctionCompiler::generatePrivateFunction(pusher, func, name);
+		optimize_and_append_code(code, pusher, g_disable_optimizer);
 	}
 
 	return code;
@@ -385,24 +382,23 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 		const bool isSpecialFunction = function->isReceive() || function->isFallback() || function->isOnBounce();
 		bool doSelectorSwitch{};
 
-		if (!isEmptyFunction(function)) {
-			if (isSpecialFunction) {
-				FunctionUsageScanner scanner{*function};
-				doSelectorSwitch = scanner.havePrivateFunctionCall;
-				if (function->stateMutability() >= StateMutability::View) {
-					doSelectorSwitch = true;
-					pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7");
-				}
+		const bool empty = isEmptyFunction(function);
+
+		if (!empty && isSpecialFunction) {
+			FunctionUsageScanner scanner{*function};
+			doSelectorSwitch = scanner.havePrivateFunctionCall;
+			if (function->stateMutability() >= StateMutability::View) {
+				doSelectorSwitch = true;
+				pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7");
 			}
+		}
 
-			ctx.m_currentFunction = function;
-			TVMFunctionCompiler compiler{pusher, false, true, 0, function, 0};
-			compiler.visitFunctionWithModifiers(true);
+		ctx.m_currentFunction = function;
+		TVMFunctionCompiler::generateFunctionWithModifiers(pusher, function, true);
 
-			if (isSpecialFunction) {
-				if (function->stateMutability() >= StateMutability::NonPayable) {
-					pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
-				}
+		if (!empty  && isSpecialFunction) {
+			if (function->stateMutability() >= StateMutability::NonPayable) {
+				pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
 			}
 		}
 

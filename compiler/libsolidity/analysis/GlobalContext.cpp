@@ -42,7 +42,9 @@ int magicVariableToID(std::string const& _name)
 	else if (_name == "block") return -4;
 	else if (_name == "blockhash") return -5;
 	else if (_name == "ecrecover") return -6;
+	else if (_name == "format") return -105;
 	else if (_name == "gasleft") return -7;
+	else if (_name == "hexstring") return -104;
 	else if (_name == "keccak256") return -8;
 	else if (_name == "log0") return -10;
 	else if (_name == "log1") return -11;
@@ -51,6 +53,7 @@ int magicVariableToID(std::string const& _name)
 	else if (_name == "log4") return -14;
 	else if (_name == "logtvm") return -102;
 	else if (_name == "math") return -103;
+	else if (_name == "rnd") return -105;
 	else if (_name == "msg") return -15;
 	else if (_name == "mulmod") return -16;
 	else if (_name == "now") return -17;
@@ -60,6 +63,7 @@ int magicVariableToID(std::string const& _name)
 	else if (_name == "selfdestruct") return -21;
 	else if (_name == "sha256") return -22;
 	else if (_name == "sha3") return -23;
+	else if (_name == "stoi") return -106;
 	else if (_name == "suicide") return -24;
 	else if (_name == "super") return -25;
 	else if (_name == "tvm") return -101;
@@ -83,7 +87,9 @@ inline vector<shared_ptr<MagicVariableDeclaration const>> constructMagicVariable
 		magicVarDecl("block", TypeProvider::magic(MagicType::Kind::Block)),
 		magicVarDecl("blockhash", TypeProvider::function(strings{"uint256"}, strings{"bytes32"}, FunctionType::Kind::BlockHash, false, StateMutability::View)),
 		magicVarDecl("ecrecover", TypeProvider::function(strings{"bytes32", "uint8", "bytes32", "bytes32"}, strings{"address"}, FunctionType::Kind::ECRecover, false, StateMutability::Pure)),
+		magicVarDecl("format", TypeProvider::function(strings{}, strings{"string"}, FunctionType::Kind::Format, true, StateMutability::Pure)),
 		magicVarDecl("gasleft", TypeProvider::function(strings(), strings{"uint256"}, FunctionType::Kind::GasLeft, false, StateMutability::View)),
+		magicVarDecl("hexstring", TypeProvider::function(strings{}, strings{"string"}, FunctionType::Kind::HexString, true, StateMutability::Pure)),
 		magicVarDecl("keccak256", TypeProvider::function(strings{"bytes memory"}, strings{"bytes32"}, FunctionType::Kind::KECCAK256, false, StateMutability::Pure)),
 		magicVarDecl("log0", TypeProvider::function(strings{"bytes32"}, strings{}, FunctionType::Kind::Log0)),
 		magicVarDecl("log1", TypeProvider::function(strings{"bytes32", "bytes32"}, strings{}, FunctionType::Kind::Log1)),
@@ -92,6 +98,7 @@ inline vector<shared_ptr<MagicVariableDeclaration const>> constructMagicVariable
 		magicVarDecl("log4", TypeProvider::function(strings{"bytes32", "bytes32", "bytes32", "bytes32", "bytes32"}, strings{}, FunctionType::Kind::Log4)),
 		magicVarDecl("logtvm", TypeProvider::function(strings{"bytes32"}, strings{}, FunctionType::Kind::LogTVM, false, StateMutability::Pure)),
 		magicVarDecl("math", TypeProvider::magic(MagicType::Kind::Math)),
+		magicVarDecl("rnd", TypeProvider::magic(MagicType::Kind::Rnd)),
 		magicVarDecl("msg", TypeProvider::magic(MagicType::Kind::Message)),
 		magicVarDecl("mulmod", TypeProvider::function(strings{"uint256", "uint256", "uint256"}, strings{"uint256"}, FunctionType::Kind::MulMod, false, StateMutability::Pure)),
 		magicVarDecl("now", TypeProvider::uint(32)),
@@ -101,6 +108,7 @@ inline vector<shared_ptr<MagicVariableDeclaration const>> constructMagicVariable
 		magicVarDecl("selfdestruct", TypeProvider::function(strings{"address payable"}, strings{}, FunctionType::Kind::Selfdestruct)),
 		magicVarDecl("sha256", TypeProvider::function(strings{"bytes memory"}, strings{"bytes32"}, FunctionType::Kind::SHA256, false, StateMutability::Pure)),
 		magicVarDecl("sha3", TypeProvider::function(strings{"bytes memory"}, strings{"bytes32"}, FunctionType::Kind::KECCAK256, false, StateMutability::Pure)),
+		magicVarDecl("stoi", TypeProvider::function(strings{"string"}, strings{"uint256", "bool"}, FunctionType::Kind::Stoi, false, StateMutability::Pure)),
 		magicVarDecl("suicide", TypeProvider::function(strings{"address payable"}, strings{}, FunctionType::Kind::Selfdestruct)),
 		magicVarDecl("tvm", TypeProvider::magic(MagicType::Kind::TVM)),
 		magicVarDecl("tx", TypeProvider::magic(MagicType::Kind::Transaction)),

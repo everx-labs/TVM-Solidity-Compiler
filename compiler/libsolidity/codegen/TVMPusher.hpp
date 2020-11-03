@@ -97,16 +97,16 @@ class TVMCompilerContext {
 	bool ignoreIntOverflow = false;
 	PragmaDirectiveHelper const& m_pragmaHelper;
 	std::map<VariableDeclaration const *, int> m_stateVarIndex;
+	std::set<FunctionDefinition const*> m_libFunctions;
 
 	void addFunction(FunctionDefinition const* _function);
 	void initMembers(ContractDefinition const* contract);
 
 public:
-	TVMCompilerContext(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
-
 	FunctionDefinition const* m_currentFunction = nullptr;
 	map<string, CodeLines> m_inlinedFunctions;
 
+	TVMCompilerContext(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
 	int getStateVarIndex(VariableDeclaration const *variable) const;
 	std::vector<VariableDeclaration const *> notConstantStateVariables() const;
 	PragmaDirectiveHelper const& pragmaHelper() const;
@@ -121,18 +121,21 @@ public:
 	bool ignoreIntegerOverflow() const;
 	FunctionDefinition const* afterSignatureCheck() const;
 	bool storeTimestampInC4() const;
+	void addLib(FunctionDefinition const* f);
+	const std::set<FunctionDefinition const*>& getLibFunctions() const { return m_libFunctions; }
 };
 
 class StackPusherHelper {
 protected:
 	TVMStack m_stack;
 	CodeLines m_code;
-	const TVMCompilerContext* const m_ctx;
+	TVMCompilerContext* m_ctx;
 	StructCompiler* m_structCompiler;
 
 public:
-	explicit StackPusherHelper(const TVMCompilerContext* ctx, const int stackSize = 0);
+	explicit StackPusherHelper(TVMCompilerContext* ctx, const int stackSize = 0);
 	void tryPollLastRetOpcode();
+	bool tryPollConvertBuilderToSlice();
 	void pollLastOpcode();
 	void append(const CodeLines& oth);
 	void addTabs(const int qty = 1);
@@ -144,7 +147,7 @@ public:
 	CodeLines code() const;
 
 	[[nodiscard]]
-	const TVMCompilerContext& ctx() const;
+	TVMCompilerContext& ctx();
 	void push(int stackDiff, const string& cmd);
 	void startContinuation(int deltaStack = 0);
 	void endContinuation(int deltaStack = 0);
@@ -172,11 +175,13 @@ public:
 	void preload(const Type* type);
 	void pushZeroAddress();
 	void generateC7ToT4Macro();
+	void storeStringInABuilder(std::string str);
 
 	static void addBinaryNumberToString(std::string &s, u256 value, int bitlen = 256);
 	static std::string binaryStringToSlice(const std::string & s);
-	static std::string gramsToBinaryString(Literal const* literal);
-	static std::string gramsToBinaryString(u256 value);
+	static std::string tonsToBinaryString(Literal const* literal);
+	static std::string tonsToBinaryString(u256 value);
+	static std::string tonsToBinaryString(bigint value);
 	std::string literalToSliceAddress(Literal const* literal, bool pushSlice = true);
 
 	bool tryImplicitConvert(Type const *leftType, Type const *rightType);

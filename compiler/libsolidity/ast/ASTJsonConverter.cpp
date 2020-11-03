@@ -521,9 +521,21 @@ bool ASTJsonConverter::visit(TryStatement const& _node)
 
 bool ASTJsonConverter::visit(WhileStatement const& _node)
 {
+	std::string name;
+	switch (_node.loopType()) {
+		case WhileStatement::LoopType::DO_WHILE:
+			name = "DoWhileStatement";
+			break;
+		case WhileStatement::LoopType::WHILE_DO:
+			name = "WhileStatement";
+			break;
+		case WhileStatement::LoopType::REPEAT:
+			name = "RepeatStatement";
+			break;
+	}
 	setJsonNode(
 		_node,
-		_node.isDoWhile() ? "DoWhileStatement" : "WhileStatement",
+		name,
 		{
 			make_pair("condition", toJson(_node.condition())),
 			make_pair("body", toJson(_node.body()))

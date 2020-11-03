@@ -10,18 +10,18 @@ Original Instructions about how to build and install the Solidity compiler can b
 
 ```shell
 git clone git@github.com:tonlabs/TON-Solidity-Compiler.git
-cd TON-Solidity-Compiler/compiler
-sh ./scripts/install_deps.sh
+cd TON-Solidity-Compiler
+sh ./compiler/scripts/install_deps.sh
 mkdir build
 cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake ../compiler/ -DCMAKE_BUILD_TYPE=Release
 cmake --build . -- -j8
 ```
 
 To facilitate work with other TON tools add path to stdlib_sol.tvm into environment variables:
 
 ```shell
-sh ./pub/compiler/scripts/install_lib_variable.sh
+sh ./compiler/scripts/install_lib_variable.sh
 ```
 
 ### Windows 10
@@ -31,11 +31,11 @@ Run Visual Studio Developer Command Prompt
 
 ```shell
 git clone https://github.com/tonlabs/TON-Solidity-Compiler
-cd TON-Solidity-Compiler\compiler
-cmake -P scripts\install_deps.cmake
+cd TON-Solidity-Compiler
+cmake -P compiler\scripts\install_deps.cmake
 mkdir build
 cd build
-cmake ..
+cmake ..\compiler
 cmake --build . --config Release -j 8
 ```
 

@@ -197,6 +197,7 @@ namespace solidity::langutil
 	K(View, "view", 0)                                                 \
 	K(Virtual, "virtual", 0)                                           \
 	K(While, "while", 0)                                               \
+	K(Repeat, "repeat", 0)                                             \
 	\
 	/* TON subdenominations*/                                          \
 	K(SubNano, "nano", 0)                                              \
@@ -207,7 +208,7 @@ namespace solidity::langutil
 	K(SubMilli, "milli", 0)                                            \
 	K(SubMilliton, "milliton", 0)                                      \
 	K(SubTon, "Ton", 0)                                                \
-	K(SubSmallTon, "ton", 0)                                                \
+	K(SubSmallTon, "ton", 0)                                           \
 	K(SubKiloton, "kiloton", 0)                                        \
 	K(SubKTon, "kTon", 0)                                              \
 	K(SubMegaton, "megaton", 0)                                        \

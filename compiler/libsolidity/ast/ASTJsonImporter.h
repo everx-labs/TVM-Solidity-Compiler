@@ -96,7 +96,7 @@ private:
 	ASTPointer<IfStatement> createIfStatement(Json::Value const& _node);
 	ASTPointer<TryCatchClause> createTryCatchClause(Json::Value const& _node);
 	ASTPointer<TryStatement> createTryStatement(Json::Value const& _node);
-	ASTPointer<WhileStatement> createWhileStatement(Json::Value const& _node, bool _isDoWhile);
+	ASTPointer<WhileStatement> createWhileStatement(Json::Value const& _node, WhileStatement::LoopType loopType);
 	ASTPointer<ForStatement> createForStatement(Json::Value const& _node);
 	ASTPointer<Continue> createContinue(Json::Value const& _node);
 	ASTPointer<Break> createBreak(Json::Value const& _node);

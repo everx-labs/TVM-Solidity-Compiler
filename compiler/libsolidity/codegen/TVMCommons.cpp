@@ -276,14 +276,16 @@ vector<FunctionDefinition const *> getContractFunctions(ContractDefinition const
 	return result;
 }
 
-CallableDeclaration const * getCallableDeclaration(Expression const* expr) {
-	CallableDeclaration const * result = nullptr;
+CallableDeclaration const* getFunctionDeclarationOrConstructor(Expression const* expr) {
 	auto f = to<FunctionType>(expr->annotation().type);
 	if (f) {
-		result = to<CallableDeclaration>(&f->declaration());
+		return to<CallableDeclaration>(&f->declaration());
 	}
-	solAssert(result, "Failed to get CallableDeclaration.");
-	return result;
+	auto tt = dynamic_cast<const TypeType*>(expr->annotation().type);
+	solAssert(tt, "");
+	auto contractType = dynamic_cast<const ContractType*>(tt->actualType());
+	solAssert(contractType, "");
+	return contractType->contractDefinition().constructor(); // null if no constructor
 }
 
 bool isEmptyFunction(FunctionDefinition const* f) {

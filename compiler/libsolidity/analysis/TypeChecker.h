@@ -116,9 +116,9 @@ private:
 		FunctionTypePointer _functionType
 	);
 
-	FunctionDefinition const* isArgumentAPublicFunction(FunctionCall const& _functionCall);
-	void areArgumentsValidForFunctionCall(FunctionCall const& _functionCall,
-										  FunctionDefinition const* funcDef);
+	static FunctionDefinition const* getFunctionDefinition(Expression const* expr);
+	static std::pair<bool, FunctionDefinition const*> getConstructorDefinition(Expression const* expr);
+	FunctionDefinition const* checkPubFunctionOrContractTypeAndGetDefinition(Expression const& arg);
 
 	void endVisit(InheritanceSpecifier const& _inheritance) override;
 	void endVisit(UsingForDirective const& _usingFor) override;

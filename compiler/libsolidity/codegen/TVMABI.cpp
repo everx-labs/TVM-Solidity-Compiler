@@ -737,13 +737,12 @@ void EncodeFunctionParams::createMsgBodyAndAppendToBuilder2(const ast_vec<Expres
 			false,
 			builderSize
 	);
-			solAssert(saveStackSize == pusher->getStack().size(), "");
+	solAssert(saveStackSize == pusher->getStack().size(), "");
 }
 
-void EncodeFunctionParams::createDefaultConstructorMessage(const int bitSizeBuilder)
+void EncodeFunctionParams::createDefaultConstructorMsgBodyAndAppendToBuilder(const int bitSizeBuilder)
 {
-	std::vector<ASTPointer<VariableDeclaration>> vect;
-	uint32_t funcID = calculateFunctionID("constructor", vect, &vect);
+	uint32_t funcID = defaultConstructorFunctionID();
 	funcID &= 0x7FFFFFFFu;
 	std::stringstream ss;
 	ss << "x" << std::hex << std::setfill('0') << std::setw(8) << funcID;
@@ -757,6 +756,15 @@ void EncodeFunctionParams::createDefaultConstructorMessage(const int bitSizeBuil
 		pusher->push(0, "STSLICECONST " + ss.str());
 		pusher->push(-1, "STBREFR");
 	}
+}
+
+void EncodeFunctionParams::createDefaultConstructorMessage2()
+{
+	uint32_t funcID = defaultConstructorFunctionID();
+	funcID &= 0x7FFFFFFFu;
+	std::stringstream ss;
+	ss << "x" << std::hex << std::setfill('0') << std::setw(8) << funcID;
+	pusher->push(0, "STSLICECONST " + ss.str());
 }
 
 uint32_t EncodeFunctionParams::calculateFunctionID(const std::string name, const std::vector<ASTPointer<VariableDeclaration>> inputs,
@@ -809,6 +817,10 @@ uint32_t EncodeFunctionParams::calculateFunctionID(const std::string name, const
 	return funcID;
 }
 
+uint32_t EncodeFunctionParams::defaultConstructorFunctionID() {
+	std::vector<ASTPointer<VariableDeclaration>> vect;
+	return calculateFunctionID("constructor", vect, &vect);
+}
 
 std::pair<uint32_t, bool> EncodeFunctionParams::calculateFunctionID(const CallableDeclaration *declaration) {
 	auto functionDefinition = to<FunctionDefinition>(declaration);

@@ -24,6 +24,7 @@ namespace solidity::frontend {
 
 class TVMFunctionCompiler: public ASTConstVisitor, private boost::noncopyable
 {
+private:
 	struct ControlFlowInfo {
 		int stackSize {-1};
 		bool isLoop {false};
@@ -33,15 +34,14 @@ class TVMFunctionCompiler: public ASTConstVisitor, private boost::noncopyable
 	StackPusherHelper& m_pusher;
 	std::vector<ControlFlowInfo> m_controlFlowInfo;
 
-
 	const int m_startStackSize{};
 	const bool m_doEmitReturnParams{};
 	const bool m_haveExternalDecoration{};
 	const int m_currentModifier{};
 	FunctionDefinition const* m_function{};
 	ContractDefinition const *m_contract{};
+	bool m_isLibraryWithObj{};
 
-public:
 	TVMFunctionCompiler(StackPusherHelper& pusher, ContractDefinition const *contract);
 
 	TVMFunctionCompiler(
@@ -50,7 +50,8 @@ public:
 		bool haveExternalDecoration,
 		int modifier,
 		FunctionDefinition const* f,
-		int startStackSize
+		int startStackSize,
+		bool m_isLibraryWithObj = false
 	);
 
 protected:
@@ -61,16 +62,17 @@ protected:
 	};
 
 public:
-	void generateC4ToC7(bool withInitMemory);
-	void generateMacro();
-	void generateMainExternal();
-	void generateMainInternal();
-	void generateOnCodeUpgrade();
-	void generateOnTickTock();
-	void generatePrivateFunction();
-	void generateFallback();
-	void generatePublicFunction();
-	void generateTvmGetter(FunctionDefinition const* _function);
+	static void generateC4ToC7(StackPusherHelper& pusher, ContractDefinition const *contract, bool withInitMemory);
+	static void generateMacro(StackPusherHelper& pusher, FunctionDefinition const* function);
+	static void generateMainExternal(StackPusherHelper& pusher, ContractDefinition const *contract);
+	static void generateMainInternal(StackPusherHelper& pusher, ContractDefinition const *contract);
+	static void generateOnCodeUpgrade(StackPusherHelper& pusher, FunctionDefinition const* function);
+	static void generateOnTickTock(StackPusherHelper& pusher, FunctionDefinition const* function);
+	static void generatePrivateFunction(StackPusherHelper& pusher, FunctionDefinition const* function, const std::optional<std::string>& name = nullopt);
+	static void generateLibraryFunction(StackPusherHelper& pusher, FunctionDefinition const* function);
+	static void generateFallback(StackPusherHelper& pusher, FunctionDefinition const* function);
+	static void generatePublicFunction(StackPusherHelper& pusher, FunctionDefinition const* function);
+	static void generateFunctionWithModifiers(StackPusherHelper& pusher, FunctionDefinition const* function, bool doAllocParam);
 
 public:
 	void decodeFunctionParamsAndLocateVars();
@@ -84,7 +86,7 @@ protected:
 	static LocationReturn notNeedsPushContWhenInlining(Block const& _block);
 	CodeLines loadFromC4();
 	void emitOnPublicFunctionReturn();
-	void pushReturnParameters(const ast_vec<VariableDeclaration>& returnParameters);
+	void pushDefaultParameters(const ast_vec<VariableDeclaration>& returnParameters);
 
 	void acceptExpr(const Expression* expr, const bool isResultNeeded = true);
 

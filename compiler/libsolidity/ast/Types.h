@@ -1118,12 +1118,18 @@ public:
 		AddressMakeAddrExtern, ///< .makeAddrExtern() for address
 		AddressMakeAddrNone, ///< .makeAddrNone() for address
 		AddressMakeAddrStd, ///< .makeAddrStd() for address
-		TVMSliceDecode, ///< slice.decode(types)
-		DecodeFunctionParams, ///< slice.decodeFunctionParams(function_name)
-		TVMCellMethods, ///< cell.someMethod()
-		TVMSliceSize, ///< slice.size()
-		TVMLoadRef, ///< slice.loadRef()
+
+		TVMCellDepth, ///< cell.depth()
 		TVMCellToSlice, ///< cell.toSlice()
+		TVMDataSize, ///< cell.dataSize()
+		TVMDataSizeQ, ///< cell.dataSizeQ()
+
+		DecodeFunctionParams, ///< slice.decodeFunctionParams(function_name)
+		TVMLoadRef, ///< slice.loadRef()
+		TVMSliceDataSize, ///< slice.dataSize()
+		TVMSliceDecode, ///< slice.decode(types)
+		TVMSliceSize, ///< slice.size()
+
 		TVMBuilderMethods, ///< builder.*()
 		ExtraCurrencyCollectionMethods, ///< extraCurrencyCollection.*()
 		KECCAK256, ///< KECCAK256
@@ -1138,39 +1144,56 @@ public:
 		Log3,
 		Log4,
 		LogTVM,
+		HexString,
+		Format, ///< format function to generate an arbitrary string.
 		Event, ///< syntactic sugar for LOG*
 		SetGas, ///< modify the default gas value for the function call
 		SetValue, ///< modify the default value transfer for the function call
 		SetFlag, ///< modify the default flag for the function call transfer
+		Stoi, ///< stoi function to convert string to an integer
 		BlockHash, ///< BLOCKHASH
 		AddMod, ///< ADDMOD
 		MulMod, ///< MULMOD
 		MessagePubkey, ///< msg.pubkey()
-		MathMaxMin, ///< math.min(a, b, ...) or math.max(a, b, ...)
-		MathMulDiv, ///< math.muldiv()
-		MathMulDivMod, ///< math.muldivmod()
+
 		MathAbs, ///< math.abs()
+		MathDivC, ///< math.divc()
+		MathDivR, ///< math.divr()
+		MathMaxMin, ///< math.min(a, b, ...) or math.max(a, b, ...)
 		MathMinMax, ///< math.minmax()
 		MathModpow2, ///< math.modpow2()
+		MathMulDiv, ///< math.muldiv()
+		MathMulDivMod, ///< math.muldivmod()
+
 		TVMAccept, ///< tvm.accept()
-		TVMcdatasize, ///< tvm.cdatasize()
 		TVMChecksign, ///< tvm.checkSign()
 		TVMCommit, ///< tvm.commit()
 		TVMConfigParam, ///< tvm.configParam()
-		TVMRawConfigParam, ///< tvm.rawConfigParam()
 		TVMDeploy, ///< functions to deploy contract from contract
-		TVMFunctionId, ///< tvm.functionId(function_name)
 		TVMEncodeBody, ///< tvm.encodeBody()
+		TVMExit, ///< tvm.exit()
+		TVMExit1, ///< tvm.exit1()
+		TVMFunctionId, ///< tvm.functionId(function_name)
 		TVMHash, ///< tvm.hash()
 		TVMPubkey, ///< tvm.pubkey()
+		TVMRawConfigParam, ///< tvm.rawConfigParam()
 		TVMResetStorage, ///< tvm.resetStorage()
 		TVMSendMsg, ///< tvm.sendMsg()
 		TVMSetcode, ///< tvm.setcode()
 		TVMTransfer, ///< tvm.transfer()
-		TVMTransLT, ///< tvm.transLT()
+		TXtimestamp, ///< tx.timestamp
+
 		ArrayPush, ///< .push() to a dynamically sized array in storage
 		ArrayPop, ///< .pop() from a dynamically sized array in storage
 		ByteArrayPush, ///< .push() to a dynamically sized byte array in storage
+		ByteToSlice, ///< .toSlice()
+
+		RndGetSeed, ///< rnd.getSeed()
+		RndNext, ///< rnd.next()
+		RndSetSeed, ///< rnd.setSeed()
+		RndShuffle, /// < rnd.shuffle
+
+		MappingAt, ///< .at() for a mapping
 		MappingGetNextKey, ///< .next() for a mapping
 		MappingGetPrevKey, ///< .prev() for a mapping
 		MappingGetMinMax, ///< .min() or .max() for a mapping
@@ -1571,6 +1594,7 @@ public:
 		ABI, ///< "abi"
 		TVM, ///< "tvm"
 		Math, ///< "math"
+		Rnd, ///< "rnd"
 		MetaType ///< "type(...)"
 	};
 

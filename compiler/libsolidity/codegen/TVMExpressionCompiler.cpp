@@ -793,11 +793,26 @@ PICK
 }
 
 void TVMExpressionCompiler::visitMagic(MemberAccess const &_node) {
+	auto unsupportedMagic = [&](){cast_error(_node, "Unsupported magic");};
+
 	auto identifier = to<Identifier>(&_node.expression());
-	if (identifier && identifier->name() == "msg") {
-		return visitMsgMagic(_node);
+	if (identifier->name() == "msg") {
+		visitMsgMagic(_node);
+	} else if (identifier->name() == "tx") {
+		if (_node.memberName() == "timestamp") {
+			m_pusher.push(+1, "LTIME");
+		} else {
+			unsupportedMagic();
+		}
+	} else if (identifier->name() == "block") {
+		if (_node.memberName() == "timestamp") {
+			m_pusher.push(+1, "BLOCKLT");
+		} else {
+			unsupportedMagic();
+		}
+	} else {
+		unsupportedMagic();
 	}
-	cast_error(_node, "Unsupported magic");
 }
 
 void TVMExpressionCompiler::visit2(MemberAccess const &_node) {
@@ -1003,6 +1018,18 @@ bool TVMExpressionCompiler::checkAbiMethodCall(FunctionCall const &_functionCall
 	return false;
 }
 
+std::string TVMExpressionCompiler::getDefaultMsgValue() {
+	const auto expr = m_pusher.ctx().pragmaHelper().haveMsgValue();
+	if (!expr) {
+		return StackPusherHelper::tonsToBinaryString(u256{TvmConst::Message::DefaultMsgValue});
+	}
+	const auto& [ok, val] = constValue(*expr.get());
+	if (!ok) {
+		cast_error(*expr, "Default value should be compile time expression of number type");
+	}
+	return StackPusherHelper::tonsToBinaryString(val);
+}
+
 bool TVMExpressionCompiler::checkRemoteMethodCall(FunctionCall const &_functionCall) {
 	const ast_vec<Expression const> arguments = _functionCall.arguments();
 
@@ -1043,18 +1070,18 @@ bool TVMExpressionCompiler::checkRemoteMethodCall(FunctionCall const &_functionC
 			constParams[TvmConst::int_msg_info::currency] = "0";
 		}
 
-		// Search for value (gram) option
+		// Search for value (ton) option
 		auto valueIt = std::find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "value"; });
 		if (valueIt != optionNames.end()) {
 			const size_t index = valueIt - optionNames.begin();
 			const auto& [ok, value] = TVMExpressionCompiler::constValue(*functionOptions->options().at(index));
 			if (ok) {
-				constParams[TvmConst::int_msg_info::grams] = StackPusherHelper::gramsToBinaryString(u256(value));
+				constParams[TvmConst::int_msg_info::tons] = StackPusherHelper::tonsToBinaryString(u256(value));
 			} else {
-				exprs[TvmConst::int_msg_info::grams] = functionOptions->options()[index].get();
+				exprs[TvmConst::int_msg_info::tons] = functionOptions->options()[index].get();
 			}
 		} else {
-			constParams[TvmConst::int_msg_info::grams] = StackPusherHelper::gramsToBinaryString(10'000'000);
+			constParams[TvmConst::int_msg_info::tons] = getDefaultMsgValue();
 		}
 
 		// remote_addr
@@ -1076,7 +1103,7 @@ bool TVMExpressionCompiler::checkRemoteMethodCall(FunctionCall const &_functionC
 			sendrawmsgFlag = functionOptions->options()[index].get();
 		}
 	} else {
-		constParams[TvmConst::int_msg_info::grams] = StackPusherHelper::gramsToBinaryString(10'000'000);
+		constParams[TvmConst::int_msg_info::tons] = getDefaultMsgValue();
 		constParams[TvmConst::int_msg_info::bounce] = "1";
 
 		Expression const *currentExpression = &_functionCall.expression();
@@ -1095,8 +1122,8 @@ bool TVMExpressionCompiler::checkRemoteMethodCall(FunctionCall const &_functionC
 				sendrawmsgFlag = currentFunctionCall->arguments()[0].get();
 				currentExpression = &memberAccess->expression();
 			} else if (memberAccess->memberName() == "value") {
-				exprs[TvmConst::int_msg_info::grams] = currentFunctionCall->arguments()[0].get();
-				constParams.erase(TvmConst::int_msg_info::grams);
+				exprs[TvmConst::int_msg_info::tons] = currentFunctionCall->arguments()[0].get();
+				constParams.erase(TvmConst::int_msg_info::tons);
 				currentExpression = &memberAccess->expression();
 			} else {
 				break;
@@ -1146,62 +1173,6 @@ const FunctionDefinition *TVMExpressionCompiler::getRemoteFunctionDefinition(con
 	return f;
 }
 
-bool TVMExpressionCompiler::checkForArrayMethods(FunctionCall const &_functionCall) {
-	auto expr = &_functionCall.expression();
-	auto ma = to<MemberAccess>(expr);
-	auto array = ma ? to<ArrayType>(ma->expression().annotation().type) : nullptr;
-	if (!ma || !array || array->isString())
-		return false;
-
-	const LValueInfo lValueInfo = expandLValue(&ma->expression(), true);
-
-	if (isCurrentResultNeeded()) {
-		cast_error(ma->expression(), "Don't use result of push/pop functions");
-	}
-
-	if (ma->memberName() == "push") {
-		auto arrayBaseType = to<ArrayType>(getType(&ma->expression()))->baseType();
-		const IntegerType key = getKeyTypeOfArray();
-		bool isValueBuilder{};
-		if (_functionCall.arguments().empty()) {
-			isValueBuilder = arrayBaseType->category() == Type::Category::Struct;
-			m_pusher.pushDefaultValue(arrayBaseType, isValueBuilder);
-		} else {
-			compileNewExpr(_functionCall.arguments()[0].get());
-			isValueBuilder = false;
-		}
-		// stack: arr value
-		m_pusher.push(0, ";; array.push(..)");
-		isValueBuilder = m_pusher.prepareValueForDictOperations(&key, arrayBaseType, isValueBuilder); // arr value'
-		m_pusher.exchange(0, 1); // value' arr
-		m_pusher.push(-1 + 2, "UNPAIR");  // value' size dict
-		m_pusher.push(+1, "PUSH S1"); // value' size dict size
-		m_pusher.push(0, "INC"); // value' size dict newSize
-		m_pusher.exchange(0, 3); // newSize size dict value'
-		m_pusher.push(0, "ROTREV"); // newSize value' size dict
-		m_pusher.setDict(key, *arrayBaseType, isValueBuilder, _functionCall); // newSize dict'
-		m_pusher.push(-2 + 1, "PAIR");  // arr
-	} else if (ma->memberName() == "pop") {
-		// arr
-		m_pusher.push(-1 + 2, "UNPAIR"); // size dict
-		m_pusher.push(+1, "PUSH s1"); // size dict size
-		m_pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::PopFromEmptyArray)); // size dict
-		m_pusher.push(0, "SWAP"); // dict size
-		m_pusher.push(0, "DEC"); // dict newSize
-		m_pusher.push(0, "DUP"); // dict newSize newSize
-		m_pusher.push(+1, "ROT"); // newSize newSize dict
-		m_pusher.pushInt(TvmConst::ArrayKeyLength); // newSize newSize dict 32
-		m_pusher.push(-3 + 2, "DICTUDEL"); // newSize dict ?
-		m_pusher.drop(1);  // newSize dict
-		m_pusher.push(-2 + 1, "PAIR");  // arr
-	} else {
-		cast_error(*ma, "Unsupported function call for array");
-	}
-
-	collectLValue(lValueInfo, true, false);
-	return true;
-}
-
 std::tuple<Type const*, Type const*>
 dictKeyValue(MemberAccess const* memberAccess) {
 	Type const* keyType{};
@@ -1235,13 +1206,24 @@ public:
 		pusher.pushInt(keyLength); // dict nbits
 
 		doDictOperation();
+		pusher.push(0, "TUPLE 2");
+		pusher.endContinuation();
+
+		pusher.startContinuation();
+		pusher.push(-1, ""); // fix stack size
+		ec.collectLValue(lValueInfo, true, false);
+		pusher.push(+1, "NULL");
+		pusher.endContinuation();
+
+		pusher.push(0, "IFELSE");
+		const int cntOfValuesOnStack = pusher.getStack().size() - stackSize;
+		pusher.push(-cntOfValuesOnStack + 1, ""); // revert stack size
 	}
 
 private:
 	void decodeKeyAndAssignMap() {
 		// D value key
-        pusher.recoverKeyAfterDictOperation(&keyType, node);
-		
+		pusher.recoverKeyAfterDictOperation(&keyType, node);
 		const int cntOfValuesOnStack = pusher.getStack().size() - stackSize;  // mapLValue... map value key
 		pusher.blockSwap(cntOfValuesOnStack - 2, 2); // value key mapLValue... map
 		ec.collectLValue(lValueInfo, true, false); // value key
@@ -1249,45 +1231,42 @@ private:
 	}
 
 protected:
-	void onCell() override {
-		pusher.push(-2 + 4, opcode + "REF"); //  D value key -1
-		pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
+	void pushOpcodeAndStartCont() {
+		pusher.push(-2 + 3, opcode); //  D value key -1
+		pusher.startContinuation();
 		decodeKeyAndAssignMap(); // key value
 	}
 
+	void onCell() override {
+		opcode += "REF";
+		pushOpcodeAndStartCont();
+	}
+
 	void onSmallStruct() override {
-		pusher.push(-2 + 4, opcode); //  D value key -1
-		pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
-		decodeKeyAndAssignMap(); // key value
+		pushOpcodeAndStartCont();
 		StructCompiler sc{&pusher, to<StructType>(&valueType)};
 		sc.convertSliceToTuple();
 	}
 
 	void onLargeStruct() override {
-		pusher.push(-2 + 4, opcode + "REF"); //  D cellValue key -1
-		pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
-		decodeKeyAndAssignMap(); // key cellValue
+		opcode += "REF";
+		pushOpcodeAndStartCont();
 		pusher.push(0, "CTOS");
 		StructCompiler sc{&pusher, to<StructType>(&valueType)};
 		sc.convertSliceToTuple();
 	}
 
 	void onSlice() override {
-		pusher.push(-2 + 4, opcode); //  D value key -1
-		pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
-		decodeKeyAndAssignMap(); // key cellValue
+		pushOpcodeAndStartCont();
 	}
 
 	void onByteArrayOrString() override {
-		pusher.push(-2 + 4, opcode + "REF"); //  D cellValue key -1
-		pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
-		decodeKeyAndAssignMap(); // key cellValue
+		opcode += "REF";
+		pushOpcodeAndStartCont();
 	}
 
 	void onIntegralOrArrayOrVarInt() override {
-		pusher.push(-2 + 4, opcode); //  D cellValue key -1
-		pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::DelMinFromEmptyMap));
-		decodeKeyAndAssignMap(); // key cellValue
+		pushOpcodeAndStartCont();
 		pusher.preload(&valueType);
 	}
 
@@ -1323,11 +1302,14 @@ void TVMExpressionCompiler::mappingGetSet(FunctionCall const &_functionCall) {
 	std::tie(keyType, valueType) = dictKeyValue(memberAccess);
 
 	const ASTString &memberName = memberAccess->memberName();
-	if (memberName == "fetch") {
+	if (isIn(memberName, "fetch", "at")) {
 		compileNewExpr(_functionCall.arguments()[0].get()); // index
         m_pusher.prepareKeyForDictOperations(keyType);
 		compileNewExpr(&memberAccess->expression()); // index dict
-		m_pusher.getDict(*keyType, *valueType, _functionCall, StackPusherHelper::GetDictOperation::Fetch, false);
+		if (memberName == "fetch")
+			m_pusher.getDict(*keyType, *valueType, _functionCall, StackPusherHelper::GetDictOperation::Fetch, false);
+		else
+			m_pusher.getDict(*keyType, *valueType, _functionCall, StackPusherHelper::GetDictOperation::GetFromArray, false);
 	} else if (memberName == "exists") {
 		compileNewExpr(_functionCall.arguments()[0].get()); // index
         m_pusher.prepareKeyForDictOperations(keyType);
@@ -1482,7 +1464,7 @@ public:
 
 		doDictOperation();
 		pusher.push(0, "TUPLE 2");
-        pusher.endContinuation();
+		pusher.endContinuation();
 
 		pusher.startContinuation();
 		pusher.push(0, "NULL");
@@ -1499,7 +1481,7 @@ protected:
 
 	void onSmallStruct() override {
 		pushOpcodeAndStartCont();
-        StructCompiler sc{&pusher, to<StructType>(&valueType)};
+		StructCompiler sc{&pusher, to<StructType>(&valueType)};
 		sc.convertSliceToTuple();
 	}
 
@@ -1575,7 +1557,7 @@ bool TVMExpressionCompiler::checkForMappingOrCurrenciesMethods(FunctionCall cons
 
 	if (isIn(memberName, "delMin", "delMax")) {
 		mappingDelMinMax(_functionCall, memberName == std::string{"delMin"});
-	} else  if (isIn(memberName, "fetch", "exists", "replace", "add", "getSet", "getAdd", "getReplace")) {
+	} else  if (isIn(memberName, "at", "fetch", "exists", "replace", "add", "getSet", "getAdd", "getReplace")) {
 		mappingGetSet(_functionCall);
 	} else if (isIn(memberName, "min", "max")) {
 		mappingMinMaxMethod(_functionCall, memberName == std::string{"min"});
@@ -1591,13 +1573,52 @@ bool TVMExpressionCompiler::checkForMappingOrCurrenciesMethods(FunctionCall cons
 }
 
 bool TVMExpressionCompiler::visit2(FunctionCall const &_functionCall) {
-	if (checkForArrayMethods(_functionCall) || checkRemoteMethodCall(_functionCall)) {
+	if (checkRemoteMethodCall(_functionCall)) {
 		// To avoid situation when we call a function of a remote contract and don't save the result.
 		// Remote function can return a result but in fact we don't get it.
 		return false;
 	}
 
-	if (!checkAbiMethodCall(_functionCall) && !checkForMappingOrCurrenciesMethods(_functionCall)) {
+	auto ma = to<MemberAccess>(&_functionCall.expression());
+	if (ma) {
+		if (auto libFunction = to<FunctionDefinition>(ma->annotation().referencedDeclaration)) {
+			DeclarationAnnotation const &da = libFunction->annotation();
+			if (da.contract->contractKind() == ContractKind::Library) {
+				m_pusher.ctx().addLib(libFunction);
+
+				auto t = getType(&ma->expression());
+				std::vector<ASTPointer<Expression const>> const &args = _functionCall.arguments();
+				const int argQty = static_cast<int>(args.size());
+				const int retQty = static_cast<int>(libFunction->returnParameters().size());
+				if (t->category() == Type::Category::TypeType) {
+					for (const ASTPointer<Expression const> &arg : args) {
+						acceptExpr(arg.get());
+					}
+					m_pusher.pushPrivateFunctionOrMacroCall(-argQty + retQty,
+															da.contract->name() + "_no_obj_" + libFunction->name());
+				} else {
+					const int stakeSize0 = m_pusher.getStack().size();
+					const LValueInfo lValueInfo = expandLValue(&ma->expression(), true);
+					const int stakeSize1 = m_pusher.getStack().size();
+					const int lValueQty = stakeSize1 - stakeSize0;
+
+					for (const ASTPointer<Expression const> &arg : args) {
+						acceptExpr(arg.get());
+					}
+
+					m_pusher.pushPrivateFunctionOrMacroCall((-1 - argQty) + (+1 + retQty),
+															da.contract->name() + "_with_obj_" + libFunction->name());
+
+					m_pusher.blockSwap(lValueQty, retQty);
+
+					collectLValue(lValueInfo, true, false);
+				}
+				return true;
+			}
+		}
+	}
+
+	if (!checkAbiMethodCall(_functionCall) && !checkForMappingOrCurrenciesMethods(_functionCall) ) {
 		FunctionCallCompiler fcc(m_pusher, this, _functionCall);
 		fcc.compile();
 	}
@@ -1735,8 +1756,12 @@ TVMExpressionCompiler::expandLValue(Expression const *const _expr, const bool wi
 }
 
 void
-TVMExpressionCompiler::collectLValue(const LValueInfo &lValueInfo, const bool haveValueOnStackTop,
-                                     bool isValueBuilder) {
+TVMExpressionCompiler::collectLValue(
+	const LValueInfo &lValueInfo,
+	const bool haveValueOnStackTop,
+	bool isValueBuilder
+)
+{
 	// variable [arrayIndex | mapIndex | structMember]...
 
 	m_pusher.push(0, "; colValue");
@@ -1754,6 +1779,10 @@ TVMExpressionCompiler::collectLValue(const LValueInfo &lValueInfo, const bool ha
 
 		if (auto variable = to<Identifier>(lValueInfo.expressions[i])) {
 //				pushLog("colVar");
+			if (isCurrentValueBuilder) {
+				m_pusher.push(0, "ENDC");
+				m_pusher.push(0, "CTOS");
+			}
 			auto& stack = m_pusher.getStack();
 			if (stack.isParam(variable->annotation().referencedDeclaration)) {
 				solAssert((haveValueOnStackTop && n == 1) || n > 1, "");
@@ -1846,6 +1875,7 @@ private:
 		switch (_node.getOperator()) {
 			case Token::Inc:
 			case Token::Dec:
+			case Token::Delete:
 				m_hasSideEffects = true;
 				break;
 			default:
@@ -1869,21 +1899,22 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 	const auto& rhs = _assignment.rightHandSide();
 	const Token op  = _assignment.assignmentOperator();
 
-	auto push_rhs = [&] () {
-		if (!m_pusher.tryImplicitConvert(getType(&lhs), getType(&rhs)))
-			compileNewExpr(&rhs);
-	};
-
 	if (op == Token::Assign) {
+		auto push_rhs = [&] () {
+			if (!m_pusher.tryImplicitConvert(getType(&lhs), getType(&rhs)))
+				compileNewExpr(&rhs);
+			bool valueIsBuilder = m_pusher.tryPollConvertBuilderToSlice();
+			return valueIsBuilder;
+		};
 		bool hasNoSideEffects =
 			!TVMExpressionAnalyzer(lhs).hasSideEffects() &&
 			!TVMExpressionAnalyzer(rhs).hasSideEffects();
 		if (!isCurrentResultNeeded() && hasNoSideEffects) {
 			const LValueInfo lValueInfo = expandLValue(&lhs, false);
-			push_rhs();
-			collectLValue(lValueInfo, true, false);
+			bool valueIsBuilder = push_rhs();
+			collectLValue(lValueInfo, true, valueIsBuilder);
 		} else {
-			push_rhs();
+			bool valueIsBuilder = push_rhs();
 			const int saveStackSize = m_pusher.getStack().size();
 			const LValueInfo lValueInfo = expandLValue(&lhs, false);
 			if (isCurrentResultNeeded()) {
@@ -1891,7 +1922,7 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 			} else {
 				m_pusher.blockSwap(1, m_pusher.getStack().size() - saveStackSize);
 			}
-			collectLValue(lValueInfo, true, false);
+			collectLValue(lValueInfo, true, valueIsBuilder);
 		}
 	} else if (isString(getType(&lhs)) && isString(getType(&rhs))) {
 		if (op == Token::AssignAdd) {

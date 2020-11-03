@@ -74,6 +74,7 @@ set(sources
 	codegen/TVMABI.hpp
 	codegen/TVMCommons.cpp
 	codegen/TVMCommons.hpp
+	codegen/TVMConstants.hpp
 	codegen/TVMContractCompiler.cpp
 	codegen/TVMContractCompiler.cpp
 	codegen/TVMContractCompiler.hpp

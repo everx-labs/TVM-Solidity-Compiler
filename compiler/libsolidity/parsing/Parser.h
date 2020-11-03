@@ -124,6 +124,7 @@ private:
 	ASTPointer<TryStatement> parseTryStatement(ASTPointer<ASTString> const& _docString);
 	ASTPointer<TryCatchClause> parseCatchClause();
 	ASTPointer<WhileStatement> parseWhileStatement(ASTPointer<ASTString> const& _docString);
+	ASTPointer<WhileStatement> parseRepeatStatement(ASTPointer<ASTString> const& _docString);
 	ASTPointer<WhileStatement> parseDoWhileStatement(ASTPointer<ASTString> const& _docString);
 	ASTPointer<ForStatement> parseForStatement(ASTPointer<ASTString> const& _docString);
 	ASTPointer<EmitStatement> parseEmitStatement(ASTPointer<ASTString> const& docString);
