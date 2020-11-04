@@ -1017,8 +1017,13 @@ CompilerStack::Contract const& CompilerStack::contract(string const& _contractNa
 CompilerStack::Source const& CompilerStack::source(string const& _sourceName) const
 {
 	auto it = m_sources.find(_sourceName);
-	if (it == m_sources.end())
-		BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("Given source file not found."));
+	if (it == m_sources.end()) {
+		it = std::find_if(m_sources.begin(), m_sources.end(), [&_sourceName] (auto it) {
+			return _sourceName == boost::filesystem::canonical(it.first).string();
+		});
+		if (it == m_sources.end())
+			BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("Given source file not found."));
+	}
 
 	return it->second;
 }
