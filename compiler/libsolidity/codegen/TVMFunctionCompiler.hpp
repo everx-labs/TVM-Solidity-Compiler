@@ -126,6 +126,7 @@ private:
 	void expire();
 	void callPublicFunction();
 	static std::string protectFromWrongFunctionId();
+	static std::string callSelector();
 	void fillInlineFunctionsAndConstants(std::string& pattern);
 	void pushC4ToC7IfNeed();
 	void pushC7ToC4IfNeed();

@@ -212,7 +212,7 @@ PUSHCONT {
 				continue;
 			}
 			pusher.push(0, "; init " + v->name());
-			if (v->isPublic()) {
+			if (v->isStatic()) {
 				pusher.pushInt(TvmConst::C4::PersistenceMembersStartIndex + shift++); // index
 				pusher.pushS(1); // index dict
 				pusher.getDict(getKeyTypeOfC4(), *v->type(), *v, StackPusherHelper::GetDictOperation::GetFromMapping,
@@ -1421,16 +1421,8 @@ PUSH S1 ; funcId body funcId
 )";
 
 	s += protectFromWrongFunctionId();
-	s += R"(
-SWAP    ; body funcId
-CALL 1
-GETGLOB 7
-ISNULL
-PUSHCONT {
-	INSERT_FALLBACK_FUNCTION
-}
-IF
-)";
+	s += callSelector();
+
 	fillInlineFunctionsAndConstants(s);
 	m_pusher.pushLines(s);
 }
@@ -1444,11 +1436,27 @@ PUSHINT last_fun_id   ; funcId body' funcId<first_fun_id funcId last_fun_id
 GREATER              ; funcId body' funcId<first_fun_id funcId>last_fun_id
 OR                   ; funcId body' funcId<first_fun_id||funcId>last_fun_id
 PUSHCONT {
+	DROP2
 	SWITCH_SELECTOR_INSERT_FALLBACK_FUNCTION
 }
 IFJMP
 )";
 	// stack: functionId`
+	return s;
+}
+
+std::string TVMFunctionCompiler::callSelector() {
+	std::string s = R"(
+SWAP    ; body funcId
+CALL 1
+GETGLOB 7
+ISNULL
+PUSHCONT {
+	DROP
+	INSERT_FALLBACK_FUNCTION
+}
+IF
+)";
 	return s;
 }
 
@@ -1510,17 +1518,7 @@ IFJMP
 
 	s += funCompiler.protectFromWrongFunctionId();
 
-	s += R"(
-SWAP  ; body' funcId
-CALL 1
-
-GETGLOB 7
-ISNULL
-PUSHCONT {
-	INSERT_FALLBACK_FUNCTION
-}
-IF
-)";
+	s += callSelector();
 	funCompiler.fillInlineFunctionsAndConstants(s);
 	pusher.pushLines(s);
 	pusher.push(0, " ");
@@ -1623,6 +1621,12 @@ PUSHCONT {
 	LDU 32  ; funcId body'
 	PUSH S1 ; funcId body' funcId
 	EQINT 0 ; funcId body' isZero
+	DUP     ; funcId body' isZero isZero
+	PUSHCONT {
+ 		; funcId body' isZero
+		BLKDROP2 2, 1; isZero
+	}
+	IF
 }
 IFNOT
 ; [funcId body'] doReceive

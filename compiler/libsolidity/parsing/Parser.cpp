@@ -738,6 +738,7 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 	ASTPointer<TypeName> const& _lookAheadArrayType
 )
 {
+	RecursionGuard recursionGuard(*this);
 	ASTPointer<ASTString> attributeName = nullptr;
 	if (m_scanner->currentToken() == Token::LBrack)
 	{
@@ -747,7 +748,6 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 		expectToken(Token::RBrack);
 		expectToken(Token::RBrack);
 	}
-	RecursionGuard recursionGuard(*this);
 	ASTNodeFactory nodeFactory = _lookAheadArrayType ?
 		ASTNodeFactory(*this, _lookAheadArrayType) : ASTNodeFactory(*this);
 	ASTPointer<TypeName> type;
@@ -771,6 +771,7 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 	bool isDeclaredConst = false;
 	ASTPointer<OverrideSpecifier> overrides = nullptr;
 	Visibility visibility(Visibility::Default);
+	bool isStatic{false};
 	VariableDeclaration::Location location = VariableDeclaration::Location::Unspecified;
 	ASTPointer<ASTString> identifier;
 
@@ -798,6 +799,14 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 				parserError("Override already specified.");
 
 			overrides = parseOverrideSpecifier();
+		}
+		else if (_options.isStateVariable && token == Token::Static)
+		{
+			if (isStatic)
+				parserError("Static already specified.");
+
+			isStatic = true;
+			m_scanner->next();
 		}
 		else
 		{
@@ -882,7 +891,8 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 		isDeclaredConst,
 		overrides,
 		location,
-		attributeName
+		attributeName,
+		isStatic
 	);
 }
 
@@ -2086,7 +2096,22 @@ pair<vector<ASTPointer<Expression>>, vector<ASTPointer<ASTString>>> Parser::pars
 
 		ret.second.push_back(expectIdentifierToken());
 		expectToken(Token::Colon);
-		ret.first.push_back(parseExpression());
+		Token t = m_scanner->currentToken();
+		if (t == Token::LBrace) {
+
+			ASTNodeFactory nodeFactory = ASTNodeFactory(*this);
+
+			expectToken(Token::LBrace);
+			auto optionList = parseNamedArguments();
+
+			nodeFactory.markEndPosition();
+			expectToken(Token::RBrace);
+
+			auto expression = nodeFactory.createNode<InitializerList>(optionList.first, optionList.second);
+			ret.first.push_back(expression);
+		} else {
+			ret.first.push_back(parseExpression());
+		}
 
 		if (
 			m_scanner->currentToken() == Token::Comma &&

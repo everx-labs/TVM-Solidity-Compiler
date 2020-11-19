@@ -24,6 +24,7 @@
 #include "TVMABI.hpp"
 
 #include <boost/algorithm/string.hpp>
+#include <libsolidity/ast/TypeProvider.h>
 
 using namespace solidity::frontend;
 
@@ -694,7 +695,7 @@ void FunctionCallCompiler::addressMethod() {
 		exprs[TvmConst::int_msg_info::dest] = &_node->expression();
 
 		int argumentQty = static_cast<int>(m_arguments.size());
-		if (!m_functionCall.names().empty()) {
+		if (!m_functionCall.names().empty() || argumentQty == 0) {
 			// string("value"), string("bounce"), string("flag"), string("body"), string("currencies")
 			for (int arg = 0; arg < argumentQty; ++arg) {
 				switch (str2int(names[arg]->c_str())) {
@@ -1890,8 +1891,6 @@ bool FunctionCallCompiler::createNewContract() {
 	if (!newExpr)
 		return false;
 	const TypePointer type = newExpr->typeName().annotation().type;
-	if (type->category() != Type::Category::Contract)
-		cast_error(m_functionCall, "Flags in \"new\" expression can be used only for contract creating.");
 
 	std::map<int, std::function<void()>> exprs;
 
@@ -1899,46 +1898,114 @@ bool FunctionCallCompiler::createNewContract() {
 											  {TvmConst::int_msg_info::bounce,       "1"},
 											  {TvmConst::int_msg_info::currency,     "0"}};
 	Expression const *sendrawmsgFlag{};
-	int stateInitStack{};
-	int destAddressStack{};
 
 	std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
-	for (const auto &option: optionNames)
-		if (!isIn(*option, "value", "wid", "stateInit", "flag"))
-			cast_error(m_functionCall, "Unsupported option: " + *option);
-			// TODO support currencies, bounce for new expression 'new D{currencies:c, bounce:b}()'
 	auto stateIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "stateInit"; });
-	auto widIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "wid"; });
+	auto codeIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "code"; });
 	if (stateIt != optionNames.end()) {
 		size_t index = stateIt - optionNames.begin();
 		acceptExpr(functionOptions->options()[index].get()); // stack: stateInit
-		stateInitStack = m_pusher.getStack().size();
+	} else if (codeIt != optionNames.end()) {
+		const int ss = m_pusher.getStack().size();
 
-		m_pusher.pushS(0);
-		m_pusher.push(-1 + 1, "HASHCU"); // stack: stateInit hash
+		// _ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
+		// code:(Maybe ^Cell) data:(Maybe ^Cell)
+		// library:(HashmapE 256 SimpleLib) = StateInit;
 
-		if (widIt != optionNames.end()) {
-			size_t widIndex = widIt - optionNames.begin();
-			acceptExpr(functionOptions->options()[widIndex].get()); // stack: stateInit hash wid
-			m_pusher.push(+1, "NEWC");
-			m_pusher.push(-1 + 1, "STSLICECONST x9_"); // addr_std$10 anycast:(Maybe Anycast) // 10 0 1 = 9
-			m_pusher.push(-1, "STI 8"); // workchain_id:int8
-			m_pusher.push(-1, "STU 256"); // address:bits256
-			m_pusher.push(-1 + 1, "ENDC");
-			m_pusher.push(-1 + 1, "CTOS");
+		// creat dict with variable values
+		m_pusher.push(+1, "NEWDICT");
+		// stake: builder dict
+
+		IntegerType keyType = getKeyTypeOfC4();
+		TypePointer valueType = TypeProvider::uint256();
+
+		auto pubkeyIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "pubkey"; });
+		if (pubkeyIt == optionNames.end()) {
+			m_pusher.pushInt(0);
 		} else {
-			m_pusher.push(+1, "NEWC");
-			m_pusher.push(-1 + 1, "STSLICECONST x801_"); // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 // 10 0  00000000 1 = 801
-			m_pusher.push(-1, "STU 256"); // address:bits256
-			m_pusher.push(-1 + 1, "ENDC");
-			m_pusher.push(-1 + 1, "CTOS");
+			size_t pkIndex = pubkeyIt - optionNames.begin();
+			acceptExpr(functionOptions->options().at(pkIndex).get());
 		}
+		bool isValueBuilder = m_pusher.prepareValueForDictOperations(&keyType, valueType, false);
+		m_pusher.pushInt(0); // index of pubkey
+		// stack: dict value key
+		m_pusher.push(0, "ROT");
+		// stack: value key dict
+		m_pusher.setDict(getKeyTypeOfC4(), *valueType, isValueBuilder, m_functionCall);
+		// stack: dict'
 
-		destAddressStack = m_pusher.getStack().size();
-		// stack: stateInit destAddress
+		auto varIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "varInit"; });
+		if (varIt != optionNames.end()) {
+			size_t initVarsIndex = varIt - optionNames.begin();
+			auto initVars =  to<InitializerList>(functionOptions->options().at(initVarsIndex).get());
+			for (size_t i = 0; i < initVars->names().size(); ++i) {
+				const ASTPointer<ASTString> & name = initVars->names().at(i);
+				auto ct = to<ContractType>(type);
+				std::vector<PragmaDirective const *> _pragmaDirectives;
+				PragmaDirectiveHelper pragmaHelper{_pragmaDirectives};
+				TVMCompilerContext cc{&ct->contractDefinition(), pragmaHelper};
+				auto const &[varDecl, varIndex] = cc.getStateVarInfo(*name);
+
+				valueType = varDecl->type();
+				acceptExpr(initVars->options().at(i).get());
+				isValueBuilder = m_pusher.prepareValueForDictOperations(&keyType, valueType, false);
+				m_pusher.pushInt(varIndex - 9);
+				// stack: dict value key
+				m_pusher.push(0, "ROT");
+				// stack: value key dict
+				StackPusherHelper sp{&cc, m_pusher.getStack().size()};
+				sp.setDict(getKeyTypeOfC4(), *varDecl->type(), isValueBuilder, *initVars->options().at(i));
+				m_pusher.append(sp.code());
+				m_pusher.push(-2, ""); // fix stack
+				// stack: dict'
+			}
+		}
+		m_pusher.push(+1, "NEWC");
+		m_pusher.push(-2 + 1, "STDICT");
+		m_pusher.push(-1 + 1, "ENDC");
+
+
+		// stack: data
+		size_t codeIndex = codeIt - optionNames.begin();
+		acceptExpr(functionOptions->options().at(codeIndex).get());
+
+		// stake: data code
+		m_pusher.push(+1, "NEWC");
+		m_pusher.push(-1 + 1, "STSLICECONST x2_"); // no split_depth and no special // 0 0
+		// stake: data code builder
+		m_pusher.push(-2 + 1, "STOPTREF"); // store code
+		m_pusher.push(-2 + 1, "STOPTREF"); // store data
+		m_pusher.push(0, "STZERO"); // store library
+		m_pusher.push(0, "ENDC");
+		// stack: stateInit
+		solAssert(ss + 1 == m_pusher.getStack().size(), "");
 	} else {
-		cast_error(m_functionCall, R"(Options "value" and "stateInit" are obligatory.)");
+		solUnimplemented("");
 	}
+
+	int stateInitStack = m_pusher.getStack().size();;
+	// stack: stateInit
+	m_pusher.pushS(0);
+	m_pusher.push(-1 + 1, "HASHCU"); // stack: stateInit hash
+
+	auto widIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "wid"; });
+	if (widIt != optionNames.end()) {
+		size_t widIndex = widIt - optionNames.begin();
+		acceptExpr(functionOptions->options()[widIndex].get()); // stack: stateInit hash wid
+		m_pusher.push(+1, "NEWC");
+		m_pusher.push(-1 + 1, "STSLICECONST x9_"); // addr_std$10 anycast:(Maybe Anycast) // 10 0 1 = 9
+		m_pusher.push(-1, "STI 8"); // workchain_id:int8
+	} else {
+		m_pusher.push(+1, "NEWC");
+		m_pusher.push(-1 + 1, "STSLICECONST x801_"); // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 // 10 0  00000000 1 = 801
+	}
+	m_pusher.push(-1, "STU 256"); // address:bits256
+	m_pusher.push(-1 + 1, "ENDC");
+	m_pusher.push(-1 + 1, "CTOS");
+
+	int destAddressStack = m_pusher.getStack().size();
+	// stack: stateInit destAddress
+
 	auto valueIt = find_if(optionNames.begin(), optionNames.end(),  [](auto el) { return *el == "value"; });
 	if (valueIt != optionNames.end()){
 		exprs[TvmConst::int_msg_info::tons] = [&](){
@@ -1946,7 +2013,7 @@ bool FunctionCallCompiler::createNewContract() {
 			TVMExpressionCompiler{m_pusher}.compileNewExpr(functionOptions->options()[index].get());
 		};
 	} else {
-		cast_error(m_functionCall, R"(Options "value" and "stateInit" are obligatory.)");
+		solUnimplemented("");
 	}
 	exprs[TvmConst::int_msg_info::dest] = [&](){
 		int stackIndex = m_pusher.getStack().size() - destAddressStack;

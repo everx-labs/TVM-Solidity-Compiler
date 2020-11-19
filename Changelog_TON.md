@@ -1,3 +1,15 @@
+### 0.33 (2020-11-18)
+
+Compiler Features:
+ * Support ``varInit`` and ``pubkey`` options in ``new`` expression.
+
+Breaking changes:
+ * `public` state variable don't create record in *.abi.json in section `data`. Use keyword `static` for that goal.
+
+Bugfixes:
+ * Code Generator: Fixed a runtime fail if declare `receive` or `fallback`
+function as `pure` or `view`.
+
 ### 0.32 (2020-11-03)
 
 Compiler Features:

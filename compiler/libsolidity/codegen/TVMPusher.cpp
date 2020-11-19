@@ -1163,6 +1163,16 @@ int TVMCompilerContext::getStateVarIndex(VariableDeclaration const *variable) co
 	return m_stateVarIndex.at(variable);
 }
 
+std::pair<VariableDeclaration const *, int>
+TVMCompilerContext::getStateVarInfo(const std::string& name) const {
+	for (const auto& [decl, index] : m_stateVarIndex) {
+		if (decl->name() == name) {
+			return {decl, index};
+		}
+	}
+	solUnimplemented("");
+}
+
 std::vector<VariableDeclaration const *> TVMCompilerContext::notConstantStateVariables() const {
 	std::vector<VariableDeclaration const*> variableDeclarations;
 	std::vector<ContractDefinition const*> mainChain = getContractsChain(getContract());

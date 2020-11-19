@@ -57,7 +57,6 @@ namespace TvmConst {
 	namespace RuntimeException {
 		const int ArrayIndexOutOfRange = 50;
 		const int PopFromEmptyArray = 54;
-		const int DelMinFromEmptyMap = 56;
 		const int MessageIsExpired = 57;
 	}
 

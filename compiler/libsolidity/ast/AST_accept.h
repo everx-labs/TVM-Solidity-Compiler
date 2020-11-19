@@ -846,6 +846,22 @@ void FunctionCall::accept(ASTConstVisitor& _visitor) const
 	_visitor.endVisit(*this);
 }
 
+void InitializerList::accept(ASTVisitor &_visitor) {
+	if (_visitor.visit(*this))
+	{
+		listAccept(m_options, _visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void InitializerList::accept(ASTConstVisitor &_visitor) const {
+	if (_visitor.visit(*this))
+	{
+		listAccept(m_options, _visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
 void FunctionCallOptions::accept(ASTVisitor& _visitor)
 {
 	if (_visitor.visit(*this))

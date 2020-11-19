@@ -3472,7 +3472,7 @@ TypePointers FunctionType::parseElementaryTypeVector(strings const& _types)
 	return pointers;
 }
 
-TypePointer FunctionType::copyAndSetCallOptions(bool _setValue, bool setFlag) const
+TypePointer FunctionType::copyAndSetCallOptions(bool _setValue) const
 {
 	solAssert(m_kind != Kind::Declaration, "");
 	return TypeProvider::function(
@@ -3485,8 +3485,7 @@ TypePointer FunctionType::copyAndSetCallOptions(bool _setValue, bool setFlag) co
 		m_stateMutability,
 		m_declaration,
 		m_valueSet || _setValue,
-		m_bound,
-		setFlag
+		m_bound
 	);
 }
 

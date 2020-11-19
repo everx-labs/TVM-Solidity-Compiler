@@ -154,6 +154,7 @@ private:
 	void endVisit(ElementaryTypeNameExpression const& _expr) override;
 	void endVisit(MappingNameExpression const& _expr) override;
 	void endVisit(OptionalNameExpression const& _expr) override;
+	void endVisit(InitializerList const& _expr) override;
 	void endVisit(Literal const& _literal) override;
 	bool visit(Mapping const& _mapping) override;
 
