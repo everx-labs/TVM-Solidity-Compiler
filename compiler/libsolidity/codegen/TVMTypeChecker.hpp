@@ -41,6 +41,7 @@ private:
 	void check_onCodeUpgrade();
 
     bool visit(Mapping const& _mapping) override;
+    bool visit(FunctionCall const& fc) override;
 
 private:
 	ContractDefinition const* contractDefinition;

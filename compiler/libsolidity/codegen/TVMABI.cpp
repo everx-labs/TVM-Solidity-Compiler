@@ -107,7 +107,7 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 		int shift = 0;
 		Json::Value data(Json::arrayValue);
 		for (VariableDeclaration const* v : contract->stateVariables()) {
-			if (v->isPublic()) {
+			if (v->isStatic()) {
 				Json::Value cur;
 				cur["key"] = TvmConst::C4::PersistenceMembersStartIndex + shift++;
 				cur["name"] = v->name();

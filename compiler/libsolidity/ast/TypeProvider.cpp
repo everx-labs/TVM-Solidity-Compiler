@@ -42,6 +42,7 @@ unique_ptr<ArrayType> TypeProvider::m_stringMemory;
 TupleType const TypeProvider::m_emptyTuple{};
 AddressType const TypeProvider::m_address{};
 VarInteger const TypeProvider::m_varInteger{};
+InitializerListType const TypeProvider::m_optionValue{};
 
 array<unique_ptr<IntegerType>, 32> const TypeProvider::m_intM{{
 	{make_unique<IntegerType>(8 * 1, IntegerType::Modifier::Signed)},
@@ -464,8 +465,7 @@ FunctionType const* TypeProvider::function(
 	StateMutability _stateMutability,
 	Declaration const* _declaration,
 	bool _valueSet,
-	bool _bound,
-	bool _flagSet
+	bool _bound
 )
 {
 	return createAndGet<FunctionType>(
@@ -478,8 +478,7 @@ FunctionType const* TypeProvider::function(
 		_stateMutability,
 		_declaration,
 		_valueSet,
-		_bound,
-		_flagSet
+		_bound
 	);
 }
 

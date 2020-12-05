@@ -601,6 +601,12 @@ bool TypeChecker::visit(VariableDeclaration const& _variable)
 		break;
 	}
 
+	if (_variable.isStatic() && _variable.value() != nullptr) {
+		m_errorReporter.syntaxError(
+			_variable.value()->location(),
+			"Static variable can't be initialized here. It should be initialized while deploying.");
+	}
+
 	return false;
 }
 
@@ -2534,11 +2540,13 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		return false;
 	}
 
-	bool setValue = false;
-	bool setFlag = false;
-	bool setCurrencies = false;
-	bool setStateInit = false;
 	bool setBounce = false;
+	bool setCurrencies = false;
+	bool setFlag = false;
+	bool setPubkey = false;
+	bool setStateInit = false;
+	bool setValue = false;
+	bool setVarInit = false;
 	bool setWid = false;
 
 	FunctionType::Kind kind = expressionFunctionType->kind();
@@ -2571,43 +2579,64 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		_option = true;
 	};
 
+	const bool isNewExpression = dynamic_cast<const NewExpression *>(&_functionCallOptions.expression()) != nullptr;
 	for (size_t i = 0; i < _functionCallOptions.names().size(); ++i)
 	{
 		string const& name = *(_functionCallOptions.names()[i]);
 		if (name == "bounce")
 		{
 			expectType(*_functionCallOptions.options()[i], *TypeProvider::boolean());
-			setCheckOption(setBounce, "bounce", expressionFunctionType->bounceSet());
+			setCheckOption(setBounce, "bounce", false);
 		}
 		else if (name == "flag")
 		{
 			expectType(*_functionCallOptions.options()[i], *TypeProvider::uint(16));
-			setCheckOption(setFlag, "flag", expressionFunctionType->flagSet());
+			setCheckOption(setFlag, "flag", false);
 		}
 		else if (name == "currencies")
 		{
 			expectType(*_functionCallOptions.options()[i], *TypeProvider::extraCurrencyCollection(DataLocation::Memory));
-			setCheckOption(setCurrencies, "currencies", expressionFunctionType->currenciesSet());
+			setCheckOption(setCurrencies, "currencies", false);
 		}
 		else if (name == "wid")
 		{
-			if (!dynamic_cast<const NewExpression *>(&_functionCallOptions.expression()))
+			if (!isNewExpression)
 				m_errorReporter.typeError(
 						_functionCallOptions.location(),
 						R"(Option "wid" can be set only for "new" expression.)");
 
 			expectType(*_functionCallOptions.options()[i], *TypeProvider::integer(8, IntegerType::Modifier::Signed));
-			setCheckOption(setWid, "wid", expressionFunctionType->currenciesSet());
+			setCheckOption(setWid, "wid", false);
 		}
 		else if (name == "stateInit")
 		{
-			if (!dynamic_cast<const NewExpression *>(&_functionCallOptions.expression()))
+			if (!isNewExpression)
 				m_errorReporter.typeError(
 					_functionCallOptions.location(),
 					R"(Option "stateInit" can be set only for "new" expression.)");
 
 			expectType(*_functionCallOptions.options()[i], *TypeProvider::tvmcell());
-			setCheckOption(setStateInit, "stateInit", expressionFunctionType->currenciesSet());
+			setCheckOption(setStateInit, "stateInit", false);
+		}
+		else if (name == "code")
+		{
+			if (!isNewExpression)
+				m_errorReporter.typeError(
+						_functionCallOptions.location(),
+						R"(Option "code" can be set only for "new" expression.)");
+
+			expectType(*_functionCallOptions.options()[i], *TypeProvider::tvmcell());
+			setCheckOption(setStateInit, "code", false);
+		}
+		else if (name == "varInit")
+		{
+			if (!isNewExpression)
+				m_errorReporter.typeError(
+						_functionCallOptions.location(),
+						R"(Option "varInit" can be set only for "new" expression.)");
+
+			expectType(*_functionCallOptions.options()[i], *TypeProvider::optionValue());
+			setCheckOption(setVarInit, "code", false);
 		}
 		else if (name == "value")
 		{
@@ -2623,21 +2652,25 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 				);
 			else
 			{
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::uint256());
-
+				expectType(*_functionCallOptions.options()[i], *TypeProvider::uint(128));
 				setCheckOption(setValue, "value", expressionFunctionType->valueSet());
 			}
+		}
+		else if (name == "pubkey")
+		{
+			expectType(*_functionCallOptions.options()[i], *TypeProvider::uint256());
+			setCheckOption(setPubkey, "pubkey", false);
 		}
 		else
 			m_errorReporter.typeError(
 				_functionCallOptions.location(),
 				"Unknown call option \"" +
 				name +
-				R"(". Valid options are "value", "currencies", "bounce", "wid", "stateInit" and "flag".)"
+				R"(". Valid options are "stateInit", "code", "pubkey", "varInit", "value", "wid" and "flag".)"
 			);
 	}
 
-	_functionCallOptions.annotation().type = expressionFunctionType->copyAndSetCallOptions(setValue, setFlag);
+	_functionCallOptions.annotation().type = expressionFunctionType->copyAndSetCallOptions(setValue);
 	return false;
 }
 
@@ -3137,6 +3170,11 @@ void TypeChecker::endVisit(OptionalNameExpression const& _expr)
 			_expr.type().annotation().type
 			));
 	_expr.annotation().isPure = true;
+}
+
+void TypeChecker::endVisit(InitializerList const& _expr) {
+	_expr.annotation().type = TypeProvider::optionValue();
+	_expr.annotation().isPure = false;
 }
 
 void TypeChecker::endVisit(Literal const& _literal)

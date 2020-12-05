@@ -64,12 +64,12 @@ void ViewPureChecker::endVisit(FunctionDefinition const& _funDef)
 	solAssert(m_currentFunction == &_funDef, "");
 	if (
 		m_bestMutabilityAndLocation.mutability < _funDef.stateMutability() &&
-		_funDef.stateMutability() != StateMutability::NonPayable &&
+		//_funDef.stateMutability() != StateMutability::NonPayable &&
 		_funDef.isImplemented() &&
 		!_funDef.body().statements().empty() &&
 		!_funDef.isConstructor() &&
-		!_funDef.isFallback() &&
-		!_funDef.isReceive() &&
+		//!_funDef.isFallback() &&
+		//!_funDef.isReceive() &&
 		!_funDef.overrides()
 	)
 		m_errorReporter.warning(

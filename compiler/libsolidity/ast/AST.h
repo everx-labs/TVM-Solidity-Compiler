@@ -848,7 +848,8 @@ public:
 		bool _isConstant = false,
 		ASTPointer<OverrideSpecifier> const& _overrides = nullptr,
 		Location _referenceLocation = Location::Unspecified,
-		ASTPointer<ASTString> _attribute = nullptr
+		ASTPointer<ASTString> _attribute = nullptr,
+		bool isStatic = false
 	):
 		Declaration(_id, _location, _name, _visibility),
 		m_typeName(_type),
@@ -858,7 +859,8 @@ public:
 		m_isConstant(_isConstant),
 		m_overrides(_overrides),
 		m_location(_referenceLocation),
-		m_attribute(_attribute) {}
+		m_attribute(_attribute),
+		m_isStatic(isStatic) {}
 
 
 	void accept(ASTVisitor& _visitor) override;
@@ -902,6 +904,7 @@ public:
 	bool isStateVariable() const { return m_isStateVariable; }
 	bool isIndexed() const { return m_isIndexed; }
 	bool isConstant() const { return m_isConstant; }
+	bool isStatic() const { return m_isStatic; }
 	ASTPointer<OverrideSpecifier> const& overrides() const { return m_overrides; }
 	Location referenceLocation() const { return m_location; }
 	/// @returns a set of allowed storage locations for the variable.
@@ -932,6 +935,7 @@ private:
 	ASTPointer<OverrideSpecifier> m_overrides; ///< Contains the override specifier node
 	Location m_location = Location::Unspecified; ///< Location of the variable if it is of reference type.
 	ASTPointer<ASTString> m_attribute; ///< Attribute for variable.
+	bool m_isStatic = false;
 };
 
 /**
@@ -1854,6 +1858,27 @@ private:
 	std::vector<ASTPointer<Expression>> m_arguments;
 	std::vector<ASTPointer<ASTString>> m_names;
 };
+
+class InitializerList: public Expression {
+public:
+	InitializerList(
+		int64_t _id,
+		SourceLocation const& _location,
+		std::vector<ASTPointer<Expression>> const& _options,
+		std::vector<ASTPointer<ASTString>> const& _names
+	):
+	Expression(_id, _location), m_options(_options), m_names(_names) {}
+	void accept(ASTVisitor& _visitor) override;
+	void accept(ASTConstVisitor& _visitor) const override;
+
+	std::vector<ASTPointer<Expression const>> options() const { return {m_options.begin(), m_options.end()}; }
+	std::vector<ASTPointer<ASTString>> const& names() const { return m_names; }
+
+private:
+	std::vector<ASTPointer<Expression>> m_options;
+	std::vector<ASTPointer<ASTString>> m_names;
+};
+
 
 /**
  * Expression that annotates a function call / a new expression with extra

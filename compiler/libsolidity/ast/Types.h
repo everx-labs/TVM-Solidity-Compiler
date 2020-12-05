@@ -162,7 +162,8 @@ public:
 		Address, Integer, RationalNumber, StringLiteral, Bool, FixedPoint, Array, ArraySlice,
 		FixedBytes, Contract, Struct, Function, Enum, Tuple,
 		Mapping, TypeType, Modifier, Magic, Module,
-		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection, VarInteger,
+		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection,
+		VarInteger, InitializerList, // <-- variables of that types cann't be declarated in solidity contract
 		Optional
 	};
 
@@ -692,6 +693,22 @@ public:
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_varinteger"; }
 	std::string toString(bool) const override { return "VarInteger"; }
+
+	TypePointer encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
+};
+
+/**
+ * Used for initialization list in deploy via new
+ * new MyContract{..., varInit: {m_a: 11, m_b: 22}, ...}(...)
+ */
+class InitializerListType: public Type
+{
+public:
+	Category category() const override { return Category::InitializerList; }
+	bool isValueType() const override { return true; }
+	std::string richIdentifier() const override { return "t_initializerlisttype"; }
+	std::string toString(bool) const override { return "initializerlisttype"; }
 
 	TypePointer encodingType() const override { return this; }
 	TypeResult interfaceType(bool) const override { return this; }
@@ -1260,8 +1277,7 @@ public:
 		StateMutability _stateMutability = StateMutability::NonPayable,
 		Declaration const* _declaration = nullptr,
 		bool _valueSet = false,
-		bool _bound = false,
-		bool _flagSet = false
+		bool _bound = false
 	):
 		m_parameterTypes(_parameterTypes),
 		m_returnParameterTypes(_returnParameterTypes),
@@ -1271,7 +1287,6 @@ public:
 		m_stateMutability(_stateMutability),
 		m_arbitraryParameters(_arbitraryParameters),
 		m_valueSet(_valueSet),
-		m_flagSet(_flagSet),
 		m_bound(_bound),
 		m_declaration(_declaration)
 	{
@@ -1395,16 +1410,13 @@ public:
 		}
 	}
 
-	bool valueSet() const { return m_valueSet; }
-	bool flagSet() const { return m_flagSet; }
-	bool bounceSet() const { return m_bounceSet; }
-	bool currenciesSet() const { return m_currenciesSet; }
 	bool bound() const { return m_bound; }
-	bool wid() const { return m_wid; }
+	bool valueSet() const { return m_valueSet; }
+
 
 	/// @returns a copy of this type, where gas or value are set manually. This will never set one
 	/// of the parameters to false.
-	TypePointer copyAndSetCallOptions(bool _setValue, bool setFlag = false) const;
+	TypePointer copyAndSetCallOptions(bool _setValue) const;
 
 	/// @returns a copy of this function type where the location of reference types is changed
 	/// from CallData to Memory. This is the type that would be used when the function is
@@ -1425,12 +1437,10 @@ private:
 	StateMutability m_stateMutability = StateMutability::NonPayable;
 	/// true if the function takes an arbitrary number of arguments of arbitrary types
 	bool const m_arbitraryParameters = false;
+
 	bool const m_valueSet = false; ///< true if the value to be sent is on the stack
-	bool const m_flagSet = false; ///< true if the send flag is on the stack
-	bool const m_bounceSet = false; ///< true if bounce flag is on the stack
-	bool const m_currenciesSet = false; ///< true if the currencies are on the stack
 	bool const m_bound = false; ///< true if the function is called as arg1.fun(arg2, ..., argn)
-	bool const m_wid = false; ///< true if the wid is on the stack
+
 	Declaration const* m_declaration = nullptr;
 };
 

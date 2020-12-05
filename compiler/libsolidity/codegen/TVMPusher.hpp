@@ -90,24 +90,25 @@ struct CodeLines {
 };
 
 class TVMCompilerContext {
-	const ContractDefinition*				m_contract = nullptr;
-	string_map<const FunctionDefinition*>	m_functions;
-	map<const FunctionDefinition*, const ContractDefinition*>	m_function2contract;
+private:
+	const ContractDefinition* m_contract{};
+	string_map<const FunctionDefinition*> m_functions;
+	map<const FunctionDefinition*, const ContractDefinition*> m_function2contract; // TODO delete
 
-	bool ignoreIntOverflow = false;
+	bool ignoreIntOverflow{};
 	PragmaDirectiveHelper const& m_pragmaHelper;
 	std::map<VariableDeclaration const *, int> m_stateVarIndex;
 	std::set<FunctionDefinition const*> m_libFunctions;
 
-	void addFunction(FunctionDefinition const* _function);
-	void initMembers(ContractDefinition const* contract);
-
 public:
-	FunctionDefinition const* m_currentFunction = nullptr;
+	FunctionDefinition const* m_currentFunction{};
 	map<string, CodeLines> m_inlinedFunctions;
 
 	TVMCompilerContext(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
+	void addFunction(FunctionDefinition const* _function);
+	void initMembers(ContractDefinition const* contract);
 	int getStateVarIndex(VariableDeclaration const *variable) const;
+	std::pair<VariableDeclaration const *, int> getStateVarInfo(const std::string& name) const;
 	std::vector<VariableDeclaration const *> notConstantStateVariables() const;
 	PragmaDirectiveHelper const& pragmaHelper() const;
 	bool haveTimeInAbiHeader() const;

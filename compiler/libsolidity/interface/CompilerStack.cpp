@@ -816,7 +816,9 @@ StringMap CompilerStack::loadMissingSources(SourceUnit const& _ast, std::string 
 		{
 			solAssert(!import->path().empty(), "Import path cannot be empty.");
 
-			string importPath = util::absolutePath(import->path(), _sourcePath);
+			string importPath = boost::filesystem::canonical(import->path(),
+				boost::filesystem::path(_sourcePath).remove_filename()).string();
+
 			// The current value of `path` is the absolute path as seen from this source file.
 			// We first have to apply remappings before we can store the actual absolute path
 			// as seen globally.
@@ -827,12 +829,9 @@ StringMap CompilerStack::loadMissingSources(SourceUnit const& _ast, std::string 
 
 			ReadCallback::Result result{false, string("File not supplied initially.")};
 			if (m_readFile) {
-				std::string path;
-				if (importPath.find('/') == std::string::npos)
-					path = (boost::filesystem::path(_sourcePath).remove_filename() / importPath).string();
-				else
-					path = importPath;
-				result = m_readFile(ReadCallback::kindString(ReadCallback::Kind::ReadFile), path);
+				if (!boost::filesystem::path(importPath).is_absolute())
+					importPath = (boost::filesystem::path(_sourcePath).remove_filename() / importPath).string();
+				result = m_readFile(ReadCallback::kindString(ReadCallback::Kind::ReadFile), importPath);
 			}
 			if (result.success)
 				newSources[importPath] = result.responseOrErrorMessage;
