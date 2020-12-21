@@ -72,16 +72,26 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 				continue;
 			}
 			used.insert(fname);
-			functions.append(processFunction(fname, f->parameters(), f->returnParameters(), f));
+			functions.append(processFunction(fname, convertArray(f->parameters()), convertArray(f->returnParameters()), f));
 		}
 
 		if (used.count("constructor") == 0) {
 			auto v = ast_vec<VariableDeclaration>();
-			functions.append(processFunction("constructor", v, v, nullptr));
+			functions.append(processFunction("constructor", convertArray(v), convertArray(v), nullptr));
+		}
+
+		// add public state variables to functions
+		for (VariableDeclaration const* vd : contract->stateVariablesIncludingInherited()) {
+			if (vd->isPublic()) {
+				auto v = ast_vec<VariableDeclaration>();
+				functions.append(processFunction(vd->name(), convertArray(v), {vd}));
+			}
 		}
 
 		root["functions"] = functions;
 	}
+
+
 
 	// events
 	{
@@ -96,7 +106,7 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 			usedEvents.insert(ename);
 			Json::Value cur;
 			cur["name"] = ename;
-			cur["inputs"] = encodeParams(e->parameters());
+			cur["inputs"] = encodeParams(convertArray(e->parameters()));
 			eventAbi.append(cur);
 		}
 		root["events"] = eventAbi;
@@ -104,16 +114,13 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 
 	// data
 	{
-		int shift = 0;
 		Json::Value data(Json::arrayValue);
-		for (VariableDeclaration const* v : contract->stateVariables()) {
-			if (v->isStatic()) {
-				Json::Value cur;
-				cur["key"] = TvmConst::C4::PersistenceMembersStartIndex + shift++;
-				cur["name"] = v->name();
-				cur["type"] = getParamTypeString(v->type(), *v);
-				data.append(cur);
-			}
+		for (const auto &[v, index] : ctx.getStaticVaribles()) {
+			Json::Value cur;
+			cur["key"] = index;
+			cur["name"] = v->name();
+			cur["type"] = getParamTypeString(v->type(), *v);
+			data.append(cur);
 		}
 		root["data"] = data;
 	}
@@ -217,15 +224,19 @@ void TVMABI::print(const Json::Value &json, ostream *out) {
 	}
 }
 
-Json::Value TVMABI::processFunction(const string &fname, const ast_vec<VariableDeclaration> &params,
-									const ast_vec<VariableDeclaration> &retParams, FunctionDefinition const* funcDef) {
+Json::Value TVMABI::processFunction(
+	const string &fname,
+	const std::vector<VariableDeclaration const*> &params,
+	const std::vector<VariableDeclaration const*> &retParams,
+	FunctionDefinition const* funcDef
+) {
 	Json::Value function;
 	Json::Value inputs  = encodeParams(params);
 	Json::Value outputs = encodeParams(retParams);
 	function["name"] = fname;
-	if (funcDef && (funcDef->functionID() != 0)) {
+	if (funcDef && funcDef->functionID().has_value()) {
 		std::ostringstream oss;
-		oss << "0x" << std::hex << std::uppercase << funcDef->functionID();
+		oss << "0x" << std::hex << std::uppercase << funcDef->functionID().value();
 		function["id"] = oss.str();
 	}
 	function["inputs"] = inputs;
@@ -233,13 +244,13 @@ Json::Value TVMABI::processFunction(const string &fname, const ast_vec<VariableD
 	return function;
 }
 
-Json::Value TVMABI::encodeParams(const ast_vec<VariableDeclaration> &params) {
+Json::Value TVMABI::encodeParams(const std::vector<VariableDeclaration const*> &params) {
 	Json::Value result(Json::arrayValue);
 	size_t idx = 0;
 	for (const auto& variable: params) {
 		string name = variable->name();
 		if (name.empty()) name = "value" + toString(idx);
-		Json::Value json = setupType(name, getType(variable.get()), *variable);
+		Json::Value json = setupType(name, getType(variable), *variable);
 		result.append(json);
 		idx++;
 	}
@@ -647,7 +658,7 @@ void DecodeFunctionParams::decodeParameter(VariableDeclaration const *variable, 
 			pusher->push(+1, "LDREF");
 		} else {
 			loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type), variable, false);
-			pusher->loadArray();
+			pusher->load(type, false);
 		}
 	} else if (to<MappingType>(type)) {
 		DecodePosition::Algo algo = position->updateStateAndGetLoadAlgo(type);
@@ -720,21 +731,21 @@ int EncodePosition::countOfCreatedBuilders() const {
 	return qtyOfCreatedBuilders;
 }
 
-void EncodeFunctionParams::createMsgBodyAndAppendToBuilder2(const ast_vec<Expression const> &arguments,
-															const ReasonOfOutboundMessage reason,
-															const CallableDeclaration* funcDef,
-															int builderSize) {
+void EncodeFunctionParams::createMsgBodyAndAppendToBuilder2(
+	const ast_vec<Expression const> &arguments,
+	const std::vector<VariableDeclaration const*> &params,
+	uint32_t functionId,
+	int builderSize
+) {
 	const int saveStackSize = pusher->getStack().size();
-	const ast_vec<VariableDeclaration> &parameters = funcDef->parameters();
-	solAssert(parameters.size() == arguments.size(), "");
+	solAssert(params.size() == arguments.size(), "");
 	createMsgBodyAndAppendToBuilder(
 			[&](size_t idx) {
-				pusher->push(0, ";; " + parameters[idx]->name());
+				pusher->push(0, ";; " + params[idx]->name());
 				TVMExpressionCompiler{*pusher}.compileNewExpr(arguments[idx].get());
 			},
-			reason,
-			funcDef,
-			false,
+			params,
+			functionId,
 			builderSize
 	);
 	solAssert(saveStackSize == pusher->getStack().size(), "");
@@ -742,7 +753,7 @@ void EncodeFunctionParams::createMsgBodyAndAppendToBuilder2(const ast_vec<Expres
 
 void EncodeFunctionParams::createDefaultConstructorMsgBodyAndAppendToBuilder(const int bitSizeBuilder)
 {
-	uint32_t funcID = defaultConstructorFunctionID();
+	uint32_t funcID = calculateConstructorFunctionID();
 	funcID &= 0x7FFFFFFFu;
 	std::stringstream ss;
 	ss << "x" << std::hex << std::setfill('0') << std::setw(8) << funcID;
@@ -760,15 +771,18 @@ void EncodeFunctionParams::createDefaultConstructorMsgBodyAndAppendToBuilder(con
 
 void EncodeFunctionParams::createDefaultConstructorMessage2()
 {
-	uint32_t funcID = defaultConstructorFunctionID();
+	uint32_t funcID = calculateConstructorFunctionID();
 	funcID &= 0x7FFFFFFFu;
 	std::stringstream ss;
 	ss << "x" << std::hex << std::setfill('0') << std::setw(8) << funcID;
 	pusher->push(0, "STSLICECONST " + ss.str());
 }
 
-uint32_t EncodeFunctionParams::calculateFunctionID(const std::string name, const std::vector<ASTPointer<VariableDeclaration>> inputs,
-												   const std::vector<ASTPointer<VariableDeclaration>> * outputs) {
+uint32_t EncodeFunctionParams::calculateFunctionID(
+	const std::string name,
+	const std::vector<ASTPointer<VariableDeclaration>> inputs,
+	const std::vector<VariableDeclaration const*> * outputs
+) {
 	std::stringstream ss;
 	ss << name << "(";
 	bool comma = false;
@@ -817,15 +831,15 @@ uint32_t EncodeFunctionParams::calculateFunctionID(const std::string name, const
 	return funcID;
 }
 
-uint32_t EncodeFunctionParams::defaultConstructorFunctionID() {
-	std::vector<ASTPointer<VariableDeclaration>> vect;
-	return calculateFunctionID("constructor", vect, &vect);
+uint32_t EncodeFunctionParams::calculateConstructorFunctionID() {
+	std::vector<VariableDeclaration const*> vect;
+	return calculateFunctionID("constructor", {}, &vect);
 }
 
 std::pair<uint32_t, bool> EncodeFunctionParams::calculateFunctionID(const CallableDeclaration *declaration) {
 	auto functionDefinition = to<FunctionDefinition>(declaration);
-	if (functionDefinition != nullptr && functionDefinition->functionID() != 0) {
-		return std::make_pair(functionDefinition->functionID(), true);
+	if (functionDefinition != nullptr && functionDefinition->functionID().has_value()) {
+		return {functionDefinition->functionID().value(), true};
 	}
 
 	std::string name;
@@ -834,20 +848,27 @@ std::pair<uint32_t, bool> EncodeFunctionParams::calculateFunctionID(const Callab
 	else
 		name = declaration->name();
 
-	uint32_t id = calculateFunctionID(name, declaration->parameters(), declaration->returnParameterList() ?
-								      &declaration->returnParameters() : nullptr);
-	return std::make_pair(id, false);									
+	std::vector<VariableDeclaration const*> tmpRet;
+	std::vector<VariableDeclaration const*>* ret = nullptr;
+	if (declaration->returnParameterList()) {
+		tmpRet = convertArray(declaration->returnParameters());
+		ret = &tmpRet;
+	}
+	uint32_t id = calculateFunctionID(
+		name,
+		declaration->parameters(),
+	 	ret
+	);
+	return {id, false};
 }
 
-void EncodeFunctionParams::createMsgBodyAndAppendToBuilder(const std::function<void(size_t)> &pushParam,
-														   const ReasonOfOutboundMessage &reason,
-														   const CallableDeclaration * funcDef,
-														   bool encodeReturnParam,
-														   const int bitSizeBuilder) {
-
-	const ast_vec<VariableDeclaration> &parameters =
-			encodeReturnParam? funcDef->returnParameters() : funcDef->parameters();
-	std::vector<Type const*> types = getParams(parameters).first;
+void EncodeFunctionParams::createMsgBodyAndAppendToBuilder(
+	const std::function<void(size_t)>& pushParam,
+	const std::vector<VariableDeclaration const*> &params,
+	const uint32_t functionId,
+	const int bitSizeBuilder
+) {
+	std::vector<Type const*> types = getParams(params).first;
 
 	std::unique_ptr<EncodePosition> position = std::make_unique<EncodePosition>(bitSizeBuilder + 32, types);
 	const bool doAppend = position->countOfCreatedBuilders() == 0;
@@ -859,41 +880,24 @@ void EncodeFunctionParams::createMsgBodyAndAppendToBuilder(const std::function<v
 		pusher->push(+1, "NEWC");
 	}
 
-	createMsgBody(pushParam, reason, funcDef, encodeReturnParam, *position);
+	createMsgBody(pushParam, params, functionId, *position);
 
 	if (!doAppend) {
 		pusher->push(-1, "STBREFR");
 	}
 }
 
-void EncodeFunctionParams::createMsgBody(const std::function<void (size_t)> &pushParam,
-										 const ReasonOfOutboundMessage &reason,
-										 const CallableDeclaration *funcDef,
-										 bool encodeReturnParam,
-										 EncodePosition &position)
-{
-	const ast_vec<VariableDeclaration> &parameters =
-			encodeReturnParam? funcDef->returnParameters() : funcDef->parameters();
+void EncodeFunctionParams::createMsgBody(
+	const std::function<void (size_t)> &pushParam,
+	const std::vector<VariableDeclaration const*> &params,
+	const uint32_t functionId,
+	EncodePosition &position
+) {
 	std::vector<Type const*> types;
 	std::vector<ASTNode const*> nodes;
-	std::tie(types, nodes) = getParams(parameters);
-
-	uint32_t funcID;
-	bool isManuallyOverridden;
-	std::tie(funcID, isManuallyOverridden) = calculateFunctionID(funcDef);
-	switch (reason) {
-		case ReasonOfOutboundMessage::FunctionReturnExternal:
-			funcID |= 0x80000000;
-			break;
-		case ReasonOfOutboundMessage::EmitEventExternal:
-		case ReasonOfOutboundMessage::RemoteCallInternal:
-			if (!isManuallyOverridden) {
-				funcID &= 0x7FFFFFFFu;
-			}
-			break;
-	}
+	std::tie(types, nodes) = getParams(params);
 	std::stringstream ss;
-	ss << "x" << std::hex << std::setfill('0') << std::setw(8) << funcID;
+	ss << "x" << std::hex << std::setfill('0') << std::setw(8) << functionId;
 	pusher->push(0, "STSLICECONST " + ss.str());
 	encodeParameters(types, nodes, pushParam, position);
 }
@@ -911,6 +915,51 @@ EncodeFunctionParams::encodeParameters(const std::vector<Type const *> &types, c
 	for (int idx = 0; idx < position.countOfCreatedBuilders(); idx++) {
 		pusher->push(-1, "STBREFR");
 	}
+}
+
+uint32_t EncodeFunctionParams::calculateFunctionIDWithReason(
+	const CallableDeclaration *funcDef,
+	const ReasonOfOutboundMessage &reason
+) {
+	std::vector<VariableDeclaration const*> outputs;
+	std::vector<VariableDeclaration const*>* retParams = nullptr;
+	if (funcDef->returnParameterList()) {
+		outputs = convertArray(funcDef->returnParameters());
+		retParams = &outputs;
+	}
+	std::optional<uint32_t> functionId;
+	std::string name = funcDef->name();
+	if (auto f = to<FunctionDefinition>(funcDef)) {
+		functionId = f->functionID();
+		if (f->isConstructor()) {
+			name = "constructor";
+		}
+	}
+
+	return calculateFunctionIDWithReason(name, funcDef->parameters(), retParams, reason, functionId);
+}
+
+uint32_t EncodeFunctionParams::calculateFunctionIDWithReason(
+	const std::string name,
+	const std::vector<ASTPointer<VariableDeclaration> > inputs,
+	const std::vector<VariableDeclaration const*> *outputs,
+	const ReasonOfOutboundMessage &reason,
+	std::optional<uint32_t> functionId
+) {
+	bool isManuallyOverridden = functionId.has_value();
+	uint32_t funcID = isManuallyOverridden? functionId.value() : calculateFunctionID(name, inputs, outputs);
+	switch (reason) {
+		case ReasonOfOutboundMessage::FunctionReturnExternal:
+			funcID |= 0x80000000;
+			break;
+		case ReasonOfOutboundMessage::EmitEventExternal:
+		case ReasonOfOutboundMessage::RemoteCallInternal:
+			if (!isManuallyOverridden) {
+				funcID &= 0x7FFFFFFFu;
+			}
+			break;
+	}
+	return funcID;
 }
 
 std::string EncodeFunctionParams::getTypeString(Type const * type, const ASTNode &node) {

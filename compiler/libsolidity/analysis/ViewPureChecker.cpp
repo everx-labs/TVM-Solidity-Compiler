@@ -181,6 +181,10 @@ void ViewPureChecker::endVisit(FunctionCall const& _functionCall) {
 
 	StateMutability mutability;
 	auto ma = dynamic_cast<MemberAccess const *>(&_functionCall.expression());
+	auto opt = dynamic_cast<FunctionCallOptions const *>(&_functionCall.expression());
+	if ((ma == nullptr) && opt) {
+		ma = dynamic_cast<MemberAccess const *>(&opt->expression());
+	}
 	if (ma && ma->expression().annotation().type->category() == Type::Category::Contract) {
 		mutability = StateMutability::Pure; // call function of another contract
 	} else {
@@ -225,6 +229,16 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 	ASTString const& member = _memberAccess.memberName();
 	switch (_memberAccess.expression().annotation().type->category())
 	{
+	case Type::Category::Optional:
+		if (member == "set") {
+			// TODO set correct mutability
+			// mapping(uint64 => optional(uint32))[] m_map;
+			// m_map[0][111].set(321);
+			// same for mapping
+			//if (_memberAccess.expression().annotation().type->dataStoredIn(DataLocation::Storage))
+				mutability = StateMutability::NonPayable;
+		}
+		break;
 	case Type::Category::ExtraCurrencyCollection:
 	case Type::Category::Mapping:
 		if (member == "delMin" ||
@@ -285,7 +299,6 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::TVM, "hash"},
 			{MagicType::Kind::TVM, "log"},
 			{MagicType::Kind::TVM, "rawConfigParam"},
-			{MagicType::Kind::TVM, "sendMsg"},
 			{MagicType::Kind::TVM, "sendrawmsg"},
 			{MagicType::Kind::TVM, "setcode"},
 			{MagicType::Kind::TVM, "setCurrentCode"},

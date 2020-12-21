@@ -22,41 +22,19 @@
 
 using namespace solidity::frontend;
 
-DictOperation::DictOperation(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, ASTNode const& node) :
+DictOperation::DictOperation(StackPusherHelper& pusher, Type const& keyType, Type const& valueType) :
 		pusher{pusher},
 		keyType{keyType},
 		keyLength{lengthOfDictKey(&keyType)},
 		valueType{valueType},
-		valueCategory{valueType.category()},
-		node{node} {
-}
-
-void DictOperation::doDictOperation() {
-	if (valueCategory == Type::Category::TvmCell) {
-		onCell();
-	} else if (valueCategory == Type::Category::Struct) {
-		if (StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(&valueType))) {
-			onSmallStruct();
-		} else {
-			onLargeStruct();
-		}
-	} else if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract, Type::Category::TvmSlice)) {
-		onSlice();
-	} else if (isByteArrayOrString(&valueType)) {
-		onByteArrayOrString();
-	} else if (isIntegralType(&valueType) || isUsualArray(&valueType) || valueCategory == Type::Category::VarInteger) {
-		onIntegralOrArrayOrVarInt();
-	} else if (isIn(valueCategory, Type::Category::Mapping, Type::Category::ExtraCurrencyCollection)) {
-		onMapOrECC();
-	} else {
-		cast_error(node, "Unsupported value type: " + valueType.toString());
-	}
+		valueCategory{valueType.category()} {
 }
 
 StackPusherHelper::StackPusherHelper(TVMCompilerContext *ctx, const int stackSize) :
 		m_ctx(ctx),
 		m_structCompiler{new StructCompiler{this,
-											ctx->notConstantStateVariables(),
+											ctx->notConstantStateVariableTypes(),
+											ctx->notConstantStateVariableNames(),
 											256 + (m_ctx->storeTimestampInC4()? 64 : 0) + 1, // pubkey + timestamp + constructor_flag
 											true}} {
 	m_stack.change(stackSize);
@@ -123,72 +101,315 @@ STSLICER
 )");
 }
 
-bool
-StackPusherHelper::prepareValueForDictOperations(Type const *keyType, Type const *dictValueType, bool isValueBuilder) {
-	// value
-	if (isIntegralType(dictValueType)) {
-		// TODO what if len(keyType) + len(dictValueType) + epsilon > 1023
-		if (!isValueBuilder) {
-			push(0, "NEWC");
-			push(0, storeIntegralOrAddress(dictValueType, false));
-			return true;
+bool StackPusherHelper::doesFitInOneCell(Type const* key, Type const* value) {
+	int keyLength = lengthOfDictKey(key);
+	return
+		2 + // hml_long$10
+		integerLog2(keyLength) +
+		keyLength +
+		maxBitLengthOfDictValue(value)
+		<
+		TvmConst::CellBitLength;
+}
+
+int StackPusherHelper::maxBitLengthOfDictValue(Type const* type) {
+	switch (toDictValueType(type->category())) {
+		case DictValueType::Enum:
+		case DictValueType::Integer:
+		case DictValueType::Bool:
+		case DictValueType::FixedBytes: {
+			TypeInfo ti{type};
+			return ti.numBits;
 		}
-	} else if (dictValueType->category() == Type::Category::Struct) {
-		if (StructCompiler::isCompatibleWithSDK(lengthOfDictKey(keyType), to<StructType>(dictValueType))) {
-			if (isValueBuilder) {
-				return true;
-			} else {
-				StructCompiler sc{this, to<StructType>(dictValueType)};
-				sc.tupleToBuilder();
-				return true;
-			}
-		} else {
+
+		case DictValueType::Address:
+		case DictValueType::Contract:
+			return AddressInfo::maxBitLength();
+
+		case DictValueType::Array: {
+			if (isStringOrStringLiteralOrBytes(type))
+				solUnimplemented("");
+			return 32 + 1;
+		}
+
+		case DictValueType::Mapping:
+		case DictValueType::ExtraCurrencyCollection:
+		case DictValueType::Optional:
+			return 1;
+
+		case DictValueType::VarInteger: {
+			auto vi = to<VarInteger>(type);
+			return integerLog2(vi->getNumber()) + 8 * vi->getNumber();
+		}
+
+		case DictValueType::TvmCell:
+		case DictValueType::TvmSlice:
+			solUnimplemented("");
+
+		case DictValueType::Struct: {
+			return StructCompiler::maxBitLength(to<StructType>(type));
+		}
+
+		default:
+			solAssert(false, "Unsupported " + type->toString());
+	}
+}
+
+DataType
+StackPusherHelper::prepareValueForDictOperations(Type const *keyType, Type const *valueType, bool isValueBuilder) {
+	// stack: value
+
+	switch (toDictValueType(valueType->category())) {
+		case DictValueType::TvmSlice: {
 			if (!isValueBuilder) {
-				StructCompiler sc{this, to<StructType>(dictValueType)};
-				sc.tupleToBuilder();
+				push(0, "NEWC");
+				push(0, "STSLICE");
 			}
 			push(0, "ENDC");
-			return true; //NOTE: it's not builder. It's cell
+			return DataType::Cell;
 		}
-	} else if (isUsualArray(dictValueType)) {
-		if (!isValueBuilder) {
-			push(-1 + 2, "UNPAIR"); // size dict
-			push(0, "SWAP"); // dict size
-			push(+1, "NEWC"); // dict size builder
-			push(-1, "STU 32"); // dict builder
-			push(-1, "STDICT"); // builder
-			return true;
+
+		case DictValueType::Address:
+		case DictValueType::Contract: {
+			if (!doesFitInOneCell(keyType, valueType)) {
+				solAssert(!isValueBuilder, "");
+				push(+1, "NEWC");
+				push(-1, "STSLICE");
+				push(0, "ENDC");
+				return DataType::Cell;
+			}
+			return isValueBuilder ? DataType::Builder : DataType::Slice;
 		}
-	} else if (to<TvmCellType>(dictValueType) || (to<ArrayType>(dictValueType) && to<ArrayType>(dictValueType)->isByteArray())) {
-		if (isValueBuilder) {
-			push(0, "ENDC");
-			return false;
+
+		case DictValueType::Array: {
+			if (isByteArrayOrString(valueType)) {
+				if (isValueBuilder) {
+					push(-1 + 1, "ENDC"); // TODO try to push the builder in new builder
+				}
+				return DataType::Cell;
+			}
+			[[fallthrough]];
 		}
-	} else if (isIn(dictValueType->category(), Type::Category::Mapping, Type::Category::ExtraCurrencyCollection)) {
-		if (!isValueBuilder) {
-			push(+1, "NEWC"); // dict builder
-			push(-1, "STDICT"); // builder
-			return true;
+
+		case DictValueType::Bool:
+		case DictValueType::Enum:
+		case DictValueType::ExtraCurrencyCollection:
+		case DictValueType::FixedBytes:
+		case DictValueType::Integer:
+		case DictValueType::Mapping:
+		case DictValueType::Optional:
+		case DictValueType::VarInteger:
+		{
+			if (!isValueBuilder) {
+				push(0, "NEWC");
+				store(valueType, false, 0);
+				push(+1, "");
+			}
+			if (!doesFitInOneCell(keyType, valueType)) {
+				push(0, "NEWC");
+				push(0, "STBREF");
+			}
+			return DataType::Builder;
 		}
-	} else if (dictValueType->category() == Type::Category::VarInteger) {
-		if (!isValueBuilder) {
-			push(+1, "NEWC"); // value builder
-			push(0, "SWAP"); // builder value
-			push(-1, "STVARUINT32"); // builder
-			return true;
+
+		case DictValueType::Struct: {
+			if (!isValueBuilder) {
+				StructCompiler sc{this, to<StructType>(valueType)};
+				sc.tupleToBuilder();
+			}
+			if (!doesFitInOneCell(keyType, valueType)) {
+				push(0, "ENDC");
+				return DataType::Cell;
+			}
+			return DataType::Builder;
+		}
+
+		case DictValueType::TvmCell: {
+			if (isValueBuilder) {
+				 push(0, "ENDC");
+			}
+			return DataType::Cell;
 		}
 	}
+	solUnimplemented("");
+}
 
-	return isValueBuilder;
+// delMin/delMax
+// min/max
+// fetch
+// at/[] - for arrays and mappings
+bool StackPusherHelper::doesDictStoreValueInRef(Type const* keyType, Type const* valueType) {
+	switch (toDictValueType(valueType->category())) {
+		case DictValueType::TvmCell:
+		case DictValueType::TvmSlice:
+			return true;
+
+		case DictValueType::Array: {
+			if (isByteArrayOrString(valueType)) {
+				return true;
+			}
+			return !doesFitInOneCell(keyType, valueType);
+		}
+
+
+		case DictValueType::Address:
+		case DictValueType::Bool:
+		case DictValueType::Contract:
+		case DictValueType::Enum:
+		case DictValueType::ExtraCurrencyCollection:
+		case DictValueType::FixedBytes:
+		case DictValueType::Integer:
+		case DictValueType::Mapping:
+		case DictValueType::Optional:
+		case DictValueType::VarInteger:
+		case DictValueType::Struct:
+			return !doesFitInOneCell(keyType, valueType);
+	}
+	solUnimplemented("");
+}
+
+// false - value isn't in ref
+// true - value is in ref
+void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
+	Type const* keyType,
+	Type const* valueType,
+	bool haveKey,
+	bool didUseOpcodeWithRef,
+	const DecodeType& decodeType,
+	bool resultAsSliceForStruct
+)
+{
+	// stack: value [key]
+	auto preloadValue = [&]() {
+		if (haveKey) {
+			if (keyType->category() == Type::Category::Struct) {
+				StructCompiler sc{this, to<StructType>(keyType)};
+				sc.convertSliceToTuple();
+			}
+			exchange(0, 1);
+			// stack: key value
+		}
+		// stack: [key] value
+
+		switch (toDictValueType(valueType->category())) {
+			case DictValueType::Address:
+			case DictValueType::Contract:
+			case DictValueType::TvmSlice:
+			{
+				if (didUseOpcodeWithRef) {
+					push(0, "CTOS");
+				} else if (doesDictStoreValueInRef(keyType, valueType)) {
+					push(0, "PLDREF");
+					push(0, "CTOS");
+				}
+				break;
+			}
+			case DictValueType::Array:
+				if (isByteArrayOrString(valueType)) {
+					if (!didUseOpcodeWithRef) {
+						push(0, "PLDREF");
+					}
+					break;
+				}
+				[[fallthrough]];
+			case DictValueType::Bool:
+			case DictValueType::Enum:
+			case DictValueType::ExtraCurrencyCollection:
+			case DictValueType::FixedBytes:
+			case DictValueType::Integer:
+			case DictValueType::Mapping:
+			case DictValueType::Optional:
+			case DictValueType::Struct:
+			case DictValueType::VarInteger:
+			{
+				if (didUseOpcodeWithRef) {
+					push(0, "CTOS");
+				} else if (doesDictStoreValueInRef(keyType, valueType)) {
+					push(0, "PLDREF");
+					push(0, "CTOS");
+				}
+				uint32_t msk = Preload::UseCurrentSlice;
+				if (resultAsSliceForStruct) msk |= Preload::ReturnStructAsSlice;
+				preload(valueType, msk);
+				break;
+			}
+			case DictValueType::TvmCell:
+			{
+				if (!didUseOpcodeWithRef) {
+					push(0, "PLDREF");
+				}
+				break;
+			}
+		}
+	};
+
+	switch (decodeType) {
+		case DecodeType::DecodeValue:
+			preloadValue();
+			break;
+		case DecodeType::DecodeValueOrPushDefault: {
+			startContinuation();
+			preloadValue();
+			endContinuation();
+
+			bool hasEmptyPushCont = tryPollEmptyPushCont();
+
+			startContinuation();
+			bool isStructAndBuilder =
+				valueType->category() == Type::Category::Struct &&
+				resultAsSliceForStruct;
+			pushDefaultValue(valueType, isStructAndBuilder);
+			if (isStructAndBuilder) {
+				push(0, "ENDC");
+				push(0, "CTOS");
+			}
+			endContinuation(-1);
+
+			if (hasEmptyPushCont)
+				push(0, "IFNOT");
+			else
+				push(0, "IFELSE");
+			break;
+		}
+		case DecodeType::DecodeValueOrPushNull: {
+			push(0, "NULLSWAPIFNOT");
+
+			startContinuation();
+			preloadValue();
+			if (haveKey) {
+				tuple(2);
+			}
+			endContinuation();
+
+			push(0, "IF");
+			break;
+		}
+		case DecodeType::PushNullOrDecodeValue: {
+			push(0, "NULLSWAPIF");
+
+			startContinuation();
+			preloadValue();
+			endContinuation();
+
+			push(0, "IFNOT");
+			break;
+		}
+	}
 }
 
 class DictSet : public DictOperation {
 public:
-	DictSet(StackPusherHelper& pusher, Type const &keyType, Type const &valueType, bool isValueBuilder, ASTNode const &node,
-			StackPusherHelper::SetDictOperation operation)  :
-		DictOperation{pusher, keyType, valueType, node},
-		isValueBuilder{isValueBuilder},
-		operation{operation} {
+	DictSet(
+		StackPusherHelper& pusher,
+		Type const &keyType,
+		Type const &valueType,
+		const DataType& dataType,
+		StackPusherHelper::SetDictOperation operation
+	) :
+		DictOperation{pusher, keyType, valueType},
+		dataType{dataType},
+		operation{operation}
+	{
 
 	}
 
@@ -209,7 +430,18 @@ public:
 				opcode += "ADD";
 				break;
 		}
-		doDictOperation();
+
+		switch (dataType) {
+			case DataType::Builder:
+				opcode += "B";
+				break;
+			case DataType::Cell:
+				opcode += "REF";
+				break;
+			case DataType::Slice:
+				break;
+		}
+
 		switch (operation) {
 			case StackPusherHelper::SetDictOperation::Set:
 				pusher.push(-4 + 1, opcode);
@@ -221,52 +453,14 @@ public:
 		}
 	}
 
-protected:
-	void onCell() override {
-		solAssert(!isValueBuilder, "");
-		opcode += "REF";
-	}
-
-	void onSmallStruct() override {
-		solAssert(isValueBuilder, "");
-		opcode += "B";
-	}
-
-	void onLargeStruct() override {
-		solAssert(isValueBuilder, "");
-		opcode += "REF";
-	}
-
-	void onByteArrayOrString() override {
-		solAssert(!isValueBuilder, "");
-		opcode += "REF";
-	}
-
-	void onSlice() override {
-		if (isValueBuilder) {
-			opcode += "B";
-		}
-	}
-
-	void onIntegralOrArrayOrVarInt() override {
-		solAssert(isValueBuilder, "");
-		opcode += "B";
-	}
-
-	void onMapOrECC() override {
-		solAssert(isValueBuilder, "");
-		opcode += "B";
-	}
-
 private:
-	bool isValueBuilder;
+	const DataType& dataType;
 	StackPusherHelper::SetDictOperation operation;
 	std::string opcode;
 };
 
-void StackPusherHelper::setDict(Type const &keyType, Type const &valueType, bool isValueBuilder, ASTNode const &node,
-								SetDictOperation operation) {
-	DictSet d{*this, keyType, valueType, isValueBuilder, node, operation};
+void StackPusherHelper::setDict(Type const &keyType, Type const &valueType, const DataType& dataType, SetDictOperation operation) {
+	DictSet d{*this, keyType, valueType, dataType, operation};
 	d.dictSet();
 }
 
@@ -284,6 +478,20 @@ bool StackPusherHelper::tryPollConvertBuilderToSlice() {
 	if (n >= 2 &&
 		std::regex_match(m_code.lines[n - 1], std::regex("(\t*)CTOS")) &&
 		std::regex_match(m_code.lines[n - 2], std::regex("(\t*)ENDC"))
+	)
+	{
+		m_code.lines.pop_back();
+		m_code.lines.pop_back();
+		return true;
+	}
+	return false;
+}
+
+bool StackPusherHelper::tryPollEmptyPushCont() {
+	int n = m_code.lines.size();
+	if (n >= 2 &&
+		std::regex_match(m_code.lines[n - 2], std::regex("(\t*)PUSHCONT \\{")) &&
+		std::regex_match(m_code.lines[n - 1], std::regex("(\t*)\\}"))
 	)
 	{
 		m_code.lines.pop_back();
@@ -465,57 +673,351 @@ void StackPusherHelper::pushS(int i) {
 	}
 }
 
+void StackPusherHelper::popS(int i) {
+	solAssert(i >= 0, "");
+	push(-1, "POP S" + toString(i));
+}
+
 void StackPusherHelper::pushInt(int i) {
 	push(+1, "PUSHINT " + toString(i));
 }
 
-void StackPusherHelper::loadArray(bool directOrder) {
-	pushLines(R"(LDU 32
-LDDICT
-ROTREV
-PAIR
-)");
-	if (directOrder) {
+bool StackPusherHelper::fastLoad(const Type* type) {
+	// slice
+	switch (type->category()) {
+		case Type::Category::Optional: {
+			const int saveStakeSize = getStack().size();
+			auto opt = to<OptionalType>(type);
+
+			push(+1, "LDOPTREF"); // value slice
+			exchange(0, 1); // slice value
+			pushS(0); // slice value value
+			push(-1 + 1, "ISNULL"); // slice value isNull
+
+			push(-1, ""); // fix stack
+
+			startContinuation();
+			// slice value
+			push(0, "CTOS"); // slice sliceValue
+			// TODO add test
+			preload(opt->valueType(), UseCurrentSlice); // slice value
+			endContinuation();
+
+			push(0, "IFNOT");
+
+			solAssert(saveStakeSize + 1 == getStack().size(), "");
+			return false;
+		}
+		case Type::Category::TvmCell:
+			push(-1 + 2, "LDREF");
+			return true;
+		case Type::Category::Struct: {
+			push(+1, "LDREFRTOS");
+			// slice structAsSlice
+			auto st = to<StructType>(type);
+			StructCompiler sc{this, st};
+			sc.convertSliceToTuple();
+			return false;
+		}
+		case Type::Category::Address:
+		case Type::Category::Contract:
+			push(-1 + 2, "LDMSGADDR");
+			return true;
+		case Type::Category::Enum:
+		case Type::Category::Integer:
+		case Type::Category::Bool:
+		case Type::Category::FixedBytes: {
+			TypeInfo ti{type};
+			solAssert(ti.isNumeric, "");
+			string cmd = ti.isSigned ? "LDI " : "LDU ";
+			push(-1 + 2, cmd + toString(ti.numBits));
+			return true;
+		}
+		case Type::Category::Array: {
+			auto arrayType = to<ArrayType>(type);
+			if (arrayType->isByteArray()) {
+				push(-1 + 2, "LDREF");
+				return true;
+			} else {
+				push(-1 + 2, "LDU 32");
+				push(-1 + 2, "LDDICT");
+				push(0, "ROTREV");
+				push(-2 + 1, "PAIR");
+				return false;
+			}
+		}
+		case Type::Category::Mapping:
+			push(-1 + 2, "LDDICT");
+			return true;
+		default:
+			solAssert(false, "");
+	}
+}
+
+void StackPusherHelper::load(const Type *type, bool reverseOrder) {
+	// slice
+	bool directOrder = fastLoad(type);
+	if (directOrder == reverseOrder) {
 		exchange(0, 1);
 	}
-	push(-1 + 2, ""); // fix stack
-	// stack: array slice
+	// reverseOrder? slice member : member slice
 }
 
-void StackPusherHelper::preLoadArray() {
-	pushLines(R"(LDU 32
-PLDDICT
-PAIR
-)");
-	push(-1 + 1, ""); // fix stack
-	// stack: array
-}
+void StackPusherHelper::preload(const Type *type, uint32_t mask) {
+	const int stackSize = getStack().size();
+	// on stack there is slice
+	switch (type->category()) {
+		case Type::Category::Optional: {
+			auto opt = to<OptionalType>(type);
 
-void StackPusherHelper::load(const Type *type) {
-	if (isUsualArray(type)) {
-		loadArray();
-	} else {
-		TypeInfo ti{type};
-		solAssert(ti.isNumeric, "");
-		string cmd = ti.isSigned ? "LDI " : "LDU ";
-		push(-1 + 2, cmd + toString(ti.numBits));
+			pushS(0);
+			push(-1 + 1, "PLDI 1"); // slice hasVal
+
+			push(-1, ""); // fix stack
+
+			// have value
+			int savedStake0 = getStack().size();
+			startContinuation();
+			// stack: slice
+			push(-1 + 1, "PLDREF");
+			push(-1 + 1, "CTOS");
+			preload(opt->valueType(), mask | UseCurrentSlice);
+			endContinuation();
+			getStack().ensureSize(savedStake0);
+
+			// no value
+			int savedStake1 = getStack().size();
+			startContinuation();
+			// stack: slice
+			drop();
+			push(+1, "NULL");
+			endContinuation();
+			getStack().ensureSize(savedStake1);
+
+			push(0, "IFELSE");
+
+			break;
+		}
+		case Type::Category::Address:
+		case Type::Category::Contract:
+			if (!(mask & IsAddressInEnd)) {
+				push(-1 + 2, "LDMSGADDR");
+				drop(1);
+			}
+			break;
+		case Type::Category::TvmCell:
+			push(0, "PLDREF");
+			break;
+		case Type::Category::Struct:
+			if (!(mask & UseCurrentSlice)){
+				push(-1 + 2, "LDREFRTOS");
+				push(-1, "NIP");
+			}
+			if (!(mask & ReturnStructAsSlice)) {
+				auto structType = to<StructType>(type);
+				StructCompiler sc{this, structType};
+				sc.convertSliceToTuple();
+			}
+			break;
+		case Type::Category::Integer:
+		case Type::Category::Enum:
+		case Type::Category::Bool:
+		case Type::Category::FixedBytes: {
+			TypeInfo ti{type};
+			solAssert(ti.isNumeric, "");
+			string cmd = ti.isSigned ? "PLDI " : "PLDU ";
+			push(-1 + 1, cmd + toString(ti.numBits));
+			break;
+		}
+		case Type::Category::Array: {
+			auto arrayType = to<ArrayType>(type);
+			if (arrayType->isByteArray()) {
+				push(0, "PLDREF");
+			} else {
+				push(-1 + 2, "LDU 32");
+				push(-1 + 1, "PLDDICT");
+				push(-2 + 1, "PAIR");
+				// stack: array
+			}
+			break;
+		}
+		case Type::Category::Mapping:
+		case Type::Category::ExtraCurrencyCollection:
+			push(-1 + 1, "PLDDICT");
+			break;
+		case Type::Category::VarInteger:
+			push(0, "LDVARUINT32");
+			push(0, "DROP");
+			break;
+		case Type::Category::Tuple: {
+			const auto[types, names] = getTupleTypes(to<TupleType>(type));
+			StructCompiler sc{this, types, names, 0, false};
+			sc.convertSliceToTuple();
+			break;
+		}
+		default:
+			solUnimplemented("Decode isn't supported for " + type->toString(true));
 	}
+	getStack().ensureSize(stackSize);
 }
 
-void StackPusherHelper::preload(const Type *type) {
-	if (isUsualArray(type)) {
-		preLoadArray();
-	} else if (isIn(type->category(), Type::Category::Mapping, Type::Category::ExtraCurrencyCollection)) {
-		push(0, "PLDDICT");
-	} else if (type->category() == Type::Category::VarInteger) {
-		push(0, "LDVARUINT32");
-		push(0, "DROP");
-	} else {
-		TypeInfo ti{type};
-		solAssert(ti.isNumeric, "");
-		string cmd = ti.isSigned ? "PLDI " : "PLDU ";
-		push(-1 + 1, cmd + toString(ti.numBits));
+void StackPusherHelper::store(
+	const Type *type,
+	bool reverse,
+	uint32_t mask
+) {
+	// value   builder  -> reverse = false
+	// builder value    -> reverse = true
+	const int stackSize = getStack().size();
+	int deltaStack = 1;
+	switch (type->category()) {
+		case Type::Category::Optional: {
+			auto optType = to<OptionalType>(type);
+
+			if (!reverse)
+				exchange(0, 1);	// builder value
+			pushS(0);	// builder value value
+			push(-1 + 1, "ISNULL");	// builder value isnull
+			push(-1 + 1, "NOT");	// builder value !isnull
+
+			push(-1, ""); // fix stack
+
+			getStack().ensureSize(stackSize);
+			startContinuation();
+			// builder value
+			push(+1, "NEWC"); // builder value builder
+			store(optType->valueType(), false, 0); // builder builderWithValue
+			exchange(0, 1); // builderWithValue builder
+			stones(1);
+			push(-1, "STBREF");	// builder
+			endContinuation();
+			push(+1, ""); // fix stack
+
+			getStack().ensureSize(stackSize);
+			startContinuation();
+			// builder value
+			drop(1); // builder
+			stzeroes(1);
+			endContinuation();
+			push(+1, ""); // fix stack
+
+			push(0, "IFELSE");
+			push(-1, ""); // fix stack
+
+			break;
+		}
+		case Type::Category::TvmCell:
+			push(-1, reverse? "STREFR" : "STREF"); // builder
+			break;
+		case Type::Category::Struct: {
+			auto structType = to<StructType>(type);
+			if (mask & StoreFlag::StoreStructInOneCell) {
+				if (!reverse)
+					push(0, "SWAP");
+				auto members = structType->structDefinition().members();
+				untuple(members.size());
+				this->reverse(members.size(), 0);
+				blockSwap(1, members.size());
+				for (const auto& member : members)
+					store(member->type(), false, StackPusherHelper::StoreFlag::StoreStructInRef | StackPusherHelper::StoreFlag::StoreStructInOneCell);
+			} else if (mask & StoreFlag::ValueIsBuilder) {
+				if (mask & StoreFlag::StoreStructInRef)
+					push(-1, reverse? "STBREFR" : "STBREF"); // builder
+				else
+					solAssert(false, "TODO");
+			} else {
+				if (!reverse) {
+					push(0, "SWAP"); // builder struct
+				}
+				// builder struct
+				StructCompiler sc{this, structType};
+				sc.tupleToBuilder();
+				if (mask & StoreFlag::StoreStructInRef)
+					push(-1, "STBREFR"); // builder
+				else {
+					push(-1, "STBR"); // builder
+					// TODO opt this: don't create builder in `tupleToBuilder` and don't append this.
+				}
+			}
+			break;
+		}
+		case Type::Category::Address:
+		case Type::Category::Contract:
+		case Type::Category::TvmSlice:
+			push(-1, reverse? "STSLICER" : "STSLICE"); // builder slice-value
+			break;
+		case Type::Category::Integer:
+		case Type::Category::Enum:
+		case Type::Category::Bool:
+		case Type::Category::FixedBytes:
+			if (mask & StoreFlag::ValueIsBuilder) {
+				push(-1, reverse ? "STBR" : "STB");
+			} else {
+				push(-1, storeIntegralOrAddress(type, reverse));
+			}
+			break;
+		case Type::Category::Mapping:
+		case Type::Category::ExtraCurrencyCollection:
+			if (reverse) {
+				push(0, "SWAP"); // builder dict
+			}
+			// dict builder
+			push(-1, "STDICT"); // builder
+			break;
+		case Type::Category::Array: {
+			auto arrayType = to<ArrayType>(type);
+			if (arrayType->isByteArray()) {
+				push(-1, reverse? "STREFR" : "STREF"); // builder
+			} else {
+				if (mask & StoreFlag::ValueIsBuilder) {
+					solAssert(!(mask & StoreFlag::ArrayIsUntupled), "");
+					push(-1, reverse ? "STBR" : "STB");
+				} else {
+					if (mask & StoreFlag::ArrayIsUntupled) {
+						deltaStack = 2;
+						solAssert(!reverse, "");
+						// dict size builder
+						push(-1, "STU 32");
+						push(-1, "STDICT");
+					} else {
+						if (!reverse) {
+							push(0, "SWAP"); // builder arr
+						}
+						push(-1 + 2, "UNPAIR"); // builder size dict
+						push(0, "ROTREV"); // dict builder size
+						push(-1, "STUR 32"); // dict builder'
+						push(-1, "STDICT"); // builder''
+					}
+				}
+			}
+			break;
+		}
+		case Type::Category::TvmBuilder:
+			push(-1, std::string("STB")  + (reverse ? "R " : ""));
+			break;
+		case Type::Category::Tuple: {
+			if (!reverse)
+				exchange(0, 1);	// builder value
+
+			const auto[types, names] = getTupleTypes(to<TupleType>(type));
+			StructCompiler sc{this, types, names, 0, false};
+			sc.tupleToBuilder();
+			push(-2 + 1, "STBR");
+			break;
+		}
+		case Type::Category::VarInteger: {
+			if (!reverse)
+				exchange(0, 1);	// builder value
+
+			push(-1, "STVARUINT32"); // builder
+			break;
+		}
+		default: {
+			solUnimplemented("Encode isn't supported for " + type->toString(true));
+		}
 	}
+
+	getStack().ensureSize(stackSize - deltaStack);
 }
 
 void StackPusherHelper::pushZeroAddress() {
@@ -757,16 +1259,6 @@ void StackPusherHelper::exchange(int i, int j) {
 	}
 }
 
-void StackPusherHelper::recoverKeyAfterDictOperation(Type const *keyType, ASTNode const &node) {
-	if (isStringOrStringLiteralOrBytes(keyType)) {
-		cast_error(node, "Unsupported for mapping key type: " + keyType->toString(true));
-	}
-	if (keyType->category() == Type::Category::Struct) {
-		StructCompiler sc{this, to<StructType>(keyType)};
-		sc.convertSliceToTuple();
-	}
-}
-
 TypePointer StackPusherHelper::parseIndexType(Type const *type) {
 	if (to<ArrayType>(type)) {
 		return TypePointer(new IntegerType(32));
@@ -797,7 +1289,7 @@ bool StackPusherHelper::tryAssignParam(Declaration const *name) {
 		} else if (idx == 1) {
 			push(-1, "NIP");
 		} else {
-			push(-1, "POP s" + toString(idx));
+			popS(idx);
 		}
 		return true;
 	}
@@ -833,10 +1325,12 @@ void StackPusherHelper::ensureValueFitsType(const ElementaryTypeNameToken &typeN
 	}
 }
 
-void StackPusherHelper::prepareKeyForDictOperations(Type const *key) {
+void StackPusherHelper::prepareKeyForDictOperations(Type const *key, bool doIgnoreBytes) {
 	// stack: key
-	if (isStringOrStringLiteralOrBytes(key)) {
-		push(-1 + 1, "HASHCU"); // str dict hash
+	if (isStringOrStringLiteralOrBytes(key) || key->category() == Type::Category::TvmCell) {
+		if (!doIgnoreBytes) {
+			push(-1 + 1, "HASHCU");
+		}
 	} else if (key->category() == Type::Category::Struct) {
 		StructCompiler sc{this, to<StructType>(key)};
 		sc.tupleToBuilder();
@@ -913,7 +1407,7 @@ StackPusherHelper::ext_msg_info(const set<int> &isParamOnStack) {
 	push(+1, "NEWC");
 	for (int param = 0; param < static_cast<int>(zeroes.size()); ++param) {
 		if (isParamOnStack.count(param) == 0) {
-			bitString += std::string(zeroes[param], '0');
+			bitString += std::string(zeroes.at(param), '0');
 		} else {
 			appendToBuilder(bitString);
 			bitString = "";
@@ -948,6 +1442,11 @@ void StackPusherHelper::appendToBuilder(const std::string &bitString) {
 			push(-1, "STSLICER");
 		}
 	}
+}
+
+void StackPusherHelper::checkOptionalValue() {
+	push(-1 + 1, "ISNULL");
+	push(-1, "THROWIF " + toString(TvmConst::Message::Exception::GetOptionalException));
 }
 
 void StackPusherHelper::stzeroes(int qty) {
@@ -1150,7 +1649,7 @@ void TVMCompilerContext::initMembers(ContractDefinition const *contract) {
 		addFunction(f);
 	}
 	for (VariableDeclaration const *variable: notConstantStateVariables()) {
-		m_stateVarIndex[variable] = 10 + m_stateVarIndex.size();
+		m_stateVarIndex[variable] = TvmConst::C7::FirstIndexForVariables +  + m_stateVarIndex.size();
 	}
 }
 
@@ -1161,16 +1660,6 @@ TVMCompilerContext::TVMCompilerContext(ContractDefinition const *contract,
 
 int TVMCompilerContext::getStateVarIndex(VariableDeclaration const *variable) const {
 	return m_stateVarIndex.at(variable);
-}
-
-std::pair<VariableDeclaration const *, int>
-TVMCompilerContext::getStateVarInfo(const std::string& name) const {
-	for (const auto& [decl, index] : m_stateVarIndex) {
-		if (decl->name() == name) {
-			return {decl, index};
-		}
-	}
-	solUnimplemented("");
 }
 
 std::vector<VariableDeclaration const *> TVMCompilerContext::notConstantStateVariables() const {
@@ -1184,6 +1673,22 @@ std::vector<VariableDeclaration const *> TVMCompilerContext::notConstantStateVar
 		}
 	}
 	return variableDeclarations;
+}
+
+std::vector<Type const *> TVMCompilerContext::notConstantStateVariableTypes() const {
+	std::vector<Type const *> types;
+	for (VariableDeclaration const * var : notConstantStateVariables()) {
+		types.emplace_back(var->type());
+	}
+	return types;
+}
+
+std::vector<std::string> TVMCompilerContext::notConstantStateVariableNames() const {
+	std::vector<std::string> names;
+	for (VariableDeclaration const * var : notConstantStateVariables()) {
+		names.emplace_back(var->name());
+	}
+	return names;
 }
 
 PragmaDirectiveHelper const &TVMCompilerContext::pragmaHelper() const {
@@ -1267,6 +1772,17 @@ void TVMCompilerContext::addLib(FunctionDefinition const* f) {
 	m_libFunctions.insert(f);
 }
 
+std::vector<std::pair<VariableDeclaration const*, int>> TVMCompilerContext::getStaticVaribles() const {
+	int shift = 0;
+	std::vector<std::pair<VariableDeclaration const*, int>> vect;
+	for (VariableDeclaration const* v : m_contract->stateVariables()) {
+		if (v->isStatic()) {
+			vect.emplace_back(v, TvmConst::C4::PersistenceMembersStartIndex + shift++);
+		}
+	}
+	return vect;
+}
+
 void StackPusherHelper::pushNull() {
 	push(+1, "NULL");
 }
@@ -1327,10 +1843,10 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 			break;
 		}
 		case Type::Category::TvmSlice:
-			push(+1, "PUSHSLICE x8_");
 			if (isResultBuilder) {
 				push(+1, "NEWC");
-				push(-1, "STSLICE");
+			} else {
+				push(+1, "PUSHSLICE x8_");
 			}
 			break;
 		case Type::Category::TvmBuilder:
@@ -1343,6 +1859,7 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 			}
 			break;
 		case Type::Category::Function: {
+			// TODO store function as function id - uint
 			solAssert(!isResultBuilder, "");
 			auto functionType = to<FunctionType>(type);
 			StackPusherHelper pusherHelper(&ctx(), functionType->parameterTypes().size());
@@ -1363,12 +1880,13 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 
 class GetFromDict : public DictOperation {
 public:
-	GetFromDict(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, ASTNode const& node,
-				const StackPusherHelper::GetDictOperation op,
-				const bool resultAsSliceForStruct) :
-		DictOperation{pusher, keyType, valueType, node},
+	GetFromDict(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, const StackPusherHelper::GetDictOperation op,
+				const bool resultAsSliceForStruct, const DataType& dataType) :
+		DictOperation{pusher, keyType, valueType},
 		op{op},
-		resultAsSliceForStruct{resultAsSliceForStruct} {
+		resultAsSliceForStruct{resultAsSliceForStruct},
+		dataType{dataType}
+	{
 
 	}
 
@@ -1378,26 +1896,13 @@ public:
 		// else                            stack: key dict keyLength
 
 		const int saveStake = pusher.getStack().size();
+		std::string opcode = "DICT" + typeToDictChar(&keyType);
 		int stackDelta{};
 		switch (op) {
 			case StackPusherHelper::GetDictOperation::GetSetFromMapping:
 			case StackPusherHelper::GetDictOperation::GetAddFromMapping:
-			case StackPusherHelper::GetDictOperation::GetReplaceFromMapping:
+			case StackPusherHelper::GetDictOperation::GetReplaceFromMapping: {
 				stackDelta = -4 + 2;
-				break;
-			case StackPusherHelper::GetDictOperation::Fetch:
-			case StackPusherHelper::GetDictOperation::Exist:
-			case StackPusherHelper::GetDictOperation::GetFromMapping:
-			case StackPusherHelper::GetDictOperation::GetFromArray:
-				stackDelta = -3 + 1;
-				break;
-		}
-
-		std::string opcode = "DICT" + typeToDictChar(&keyType);
-		switch (op) {
-			case StackPusherHelper::GetDictOperation::GetSetFromMapping:
-			case StackPusherHelper::GetDictOperation::GetAddFromMapping:
-			case StackPusherHelper::GetDictOperation::GetReplaceFromMapping:
 				if (op == StackPusherHelper::GetDictOperation::GetSetFromMapping)
 					opcode += "SETGET";
 				else if (op == StackPusherHelper::GetDictOperation::GetAddFromMapping)
@@ -1407,300 +1912,75 @@ public:
 				else
 					solAssert(false, "");
 
-				if (isIn(valueCategory, Type::Category::Address, Type::Category::Contract) || isByteArrayOrString(&valueType)) {
-					// do nothing
-				} else if (valueCategory == Type::Category::TvmCell ||
-						   (valueCategory == Type::Category::Struct && !StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(&valueType)))) {
-					opcode += "REF";
-				} else {
-					opcode += "B";
+				bool didUseOpcodeWithRef = false;
+				switch (dataType) {
+					case DataType::Builder:
+						opcode += "B";
+						break;
+					case DataType::Cell:
+						didUseOpcodeWithRef = true;
+						opcode += "REF";
+						break;
+					case DataType::Slice:
+						break;
 				}
+				pusher.push(stackDelta, opcode);
+
+				StackPusherHelper::DecodeType decodeType{};
+				if (op == StackPusherHelper::GetDictOperation::GetAddFromMapping)
+					decodeType = StackPusherHelper::DecodeType::PushNullOrDecodeValue;
+				else if (
+					op == StackPusherHelper::GetDictOperation::GetSetFromMapping ||
+					op == StackPusherHelper::GetDictOperation::GetReplaceFromMapping
+				)
+					decodeType = StackPusherHelper::DecodeType::DecodeValueOrPushNull;
+				else
+					solUnimplemented("");
+				int ss = pusher.getStack().size();
+				pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, didUseOpcodeWithRef, decodeType, resultAsSliceForStruct);
+				solAssert(ss == pusher.getStack().size(), "");
 				break;
-			case StackPusherHelper::GetDictOperation::Exist:
+			}
+
+			case StackPusherHelper::GetDictOperation::Exist: {
+				stackDelta = -3 + 1;
+				opcode += "GET";
+				pusher.push(stackDelta, opcode);
+				checkExist();
+				break;
+			}
 			case StackPusherHelper::GetDictOperation::Fetch:
 			case StackPusherHelper::GetDictOperation::GetFromArray:
-			case StackPusherHelper::GetDictOperation::GetFromMapping:
+			case StackPusherHelper::GetDictOperation::GetFromMapping: {
+				stackDelta = -3 + 1;
 				opcode += "GET";
-				if (valueCategory == Type::Category::TvmCell ||
-					(valueCategory == Type::Category::Struct && !StructCompiler::isCompatibleWithSDK(keyLength, to<StructType>(&valueType))) ||
-					isByteArrayOrString(&valueType)) {
+				bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
+				if (isInRef) {
 					opcode += "REF";
 				}
+				pusher.push(stackDelta, opcode);
+				if (op == StackPusherHelper::GetDictOperation::GetFromArray) {
+					pusher.push(0, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+				}
+				StackPusherHelper::DecodeType decodeType{};
+				if (op == StackPusherHelper::GetDictOperation::Fetch) {
+					decodeType = StackPusherHelper::DecodeType::DecodeValueOrPushNull;
+				} else if (op == StackPusherHelper::GetDictOperation::GetFromArray) {
+					decodeType = StackPusherHelper::DecodeType::DecodeValue;
+				} else if (op == StackPusherHelper::GetDictOperation::GetFromMapping) {
+					decodeType = StackPusherHelper::DecodeType::DecodeValueOrPushDefault;
+				} else {
+					solUnimplemented("");
+				}
+				pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, isInRef, decodeType, resultAsSliceForStruct);
 				break;
+			}
 		}
 
-		pusher.push(stackDelta, opcode);
-
-		doDictOperation();
 		pusher.getStack().ensureSize(saveStake + stackDelta);
 	}
 
-protected:
-	void onCell() override {
-		switch (op) {
-			case StackPusherHelper::GetDictOperation::GetFromMapping:
-				pushContinuationWithDefaultValue();
-				pusher.push(0, "IFNOT");
-				break;
-			case StackPusherHelper::GetDictOperation::GetSetFromMapping:
-			case StackPusherHelper::GetDictOperation::GetReplaceFromMapping:
-				pushContinuationWithNull();
-				pusher.push(0, "IFNOT");
-				break;
-			case StackPusherHelper::GetDictOperation::GetAddFromMapping:
-				pushContinuationWithNull();
-				pusher.push(0, "IF");
-				break;
-			case StackPusherHelper::GetDictOperation::GetFromArray:
-				pusher.push(0, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-				break;
-			case StackPusherHelper::GetDictOperation::Fetch:
-				fetchValue();
-				break;
-			case StackPusherHelper::GetDictOperation::Exist:
-				checkExist();
-				break;
-		}
-	}
-
-	void onSmallStruct() override {
-		StructCompiler sc{&pusher, to<StructType>(&valueType)};
-		switch (op) {
-			case StackPusherHelper::GetDictOperation::GetFromMapping:
-				if (resultAsSliceForStruct) {
-					pushContinuationWithDefaultValue();
-					pusher.push(0, "IFNOT");
-				} else {
-					// ok
-					pusher.startContinuation();
-					sc.convertSliceToTuple();
-					pusher.endContinuation();
-					// fail
-					pusher.startContinuation();
-					sc.createDefaultStruct(false);
-					pusher.endContinuation(-1);
-					pusher.push(0, "IFELSE");
-				}
-				break;
-			case StackPusherHelper::GetDictOperation::GetSetFromMapping:
-			case StackPusherHelper::GetDictOperation::GetReplaceFromMapping: {
-				solAssert(!resultAsSliceForStruct, "");
-				// ok
-				pusher.startContinuation();
-				sc.convertSliceToTuple();
-				pusher.endContinuation();
-				// fail
-				pushContinuationWithNull();
-				//
-				pusher.push(0, "IFELSE");
-				break;
-			}
-			case StackPusherHelper::GetDictOperation::GetAddFromMapping: {
-				solAssert(!resultAsSliceForStruct, "");
-				// ok
-				pushContinuationWithNull();
-				// fail
-				pusher.startContinuation();
-				sc.convertSliceToTuple();
-				pusher.endContinuation();
-				//
-				pusher.push(0, "IFELSE");
-				break;
-			}
-			case StackPusherHelper::GetDictOperation::GetFromArray:
-				pusher.push(0, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-				if (!resultAsSliceForStruct) {
-					sc.convertSliceToTuple();
-				}
-				break;
-			case StackPusherHelper::GetDictOperation::Fetch: {
-				fetchValue([&]() {
-					StructCompiler{&pusher, to<StructType>(&valueType)}.convertSliceToTuple();
-				});
-				break;
-			}
-			case StackPusherHelper::GetDictOperation::Exist:
-				checkExist();
-				break;
-		}
-	}
-
-	void onLargeStruct() override {
-		StructCompiler sc{&pusher, to<StructType>(&valueType)};
-		switch (op) {
-			case StackPusherHelper::GetDictOperation::GetFromMapping: {
-				pusher.startContinuation();
-				pusher.push(0, "CTOS");
-				if (!resultAsSliceForStruct) {
-					StructCompiler{&pusher, to<StructType>(&valueType)}.convertSliceToTuple();
-				}
-				pusher.endContinuation();
-				pushContinuationWithDefaultValue();
-				pusher.push(0, "IFELSE");
-				break;
-			}
-			case StackPusherHelper::GetDictOperation::GetSetFromMapping:
-			case StackPusherHelper::GetDictOperation::GetReplaceFromMapping:
-				solAssert(!resultAsSliceForStruct, "");
-				// ok
-				pusher.startContinuation();
-				pusher.push(0, "CTOS");
-				sc.convertSliceToTuple();
-				pusher.endContinuation();
-				// fail
-				pushContinuationWithNull();
-				//
-				pusher.push(0, "IFELSE");
-				break;
-			case StackPusherHelper::GetDictOperation::GetAddFromMapping:
-				solAssert(!resultAsSliceForStruct, "");
-				// ok
-				pushContinuationWithNull();
-				// fail
-				pusher.startContinuation();
-				pusher.push(0, "CTOS");
-				sc.convertSliceToTuple();
-				pusher.endContinuation();
-				pusher.push(0, "IFELSE");
-				break;
-			case StackPusherHelper::GetDictOperation::GetFromArray:
-				pusher.push(0, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-				pusher.push(0, "CTOS");
-				if (!resultAsSliceForStruct) {
-					sc.convertSliceToTuple();
-				}
-				break;
-			case StackPusherHelper::GetDictOperation::Fetch: {
-			    fetchValue([&]() {
-					pusher.push(0, "CTOS");
-					StructCompiler{&pusher, to<StructType>(&valueType)}.convertSliceToTuple();
-				});
-				break;
-			}
-			case StackPusherHelper::GetDictOperation::Exist:
-				checkExist();
-				break;
-		}
-	}
-
-	void onSlice() override {
-		onByteArrayOrString();
-	}
-
-	void onByteArrayOrString() override {
-		switch (op) {
-			case StackPusherHelper::GetDictOperation::GetFromMapping:
-				pushContinuationWithDefaultValue();
-				pusher.push(0, "IFNOT");
-				break;
-			case StackPusherHelper::GetDictOperation::GetSetFromMapping:
-			case StackPusherHelper::GetDictOperation::GetReplaceFromMapping:
-				pushContinuationWithNull();
-				pusher.push(0, "IFNOT");
-				break;
-			case StackPusherHelper::GetDictOperation::GetAddFromMapping:
-				pushContinuationWithNull();
-				pusher.push(0, "IF");
-				break;
-			case StackPusherHelper::GetDictOperation::GetFromArray:
-				pusher.push(0, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-				break;
-			case StackPusherHelper::GetDictOperation::Fetch: {
-				fetchValue();
-				break;
-			}
-			case StackPusherHelper::GetDictOperation::Exist:
-				checkExist();
-				break;
-		}
-	}
-
-	void onIntegralOrArrayOrVarInt() override {
-		switch (op) {
-			case StackPusherHelper::GetDictOperation::GetFromMapping: {
-				pusher.startContinuation();
-				pusher.preload(&valueType);
-				pusher.endContinuation();
-
-				pushContinuationWithDefaultValue();
-
-				pusher.push(0, "IFELSE");
-				break;
-			}
-			case StackPusherHelper::GetDictOperation::GetSetFromMapping:
-			case StackPusherHelper::GetDictOperation::GetReplaceFromMapping:
-				// ok
-				pusher.startContinuation();
-				pusher.preload(&valueType);
-				pusher.endContinuation();
-				// fail
-				pushContinuationWithNull();
-				//
-				pusher.push(0, "IFELSE");
-				break;
-			case StackPusherHelper::GetDictOperation::GetAddFromMapping:
-				// ok
-				pushContinuationWithNull();
-				// fail
-				pusher.startContinuation();
-				pusher.preload(&valueType);
-				pusher.endContinuation();
-				//
-				pusher.push(0, "IFELSE");
-				break;
-			case StackPusherHelper::GetDictOperation::GetFromArray:
-				pusher.push(0, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-				pusher.preload(&valueType);
-				break;
-			case StackPusherHelper::GetDictOperation::Fetch: {
-				fetchValue([&](){
-					pusher.preload(&valueType);
-				});
-				break;
-			}
-			case StackPusherHelper::GetDictOperation::Exist:
-				checkExist();
-				break;
-		}
-	}
-
-	void onMapOrECC() override {
-		onIntegralOrArrayOrVarInt();
-	}
-
 private:
-	void pushContinuationWithNull() {
-		pusher.startContinuation();
-		pusher.pushNull();
-		pusher.endContinuation(-1);
-	}
-
-	void pushContinuationWithDefaultValue() {
-		pusher.startContinuation();
-		if (valueCategory == Type::Category::Struct && resultAsSliceForStruct) {
-			pusher.pushDefaultValue(&valueType, true);
-			pusher.push(-1, ""); // fix stack
-			pusher.push(0, "ENDC");
-			pusher.push(0, "CTOS");
-		} else {
-			pusher.pushDefaultValue(&valueType);
-			pusher.push(-1, ""); // fix stack
-		}
-		pusher.endContinuation();
-	}
-
-	void fetchValue(const std::function<void()>& decodeValue = nullptr) {
-		pusher.push(0, "NULLSWAPIFNOT");
-		if (decodeValue != nullptr) {
-			pusher.startContinuation();
-			decodeValue();
-			pusher.endContinuation();
-			pusher.push(0, "IF");
-		} else {
-			pusher.push(0, "DROP");
-		}
-	}
-
 	void checkExist() {
 		pusher.push(0, "DUP");
 		pusher.startContinuation();
@@ -1710,15 +1990,19 @@ private:
 	}
 
 protected:
-	const StackPusherHelper::GetDictOperation op;
-	const bool resultAsSliceForStruct;
+	const StackPusherHelper::GetDictOperation op{};
+	const bool resultAsSliceForStruct{};
+	const DataType dataType{};
 };
 
-void StackPusherHelper::getDict(Type const& keyType, Type const& valueType, ASTNode const& node,
-								const GetDictOperation op,
-								const bool resultAsSliceForStruct) {
-
-	GetFromDict d(*this, keyType, valueType, node, op, resultAsSliceForStruct);
+void StackPusherHelper::getDict(
+	Type const& keyType,
+	Type const& valueType,
+	const GetDictOperation op,
+	const bool resultAsSliceForStruct,
+	const DataType& dataType
+) {
+	GetFromDict d(*this, keyType, valueType, op, resultAsSliceForStruct, dataType);
 	d.getDict();
 }
 

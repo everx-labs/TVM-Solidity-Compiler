@@ -747,7 +747,7 @@ public:
 		std::vector<ASTPointer<ModifierInvocation>> const& _modifiers,
 		ASTPointer<ParameterList> const& _returnParameters,
 		ASTPointer<Block> const& _body,
-		unsigned int _functionID = 0,
+		std::optional<uint32_t> _functionID = {},
 		bool _isInline = false
 	):
 		CallableDeclaration(_id, _location, _name, _visibility, _parameters, _isVirtual, _overrides, _returnParameters),
@@ -815,7 +815,7 @@ public:
 			(annotation().contract && annotation().contract->isInterface());
 	}
 
-	unsigned int functionID() const { return m_functionID; }
+	std::optional<uint32_t> functionID() const { return m_functionID; }
 	bool isInline() const { return m_isInline; }
 
 private:
@@ -823,7 +823,7 @@ private:
 	Token const m_kind;
 	std::vector<ASTPointer<ModifierInvocation>> m_functionModifiers;
 	ASTPointer<Block> m_body;
-	unsigned int m_functionID;
+	std::optional<uint32_t> m_functionID;
 	bool m_isInline;
 };
 
@@ -1519,6 +1519,46 @@ private:
 	ASTPointer<Expression> m_condExpression;
 	/// For statement's loop expression. for (;;XXX). Can be empty
 	ASTPointer<ExpressionStatement> m_loopExpression;
+
+	/// The body of the loop
+	ASTPointer<Statement> m_body;
+};
+
+
+/**
+ * ForEach loop statement
+ */
+class ForEachStatement: public BreakableStatement, public Scopable
+{
+public:
+	ForEachStatement(
+			int64_t _id,
+			SourceLocation const& _location,
+			ASTPointer<ASTString> const& _docString,
+			ASTPointer<Statement> const& _rangeDeclaration,
+			ASTPointer<Expression> const& _rangeExpression,
+			ASTPointer<Statement> const& _body
+	):
+			BreakableStatement(_id, _location, _docString),
+			m_rangeDeclaration(_rangeDeclaration),
+			m_rangeExpression(_rangeExpression),
+			m_body(_body)
+	{}
+	void accept(ASTVisitor& _visitor) override;
+	void accept(ASTConstVisitor& _visitor) const override;
+
+	Statement const& body() const { return *m_body; }
+
+	ForEachStatementAnnotation& annotation() const override;
+
+	ASTPointer<Statement> rangeDeclaration() const { return m_rangeDeclaration; }
+	ASTPointer<Expression> rangeExpression() const { return m_rangeExpression; }
+
+private:
+	// for ( range_declaration : range_expression )
+	ASTPointer<Statement> m_rangeDeclaration;
+	ASTPointer<Expression> m_rangeExpression;
+
 	/// The body of the loop
 	ASTPointer<Statement> m_body;
 };
@@ -1613,14 +1653,16 @@ public:
 		SourceLocation const& _location,
 		ASTPointer<ASTString> const& _docString,
 		std::vector<ASTPointer<VariableDeclaration>> const& _variables,
-		ASTPointer<Expression> const& _initialValue
+		ASTPointer<Expression> const& _initialValue,
+		bool isInForLoop = false
 	):
-		Statement(_id, _location, _docString), m_variables(_variables), m_initialValue(_initialValue) {}
+		Statement(_id, _location, _docString), m_variables(_variables), m_initialValue(_initialValue), m_isInForLoop{isInForLoop} {}
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 
 	std::vector<ASTPointer<VariableDeclaration>> const& declarations() const { return m_variables; }
 	Expression const* initialValue() const { return m_initialValue.get(); }
+	bool isInForLoop() const { return m_isInForLoop; }
 
 private:
 	/// List of variables, some of which can be empty pointers (unnamed components).
@@ -1630,6 +1672,7 @@ private:
 	std::vector<ASTPointer<VariableDeclaration>> m_variables;
 	/// The assigned expression / initial value.
 	ASTPointer<Expression> m_initialValue;
+	bool m_isInForLoop{};
 };
 
 /**

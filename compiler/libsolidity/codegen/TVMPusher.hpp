@@ -41,23 +41,13 @@ class StructCompiler;
 
 class DictOperation {
 public:
-	DictOperation(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, ASTNode const& node);
-protected:
-	virtual void doDictOperation() final;
-	virtual void onCell() = 0;
-	virtual void onSmallStruct() = 0;
-	virtual void onLargeStruct() = 0;
-	virtual void onSlice() = 0;
-	virtual void onByteArrayOrString() = 0;
-	virtual void onIntegralOrArrayOrVarInt() = 0;
-	virtual void onMapOrECC() = 0;
+	DictOperation(StackPusherHelper& pusher, Type const& keyType, Type const& valueType);
 protected:
 	StackPusherHelper& pusher;
 	Type const& keyType;
 	const int keyLength{};
 	Type const& valueType;
 	const Type::Category valueCategory{};
-	ASTNode const& node;
 };
 
 class TVMStack {
@@ -108,8 +98,9 @@ public:
 	void addFunction(FunctionDefinition const* _function);
 	void initMembers(ContractDefinition const* contract);
 	int getStateVarIndex(VariableDeclaration const *variable) const;
-	std::pair<VariableDeclaration const *, int> getStateVarInfo(const std::string& name) const;
 	std::vector<VariableDeclaration const *> notConstantStateVariables() const;
+	std::vector<Type const *> notConstantStateVariableTypes() const;
+	std::vector<std::string> notConstantStateVariableNames() const;
 	PragmaDirectiveHelper const& pragmaHelper() const;
 	bool haveTimeInAbiHeader() const;
 	bool isStdlib() const;
@@ -124,6 +115,7 @@ public:
 	bool storeTimestampInC4() const;
 	void addLib(FunctionDefinition const* f);
 	const std::set<FunctionDefinition const*>& getLibFunctions() const { return m_libFunctions; }
+	std::vector<std::pair<VariableDeclaration const*, int>> getStaticVaribles() const;
 };
 
 class StackPusherHelper {
@@ -134,9 +126,13 @@ protected:
 	StructCompiler* m_structCompiler;
 
 public:
+	enum StoreFlag {ValueIsBuilder = 1, ArrayIsUntupled = 2, StoreStructInRef = 4, StoreStructInOneCell = 8};
+
+public:
 	explicit StackPusherHelper(TVMCompilerContext* ctx, const int stackSize = 0);
 	void tryPollLastRetOpcode();
 	bool tryPollConvertBuilderToSlice();
+	bool tryPollEmptyPushCont();
 	void pollLastOpcode();
 	void append(const CodeLines& oth);
 	void addTabs(const int qty = 1);
@@ -166,14 +162,24 @@ public:
 	void setGlob(int index);
 	void setGlob(VariableDeclaration const * vd);
 	void pushS(int i);
+	void popS(int i);
 	void pushInt(int i);
 	void stzeroes(int qty);
 	void stones(int qty);
 	void sendrawmsg();
-	void loadArray(bool directOrder = true);
-	void preLoadArray();
-	void load(const Type* type);
-	void preload(const Type* type);
+	// return true if on stack there are (value, slice) else false if (slice, value)
+	[[nodiscard]]
+	bool fastLoad(const Type* type);
+	void load(const Type* type, bool reverseOrder);
+
+	enum Preload { ReturnStructAsSlice = 1, UseCurrentSlice = 2, IsAddressInEnd = 4 };
+	void preload(const Type *type, uint32_t mask);
+
+	void store(
+		const Type *type,
+		bool reverse,
+		uint32_t mask
+	);
 	void pushZeroAddress();
 	void generateC7ToT4Macro();
 	void storeStringInABuilder(std::string str);
@@ -194,22 +200,45 @@ public:
 	void reverse(int i, int j);
 	void dropUnder(int leftCount, int droppedCount);
 	void exchange(int i, int j);
-	void recoverKeyAfterDictOperation(Type const* keyType, ASTNode const& node);
-	void prepareKeyForDictOperations(Type const* key);
+	void prepareKeyForDictOperations(Type const* key, bool doIgnoreBytes = false);
 	[[nodiscard]]
 	std::pair<std::string, int> int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams);
 	[[nodiscard]]
 	std::pair<std::string, int> ext_msg_info(const std::set<int> &isParamOnStack);
 	void appendToBuilder(const std::string& bitString);
-
+	void checkOptionalValue();
+	bool doesFitInOneCell(Type const* key, Type const* value);
 	[[nodiscard]]
-	// return true if result is a builder
-	bool prepareValueForDictOperations(Type const* keyType, Type const* dictValueType, bool isValueBuilder);
+	int maxBitLengthOfDictValue(Type const* type);
+	[[nodiscard]]
+	DataType prepareValueForDictOperations(Type const* keyType, Type const* dictValueType, bool isValueBuilder);
+	bool doesDictStoreValueInRef(Type const* keyType, Type const* valueType);
+
+	enum class DecodeType {
+		DecodeValue,
+		DecodeValueOrPushDefault,
+		DecodeValueOrPushNull,
+		PushNullOrDecodeValue
+	};
+
+	void recoverKeyAndValueAfterDictOperation(
+		Type const* keyType,
+		Type const* valueType,
+		bool haveKey,
+		bool didUseOpcodeWithRef,
+		const DecodeType& decodeType,
+		bool resultAsSliceForStruct
+	);
 	static TypePointer parseIndexType(Type const* type);
 	static TypePointer parseValueType(IndexAccess const& indexAccess);
 
 	enum class SetDictOperation { Set, Replace, Add };
-	void setDict(Type const &keyType, Type const &valueType, bool isValueBuilder, ASTNode const& node, SetDictOperation opcode = SetDictOperation::Set);
+	void setDict(
+		Type const &keyType,
+		Type const &valueType,
+		const DataType& dataType,
+		SetDictOperation opcode = SetDictOperation::Set
+	);
 
 	bool tryAssignParam(Declaration const* name);
 
@@ -222,8 +251,13 @@ public:
 		Fetch,
 		Exist
 	};
-	void getDict(const Type& keyType, const Type& valueType, ASTNode const& node, const GetDictOperation op,
-	             const bool resultAsSliceForStruct);
+	void getDict(
+		const Type& keyType,
+		const Type& valueType,
+		const GetDictOperation op,
+		const bool resultAsSliceForStruct,
+  		const DataType& dataType = DataType::Slice
+	);
 
 	void ensureValueFitsType(const ElementaryTypeNameToken& typeName, const ASTNode& node);
 

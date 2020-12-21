@@ -47,6 +47,7 @@ private:
 	bool visit(TryStatement const& _tryStatement) override;
 	bool visit(IfStatement const& _ifStatement) override;
 	bool visit(ForStatement const& _forStatement) override;
+	bool visit(ForEachStatement const& _forStatement) override;
 	bool visit(WhileStatement const& _whileStatement) override;
 	bool visit(Break const&) override;
 	bool visit(Continue const&) override;

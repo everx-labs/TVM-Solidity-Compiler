@@ -163,6 +163,11 @@ struct ForStatementAnnotation: StatementAnnotation, ScopableAnnotation
 {
 };
 
+
+struct ForEachStatementAnnotation: StatementAnnotation, ScopableAnnotation
+{
+};
+
 struct ReturnAnnotation: StatementAnnotation
 {
 	/// Reference to the return parameters of the function.

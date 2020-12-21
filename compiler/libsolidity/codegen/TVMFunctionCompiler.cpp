@@ -215,8 +215,7 @@ PUSHCONT {
 			if (v->isStatic()) {
 				pusher.pushInt(TvmConst::C4::PersistenceMembersStartIndex + shift++); // index
 				pusher.pushS(1); // index dict
-				pusher.getDict(getKeyTypeOfC4(), *v->type(), *v, StackPusherHelper::GetDictOperation::GetFromMapping,
-				                 false);
+				pusher.getDict(getKeyTypeOfC4(), *v->type(), StackPusherHelper::GetDictOperation::GetFromMapping, false);
 			} else {
 				pusher.pushDefaultValue(v->type());
 			}
@@ -364,6 +363,36 @@ void TVMFunctionCompiler::generateFunctionWithModifiers(StackPusherHelper& pushe
 	}
 }
 
+void
+TVMFunctionCompiler::generateGetter(StackPusherHelper &pusher, VariableDeclaration const* vd) {
+	TVMFunctionCompiler funCompiler{pusher, nullptr};
+	pusher.generateGlobl(vd->name(), true);
+	pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7");
+
+	pusher.getGlob(vd);
+
+	const int prevStackSize = pusher.getStack().size();
+	const std::vector<VariableDeclaration const*> outputs = {vd};
+	auto appendBody = [&](int builderSize) {
+		return EncodeFunctionParams{&pusher}.createMsgBodyAndAppendToBuilder(
+				[&](size_t idx) {
+					int pos = (pusher.getStack().size() - prevStackSize) +
+							  (static_cast<int>(1) - static_cast<int>(idx) - 1);
+					pusher.pushS(pos);
+				},
+				{vd},
+				EncodeFunctionParams{&pusher}.calculateFunctionIDWithReason(vd->name(), {}, &outputs, ReasonOfOutboundMessage::FunctionReturnExternal, {}),
+				builderSize
+		);
+	};
+
+	pusher.sendMsg({}, {}, appendBody, nullptr, nullptr, false);
+
+	pusher.push(0, "TRUE");
+	pusher.push(0, "SETGLOB 7");
+	pusher.push(0, " ");
+}
+
 void TVMFunctionCompiler::generatePrivateFunction(StackPusherHelper& pusher, FunctionDefinition const* function, const std::optional<std::string>& _name) {
 	TVMFunctionCompiler funCompiler{pusher, false, false, 0, function, 0};
 	std::string name;
@@ -411,6 +440,10 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 	m_pusher.startContinuation();
 
 	const int prevStackSize = m_pusher.getStack().size();
+	std::vector<VariableDeclaration const*> ret;
+	if (m_function->returnParameterList() != nullptr) {
+		ret = convertArray(m_function->returnParameters());
+	}
 	auto appendBody = [&](int builderSize) {
 		return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder(
 				[&](size_t idx) {
@@ -418,9 +451,8 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 					          (static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
 					m_pusher.pushS(pos);
 				},
-				ReasonOfOutboundMessage::FunctionReturnExternal,
-				m_function,
-				true,
+				ret,
+				EncodeFunctionParams{&m_pusher}.calculateFunctionIDWithReason(m_function, ReasonOfOutboundMessage::FunctionReturnExternal),
 				builderSize
 		);
 	};
@@ -771,7 +803,7 @@ bool TVMFunctionCompiler::visit(IfStatement const &_ifStatement) {
 		if (ci.canReturn || ci.canBreak || ci.canContinue) {
 			if (ci.canReturn) {
 				if (allJmp()) { // no loops, only if-else
-					m_pusher.push(0, "EQINT 4");
+					m_pusher.push(0, "EQINT " + toString(ContInfo::RETURN_FLAG));
 					m_pusher.push(-1, "IFRET");
 				} else {
 					m_pusher.push(+1, "DUP");
@@ -780,8 +812,8 @@ bool TVMFunctionCompiler::visit(IfStatement const &_ifStatement) {
 				}
 			} else {
 				m_pusher.push(+1, "DUP");
-				m_pusher.push(-1, "IFRET");
-				m_pusher.push(-1, "DROP");
+				m_pusher.push(-1, "IFRET"); // if case 'break' or 'continue' flag before `if` is dropped
+				m_pusher.push(-1, "DROP"); // drop flag before 'if'
 			}
 		}
 	}
@@ -856,30 +888,18 @@ void TVMFunctionCompiler::doWhile(WhileStatement const &_whileStatement) {
 	m_controlFlowInfo.pop_back();
 
 	// bottom
-	if (ci.canReturn) {
-		if (allJmp()) { // no loops, only if-else
-			m_pusher.push(0, "EQINT 4");
-			m_pusher.push(-1, "IFRET");
-		} else {
-			m_pusher.push(+1, "DUP");
-			if (ci.canBreak || ci.canContinue) {
-				m_pusher.push(0, "EQINT 4");
-			}
-			m_pusher.push(-1, "IFRET");
-			m_pusher.push(-1, "DROP");
-		}
-	} else if (ci.canBreak || ci.canContinue) {
-		m_pusher.drop(1);
-	}
-
+	afterLoopCheck(ci, 0);
 	m_pusher.push(0, "; end do-while");
 
 	m_pusher.getStack().ensureSize(saveStackSize, "");
 }
 
 void
-TVMFunctionCompiler::visitForOrWhileCondition(const ContInfo &ci, const TVMFunctionCompiler::ControlFlowInfo &info,
-                                               Expression const *condition) {
+TVMFunctionCompiler::visitForOrWhileCondition(
+	const ContInfo &ci,
+	const TVMFunctionCompiler::ControlFlowInfo &info,
+    const std::function<void()>& pushCondition
+) {
 	int stackSize = m_pusher.getStack().size();
 	m_pusher.startContinuation();
 	if (ci.canBreak || ci.canReturn) {
@@ -887,21 +907,48 @@ TVMFunctionCompiler::visitForOrWhileCondition(const ContInfo &ci, const TVMFunct
 		m_pusher.push(0, "LESSINT 2");
 		m_pusher.push(-1, ""); // fix stack
 
-		if (condition != nullptr) {
+		if (pushCondition) {
 			m_pusher.push(0, "DUP");
 			m_pusher.startContinuation();
 			m_pusher.push(0, "DROP");
-			acceptExpr(condition, true);
+			pushCondition();
 			m_pusher.endContinuation();
 			m_pusher.push(-1, ""); // fix stack
 			m_pusher.push(0, "IF");
 		}
 	} else {
-		acceptExpr(condition, true);
-		m_pusher.push(-1, ""); // fix stack
+		if (pushCondition) {
+			pushCondition();
+			m_pusher.push(-1, ""); // fix stack
+		}
 	}
 	m_pusher.endContinuation();
 	m_pusher.getStack().ensureSize(stackSize, "visitForOrWhileCondition");
+}
+
+void TVMFunctionCompiler::afterLoopCheck(const ContInfo& ci, const int& loopVarQty) {
+	int cntDrop = 0;
+	cntDrop += loopVarQty;
+	if (ci.canReturn || ci.canBreak || ci.canContinue) ++cntDrop;
+
+	if (ci.canReturn) {
+		if (allJmp()) { // no loops, only if-else
+			m_pusher.push(0, "EQINT " + toString(ContInfo::RETURN_FLAG));
+			m_pusher.push(-1, "IFRET");
+			if (loopVarQty > 0) {
+				m_pusher.drop(loopVarQty);
+			}
+		} else {
+			m_pusher.push(+1, "DUP");
+			if (ci.canBreak || ci.canContinue) {
+				m_pusher.push(0, "EQINT " + toString(ContInfo::RETURN_FLAG));
+			}
+			m_pusher.push(-1, "IFRET");
+			m_pusher.drop(cntDrop);
+		}
+	} else {
+		m_pusher.drop(cntDrop);
+	}
 }
 
 bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
@@ -927,8 +974,12 @@ bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
 		}
 		acceptExpr(&_whileStatement.condition());
 		m_pusher.push(-1, "");
-	} else
-		visitForOrWhileCondition(ci, info, &_whileStatement.condition());
+	} else {
+		std::function<void()> pushCondition = [&]() {
+			acceptExpr(&_whileStatement.condition(), true);
+		};
+		visitForOrWhileCondition(ci, info, pushCondition);
+	}
 
 	m_pusher.getStack().ensureSize(saveStackSize, "while condition");
 
@@ -946,23 +997,7 @@ bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
 	m_controlFlowInfo.pop_back();
 
 	// bottom
-	// TODO move to common function
-	if (ci.canReturn) {
-		if (allJmp()) { // no loops, only if-else
-			m_pusher.push(0, "EQINT 4");
-			m_pusher.push(-1, "IFRET");
-		} else {
-			m_pusher.push(+1, "DUP");
-			if (ci.canBreak || ci.canContinue) {
-				m_pusher.push(0, "EQINT 4");
-			}
-			m_pusher.push(-1, "IFRET");
-			m_pusher.push(-1, "DROP");
-		}
-	} else if (ci.canBreak || ci.canContinue) {
-		m_pusher.drop(1);
-	}
-
+	afterLoopCheck(ci, 0);
 	m_pusher.push(0, "; end while");
 
 	m_pusher.getStack().ensureSize(saveStackSizeForWhile, "");
@@ -970,10 +1005,192 @@ bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
 	return false;
 }
 
+bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
+	// For array:
+	//
+	// dict
+	// index
+	// value
+	// [return flag] - optional. If have return/break/continue.
+
+	// For mapping:
+	//
+	// dict
+	// public key (can be changed in solidity code)
+	// value
+	// private key (not visible in solidity code)
+	// [return flag] - optional. If have return/break/continue.
+
+	const int saveStackSize = m_pusher.getStack().size();
+	TVMExpressionCompiler ec{m_pusher};
+	ec.acceptExpr(_forStatement.rangeExpression().get(), true); // stack: dict
+
+	// init
+	auto arrayType = to<ArrayType>(_forStatement.rangeExpression()->annotation().type);
+	auto mappingType = to<MappingType>(_forStatement.rangeExpression()->annotation().type);
+	auto vds = to<VariableDeclarationStatement>(_forStatement.rangeDeclaration().get());
+	int loopVarQty{};
+	if (arrayType) {
+		solAssert(vds->declarations().size() == 1, "");
+		auto iterVar = vds->declarations().at(0).get();
+		m_pusher.index(1); // stack: {length, dict} -> dict
+		m_pusher.pushInt(0); // stack: dict 0
+		m_pusher.pushNull(); // stack: dict 0 value
+		m_pusher.push(0, string(";; decl: ") + iterVar->name());
+		m_pusher.getStack().add(iterVar, false); // TODO
+		// stack: dict 0 value
+		loopVarQty = 3;
+	} else if (mappingType) {
+		auto iterKey = vds->declarations().at(0).get();
+		auto iterVal = vds->declarations().at(1).get();
+
+		// stack: dict
+		m_pusher.pushS(0); // stack: dict dict
+		DictMinMax dictMinMax{m_pusher, *mappingType->keyType(), *mappingType->valueType(), true};
+		dictMinMax.minOrMax(); // stack: dict (minKey, value)
+
+		m_pusher.pushS(0);
+		m_pusher.push(0, "ISNULL");
+		m_pusher.push(-1, "");
+
+		m_pusher.startContinuation();
+		m_pusher.pushNull();
+		m_pusher.pushNull();
+		m_pusher.endContinuation(-2);
+
+		m_pusher.startContinuation();
+		m_pusher.untuple(2);
+		m_pusher.push(-2, "");
+		m_pusher.getStack().add(iterKey, true); // TODO
+		m_pusher.getStack().add(iterVal, true); // TODO
+		m_pusher.pushS(1);
+		m_pusher.endContinuation();
+
+		m_pusher.push(0, "IFELSE");
+		// stack: dict minKey(pub) value minKey(private)
+		loopVarQty = 4;
+	} else {
+		solUnimplemented("");
+	}
+	m_pusher.getStack().ensureSize(saveStackSize + loopVarQty, "for");
+
+	// header            TODO common function
+	ContInfo ci = getInfo(_forStatement.body());
+	ControlFlowInfo info = pushControlFlowFlagAndReturnControlFlowInfo(ci, true);
+	m_controlFlowInfo.push_back(info);
+
+	// condition
+	std::function<void()> pushCondition = [&]() {
+		if (arrayType) {
+			// stack: dict index value [flag]
+			m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 2); // stack: dict index value [flag] index
+			m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 1); // stack: dict index value [flag] index dict
+			m_pusher.getDict(getKeyTypeOfArray(), *arrayType->baseType(), StackPusherHelper::GetDictOperation::Fetch,
+							 false);
+			// stack: dict index value [flag] newValue
+			m_pusher.pushS(0); // stack: dict index value [flag] newValue newValue
+			m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 3); // stack: dict index newValue [flag] newValue
+			m_pusher.push(-1 + 1, "ISNULL");
+			m_pusher.push(-1 + 1, "NOT");
+		} else if (mappingType) {
+			// stack: dict minKey(pub) value minKey(private)  [flag]
+			m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 4);
+			m_pusher.push(-1 + 1, "ISNULL");
+			m_pusher.push(-1 + 1, "NOT");
+		} else {
+			solUnimplemented("");
+		}
+	};
+	visitForOrWhileCondition(ci, info, pushCondition);
+
+
+	// body
+	std::function<void()> pushLoopExpression = [&]() {
+		if (arrayType) {
+			// stack: dict 0 value [flag]
+			m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 2); // stack: dict index value [flag] index
+			m_pusher.push(0, "INC"); // stack: dict index value [flag] newIndex
+			m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 2); // stack: dict newIndex [flag] value
+		} else if (mappingType) {
+			// stack: dict minKey(pub) value minKey(private) [flag]
+			m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 4); // stack: dict minKey(pub) value minKey(private) [flag] minKey
+			m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 1); // stack: dict minKey(pub) value minKey(private) [flag] minKey dict
+			m_pusher.pushInt(lengthOfDictKey(mappingType->keyType())); // stack: dict minKey(pub) value minKey(private) [flag] minKey dict nbits
+			DictPrevNext dictPrevNext{m_pusher, *mappingType->keyType(), *mappingType->valueType(), "next"};
+			dictPrevNext.prevNext();
+			// stack: dict minKey(pub) value minKey(private) [flag] (key, value)
+			m_pusher.pushS(0);
+			m_pusher.push(0, "ISNULL");
+			m_pusher.push(-1, "");
+
+			m_pusher.startContinuation();
+			m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 4);
+			m_pusher.endContinuation(+1);
+
+			m_pusher.startContinuation();
+			m_pusher.untuple(2); // stack: dict minKey(pub) value minKey(private) [flag] newKey newValue
+			m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 3); // stack: dict minKey(pub) value minKey(private) [flag] newKey
+			m_pusher.pushS(0); // stack: dict minKey(pub) value minKey(private) [flag] newKey newKey
+			m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 2);
+			m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 4);
+			// stack: dict minKey(pub) value minKey(private)
+			m_pusher.endContinuation();
+
+			m_pusher.push(0, "IFELSE");
+		} else {
+			solUnimplemented("");
+		}
+	};
+	visitBodyOfForLoop(ci, _forStatement.body(), pushLoopExpression);
+
+	// bottom
+	afterLoopCheck(ci, loopVarQty);
+	m_pusher.push(0, "; end for");
+	m_pusher.getStack().ensureSize(saveStackSize, "for");
+
+	return false;
+}
+
+void TVMFunctionCompiler::visitBodyOfForLoop(
+	const ContInfo& ci,
+	Statement const& body,
+	const std::function<void()>& loopExpression
+) {
+	// body and loopExpression
+	m_pusher.startContinuation();
+	if (ci.canReturn || ci.canBreak || ci.canContinue) { // TODO and have loopExpression
+		int ss = m_pusher.getStack().size();
+		m_pusher.startContinuation();
+		body.accept(*this);
+		m_pusher.drop(m_pusher.getStack().size() - ss);
+		m_pusher.endContinuation();
+		m_pusher.push(0, "CALLX");
+		if (ci.canReturn || ci.canBreak) {
+			solAssert(ContInfo::CONTINUE_FLAG == 1, "");
+			m_pusher.pushS(0);
+			m_pusher.push(-1 + 1, "GTINT " + toString(ContInfo::CONTINUE_FLAG));
+			m_pusher.push(-1, "IFRET");
+		}
+	} else {
+		int ss = m_pusher.getStack().size();
+		body.accept(*this);
+		m_pusher.drop(m_pusher.getStack().size() - ss);
+	}
+	if (loopExpression) {
+		// TODO optimization: don't pushcont if no loopExpression
+		loopExpression();
+	}
+	m_pusher.endContinuation();
+	m_pusher.push(0, "WHILE");
+	m_controlFlowInfo.pop_back();
+}
+
 bool TVMFunctionCompiler::visit(ForStatement const &_forStatement) {
 
-	// init - opt
-	// return break or continue flag  - opt
+	// if in loop body there is at least one 'return', 'break' or `continue`:
+	//
+	// decl loop var - optional
+	// return, break or continue flag  - optional
 	// PUSHCONT {
 	//     condition
 	// }
@@ -982,10 +1199,13 @@ bool TVMFunctionCompiler::visit(ForStatement const &_forStatement) {
 	//        body
 	//     }
 	//     CALLX
+	//     check return flag
 	//     loopExpression
 	// }
 
-	// init - opt
+	// in another cases:
+	//
+	// decl loop var - optional
 	// PUSHCONT {
 	//     condition
 	// }
@@ -998,76 +1218,41 @@ bool TVMFunctionCompiler::visit(ForStatement const &_forStatement) {
 	m_pusher.push(0, "; for");
 
 	// init
+	bool haveDeclLoopVar = false;
 	if (_forStatement.initializationExpression() != nullptr) {
+		const int saveStack = m_pusher.getStack().size();
 		_forStatement.initializationExpression()->accept(*this);
+		haveDeclLoopVar = m_pusher.getStack().size() != saveStack;
 	}
 
-	// header
+	// header // TODO
 	ContInfo ci = getInfo(_forStatement.body());
 	ControlFlowInfo info = pushControlFlowFlagAndReturnControlFlowInfo(ci, true);
 	m_controlFlowInfo.push_back(info);
 
 	// condition
-	visitForOrWhileCondition(ci, info, _forStatement.condition());
+	std::function<void()> pushCondition;
+	if (_forStatement.condition()) {
+		pushCondition = [&](){
+			acceptExpr(_forStatement.condition(), true);
+		};
+	}
+	visitForOrWhileCondition(ci, info, pushCondition);
 
 	// body and loopExpression
-	m_pusher.startContinuation();
-	if (ci.canReturn || ci.canBreak || ci.canContinue) {
-		int ss = m_pusher.getStack().size();
-		m_pusher.startContinuation();
-		_forStatement.body().accept(*this);
-		m_pusher.drop(m_pusher.getStack().size() - ss);
-		m_pusher.endContinuation();
-		m_pusher.push(0, "CALLX");
-		m_pusher.pushLines(R"(
-DUP
-EQINT 4
-IFRET
-)");
-	} else {
-		int ss = m_pusher.getStack().size();
-		_forStatement.body().accept(*this);
-		m_pusher.drop(m_pusher.getStack().size() - ss);
-	}
+	std::function<void()> pushLoopExpression;
 	if (_forStatement.loopExpression() != nullptr) {
-		_forStatement.loopExpression()->accept(*this);
+		pushLoopExpression = [&]() {
+			_forStatement.loopExpression()->accept(*this);
+		};
 	}
-	m_pusher.endContinuation();
-
-	m_pusher.push(0, "WHILE");
-
-	m_controlFlowInfo.pop_back();
-
+	visitBodyOfForLoop(ci, _forStatement.body(), pushLoopExpression);
 
 	// bottom
-	int cntDrop = 0;
-	if (ci.canReturn || ci.canBreak || ci.canContinue) {
-		++cntDrop;
-	}
-	if (_forStatement.initializationExpression() != nullptr) {
-		++cntDrop;
-	}
-	if (ci.canReturn) {
-		if (allJmp()) {
-			m_pusher.push(0, "EQINT 4");
-			m_pusher.push(-1, "IFRET");
-			if (_forStatement.initializationExpression() != nullptr) {
-				m_pusher.drop(1);
-			}
-		} else {
-			m_pusher.push(+1, "DUP");
-			if (ci.canBreak || ci.canContinue) {
-				m_pusher.push(0, "EQINT 4");
-			}
-			m_pusher.push(-1, "IFRET");
-			m_pusher.drop(cntDrop);
-		}
-	} else {
-		m_pusher.drop(cntDrop);
-	}
-
+	afterLoopCheck(ci, haveDeclLoopVar);
 	m_pusher.push(0, "; end for");
 	m_pusher.getStack().ensureSize(saveStackSize, "for");
+
 	return false;
 }
 
@@ -1138,12 +1323,12 @@ void TVMFunctionCompiler::breakOrContinue(int code) {
 }
 
 bool TVMFunctionCompiler::visit(Break const &) {
-	breakOrContinue(2);
+	breakOrContinue(ContInfo::BREAK_FLAG);
 	return false;
 }
 
 bool TVMFunctionCompiler::visit(Continue const &) {
-	breakOrContinue(1);
+	breakOrContinue(ContInfo::CONTINUE_FLAG);
 	return false;
 }
 
@@ -1156,8 +1341,8 @@ bool TVMFunctionCompiler::visit(EmitStatement const &_emit) {
 	auto appendBody = [&](int builderSize) {
 		return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder2(
 				eventCall->arguments(),
-				ReasonOfOutboundMessage::EmitEventExternal,
-				eventDef,
+				convertArray(eventDef->parameters()),
+				EncodeFunctionParams{&m_pusher}.calculateFunctionIDWithReason(eventDef, ReasonOfOutboundMessage::EmitEventExternal),
 				builderSize);
 	};
 
@@ -1546,9 +1731,6 @@ void TVMFunctionCompiler::fillInlineFunctionsAndConstants(std::string &pattern) 
 		if (m_contract->receiveFunction()) {
 			boost::replace_all(pattern, tab + "INSERT_RECEIVE_FUNCTION",
 					  m_pusher.ctx().m_inlinedFunctions.at("receive").str(tab));
-		} else if (m_contract->fallbackFunction()) {
-			// switch selector because receive is inlined, but fallback - not
-			boost::replace_all(pattern, tab + "INSERT_RECEIVE_FUNCTION", callFallbackWithSwitch);
 		} else {
 			boost::replace_all(pattern, tab + "INSERT_RECEIVE_FUNCTION", "");
 		}

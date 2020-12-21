@@ -1,14 +1,28 @@
+### 0.34 (2020-12-21)
+
+Compiler Features:
+ * Struct type can be used as a key of a mapping. Some restrictions are imposed on such structs.
+ * Support `bounce` and `currencies` options to deploy contact via new.
+ * Support range-based for loop `for ( range_declaration : range_expression ) loop_statement` where `range_expression` is array or mapping type
+
+Breaking changes:
+* **fallback** function is not called on plain tons transfers if there is no receive function in the contract. In this case default **receive** function is called.
+
 ### 0.33 (2020-11-18)
 
 Compiler Features:
  * Support ``varInit`` and ``pubkey`` options in ``new`` expression.
+ * Support optional type in complex lvalue expressions. e.g. `m[11].get()[22] = 33` where `m` is `mapping(uint => optional(uint[]))`.
+* Support option `splitDepth` in ``new`` expression and in `tvm.buildStateInit(...)`.
 
 Breaking changes:
- * `public` state variable don't create record in *.abi.json in section `data`. Use keyword `static` for that goal.
+ * `public` state variable don't create record in *.abi.json in section `data`. Use keyword `static` for that goal. For `public` state variable, getter function is automatically generated. That function can be called locally only.
+* Change function interface for `tvm.deploy`
 
 Bugfixes:
- * Code Generator: Fixed a runtime fail if declare `receive` or `fallback`
-function as `pure` or `view`.
+ * Code Generator: Fixed a runtime fail if `receive` or `fallback`
+functions are declared as `pure` or `view`.
+ * Type checker: Compiler failed during parsing wrong parameter names.
 
 ### 0.32 (2020-11-03)
 

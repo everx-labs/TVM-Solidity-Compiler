@@ -673,7 +673,19 @@ bool DeclarationRegistrationHelper::visit(ForStatement& _for)
 	return true;
 }
 
+bool DeclarationRegistrationHelper::visit(ForEachStatement& _for)
+{
+	_for.annotation().scope = m_currentScope;
+	enterNewSubScope(_for);
+	return true;
+}
+
 void DeclarationRegistrationHelper::endVisit(ForStatement&)
+{
+	closeCurrentScope();
+}
+
+void DeclarationRegistrationHelper::endVisit(ForEachStatement&)
 {
 	closeCurrentScope();
 }

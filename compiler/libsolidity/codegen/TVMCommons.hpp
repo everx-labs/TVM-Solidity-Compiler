@@ -43,8 +43,8 @@ using namespace solidity::util;
 
 namespace solidity::frontend {
 
-template <typename T>	using string_map	= std::map<std::string, T>;
-template <typename T>	using ast_vec		= std::vector<ASTPointer<T>>;
+template <typename T>	using string_map = std::map<std::string, T>;
+template <typename T> using ast_vec = std::vector<ASTPointer<T>>;
 
 template <typename T1, typename T2>
 T1 const* to(T2 const* ptr) { return dynamic_cast<T1 const*>(ptr); }
@@ -68,23 +68,6 @@ T get_from_map(const string_map<T>& map, const string& key, TT defValue) {
 bool ends_with(const string& str, const string& suffix);
 
 std::string functionName(FunctionDefinition const* _function);
-
-struct ContInfo {
-	bool canReturn{};
-	bool canBreak{};
-	bool canContinue{};
-	bool alwaysReturns{};
-	bool alwaysBreak{};
-	bool alwaysContinue{};
-
-	bool doThatAlways() const {
-		return alwaysReturns || alwaysBreak || alwaysContinue;
-	}
-
-	bool mayDoThat() const {
-		return canReturn || canBreak || canContinue;
-	}
-};
 
 class ContactsUsageScanner: public ASTConstVisitor
 {
@@ -150,34 +133,32 @@ static bool doesAlways(const Statement* st) {
 	};
 	if (to<T>(st))
 		return true;
-	if (to<ExpressionStatement>(st) ||
-		to<VariableDeclarationStatement>(st) ||
+
+	if (
+		to<Assignment>(st) ||
+		to<Break>(st) ||
+		to<Continue>(st) ||
 		to<EmitStatement>(st) ||
+		to<ExpressionStatement>(st) ||
+		to<ForEachStatement>(st) ||
+		to<ForStatement>(st) ||
 		to<PlaceholderStatement>(st) ||
-		to<Assignment>(st))
-		return false;
-	if (to<Continue>(st) || to<Break>(st) || to<Return>(st))
+		to<Return>(st) ||
+		to<VariableDeclarationStatement>(st) ||
+		to<WhileStatement>(st)
+	)
 		return false;
 	if (auto block = to<Block>(st)) {
-		for (const auto& s : block->statements()) {
-			if (rec(s.get()))
-				return true;
-		}
-		return false;
+		return std::any_of(block->statements().begin(), block->statements().end(), [&](const auto& s){
+			return rec(s.get());
+		});
 	}
 	if (auto ifStatement = to<IfStatement>(st)) {
 		if (!ifStatement->falseStatement())
 			return false;
 		return rec(&ifStatement->trueStatement()) && rec(ifStatement->falseStatement());
 	}
-	if (auto forStatement = to<ForStatement>(st)) {
-		return rec(&forStatement->body());
-	}
-	if (auto whileStatement = to<WhileStatement>(st)) {
-		return rec(&whileStatement->body());
-	}
-	solAssert(false, string("Unsupported statement type: ") + typeid(*st).name());
-	return false;
+	solUnimplemented( string("Unsupported statement type: ") + typeid(*st).name());
 }
 
 bool isAddressOrContractType(const Type* type);
@@ -400,6 +381,18 @@ struct ABITypeSize {
 	}
 };
 
+inline std::pair<std::vector<Type const*>, std::vector<ASTNode const*>>
+getParams(const std::vector<VariableDeclaration const*>& params, size_t offset = 0) {
+	std::vector<Type const*> types;
+	std::vector<ASTNode const*> nodes;
+	for (auto it = params.begin() + offset; it != params.end(); it++) {
+		types.push_back(getType(*it));
+		nodes.push_back(*it);
+	}
+	return std::make_pair(types, nodes);
+}
+
+
 template<typename T>
 std::pair<std::vector<Type const*>, std::vector<ASTNode const*>>
 getParams(const ast_vec<T>& params, size_t offset = 0) {
@@ -415,5 +408,41 @@ getParams(const ast_vec<T>& params, size_t offset = 0) {
 CallableDeclaration const * getFunctionDeclarationOrConstructor(Expression const* expr);
 
 bool isEmptyFunction(FunctionDefinition const* f);
+
+std::vector<VariableDeclaration const*>
+convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr);
+
+std::pair<
+	std::vector<Type const*>,
+	std::vector<std::string>
+>
+getTupleTypes(TupleType const* tuple);
+
+enum class DataType {
+	Builder,
+	Cell,
+	Slice
+};
+
+enum class DictValueType {
+	Address,
+	Array,
+	Bool,
+	Contract,
+	Enum,
+	ExtraCurrencyCollection,
+	FixedBytes,
+	Integer,
+	Mapping,
+	Optional,
+	Struct,
+	TvmCell,
+	TvmSlice,
+	VarInteger
+};
+
+DictValueType toDictValueType(const Type::Category& caterory);
+
+int integerLog2(int value);
 
 } // end solidity::frontend

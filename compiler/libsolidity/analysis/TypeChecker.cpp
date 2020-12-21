@@ -597,6 +597,29 @@ bool TypeChecker::visit(VariableDeclaration const& _variable)
 			)
 				m_errorReporter.typeError(_variable.location(), "Array is too large to be encoded.");
 		break;
+	case Type::Category::Mapping:
+	{
+		auto mapType = dynamic_cast<MappingType const*>(varType);
+		switch (mapType->keyType()->category()) {
+			case Type::Category::Address:
+			case Type::Category::Array: // usual arrays (e.g. uint[]) are checked in another place
+			case Type::Category::Bool:
+			case Type::Category::Contract:
+			case Type::Category::Enum:
+			case Type::Category::FixedBytes:
+			case Type::Category::Integer:
+			case Type::Category::Struct: // length of struct is checked in another place
+			case Type::Category::TvmCell:
+				break;
+			default:
+				m_errorReporter.typeError(
+					_variable.location(),
+				  	"Type " + mapType->keyType()->toString() + " can't be used as mapping key. "
+				  	"Allowed types: address, bytes, string, bool, contract, enum, fixed bytes, integer and struct.");
+				break;
+		}
+		break;
+	}
 	default:
 		break;
 	}
@@ -604,7 +627,7 @@ bool TypeChecker::visit(VariableDeclaration const& _variable)
 	if (_variable.isStatic() && _variable.value() != nullptr) {
 		m_errorReporter.syntaxError(
 			_variable.value()->location(),
-			"Static variable can't be initialized here. It should be initialized while deploying.");
+			"Static variables can be initialized only during contract deployment.");
 	}
 
 	return false;
@@ -877,6 +900,73 @@ bool TypeChecker::visit(ForStatement const& _forStatement)
 	return false;
 }
 
+bool TypeChecker::visit(ForEachStatement const& _forStatement)
+{
+	_forStatement.rangeDeclaration()->accept(*this);
+	_forStatement.rangeExpression()->accept(*this);
+
+	auto vars = dynamic_cast<VariableDeclarationStatement const*>(_forStatement.rangeDeclaration().get());
+	if (vars == nullptr) {
+		m_errorReporter.typeError(
+			_forStatement.rangeDeclaration()->location(),
+			"Expected variable declaration statement."
+		);
+	} else {
+		auto mappingType = dynamic_cast<MappingType const *>(_forStatement.rangeExpression()->annotation().type);
+		auto arrayType = dynamic_cast<ArrayType const *>(_forStatement.rangeExpression()->annotation().type);
+
+		auto checkVarDeclaration = [&](VariableDeclaration const *vd, Type const *type) {
+			if (vd == nullptr) { // for((uint key, ) : map) {  }
+				return;
+			}
+			BoolResult result = type->isImplicitlyConvertibleTo(*vd->type());
+			if (!result) {
+				auto errorMsg = "Type " +
+								vd->type()->toString() +
+								" is not implicitly convertible to expected type " +
+								type->toString() + ".";
+				m_errorReporter.typeError(vd->location(), errorMsg);
+			}
+		};
+
+		if (mappingType) {
+			if (vars->declarations().size() != 2) {
+				m_errorReporter.typeError(
+						vars->location(),
+						"Expected two variables of type " +
+						mappingType->keyType()->toString() +
+						" and " +
+						mappingType->valueType()->toString() +
+						"."
+				);
+			} else {
+				checkVarDeclaration(vars->declarations().at(0).get(), mappingType->keyType());
+				checkVarDeclaration(vars->declarations().at(1).get(), mappingType->valueType());
+			}
+		} else if (arrayType) {
+			if (vars->declarations().size() != 1) {
+				m_errorReporter.typeError(
+						vars->location(),
+						"Too many declared variables. "
+						"Expected one variable of type " + arrayType->baseType()->toString() + "."
+				);
+			} else {
+				checkVarDeclaration(vars->declarations().at(0).get(), arrayType->baseType());
+			}
+		} else {
+			m_errorReporter.typeError(
+					_forStatement.rangeExpression()->location(),
+					"Invalid range expression of type " +
+					_forStatement.rangeExpression()->annotation().type->toString() + ". " +
+					"Only array and mapping types are supported."
+			);
+		}
+	}
+
+	_forStatement.body().accept(*this);
+	return false;
+}
+
 void TypeChecker::endVisit(Return const& _return)
 {
 	ParameterList const* params = _return.annotation().functionReturnParameters;
@@ -991,6 +1081,10 @@ bool TypeChecker::visit(VariableDeclarationStatement const& _statement)
 {
 	if (!_statement.initialValue())
 	{
+		if (_statement.isInForLoop()){
+			return false;
+		}
+
 		// No initial value is only permitted for single variables with specified type.
 		if (_statement.declarations().size() != 1 || !_statement.declarations().front())
 		{
@@ -1003,9 +1097,10 @@ bool TypeChecker::visit(VariableDeclarationStatement const& _statement)
 				// left-hand-side that could cause any damage later.
 				return false;
 			}
-			else
+			else {
 				// Bailing out *fatal* here, as those (untyped) vars may be used later, and diagnostics wouldn't be helpful then.
 				m_errorReporter.fatalTypeError(_statement.location(), "Use of the \"var\" keyword is disallowed.");
+			}
 		}
 
 		VariableDeclaration const& varDecl = *_statement.declarations().front();
@@ -1022,11 +1117,6 @@ bool TypeChecker::visit(VariableDeclarationStatement const& _statement)
 				m_errorReporter.declarationError(varDecl.location(), errorText);
 			}
 		}
-//		else if (dynamic_cast<MappingType const*>(type(varDecl)))
-//			m_errorReporter.typeError(
-//				varDecl.location(),
-//				"Uninitialized mapping. Mappings cannot be created dynamically, you have to assign them from a state variable."
-//			);
 		varDecl.accept(*this);
 		return false;
 	}
@@ -1762,6 +1852,50 @@ void TypeChecker::typeCheckOnTickTock(const FunctionDefinition &_function) {
 		m_errorReporter.typeError(_function.parameterList().location(), "onTickTock function should take one parameter (bool isTock).");
 }
 
+void TypeChecker::typeCheckTvmEncodeFunctions(FunctionCall const& _functionCall) {
+	vector<ASTPointer<Expression const>> const &arguments = _functionCall.arguments();
+	for (const auto & argument : arguments) {
+		auto const &argType = type(*argument);
+
+		switch (argType->category()) {
+			case Type::Category::Enum:
+				m_errorReporter.typeError(
+					argument->location(),
+					"Cannot perform encoding for a " + argType->toString(true) + "." +
+					" Please convert it to an explicit type first."
+				);
+				break;
+			case Type::Category::RationalNumber:
+				m_errorReporter.typeError(
+					argument->location(),
+					"Cannot perform encoding for a literal."
+					" Please convert it to an explicit type first."
+				);
+				break;
+			case Type::Category::Address:
+			case Type::Category::Array:
+			case Type::Category::Bool:
+			case Type::Category::Contract:
+			case Type::Category::ExtraCurrencyCollection:
+			case Type::Category::FixedBytes:
+			case Type::Category::Integer:
+			case Type::Category::Mapping:
+			case Type::Category::Optional:
+			case Type::Category::StringLiteral:
+			case Type::Category::Struct:
+			case Type::Category::TvmBuilder:
+			case Type::Category::TvmCell:
+			case Type::Category::TvmSlice:
+				break;
+			default:
+				m_errorReporter.typeError(
+					argument->location(),
+					"Encoding for a " + argType->toString(true) + " isn't supported."
+				);
+		}
+	}
+}
+
 void TypeChecker::typeCheckABIEncodeFunctions(
 	FunctionCall const& _functionCall,
 	FunctionTypePointer _functionType
@@ -1916,8 +2050,7 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 
 	// Check number of passed in arguments
 	if (
-		!isFunctionWithDefaultValues &&
-		(arguments.size() < parameterTypes.size() || (!isVariadic && arguments.size() > parameterTypes.size()))
+		!isFunctionWithDefaultValues && (arguments.size() < parameterTypes.size() || (!isVariadic && arguments.size() > parameterTypes.size()))
 	)
 	{
 		bool const isStructConstructorCall =
@@ -2028,6 +2161,7 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 
 		// map parameter names to argument names
 		if (isFunctionWithDefaultValues) {
+			bool not_all_mapped = false;
 			for (size_t i = 0; i < argumentNames.size(); i++) {
 				size_t j;
 				for (j = 0; j < parameterNames.size(); j++)
@@ -2038,7 +2172,8 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 					paramArgMap[j] = arguments[i].get();
 				else
 				{
-					paramArgMap[j] = nullptr;
+					if (j < paramArgMap.size())
+						paramArgMap[j] = nullptr;
 					m_errorReporter.typeError(
 							_functionCall.location(),
 							"Named argument \"" +
@@ -2047,6 +2182,8 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 					);
 				}
 			}
+			if (!not_all_mapped)
+				return;
 		} else {
 			bool not_all_mapped = false;
 
@@ -2206,7 +2343,8 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			functionType->kind() == FunctionType::Kind::ByteArrayPush
 		)
 			funcCallAnno.isLValue = functionType->parameterTypes().empty();
-
+		else if (functionType->kind() == FunctionType::Kind::OptionalGet)
+			funcCallAnno.isLValue = true;
 		break;
 
 	case Type::Category::TypeType:
@@ -2343,7 +2481,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			checkArgNumAndIsInteger(arguments, 1, std::less_equal<>(), "Must take at most one argument.");
 			break;
 		}
-		case FunctionType::Kind::MathMaxMin:
+		case FunctionType::Kind::MathMinOrMax:
 		{
 			checkArgNumAndIsInteger(arguments, 2, std::greater_equal<>(), "This function takes at least two arguments.");
 			TypePointer result = getCommonType(arguments);
@@ -2398,6 +2536,9 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			returnTypes.push_back(arguments.at(0)->annotation().type);
 			break;
 		}
+		case FunctionType::Kind::TVMBuilderStore:
+			typeCheckTvmEncodeFunctions(_functionCall);
+			break;
 		case FunctionType::Kind::ABIEncode:
 		case FunctionType::Kind::ABIEncodePacked:
 		case FunctionType::Kind::ABIEncodeWithSelector:
@@ -2411,13 +2552,10 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			returnTypes = typeCheckMetaTypeFunctionAndRetrieveReturnType(_functionCall);
 			break;
 		case FunctionType::Kind::MappingGetNextKey:
+		case FunctionType::Kind::MappingGetMinMax:
+		case FunctionType::Kind::MappingDelMinOrMax:
 		{
-			if (arguments.size() != 1) {
-				m_errorReporter.fatalTypeError(
-						_functionCall.location(),
-						"This function takes one argument."
-				);
-			}
+
 			auto memberAccess = dynamic_cast<const MemberAccess *>(&_functionCall.expression());
 			auto mapType = dynamic_cast<const MappingType *>(memberAccess->expression().annotation().type);
 			const Type * keyType;
@@ -2427,26 +2565,68 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				keyType = eccType->keyType();
 				valueType = eccType->valueType();
 			} else {
-				keyType = mapType->keyType();
+				auto strOrBytesType = dynamic_cast<ArrayType const*>(mapType->keyType());
+				if ((strOrBytesType != nullptr && strOrBytesType->isByteArray()) ||
+					mapType->keyType()->category() == Type::Category::TvmCell
+				) {
+					keyType = TypeProvider::uint256();
+				} else {
+					keyType = mapType->keyType();
+				}
 				valueType = mapType->valueType();
 			}
-            auto arg0Type = arguments[0]->annotation().type;
-			if (keyType->category() == Type::Category::Integer) {
-				auto category = arg0Type->category();
-				if (category != Type::Category::Integer && category != Type::Category::RationalNumber) {
-					m_errorReporter.fatalTypeError(
-							_functionCall.location(),
-							"The argument of this function should have integer type."
-					);
+			if (functionType->kind() == FunctionType::Kind::MappingGetNextKey) {
+				if (arguments.size() != 1) {
+					m_errorReporter.typeError(_functionCall.location(), "Expected one argument.");
+				} else {
+					auto arg0Type = arguments[0]->annotation().type;
+					if (keyType->category() == Type::Category::Integer) {
+						auto category = arg0Type->category();
+						if (category != Type::Category::Integer && category != Type::Category::RationalNumber) {
+							m_errorReporter.fatalTypeError(
+									_functionCall.location(),
+									"Expected an integer type."
+							);
+						}
+					} else if (!arg0Type->isImplicitlyConvertibleTo(*keyType)) {
+						auto errorMsg = "Type " +
+										arg0Type->toString() +
+										" is not implicitly convertible to expected type " +
+										keyType->toString() + ".";
+						m_errorReporter.typeError(arguments[0]->location(), errorMsg);
+					}
 				}
-			} else if (*arg0Type != *keyType) {
-                m_errorReporter.fatalTypeError(
-                        _functionCall.location(),
-                        string("The argument of this function should have ") + keyType->toString(true) + " type."
-                );
+			} else {
+				if (!arguments.empty()) {
+					m_errorReporter.typeError(arguments[0]->location(), "Expected no arguments.");
+				}
 			}
 			std::vector<Type const*> members = {keyType, valueType};
 			returnTypes.push_back(TypeProvider::optional(TypeProvider::tuple(members)));
+			break;
+		}
+		case FunctionType::Kind::TVMTransfer: {
+			vector<ASTPointer<ASTString>> const &argumentNames = _functionCall.names();
+			bool hasValue = false;
+			if (!argumentNames.empty()) {
+				hasValue = std::any_of(argumentNames.begin(), argumentNames.end(),
+			 	  [](const ASTPointer<ASTString> &name) {
+						return *name == "value";
+				});
+			} else {
+				hasValue = !_functionCall.arguments().empty();
+			}
+			if (!hasValue) {
+				m_errorReporter.fatalTypeError(
+						_functionCall.location(),
+						string("Parameter \"value\" must be set.")
+				);
+			}
+			// parameter names are checked in function below
+			typeCheckFunctionCall(_functionCall, functionType);
+			returnTypes = m_evmVersion.supportsReturndata() ?
+						  functionType->returnParameterTypes() :
+						  functionType->returnParameterTypesWithoutDynamicTypes();
 			break;
 		}
 		case FunctionType::Kind::TVMEncodeBody:
@@ -2497,7 +2677,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				}
 			}
 		}
-			[[fallthrough]];
+		[[fallthrough]];
 		default:
 		{
 			typeCheckFunctionCall(_functionCall, functionType);
@@ -2544,6 +2724,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	bool setCurrencies = false;
 	bool setFlag = false;
 	bool setPubkey = false;
+	bool setSplitDepth = false;
 	bool setStateInit = false;
 	bool setValue = false;
 	bool setVarInit = false;
@@ -2636,7 +2817,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 						R"(Option "varInit" can be set only for "new" expression.)");
 
 			expectType(*_functionCallOptions.options()[i], *TypeProvider::optionValue());
-			setCheckOption(setVarInit, "code", false);
+			setCheckOption(setVarInit, "varInit", false);
 		}
 		else if (name == "value")
 		{
@@ -2658,15 +2839,30 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		}
 		else if (name == "pubkey")
 		{
+			if (!isNewExpression)
+				m_errorReporter.typeError(
+						_functionCallOptions.location(),
+						R"(Option "pubkey" can be set only for "new" expression.)");
+
 			expectType(*_functionCallOptions.options()[i], *TypeProvider::uint256());
 			setCheckOption(setPubkey, "pubkey", false);
+		}
+		else if (name == "splitDepth")
+		{
+			if (!isNewExpression)
+				m_errorReporter.typeError(
+						_functionCallOptions.location(),
+						R"(Option "splitDepth" can be set only for "new" expression.)");
+
+			expectType(*_functionCallOptions.options()[i], *TypeProvider::uint(8));
+			setCheckOption(setSplitDepth, "splitDepth", false);
 		}
 		else
 			m_errorReporter.typeError(
 				_functionCallOptions.location(),
 				"Unknown call option \"" +
 				name +
-				R"(". Valid options are "stateInit", "code", "pubkey", "varInit", "value", "wid" and "flag".)"
+				R"(". Valid options are "stateInit", "code", "pubkey", "varInit", "splitDepth", "value", "wid" and "flag".)"
 			);
 	}
 

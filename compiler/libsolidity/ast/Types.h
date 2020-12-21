@@ -188,7 +188,7 @@ public:
 	/// @returns an escaped identifier (will not contain any parenthesis or commas)
 	static std::string escapeIdentifier(std::string const& _identifier);
 
-	virtual BoolResult isImplicitlyConvertibleTo(Type const& _other) const { return *this == _other; }
+	virtual BoolResult isImplicitlyConvertibleTo(Type const& _other) const;
 	virtual BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const
 	{
 		return isImplicitlyConvertibleTo(_convertTo);
@@ -689,6 +689,7 @@ public:
 class VarInteger: public Type
 {
 public:
+	explicit VarInteger(int n = 16) : m_n{n} {} // 128 bit number
 	Category category() const override { return Category::VarInteger; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_varinteger"; }
@@ -696,6 +697,9 @@ public:
 
 	TypePointer encodingType() const override { return this; }
 	TypeResult interfaceType(bool) const override { return this; }
+	int getNumber() const { return m_n; }
+private:
+	int m_n;
 };
 
 /**
@@ -1148,6 +1152,8 @@ public:
 		TVMSliceSize, ///< slice.size()
 
 		TVMBuilderMethods, ///< builder.*()
+		TVMBuilderStore, ///< builder.store(...)
+
 		ExtraCurrencyCollectionMethods, ///< extraCurrencyCollection.*()
 		KECCAK256, ///< KECCAK256
 		Selfdestruct, ///< SELFDESTRUCT
@@ -1176,7 +1182,7 @@ public:
 		MathAbs, ///< math.abs()
 		MathDivC, ///< math.divc()
 		MathDivR, ///< math.divr()
-		MathMaxMin, ///< math.min(a, b, ...) or math.max(a, b, ...)
+		MathMinOrMax, ///< math.min(a, b, ...) or math.max(a, b, ...)
 		MathMinMax, ///< math.minmax()
 		MathModpow2, ///< math.modpow2()
 		MathMulDiv, ///< math.muldiv()
@@ -1220,7 +1226,12 @@ public:
 		MappingEmpty,  ///< .empty() for a mapping
 		MappingReplaceOrAdd,  ///< .replace() or .add() for a mapping
 		MappingGetSet,  ///< .getSet() for a mapping
-		OptionalMethod,  ///< Optional methods
+
+		OptionalGet,  ///< .get() for optional
+		OptionalSet,  ///< .set() for optional
+		OptionalHasValue,  ///< .hasValue() for optional
+		OptionalReset,  ///< .reset() for optional
+
 		StringMethod,  ///< string methods
 		ObjectCreation, ///< array creation using new
 		Assert, ///< assert()

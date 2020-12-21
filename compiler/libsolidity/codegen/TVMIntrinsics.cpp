@@ -68,12 +68,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		}
 	};
 
-	auto checkArgCountMore = [&](std::size_t argCount) {
-		if (arguments.size() < argCount) {
-			cast_error(_functionCall, iname + " should have " + toString(argCount) + " arguments");
-		}
-	};
-
 	if (iname == "tvm_logstr") {
 		auto logstr = arguments[0].get();
 		if (auto literal = to<Literal>(logstr)) {
@@ -349,10 +343,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		m_pusher.push(+1, "NOW");
 		return true;
 	}
-	if (iname == "tvm_rand_seed") {
-		m_pusher.pushPrivateFunctionOrMacroCall(+1, "get_rand_seed_macro");
-		return true;
-	}
 	if (iname == "tvm_balance") {
 		m_pusher.pushPrivateFunctionOrMacroCall(+1, "get_balance");
 		return true;
@@ -516,41 +506,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		m_pusher.push(-1 + 1, "PLDSLICE " + toString(value));
 		return true;
 	}
-	if (iname == "tvm_deploy_contract") {
-		checkArgCountMore(4);
-		acceptExpr(arguments[0].get());
-		acceptExpr(arguments[1].get());
-		acceptExpr(arguments[2].get());
-		acceptExpr(arguments[3].get());
-
-		Type const * type3 = arguments[3].get()->annotation().type;
-		if (to<TvmCellType>(type3)){
-			if (arguments.size() != 4) {
-				cast_error(_functionCall,
-				           "Correct argument types: (TvmCell my_contract, address addr, uint128 tons, TvmCell payload) "
-				           "or (TvmCell my_contract, address addr, uint128 tons, uint constructor_id, some_type, constructor_param0, some_type1 constructor_param1, ...)");
-			}
-			m_pusher.pushPrivateFunctionOrMacroCall(-4, "deploy_contract2_macro");
-		} else {
-			auto identifierAnnotation = to<IdentifierAnnotation>(&_functionCall.expression().annotation());
-			auto functionDefinition = to<FunctionDefinition>(identifierAnnotation->referencedDeclaration);
-			std::vector<Type const*> types;
-			std::vector<ASTNode const*> nodes;
-			for (std::size_t i = 4; i < functionDefinition->parameters().size(); ++i) {
-				types.push_back(functionDefinition->parameters()[i]->annotation().type);
-				nodes.push_back(arguments[i].get());
-			}
-			// DELETE ME
-			m_pusher.push(+1, "NEWC");
-			EncodePosition position{0, types};
-			EncodeFunctionParams{&m_pusher}.encodeParameters(types, nodes, [&](std::size_t index) {
-				acceptExpr(arguments[index + 4].get());
-			}, position);
-			m_pusher.pushInt(1);
-			m_pusher.pushPrivateFunctionOrMacroCall(-6, "deploy_contract_macro");
-		}
-		return true;
-	}
 	if (iname == "tvm_selector_call") {
 		checkArgCount(2);
 		acceptExpr(arguments[0].get());
@@ -577,18 +532,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 	if (iname == "tvm_setcode") {
 		acceptExpr(arguments[0].get());
 		m_pusher.push(-1, "SETCODE");
-		return true;
-	}
-	if (iname == "tvm_unpack_address") {
-		acceptExpr(arguments[0].get());
-		m_pusher.pushPrivateFunctionOrMacroCall(-1 + 2, "unpack_address_macro");
-		return true;
-	}
-	if (iname == "tvm_make_address") {
-		checkArgCount(2);
-		acceptExpr(arguments[0].get());
-		acceptExpr(arguments[1].get());
-		m_pusher.pushPrivateFunctionOrMacroCall(-2 + 1, "make_address_macro");
 		return true;
 	}
 	if (iname == "tvm_push_minus_one") {
@@ -696,13 +639,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		acceptExpr(arguments[1].get());
 		m_pusher.push(-1, "SDSKIPFIRST");
 		m_pusher.push(0, "PLDU 256");
-		return true;
-	}
-	if (iname == "tvm_build_state_init") {
-		checkArgCount(2);
-		acceptExpr(arguments[0].get());
-		acceptExpr(arguments[1].get());
-		m_pusher.pushPrivateFunctionOrMacroCall(-2 + 1, "build_state_init_macro");
 		return true;
 	}
 	if (iname == "tvm_config_param1") {
@@ -853,24 +789,6 @@ SDEQ
 	}
 	if (iname == "tvm_zero_ext_address") {
 		m_pusher.push(+1, "PUSHSLICE x2_");
-		return true;
-	}
-	if (iname == "tvm_make_external_address") {
-		checkArgCount(2);
-		// addr_extern$01 len:(## 9) external_address:(bits len) = MsgAddressExt;
-		acceptExpr(arguments[0].get()); // numb
-		acceptExpr(arguments[1].get()); // numb cntBit
-		m_pusher.push(+1, "DUP"); // numb cntBit cntBit
-		m_pusher.pushInt(1); // numb cntBit cntBit 1
-
-		m_pusher.push(+1, "NEWC"); // numb cntBit cntBit 1 builder
-		m_pusher.push(-1, "STU 2"); // numb cntBit cntBit builder'
-		m_pusher.push(-1, "STU 9"); // numb cntBit builder''
-		m_pusher.push(0, "SWAP"); // numb builder'' cntBit
-		m_pusher.push(-3 + 1, "STUX"); // builder'''
-		m_pusher.push(0, "ENDC");
-		m_pusher.push(0, "CTOS"); // extAddress
-
 		return true;
 	}
 	if (iname == "tvm_make_zero_address") {

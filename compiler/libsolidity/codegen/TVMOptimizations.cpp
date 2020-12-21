@@ -546,6 +546,11 @@ struct TVMOptimizer {
 			(cmd4.is("IFNOT") || cmd4.is("IFNOTJMP"))) {
 			return Result::Replace(4, "THROWIFNOT " + cmd2.rest());
 		}
+		if (cmd1.is("PUSHCONT") &&
+			cmd2.is("}") &&
+			(cmd3.is("IF") || cmd3.is("IFNOT"))) {
+			return Result::Replace(3, "DROP");
+		}
 		if (cmd1.is("GETGLOB") &&
 			cmd2.is("ISNULL") &&
 			cmd3.is("DROP")) {
@@ -687,7 +692,15 @@ struct TVMOptimizer {
 					return Result(true, 4, {"ADDCONST " + std::to_string(final_add), "UFITS " + cmd2.rest()});
 			}
 		}
-
+		if (cmd1.is("INDEX") && 0 <= stoi(cmd1.rest()) && stoi(cmd1.rest()) <= 3 &&
+			cmd2.is("INDEX") && 0 <= stoi(cmd2.rest()) && stoi(cmd2.rest()) <= 3 &&
+			cmd3.is("INDEX") && 0 <= stoi(cmd3.rest()) && stoi(cmd3.rest()) <= 3) {
+			return Result(true, 3, {"INDEX3 " + cmd1.rest() + ", " + cmd2.rest() + ", " + cmd3.rest()});
+		}
+		if (cmd1.is("INDEX") && 0 <= stoi(cmd1.rest()) && stoi(cmd1.rest()) <= 3 &&
+			cmd2.is("INDEX") && 0 <= stoi(cmd2.rest()) && stoi(cmd2.rest()) <= 3) {
+			return Result(true, 2, {"INDEX2 " + cmd1.rest() + ", " + cmd2.rest()});
+		}
 		return Result(false);
 	}
 
