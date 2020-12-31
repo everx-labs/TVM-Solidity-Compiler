@@ -83,6 +83,12 @@ protected:
 		Library
 	};
 	void buildStateInit(std::map<StateInitMembers, std::function<void()>> exprs);
+	std::function<void()> generateDataSection(std::function<void()> pushKey,
+				bool &hasVars,
+				ASTPointer<Expression const> vars,
+				bool &isNew,
+				ASTPointer<const Expression> contr
+			);
 };
 
 }	// solidity

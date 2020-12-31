@@ -42,7 +42,7 @@ unique_ptr<ArrayType> TypeProvider::m_stringMemory;
 TupleType const TypeProvider::m_emptyTuple{};
 AddressType const TypeProvider::m_address{};
 VarInteger const TypeProvider::m_varInteger{};
-InitializerListType const TypeProvider::m_optionValue{};
+InitializerListType const TypeProvider::m_initializerList{};
 
 array<unique_ptr<IntegerType>, 32> const TypeProvider::m_intM{{
 	{make_unique<IntegerType>(8 * 1, IntegerType::Modifier::Signed)},

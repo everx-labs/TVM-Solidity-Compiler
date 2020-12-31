@@ -1929,14 +1929,68 @@ Inserts a public key into stateInit data field.
 ##### tvm.buildStateInit()
 
 ```TVMSolidity
-tvm.buildStateInit(TvmCell code, TvmCell data) returns (TvmCell stateInit); // 1)
-tvm.buildStateInit(TvmCell code, TvmCell data, uint8 splitDepth) returns (TvmCell stateInit); // 2)
+// 1)
+tvm.buildStateInit(TvmCell code, TvmCell data) returns (TvmCell stateInit);
+// 2) 
+tvm.buildStateInit(TvmCell code, TvmCell data, uint8 splitDepth) returns (TvmCell stateInit);
+// 3)
+tvm.buildStateInit({code: TvmCell code, data: TvmCell data, splitDepth: uint8 splitDepth,
+    pubkey: uint256 pubkey, contr: contract Contract, varInit: {VarName0: varValue0, ...}});
 ```
 
 Generates a `StateInit` ([TBLKCH][2] - 3.1.7.) from `code` and `data`.
 Member `splitDepth` of the tree of cell `StateInit`:
-    1) is not set. Has no value.
-    2) is set. `0 <= splitDepth <= 31`
+1) is not set. Has no value.
+2) is set. `0 <= splitDepth <= 31`
+3) Also arguments can be set with names.
+List of possible names:
+
+* `code` (`TvmCell`) - defines the code field of the `StateInit`. Must be specified.
+* `data` (`TvmCell`) - defines the data field of the `StateInit`. Conflicts with `pubkey` and `varInit`. Can be omitted, in this case data field would be build from `pubkey` and `varInit`.
+* `splitDepth` (`uint8`) - splitting depth. `0 <= splitDepth <= 31`. Can be omitted. By default has no value.
+* `pubkey` (`uint256`) - defines the public key of the new contract. Conflicts with `data`. Can be omitted, default value is 0.
+* `varInit` (`initializer list`) - used to set [static](#keyword-static) variables of the contract which `StateInit` is built. Conflicts with `data` and requires `contr` to be set. Can be omitted.
+* `contr` (`contract`) - defines the contract which `StateInit` is built. Mandatory to be set if the option `varInit` is specified.
+
+Examples of usage of this function:
+
+```TvmSolidity
+contract A {
+    uint static var0;
+    address static var1;
+}
+
+contract C {
+
+    function f() public pure {
+        TvmCell code;
+        TvmCell data;
+        uint8 depth;
+        TvmCell stateInit = tvm.buildStateInit(code, data);
+        stateInit = tvm.buildStateInit(code, data, depth);
+    }
+
+    function f1() public pure {
+        TvmCell code;
+        TvmCell data;
+        uint8 depth;
+        uint pubkey;
+        uint var0;
+        address var1;
+
+        TvmCell stateInit1 = tvm.buildStateInit({code: code, data: data, splitDepth: depth});
+        stateInit1 = tvm.buildStateInit({code: code, splitDepth: depth, varInit: {var0: var0, var1: var1}, pubkey: pubkey, contr: A});
+        stateInit1 = tvm.buildStateInit({varInit: {var0: var0, var1: var1}, pubkey: pubkey, contr: A, code: code, splitDepth: depth});
+        stateInit1 = tvm.buildStateInit({contr: A, varInit: {var0: var0, var1: var1}, pubkey: pubkey, code: code, splitDepth: depth});
+        stateInit1 = tvm.buildStateInit({contr: A, varInit: {var0: var0, var1: var1}, pubkey: pubkey, code: code});
+        stateInit1 = tvm.buildStateInit({contr: A, varInit: {var0: var0, var1: var1}, code: code, splitDepth: depth});
+        stateInit1 = tvm.buildStateInit({pubkey: pubkey, code: code, splitDepth: depth});
+        stateInit1 = tvm.buildStateInit({code: code, splitDepth: depth});
+        stateInit1 = tvm.buildStateInit({code: code});
+    }
+}
+
+```
 
 ##### tvm.buildEmptyData()
 

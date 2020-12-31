@@ -2046,6 +2046,9 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 		if (ma && ma->memberName() == "transfer" && dynamic_cast<AddressType const *>(ma->expression().annotation().type)) {
 			isFunctionWithDefaultValues = true;
 		}
+		if (ma && ma->memberName() == "buildStateInit" && dynamic_cast<MagicType const *>(ma->expression().annotation().type)) {
+			isFunctionWithDefaultValues = true;
+		}
 	}
 
 	// Check number of passed in arguments
@@ -2605,6 +2608,61 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			returnTypes.push_back(TypeProvider::optional(TypeProvider::tuple(members)));
 			break;
 		}
+		case FunctionType::Kind::TVMBuildStateInit: {
+			vector<ASTPointer<ASTString>> const &argumentNames = _functionCall.names();
+			bool hasNames = !argumentNames.empty();
+			size_t argCnt = _functionCall.arguments().size();
+			if (!hasNames && (argCnt != 3) && (argCnt != 2))
+				m_errorReporter.fatalTypeError(
+						_functionCall.location(),
+						string("If parameters are set without names, only 2 or 3 arguments can be specified.")
+				);
+
+			bool hasCode = false;
+			bool hasData = false;
+			bool hasVarInit = false;
+			bool hasPubkey = false;
+			bool hasContr = false;
+
+			auto hasName = [&](ASTString optName) {
+				return std::any_of(argumentNames.begin(), argumentNames.end(),
+							  [&](const ASTPointer<ASTString> &name) {
+									return *name == optName;
+							});
+			};
+
+			if (hasNames) {
+				hasCode = hasName("code");
+				hasData = hasName("data");
+				hasVarInit = hasName("varInit");
+				hasPubkey = hasName("pubkey");
+				hasContr = hasName("contr");
+
+				if (!hasCode) {
+					m_errorReporter.fatalTypeError(
+							_functionCall.location(),
+							string("Parameter \"code\" must be set.")
+					);
+				}
+				if (hasData && (hasVarInit || hasPubkey)) {
+					m_errorReporter.fatalTypeError(
+							_functionCall.location(),
+							string("Parameter \"data\" can't be specified with \"pubkey\" or \"varInit\".")
+					);
+				}
+				if (hasVarInit != hasContr) {
+					m_errorReporter.fatalTypeError(
+							_functionCall.location(),
+							string("Parameter \"varInit\" requires parameter \"contr\" and there is no need in \"contr\" without \"varInit\".")
+					);
+				}
+			}
+			typeCheckFunctionCall(_functionCall, functionType);
+			returnTypes = m_evmVersion.supportsReturndata() ?
+						  functionType->returnParameterTypes() :
+						  functionType->returnParameterTypesWithoutDynamicTypes();
+			break;
+		}
 		case FunctionType::Kind::TVMTransfer: {
 			vector<ASTPointer<ASTString>> const &argumentNames = _functionCall.names();
 			bool hasValue = false;
@@ -2816,7 +2874,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 						_functionCallOptions.location(),
 						R"(Option "varInit" can be set only for "new" expression.)");
 
-			expectType(*_functionCallOptions.options()[i], *TypeProvider::optionValue());
+			expectType(*_functionCallOptions.options()[i], *TypeProvider::initializerList());
 			setCheckOption(setVarInit, "varInit", false);
 		}
 		else if (name == "value")
@@ -3369,7 +3427,7 @@ void TypeChecker::endVisit(OptionalNameExpression const& _expr)
 }
 
 void TypeChecker::endVisit(InitializerList const& _expr) {
-	_expr.annotation().type = TypeProvider::optionValue();
+	_expr.annotation().type = TypeProvider::initializerList();
 	_expr.annotation().isPure = false;
 }
 

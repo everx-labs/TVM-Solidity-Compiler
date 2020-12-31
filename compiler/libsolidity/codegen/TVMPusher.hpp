@@ -123,7 +123,7 @@ protected:
 	TVMStack m_stack;
 	CodeLines m_code;
 	TVMCompilerContext* m_ctx;
-	StructCompiler* m_structCompiler;
+	std::unique_ptr<StructCompiler> m_structCompiler;
 
 public:
 	enum StoreFlag {ValueIsBuilder = 1, ArrayIsUntupled = 2, StoreStructInRef = 4, StoreStructInOneCell = 8};

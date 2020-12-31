@@ -4,6 +4,7 @@ Compiler Features:
  * Struct type can be used as a key of a mapping. Some restrictions are imposed on such structs.
  * Support `bounce` and `currencies` options to deploy contact via new.
  * Support range-based for loop `for ( range_declaration : range_expression ) loop_statement` where `range_expression` is array or mapping type
+ * Expanded api function `tvm.buildStateInit()` to generate a `StateInit` of the contract with arbitrary parameters.
 
 Breaking changes:
 * **fallback** function is not called on plain tons transfers if there is no receive function in the contract. In this case default **receive** function is called.

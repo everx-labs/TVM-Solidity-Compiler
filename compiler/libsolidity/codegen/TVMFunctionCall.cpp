@@ -191,8 +191,14 @@ void FunctionCallCompiler::typeTypeMethods(MemberAccess const &_node) {
 
 void FunctionCallCompiler::loadTypeFromSlice(MemberAccess const &_node, TypePointer type) {
 	const Type::Category category = type->category();
-	if (to<TvmCellType>(type)) {
-		m_pusher.push(0, ";; decode TvmCell");
+	auto arrayType = to<ArrayType>(type);
+	if (to<TvmCellType>(type) || (arrayType && arrayType->isByteArray())) {
+		if (!arrayType)
+			m_pusher.push(0, ";; decode TvmCell");
+		else if (arrayType->isString())
+			m_pusher.push(0, ";; decode string");
+		else
+			m_pusher.push(0, ";; decode bytes");
 		m_pusher.push(+1, "LDREF");
 	} else if (auto structType = to<StructType>(type)) {
 		ASTString const& structName = structType->structDefinition().name();
@@ -222,6 +228,76 @@ void FunctionCallCompiler::loadTypeFromSlice(MemberAccess const &_node, TypePoin
 	}
 }
 
+
+std::function<void()> FunctionCallCompiler::generateDataSection(
+			std::function<void()> pushKey,
+			bool & hasVars,
+			ASTPointer<Expression const> vars,
+			bool & isNew,
+			ASTPointer<Expression const> contr
+		) {
+	return [pushKey, this, hasVars, vars, isNew, contr]() {
+		// creat dict with variable values
+		m_pusher.push(+1, "NEWDICT");
+		// stake: builder dict
+
+		IntegerType keyType = getKeyTypeOfC4();
+		TypePointer valueType = TypeProvider::uint256();
+
+		pushKey();
+		const DataType& dataType = m_pusher.prepareValueForDictOperations(&keyType, valueType, false);
+		m_pusher.pushInt(0); // index of pubkey
+		// stack: dict value key
+		m_pusher.push(0, "ROT");
+		// stack: value key dict
+		m_pusher.setDict(getKeyTypeOfC4(), *valueType, dataType);
+		// stack: dict'
+		if (hasVars) {
+			const Type * type;
+			if (!isNew) {
+				type = contr->annotation().type;
+				auto tt = dynamic_cast<const TypeType*>(type);
+				type = tt->actualType();
+			} else {
+				auto functionOptions = to<FunctionCallOptions>(&m_functionCall.expression());
+				auto newExpr = to<NewExpression>(&functionOptions->expression());
+				type = newExpr->typeName().annotation().type;
+			}
+			auto ct = dynamic_cast<const ContractType*>(type);
+			std::vector<PragmaDirective const *> _pragmaDirectives;
+			PragmaDirectiveHelper pragmaHelper{_pragmaDirectives};
+			TVMCompilerContext cc{&ct->contractDefinition(), pragmaHelper};
+			std::vector<std::pair<VariableDeclaration const*, int>> staticVars = cc.getStaticVaribles();
+			auto getDeclAndIndex = [&](const std::string& name) {
+				auto pos = find_if(staticVars.begin(), staticVars.end(), [&](auto v) { return v.first->name() == name; });
+				solAssert(pos != staticVars.end(), "");
+				return *pos;
+			};
+			auto initVars = to<InitializerList>(vars.get());
+			for (size_t i = 0; i < initVars->names().size(); ++i) {
+				const ASTPointer<ASTString> &name = initVars->names().at(i);
+				const auto &[varDecl, varIndex] = getDeclAndIndex(*name);
+				valueType = varDecl->type();
+				acceptExpr(initVars->options().at(i).get());
+				const DataType& dataType2 = m_pusher.prepareValueForDictOperations(&keyType, valueType, false);
+				m_pusher.pushInt(varIndex);
+				// stack: dict value key
+				m_pusher.push(0, "ROT");
+				// stack: value key dict
+				StackPusherHelper sp{&cc, m_pusher.getStack().size()};
+				sp.setDict(getKeyTypeOfC4(), *varDecl->type(), dataType2);
+				m_pusher.append(sp.code());
+				m_pusher.push(-2, ""); // fix stack
+				// stack: dict'
+			}
+		}
+		m_pusher.push(+1, "NEWC");
+		m_pusher.push(-2 + 1, "STDICT");
+		m_pusher.push(-1 + 1, "ENDC");
+	};
+}
+
+
 bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, Type::Category category) {
 	auto pushArgs = [&]() {
 		for (const ASTPointer<const Expression> &e : m_arguments) {
@@ -230,23 +306,86 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 	};
 
 	auto functionType = dynamic_cast<FunctionType const*>(m_functionCall.expression().annotation().type);
-	if (category != Type::Category::Magic || functionType->kind() != FunctionType::Kind::TVMDeploy)
+	if (category != Type::Category::Magic || ((functionType->kind() != FunctionType::Kind::TVMDeploy)
+			&& functionType->kind() != FunctionType::Kind::TVMBuildStateInit))
 		return false;
 
 	if (_node.memberName() == "buildStateInit") {
-		solAssert(m_arguments.size() == 2 || m_arguments.size() == 3, "");
+		int keyArg = -1;
+		int varArg = -1;
+		int contrArg = -1;
+		int codeArg = -1;
+		int dataArg = -1;
+		int depthArg = -1;
+		bool hasVars;
+		bool isNew = false;
 		std::map<StateInitMembers, std::function<void()>> exprs;
-		exprs[StateInitMembers::Code] = [&](){
-			acceptExpr(m_arguments.at(0).get());
-		};
-		exprs[StateInitMembers::Data] = [&](){
-			acceptExpr(m_arguments.at(1).get());
-		};
-		if (m_arguments.size() >= 3) {
-			exprs[StateInitMembers::SplitDepth] = [&](){
-				acceptExpr(m_arguments.at(2).get());
+		if (m_functionCall.names().empty()) {
+			solAssert(m_arguments.size() == 2 || m_arguments.size() == 3, "");
+			exprs[StateInitMembers::Code] = [&](){
+				acceptExpr(m_arguments.at(0).get());
 			};
+			exprs[StateInitMembers::Data] = [&](){
+				acceptExpr(m_arguments.at(1).get());
+			};
+			if (m_arguments.size() >= 3) {
+				exprs[StateInitMembers::SplitDepth] = [&](){
+					acceptExpr(m_arguments.at(2).get());
+				};
+			}
+		} else {
+			const std::vector<ASTPointer<ASTString>>& names = m_functionCall.names();
+
+			bool dataIsSet = false;
+			// string("code"), string("data"), string("splitDepth"), string("varInit"), string("pubkey")
+			for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
+				switch (str2int(names[arg]->c_str())) {
+					case str2int("code"):
+						codeArg = arg;
+						exprs[StateInitMembers::Code] = [&](){
+							acceptExpr(m_arguments[codeArg].get());
+						};
+						break;
+					case str2int("data"):
+						dataArg = arg;
+						exprs[StateInitMembers::Data] = [&](){
+							acceptExpr(m_arguments[dataArg].get());
+						};
+						dataIsSet = true;
+						break;
+					case str2int("splitDepth"):
+						depthArg = arg;
+						exprs[StateInitMembers::SplitDepth] = [&](){
+							acceptExpr(m_arguments[depthArg].get());
+						};
+						break;
+					case str2int("varInit"):
+						varArg = arg;
+						break;
+					case str2int("pubkey"):
+						keyArg = arg;
+						break;
+					case str2int("contr"):
+						contrArg = arg;
+						break;
+				}
+			}
+			if (!dataIsSet) {
+				auto pushKey = [this, keyArg]() {
+					if (keyArg == -1) {
+						m_pusher.pushInt(0);
+					} else {
+						acceptExpr(m_arguments[keyArg].get());
+					}
+				};
+				hasVars = (varArg != -1);
+				exprs[StateInitMembers::Data] = generateDataSection(pushKey, hasVars,
+																	hasVars ? m_arguments[varArg] : nullptr,
+																	isNew,
+																	hasVars ? m_arguments[contrArg] : nullptr);
+			}
 		}
+
 		buildStateInit(exprs);
 		return true;
 	}
@@ -473,10 +612,10 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 		return true;
 	}
 
-    if (_node.memberName() == "depth") {
-        m_pusher.push(-1 + 1, "BDEPTH");
-        return true;
-    }
+	if (_node.memberName() == "depth") {
+		m_pusher.push(-1 + 1, "BDEPTH");
+		return true;
+	}
 
 	return false;
 }
@@ -597,24 +736,24 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 		return true;
 	}
 
-    if (_node.memberName() == "reset") {
-        const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), false);
-        m_pusher.pushDefaultValue(optional);
-        m_exprCompiler->collectLValue(lValueInfo, true, false);
-        return true;
-    }
+	if (_node.memberName() == "reset") {
+		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), false);
+		m_pusher.pushDefaultValue(optional);
+		m_exprCompiler->collectLValue(lValueInfo, true, false);
+		return true;
+	}
 
 	return false;
 }
 
 void FunctionCallCompiler::cellMethods(MemberAccess const &_node) {
 	if (_node.memberName() == "toSlice") {
-        acceptExpr(&_node.expression());
+		acceptExpr(&_node.expression());
 		m_pusher.push(-1 + 1, "CTOS");
 	} else if (_node.memberName() == "depth") {
 		acceptExpr(&_node.expression());
 		m_pusher.push(-1 + 1, "CDEPTH");
- 	} else if (_node.memberName() == "dataSize") {
+	} else if (_node.memberName() == "dataSize") {
 		acceptExpr(&_node.expression());
 		acceptExpr(m_arguments.at(0).get());
 		m_pusher.push(-2 + 3, "CDATASIZE");
@@ -1808,20 +1947,23 @@ bool FunctionCallCompiler::createNewContract() {
 	if (!newExpr)
 		return false;
 	const TypePointer type = newExpr->typeName().annotation().type;
-	auto ct = to<ContractType>(type);
-	std::vector<PragmaDirective const *> _pragmaDirectives;
-	PragmaDirectiveHelper pragmaHelper{_pragmaDirectives};
-	TVMCompilerContext cc{&ct->contractDefinition(), pragmaHelper};
-	std::vector<std::pair<VariableDeclaration const*, int>> staticVars = cc.getStaticVaribles();
-	auto getDeclAndIndex = [&](const std::string& name) {
-		auto pos = find_if(staticVars.begin(), staticVars.end(), [&](auto v) { return v.first->name() == name; });
-		solAssert(pos != staticVars.end(), "");
-		return *pos;
-	};
 
 	std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
 	auto stateIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "stateInit"; });
 	auto codeIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "code"; });
+	int pkIndex = -1;
+	auto pubkeyIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "pubkey"; });
+	if (pubkeyIt != optionNames.end())
+		pkIndex = pubkeyIt - optionNames.begin();
+	std::function<void()> pushKey = [&]() {
+		if (pkIndex == -1) {
+			m_pusher.pushInt(0);
+		} else {
+				auto functionOptions = to<FunctionCallOptions>(&m_functionCall.expression());
+				acceptExpr(functionOptions->options().at(pkIndex).get());
+		}
+	};
+
 	if (stateIt != optionNames.end()) {
 		size_t index = stateIt - optionNames.begin();
 		acceptExpr(functionOptions->options()[index].get()); // stack: stateInit
@@ -1829,56 +1971,14 @@ bool FunctionCallCompiler::createNewContract() {
 		const int ss = m_pusher.getStack().size();
 		std::map<StateInitMembers, std::function<void()>> stateInitExprs;
 
-		stateInitExprs[StateInitMembers::Data] = [&]() {
-			// creat dict with variable values
-			m_pusher.push(+1, "NEWDICT");
-			// stake: builder dict
-
-			IntegerType keyType = getKeyTypeOfC4();
-			TypePointer valueType = TypeProvider::uint256();
-
-			auto pubkeyIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "pubkey"; });
-			if (pubkeyIt == optionNames.end()) {
-				m_pusher.pushInt(0);
-			} else {
-				size_t pkIndex = pubkeyIt - optionNames.begin();
-				acceptExpr(functionOptions->options().at(pkIndex).get());
-			}
-			const DataType& dataType = m_pusher.prepareValueForDictOperations(&keyType, valueType, false);
-			m_pusher.pushInt(0); // index of pubkey
-			// stack: dict value key
-			m_pusher.push(0, "ROT");
-			// stack: value key dict
-			m_pusher.setDict(getKeyTypeOfC4(), *valueType, dataType);
-			// stack: dict'
-
-			auto varIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "varInit"; });
-			if (varIt != optionNames.end()) {
-				size_t initVarsIndex = varIt - optionNames.begin();
-				auto initVars = to<InitializerList>(functionOptions->options().at(initVarsIndex).get());
-				for (size_t i = 0; i < initVars->names().size(); ++i) {
-					const ASTPointer<ASTString> &name = initVars->names().at(i);
-
-
-					const auto &[varDecl, varIndex] = getDeclAndIndex(*name);
-					valueType = varDecl->type();
-					acceptExpr(initVars->options().at(i).get());
-					const DataType& dataType2 = m_pusher.prepareValueForDictOperations(&keyType, valueType, false);
-					m_pusher.pushInt(varIndex);
-					// stack: dict value key
-					m_pusher.push(0, "ROT");
-					// stack: value key dict
-					StackPusherHelper sp{&cc, m_pusher.getStack().size()};
-					sp.setDict(getKeyTypeOfC4(), *varDecl->type(), dataType2);
-					m_pusher.append(sp.code());
-					m_pusher.push(-2, ""); // fix stack
-					// stack: dict'
-				}
-			}
-			m_pusher.push(+1, "NEWC");
-			m_pusher.push(-2 + 1, "STDICT");
-			m_pusher.push(-1 + 1, "ENDC");
-		};
+		auto varIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "varInit"; });
+		bool hasVars = (varIt != optionNames.end());
+		bool isNew = true;
+		stateInitExprs[StateInitMembers::Data] = generateDataSection(pushKey, hasVars,
+																	 hasVars ? functionOptions->options().at(varIt - optionNames.begin()) : nullptr,
+																	 isNew,
+																	 nullptr
+					);
 
 		stateInitExprs[StateInitMembers::Code] = [&]() {
 			size_t codeIndex = codeIt - optionNames.begin();

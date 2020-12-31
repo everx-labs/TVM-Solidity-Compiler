@@ -2915,6 +2915,7 @@ string FunctionType::richIdentifier() const
 	case Kind::Stoi: id += "stoi"; break;
 	case Kind::LogTVM: id += "logtvm"; break;
 	case Kind::TVMAccept: id += "tvmaccept"; break;
+	case Kind::TVMBuildStateInit: id += "tvmbuildstateinit"; break;
 
 	case Kind::TVMBuilderMethods: id += "tvmbuildermethods"; break;
 	case Kind::TVMBuilderStore: id += "tvmbuilderstore"; break;
@@ -4051,21 +4052,22 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 		));
 
 		members.emplace_back("buildStateInit", TypeProvider::function(
-				TypePointers{TypeProvider::tvmcell(), TypeProvider::tvmcell()},
+				TypePointers{TypeProvider::tvmcell(),
+							 TypeProvider::tvmcell(),
+							 TypeProvider::uint(8),
+							 TypeProvider::initializerList(),
+							 TypeProvider::uint256(),
+							 TypeProvider::uint256()},
 				TypePointers{TypeProvider::tvmcell()},
-				strings{string(), string()},
+				strings{string("code"),	// mandatory
+						string("data"),	// conflicts with pubkey and varInit
+						string("splitDepth"),	// can be omitted
+						string("varInit"),	// conflicts with data
+						string("pubkey"),	// conflicts with data
+						string("contr")},
 				strings{string()},
-				FunctionType::Kind::TVMDeploy,
-				false, StateMutability::Pure
-		));
-
-		members.emplace_back("buildStateInit", TypeProvider::function(
-				{TypeProvider::tvmcell(), TypeProvider::tvmcell(), TypeProvider::uint(8)},
-				{TypeProvider::tvmcell()},
-				{{}, {}, {}},
-				{{}},
-				FunctionType::Kind::TVMDeploy,
-				false, StateMutability::Pure
+				FunctionType::Kind::TVMBuildStateInit,
+				true, StateMutability::Pure
 		));
 
 		members.emplace_back("buildEmptyData", TypeProvider::function(

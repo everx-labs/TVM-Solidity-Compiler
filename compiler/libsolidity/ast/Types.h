@@ -1189,6 +1189,7 @@ public:
 		MathMulDivMod, ///< math.muldivmod()
 
 		TVMAccept, ///< tvm.accept()
+		TVMBuildStateInit, ///< tvm.buildStateInit()
 		TVMChecksign, ///< tvm.checkSign()
 		TVMCommit, ///< tvm.commit()
 		TVMConfigParam, ///< tvm.configParam()
@@ -1203,7 +1204,7 @@ public:
 		TVMResetStorage, ///< tvm.resetStorage()
 		TVMSendMsg, ///< tvm.sendMsg()
 		TVMSetcode, ///< tvm.setcode()
-		TVMTransfer, ///< tvm.transfer()
+		TVMTransfer, ///< address.transfer()
 		TXtimestamp, ///< tx.timestamp
 
 		ArrayPush, ///< .push() to a dynamically sized array in storage
