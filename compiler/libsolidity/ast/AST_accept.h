@@ -621,6 +621,28 @@ void ForStatement::accept(ASTConstVisitor& _visitor) const
 	_visitor.endVisit(*this);
 }
 
+void ForEachStatement::accept(ASTVisitor& _visitor)
+{
+	if (_visitor.visit(*this))
+	{
+		m_rangeDeclaration->accept(_visitor);
+		m_rangeExpression->accept(_visitor);
+		m_body->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void ForEachStatement::accept(ASTConstVisitor& _visitor) const
+{
+	if (_visitor.visit(*this))
+	{
+		m_rangeDeclaration->accept(_visitor);
+		m_rangeExpression->accept(_visitor);
+		m_body->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
 void Continue::accept(ASTVisitor& _visitor)
 {
 	_visitor.visit(*this);

@@ -116,6 +116,8 @@ private:
 		FunctionTypePointer _functionType
 	);
 
+	void typeCheckTvmEncodeFunctions(FunctionCall const& _functionCall);
+
 	static FunctionDefinition const* getFunctionDefinition(Expression const* expr);
 	static std::pair<bool, FunctionDefinition const*> getConstructorDefinition(Expression const* expr);
 	FunctionDefinition const* checkPubFunctionOrContractTypeAndGetDefinition(Expression const& arg);
@@ -135,6 +137,7 @@ private:
 	void endVisit(TryStatement const& _tryStatement) override;
 	bool visit(WhileStatement const& _whileStatement) override;
 	bool visit(ForStatement const& _forStatement) override;
+	bool visit(ForEachStatement const& _forStatement) override;
 	void endVisit(Return const& _return) override;
 	void endVisit(EmitStatement const& _emit) override;
 	bool visit(VariableDeclarationStatement const& _variable) override;

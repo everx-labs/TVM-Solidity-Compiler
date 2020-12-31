@@ -25,10 +25,15 @@ namespace solidity::frontend {
 class TVMExpressionCompiler {
 public:
 	struct LValueInfo {
+		explicit LValueInfo() {}
+		explicit LValueInfo(Type const* rightType) :
+			rightType{rightType} {
+		}
 		std::vector<Expression const*> expressions;
 		std::vector<bool> isResultBuilder;
 		bool isValueBuilder{};
 		bool doesntNeedToCollect = false;
+		Type const* rightType{};
 	};
 
 private:
@@ -82,7 +87,7 @@ protected:
 	std::string getDefaultMsgValue();
 	bool checkRemoteMethodCall(FunctionCall const& _functionCall);
 	const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
-	void mappingDelMinMax(FunctionCall const& _functionCall, bool isDelMin);
+	void mappingDelMinOrMax(FunctionCall const& _functionCall, bool isDelMin);
 	void mappingGetSet(FunctionCall const& _functionCall);
 	void mappingPrevNextMethods(FunctionCall const& _functionCall);
 	void mappingMinMaxMethod(FunctionCall const& _functionCall, bool isMin);
@@ -92,16 +97,50 @@ protected:
 	void visit2(Conditional const& _conditional);
 	void visit2(ElementaryTypeNameExpression const& _node);
 	bool fold_constants(const Expression *expr);
+	static bool isOptionalGet(Expression const* expr);
 
 public:
-	LValueInfo expandLValue(Expression const* const _expr, const bool withExpandLastValue,
-	                        bool willNoStackPermutationForLValue = false, bool isLValue = true);
+	LValueInfo expandLValue(
+		Expression const* const _expr,
+		const bool withExpandLastValue,
+	    bool willNoStackPermutationForLValue = false,
+	    bool isLValue = true,
+		Type const* rightType = nullptr
+	);
 	void collectLValue(const LValueInfo &lValueInfo, const bool haveValueOnStackTop, bool isValueBuilder);
 
 protected:
 	bool tryAssignLValue(Assignment const& _assignment);
 	bool tryAssignTuple(Assignment const& _assignment);
 	void visit2(Assignment const& _assignment);
+};
+
+class DictMinMax : public DictOperation {
+public:
+	DictMinMax(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, bool isMin) :
+			DictOperation{pusher, keyType, valueType}, isMin{isMin} {
+
+	}
+
+	void minOrMax();
+
+private:
+	const bool isMin{};
+	std::string dictOpcode;
+};
+
+class DictPrevNext : public DictOperation {
+public:
+	DictPrevNext(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, const std::string& oper) :
+			DictOperation{pusher, keyType, valueType},
+			oper{oper}
+	{
+	}
+
+	void prevNext();
+
+private:
+	const std::string oper;
 };
 
 }	// end solidity::frontend

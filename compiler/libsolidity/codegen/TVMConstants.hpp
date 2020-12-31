@@ -27,6 +27,7 @@ namespace TvmConst {
 	}
 	namespace C7 {
 		const int TempFunctionReturnBuffer = 8;
+		constexpr int FirstIndexForVariables = 10;
 	}
 	namespace SENDRAWMSG {
 		const int DefaultFlag = 1;

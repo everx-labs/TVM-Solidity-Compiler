@@ -34,11 +34,11 @@ private:
 	static void print(const Json::Value& json, std::ostream* out);
 	static Json::Value processFunction(
 		const string& fname,
-		const ast_vec<VariableDeclaration>& params,
-		const ast_vec<VariableDeclaration>& retParams,
+		const std::vector<VariableDeclaration const*> &params,
+		const std::vector<VariableDeclaration const*> &retParams,
 		FunctionDefinition const* funcDef = nullptr
 	);
-	static Json::Value encodeParams(const ast_vec<VariableDeclaration>& params);
+	static Json::Value encodeParams(const std::vector<VariableDeclaration const*> &params);
 	static Json::Value setupType(const string& name, const Type* type, ASTNode const& node);
 	static Json::Value setupStructComponents(const StructType* type, ASTNode const& node);
 };
@@ -138,32 +138,45 @@ public:
 class EncodeFunctionParams : private boost::noncopyable {
 public:
 	explicit EncodeFunctionParams(StackPusherHelper *pusher) : pusher{pusher} {}
-	void createMsgBodyAndAppendToBuilder2(const ast_vec<Expression const>&	arguments,
-	                                      const ReasonOfOutboundMessage reason,
-	                                      const CallableDeclaration *funcDef,
-										  int builderSize);
+	void createMsgBodyAndAppendToBuilder2(
+		const ast_vec<Expression const> &arguments,
+		const std::vector<VariableDeclaration const*> &params,
+		uint32_t functionId,
+		int builderSize
+	);
 	void createDefaultConstructorMsgBodyAndAppendToBuilder(const int bitSizeBuilder);
 	void createDefaultConstructorMessage2();
 
 	// returns pair (functionID, is_manually_overridden)
-	uint32_t defaultConstructorFunctionID();
+	uint32_t calculateConstructorFunctionID();
 	std::pair<uint32_t, bool> calculateFunctionID(const CallableDeclaration *declaration);
 	uint32_t calculateFunctionID(
-			const std::string name,
-			const std::vector<ASTPointer<VariableDeclaration> > inputs,
-			const std::vector<ASTPointer<VariableDeclaration> > *outputs
+		const std::string name,
+		const std::vector<ASTPointer<VariableDeclaration> > inputs,
+		const std::vector<VariableDeclaration const*> *outputs
 	);
-public:
-	void createMsgBodyAndAppendToBuilder(const std::function<void(size_t)>& pushParam,
-	                                     const ReasonOfOutboundMessage& reason,
-	                                     const CallableDeclaration *funcDef,
-	                                     bool encodeReturnParam,
-										 const int bitSizeBuilder);
+	uint32_t calculateFunctionIDWithReason(const CallableDeclaration *funcDef, const ReasonOfOutboundMessage &reason);
+	uint32_t calculateFunctionIDWithReason(
+		const std::string name,
+		const std::vector<ASTPointer<VariableDeclaration> > inputs,
+		const std::vector<VariableDeclaration const*> *outputs,
+		const ReasonOfOutboundMessage &reason,
+		std::optional<uint32_t> functionId
+	);
 
-	void createMsgBody(const std::function<void(size_t)>& pushParam,
-					   const ReasonOfOutboundMessage& reason,
-					   const CallableDeclaration *funcDef,
-					   bool encodeReturnParam, EncodePosition &position);
+	void createMsgBodyAndAppendToBuilder(
+		const std::function<void(size_t)>& pushParam,
+		const std::vector<VariableDeclaration const*> &params,
+		const unsigned functionId,
+		const int bitSizeBuilder
+	);
+
+	void createMsgBody(
+		const std::function<void(size_t)>& pushParam,
+		const std::vector<VariableDeclaration const*> &params,
+		const uint32_t functionId,
+		EncodePosition &position
+	);
 
 	void encodeParameters(const std::vector<Type const*>& types,
 	                      const std::vector<ASTNode const*>& nodes,

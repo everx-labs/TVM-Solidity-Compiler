@@ -46,7 +46,6 @@ protected:
 	void loadTypeFromSlice(MemberAccess const& _node, TypePointer type);
 	bool checkForTvmDeployMethods(MemberAccess const& _node, Type::Category category);
 	void sliceMethods(MemberAccess const& _node);
-	void store(MemberAccess const& _node, TypePointer type, bool reverse = true);
 	void arrayMethods(MemberAccess const& _node);
 	bool checkForOptionalMethods(MemberAccess const& _node);
 	bool checkForTvmBuilderMethods(MemberAccess const& _node, Type::Category category);
@@ -66,7 +65,30 @@ protected:
 	bool checkForIdentifier();
 	bool checkNewExpression();
 	bool createNewContract();
+	void deployNewContract(
+		const std::function<void()> pushWid,
+		const std::function<void()> pushValue,
+		const std::function<void()> pushBounce,
+		const std::function<void()> pushCurrency,
+		const std::function<void(int builderSize)> appendBody,
+		const std::function<void()> pushSendrawmsgFlag
+	);
 	bool checkTvmIntrinsic();
+
+	enum StateInitMembers {
+		SplitDepth,
+		Special,
+		Code,
+		Data,
+		Library
+	};
+	void buildStateInit(std::map<StateInitMembers, std::function<void()>> exprs);
+	std::function<void()> generateDataSection(std::function<void()> pushKey,
+				bool &hasVars,
+				ASTPointer<Expression const> vars,
+				bool &isNew,
+				ASTPointer<const Expression> contr
+			);
 };
 
 }	// solidity

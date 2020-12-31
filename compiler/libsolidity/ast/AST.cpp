@@ -443,7 +443,8 @@ bool VariableDeclaration::isLocalVariable() const
 		dynamic_cast<CallableDeclaration const*>(s) ||
 		dynamic_cast<Block const*>(s) ||
 		dynamic_cast<TryCatchClause const*>(s) ||
-		dynamic_cast<ForStatement const*>(s);
+		dynamic_cast<ForStatement const*>(s) ||
+		dynamic_cast<ForEachStatement const*>(s);
 }
 
 bool VariableDeclaration::isCallableOrCatchParameter() const
@@ -637,6 +638,11 @@ TryCatchClauseAnnotation& TryCatchClause::annotation() const
 ForStatementAnnotation& ForStatement::annotation() const
 {
 	return initAnnotation<ForStatementAnnotation>();
+}
+
+ForEachStatementAnnotation& ForEachStatement::annotation() const
+{
+	return initAnnotation<ForEachStatementAnnotation>();
 }
 
 ReturnAnnotation& Return::annotation() const

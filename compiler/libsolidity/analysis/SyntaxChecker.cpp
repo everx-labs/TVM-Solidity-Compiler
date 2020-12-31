@@ -206,6 +206,18 @@ void SyntaxChecker::endVisit(ForStatement const&)
 	m_inLoopDepth--;
 }
 
+bool SyntaxChecker::visit(ForEachStatement const& _forStatement)
+{
+	m_inLoopDepth++;
+	checkSingleStatementVariableDeclaration(_forStatement.body());
+	return true;
+}
+
+void SyntaxChecker::endVisit(ForEachStatement const&)
+{
+	m_inLoopDepth--;
+}
+
 bool SyntaxChecker::visit(Continue const& _continueStatement)
 {
 	if (m_inLoopDepth <= 0)

@@ -22,6 +22,27 @@
 
 namespace solidity::frontend {
 
+struct ContInfo {
+	static constexpr int CONTINUE_FLAG = 1;
+	static constexpr int BREAK_FLAG = 2;
+	static constexpr int RETURN_FLAG = 4;
+
+	bool canReturn{};
+	bool canBreak{};
+	bool canContinue{};
+	bool alwaysReturns{};
+	bool alwaysBreak{};
+	bool alwaysContinue{};
+
+	bool doThatAlways() const {
+		return alwaysReturns || alwaysBreak || alwaysContinue;
+	}
+
+	bool mayDoThat() const {
+		return canReturn || canBreak || canContinue;
+	}
+};
+
 class TVMFunctionCompiler: public ASTConstVisitor, private boost::noncopyable
 {
 private:
@@ -73,6 +94,7 @@ public:
 	static void generateFallback(StackPusherHelper& pusher, FunctionDefinition const* function);
 	static void generatePublicFunction(StackPusherHelper& pusher, FunctionDefinition const* function);
 	static void generateFunctionWithModifiers(StackPusherHelper& pusher, FunctionDefinition const* function, bool doAllocParam);
+	static void generateGetter(StackPusherHelper& pusher, VariableDeclaration const* vd);
 
 public:
 	void decodeFunctionParamsAndLocateVars();
@@ -95,7 +117,8 @@ protected:
 public:
 	void visitFunctionWithModifiers(bool doAllocateParams);
 private:
-	void visitForOrWhileCondition(const ContInfo& ci, const ControlFlowInfo& info, Expression const* condition);
+	void visitForOrWhileCondition(const ContInfo& ci, const ControlFlowInfo& info, const std::function<void()>& pushCondition);
+	void afterLoopCheck(const ContInfo& ci, const int& loopVarQty);
 	bool visitNode(ASTNode const&) override { solAssert(false, "Internal error: unreachable"); }
 
 	bool visit(VariableDeclarationStatement const& _variableDeclarationStatement) override;
@@ -103,6 +126,12 @@ private:
 	bool visit(ExpressionStatement const& _expressionStatement) override;
 	bool visit(IfStatement const& _ifStatement) override;
 	bool visit(WhileStatement const& _whileStatement) override;
+	bool visit(ForEachStatement const& _forStatement) override;
+	void visitBodyOfForLoop(
+		const ContInfo& ci,
+		Statement const& body,
+		const std::function<void()>& loopExpression
+	);
 	bool visit(ForStatement const& _forStatement) override;
 	bool visit(Return const& _return) override;
 	bool visit(Break const&) override;

@@ -37,16 +37,17 @@ public:
 		Type const* type{};
 
 		FieldSizeInfo(bool isBitFixed, bool isRefFixed, int maxBitLength, int maxRefLength);
-		FieldSizeInfo(Type const* type, ASTNode const& node);
+		explicit FieldSizeInfo(Type const* type);
 		bool tryMerge(const FieldSizeInfo& fieldSizeInfo);
 	};
 
 	struct Field {
 		FieldSizeInfo fieldSizeInfo;
 		int memberIndex{0};
-		VariableDeclaration const* member{};
+		Type const* type{};
+		std::string name;
 
-		Field(int memberIndex, VariableDeclaration const* member);
+		Field(int memberIndex, Type const* type, std::string  name);
 	};
 
 	class Node {
@@ -74,24 +75,31 @@ public:
 		bool haveDataOrRefsAfterMember;
 
 		PathToStructMember(
-				const std::vector<int> &nodes,
-				const std::vector<int> &childRef,
-				std::vector<FieldSizeInfo> skippedFields,
-				Field field,
-				bool haveDataOrRefsAfterMember);
+			const std::vector<int> &nodes,
+			const std::vector<int> &childRef,
+			std::vector<FieldSizeInfo> skippedFields,
+			Field field,
+			bool haveDataOrRefsAfterMember
+		);
 	};
 
 private:
-	std::vector<VariableDeclaration const*> variableDeclarations;
+	std::vector<std::string> memberNames;
+	std::vector<Type const*> memberTypes;
 	std::vector<Node> nodes;
-	std::map<std::string, VariableDeclaration const*> nameToVariableDeclarations;
+	std::map<std::string, Type const*> nameToType;
 	std::map<std::string, PathToStructMember> paths; // paths[memberName]
 	StackPusherHelper *pusher{};
 
 public:
 	StructCompiler(StackPusherHelper *pusher, StructType const* structType);
-	StructCompiler(StackPusherHelper *pusher, std::vector<VariableDeclaration const*> variableDeclarations,
-	               int skipData, bool isC4);
+	StructCompiler(
+		StackPusherHelper *pusher,
+		const std::vector<Type const*>& memberTypes,
+		std::vector<std::string> memberNames,
+	   	int skipData,
+	   	bool isC4
+	);
 	void createDefaultStruct(bool resultIsBuilder = false);
 	void pushMember(const std::string &memberName, bool isStructTuple, bool returnStructAsSlice);
 	void setMemberForTuple(const std::string &memberName);
@@ -102,6 +110,7 @@ public:
 	void collectStruct(const std::string &memberName, bool isValueBuilder);
 	void convertSliceToTuple();
 	void sliceToStateVarsToC7();
+	static int maxBitLength(StructType const* structType);
 	static bool isCompatibleWithSDK(int keyLength, StructType const* structType);
 private:
 	bool isCompatibleWithSDK(int keyLength) const;
@@ -113,21 +122,12 @@ private:
 	void createStructDfs(int v, const std::map<std::string, int>& argStackSize);
 	void stateVarsToBuilderDfs(const int v);
 	void sliceToStateVarsToC7Dfs(int v);
-	void load(const VariableDeclaration *vd, bool reverseOrder);
-	// return true if on stack there are (value, slice) else false if (slice, value)
-    [[nodiscard]]
-	bool fastLoad(const VariableDeclaration *vd, const Type *childType = nullptr);
-	void preload(const VariableDeclaration *vd, bool returnStructAsSlice, const Type *childType = nullptr,
-                    bool useCurrentSlice = false);
-	void store(const VariableDeclaration *vd, bool reverse, bool isValueBuilder = false, bool isArrayUntupled = false,
-                const Type *childType = nullptr, bool storeAsRefForStruct = true);
 	void skip(int bits, int refs);
 	void skip(const FieldSizeInfo& si);
 	void skip(const std::vector<FieldSizeInfo> &fieldInfo);
 	void split(const FieldSizeInfo& fieldSizeInfo);
 	void split(int bitQty, int refQty);
 	void merge(const FieldSizeInfo& fieldSizeInfo);
-	static std::vector<VariableDeclaration const*> fVariableDeclarations(StructDefinition const* structDefinition);
 }; // end StructCompiler
 } // end solidity::frontend
 

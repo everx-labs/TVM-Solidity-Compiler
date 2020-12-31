@@ -1438,8 +1438,7 @@ ASTPointer<WhileStatement> Parser::parseDoWhileStatement(ASTPointer<ASTString> c
 	return nodeFactory.createNode<WhileStatement>(_docString, condition, body, WhileStatement::LoopType::DO_WHILE);
 }
 
-
-ASTPointer<ForStatement> Parser::parseForStatement(ASTPointer<ASTString> const& _docString)
+ASTPointer<Statement> Parser::parseForStatement(ASTPointer<ASTString> const& _docString)
 {
 	RecursionGuard recursionGuard(*this);
 	ASTNodeFactory nodeFactory(*this);
@@ -1450,27 +1449,44 @@ ASTPointer<ForStatement> Parser::parseForStatement(ASTPointer<ASTString> const& 
 	expectToken(Token::LParen);
 
 	// LTODO: Maybe here have some predicate like peekExpression() instead of checking for semicolon and RParen?
-	if (m_scanner->currentToken() != Token::Semicolon)
-		initExpression = parseSimpleStatement(ASTPointer<ASTString>());
-	expectToken(Token::Semicolon);
+	if (m_scanner->currentToken() != Token::Semicolon) {
+		 initExpression = parseSimpleStatement(ASTPointer<ASTString>(), true);
+	}
 
-	if (m_scanner->currentToken() != Token::Semicolon)
-		conditionExpression = parseExpression();
-	expectToken(Token::Semicolon);
+	if (m_scanner->currentToken() == Token::Colon) {
+		expectToken(Token::Colon);
+		ASTPointer<Statement> rangeDeclaration = initExpression;
+		ASTPointer<Expression> rangeExpression = parseExpression();
+		expectToken(Token::RParen);
+		ASTPointer<Statement> body = parseStatement();
+		nodeFactory.setEndPositionFromNode(body);
+		return nodeFactory.createNode<ForEachStatement>(
+				_docString,
+				rangeDeclaration,
+				rangeExpression,
+				body
+		);
+	} else {
+		expectToken(Token::Semicolon);
 
-	if (m_scanner->currentToken() != Token::RParen)
-		loopExpression = parseExpressionStatement(ASTPointer<ASTString>());
-	expectToken(Token::RParen);
+		if (m_scanner->currentToken() != Token::Semicolon)
+			conditionExpression = parseExpression();
+		expectToken(Token::Semicolon);
 
-	ASTPointer<Statement> body = parseStatement();
-	nodeFactory.setEndPositionFromNode(body);
-	return nodeFactory.createNode<ForStatement>(
-		_docString,
-		initExpression,
-		conditionExpression,
-		loopExpression,
-		body
-	);
+		if (m_scanner->currentToken() != Token::RParen)
+			loopExpression = parseExpressionStatement(ASTPointer<ASTString>());
+		expectToken(Token::RParen);
+
+		ASTPointer<Statement> body = parseStatement();
+		nodeFactory.setEndPositionFromNode(body);
+		return nodeFactory.createNode<ForStatement>(
+				_docString,
+				initExpression,
+				conditionExpression,
+				loopExpression,
+				body
+		);
+	}
 }
 
 ASTPointer<EmitStatement> Parser::parseEmitStatement(ASTPointer<ASTString> const& _docString)
@@ -1531,7 +1547,7 @@ ASTPointer<EmitStatement> Parser::parseEmitStatement(ASTPointer<ASTString> const
 	return statement;
 }
 
-ASTPointer<Statement> Parser::parseSimpleStatement(ASTPointer<ASTString> const& _docString)
+ASTPointer<Statement> Parser::parseSimpleStatement(ASTPointer<ASTString> const& _docString, bool isInForLoop)
 {
 	RecursionGuard recursionGuard(*this);
 	LookAheadInfo statementType;
@@ -1572,10 +1588,15 @@ ASTPointer<Statement> Parser::parseSimpleStatement(ASTPointer<ASTString> const& 
 					variables.push_back(parseVariableDeclaration(options));
 			}
 			expectToken(Token::RParen);
-			expectToken(Token::Assign);
-			value = parseExpression();
-			nodeFactory.setEndPositionFromNode(value);
-			return nodeFactory.createNode<VariableDeclarationStatement>(_docString, variables, value);
+			if (!isInForLoop) {
+				expectToken(Token::Assign);
+				value = parseExpression();
+				nodeFactory.setEndPositionFromNode(value);
+			} else {
+				nodeFactory.markEndPosition();
+			}
+
+			return nodeFactory.createNode<VariableDeclarationStatement>(_docString, variables, value, isInForLoop);
 		}
 		case LookAheadInfo::Expression:
 		{

@@ -85,7 +85,7 @@ public:
 
 	static AddressType const* address() noexcept { return &m_address; }
 	static VarInteger const* varInteger() noexcept { return &m_varInteger; }
-	static InitializerListType const* optionValue() noexcept { return &m_optionValue; }
+	static InitializerListType const* initializerList() noexcept { return &m_initializerList; }
 
 
 	static IntegerType const* integer(unsigned _bits, IntegerType::Modifier _modifier)
@@ -220,7 +220,7 @@ private:
 	static TupleType const m_emptyTuple;
 	static AddressType const m_address;
 	static VarInteger const m_varInteger;
-	static InitializerListType const m_optionValue;
+	static InitializerListType const m_initializerList;
 	static std::array<std::unique_ptr<IntegerType>, 32> const m_intM;
 	static std::array<std::unique_ptr<IntegerType>, 32> const m_uintM;
 	static std::array<std::unique_ptr<FixedBytesType>, 32> const m_bytesM;

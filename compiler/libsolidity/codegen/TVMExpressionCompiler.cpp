@@ -234,7 +234,7 @@ void TVMExpressionCompiler::visit2(Literal const &_node) {
 			break;
 		}
 		case Type::Category::Address:
-			m_pusher.literalToSliceAddress(&_node);
+			solUnimplemented("");
 			break;
 		case Type::Category::Bool:
 			m_pusher.push(+1, _node.token() == Token::TrueLiteral? "TRUE" : "FALSE");
@@ -267,10 +267,10 @@ void TVMExpressionCompiler::visit2(TupleExpression const &_tupleExpression) {
 			auto arrayBaseType = to<ArrayType>(type)->baseType();
 
 			compileNewExpr(_tupleExpression.components().at(i).get()); // totalSize dict value
-			bool isValueBuilder = m_pusher.prepareValueForDictOperations(&key, arrayBaseType, false); // totalSize dict value'
+			const DataType& dataType = m_pusher.prepareValueForDictOperations(&key, arrayBaseType, false); // totalSize dict value'
 			m_pusher.pushInt(i); // totalSize dict value' index
 			m_pusher.push(0, "ROT"); // totalSize value' index dict
-			m_pusher.setDict(key, *arrayBaseType, isValueBuilder, _tupleExpression); // totalSize dict
+			m_pusher.setDict(key, *arrayBaseType, dataType); // totalSize dict
 		}
 		m_pusher.push(-2 + 1, "PAIR");
 	} else {
@@ -885,16 +885,14 @@ bool TVMExpressionCompiler::checkForAddressMemberAccess(MemberAccess const &_nod
 	}
 	if (_node.memberName() == "wid") {
 		compileNewExpr(&_node.expression());
-		m_pusher.pushInt(3);
-		m_pusher.push(-1, "SDSKIPFIRST");
-		m_pusher.push(0, "PLDI 8");
+		m_pusher.push(-1 + 1, "PARSEMSGADDR");
+		m_pusher.index(2);
 		return true;
-
 	}
 	if (_node.memberName() == "value") {
 		compileNewExpr(&_node.expression());
-		m_pusher.pushInt(3 + 8);
-		m_pusher.push(-1, "SDSKIPFIRST");
+		m_pusher.push(-1 + 1, "PARSEMSGADDR");
+		m_pusher.index(3);
 		m_pusher.push(0, "PLDU 256");
 		return true;
 	}
@@ -910,7 +908,7 @@ void TVMExpressionCompiler::visitMemberAccessArray(MemberAccess const &_node) {
 			m_pusher.push(-1 + 1, "SBITS");
 			m_pusher.push(-1 + 1, "RSHIFT 3");
 		} else {
-			m_pusher.push(-1 + 1, "FIRST");
+			m_pusher.index(0);
 		}
 	} else {
 		cast_error(_node, "Unsupported member access");
@@ -960,7 +958,6 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 	bool returnStructAsSlice = m_expressionDepth != 0;
 	m_pusher.getDict(*StackPusherHelper::parseIndexType(baseType),
 	                 *StackPusherHelper::parseValueType(indexAccess),
-	                 indexAccess,
 	                 baseType->category() == Type::Category::Mapping ||
 	                 baseType->category() == Type::Category::ExtraCurrencyCollection ?
 	                 StackPusherHelper::GetDictOperation::GetFromMapping :
@@ -1023,7 +1020,7 @@ std::string TVMExpressionCompiler::getDefaultMsgValue() {
 	if (!expr) {
 		return StackPusherHelper::tonsToBinaryString(u256{TvmConst::Message::DefaultMsgValue});
 	}
-	const auto& [ok, val] = constValue(*expr.get());
+	const auto& [ok, val] = constValue(*expr);
 	if (!ok) {
 		cast_error(*expr, "Default value should be compile time expression of number type");
 	}
@@ -1037,6 +1034,7 @@ bool TVMExpressionCompiler::checkRemoteMethodCall(FunctionCall const &_functionC
 	std::map<int, std::string> constParams = {{TvmConst::int_msg_info::ihr_disabled, "1"}};
 	std::function<void(int)> appendBody;
 	Expression const *sendrawmsgFlag{};
+	FunctionDefinition const* fdef{};
 
 	if (auto functionOptions = to<FunctionCallOptions>(&_functionCall.expression())) {
 		auto memberAccess = to<MemberAccess>(&functionOptions->expression());
@@ -1087,14 +1085,7 @@ bool TVMExpressionCompiler::checkRemoteMethodCall(FunctionCall const &_functionC
 		// remote_addr
 		exprs[TvmConst::int_msg_info::dest] = &memberAccess->expression();
 
-		appendBody = [&](int builderSize) {
-			const FunctionDefinition *fdef = getRemoteFunctionDefinition(memberAccess);
-			solAssert(fdef, "");
-			EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder2(arguments,
-			                                                                 ReasonOfOutboundMessage::RemoteCallInternal,
-			                                                                 fdef, builderSize);
-		};
-
+		fdef = getRemoteFunctionDefinition(memberAccess);
 
 		// Search for senrawmsg flag option
 		auto flagIt = std::find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "flag";});
@@ -1134,17 +1125,19 @@ bool TVMExpressionCompiler::checkRemoteMethodCall(FunctionCall const &_functionC
 			return false;
 		}
 		exprs[TvmConst::int_msg_info::dest] = &memberValue->expression();
-		const FunctionDefinition *fdef = getRemoteFunctionDefinition(memberValue);
+		fdef = getRemoteFunctionDefinition(memberValue);
 		if (fdef == nullptr) {
 			return false;
 		}
-
-		appendBody = [&](int builderSize) {
-			return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder2(arguments,
-			                                                                        ReasonOfOutboundMessage::RemoteCallInternal,
-			                                                                        fdef, builderSize);
-		};
 	}
+
+	appendBody = [&](int builderSize) {
+		return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder2(
+				arguments,
+				convertArray(fdef->parameters()),
+				EncodeFunctionParams{&m_pusher}.calculateFunctionIDWithReason(fdef, ReasonOfOutboundMessage::RemoteCallInternal),
+				builderSize);
+	};
 
 	if (isCurrentResultNeeded())
 		cast_error(_functionCall, "Calls to remote contract do not return result.");
@@ -1189,89 +1182,32 @@ dictKeyValue(MemberAccess const* memberAccess) {
 	return {keyType, valueType};
 }
 
-class DelMinMax : public DictOperation {
+class DelMinOrMax : public DictOperation {
 public:
-	DelMinMax(StackPusherHelper& pusher, Type const &keyType, Type const &valueType, ASTNode const &node,
-				bool isDelMin, MemberAccess const* memberAccess)  :
-		DictOperation{pusher, keyType, valueType, node}, isDelMin{isDelMin}, memberAccess{memberAccess},
-		ec{pusher} {
+	DelMinOrMax(StackPusherHelper& pusher, Type const &keyType, Type const &valueType, bool isDelMin, MemberAccess const* memberAccess)  :
+		DictOperation{pusher, keyType, valueType},
+		isDelMin{isDelMin},
+		memberAccess{memberAccess},
+		ec{pusher}
+	{
 
 	}
 
-	void delMinMax() {
-		opcode = "DICT" + typeToDictChar(&keyType) + "REM" + (isDelMin? "MIN" : "MAX");
+	void delMinOrMax() {
+		bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
+		opcode = "DICT" + typeToDictChar(&keyType) + "REM" + (isDelMin? "MIN" : "MAX") + (isInRef? "REF" : "");
 		stackSize = pusher.getStack().size();
 
-		lValueInfo = ec.expandLValue(&memberAccess->expression(), true); // lValue... map
+		lValueInfo = ec.expandLValue(&memberAccess->expression(), true, false); // lValue... map
 		pusher.pushInt(keyLength); // dict nbits
-
-		doDictOperation();
-		pusher.push(0, "TUPLE 2");
-		pusher.endContinuation();
-
-		pusher.startContinuation();
-		pusher.push(-1, ""); // fix stack size
-		ec.collectLValue(lValueInfo, true, false);
-		pusher.push(+1, "NULL");
-		pusher.endContinuation();
-
-		pusher.push(0, "IFELSE");
-		const int cntOfValuesOnStack = pusher.getStack().size() - stackSize;
-		pusher.push(-cntOfValuesOnStack + 1, ""); // revert stack size
-	}
-
-private:
-	void decodeKeyAndAssignMap() {
-		// D value key
-		pusher.recoverKeyAfterDictOperation(&keyType, node);
-		const int cntOfValuesOnStack = pusher.getStack().size() - stackSize;  // mapLValue... map value key
-		pusher.blockSwap(cntOfValuesOnStack - 2, 2); // value key mapLValue... map
-		ec.collectLValue(lValueInfo, true, false); // value key
-		pusher.exchange(0, 1); // key value
-	}
-
-protected:
-	void pushOpcodeAndStartCont() {
 		pusher.push(-2 + 3, opcode); //  D value key -1
-		pusher.startContinuation();
-		decodeKeyAndAssignMap(); // key value
-	}
 
-	void onCell() override {
-		opcode += "REF";
-		pushOpcodeAndStartCont();
-	}
+		pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, true, isInRef, StackPusherHelper::DecodeType::DecodeValueOrPushNull, false);
 
-	void onSmallStruct() override {
-		pushOpcodeAndStartCont();
-		StructCompiler sc{&pusher, to<StructType>(&valueType)};
-		sc.convertSliceToTuple();
-	}
-
-	void onLargeStruct() override {
-		opcode += "REF";
-		pushOpcodeAndStartCont();
-		pusher.push(0, "CTOS");
-		StructCompiler sc{&pusher, to<StructType>(&valueType)};
-		sc.convertSliceToTuple();
-	}
-
-	void onSlice() override {
-		pushOpcodeAndStartCont();
-	}
-
-	void onByteArrayOrString() override {
-		opcode += "REF";
-		pushOpcodeAndStartCont();
-	}
-
-	void onIntegralOrArrayOrVarInt() override {
-		pushOpcodeAndStartCont();
-		pusher.preload(&valueType);
-	}
-
-	void onMapOrECC() override {
-		onIntegralOrArrayOrVarInt();
+		// mapLValue... D optPair
+		const int cntOfValuesOnStack = pusher.getStack().size() - stackSize;
+		pusher.blockSwap(cntOfValuesOnStack - 1, 1); // optPair mapLValue... map
+		ec.collectLValue(lValueInfo, true, false); // value key
 	}
 
 private:
@@ -1283,15 +1219,15 @@ private:
 	std::string opcode;
 };
 
-void TVMExpressionCompiler::mappingDelMinMax(FunctionCall const &_functionCall, bool isDelMin) {
+void TVMExpressionCompiler::mappingDelMinOrMax(FunctionCall const &_functionCall, bool isDelMin) {
 	auto memberAccess = to<MemberAccess>(&_functionCall.expression());
 
 	Type const* keyType{};
 	Type const* valueType{};
 	std::tie(keyType, valueType) = dictKeyValue(memberAccess);
 
-	DelMinMax d{m_pusher, *keyType, *valueType, _functionCall, isDelMin, memberAccess};
-	d.delMinMax();
+	DelMinOrMax d{m_pusher, *keyType, *valueType, isDelMin, memberAccess};
+	d.delMinOrMax();
 }
 
 void TVMExpressionCompiler::mappingGetSet(FunctionCall const &_functionCall) {
@@ -1307,21 +1243,20 @@ void TVMExpressionCompiler::mappingGetSet(FunctionCall const &_functionCall) {
         m_pusher.prepareKeyForDictOperations(keyType);
 		compileNewExpr(&memberAccess->expression()); // index dict
 		if (memberName == "fetch")
-			m_pusher.getDict(*keyType, *valueType, _functionCall, StackPusherHelper::GetDictOperation::Fetch, false);
+			m_pusher.getDict(*keyType, *valueType, StackPusherHelper::GetDictOperation::Fetch, false);
 		else
-			m_pusher.getDict(*keyType, *valueType, _functionCall, StackPusherHelper::GetDictOperation::GetFromArray, false);
+			m_pusher.getDict(*keyType, *valueType, StackPusherHelper::GetDictOperation::GetFromArray, false);
 	} else if (memberName == "exists") {
 		compileNewExpr(_functionCall.arguments()[0].get()); // index
         m_pusher.prepareKeyForDictOperations(keyType);
 		compileNewExpr(&memberAccess->expression()); // index dict
-		m_pusher.getDict(*keyType, *valueType, _functionCall,
-		                 StackPusherHelper::GetDictOperation::Exist, false);
+		m_pusher.getDict(*keyType, *valueType, StackPusherHelper::GetDictOperation::Exist, false);
 	} else if (isIn(memberName, "replace", "add", "getSet", "getAdd", "getReplace")) {
 		const int stackSize = m_pusher.getStack().size();
 		auto ma = to<MemberAccess>(&_functionCall.expression());
 		const LValueInfo lValueInfo = expandLValue(&ma->expression(), true); // lValue... map
 		compileNewExpr(_functionCall.arguments()[1].get()); // lValue... map value
-		bool isValueBuilder = m_pusher.prepareValueForDictOperations(keyType, valueType, false); // lValue... map value'
+		const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueType, false); // lValue... map value'
 		compileNewExpr(_functionCall.arguments()[0].get()); // mapLValue... map value key
         m_pusher.prepareKeyForDictOperations(keyType);
 		m_pusher.push(0, "ROT"); // mapLValue... value key map
@@ -1335,7 +1270,7 @@ void TVMExpressionCompiler::mappingGetSet(FunctionCall const &_functionCall) {
 			} else {
 				solAssert(false, "");
 			}
-			m_pusher.setDict(*keyType, *valueType, isValueBuilder, _functionCall, op); // mapLValue... map {0, -1}
+			m_pusher.setDict(*keyType, *valueType, dataType, op); // mapLValue... map {0, -1}
 		} else {
 			StackPusherHelper::GetDictOperation op;
 			if (memberName == "getSet") {
@@ -1347,7 +1282,7 @@ void TVMExpressionCompiler::mappingGetSet(FunctionCall const &_functionCall) {
 			} else {
 				solAssert(false, "");
 			}
-			m_pusher.getDict(*keyType, *valueType, _functionCall, op, false);
+			m_pusher.getDict(*keyType, *valueType, op, false, dataType);
 			// mapLValue... map optValue
 		}
 		const int cntOfValuesOnStack = m_pusher.getStack().size() - stackSize;  // mapLValue... map optValue
@@ -1358,83 +1293,6 @@ void TVMExpressionCompiler::mappingGetSet(FunctionCall const &_functionCall) {
 	}
 }
 
-class DictPrevNext : public DictOperation {
-public:
-	DictPrevNext(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, ASTNode const& node, const std::string& oper) :
-			DictOperation{pusher, keyType, valueType, node}, oper{oper} {
-
-	}
-
-	void prevNext() {
-		// stack: index dict nbits
-		std::string dictOpcode = std::string{"DICT"} + typeToDictChar(&keyType) + "GET";
-		if (oper == "next"){
-			dictOpcode += "NEXT";
-		} else if (oper == "prev") {
-			dictOpcode += "PREV";
-		} else if (oper == "nextOrEq") {
-			dictOpcode += "NEXTEQ";
-		} else if (oper == "prevOrEq") {
-			dictOpcode += "PREVEQ";
-		} else {
-			solAssert(false, "");
-		}
-
-		pusher.push(-3 + 1, dictOpcode); // value key -1 or 0
-		int ss = pusher.getStack().size();
-
-		pusher.startContinuation();
-        pusher.recoverKeyAfterDictOperation(&keyType, node);
-        pusher.push(0, "SWAP"); // key value
-		doDictOperation();
-		pusher.push(0, "TUPLE 2");
-        pusher.endContinuation();
-
-		pusher.startContinuation();
-		pusher.push(0, "NULL");
-		pusher.endContinuation();
-
-		pusher.push(0, "IFELSE");
-
-		pusher.getStack().ensureSize(ss);
-	}
-
-protected:
-	void onCell() override {
-        pusher.push(0, "PLDREF");
-    }
-
-	void onSmallStruct() override {
-        StructCompiler sc{&pusher, to<StructType>(&valueType)};
-        sc.convertSliceToTuple();
-	}
-
-	void onLargeStruct() override {
-		pusher.push(0, "LDREFRTOS");
-		pusher.push(0, "NIP");
-		StructCompiler sc{&pusher, to<StructType>(&valueType)};
-		sc.convertSliceToTuple();
-	}
-
-	void onSlice() override {
-	}
-
-	void onByteArrayOrString() override {
-        pusher.push(0, "PLDREF");
-	}
-
-	void onIntegralOrArrayOrVarInt() override {
-        pusher.preload(&valueType);
-	}
-
-	void onMapOrECC() override {
-        pusher.push(0, "PLDREF");
-	}
-
-private:
-	const std::string oper;
-};
-
 void TVMExpressionCompiler::mappingPrevNextMethods(FunctionCall const &_functionCall) {
 	auto expr = &_functionCall.expression();
 	auto memberAccess = to<MemberAccess>(expr);
@@ -1443,86 +1301,13 @@ void TVMExpressionCompiler::mappingPrevNextMethods(FunctionCall const &_function
 	std::tie(keyType, valueType) = dictKeyValue(memberAccess);
 
 	compileNewExpr(_functionCall.arguments()[0].get()); // index
-    m_pusher.prepareKeyForDictOperations(keyType); // index'
+    m_pusher.prepareKeyForDictOperations(keyType, true); // index'
     compileNewExpr(&memberAccess->expression()); // index' dict
 	m_pusher.pushInt(lengthOfDictKey(keyType)); // index' dict nbits
 
-	DictPrevNext compiler{m_pusher, *keyType, *valueType, _functionCall, memberAccess->memberName()};
+	DictPrevNext compiler{m_pusher, *keyType, *valueType, memberAccess->memberName()};
 	compiler.prevNext();
 }
-
-class DictMinMax : public DictOperation {
-public:
-	DictMinMax(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, ASTNode const& node, bool isMin) :
-		DictOperation{pusher, keyType, valueType, node}, isMin{isMin} {
-
-	}
-
-	void minMax() {
-		// stack: dict nbits
-		dictOpcode = "DICT" + typeToDictChar(&keyType) + (isMin? "MIN" : "MAX");
-
-		doDictOperation();
-		pusher.push(0, "TUPLE 2");
-		pusher.endContinuation();
-
-		pusher.startContinuation();
-		pusher.push(0, "NULL");
-		pusher.endContinuation();
-
-		pusher.push(0, "IFELSE");
-	}
-
-protected:
-	void onCell() override {
-		dictOpcode += "REF";
-		pushOpcodeAndStartCont();
-	}
-
-	void onSmallStruct() override {
-		pushOpcodeAndStartCont();
-		StructCompiler sc{&pusher, to<StructType>(&valueType)};
-		sc.convertSliceToTuple();
-	}
-
-	void onLargeStruct() override {
-		dictOpcode += "REF";
-		pushOpcodeAndStartCont();
-        pusher.push(0, "CTOS");
-		StructCompiler sc{&pusher, to<StructType>(&valueType)};
-		sc.convertSliceToTuple();
-	}
-
-	void onSlice() override {
-		pushOpcodeAndStartCont();
-	}
-
-	void onByteArrayOrString() override {
-		dictOpcode += "REF";
-		pushOpcodeAndStartCont();
-	}
-
-	void onIntegralOrArrayOrVarInt() override {
-		pushOpcodeAndStartCont();
-        pusher.preload(&valueType);
-	}
-
-	void onMapOrECC() override {
-		pushOpcodeAndStartCont();
-        pusher.preload(&valueType);
-	}
-
-	void pushOpcodeAndStartCont() {
-		pusher.push(-2 + 1, dictOpcode); // (value, key, -1) or 0
-		pusher.startContinuation();
-		pusher.recoverKeyAfterDictOperation(&keyType, node);
-		pusher.push(0, "SWAP"); // key value
-	}
-
-private:
-	const bool isMin{};
-	std::string dictOpcode;
-};
 
 void TVMExpressionCompiler::mappingMinMaxMethod(FunctionCall const &_functionCall, bool isMin) {
 	auto expr = &_functionCall.expression();
@@ -1532,11 +1317,10 @@ void TVMExpressionCompiler::mappingMinMaxMethod(FunctionCall const &_functionCal
 	Type const* valueType{};
 	std::tie(keyType, valueType) = dictKeyValue(memberAccess);
 
-	compileNewExpr(&memberAccess->expression());
-	m_pusher.pushInt(lengthOfDictKey(keyType)); // dict nbits
+	compileNewExpr(&memberAccess->expression()); // dict
 
-	DictMinMax compiler{m_pusher, *keyType, *valueType, _functionCall, isMin};
-	compiler.minMax();
+	DictMinMax compiler{m_pusher, *keyType, *valueType, isMin};
+	compiler.minOrMax();
 }
 
 void TVMExpressionCompiler::mappingEmpty(FunctionCall const &_functionCall) {
@@ -1556,7 +1340,7 @@ bool TVMExpressionCompiler::checkForMappingOrCurrenciesMethods(FunctionCall cons
 	m_pusher.push(0, ";; map." + memberName);
 
 	if (isIn(memberName, "delMin", "delMax")) {
-		mappingDelMinMax(_functionCall, memberName == std::string{"delMin"});
+		mappingDelMinOrMax(_functionCall, memberName == std::string{"delMin"});
 	} else  if (isIn(memberName, "at", "fetch", "exists", "replace", "add", "getSet", "getAdd", "getReplace")) {
 		mappingGetSet(_functionCall);
 	} else if (isIn(memberName, "min", "max")) {
@@ -1647,10 +1431,24 @@ void TVMExpressionCompiler::visit2(ElementaryTypeNameExpression const &_node) {
 	m_pusher.ensureValueFitsType(_node.type().typeName(), _node);
 }
 
+bool TVMExpressionCompiler::isOptionalGet(Expression const* expr) {
+	auto funCall = to<FunctionCall>(expr);
+	if (!funCall) {
+		return false;
+	}
+	auto ma = to<MemberAccess>(&funCall->expression());
+	return ma && ma->expression().annotation().type->category() == Type::Category::Optional;
+}
+
 TVMExpressionCompiler::LValueInfo
-TVMExpressionCompiler::expandLValue(Expression const *const _expr, const bool withExpandLastValue,
-                                    bool willNoStackPermutationForLValue, bool isLValue) {
-	LValueInfo lValueInfo {};
+TVMExpressionCompiler::expandLValue(
+	Expression const *const _expr,
+	const bool withExpandLastValue,
+	bool willNoStackPermutationForLValue,
+	bool isLValue,
+	Type const* rightType
+) {
+	LValueInfo lValueInfo {rightType};
 
 	Expression const* expr = _expr;
 	while (true) {
@@ -1660,12 +1458,21 @@ TVMExpressionCompiler::expandLValue(Expression const *const _expr, const bool wi
 		} else if (auto index2 = to<IndexAccess>(expr)) {
 			indexTypeCheck(*index2);
 			expr = &index2->baseExpression();
-		} else if (auto memberAccess = to<MemberAccess>(expr); memberAccess && getType(&memberAccess->expression())->category() == Type::Category::Struct) {
+		} else if (
+			auto memberAccess = to<MemberAccess>(expr);
+			memberAccess && getType(&memberAccess->expression())->category() == Type::Category::Struct
+		) {
 			expr = &memberAccess->expression();
-		} else if (to<FunctionCall>(expr) && !isLValue){
-			compileNewExpr(expr);
+		} else if (
+			auto funCall = to<FunctionCall>(expr);
+			funCall && !isLValue
+		) {
+			compileNewExpr(_expr);
 			lValueInfo.doesntNeedToCollect = true;
 			return lValueInfo;
+		} else if (isOptionalGet(expr)) {
+			auto ma = to<MemberAccess>(&funCall->expression());
+			expr = &ma->expression();
 		} else {
 			cast_error(*expr, "Unsupported lvalue");
 		}
@@ -1712,7 +1519,7 @@ TVMExpressionCompiler::expandLValue(Expression const *const _expr, const bool wi
 				// index dict1 index dict1
 
 				m_pusher.getDict(*StackPusherHelper::parseIndexType(index->baseExpression().annotation().type),
-				                 *StackPusherHelper::parseValueType(*index), *index,
+				                 *StackPusherHelper::parseValueType(*index),
 				                 StackPusherHelper::GetDictOperation::GetFromMapping, true);
 				// index dict1 dict2
 			} else if (index->baseExpression().annotation().type->category() == Type::Category::Array) {
@@ -1728,7 +1535,7 @@ TVMExpressionCompiler::expandLValue(Expression const *const _expr, const bool wi
 				}
 				m_pusher.push(+2, "PUSH2 S1, S0"); // size index dict index dict
 				m_pusher.getDict(*StackPusherHelper::parseIndexType(index->baseExpression().annotation().type),
-				                 *index->annotation().type, *index, StackPusherHelper::GetDictOperation::GetFromArray,
+				                 *index->annotation().type, StackPusherHelper::GetDictOperation::GetFromArray,
 				                 true);
 				// size index dict value
 			} else {
@@ -1747,6 +1554,11 @@ TVMExpressionCompiler::expandLValue(Expression const *const _expr, const bool wi
 				m_pusher.push(+1, "DUP");
 				structCompiler.pushMember(memberName, true, false);
 			}
+		} else if (isOptionalGet(lValueInfo.expressions[i])) {
+			if (!isLast || withExpandLastValue) {
+				m_pusher.pushS(0);
+			}
+			m_pusher.checkOptionalValue();
 		} else {
 			solAssert(false, "");
 		}
@@ -1762,7 +1574,7 @@ TVMExpressionCompiler::collectLValue(
 	bool isValueBuilder
 )
 {
-	// variable [arrayIndex | mapIndex | structMember]...
+	// variable [arrayIndex | mapIndex | structMember | <optional>.get()]...
 
 	m_pusher.push(0, "; colValue");
 	if (lValueInfo.doesntNeedToCollect) {
@@ -1773,6 +1585,12 @@ TVMExpressionCompiler::collectLValue(
 
 	const int n = static_cast<int>(lValueInfo.expressions.size());
 
+	if (haveValueOnStackTop) {
+		if (auto tuple = to<TupleType>(lValueInfo.rightType)) {
+			m_pusher.tuple(tuple->components().size());
+		}
+	}
+
 	for (int i = n - 1; i >= 0; i--) {
 		const bool isLast = (i + 1) == static_cast<int>(lValueInfo.expressions.size());
 		const bool isCurrentValueBuilder = (isLast && isValueBuilder) || (!isLast && lValueInfo.isResultBuilder[i + 1]);
@@ -1781,7 +1599,7 @@ TVMExpressionCompiler::collectLValue(
 //				pushLog("colVar");
 			if (isCurrentValueBuilder) {
 				m_pusher.push(0, "ENDC");
-				m_pusher.push(0, "CTOS");
+				m_pusher.push(0, "CTOS"); // TODO add test with TvmCell
 			}
 			auto& stack = m_pusher.getStack();
 			if (stack.isParam(variable->annotation().referencedDeclaration)) {
@@ -1802,9 +1620,9 @@ TVMExpressionCompiler::collectLValue(
 					// index dict value
 					TypePointer const keyType = StackPusherHelper::parseIndexType(indexAccess->baseExpression().annotation().type);
 					TypePointer const valueDictType = StackPusherHelper::parseValueType(*indexAccess);
-					bool isMapValueBuilder = m_pusher.prepareValueForDictOperations(keyType, valueDictType, isCurrentValueBuilder);
+					const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueDictType, isCurrentValueBuilder);
 					m_pusher.push(0, "ROTREV"); // value index dict
-					m_pusher.setDict(*keyType, *valueDictType, isMapValueBuilder, *lValueInfo.expressions[i]); // dict'
+					m_pusher.setDict(*keyType, *valueDictType, dataType); // dict'
 				}
 				if (lValueInfo.isResultBuilder[i]) {
 					m_pusher.push(+1, "NEWC");
@@ -1819,9 +1637,9 @@ TVMExpressionCompiler::collectLValue(
 					// size index dict value
 					TypePointer const keyType = StackPusherHelper::parseIndexType(indexAccess->baseExpression().annotation().type);
 					auto valueDictType = getType(indexAccess);
-					bool isArrValueBuilder = m_pusher.prepareValueForDictOperations(keyType, valueDictType, isCurrentValueBuilder);
+					const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueDictType, isCurrentValueBuilder);
 					m_pusher.push(0, "ROTREV"); // size value index dict
-					m_pusher.setDict(*keyType, *valueDictType, isArrValueBuilder, *lValueInfo.expressions[i]); // size dict'
+					m_pusher.setDict(*keyType, *valueDictType, dataType); // size dict'
 				}
 
 				if (lValueInfo.isResultBuilder[i]) {
@@ -1846,6 +1664,8 @@ TVMExpressionCompiler::collectLValue(
 			} else {
 				structCompiler.setMemberForTuple(memberName);
 			}
+		} else if (isOptionalGet(lValueInfo.expressions[i])) {
+			// do nothing
 		} else {
 			solAssert(false, "");
 		}
@@ -1910,13 +1730,13 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 			!TVMExpressionAnalyzer(lhs).hasSideEffects() &&
 			!TVMExpressionAnalyzer(rhs).hasSideEffects();
 		if (!isCurrentResultNeeded() && hasNoSideEffects) {
-			const LValueInfo lValueInfo = expandLValue(&lhs, false);
+			const LValueInfo lValueInfo = expandLValue(&lhs, false, false, true, getType(&rhs));
 			bool valueIsBuilder = push_rhs();
 			collectLValue(lValueInfo, true, valueIsBuilder);
 		} else {
 			bool valueIsBuilder = push_rhs();
 			const int saveStackSize = m_pusher.getStack().size();
-			const LValueInfo lValueInfo = expandLValue(&lhs, false);
+			const LValueInfo lValueInfo = expandLValue(&lhs, false, false, true, getType(&rhs));
 			if (isCurrentResultNeeded()) {
 				m_pusher.push(+1, "PUSH s" + toString(m_pusher.getStack().size() - saveStackSize));
 			} else {
@@ -2026,3 +1846,51 @@ bool TVMExpressionCompiler::fold_constants(const Expression *expr) {
 }
 
 
+void DictMinMax::minOrMax() {
+	// stack: dict
+	pusher.pushInt(lengthOfDictKey(&keyType)); // dict nbits
+
+	const bool haveKey = true;
+	bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
+	dictOpcode = "DICT" + typeToDictChar(&keyType) + (isMin? "MIN" : "MAX") + (isInRef? "REF" : "");
+
+	pusher.push(-2 + 2, dictOpcode); // (value, key, -1) or 0
+	pusher.recoverKeyAndValueAfterDictOperation(
+			&keyType,
+			&valueType,
+			haveKey,
+			isInRef,
+			StackPusherHelper::DecodeType::DecodeValueOrPushNull,
+			false
+	);
+}
+
+void DictPrevNext::prevNext() {
+	// stack: index dict nbits
+	std::string dictOpcode = std::string{"DICT"} + typeToDictChar(&keyType) + "GET";
+	if (oper == "next"){
+		dictOpcode += "NEXT";
+	} else if (oper == "prev") {
+		dictOpcode += "PREV";
+	} else if (oper == "nextOrEq") {
+		dictOpcode += "NEXTEQ";
+	} else if (oper == "prevOrEq") {
+		dictOpcode += "PREVEQ";
+	} else {
+		solAssert(false, "");
+	}
+
+	int ss = pusher.getStack().size();
+	pusher.push(-3 + 2, dictOpcode); // value key -1 or 0
+
+	pusher.recoverKeyAndValueAfterDictOperation(
+			&keyType,
+			&valueType,
+			true,
+			false,
+			StackPusherHelper::DecodeType::DecodeValueOrPushNull,
+			false
+	);
+
+	pusher.getStack().ensureSize(ss - 3 + 2 - 2 + 1);
+}

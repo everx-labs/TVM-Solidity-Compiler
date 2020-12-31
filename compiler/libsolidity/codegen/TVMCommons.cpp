@@ -155,7 +155,7 @@ std::string typeToDictChar(Type const *keyType) {
 	TypeInfo ti(keyType);
 	if (ti.isNumeric) {
 		return ti.isSigned? "I" : "U";
-	} else if (isStringOrStringLiteralOrBytes(keyType)) {
+	} else if (isStringOrStringLiteralOrBytes(keyType) || keyType->category() == Type::Category::TvmCell) {
 		return "U";
 	}
 	return ""; // dict key is slice
@@ -171,8 +171,8 @@ int lengthOfDictKey(Type const *key) {
 		return ti.numBits;
 	}
 
-	if (isStringOrStringLiteralOrBytes(key)){
-		return 256;
+	if (isStringOrStringLiteralOrBytes(key) || key->category() == Type::Category::TvmCell){
+		return 256; // hash of tree of cells
 	}
 
     auto structType = to<StructType>(key);
@@ -290,6 +290,72 @@ CallableDeclaration const* getFunctionDeclarationOrConstructor(Expression const*
 
 bool isEmptyFunction(FunctionDefinition const* f) {
 	return f == nullptr || (f->modifiers().empty() && f->body().statements().empty());
+}
+
+std::vector<VariableDeclaration const*>
+convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr) {
+	std::vector<VariableDeclaration const*>  ret;
+	for (const auto& v : arr)
+		ret.emplace_back(v.get());
+	return ret;
+}
+
+std::pair<
+	std::vector<Type const*>,
+	std::vector<std::string>
+>
+getTupleTypes(TupleType const* tuple) {
+	std::vector<std::string> names;
+	std::vector<Type const*> types;
+	int i = 0;
+	for (const TypePointer& comp : tuple->components()) {
+		types.emplace_back(comp);
+		names.emplace_back(to_string(i));
+
+		++i;
+	}
+	return {types, names};
+}
+
+DictValueType toDictValueType(const Type::Category& caterory) {
+	switch (caterory) {
+		case Type::Category::Address:
+			return DictValueType::Address;
+		case Type::Category::Array:
+			return DictValueType::Array;
+		case Type::Category::Bool:
+			return DictValueType::Bool;
+		case Type::Category::Contract:
+			return DictValueType::Contract;
+		case Type::Category::Enum:
+			return DictValueType::Enum;
+		case Type::Category::ExtraCurrencyCollection:
+			return DictValueType::ExtraCurrencyCollection;
+		case Type::Category::FixedBytes:
+			return DictValueType::FixedBytes;
+		case Type::Category::Integer:
+			return DictValueType::Integer;
+		case Type::Category::Mapping:
+			return DictValueType::Mapping;
+		case Type::Category::Optional:
+			return DictValueType::Optional;
+		case Type::Category::Struct:
+			return DictValueType::Struct;
+		case Type::Category::TvmCell:
+			return DictValueType::TvmCell;
+		case Type::Category::TvmSlice:
+			return DictValueType::TvmSlice;
+		case Type::Category::VarInteger:
+			return DictValueType::VarInteger;
+		default:
+			solUnimplemented("");
+	}
+}
+
+int integerLog2(int x) {
+	return (x != 0)
+		   ? std::ceil(std::log(x) / std::log(2) + 1e-7)
+		   : 1;
 }
 
 } // end namespace solidity::frontend

@@ -152,6 +152,37 @@ bool ControlFlowBuilder::visit(ForStatement const& _forStatement)
 	return false;
 }
 
+bool ControlFlowBuilder::visit(ForEachStatement const& _forStatement)
+{
+	solAssert(!!m_currentNode, "");
+	visitNode(_forStatement);
+
+	if (_forStatement.rangeDeclaration())
+		_forStatement.rangeDeclaration()->accept(*this);
+
+	auto condition = createLabelHere();
+
+	if (_forStatement.rangeExpression())
+		appendControlFlow(*_forStatement.rangeExpression());
+
+	auto loopExpression = newLabel();
+	auto nodes = splitFlow<2>();
+	auto afterFor = nodes[1];
+	m_currentNode = nodes[0];
+
+	{
+		BreakContinueScope scope(*this, afterFor, loopExpression);
+		appendControlFlow(_forStatement.body());
+	}
+
+	placeAndConnectLabel(loopExpression);
+
+	connect(m_currentNode, condition);
+	m_currentNode = afterFor;
+
+	return false;
+}
+
 bool ControlFlowBuilder::visit(WhileStatement const& _whileStatement)
 {
 	solAssert(!!m_currentNode, "");

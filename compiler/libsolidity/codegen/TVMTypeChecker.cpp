@@ -90,9 +90,14 @@ void TVMTypeChecker::checkStateVariables() {
 	for (ContractDefinition const* c : contractDefinition->annotation().linearizedBaseContracts | boost::adaptors::reversed) {
 		for (VariableDeclaration const *variable: c->stateVariables()) {
 			if (usedNames.count(variable->name()) != 0) {
+				// TODO print prev name
 				cast_error(*variable, "Duplicate member variable");
 			}
 			usedNames.insert(variable->name());
+
+			if (variable->isPublic()) {
+				checkDecodeEncodeParam(variable->type(), *variable, 0);
+			}
 		}
 	}
 }
@@ -113,8 +118,11 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 				for (CallableDeclaration const *base : annotation.baseFunctions) {
 					auto fBase = to<FunctionDefinition>(base);
 					overridedFunctions.insert(base);
-					if (f->functionID() != fBase->functionID()) {
-						cast_error(*f, "Override function should have functionID = " + toString(fBase->functionID()) + ".");
+					if ((!f->functionID().has_value() && fBase->functionID()) || (f->functionID().has_value() && !fBase->functionID())) {
+						cast_error(*f, "Both override and base functions should have functionID if for one is defined.");
+					}
+					if (f->functionID().has_value() && f->functionID() != fBase->functionID()) {
+						cast_error(*f, "Override function should have functionID = " + toString(fBase->functionID().value()) + ".");
 					}
 				}
 			}
@@ -245,7 +253,7 @@ void TVMTypeChecker::checkTvmIntrinsic(FunctionDefinition const *f, ContractDefi
 	deprecatedFunctionsReplacement["tvm_config_param15"] = "tvm.configParam()";
 	deprecatedFunctionsReplacement["tvm_config_param17"] = "tvm.configParam()";
 	deprecatedFunctionsReplacement["tvm_config_param34"] = "tvm.configParam()";
-	deprecatedFunctionsReplacement["tvm_deploy_contract"] = "tvm.deploy() or tvm.deployAndCallConstructor()";
+	deprecatedFunctionsReplacement["tvm_deploy_contract"] = "tvm.deploy()";
 	deprecatedFunctionsReplacement["tvm_insert_pubkey"] = "tvm.insertPubkey()";
 	deprecatedFunctionsReplacement["tvm_build_state_init"] = "tvm.buildStateInit()";
 	deprecatedFunctionsReplacement["tvm_ignore_integer_overflow"] = "pragma ignoreIntOverflow";

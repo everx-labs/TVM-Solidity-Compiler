@@ -75,7 +75,7 @@ private:
 		Visibility visibility = Visibility::Default;
 		StateMutability stateMutability = StateMutability::NonPayable;
 		std::vector<ASTPointer<ModifierInvocation>> modifiers;
-		unsigned int functionID = 0;
+		std::optional<uint32_t> functionID{};
 		bool isInline = false;
 	};
 
@@ -126,10 +126,10 @@ private:
 	ASTPointer<WhileStatement> parseWhileStatement(ASTPointer<ASTString> const& _docString);
 	ASTPointer<WhileStatement> parseRepeatStatement(ASTPointer<ASTString> const& _docString);
 	ASTPointer<WhileStatement> parseDoWhileStatement(ASTPointer<ASTString> const& _docString);
-	ASTPointer<ForStatement> parseForStatement(ASTPointer<ASTString> const& _docString);
+	ASTPointer<Statement> parseForStatement(ASTPointer<ASTString> const& _docString);
 	ASTPointer<EmitStatement> parseEmitStatement(ASTPointer<ASTString> const& docString);
 	/// A "simple statement" can be a variable declaration statement or an expression statement.
-	ASTPointer<Statement> parseSimpleStatement(ASTPointer<ASTString> const& _docString);
+	ASTPointer<Statement> parseSimpleStatement(ASTPointer<ASTString> const& _docString, bool isInForLoop = false);
 	ASTPointer<VariableDeclarationStatement> parseVariableDeclarationStatement(
 		ASTPointer<ASTString> const& _docString,
 		ASTPointer<TypeName> const& _lookAheadArrayType = ASTPointer<TypeName>()

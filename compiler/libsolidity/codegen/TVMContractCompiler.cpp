@@ -183,7 +183,7 @@ void TVMContractCompiler::printStorageScheme(int v, const std::vector<StructComp
 		std::cout << " ";
 	}
 	for (const StructCompiler::Field& field : nodes[v].getFields()) {
-		std::cout << " " << field.member->name();
+		std::cout << " " << field.name;
 	}
 	std::cout << std::endl;
 
@@ -337,6 +337,14 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 		{
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler::generateMainExternal(pusher, contract);
+			optimize_and_append_code(code, pusher, g_disable_optimizer);
+		}
+	}
+
+	for (VariableDeclaration const* vd : contract->stateVariablesIncludingInherited()) {
+		if (vd->isPublic()) {
+			StackPusherHelper pusher{&ctx};
+			TVMFunctionCompiler::generateGetter(pusher, vd);
 			optimize_and_append_code(code, pusher, g_disable_optimizer);
 		}
 	}

@@ -68,6 +68,8 @@ private:
 	void endVisit(WhileStatement const& _whileStatement) override;
 	bool visit(ForStatement const& _forStatement) override;
 	void endVisit(ForStatement const& _forStatement) override;
+	bool visit(ForEachStatement const& _forStatement) override;
+	void endVisit(ForEachStatement const& _forStatement) override;
 
 	bool visit(Continue const& _continueStatement) override;
 	bool visit(Break const& _breakStatement) override;
