@@ -44,20 +44,20 @@ bool SyntaxChecker::checkSyntax(ASTNode const& _astRoot)
 
 bool SyntaxChecker::visit(SourceUnit const& _sourceUnit)
 {
-	m_versionPragmaFound = false;
+	m_versionPragma.reset();
 	m_sourceUnit = &_sourceUnit;
 	return true;
 }
 
 void SyntaxChecker::endVisit(SourceUnit const& _sourceUnit)
 {
-	if (!m_versionPragmaFound)
+	if (!m_versionPragma.has_value())
 	{
 		string errorString("Source file does not specify required compiler version!");
 		SemVerVersion recommendedVersion{string(VersionString)};
 		if (!recommendedVersion.isPrerelease())
 			errorString +=
-				" Consider adding \"pragma solidity ^" +
+				" Consider adding \"pragma ton-solidity ^" +
 				to_string(recommendedVersion.major()) +
 				string(".") +
 				to_string(recommendedVersion.minor()) +
@@ -75,7 +75,9 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 {
 	solAssert(!_pragma.tokens().empty(), "");
 	solAssert(_pragma.tokens().size() == _pragma.literals().size(), "");
-	if (_pragma.tokens()[0] != Token::Identifier)
+	if (_pragma.tokens()[0] != Token::Identifier &&
+		!(_pragma.tokens().size() >= 3 && _pragma.tokens()[0] == Token::SubSmallTon && _pragma.tokens()[1] == Token::Sub && _pragma.tokens()[2] == Token::Identifier)
+	)
 		m_errorReporter.syntaxError(_pragma.location(), "Invalid pragma \"" + _pragma.literals()[0] + "\"");
 	else if (_pragma.literals()[0] == "experimental")
 	{
@@ -111,11 +113,18 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 	}
 	else if (_pragma.literals()[0] == "solidity")
 	{
-		if (m_versionPragmaFound) {
-			m_errorReporter.syntaxError(_pragma.location(), "solidity version pragma shouldn't be specified more than once.");
+
+	}
+	else if (_pragma.literals()[0] == "ton") // ton-solidity
+	{
+		if (m_versionPragma.has_value()) {
+			m_errorReporter.fatalTypeError(
+				_pragma.location(),
+				SecondarySourceLocation().append("Previous definition:", *m_versionPragma.value()),
+			   "Compiler version is defined more than once.");
 		}
-		vector<Token> tokens(_pragma.tokens().begin() + 1, _pragma.tokens().end());
-		vector<string> literals(_pragma.literals().begin() + 1, _pragma.literals().end());
+		vector<Token> tokens(_pragma.tokens().begin() + 3, _pragma.tokens().end());
+		vector<string> literals(_pragma.literals().begin() + 3, _pragma.literals().end());
 		SemVerMatchExpressionParser parser(tokens, literals);
 		auto matchExpression = parser.parse();
 		static SemVerVersion const currentVersion{string(VersionString)};
@@ -123,10 +132,9 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 			m_errorReporter.syntaxError(
 				_pragma.location(),
 				"Source file requires different compiler version (current compiler is " +
-				string(VersionString) + " - note that nightly builds are considered to be "
-				"strictly less than the released version"
+				string(VersionString) + ")"
 			);
-		m_versionPragmaFound = true;
+		m_versionPragma = &_pragma.location();
 	}
 	else if (_pragma.literals()[0] == "AbiHeader")
 	{

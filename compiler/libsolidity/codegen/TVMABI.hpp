@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include <variant>
+
 #include "TVMCommons.hpp"
 
 namespace solidity::frontend {
@@ -91,10 +93,10 @@ class DecodeFunctionParams : private boost::noncopyable {
 public:
 	explicit DecodeFunctionParams(StackPusherHelper *pusher);
 private:
-	int maxBits();
-	int minBits();
+	int maxBits(bool hasCallback);
+	int minBits(bool hasCallback);
 public:
-	void decodeParameters(const ast_vec<VariableDeclaration>& params);
+	void decodeParameters(const ast_vec<VariableDeclaration>& params, bool hasCallback);
 private:
 	void loadNextSlice();
 	void checkBitsAndLoadNextSlice();
@@ -138,12 +140,6 @@ public:
 class EncodeFunctionParams : private boost::noncopyable {
 public:
 	explicit EncodeFunctionParams(StackPusherHelper *pusher) : pusher{pusher} {}
-	void createMsgBodyAndAppendToBuilder2(
-		const ast_vec<Expression const> &arguments,
-		const std::vector<VariableDeclaration const*> &params,
-		uint32_t functionId,
-		int builderSize
-	);
 	void createDefaultConstructorMsgBodyAndAppendToBuilder(const int bitSizeBuilder);
 	void createDefaultConstructorMessage2();
 
@@ -167,14 +163,16 @@ public:
 	void createMsgBodyAndAppendToBuilder(
 		const std::function<void(size_t)>& pushParam,
 		const std::vector<VariableDeclaration const*> &params,
-		const unsigned functionId,
+		const std::variant<uint32_t, std::function<void()>>& functionId,
+		const std::optional<uint32_t>& callbackFunctionId,
 		const int bitSizeBuilder
 	);
 
 	void createMsgBody(
 		const std::function<void(size_t)>& pushParam,
 		const std::vector<VariableDeclaration const*> &params,
-		const uint32_t functionId,
+		const std::variant<uint32_t, std::function<void()>>& functionId,
+		const std::optional<uint32_t>& callbackFunctionId,
 		EncodePosition &position
 	);
 

@@ -81,11 +81,12 @@ protected:
 	void visitMemberAccessFixedBytes(MemberAccess const& _node, FixedBytesType const* fbt);
 	static void indexTypeCheck(IndexAccess const& _node);
 	void visit2(IndexAccess const& indexAccess);
-	bool checkAbiMethodCall(FunctionCall const& _functionCall);
 
 protected:
 	std::string getDefaultMsgValue();
 	bool checkRemoteMethodCall(FunctionCall const& _functionCall);
+	void checkExtMsgSend(FunctionCall const& _functionCall);
+
 	const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
 	void mappingDelMinOrMax(FunctionCall const& _functionCall, bool isDelMin);
 	void mappingGetSet(FunctionCall const& _functionCall);
@@ -108,7 +109,13 @@ public:
 		Type const* rightType = nullptr
 	);
 	void collectLValue(const LValueInfo &lValueInfo, const bool haveValueOnStackTop, bool isValueBuilder);
-
+	void generateExtInboundMsg(bool addSignature,
+								const Expression *  destination,
+								const Expression *pubkey,
+								const Expression *expire,
+								const Expression *time,
+								const CallableDeclaration *functionDefinition,
+								const ast_vec<Expression const> arguments);
 protected:
 	bool tryAssignLValue(Assignment const& _assignment);
 	bool tryAssignTuple(Assignment const& _assignment);

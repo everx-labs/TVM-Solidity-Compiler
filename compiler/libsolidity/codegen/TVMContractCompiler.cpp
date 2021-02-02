@@ -20,6 +20,7 @@
 #include <boost/range/adaptor/map.hpp>
 
 #include "TVMABI.hpp"
+#include "TVMAnalyzer.hpp"
 #include "TVMContractCompiler.hpp"
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCompiler.hpp"
@@ -76,7 +77,7 @@ void TVMConstructorCompiler::generateConstructors() {
 	if (linearizedBaseContracts[0]->constructor() == nullptr) {
 		m_pusher.push(-1, "ENDS");
 	} else {
-		DecodeFunctionParams{&m_pusher}.decodeParameters(linearizedBaseContracts[0]->constructor()->parameters());
+		DecodeFunctionParams{&m_pusher}.decodeParameters(linearizedBaseContracts[0]->constructor()->parameters(), false);
 		m_pusher.getStack().change(-static_cast<int>(linearizedBaseContracts[0]->constructor()->parameters().size()));
 		for (const ASTPointer<VariableDeclaration>& variable: linearizedBaseContracts[0]->constructor()->parameters()) {
 			auto name = variable->name();
@@ -109,6 +110,7 @@ void TVMConstructorCompiler::generateConstructors() {
 			}
 		}
 
+		m_pusher.ctx().setCurrentFunction(c->constructor());
 		TVMFunctionCompiler::generateFunctionWithModifiers(m_pusher, c->constructor(), false);
 	}
 
@@ -137,14 +139,17 @@ ISNULL
 	m_pusher.push(0, "IF");
 
 	// generate constructor protection
-	m_pusher.pushLines(R"(
+	std::string str = R"(
 ;; constructor protection
 GETGLOB 6
-THROWIF 51
+THROWIF ConstructorIsCalledTwice
 PUSHINT 1
 SETGLOB 6
 ;; end constructor protection
-)");
+)";
+	boost::replace_all(str, "ConstructorIsCalledTwice", toString(TvmConst::RuntimeException::ConstructorIsCalledTwice));
+	m_pusher.pushLines(str);
+
 }
 
 bool TVMContractCompiler::m_optionsEnabled = false;
@@ -201,7 +206,6 @@ TVMContractCompiler::proceedDumpStorage(ContractDefinition const *contract, Prag
 	StackPusherHelper pusher{&ctx};
 	const std::vector<StructCompiler::Node>& nodes = pusher.structCompiler().getNodes();
 	printStorageScheme(0, nodes);
-
 }
 
 void TVMContractCompiler::proceedContract(ContractDefinition const *contract, PragmaDirectiveHelper const &pragmaHelper) {
@@ -271,7 +275,7 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 				continue;
 			}
 
-			ctx.m_currentFunction = _function;
+			ctx.setCurrentFunction(_function);
 			if (_function->isFallback()) {
 				if (!isFallBackGenerated) {
 					isFallBackGenerated = true;
@@ -401,7 +405,7 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 			}
 		}
 
-		ctx.m_currentFunction = function;
+		ctx.setCurrentFunction(function);
 		TVMFunctionCompiler::generateFunctionWithModifiers(pusher, function, true);
 
 		if (!empty  && isSpecialFunction) {
@@ -412,7 +416,7 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 
 		const std::string name = functionName(function);
 		if (function->isFallback()) {
-			ctx.m_inlinedFunctions[name + "_without_selector_switch"] = pusher.code();
+			ctx.addInlineFunction(name + "_without_selector_switch", pusher.code());
 		}
 		CodeLines code;
 		if (doSelectorSwitch) {
@@ -421,7 +425,7 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 			code.append(switcher.code());
 		}
 		code.append(pusher.code());
-		ctx.m_inlinedFunctions[name] = code;
+		ctx.addInlineFunction(name, code);
 	}
 }
 

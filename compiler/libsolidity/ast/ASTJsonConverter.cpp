@@ -363,7 +363,6 @@ bool ASTJsonConverter::visit(VariableDeclaration const& _node)
 		make_pair("typeName", toJsonOrNull(_node.typeName())),
 		make_pair("constant", _node.isConstant()),
 		make_pair("stateVariable", _node.isStateVariable()),
-		make_pair("storageLocation", location(_node.referenceLocation())),
 		make_pair("overrides", _node.overrides() ? toJson(*_node.overrides()) : Json::nullValue),
 		make_pair("visibility", Declaration::visibilityToString(_node.visibility())),
 		make_pair("value", _node.value() ? toJson(*_node.value()) : Json::nullValue),
@@ -818,23 +817,6 @@ bool ASTJsonConverter::visit(StructuredDocumentation const& _node)
 void ASTJsonConverter::endVisit(EventDefinition const&)
 {
 	m_inEvent = false;
-}
-
-string ASTJsonConverter::location(VariableDeclaration::Location _location)
-{
-	switch (_location)
-	{
-	case VariableDeclaration::Location::Unspecified:
-		return "default";
-	case VariableDeclaration::Location::Storage:
-		return "storage";
-	case VariableDeclaration::Location::Memory:
-		return "memory";
-	case VariableDeclaration::Location::CallData:
-		return "calldata";
-	}
-	// To make the compiler happy
-	return {};
 }
 
 string ASTJsonConverter::contractKind(ContractKind _kind)

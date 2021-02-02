@@ -70,6 +70,8 @@ private:
 		std::optional<langutil::SourceLocation> const& _nestedLocation = {}
 	);
 
+	bool isStateVariable(Expression const&  expression) const;
+
 	std::vector<std::shared_ptr<ASTNode>> const& m_ast;
 	langutil::ErrorReporter& m_errorReporter;
 

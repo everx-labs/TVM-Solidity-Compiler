@@ -62,8 +62,6 @@ inline rational makeRational(bigint const& _numerator, bigint const& _denominato
 		return rational(_numerator, _denominator);
 }
 
-enum class DataLocation { Storage, CallData, Memory };
-
 
 /**
  * Helper class to compute storage offsets of members of structs and contracts.
@@ -163,7 +161,7 @@ public:
 		FixedBytes, Contract, Struct, Function, Enum, Tuple,
 		Mapping, TypeType, Modifier, Magic, Module,
 		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection,
-		VarInteger, InitializerList, // <-- variables of that types cann't be declarated in solidity contract
+		VarInteger, InitializerList, CallList, // <-- variables of that types can't be declarated in solidity contract
 		Optional
 	};
 
@@ -270,15 +268,12 @@ public:
 	/// and the pointer type for storage reference types.
 	/// Might return a null pointer if there is no fitting type.
 	virtual TypePointer mobileType() const { return this; }
-	/// @returns true if this is a non-value type and the data of this type is stored at the
-	/// given location.
-	virtual bool dataStoredIn(DataLocation) const { return false; }
 	/// @returns the type of a temporary during assignment to a variable of the given type.
 	/// Specifically, returns the requested itself if it can be dynamically allocated (or is a value type)
 	/// and the mobile type otherwise.
-	virtual TypePointer closestTemporaryType(Type const* _targetType) const
+	virtual TypePointer closestTemporaryType(Type const* /*_targetType*/) const
 	{
-		return _targetType->dataStoredIn(DataLocation::Storage) ? mobileType() : _targetType;
+		return mobileType();
 	}
 
 	/// Returns the list of all members of this type. Default implementation: no members apart from bound.
@@ -719,12 +714,28 @@ public:
 };
 
 /**
+ * Used for call list in external message creation
+ * tvm.buildExtMsg({...,call : {Contract.Func, arg1, arg2} ,...})
+ */
+class CallListType: public Type
+{
+public:
+	Category category() const override { return Category::CallList; }
+	bool isValueType() const override { return true; }
+	std::string richIdentifier() const override { return "t_calllisttype"; }
+	std::string toString(bool) const override { return "calllisttype"; }
+
+	TypePointer encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
+};
+
+/**
  * The ExtraCurrencyCollection type.
  */
 class ExtraCurrencyCollectionType: public Type
 {
 public:
-	explicit ExtraCurrencyCollectionType(DataLocation _location) : m_location{_location} {}
+	explicit ExtraCurrencyCollectionType() {}
 	Category category() const override { return Category::ExtraCurrencyCollection; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_extracurrencycollection"; }
@@ -738,10 +749,6 @@ public:
 	TypeResult unaryOperatorResult(Token _operator) const override;
 
 	MemberList::MemberMap nativeMembers(ContractDefinition const* _currentScope) const override;
-	bool dataStoredIn(DataLocation _location) const override { return m_location == _location; }
-
-private:
-	DataLocation m_location;
 };
 
 /**
@@ -751,11 +758,9 @@ private:
 class ReferenceType: public Type
 {
 protected:
-	explicit ReferenceType(DataLocation _location): m_location(_location) {}
+	explicit ReferenceType() {}
 
 public:
-	DataLocation location() const { return m_location; }
-
 	TypeResult unaryOperatorResult(Token _operator) const override;
 	TypeResult binaryOperatorResult(Token, Type const*) const override
 	{
@@ -769,10 +774,9 @@ public:
 
 	/// @returns a copy of this type with location (recursively) changed to @a _location,
 	/// whereas isPointer is only shallowly changed - the deep copy is always a bound reference.
-	virtual std::unique_ptr<ReferenceType> copyForLocation(DataLocation _location, bool _isPointer) const = 0;
+	virtual std::unique_ptr<ReferenceType> copyForLocation(bool _isPointer) const = 0;
 
-	TypePointer mobileType() const override { return withLocation(m_location, true); }
-	bool dataStoredIn(DataLocation _location) const override { return m_location == _location; }
+	TypePointer mobileType() const override { return withLocation(true); }
 	bool hasSimpleZeroValueInMemory() const override { return false; }
 
 	/// Storage references can be pointers or bound references. In general, local variables are of
@@ -786,16 +790,13 @@ public:
 		return /*location() == _other.location() && */isPointer() == _other.isPointer();
 	}
 
-	Type const* withLocation(DataLocation _location, bool _isPointer) const;
+	Type const* withLocation(bool _isPointer) const;
 
 protected:
 	Type const* copyForLocationIfReference(Type const* _type) const;
-	/// @returns a human-readable description of the reference part of the type.
-	std::string stringForReferencePart() const;
 	/// @returns the suffix computed from the reference part to be used by identifier();
 	std::string identifierLocationSuffix() const;
 
-	DataLocation m_location = DataLocation::Storage;
 	bool m_isPointer = true;
 };
 
@@ -810,18 +811,18 @@ class ArrayType: public ReferenceType
 {
 public:
 	/// Constructor for a byte array ("bytes") and string.
-	explicit ArrayType(DataLocation _location, bool _isString = false);
+	explicit ArrayType(bool _isString = false);
 
 	/// Constructor for a dynamically sized array type ("type[]")
-	ArrayType(DataLocation _location, Type const* _baseType):
-		ReferenceType(_location),
+	ArrayType(Type const* _baseType):
+		ReferenceType(),
 		m_baseType(copyForLocationIfReference(_baseType))
 	{
 	}
 
 	/// Constructor for a fixed-size array type ("type[20]")
-	ArrayType(DataLocation _location, Type const* _baseType, u256 const& _length):
-		ReferenceType(_location),
+	ArrayType(Type const* _baseType, u256 const& _length):
+		ReferenceType(),
 		m_baseType(copyForLocationIfReference(_baseType)),
 		m_hasDynamicLength(true),
 		m_length(_length)
@@ -859,7 +860,7 @@ public:
 	u256 const& length() const { return m_length; }
 	u256 memoryDataSize() const override;
 
-	std::unique_ptr<ReferenceType> copyForLocation(DataLocation _location, bool _isPointer) const override;
+	std::unique_ptr<ReferenceType> copyForLocation(bool _isPointer) const override;
 
 	/// The offset to advance in calldata to move from one array element to the next.
 	unsigned calldataStride() const { return isByteArray() ? 1 : m_baseType->calldataHeadSize(); }
@@ -888,7 +889,7 @@ private:
 class ArraySliceType: public ReferenceType
 {
 public:
-	explicit ArraySliceType(ArrayType const& _arrayType): ReferenceType(_arrayType.location()), m_arrayType(_arrayType) {}
+	explicit ArraySliceType(ArrayType const& _arrayType): ReferenceType(), m_arrayType(_arrayType) {}
 	Category category() const override { return Category::ArraySlice; }
 
 	BoolResult isImplicitlyConvertibleTo(Type const& _other) const override;
@@ -908,7 +909,7 @@ public:
 	ArrayType const& arrayType() const { return m_arrayType; }
 	u256 memoryDataSize() const override { solAssert(false, ""); }
 
-	std::unique_ptr<ReferenceType> copyForLocation(DataLocation, bool) const override { solAssert(false, ""); }
+	std::unique_ptr<ReferenceType> copyForLocation(bool) const override { solAssert(false, ""); }
 
 private:
 	ArrayType const& m_arrayType;
@@ -981,8 +982,8 @@ private:
 class StructType: public ReferenceType
 {
 public:
-	explicit StructType(StructDefinition const& _struct, DataLocation _location = DataLocation::Storage):
-		ReferenceType(_location), m_struct(_struct) {}
+	explicit StructType(StructDefinition const& _struct):
+		ReferenceType(), m_struct(_struct) {}
 
 	Category category() const override { return Category::Struct; }
 	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
@@ -1011,7 +1012,7 @@ public:
 		return m_recursive.value();
 	}
 
-	std::unique_ptr<ReferenceType> copyForLocation(DataLocation _location, bool _isPointer) const override;
+	std::unique_ptr<ReferenceType> copyForLocation(bool _isPointer) const override;
 
 	std::string canonicalName() const override;
 	std::string signatureInExternalFunction(bool _structsByName) const override;
@@ -1189,6 +1190,7 @@ public:
 		MathMulDivMod, ///< math.muldivmod()
 
 		TVMAccept, ///< tvm.accept()
+		TVMBuildExtMsg, ///< tvm.buildExtMsg()
 		TVMBuildStateInit, ///< tvm.buildStateInit()
 		TVMChecksign, ///< tvm.checkSign()
 		TVMCommit, ///< tvm.commit()
@@ -1463,8 +1465,8 @@ private:
 class MappingType: public Type
 {
 public:
-	MappingType(Type const* _keyType, Type const* _valueType,  DataLocation _location = DataLocation::Storage):
-		m_keyType(_keyType), m_valueType(_valueType), m_location(_location) {}
+	MappingType(Type const* _keyType, Type const* _valueType):
+		m_keyType(_keyType), m_valueType(_valueType) {}
 
 	Category category() const override { return Category::Mapping; }
 
@@ -1477,7 +1479,6 @@ public:
 	TypeResult binaryOperatorResult(Token, Type const*) const override { return nullptr; }
 	Type const* encodingType() const override;
 	TypeResult interfaceType(bool _inLibrary) const override;
-	bool dataStoredIn(DataLocation _location) const override { return _location == m_location; }
 	/// Cannot be stored in memory, but just in case.
 	bool hasSimpleZeroValueInMemory() const override { solAssert(false, ""); }
 
@@ -1490,7 +1491,6 @@ public:
 private:
 	TypePointer m_keyType;
 	TypePointer m_valueType;
-	DataLocation m_location;
 };
 
 /**

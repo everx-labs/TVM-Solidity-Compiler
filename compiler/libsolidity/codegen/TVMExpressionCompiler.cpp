@@ -248,7 +248,7 @@ void TVMExpressionCompiler::visit2(Literal const &_node) {
 					visitStringLiteralAbiV2(_node);
 					break;
 				default:
-					solAssert(false, "");
+					solUnimplemented("");
 			}
 			break;
 		}
@@ -311,7 +311,6 @@ bool TVMExpressionCompiler::pushMemberOrLocalVarOrConstant(Identifier const &_id
 void TVMExpressionCompiler::visit2(Identifier const &_identifier) {
 	const string& name = _identifier.name();
 	m_pusher.push(0, string(";; push identifier ") + name);
-//		dumpStackSize();
 	if (pushMemberOrLocalVarOrConstant(_identifier)) {
 	} else if (name == "now") {
 		// Getting value of `now` variable
@@ -320,10 +319,8 @@ void TVMExpressionCompiler::visit2(Identifier const &_identifier) {
 		// calling this.function() will create internal message that should be sent to the address of current contract
 		m_pusher.push(0, "; call function of this");
 		m_pusher.push(+1, "MYADDR");
-	} else if (m_pusher.ctx().getLocalFunction(name)) {
-		CodeLines code;
-		code.push("CALL $" + name + "_internal$");
-		m_pusher.pushCont(code);
+	} else if (to<FunctionDefinition>(_identifier.annotation().referencedDeclaration)) {
+		m_pusher.push(+1,"PUSHINT $" + name + "_internal$");
 	} else {
 		cast_error(_identifier, "Unsupported identifier: " + name);
 	}
@@ -390,7 +387,7 @@ void TVMExpressionCompiler::compileUnaryDelete(UnaryOperation const &node) {
 			collectLValue(lValueInfo, false, lValueInfo.isValueBuilder); // lValueInfo.isValueBuilder is ignored
 		}
 	} else {
-		solAssert(false, "");
+		solUnimplemented("");
 	}
 }
 
@@ -472,7 +469,7 @@ void TVMExpressionCompiler::compareAddresses(Token op) {
 			m_pusher.push(0, "NOT");
 			break;
 		default:
-			solAssert(false, "Wrong compare operation");
+			solUnimplemented("Wrong compare operation");
 	}
 	m_pusher.push(-2 + 1, "");
 }
@@ -497,7 +494,7 @@ bool TVMExpressionCompiler::tryOptimizeBinaryOperation(BinaryOperation const &_n
 				m_pusher.push(-1 + 1, "LESSINT " + val.str());
 				break;
 			default:
-				solAssert(false, "");
+				solUnimplemented("");
 		}
 		return true;
 	}
@@ -683,7 +680,7 @@ TVMExpressionCompiler::checkBitFit(Type const *type, Type const *lType, Type con
 	}
 	TypeInfo ti{type};
 	if (!ti.isNumeric) {
-		solAssert(false, "");
+		solUnimplemented("");
 	}
 
 	if (ti.isSigned) {
@@ -793,9 +790,14 @@ PICK
 }
 
 void TVMExpressionCompiler::visitMagic(MemberAccess const &_node) {
-	auto unsupportedMagic = [&](){cast_error(_node, "Unsupported magic");};
+	auto unsupportedMagic = [&](){
+		cast_error(_node, "Unsupported magic");
+	};
 
 	auto identifier = to<Identifier>(&_node.expression());
+	if (identifier == nullptr) {
+		unsupportedMagic();
+	}
 	if (identifier->name() == "msg") {
 		visitMsgMagic(_node);
 	} else if (identifier->name() == "tx") {
@@ -968,53 +970,6 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 	}
 }
 
-bool TVMExpressionCompiler::checkAbiMethodCall(FunctionCall const &_functionCall) {
-	// compile "abi.encodePacked()"
-	if (auto memberAccess = to<MemberAccess>(&_functionCall.expression())) {
-		auto identifier = to<Identifier>(&memberAccess->expression());
-		if (identifier != nullptr && identifier->name() == "abi") {
-			if (memberAccess->memberName() != "encodePacked") {
-				cast_error(_functionCall, "Only method encodePacked is supported for abi");
-			}
-
-			int builderSize = 0;
-			bool haveArray = false;
-			m_pusher.push(+1, "NEWC");
-			for (const ASTPointer<Expression const>& argument : _functionCall.arguments()) {
-				const Type *type = getType(argument.get());
-				if (to<IntegerType>(type) != nullptr) {
-					compileNewExpr(argument.get());
-					m_pusher.push(-1, storeIntegralOrAddress(type, true));
-					builderSize += TypeInfo{type}.numBits;
-				} else if (auto array = to<ArrayType>(type)) {
-					if (to<IntegerType>(array->baseType()) == nullptr) {
-						cast_error(*argument.get(), "Only numeric array is supported for abi.encodePacked(...) ");
-					}
-					if (_functionCall.arguments().size() != 1) {
-						cast_error(_functionCall, "Only one array is supported for abi.encodePacked(...)");
-					}
-					TypeInfo arrayElementTypeInfo(array->baseType());
-					compileNewExpr(argument.get()); // builder
-					m_pusher.push(-1 + 2, "UNPAIR"); // builder size dict
-					m_pusher.pushInt(arrayElementTypeInfo.numBits); // builder size dict valueLength
-					m_pusher.pushPrivateFunctionOrMacroCall(-4 + 1, "abi_encode_packed_macro");
-					haveArray = true;
-				} else {
-					cast_error(_functionCall, "Only numeric types or numeric arrays are supported for abi.encodePacked(...)");
-				}
-			}
-			if (builderSize > TvmConst::CellBitLength) {
-				cast_error(_functionCall, "Bit length of params >= 1023");
-			} else if (haveArray) {
-				cast_warning(_functionCall, "Ensure that sum of array's value bit length fit in 1023 bit");
-			}
-			m_pusher.push(0, "ENDC");
-			return true;
-		}
-	}
-	return false;
-}
-
 std::string TVMExpressionCompiler::getDefaultMsgValue() {
 	const auto expr = m_pusher.ctx().pragmaHelper().haveMsgValue();
 	if (!expr) {
@@ -1027,14 +982,157 @@ std::string TVMExpressionCompiler::getDefaultMsgValue() {
 	return StackPusherHelper::tonsToBinaryString(val);
 }
 
+
+void TVMExpressionCompiler::generateExtInboundMsg(bool addSignature,
+												  const Expression * destination,
+												  const Expression * pubkey,
+												  const Expression * expire,
+												  const Expression * time,
+												  CallableDeclaration const* functionDefinition,
+												  const ast_vec<Expression const> arguments) {
+
+	auto appendBody = [&](int builderSize) {
+		/* builder size:
+		2 header
+		2 src addr_none
+		267 dest addr_std
+		4 import_fee:Grams
+		1 stateInit
+		= 276
+		*/
+
+		if (addSignature) {
+			//store body in a reference
+			builderSize++;
+			m_pusher.stones(1);	// body:(Either X ^X)
+			builderSize = 0;
+			m_pusher.push(+1, "NEWC");
+			builderSize += 513;
+			m_pusher.stones(1);
+			m_pusher.stzeroes(512);	// Signature
+		} else {
+			builderSize += 2;
+			m_pusher.stzeroes(2);	// Signature
+		}
+
+		// store header
+		// [optional]pubkey: 1 + [256] bits
+		// time: 64 bits
+		// expire: 32 bits
+
+
+		if (pubkey != nullptr) {
+			// pubkey is set
+			builderSize += addSignature ? 257 : 1;
+			// pubkey is optional, check whether it presents
+			acceptExpr(pubkey);
+			m_pusher.push(-1, "ISNULL");
+			m_pusher.startContinuation();
+			m_pusher.stzeroes(1);
+			m_pusher.endContinuation();
+			m_pusher.startContinuation();
+			if (!addSignature)
+				m_pusher.push(0, "THROW " + toString(TvmConst::RuntimeException::MsgWithKeyButNoSign));
+			m_pusher.stones(1);
+			acceptExpr(pubkey);
+			m_pusher.push(-1, "STUR 256");
+			m_pusher.endContinuation();
+			m_pusher.push(0, "IFELSE");
+		}
+		// if no pubkey - encode nothing
+
+		if (time != nullptr) {
+			builderSize += 64;
+			acceptExpr(time);
+			m_pusher.push(-1, "STUR 64");
+		}
+
+		if (expire != nullptr) {
+			builderSize += 32;
+			acceptExpr(expire);
+			m_pusher.push(-1, "STUR 32");
+		}
+
+		// function call body
+
+		const std::vector<VariableDeclaration const*> &params = convertArray(functionDefinition->parameters());
+		const std::function<void(size_t)>& pushParam = [&](size_t idx) {
+			m_pusher.push(0, ";; " + params[idx]->name());
+			TVMExpressionCompiler{m_pusher}.compileNewExpr(arguments[idx].get());
+		};
+
+		std::vector<Type const*> types;
+		types = getParams(params).first;
+		builderSize += 32;
+		std::unique_ptr<EncodePosition> position = std::make_unique<EncodePosition>(builderSize, types);
+		uint32_t functionId = EncodeFunctionParams{&m_pusher}.calculateFunctionIDWithReason(functionDefinition, ReasonOfOutboundMessage::RemoteCallInternal);
+
+
+		EncodeFunctionParams{&m_pusher}.createMsgBody(pushParam, params, functionId, {}, *position);
+
+		if (addSignature)
+			m_pusher.push(-1, "STBREFR");
+	};
+	acceptExpr(destination);
+	m_pusher.prepareMsg({TvmConst::ext_msg_info::dest}, {}, appendBody, nullptr, StackPusherHelper::MsgType::ExternalIn);
+}
+
+void TVMExpressionCompiler::checkExtMsgSend(FunctionCall const& _functionCall) {
+	const ast_vec<Expression const> arguments = _functionCall.arguments();
+	auto functionOptions = to<FunctionCallOptions>(&_functionCall.expression());
+
+	std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
+	auto getIndex = [&](const std::string& name) -> int {
+		auto it = std::find_if(optionNames.begin(), optionNames.end(), [&](auto el) { return *el == name;});
+		if (it == optionNames.end()) {
+			return -1;
+		}
+		return it - optionNames.begin();
+	};
+
+	const int extIndex = getIndex("extMsg");
+	const auto& [ok, value] = TVMExpressionCompiler::constBool(*functionOptions->options()[extIndex]);
+	solAssert(ok && value, "\"extMsg\" option should be set to constant true if set.");
+
+	bool addSignature = false;
+	const int signIndex = getIndex("sign");
+	if (signIndex != -1) {
+		addSignature = TVMExpressionCompiler::constBool(*functionOptions->options()[signIndex]).second;
+	}
+
+	const Expression * pubkey = nullptr;
+	ASTPointer<Expression const> expire = nullptr;
+	ASTPointer<Expression const> time = nullptr;
+
+	const int pubkeyIndex = getIndex("pubkey");
+	if (pubkeyIndex != -1) {
+		pubkey = functionOptions->options()[pubkeyIndex].get();
+	}
+
+	const int expireIndex = getIndex("expire");
+	expire = functionOptions->options()[expireIndex];
+
+	const int timeIndex = getIndex("time");
+	time = functionOptions->options()[timeIndex];
+
+	auto memberAccess = to<MemberAccess>(&functionOptions->expression());
+	FunctionDefinition const* functionDefinition = getRemoteFunctionDefinition(memberAccess);
+
+	const Expression * destination = &memberAccess->expression();
+	generateExtInboundMsg(addSignature, destination, pubkey, expire.get(), time.get(), functionDefinition, arguments);
+	m_pusher.pushInt(TvmConst::SENDRAWMSG::DefaultFlag);
+	m_pusher.sendrawmsg();
+}
+
 bool TVMExpressionCompiler::checkRemoteMethodCall(FunctionCall const &_functionCall) {
 	const ast_vec<Expression const> arguments = _functionCall.arguments();
 
 	std::map<int, Expression const *> exprs;
 	std::map<int, std::string> constParams = {{TvmConst::int_msg_info::ihr_disabled, "1"}};
 	std::function<void(int)> appendBody;
-	Expression const *sendrawmsgFlag{};
-	FunctionDefinition const* fdef{};
+	std::function<void()> pushSendrawmsgFlag;
+	FunctionDefinition const* functionDefinition{};
+	std::optional<uint32_t> callbackFunctionId;
 
 	if (auto functionOptions = to<FunctionCallOptions>(&_functionCall.expression())) {
 		auto memberAccess = to<MemberAccess>(&functionOptions->expression());
@@ -1042,41 +1140,52 @@ bool TVMExpressionCompiler::checkRemoteMethodCall(FunctionCall const &_functionC
 			return false;
 		}
 
-		// parse options they are stored in two vectors: names and options
 		std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
-		for (const auto &option: optionNames)
-			if (!isIn(*option, "flag", "value", "currencies", "bounce"))
-				cast_error(_functionCall, "Unsupported function call option: " + *option);
+		auto getIndex = [&](const std::string& name) -> int {
+			auto it = std::find_if(optionNames.begin(), optionNames.end(), [&](auto el) { return *el == name;});
+			if (it == optionNames.end()) {
+				return -1;
+			}
+			return it - optionNames.begin();
+		};
 
 		// Search for bounce option
-		auto bounceIt = std::find_if(optionNames.begin(), optionNames.end(),
-										 [](auto el) { return *el == "bounce"; });
-		if (bounceIt != optionNames.end()) {
-			size_t index = bounceIt - optionNames.begin();
-			exprs[TvmConst::int_msg_info::bounce] = functionOptions->options()[index].get();
+		const int extIndex = getIndex("extMsg");
+		if (extIndex != -1) {
+			checkExtMsgSend(_functionCall);
+			return true;
+		}
+
+		// parse options they are stored in two vectors: names and options
+		for (const auto &option: optionNames)
+			if (!isIn(*option, "flag", "value", "currencies", "bounce", "callback"))
+				cast_error(_functionCall, "Unsupported function call option: " + *option);
+
+
+		// Search for bounce option
+		const int bounceIndex = getIndex("bounce");
+		if (bounceIndex != -1) {
+			exprs[TvmConst::int_msg_info::bounce] = functionOptions->options()[bounceIndex].get();
 		} else {
 			constParams[TvmConst::int_msg_info::bounce] = "1";
 		}
 
 		// Search for currencies option
-		auto currenciesIt = std::find_if(optionNames.begin(), optionNames.end(),
-		                                 [](auto el) { return *el == "currencies"; });
-		if (currenciesIt != optionNames.end()) {
-			size_t index = currenciesIt - optionNames.begin();
-			exprs[TvmConst::int_msg_info::currency] = functionOptions->options()[index].get();
+		const int currenciesIndex = getIndex("currencies");
+		if (currenciesIndex != -1) {
+			exprs[TvmConst::int_msg_info::currency] = functionOptions->options()[currenciesIndex].get();
 		} else {
 			constParams[TvmConst::int_msg_info::currency] = "0";
 		}
 
 		// Search for value (ton) option
-		auto valueIt = std::find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "value"; });
-		if (valueIt != optionNames.end()) {
-			const size_t index = valueIt - optionNames.begin();
-			const auto& [ok, value] = TVMExpressionCompiler::constValue(*functionOptions->options().at(index));
+		const int valueIndex = getIndex("value");
+		if (valueIndex != -1) {
+			const auto& [ok, value] = TVMExpressionCompiler::constValue(*functionOptions->options().at(valueIndex));
 			if (ok) {
 				constParams[TvmConst::int_msg_info::tons] = StackPusherHelper::tonsToBinaryString(u256(value));
 			} else {
-				exprs[TvmConst::int_msg_info::tons] = functionOptions->options()[index].get();
+				exprs[TvmConst::int_msg_info::tons] = functionOptions->options()[valueIndex].get();
 			}
 		} else {
 			constParams[TvmConst::int_msg_info::tons] = getDefaultMsgValue();
@@ -1085,13 +1194,26 @@ bool TVMExpressionCompiler::checkRemoteMethodCall(FunctionCall const &_functionC
 		// remote_addr
 		exprs[TvmConst::int_msg_info::dest] = &memberAccess->expression();
 
-		fdef = getRemoteFunctionDefinition(memberAccess);
+		// function definition
+		functionDefinition = getRemoteFunctionDefinition(memberAccess);
 
-		// Search for senrawmsg flag option
-		auto flagIt = std::find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "flag";});
-		if (flagIt != optionNames.end()) {
-			size_t index = flagIt - optionNames.begin();
-			sendrawmsgFlag = functionOptions->options()[index].get();
+
+		const int callbackIndex = getIndex("callback");
+		if (callbackIndex != -1) {
+			CallableDeclaration const* remoteFunction =
+					getFunctionDeclarationOrConstructor(functionOptions->options()[callbackIndex].get());
+			callbackFunctionId = EncodeFunctionParams{&m_pusher}.calculateFunctionIDWithReason(
+				remoteFunction,
+				ReasonOfOutboundMessage::RemoteCallInternal
+			);
+		}
+
+		// Search for sendRawMsg flag option
+		const int flagIndex = getIndex("flag");
+		if (flagIndex != -1) {
+			pushSendrawmsgFlag = [flagIndex, functionOptions, this]() {
+				compileNewExpr(functionOptions->options()[flagIndex].get());
+			};
 		}
 	} else {
 		constParams[TvmConst::int_msg_info::tons] = getDefaultMsgValue();
@@ -1110,7 +1232,9 @@ bool TVMExpressionCompiler::checkRemoteMethodCall(FunctionCall const &_functionC
 			}
 
 			if (memberAccess->memberName() == "flag") {
-				sendrawmsgFlag = currentFunctionCall->arguments()[0].get();
+				pushSendrawmsgFlag = [currentFunctionCall, this]() {
+					compileNewExpr(currentFunctionCall->arguments().at(0).get());
+				};
 				currentExpression = &memberAccess->expression();
 			} else if (memberAccess->memberName() == "value") {
 				exprs[TvmConst::int_msg_info::tons] = currentFunctionCall->arguments()[0].get();
@@ -1125,27 +1249,29 @@ bool TVMExpressionCompiler::checkRemoteMethodCall(FunctionCall const &_functionC
 			return false;
 		}
 		exprs[TvmConst::int_msg_info::dest] = &memberValue->expression();
-		fdef = getRemoteFunctionDefinition(memberValue);
-		if (fdef == nullptr) {
+		functionDefinition = getRemoteFunctionDefinition(memberValue);
+		if (functionDefinition == nullptr) {
 			return false;
 		}
 	}
 
 	appendBody = [&](int builderSize) {
-		return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder2(
-				arguments,
-				convertArray(fdef->parameters()),
-				EncodeFunctionParams{&m_pusher}.calculateFunctionIDWithReason(fdef, ReasonOfOutboundMessage::RemoteCallInternal),
-				builderSize);
+		return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder(
+			[&](size_t idx) {
+				m_pusher.push(0, ";; " + functionDefinition->parameters()[idx]->name());
+				TVMExpressionCompiler{m_pusher}.compileNewExpr(arguments[idx].get());
+			},
+			convertArray(functionDefinition->parameters()),
+			EncodeFunctionParams{&m_pusher}.calculateFunctionIDWithReason(functionDefinition, ReasonOfOutboundMessage::RemoteCallInternal),
+			callbackFunctionId,
+			builderSize
+		);
 	};
 
 	if (isCurrentResultNeeded())
 		cast_error(_functionCall, "Calls to remote contract do not return result.");
 
-	if (sendrawmsgFlag)
-		m_pusher.sendIntMsg(exprs, constParams, appendBody, [&]() { compileNewExpr(sendrawmsgFlag); });
-	else
-		m_pusher.sendIntMsg(exprs, constParams, appendBody, nullptr);
+	m_pusher.sendIntMsg(exprs, constParams, appendBody, pushSendrawmsgFlag);
 	return true;
 }
 
@@ -1177,7 +1303,7 @@ dictKeyValue(MemberAccess const* memberAccess) {
 		keyType = ccType->keyType();
 		valueType = ccType->realValueType();
 	} else {
-		solAssert(false, "");
+		solUnimplemented("");
 	}
 	return {keyType, valueType};
 }
@@ -1268,7 +1394,7 @@ void TVMExpressionCompiler::mappingGetSet(FunctionCall const &_functionCall) {
 			} else if (memberName == "add") {
 				op = StackPusherHelper::SetDictOperation::Add;
 			} else {
-				solAssert(false, "");
+				solUnimplemented("");
 			}
 			m_pusher.setDict(*keyType, *valueType, dataType, op); // mapLValue... map {0, -1}
 		} else {
@@ -1280,7 +1406,7 @@ void TVMExpressionCompiler::mappingGetSet(FunctionCall const &_functionCall) {
 			} else if (memberName == "getReplace") {
 				op = StackPusherHelper::GetDictOperation::GetReplaceFromMapping;
 			} else {
-				solAssert(false, "");
+				solUnimplemented("");
 			}
 			m_pusher.getDict(*keyType, *valueType, op, false, dataType);
 			// mapLValue... map optValue
@@ -1289,7 +1415,7 @@ void TVMExpressionCompiler::mappingGetSet(FunctionCall const &_functionCall) {
 		m_pusher.blockSwap(cntOfValuesOnStack - 1, 1); // optValue mapLValue... map
 		collectLValue(lValueInfo, true, false); // optValue
 	} else {
-		solAssert(false, "");
+		solUnimplemented("");
 	}
 }
 
@@ -1402,7 +1528,7 @@ bool TVMExpressionCompiler::visit2(FunctionCall const &_functionCall) {
 		}
 	}
 
-	if (!checkAbiMethodCall(_functionCall) && !checkForMappingOrCurrenciesMethods(_functionCall) ) {
+	if (!checkForMappingOrCurrenciesMethods(_functionCall) ) {
 		FunctionCallCompiler fcc(m_pusher, this, _functionCall);
 		fcc.compile();
 	}
@@ -1539,7 +1665,7 @@ TVMExpressionCompiler::expandLValue(
 				                 true);
 				// size index dict value
 			} else {
-				solAssert(false, "");
+				solUnimplemented("");
 			}
 		} else if (auto memberAccess = to<MemberAccess>(lValueInfo.expressions[i])) {
 			auto structType = to<StructType>(memberAccess->expression().annotation().type);
@@ -1560,7 +1686,7 @@ TVMExpressionCompiler::expandLValue(
 			}
 			m_pusher.checkOptionalValue();
 		} else {
-			solAssert(false, "");
+			solUnimplemented("");
 		}
 	}
 	m_pusher.push(0, "; end expValue");
@@ -1652,7 +1778,7 @@ TVMExpressionCompiler::collectLValue(
 					m_pusher.push(-2 + 1, "PAIR");
 				}
 			} else {
-				solAssert(false, "");
+				solUnimplemented("");
 			}
 		} else if (auto memberAccess = to<MemberAccess>(lValueInfo.expressions[i])) {
 //				pushLog("colStruct");
@@ -1667,7 +1793,7 @@ TVMExpressionCompiler::collectLValue(
 		} else if (isOptionalGet(lValueInfo.expressions[i])) {
 			// do nothing
 		} else {
-			solAssert(false, "");
+			solUnimplemented("");
 		}
 	}
 	m_pusher.push(0, "; end colValue");
@@ -1877,7 +2003,7 @@ void DictPrevNext::prevNext() {
 	} else if (oper == "prevOrEq") {
 		dictOpcode += "PREVEQ";
 	} else {
-		solAssert(false, "");
+		solUnimplemented("");
 	}
 
 	int ss = pusher.getStack().size();

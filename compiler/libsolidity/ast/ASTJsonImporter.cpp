@@ -418,8 +418,7 @@ ASTPointer<VariableDeclaration> ASTJsonImporter::createVariableDeclaration(Json:
 		memberAsBool(_node, "stateVariable"),
 		_node.isMember("indexed") ? memberAsBool(_node, "indexed") : false,
 		memberAsBool(_node, "constant"),
-		_node["overrides"].isNull() ? nullptr : createOverrideSpecifier(member(_node, "overrides")),
-		location(_node)
+		_node["overrides"].isNull() ? nullptr : createOverrideSpecifier(member(_node, "overrides"))
 	);
 }
 
@@ -636,10 +635,22 @@ ASTPointer<Break> ASTJsonImporter::createBreak(Json::Value const&  _node)
 
 ASTPointer<Return> ASTJsonImporter::createReturn(Json::Value const&  _node)
 {
+	std::vector<ASTPointer<Expression>> options;
+	for (auto& option: member(_node, "options"))
+		options.push_back(convertJsonToASTNode<Expression>(option));
+	std::vector<ASTPointer<ASTString>> names;
+	for (auto& name: member(_node, "names"))
+	{
+		astAssert(name.isString(), "Expected 'names' members to be strings!");
+		names.push_back(make_shared<ASTString>(name.asString()));
+	}
+
 	return createASTNode<Return>(
 		_node,
 		nullOrASTString(_node, "documentation"),
-		nullOrCast<Expression>(member(_node, "expression"))
+		nullOrCast<Expression>(member(_node, "expression")),
+		options,
+		names
 	);
 }
 
@@ -939,25 +950,6 @@ Visibility ASTJsonImporter::visibility(Json::Value const& _node)
 		return Visibility::External;
 	else
 		astAssert(false, "Unknown visibility declaration");
-}
-
-VariableDeclaration::Location ASTJsonImporter::location(Json::Value const& _node)
-{
-	Json::Value storageLoc = member(_node, "storageLocation");
-	astAssert(storageLoc.isString(), "'storageLocation' expected to be a string.");
-
-	string const storageLocStr = storageLoc.asString();
-
-	if (storageLocStr == "default")
-		return VariableDeclaration::Location::Unspecified;
-	else if (storageLocStr == "storage")
-		return VariableDeclaration::Location::Storage;
-	else if (storageLocStr == "memory")
-		return VariableDeclaration::Location::Memory;
-	else if (storageLocStr == "calldata")
-		return VariableDeclaration::Location::CallData;
-	else
-		astAssert(false, "Unknown location declaration");
 }
 
 Literal::SubDenomination ASTJsonImporter::subdenomination(Json::Value const& _node)

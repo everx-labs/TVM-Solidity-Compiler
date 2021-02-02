@@ -186,7 +186,7 @@ int lengthOfDictKey(Type const *key) {
         }
         return bitLength;
     }
-	solAssert(false, "");
+	solUnimplemented("");
 }
 
 IntegerType getKeyTypeOfC4() {
@@ -207,7 +207,7 @@ string storeIntegralOrAddress(const Type *type, bool reverse) {
 		solAssert(cmd != "STU 267", "");
 		return cmd + " " + toString(ti.numBits);
 	}
-	solAssert(false, "Unsupported param type " + type->toString());
+	solUnimplemented("Unsupported param type " + type->toString());
 }
 
 vector<ContractDefinition const *> getContractsChain(ContractDefinition const *contract) {
@@ -247,11 +247,11 @@ bool isMacro(const std::string &functionName) {
 	return ends_with(functionName, "_macro");
 }
 
-bool isAddressThis(const FunctionCall *fcall) {
-	if (!fcall)
+bool isAddressThis(const FunctionCall *funCall) {
+	if (!funCall)
 		return false;
-	auto arguments = fcall->arguments();
-	if (auto etn = to<ElementaryTypeNameExpression>(&fcall->expression())) {
+	auto arguments = funCall->arguments();
+	if (auto etn = to<ElementaryTypeNameExpression>(&funCall->expression())) {
 		if (etn->type().typeName().token() == Token::Address) {
 			solAssert(!arguments.empty(), "");
 			if (auto arg0 = to<Identifier>(arguments[0].get())) {
@@ -317,8 +317,8 @@ getTupleTypes(TupleType const* tuple) {
 	return {types, names};
 }
 
-DictValueType toDictValueType(const Type::Category& caterory) {
-	switch (caterory) {
+DictValueType toDictValueType(const Type::Category& category) {
+	switch (category) {
 		case Type::Category::Address:
 			return DictValueType::Address;
 		case Type::Category::Array:
@@ -347,6 +347,8 @@ DictValueType toDictValueType(const Type::Category& caterory) {
 			return DictValueType::TvmSlice;
 		case Type::Category::VarInteger:
 			return DictValueType::VarInteger;
+		case Type::Category::Function:
+			return DictValueType::Function;
 		default:
 			solUnimplemented("");
 	}

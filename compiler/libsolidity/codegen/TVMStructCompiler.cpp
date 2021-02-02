@@ -89,8 +89,14 @@ StructCompiler::FieldSizeInfo::FieldSizeInfo(Type const* type) : type{type} {
 			maxBitLength = 1;
 			maxRefLength = 1;
 			break;
+		case Type::Category::Function:
+			isBitFixed = true;
+			isRefFixed = true;
+			maxBitLength = 32;
+			maxRefLength = 0;
+			break;
 		default:
-			solAssert(false, "Unsupported in struct");
+			solUnimplemented("Unsupported in struct");
 	}
 }
 
@@ -309,7 +315,7 @@ void StructCompiler::pushMember(const std::string &memberName, bool isStructTupl
 }
 
 void StructCompiler::setMemberForTuple(const std::string &memberName) {
-	pusher->set_index(paths.at(memberName).field.memberIndex);
+	pusher->setIndex(paths.at(memberName).field.memberIndex);
 }
 
 void StructCompiler::structConstructor(
@@ -506,12 +512,12 @@ int StructCompiler::maxBitLength(StructType const* structType) {
 	return sc.nodes.size() == 1? sc.nodes[0].maxBits() : TvmConst::CellBitLength + 1;
 }
 
-bool StructCompiler::isCompatibleWithSDK(int keyLength, StructType const *structType) {
+bool StructCompiler::doesFitInOneCellAndHaveNoStruct(int keyLength, StructType const *structType) {
 	StructCompiler sc{nullptr, structType};
-	return sc.isCompatibleWithSDK(keyLength);
+	return sc.doesFitInOneCellAndHaveNoStruct(keyLength);
 }
 
-bool StructCompiler::isCompatibleWithSDK(int keyLength) const {
+bool StructCompiler::doesFitInOneCellAndHaveNoStruct(int keyLength) const {
 	for (Type const *type : memberTypes) {
 		if (type->category() == Type::Category::Struct) {
 			return false;
@@ -725,7 +731,7 @@ void StructCompiler::skip(const StructCompiler::FieldSizeInfo &si) {
 				pusher->push(-1 + 1, "SKIPDICT");
 				break;
 			default:
-				solAssert(false, "Unsupported skip");
+				solUnimplemented("Unsupported skip");
 		}
 	}
 }
@@ -758,7 +764,7 @@ void StructCompiler::split(const StructCompiler::FieldSizeInfo &fieldSizeInfo) {
 				pusher->push(0, "SWAP");// (sliceSize, dictSlice) slice
 				break;
 			default:
-				solAssert(false, "Unsupported split");
+				solUnimplemented("Unsupported split");
 		}
 	}
 	// value(slice or pair for array) restSlice

@@ -140,7 +140,6 @@ private:
 	bool memberAsBool(Json::Value const& _node, std::string const& _name);
 	Visibility visibility(Json::Value const& _node);
 	StateMutability stateMutability(Json::Value const& _node);
-	VariableDeclaration::Location location(Json::Value const& _node);
 	ContractKind contractKind(Json::Value const& _node);
 	Token literalTokenKind(Json::Value const& _node);
 	Literal::SubDenomination subdenomination(Json::Value const& _node);

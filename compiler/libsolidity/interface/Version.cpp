@@ -34,7 +34,7 @@ char const* solidity::frontend::VersionNumber = ETH_PROJECT_VERSION;
 
 string const solidity::frontend::VersionString =
 	string(solidity::frontend::VersionNumber) +
-	(string(SOL_VERSION_PRERELEASE).empty() ? "" : "-" + string(SOL_VERSION_PRERELEASE)) +
+//	(string(SOL_VERSION_PRERELEASE).empty() ? "" : "-" + string(SOL_VERSION_PRERELEASE)) +
 	(string(SOL_VERSION_BUILDINFO).empty() ? "" : "+" + string(SOL_VERSION_BUILDINFO));
 
 string const solidity::frontend::VersionStringStrict =

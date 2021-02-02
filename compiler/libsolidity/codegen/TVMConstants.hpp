@@ -26,6 +26,14 @@ namespace TvmConst {
 		const int PersistenceMembersStartIndex = 1;
 	}
 	namespace C7 {
+		const int ReturnParams = 4;
+		namespace ReturnParam {
+			const int Bounce = 1;
+			const int Value = 2;
+			const int Currencies = 3;
+			const int Flag = 4;
+			const int CallbackFunctionId = 5;
+		}
 		const int TempFunctionReturnBuffer = 8;
 		constexpr int FirstIndexForVariables = 10;
 	}
@@ -42,13 +50,6 @@ namespace TvmConst {
 		namespace ReplayProtection {
 			const int Interval = 30 * 60 * 1000; // 30 min = 30 * 60 * 1000 millisecond;
 		}
-		namespace Exception {
-			const int ConstructorIsCalledTwice  = 51;
-			const int ReplayProtection  = 52;
-			const int AddressUnpackException = 53;
-			const int InsertPubkeyException = 55;
-			const int GetOptionalException = 63;
-		}
 	}
 	const int CellBitLength = 1023;
 	const int ArrayKeyLength = 32;
@@ -56,14 +57,27 @@ namespace TvmConst {
 	const int MaxSTSLICECONST = 7 * 8; // STSLICECONST xSSSS;    SSSS.length() <= MaxSTSLICECONST
 
 	namespace RuntimeException {
+		const int BadSignature = 40;
 		const int ArrayIndexOutOfRange = 50;
+		const int ConstructorIsCalledTwice  = 51;
+		const int ReplayProtection  = 52;
+		const int AddressUnpackException = 53;
 		const int PopFromEmptyArray = 54;
+		const int InsertPubkeyException = 55;
 		const int MessageIsExpired = 57;
+		const int MessageHasNoSignButHasPubkey = 58;
+		const int NoFallback = 60;
+		const int NoPubkeyInC4 = 61;
+		const int MigratePubkey = 62;
+		const int GetOptionalException = 63;
+		const int MsgWithKeyButNoSign = 64;
+		const int BadFunctionIdOfFuncCall = 65;
 	}
 
 	namespace FunctionId {
 		const int First = 3;
 		const int64_t Last = 0xFFFFFFFD;
+		const uint32_t DefaultValueForFunctionType = 0xFFFFFFFF;
 	}
 
 	namespace int_msg_info {

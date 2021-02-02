@@ -111,9 +111,9 @@ public:
 	void convertSliceToTuple();
 	void sliceToStateVarsToC7();
 	static int maxBitLength(StructType const* structType);
-	static bool isCompatibleWithSDK(int keyLength, StructType const* structType);
+	static bool doesFitInOneCellAndHaveNoStruct(int keyLength, StructType const* structType);
 private:
-	bool isCompatibleWithSDK(int keyLength) const;
+	bool doesFitInOneCellAndHaveNoStruct(int keyLength) const;
 public:
 	const std::vector<Node>& getNodes() { return nodes; }
 private:

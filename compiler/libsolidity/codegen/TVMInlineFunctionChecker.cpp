@@ -51,6 +51,10 @@ bool TVMInlineFunctionChecker::dfs(FunctionDefinition const* v) {
 			cycleEnd = v;
 			cycleStart = to;
 			return true;
+		} else if (color[to] == 2) {
+			continue;
+		} else {
+			solUnimplemented("");
 		}
 	}
 	order.push_back(v);
@@ -64,8 +68,10 @@ std::vector<FunctionDefinition const*> TVMInlineFunctionChecker::functionOrder()
 	oneCall = true;
 
 	for (FunctionDefinition const* v : graph | boost::adaptors::map_keys) {
-		if (dfs(v)) {
-			break;
+		if (color[v] == 0) {
+			if (dfs(v)) {
+				break;
+			}
 		}
 	}
 

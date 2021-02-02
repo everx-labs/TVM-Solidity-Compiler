@@ -145,7 +145,6 @@ private:
 	{
 		return _node ? toJson(*_node) : Json::nullValue;
 	}
-	static std::string location(VariableDeclaration::Location _location);
 	static std::string contractKind(ContractKind _kind);
 	static std::string functionCallKind(FunctionCallKind _kind);
 	static std::string literalTokenKind(Token _token);

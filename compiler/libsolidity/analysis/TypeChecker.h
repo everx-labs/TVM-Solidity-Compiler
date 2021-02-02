@@ -125,7 +125,15 @@ private:
 	void endVisit(InheritanceSpecifier const& _inheritance) override;
 	void endVisit(UsingForDirective const& _usingFor) override;
 	bool visit(StructDefinition const& _struct) override;
+	bool checkAbiType(
+		VariableDeclaration const* origVar,
+		Type const* curType,
+		int keyLength,
+		VariableDeclaration const* curVar,
+		std::set<StructDefinition const*>& usedStructs
+	);
 	bool visit(FunctionDefinition const& _function) override;
+	void endVisit(FunctionDefinition const& _function) override;
 	bool visit(VariableDeclaration const& _variable) override;
 	/// We need to do this manually because we want to pass the bases of the current contract in
 	/// case this is a base constructor call.
@@ -158,6 +166,7 @@ private:
 	void endVisit(MappingNameExpression const& _expr) override;
 	void endVisit(OptionalNameExpression const& _expr) override;
 	void endVisit(InitializerList const& _expr) override;
+	void endVisit(CallList const& _expr) override;
 	void endVisit(Literal const& _literal) override;
 	bool visit(Mapping const& _mapping) override;
 
@@ -178,6 +187,7 @@ private:
 	void requireLValue(Expression const& _expression);
 
 	ContractDefinition const* m_scope = nullptr;
+	FunctionDefinition const* m_currentFunction = nullptr;
 
 	langutil::EVMVersion m_evmVersion;
 

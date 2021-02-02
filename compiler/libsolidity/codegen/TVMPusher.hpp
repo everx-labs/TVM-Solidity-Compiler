@@ -80,22 +80,8 @@ struct CodeLines {
 };
 
 class TVMCompilerContext {
-private:
-	const ContractDefinition* m_contract{};
-	string_map<const FunctionDefinition*> m_functions;
-	map<const FunctionDefinition*, const ContractDefinition*> m_function2contract; // TODO delete
-
-	bool ignoreIntOverflow{};
-	PragmaDirectiveHelper const& m_pragmaHelper;
-	std::map<VariableDeclaration const *, int> m_stateVarIndex;
-	std::set<FunctionDefinition const*> m_libFunctions;
-
 public:
-	FunctionDefinition const* m_currentFunction{};
-	map<string, CodeLines> m_inlinedFunctions;
-
 	TVMCompilerContext(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
-	void addFunction(FunctionDefinition const* _function);
 	void initMembers(ContractDefinition const* contract);
 	int getStateVarIndex(VariableDeclaration const *variable) const;
 	std::vector<VariableDeclaration const *> notConstantStateVariables() const;
@@ -106,16 +92,26 @@ public:
 	bool isStdlib() const;
 	string getFunctionInternalName(FunctionDefinition const* _function) const;
 	static string getFunctionExternalName(FunctionDefinition const* _function);
-	bool isPureFunction(FunctionDefinition const* f) const;
 	const ContractDefinition* getContract() const;
-	const ContractDefinition* getContract(const FunctionDefinition* f) const;
-	const FunctionDefinition* getLocalFunction(const string& fname) const;
 	bool ignoreIntegerOverflow() const;
 	FunctionDefinition const* afterSignatureCheck() const;
 	bool storeTimestampInC4() const;
 	void addLib(FunctionDefinition const* f);
 	const std::set<FunctionDefinition const*>& getLibFunctions() const { return m_libFunctions; }
 	std::vector<std::pair<VariableDeclaration const*, int>> getStaticVaribles() const;
+	void setCurrentFunction(FunctionDefinition const* f) { m_currentFunction = f; }
+	FunctionDefinition const* getCurrentFunction() { return m_currentFunction; }
+	void addInlineFunction(const std::string& name, const CodeLines& code);
+	CodeLines getInlinedFunction(const std::string& name);
+
+private:
+	ContractDefinition const* m_contract{};
+	bool ignoreIntOverflow{};
+	PragmaDirectiveHelper const& m_pragmaHelper;
+	std::map<VariableDeclaration const*, int> m_stateVarIndex;
+	std::set<FunctionDefinition const*> m_libFunctions;
+	FunctionDefinition const* m_currentFunction{};
+	std::map<std::string, CodeLines> m_inlinedFunctions;
 };
 
 class StackPusherHelper {
@@ -154,7 +150,8 @@ public:
 	void pushLines(const std::string& lines);
 	void untuple(int n);
 	void index(int index);
-	void set_index(int index);
+	void setIndex(int index);
+	void setIndexQ(int index);
 	void tuple(int qty);
 	void resetAllStateVars();
 	void getGlob(VariableDeclaration const * vd);
@@ -163,7 +160,7 @@ public:
 	void setGlob(VariableDeclaration const * vd);
 	void pushS(int i);
 	void popS(int i);
-	void pushInt(int i);
+	void pushInt(int64_t i);
 	void stzeroes(int qty);
 	void stones(int qty);
 	void sendrawmsg();
@@ -202,12 +199,12 @@ public:
 	void exchange(int i, int j);
 	void prepareKeyForDictOperations(Type const* key, bool doIgnoreBytes = false);
 	[[nodiscard]]
-	std::pair<std::string, int> int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams);
+	int int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams);
 	[[nodiscard]]
-	std::pair<std::string, int> ext_msg_info(const std::set<int> &isParamOnStack);
+	int ext_msg_info(const std::set<int> &isParamOnStack, bool isOut);
 	void appendToBuilder(const std::string& bitString);
 	void checkOptionalValue();
-	bool doesFitInOneCell(Type const* key, Type const* value);
+	bool doesFitInOneCellAndHaveNoStruct(Type const* key, Type const* value);
 	[[nodiscard]]
 	int maxBitLengthOfDictValue(Type const* type);
 	[[nodiscard]]
@@ -267,12 +264,25 @@ public:
 					const std::map<int, std::string> &constParams,
 					const std::function<void(int)> &appendBody,
 					const std::function<void()> &pushSendrawmsgFlag);
+
+	enum class MsgType{
+		Internal,
+		ExternalOut,
+		ExternalIn
+	};
+
 	void sendMsg(const std::set<int>& isParamOnStack,
 				 const std::map<int, std::string> &constParams,
 				 const std::function<void(int)> &appendBody,
 				 const std::function<void()> &appendStateInit,
 				 const std::function<void()> &pushSendrawmsgFlag,
-				 bool isInternalMessage = true);
+				 MsgType messageType = MsgType::Internal);
+
+	void prepareMsg(const std::set<int>& isParamOnStack,
+				 const std::map<int, std::string> &constParams,
+				 const std::function<void(int)> &appendBody,
+				 const std::function<void()> &appendStateInit,
+				 MsgType messageType = MsgType::Internal);
 
 	void switchSelector();
 };
