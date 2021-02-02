@@ -149,9 +149,15 @@ util::Result<TypePointers> transformParametersToExternal(TypePointers const& _pa
 }
 
 BoolResult Type::isImplicitlyConvertibleTo(Type const& _other) const {
-	auto opt = dynamic_cast<OptionalType const*>(&_other);
-	if (opt != nullptr && this->isImplicitlyConvertibleTo(*opt->valueType())) {
-		return true;
+	if (auto opt = dynamic_cast<OptionalType const*>(&_other)) {
+		Type::Category valueCat = opt->valueType()->category();
+		if (
+			valueCat != Type::Category::Mapping &&
+			valueCat != Type::Category::Optional &&
+			this->isImplicitlyConvertibleTo(*opt->valueType())
+		) {
+			return true;
+		}
 	}
 	return *this == _other;
 }
@@ -335,8 +341,6 @@ TypePointer Type::fullEncodingType(bool _inLibraryCall, bool _encoderV2, bool) c
 	// Structs are fine in the following circumstances:
 	// - ABIv2 or,
 	// - storage struct for a library
-	if (_inLibraryCall && encodingType->dataStoredIn(DataLocation::Storage))
-		return encodingType;
 	TypePointer baseType = encodingType;
 	while (auto const* arrayType = dynamic_cast<ArrayType const*>(baseType))
 		baseType = arrayType->baseType();
@@ -349,14 +353,13 @@ TypePointer Type::fullEncodingType(bool _inLibraryCall, bool _encoderV2, bool) c
 MemberList::MemberMap Type::boundFunctions(Type const& _type, ContractDefinition const& _scope)
 {
 	// Normalise data location of type.
-	TypePointer type = TypeProvider::withLocationIfReference(DataLocation::Storage, &_type);
+	TypePointer type = TypeProvider::withLocationIfReference(&_type);
 	set<Declaration const*> seenFunctions;
 	MemberList::MemberMap members;
 	for (ContractDefinition const* contract: _scope.annotation().linearizedBaseContracts)
 		for (UsingForDirective const* ufd: contract->usingForDirectives())
 		{
 			if (ufd->typeName() && *type != *TypeProvider::withLocationIfReference(
-				DataLocation::Storage,
 				ufd->typeName()->annotation().type
 			))
 				continue;
@@ -442,7 +445,7 @@ MemberList::MemberMap AddressType::nativeMembers(ContractDefinition const*) cons
 {
 	MemberList::MemberMap members = {
 		{"balance", TypeProvider::uint(128)},
-		{"currencies", TypeProvider::extraCurrencyCollection(DataLocation::Memory)},
+		{"currencies", TypeProvider::extraCurrencyCollection()},
 		{"wid", TypeProvider::integer(8, IntegerType::Modifier::Signed)},
 		{"value", TypeProvider::uint256()},
 		{"call", TypeProvider::function(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareCall, false, StateMutability::NonPayable)},
@@ -483,7 +486,7 @@ MemberList::MemberMap AddressType::nativeMembers(ContractDefinition const*) cons
 							 TypeProvider::boolean(),
 							 TypeProvider::uint(16),
 							 TypeProvider::tvmcell(),
-							 TypeProvider::extraCurrencyCollection(DataLocation::Memory)},
+							 TypeProvider::extraCurrencyCollection()},
 			TypePointers{},
 			strings{string("value"), string("bounce"), string("flag"), string("body"), string("currencies")},
 			strings{},
@@ -1531,71 +1534,33 @@ TypeResult ContractType::unaryOperatorResult(Token _operator) const
 		return nullptr;
 }
 
-Type const* ReferenceType::withLocation(DataLocation _location, bool _isPointer) const
+Type const* ReferenceType::withLocation(bool _isPointer) const
 {
-	return TypeProvider::withLocation(this, _location, _isPointer);
+	return TypeProvider::withLocation(this, _isPointer);
 }
 
 TypeResult ReferenceType::unaryOperatorResult(Token _operator) const
 {
 	if (_operator != Token::Delete)
 		return nullptr;
-	// delete can be used on everything except calldata references or storage pointers
-	// (storage references are ok)
-	switch (location())
-	{
-	case DataLocation::CallData:
-		return nullptr;
-	case DataLocation::Memory:
-		return TypeProvider::emptyTuple();
-	case DataLocation::Storage:
-		return m_isPointer ? nullptr : TypeProvider::emptyTuple();
-	}
-	return nullptr;
+	return TypeProvider::emptyTuple();
 }
 
 TypePointer ReferenceType::copyForLocationIfReference(Type const* _type) const
 {
-	return TypeProvider::withLocationIfReference(m_location, _type);
-}
-
-string ReferenceType::stringForReferencePart() const
-{
-	switch (m_location)
-	{
-	case DataLocation::Storage:
-		return string("storage ") + (m_isPointer ? "pointer" : "ref");
-	case DataLocation::CallData:
-		return "calldata";
-	case DataLocation::Memory:
-		return "memory";
-	}
-	solAssert(false, "");
-	return "";
+	return TypeProvider::withLocationIfReference(_type);
 }
 
 string ReferenceType::identifierLocationSuffix() const
 {
 	string id;
-	switch (location())
-	{
-	case DataLocation::Storage:
-		id += "_storage";
-		break;
-	case DataLocation::Memory:
-		id += "_memory";
-		break;
-	case DataLocation::CallData:
-		id += "_calldata";
-		break;
-	}
 	if (isPointer())
 		id += "_ptr";
 	return id;
 }
 
-ArrayType::ArrayType(DataLocation _location, bool _isString):
-	ReferenceType(_location),
+ArrayType::ArrayType(bool _isString):
+	ReferenceType(),
 	m_arrayKind(_isString ? ArrayKind::String : ArrayKind::Bytes),
 	m_baseType{TypeProvider::byte()}
 {
@@ -1644,8 +1609,6 @@ BoolResult ArrayType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 	if (_convertTo.category() != category())
 		return false;
 	auto& convertTo = dynamic_cast<ArrayType const&>(_convertTo);
-	if (convertTo.location() != location())
-		return false;
 	if (!isByteArray() || !convertTo.isByteArray())
 		return false;
 	return true;
@@ -1754,13 +1717,7 @@ u256 ArrayType::storageSize() const
 
 unsigned ArrayType::sizeOnStack() const
 {
-	if (m_location == DataLocation::CallData)
-		// offset [length] (stack top)
-		return 1 + (isDynamicallySized() ? 1 : 0);
-	else
-		// storage slot or memory offset
-		// byte offset inside storage value is omitted
-		return 1;
+	return 1;
 }
 
 string ArrayType::toString(bool _short) const
@@ -1777,8 +1734,6 @@ string ArrayType::toString(bool _short) const
 			ret += length().str();
 		ret += "]";
 	}
-//	if (!_short)
-//		ret += " " + stringForReferencePart();
 	return ret;
 }
 
@@ -1890,6 +1845,14 @@ MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 			FunctionType::Kind::StringMethod,
 			false, StateMutability::Pure
 		));
+		members.emplace_back("append", TypeProvider::function(
+			TypePointers{TypeProvider::stringMemory()},
+			TypePointers{},
+			strings{string("tail")},
+			strings{},
+			FunctionType::Kind::StringMethod,
+			false, StateMutability::Pure
+		));
 	}
 	return members;
 }
@@ -1990,18 +1953,12 @@ MemberList::MemberMap MappingType::nativeMembers(ContractDefinition const*) cons
 
 TypePointer ArrayType::encodingType() const
 {
-	if (location() == DataLocation::Storage)
-		return TypeProvider::uint256();
-	else
-		return TypeProvider::withLocation(this, DataLocation::Memory, true);
+	return TypeProvider::withLocation(this, true);
 }
 
 TypePointer ArrayType::decodingType() const
 {
-	if (location() == DataLocation::Storage)
-		return TypeProvider::uint256();
-	else
-		return this;
+	return this;
 }
 
 TypeResult ArrayType::interfaceType(bool _inLibrary) const
@@ -2020,14 +1977,12 @@ TypeResult ArrayType::interfaceType(bool _inLibrary) const
 		solAssert(!baseInterfaceType.message().empty(), "Expected detailed error message!");
 		result = baseInterfaceType;
 	}
-	else if (_inLibrary && location() == DataLocation::Storage)
-		result = this;
 	else if (m_arrayKind != ArrayKind::Ordinary)
-		result = TypeProvider::withLocation(this, DataLocation::Memory, true);
+		result = TypeProvider::withLocation(this, true);
 	else if (isDynamicallySized())
-		result = TypeProvider::array(DataLocation::Memory, baseInterfaceType);
+		result = TypeProvider::array(baseInterfaceType);
 	else
-		result = TypeProvider::array(DataLocation::Memory, baseInterfaceType, m_length);
+		result = TypeProvider::array(baseInterfaceType, m_length);
 
 	if (_inLibrary)
 		m_interfaceType_library = result;
@@ -2040,16 +1995,15 @@ TypeResult ArrayType::interfaceType(bool _inLibrary) const
 u256 ArrayType::memoryDataSize() const
 {
 	solAssert(!isDynamicallySized(), "");
-	solAssert(m_location == DataLocation::Memory, "");
 	solAssert(!isByteArray(), "");
 	bigint size = bigint(m_length) * m_baseType->memoryHeadSize();
 	solAssert(size <= numeric_limits<u256>::max(), "Array size does not fit u256.");
 	return u256(size);
 }
 
-std::unique_ptr<ReferenceType> ArrayType::copyForLocation(DataLocation _location, bool _isPointer) const
+std::unique_ptr<ReferenceType> ArrayType::copyForLocation(bool _isPointer) const
 {
-	auto copy = make_unique<ArrayType>(_location);
+	auto copy = make_unique<ArrayType>();
 	copy->m_isPointer = _isPointer;
 	copy->m_arrayKind = m_arrayKind;
 	copy->m_baseType = copy->copyForLocationIfReference(m_baseType);
@@ -2064,7 +2018,7 @@ BoolResult ArraySliceType::isImplicitlyConvertibleTo(Type const& _other) const
 		return true;
 	}
 
-	if (m_arrayType.location() == DataLocation::CallData && m_arrayType.isDynamicallySized() && m_arrayType == _other)
+	if (m_arrayType.isDynamicallySized() && m_arrayType == _other)
 		return true;
 	return (*this) == _other;
 }
@@ -2194,10 +2148,7 @@ void StructType::clearCache() const
 
 Type const* StructType::encodingType() const
 {
-	if (location() != DataLocation::Storage)
-		return this;
-
-	return TypeProvider::uint256();
+	return this;
 }
 
 BoolResult StructType::isImplicitlyConvertibleTo(Type const& _convertTo) const
@@ -2297,11 +2248,9 @@ u256 StructType::storageSize() const
 	return max<u256>(1, members(nullptr).storageSize());
 }
 
-string StructType::toString(bool _short) const
+string StructType::toString(bool ) const
 {
-	string ret = "struct " + m_struct.annotation().canonicalName;
-	if (!_short)
-		ret += " " + stringForReferencePart();
+	string ret = "struct " + m_struct.annotation().canonicalName;;
 	return ret;
 }
 
@@ -2374,13 +2323,8 @@ TypeResult StructType::interfaceType(bool _inLibrary) const
 				)
 				{
 					m_recursive = true;
-					if (_inLibrary && location() == DataLocation::Storage)
-						continue;
-					else
-					{
-						result = TypeResult::err("Recursive structs can only be passed as storage pointers to libraries, not as memory objects to contract functions.");
-						return;
-					}
+					result = TypeResult::err("Recursive structs can only be passed as storage pointers to libraries, not as memory objects to contract functions.");
+					return;
 				}
 
 			auto iType = memberType->interfaceType(_inLibrary);
@@ -2401,10 +2345,8 @@ TypeResult StructType::interfaceType(bool _inLibrary) const
 	{
 		if (!result.message().empty())
 			m_interfaceType_library = result;
-		else if (location() == DataLocation::Storage)
-			m_interfaceType_library = this;
 		else
-			m_interfaceType_library = TypeProvider::withLocation(this, DataLocation::Memory, true);
+			m_interfaceType_library = TypeProvider::withLocation(this, true);
 
 		if (m_recursive.value())
 			m_interfaceType = TypeResult::err(recursiveErrMsg);
@@ -2417,14 +2359,14 @@ TypeResult StructType::interfaceType(bool _inLibrary) const
 	else if (!result.message().empty())
 		m_interfaceType = result;
 	else
-		m_interfaceType = TypeProvider::withLocation(this, DataLocation::Memory, true);
+		m_interfaceType = TypeProvider::withLocation(this, true);
 
 	return *m_interfaceType;
 }
 
-std::unique_ptr<ReferenceType> StructType::copyForLocation(DataLocation _location, bool _isPointer) const
+std::unique_ptr<ReferenceType> StructType::copyForLocation(bool _isPointer) const
 {
-	auto copy = make_unique<StructType>(m_struct, _location);
+	auto copy = make_unique<StructType>(m_struct);
 	copy->m_isPointer = _isPointer;
 	return copy;
 }
@@ -2461,11 +2403,11 @@ FunctionTypePointer StructType::constructorType() const
 		if (!member.type->canLiveOutsideStorage() || member.type->category() == Category::Mapping)
 			continue;
 		paramNames.push_back(member.name);
-		paramTypes.push_back(TypeProvider::withLocationIfReference(DataLocation::Memory, member.type));
+		paramTypes.push_back(TypeProvider::withLocationIfReference(member.type));
 	}
 	return TypeProvider::function(
 		paramTypes,
-		TypePointers{TypeProvider::withLocation(this, DataLocation::Memory, false)},
+		TypePointers{TypeProvider::withLocation(this, false)},
 		paramNames,
 		strings(1, ""),
 		FunctionType::Kind::Internal
@@ -2742,7 +2684,6 @@ FunctionType::FunctionType(VariableDeclaration const& _varDecl):
 					if (!arrayType->isByteArray())
 						continue;
 				m_returnParameterTypes.push_back(TypeProvider::withLocationIfReference(
-					DataLocation::Memory,
 					member.type
 				));
 				m_returnParameterNames.push_back(member.name);
@@ -2752,7 +2693,6 @@ FunctionType::FunctionType(VariableDeclaration const& _varDecl):
 	else
 	{
 		m_returnParameterTypes.push_back(TypeProvider::withLocationIfReference(
-			DataLocation::Memory,
 			returnType
 		));
 		m_returnParameterNames.emplace_back("");
@@ -2875,7 +2815,7 @@ TypePointers FunctionType::returnParameterTypesWithoutDynamicTypes() const
 		m_kind == Kind::BareStaticCall
 	)
 		for (auto& param: returnParameterTypes)
-			if (param->isDynamicallySized() && !param->dataStoredIn(DataLocation::Storage))
+			if (param->isDynamicallySized())
 				param = TypeProvider::inaccessibleDynamic();
 
 	return returnParameterTypes;
@@ -2915,6 +2855,7 @@ string FunctionType::richIdentifier() const
 	case Kind::Stoi: id += "stoi"; break;
 	case Kind::LogTVM: id += "logtvm"; break;
 	case Kind::TVMAccept: id += "tvmaccept"; break;
+	case Kind::TVMBuildExtMsg: id += "tvmbuildextmsg"; break;
 	case Kind::TVMBuildStateInit: id += "tvmbuildstateinit"; break;
 
 	case Kind::TVMBuilderMethods: id += "tvmbuildermethods"; break;
@@ -3489,9 +3430,6 @@ string FunctionType::externalSignature() const
 	auto typeStrings = extParams.get() | boost::adaptors::transformed([&](TypePointer _t) -> string
 	{
 		string typeName = _t->signatureInExternalFunction(inLibrary);
-
-		if (inLibrary && _t->dataStoredIn(DataLocation::Storage))
-			typeName += " storage";
 		return typeName;
 	});
 	return m_declaration->name() + "(" + boost::algorithm::join(typeStrings, ",") + ")";
@@ -3524,7 +3462,10 @@ bool FunctionType::isPure() const
 		m_kind == Kind::ABIEncodeWithSelector ||
 		m_kind == Kind::ABIEncodeWithSignature ||
 		m_kind == Kind::ABIDecode ||
-		m_kind == Kind::MetaType;
+		m_kind == Kind::MetaType ||
+
+		m_kind == Kind::AddressMakeAddrStd ||
+		m_kind == Kind::AddressMakeAddrNone;
 }
 
 TypePointers FunctionType::parseElementaryTypeVector(strings const& _types)
@@ -3562,8 +3503,8 @@ FunctionTypePointer FunctionType::asCallableFunction(bool _inLibrary, bool _boun
 	for (auto const& t: m_parameterTypes)
 	{
 		auto refType = dynamic_cast<ReferenceType const*>(t);
-		if (refType && refType->location() == DataLocation::CallData)
-			parameterTypes.push_back(TypeProvider::withLocation(refType, DataLocation::Memory, true));
+		if (refType)
+			parameterTypes.push_back(TypeProvider::withLocation(refType, true));
 		else
 			parameterTypes.push_back(t);
 	}
@@ -3657,6 +3598,12 @@ BoolResult OptionalType::isImplicitlyConvertibleTo(Type const& _other) const
 	if (_other.category() != category())
 		return false;
 	auto opt = dynamic_cast<OptionalType const*>(&_other);
+	if (
+		opt->valueType()->category() == Type::Category::Optional ||
+		opt->valueType()->category() == Type::Category::Mapping
+	) {
+		return false;
+	}
 	return valueType()->isImplicitlyConvertibleTo(*opt->valueType());
 }
 
@@ -3940,7 +3887,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"value", TypeProvider::uint(128)},
 			{"data", TypeProvider::tvmslice()},
 			{"sig", TypeProvider::fixedBytes(4)},
-			{"currencies", TypeProvider::extraCurrencyCollection(DataLocation::Memory)},
+			{"currencies", TypeProvider::extraCurrencyCollection()},
 		});
 	case Kind::TVM: {
 		MemberList::MemberMap members = {
@@ -3953,7 +3900,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"exit1", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit1, false, StateMutability::Pure)}
 		};
 		members.emplace_back("rawReserve", TypeProvider::function(
-				TypePointers{TypeProvider::uint256(), TypeProvider::extraCurrencyCollection(DataLocation::Memory),  TypeProvider::uint256()},
+				TypePointers{TypeProvider::uint256(), TypeProvider::extraCurrencyCollection(),  TypeProvider::uint256()},
 				TypePointers{},
 				strings{string{}, string{}, string{}},
 				strings{},
@@ -3993,7 +3940,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				false, StateMutability::Pure
 		));
 		members.emplace_back("hash", TypeProvider::function(
-				TypePointers{TypeProvider::array(DataLocation::Memory, true)},
+				TypePointers{TypeProvider::array(true)},
 				TypePointers{TypeProvider::uint256()},
 				strings{string()},
 				strings{string()},
@@ -4049,6 +3996,25 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				strings{string(), string()},
 				FunctionType::Kind::TVMRawConfigParam,
 				false, StateMutability::Pure
+		));
+
+		members.emplace_back("buildExtMsg", TypeProvider::function(
+				TypePointers{TypeProvider::address(),
+							 TypeProvider::callList(),
+							 TypeProvider::uint(64),
+							 TypeProvider::uint(32),
+							 TypeProvider::optional(TypeProvider::uint256()),
+							 TypeProvider::boolean()},
+				TypePointers{TypeProvider::tvmcell()},
+				strings{string("dest"),	// mandatory
+						string("call"), // mandatory
+						string("time"),	// can be omitted
+						string("expire"),	// can be omitted
+						string("pubkey"),	// can be omitted
+						string("sign")},	// can be omitted
+				strings{string()},
+				FunctionType::Kind::TVMBuildExtMsg,
+				true, StateMutability::Pure
 		));
 
 		members.emplace_back("buildStateInit", TypeProvider::function(
@@ -4222,7 +4188,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 		return MemberList::MemberMap({
 			{"encode", TypeProvider::function(
 				TypePointers{},
-				TypePointers{TypeProvider::array(DataLocation::Memory)},
+				TypePointers{TypeProvider::array()},
 				strings{},
 				strings{1, ""},
 				FunctionType::Kind::ABIEncode,
@@ -4231,7 +4197,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			)},
 			{"encodePacked", TypeProvider::function(
 				TypePointers{},
-				TypePointers{TypeProvider::array(DataLocation::Memory)},
+				TypePointers{TypeProvider::array()},
 				strings{},
 				strings{1, ""},
 				FunctionType::Kind::ABIEncodePacked,
@@ -4240,7 +4206,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			)},
 			{"encodeWithSelector", TypeProvider::function(
 				TypePointers{TypeProvider::fixedBytes(4)},
-				TypePointers{TypeProvider::array(DataLocation::Memory)},
+				TypePointers{TypeProvider::array()},
 				strings{1, ""},
 				strings{1, ""},
 				FunctionType::Kind::ABIEncodeWithSelector,
@@ -4248,8 +4214,8 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				StateMutability::Pure
 			)},
 			{"encodeWithSignature", TypeProvider::function(
-				TypePointers{TypeProvider::array(DataLocation::Memory, true)},
-				TypePointers{TypeProvider::array(DataLocation::Memory)},
+				TypePointers{TypeProvider::array(true)},
+				TypePointers{TypeProvider::array()},
 				strings{1, ""},
 				strings{1, ""},
 				FunctionType::Kind::ABIEncodeWithSignature,
@@ -4275,8 +4241,8 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 		ContractDefinition const& contract = dynamic_cast<ContractType const&>(*m_typeArgument).contractDefinition();
 		if (contract.canBeDeployed())
 			return MemberList::MemberMap({
-				{"creationCode", TypeProvider::array(DataLocation::Memory)},
-				{"runtimeCode", TypeProvider::array(DataLocation::Memory)},
+				{"creationCode", TypeProvider::array()},
+				{"runtimeCode", TypeProvider::array()},
 				{"name", TypeProvider::stringMemory()},
 			});
 		else

@@ -92,14 +92,6 @@ void ControlFlowAnalyzer::checkUninitializedAccess(CFGNode const* _entry, CFGNod
 					// the control flow in the assembly at some point.
 				case VariableOccurrence::Kind::Access:
 				case VariableOccurrence::Kind::Return:
-					if (unassignedVariables.count(&variableOccurrence.declaration()))
-					{
-						if (variableOccurrence.declaration().type()->dataStoredIn(DataLocation::Storage))
-							// Merely store the unassigned access. We do not generate an error right away, since this
-							// path might still always revert. It is only an error if this is propagated to the exit
-							// node of the function (i.e. there is a path with an uninitialized access).
-							nodeInfo.uninitializedVariableAccesses.insert(&variableOccurrence);
-					}
 					break;
 				case VariableOccurrence::Kind::Declaration:
 					unassignedVariables.insert(&variableOccurrence.declaration());
@@ -131,9 +123,6 @@ void ControlFlowAnalyzer::checkUninitializedAccess(CFGNode const* _entry, CFGNod
 
 		for (auto const* variableOccurrence: uninitializedAccessesOrdered)
 		{
-			if (variableOccurrence->declaration().referenceLocation() == VariableDeclaration::Location::Memory)
-				continue;
-
 			SecondarySourceLocation ssl;
 			if (variableOccurrence->occurrence())
 				ssl.append("The variable was declared here.", variableOccurrence->declaration().location());

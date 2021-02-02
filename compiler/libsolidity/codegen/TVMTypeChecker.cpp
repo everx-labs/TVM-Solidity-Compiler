@@ -39,7 +39,6 @@ void TVMTypeChecker::check(ContractDefinition const *contractDefinition,
                            std::vector<PragmaDirective const *> const &pragmaDirectives) {
 	TVMTypeChecker checker{contractDefinition, pragmaDirectives};
 	checker.checkInlineFunctions();
-	checker.checkEncodeDecodeParams();
 	checker.checkIntrinsic();
 	checker.checkStateVariables();
 	checker.checkOverrideAndOverload();
@@ -95,9 +94,10 @@ void TVMTypeChecker::checkStateVariables() {
 			}
 			usedNames.insert(variable->name());
 
-			if (variable->isPublic()) {
-				checkDecodeEncodeParam(variable->type(), *variable, 0);
-			}
+			// TODO228
+//			if (variable->isPublic()) {
+//				checkDecodeEncodeParam(variable->type(), *variable, 0);
+//			}
 		}
 	}
 }
@@ -153,12 +153,6 @@ void TVMTypeChecker::checkIntrinsic() {
 	}
 }
 
-void TVMTypeChecker::checkEncodeDecodeParams() {
-	for (FunctionDefinition const* f : contractDefinition->definedFunctions()) {
-		checkDecodeEncodeParams(f);
-	}
-}
-
 void TVMTypeChecker::checkInlineFunctions() {
 	for (FunctionDefinition const* f : contractDefinition->definedFunctions()) {
 		if (ends_with(f->name(), "_inline")) {
@@ -167,62 +161,6 @@ void TVMTypeChecker::checkInlineFunctions() {
 		if ((ends_with(f->name(), "_inline") || f->isInline()) && f->isPublic()) {
 			cast_error(*f, "Inline function should have private or internal visibility");
 		}
-	}
-}
-
-void TVMTypeChecker::checkDecodeEncodeParams(FunctionDefinition const *f) {
-	if (!f->isPublic()) {
-		return;
-	}
-
-	for (const ASTPointer<VariableDeclaration>& param : f->parameters()) {
-		checkDecodeEncodeParam(param->type(), *param, 0);
-	}
-
-	for (const ASTPointer<VariableDeclaration>& param : f->returnParameters()) {
-		checkDecodeEncodeParam(param->type(), *param, 0);
-	}
-}
-
-void TVMTypeChecker::checkDecodeEncodeParam(Type const* type, const ASTNode &node, int keyLength) {
-
-	switch (type->category()) {
-		case Type::Category::Mapping: {
-			auto mappingType = to<MappingType>(type);
-			auto intKey = to<IntegerType>(mappingType->keyType());
-			auto addrKey = to<AddressType>(mappingType->keyType());
-			int mapKeyLength;
-			if (intKey) {
-				mapKeyLength = static_cast<int>(intKey->numBits());
-			} else if (addrKey) {
-				mapKeyLength = AddressInfo::stdAddrLength();
-			} else {
-				cast_error(node, "Key type must be any of int<M>/uint<M> types with M from 8 to 256 or std address.");
-			}
-
-
-			checkDecodeEncodeParam(mappingType->valueType(), node, mapKeyLength);
-			break;
-		}
-		case Type::Category::Array: {
-			auto arrayType = to<ArrayType>(type);
-			if (!arrayType->isByteArray()) {
-				checkDecodeEncodeParam(arrayType->baseType(), node, TvmConst::ArrayKeyLength);
-			}
-			break;
-		}
-		case Type::Category::Struct: {
-			if (keyLength > 0) {
-				auto valueStruct = to<StructType>(type);
-				if (!StructCompiler::isCompatibleWithSDK(keyLength, valueStruct)) {
-					cast_error(node, "Struct is not compatible with SDK. "
-					                 "Struct must have no nested structs and all members of the struct must fit in one cell.");
-				}
-			}
-			break;
-		}
-		default:
-			break;
 	}
 }
 
@@ -266,9 +204,9 @@ void TVMTypeChecker::checkTvmIntrinsic(FunctionDefinition const *f, ContractDefi
 	                                                      "tvm_ldslice", "tvm_ldref", "tvm_lddict", "tvm_setindex", "tvm_sti",
 	                                                      "tvm_stu", "tvm_stslice", "tvm_stref", "tvm_dictuset", "tvm_dictusetb",
 	                                                      "tvm_bchkbitsq", "tvm_schkbitsq", "tvm_sbitrefs", "tvm_srefs",
-	                                                      "tvm_brembits", "tvm_getfromdict", "tvm_get_slice_from_integer_dict",
+	                                                      "tvm_brembits", "tvm_get_slice_from_integer_dict",
 	                                                      "tvm_tlen", "tvm_ends", "tvm_newc", "tvm_endc", "tvm_c4_key_length",
-	                                                      "tvm_exception_constructoriscalledtwice", "tvm_exception_replayprotection",
+	                                                      "tvm_exception_replayprotection",
 	                                                      "tvm_exception_unpackaddress", "tvm_exception_insertpubkey", "tvm_stbr",
 	                                                      "tvm_default_replay_protection_interval", "tvm_newdict", "tvm_c4",
 	                                                      "tvm_c7", "tvm_first", "tvm_second", "tvm_third", "tvm_index", "tvm_sendrawmsg",

@@ -834,7 +834,6 @@ private:
 class VariableDeclaration: public Declaration
 {
 public:
-	enum Location { Unspecified, Storage, Memory, CallData };
 
 	VariableDeclaration(
 		int64_t _id,
@@ -847,7 +846,6 @@ public:
 		bool _isIndexed = false,
 		bool _isConstant = false,
 		ASTPointer<OverrideSpecifier> const& _overrides = nullptr,
-		Location _referenceLocation = Location::Unspecified,
 		ASTPointer<ASTString> _attribute = nullptr,
 		bool isStatic = false
 	):
@@ -858,7 +856,6 @@ public:
 		m_isIndexed(_isIndexed),
 		m_isConstant(_isConstant),
 		m_overrides(_overrides),
-		m_location(_referenceLocation),
 		m_attribute(_attribute),
 		m_isStatic(isStatic) {}
 
@@ -906,9 +903,6 @@ public:
 	bool isConstant() const { return m_isConstant; }
 	bool isStatic() const { return m_isStatic; }
 	ASTPointer<OverrideSpecifier> const& overrides() const { return m_overrides; }
-	Location referenceLocation() const { return m_location; }
-	/// @returns a set of allowed storage locations for the variable.
-	std::set<Location> allowedDataLocations() const;
 
 	/// @returns the external identifier of this variable (the hash of the signature) as a hex string (works only for public state variables).
 	std::string externalIdentifierHex() const;
@@ -933,7 +927,6 @@ private:
 	bool m_isIndexed = false; ///< Whether this is an indexed variable (used by events).
 	bool m_isConstant = false; ///< Whether the variable is a compile-time constant.
 	ASTPointer<OverrideSpecifier> m_overrides; ///< Contains the override specifier node
-	Location m_location = Location::Unspecified; ///< Location of the variable if it is of reference type.
 	ASTPointer<ASTString> m_attribute; ///< Attribute for variable.
 	bool m_isStatic = false;
 };
@@ -1096,7 +1089,7 @@ public:
 		int64_t _id,
 		SourceLocation const& _location,
 		ElementaryTypeNameToken const& _elem
-	): TypeName(_id, _location), m_type(_elem), m_location(DataLocation::Memory)
+	): TypeName(_id, _location), m_type(_elem)
 	{
 	}
 
@@ -1105,12 +1098,8 @@ public:
 
 	ElementaryTypeNameToken const& typeName() const { return m_type; }
 
-	void setLocation(DataLocation _location);
-	DataLocation getLocation() const { return m_location; }
-
 private:
 	ElementaryTypeNameToken m_type;
-	DataLocation m_location; ///< for ExtraCurrencyCollection type
 };
 
 /**
@@ -1182,20 +1171,16 @@ public:
 		ASTPointer<TypeName> const& _keyType,
 		ASTPointer<TypeName> const& _valueType
 	):
-		TypeName(_id, _location), m_keyType(_keyType), m_valueType(_valueType), m_location(DataLocation::Memory) {}
+		TypeName(_id, _location), m_keyType(_keyType), m_valueType(_valueType) {}
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 
 	TypeName const& keyType() const { return *m_keyType; }
 	TypeName const& valueType() const { return *m_valueType; }
 
-	DataLocation location() const { return m_location; }
-	void setLocation(DataLocation _location);
-
 private:
 	ASTPointer<TypeName> m_keyType;
 	ASTPointer<TypeName> m_valueType;
-	DataLocation m_location;
 };
 
 /**
@@ -1231,20 +1216,16 @@ public:
 		ASTPointer<TypeName> const& _baseType,
 		ASTPointer<Expression> const& _length
 	):
-		TypeName(_id, _location), m_baseType(_baseType), m_length(_length), m_location(DataLocation::Memory) {}
+		TypeName(_id, _location), m_baseType(_baseType), m_length(_length) {}
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 
 	TypeName const& baseType() const { return *m_baseType; }
 	Expression const* length() const { return m_length.get(); }
 
-	DataLocation location() const { return m_location; }
-	void setLocation(DataLocation _location);
-
 private:
 	ASTPointer<TypeName> m_baseType;
 	ASTPointer<Expression> m_length; ///< Length of the array, might be empty.
-	DataLocation m_location;
 };
 
 /// @}
@@ -1588,17 +1569,23 @@ public:
 		int64_t _id,
 		SourceLocation const& _location,
 		ASTPointer<ASTString> const& _docString,
-		ASTPointer<Expression> _expression
-	): Statement(_id, _location, _docString), m_expression(_expression) {}
+		ASTPointer<Expression> _expression,
+		std::vector<ASTPointer<Expression>> options,
+		std::vector<ASTPointer<ASTString>> names
+	): Statement(_id, _location, _docString), m_expression(_expression), m_options{options}, m_names{names} {}
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 
 	Expression const* expression() const { return m_expression.get(); }
+	const std::vector<ASTPointer<Expression>>& options() const { return m_options; }
+	const std::vector<ASTPointer<ASTString>>& names() const { return m_names; }
 
 	ReturnAnnotation& annotation() const override;
 
 private:
 	ASTPointer<Expression> m_expression; ///< value to return, optional
+	std::vector<ASTPointer<Expression>> m_options;
+	std::vector<ASTPointer<ASTString>> m_names;
 };
 
 /**
@@ -1902,6 +1889,10 @@ private:
 	std::vector<ASTPointer<ASTString>> m_names;
 };
 
+
+/**
+ * List of variable with names and values. Used for contract deployment.
+ */
 class InitializerList: public Expression {
 public:
 	InitializerList(
@@ -1920,6 +1911,30 @@ public:
 private:
 	std::vector<ASTPointer<Expression>> m_options;
 	std::vector<ASTPointer<ASTString>> m_names;
+};
+
+
+/**
+ * Function call defenition. Contains function and arguments.
+ */
+class CallList: public Expression {
+public:
+	CallList(
+		int64_t _id,
+		SourceLocation const& _location,
+		ASTPointer<Expression> &  _function,
+		std::vector<ASTPointer<Expression>> & _arguments
+	):
+	Expression(_id, _location), m_function(_function), m_arguments(_arguments) {}
+	void accept(ASTVisitor& _visitor) override;
+	void accept(ASTConstVisitor& _visitor) const override;
+
+	std::vector<ASTPointer<Expression const>> arguments() const { return {m_arguments.begin(), m_arguments.end()}; }
+	ASTPointer<Expression> function() const { return m_function; }
+
+private:
+	ASTPointer<Expression> m_function;
+	std::vector<ASTPointer<Expression>> m_arguments;
 };
 
 

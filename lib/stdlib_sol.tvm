@@ -24,60 +24,6 @@ DICTUGETJMP
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; THE CODE BELOW IS GENERATED. DO NOT CHANGE IT!
 
-.macro abi_encode_packed_macro
-;; param: builder
-;; param: arraySize
-;; param: dict
-;; param: valueLength
-; function abi_encode_packed_macro
-; for
-PUSHINT 0
-;; decl: idx
-PUSHCONT {
-	;; push identifier idx
-	;; push identifier arraySize
-	PUSH2 S0, S3
-	;; <
-	LESS
-}
-PUSHCONT {
-	;; push identifier valueLength
-	;; push identifier idx
-	DUP2
-	;; push identifier dict
-	PUSH S4
-	PUSHINT 32
-	DICTUGET
-	PUSHCONT { 
-		NIP
-	}
-	PUSHCONT {
-		NEWC      ; valueBits builder
-		PUSHINT 0 ; valueBits builder 0
-		XCHG S2   ; 0 builder valueBits
-		STUX      ; builder
-		ENDC      ; cell
-		CTOS      ; default_value
-	}
-	IFELSE
-	;; push identifier builder
-	PUSH S5
-	STSLICE
-	POP S5
-	;; ++
-	; expValue
-	; end expValue
-	INC
-	; colValue
-	; end colValue
-}
-WHILE
-; end for
-;; return
-;; push identifier builder
-BLKDROP 4
-; end function abi_encode_packed_macro
-
 .macro insert_pubkey_macro
 ;; param: my_contract
 ;; param: pubkey
@@ -157,11 +103,7 @@ PUSH S1
 LDU 1
 POP S3
 NEQINT 1
-PUSHCONT {
-	PUSHINT 55
-	THROWANY
-}
-IF
+THROWIF 55
 ;; end if
 PUSHINT 1
 STONES
@@ -249,11 +191,7 @@ PARSEMSGADDR
 DUP
 FIRST
 NEQINT 2
-PUSHCONT {
-	PUSHINT 53
-	THROWANY
-}
-IF
+THROWIF 53
 ;; end if
 ;; return
 ;; push identifier tuple
@@ -300,7 +238,7 @@ PUSHCONT {
 	}
 	IFJMP
 	;; end if
-	PUSHINT 52
+	DROP
 	THROW 52
 }
 CALLX

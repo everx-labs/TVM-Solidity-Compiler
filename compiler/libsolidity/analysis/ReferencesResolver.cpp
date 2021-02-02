@@ -153,7 +153,7 @@ void ReferencesResolver::endVisit(UserDefinedTypeName const& _typeName)
 	_typeName.annotation().referencedDeclaration = declaration;
 
 	if (StructDefinition const* structDef = dynamic_cast<StructDefinition const*>(declaration))
-		_typeName.annotation().type = TypeProvider::structType(*structDef, DataLocation::Storage);
+		_typeName.annotation().type = TypeProvider::structType(*structDef);
 	else if (EnumDefinition const* enumDef = dynamic_cast<EnumDefinition const*>(declaration))
 		_typeName.annotation().type = TypeProvider::enumType(*enumDef);
 	else if (ContractDefinition const* contract = dynamic_cast<ContractDefinition const*>(declaration))
@@ -196,16 +196,9 @@ void ReferencesResolver::endVisit(Mapping const& _typeName)
 	TypePointer keyType = _typeName.keyType().annotation().type;
 	TypePointer valueType = _typeName.valueType().annotation().type;
 	// Convert key type to memory.
-	keyType = TypeProvider::withLocationIfReference(DataLocation::Memory, keyType);
-
-//	valueType = ReferenceType::copyForLocationIfReference(_typeName.location(), valueType);
-//	_typeName.annotation().type = make_shared<MappingType>(keyType, valueType, _typeName.location());
-	// Convert value type to storage reference.
-//	valueType = TypeProvider::withLocationIfReference(DataLocation::Storage, valueType);
-//	_typeName.annotation().type = TypeProvider::mapping(keyType, valueType);
-
-	valueType = TypeProvider::withLocationIfReference(_typeName.location(), valueType);
-	_typeName.annotation().type = TypeProvider::mapping(keyType, valueType, _typeName.location());
+	keyType = TypeProvider::withLocationIfReference(keyType);
+	valueType = TypeProvider::withLocationIfReference(valueType);
+	_typeName.annotation().type = TypeProvider::mapping(keyType, valueType);
 }
 
 void ReferencesResolver::endVisit(Optional const& _typeName)
@@ -225,7 +218,7 @@ void ReferencesResolver::endVisit(Optional const& _typeName)
 
 void ReferencesResolver::endVisit(const ElementaryTypeName &_typeName) {
 	if (_typeName.typeName().token() == Token::ExtraCurrencyCollection) {
-		_typeName.annotation().type = TypeProvider::extraCurrencyCollection(_typeName.getLocation());
+		_typeName.annotation().type = TypeProvider::extraCurrencyCollection();
 	} else {
 		ASTConstVisitor::endVisit(_typeName);
 	}
@@ -256,20 +249,10 @@ void ReferencesResolver::endVisit(ArrayTypeName const& _typeName)
 		else if (lengthType->isNegative())
 			fatalTypeError(length->location(), "Array with negative length specified.");
 		else
-//			_typeName.annotation().type = TypeProvider::array(DataLocation::Storage, baseType, lengthType->literalValue(nullptr));
-//	}
-//	else
-//		_typeName.annotation().type = TypeProvider::array(DataLocation::Storage, baseType);
-
-//			_typeName.annotation().type = make_shared<ArrayType>(_typeName.location(), baseType, lengthType->literalValue(nullptr));
-//	}
-//	else
-//		_typeName.annotation().type = make_shared<ArrayType>(_typeName.location(), baseType);
-
-				_typeName.annotation().type = TypeProvider::array(_typeName.location(), baseType, lengthType->literalValue(nullptr));
-		}
-		else
-			_typeName.annotation().type = TypeProvider::array(_typeName.location(), baseType);
+			_typeName.annotation().type = TypeProvider::array(baseType, lengthType->literalValue(nullptr));
+	}
+	else
+		_typeName.annotation().type = TypeProvider::array(baseType);
 
 }
 
@@ -302,91 +285,13 @@ void ReferencesResolver::endVisit(VariableDeclaration const& _variable)
 		// after this step.
 		return;
 	}
-	using Location = VariableDeclaration::Location;
-	Location varLoc = _variable.referenceLocation();
-	DataLocation typeLoc = DataLocation::Memory;
 
-	set<Location> allowedDataLocations = _variable.allowedDataLocations();
-	if (!allowedDataLocations.count(varLoc))
-	{
-		auto locationToString = [](VariableDeclaration::Location _location) -> string
-		{
-			switch (_location)
-			{
-			case Location::Memory: return "\"memory\"";
-			case Location::Storage: return "\"storage\"";
-			case Location::CallData: return "\"calldata\"";
-			case Location::Unspecified: return "none";
-			}
-			return {};
-		};
-
-		string errorString;
-		if (!_variable.hasReferenceOrMappingType())
-			errorString = "Data location can only be specified for array, struct or mapping types";
-		else
-		{
-			errorString = "Data location must be " +
-			util::joinHumanReadable(
-				allowedDataLocations | boost::adaptors::transformed(locationToString),
-				", ",
-				" or "
-			);
-			if (_variable.isCallableOrCatchParameter())
-				errorString +=
-					" for " +
-					string(_variable.isReturnParameter() ? "return " : "") +
-					"parameter in" +
-					string(_variable.isExternalCallableParameter() ? " external" : "") +
-					" function";
-			else
-				errorString += " for variable";
-		}
-		errorString += ", but " + locationToString(varLoc) + " was given.";
-		typeError(_variable.location(), errorString);
-
-		solAssert(!allowedDataLocations.empty(), "");
-		varLoc = *allowedDataLocations.begin();
-	}
-
-	// Find correct data location.
-	if (_variable.isEventParameter())
-	{
-		solAssert(varLoc == Location::Unspecified, "");
-		typeLoc = DataLocation::Memory;
-	}
-	else if (_variable.isStateVariable())
-	{
-		solAssert(varLoc == Location::Unspecified, "");
-		typeLoc = _variable.isConstant() ? DataLocation::Memory : DataLocation::Storage;
-	}
-	else if (
-		dynamic_cast<StructDefinition const*>(_variable.scope()) ||
-		dynamic_cast<EnumDefinition const*>(_variable.scope())
-	)
-		// The actual location will later be changed depending on how the type is used.
-		typeLoc = DataLocation::Storage;
-	else
-		switch (varLoc)
-		{
-		case Location::Memory:
-			typeLoc = DataLocation::Memory;
-			break;
-		case Location::Storage:
-			typeLoc = DataLocation::Storage;
-			break;
-		case Location::CallData:
-			typeLoc = DataLocation::CallData;
-			break;
-		case Location::Unspecified:
-			solAssert(!_variable.hasReferenceOrMappingType(), "Data location not properly set.");
-		}
 
 	TypePointer type = _variable.typeName()->annotation().type;
 	if (auto ref = dynamic_cast<ReferenceType const*>(type))
 	{
 		bool isPointer = !_variable.isStateVariable();
-		type = TypeProvider::withLocation(ref, typeLoc, isPointer);
+		type = TypeProvider::withLocation(ref, isPointer);
 	}
 
 	_variable.annotation().type = type;

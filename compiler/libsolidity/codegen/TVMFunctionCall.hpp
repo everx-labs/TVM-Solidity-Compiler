@@ -45,6 +45,7 @@ protected:
 	// TODO unite with decodeParameter
 	void loadTypeFromSlice(MemberAccess const& _node, TypePointer type);
 	bool checkForTvmDeployMethods(MemberAccess const& _node, Type::Category category);
+	bool checkForTvmBuildMsgMethods(MemberAccess const& _node, Type::Category category);
 	void sliceMethods(MemberAccess const& _node);
 	void arrayMethods(MemberAccess const& _node);
 	bool checkForOptionalMethods(MemberAccess const& _node);
@@ -62,7 +63,7 @@ protected:
 	void typeConversion();
 	bool checkLocalFunctionCall(const Identifier* identifier);
 	bool checkSolidityUnits();
-	bool checkForIdentifier();
+	bool checkLocalFunctionCallOrFuncVarCall();
 	bool checkNewExpression();
 	bool createNewContract();
 	void deployNewContract(

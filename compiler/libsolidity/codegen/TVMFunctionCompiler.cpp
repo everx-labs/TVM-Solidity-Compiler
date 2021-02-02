@@ -19,6 +19,7 @@
 #include <boost/algorithm/string/replace.hpp>
 
 #include "TVMABI.hpp"
+#include "TVMAnalyzer.hpp"
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCompiler.hpp"
 #include "TVMStructCompiler.hpp"
@@ -222,13 +223,13 @@ PUSHCONT {
 			pusher.setGlob(v);
 		}
 		pusher.subTabs();
-		pusher.pushLines(R"(
+		std::string str = R"(
 	; set contract pubkey
 	PUSHINT 0
 	SWAP
 	PUSHINT 64
 	DICTUGET
-	THROWIFNOT 61
+	THROWIFNOT NoPubkeyInC4
 	PLDU 256
 	SETGLOB 2
 
@@ -236,7 +237,9 @@ PUSHCONT {
 	SETGLOB 3
 	PUSHINT 0 ; constructor_flag
 	SETGLOB 6
-)");
+)";
+		boost::replace_all(str, "NoPubkeyInC4", toString(TvmConst::RuntimeException::NoPubkeyInC4));
+		pusher.pushLines(str);
 		pusher.pushLines(R"(
 	TRUE
 	SETGLOB 1
@@ -307,11 +310,11 @@ void TVMFunctionCompiler::generateOnTickTock(StackPusherHelper& pusher, Function
 	pusher.push(0, " ");
 }
 
-void TVMFunctionCompiler::decodeFunctionParamsAndLocateVars() {
+void TVMFunctionCompiler::decodeFunctionParamsAndLocateVars(bool hasCallback) {
 	// decode function params
 	// stack: transaction_id arguments-in-slice
 	m_pusher.push(+1, ""); // arguments-in-slice
-	DecodeFunctionParams{&m_pusher}.decodeParameters(m_function->parameters());
+	DecodeFunctionParams{&m_pusher}.decodeParameters(m_function->parameters(), hasCallback);
 	// stack: transaction_id arguments...
 	m_pusher.getStack().change(-static_cast<int>(m_function->parameters().size()));
 	for (const ASTPointer<VariableDeclaration>& variable: m_function->parameters()) {
@@ -339,7 +342,27 @@ void TVMFunctionCompiler::generatePublicFunction(StackPusherHelper& pusher, Func
 	TVMFunctionCompiler funCompiler{pusher, true, true, 0, function, 0};
 	pusher.generateGlobl(function->name(), function->isPublic());
 	funCompiler.pushC4ToC7IfNeed();
-	funCompiler.decodeFunctionParamsAndLocateVars();
+
+	const bool hasCallback = !function->returnParameterList()->parameters().empty();
+	if (hasCallback) {
+		const int saveStakeSize = pusher.getStack().size();
+		// stack: -1/0/+1   bodySlice
+		pusher.pushS(1);
+		pusher.push(-1, "");
+
+		pusher.startContinuation();
+		pusher.push(+1, "LDU 32"); // callbackId slice
+		pusher.getGlob(TvmConst::C7::ReturnParams); // callbackId slice c7[4]
+		pusher.blockSwap(1, 2); // slice c7[4] callbackId
+		pusher.setIndexQ(TvmConst::C7::ReturnParam::CallbackFunctionId); // slice c7[4]
+		pusher.setGlob(TvmConst::C7::ReturnParams); // slice
+
+		pusher.endContinuation();
+		pusher.push(0, "IFNOT");
+		solAssert(saveStakeSize == pusher.getStack().size(), "");
+	}
+
+	funCompiler.decodeFunctionParamsAndLocateVars(hasCallback);
 	funCompiler.visitFunctionWithModifiers(false);
     pusher.getStack().ensureSize(0, "");
 	funCompiler.pushC7ToC4IfNeed();
@@ -382,11 +405,12 @@ TVMFunctionCompiler::generateGetter(StackPusherHelper &pusher, VariableDeclarati
 				},
 				{vd},
 				EncodeFunctionParams{&pusher}.calculateFunctionIDWithReason(vd->name(), {}, &outputs, ReasonOfOutboundMessage::FunctionReturnExternal, {}),
+				{},
 				builderSize
 		);
 	};
 
-	pusher.sendMsg({}, {}, appendBody, nullptr, nullptr, false);
+	pusher.sendMsg({}, {}, appendBody, nullptr, nullptr, StackPusherHelper::MsgType::ExternalOut);
 
 	pusher.push(0, "TRUE");
 	pusher.push(0, "SETGLOB 7");
@@ -433,42 +457,108 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 		return;
 	}
 
+	std::vector<VariableDeclaration const *> ret;
+	if (m_function->returnParameterList() != nullptr) {
+		ret = convertArray(m_function->returnParameters());
+	}
+
 	m_pusher.push( 0, ";; emitting " + toString(params.size()) + " value(s)");
 	m_pusher.pushS(m_pusher.getStack().size());
 	m_pusher.push(-1 + 1, "EQINT -1"); // is it ext msg?
 	m_pusher.push(-1, ""); // fix stack
-	m_pusher.startContinuation();
 
-	const int prevStackSize = m_pusher.getStack().size();
-	std::vector<VariableDeclaration const*> ret;
-	if (m_function->returnParameterList() != nullptr) {
-		ret = convertArray(m_function->returnParameters());
+	// emit for inter
+	{
+		m_pusher.startContinuation();
+
+		const int prevStackSize = m_pusher.getStack().size();
+		auto appendBody = [&](int builderSize) {
+			return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder(
+					[&](size_t idx) {
+						int pos = (m_pusher.getStack().size() - prevStackSize) +
+								  (static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
+						m_pusher.pushS(pos);
+					},
+					ret,
+					EncodeFunctionParams{&m_pusher}.calculateFunctionIDWithReason(m_function,
+																				  ReasonOfOutboundMessage::FunctionReturnExternal),
+					{},
+					builderSize
+			);
+		};
+
+		//	ext_in_msg_info$10 src:MsgAddressExt dest:MsgAddressInt
+		//	import_fee:Grams = CommonMsgInfo;
+		m_pusher.pushS(m_pusher.getStack().size() + 2); // get external address of sender
+		m_pusher.push(0, "CTOS");
+		m_pusher.push(+1, "LDU 2");
+		m_pusher.push(+1, "LDMSGADDR");
+		m_pusher.push(-1, "DROP");
+		m_pusher.push(-1, "NIP");
+		m_pusher.sendMsg({TvmConst::ext_msg_info::dest}, {}, appendBody, nullptr, nullptr, StackPusherHelper::MsgType::ExternalOut);
+
+		m_pusher.endContinuation();
 	}
-	auto appendBody = [&](int builderSize) {
-		return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder(
+
+
+	{
+		m_pusher.startContinuation();
+
+		auto pushFunction = [&](){
+			m_pusher.getGlob(TvmConst::C7::ReturnParams);
+			m_pusher.index(TvmConst::C7::ReturnParam::CallbackFunctionId);
+		};
+
+		const int prevStackSize = m_pusher.getStack().size();
+		auto appendBody = [&](int builderSize) {
+			return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder(
 				[&](size_t idx) {
 					int pos = (m_pusher.getStack().size() - prevStackSize) +
-					          (static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
+							  (static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
 					m_pusher.pushS(pos);
 				},
 				ret,
-				EncodeFunctionParams{&m_pusher}.calculateFunctionIDWithReason(m_function, ReasonOfOutboundMessage::FunctionReturnExternal),
+				pushFunction,
+				{},
 				builderSize
+			);
+		};
+
+
+		std::function<void()> pushSendrawmsgFlag = [&]() {
+			m_pusher.getGlob(TvmConst::C7::ReturnParams);
+			m_pusher.index(TvmConst::C7::ReturnParam::Flag);
+		};
+
+		m_pusher.getGlob(TvmConst::C7::ReturnParams);
+		for (int i = 0; i < 3; ++i) {
+			if (i == 2) {
+				m_pusher.getGlob(9); // dest // TODO set constant
+				m_pusher.blockSwap(1, 3);
+			} else {
+				m_pusher.pushS(i);
+			}
+			m_pusher.index(3 - i);
+		}
+		// stack: currencies tons dest bounce
+
+		m_pusher.sendMsg(
+			{
+				TvmConst::int_msg_info::bounce,
+				TvmConst::int_msg_info::dest,
+				TvmConst::int_msg_info::tons,
+				TvmConst::int_msg_info::currency
+			},
+			{},
+			appendBody,
+			nullptr,
+			pushSendrawmsgFlag,
+			StackPusherHelper::MsgType::Internal
 		);
-	};
+		m_pusher.endContinuation();
+	}
 
-	//	ext_in_msg_info$10 src:MsgAddressExt dest:MsgAddressInt
-	//	import_fee:Grams = CommonMsgInfo;
-	m_pusher.pushS(m_pusher.getStack().size() + 2); // get external address of sender
-	m_pusher.push(0, "CTOS");
-	m_pusher.push(+1, "LDU 2");
-	m_pusher.push(+1, "LDMSGADDR");
-	m_pusher.push(-1, "DROP");
-	m_pusher.push(-1, "NIP");
-	m_pusher.sendMsg({TvmConst::ext_msg_info::dest}, {}, appendBody, nullptr, nullptr, false);
-
-	m_pusher.endContinuation();
-	m_pusher.push(0, "IF");
+	m_pusher.push(0, "IFELSE");
 }
 
 void TVMFunctionCompiler::visitModifierOrFunctionBlock(Block const &body, bool isFunc) {
@@ -1037,7 +1127,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 		m_pusher.pushInt(0); // stack: dict 0
 		m_pusher.pushNull(); // stack: dict 0 value
 		m_pusher.push(0, string(";; decl: ") + iterVar->name());
-		m_pusher.getStack().add(iterVar, false); // TODO
+		m_pusher.getStack().add(iterVar, false);
 		// stack: dict 0 value
 		loopVarQty = 3;
 	} else if (mappingType) {
@@ -1061,8 +1151,14 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 		m_pusher.startContinuation();
 		m_pusher.untuple(2);
 		m_pusher.push(-2, "");
-		m_pusher.getStack().add(iterKey, true); // TODO
-		m_pusher.getStack().add(iterVal, true); // TODO
+		if (iterKey == nullptr)
+			m_pusher.push(+1, "");
+		else
+			m_pusher.getStack().add(iterKey, true);
+		if (iterVal == nullptr)
+			m_pusher.push(+1, "");
+		else
+			m_pusher.getStack().add(iterVal, true);
 		m_pusher.pushS(1);
 		m_pusher.endContinuation();
 
@@ -1258,6 +1354,22 @@ bool TVMFunctionCompiler::visit(ForStatement const &_forStatement) {
 
 bool TVMFunctionCompiler::visit(Return const &_return) {
 	m_pusher.push(0, ";; return");
+	if (!_return.names().empty()) {
+		m_pusher.getGlob(TvmConst::C7::ReturnParams);
+		for (std::size_t i = 0; i < _return.names().size(); ++i) {
+			acceptExpr(_return.options().at(i).get());
+			const std::map<std::string, int> nameToInt = {
+				{"bounce", TvmConst::C7::ReturnParam::Bounce},
+				{"value", TvmConst::C7::ReturnParam::Value},
+				{"currencies", TvmConst::C7::ReturnParam::Currencies},
+				{"flag", TvmConst::C7::ReturnParam::Flag}
+			};
+			const std::string& optionName = *_return.names().at(i);
+			m_pusher.setIndexQ(nameToInt.at(optionName));
+		}
+		m_pusher.setGlob(TvmConst::C7::ReturnParams);
+	}
+
 	auto expr = _return.expression();
 	if (expr) {
 		if (!tryOptimizeReturn(expr)) {
@@ -1339,18 +1451,22 @@ bool TVMFunctionCompiler::visit(EmitStatement const &_emit) {
 	solAssert(eventDef, "Event Declaration was not found");
 	m_pusher.push(0, ";; emit " + eventDef->name());
 	auto appendBody = [&](int builderSize) {
-		return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder2(
-				eventCall->arguments(),
+		return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder(
+				[&](size_t idx) {
+					m_pusher.push(0, ";; " + eventDef->parameters()[idx]->name());
+					TVMExpressionCompiler{m_pusher}.compileNewExpr(eventCall->arguments()[idx].get());
+				},
 				convertArray(eventDef->parameters()),
 				EncodeFunctionParams{&m_pusher}.calculateFunctionIDWithReason(eventDef, ReasonOfOutboundMessage::EmitEventExternal),
+				{},
 				builderSize);
 	};
 
 	if (auto externalAddress = _emit.externalAddress()) {
 		acceptExpr(externalAddress.get(), true);
-		m_pusher.sendMsg({TvmConst::ext_msg_info::dest}, {}, appendBody, nullptr, nullptr, false);
+		m_pusher.sendMsg({TvmConst::ext_msg_info::dest}, {}, appendBody, nullptr, nullptr, StackPusherHelper::MsgType::ExternalOut);
 	} else {
-		m_pusher.sendMsg({}, {}, appendBody, nullptr, nullptr, false);
+		m_pusher.sendMsg({}, {}, appendBody, nullptr, nullptr, StackPusherHelper::MsgType::ExternalOut);
 	}
 
 	return false;
@@ -1408,14 +1524,14 @@ void TVMFunctionCompiler::generateMainExternal(StackPusherHelper& pusher, Contra
 			funCompiler.generateMainExternalForAbiV2();
 			break;
 		default:
-			solAssert(false, "");
+			solUnimplemented("");
 	}
 	pusher.push(0, " ");
 }
 
 void TVMFunctionCompiler::setGlobSenderAddressIfNeed() {
 	ContactsUsageScanner sc{*m_pusher.ctx().getContract()};
-	if (sc.haveMsgSender) {
+	if (sc.haveMsgSenderOrCallbackFunction) {
 		m_pusher.pushLines(R"(
 PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_
 SETGLOB 9
@@ -1430,7 +1546,7 @@ void TVMFunctionCompiler::generateMainExternalForAbiV1() {
 
 	setGlobSenderAddressIfNeed();
 
-	m_pusher.pushLines(R"(
+	std::string str = R"(
 PUSH s1    ; originMsgBodySlice
 LDREFRTOS  ; msgBodySlice signSlice
 DUP        ; msgBodySlice signSlice signSlice
@@ -1447,12 +1563,15 @@ PUSHCONT {
 	HASHSU       ; msgBodySlice signSlice pubKey msgHash
 	PUSH2 s2,s1  ; msgBodySlice signSlice pubKey msgHash signSlice pubKey
 	CHKSIGNU     ; msgBodySlice signSlice pubKey isSigned
-	THROWIFNOT 40; msgBodySlice signSlice pubKey
+	THROWIFNOT BAD_SIGNATURE; msgBodySlice signSlice pubKey
 	SETGLOB 5    ; msgBodySlice signSlice
 	DROP         ; msgBodySlice
 }
 IFELSE
-)");
+)";
+	boost::replace_all(str, "BAD_SIGNATURE", toString(TvmConst::RuntimeException::BadSignature));
+	m_pusher.pushLines(str);
+
 	m_pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7_with_init_storage");
 	m_pusher.pushLines(R"(
 LDU 32                         ; functionId msgSlice
@@ -1484,7 +1603,7 @@ void TVMFunctionCompiler::generateMainExternalForAbiV2() {
 	if (m_pusher.ctx().afterSignatureCheck()) {
 		// ... msg_cell msg_body_slice -1 rest_msg_body_slice
 		m_pusher.push(0, "PUSH S3");
-		CodeLines const& codeLines = m_pusher.ctx().m_inlinedFunctions.at("afterSignatureCheck");
+		CodeLines const& codeLines = m_pusher.ctx().getInlinedFunction("afterSignatureCheck");
 		m_pusher.append(codeLines);
 	} else {
 		defaultReplayProtection();
@@ -1557,22 +1676,26 @@ PUSHCONT {
 
 	pushMsgPubkey();
 
-	m_pusher.pushLines(R"(
+	std::string str =R"(
 	CHKSIGNU      ; msgSlice isSigned
-	THROWIFNOT 40 ; msgSlice)");
+	THROWIFNOT BAD_SIGNATURE ; msgSlice)";
+	boost::replace_all(str, "BAD_SIGNATURE", toString(TvmConst::RuntimeException::BadSignature));
+	m_pusher.pushLines(str);
 
 
 	if (m_pusher.ctx().pragmaHelper().havePubkey()) {
 		// External inbound message have not signature but have public key
-		m_pusher.pushLines(R"(
+		std::string str = R"(
 }
 PUSHCONT {
 	LDU 1      ; havePubkey msgSlice
 	SWAP       ; msgSlice havePubkey
-	THROWIF 58 ; msgSlice
+	THROWIF MessageHasNoSignButHasPubkey ; msgSlice
 }
 IFELSE
-)");
+)";
+		boost::replace_all(str, "MessageHasNoSignButHasPubkey", toString(TvmConst::RuntimeException::MessageHasNoSignButHasPubkey));
+		m_pusher.pushLines(str);
 	} else {
 		m_pusher.pushLines(R"(
 }
@@ -1668,7 +1791,7 @@ CTOS
 )";
 
 	ContactsUsageScanner sc{*pusher.ctx().getContract()};
-	if (sc.haveMsgSender) {
+	if (sc.haveMsgSenderOrCallbackFunction) {
 		s += R"(
 LDU 4       ; bounced tail
 LDMSGADDR   ; bounced src tail
@@ -1676,6 +1799,18 @@ DROP
 SETGLOB 9
 MODPOW2 1
 )";
+		StackPusherHelper p{&pusher.ctx()};
+		p.getGlob(TvmConst::C7::ReturnParams);
+		p.push(+1, "TRUE"); // bounce
+		p.setIndexQ(TvmConst::C7::ReturnParam::Bounce);
+		p.pushInt(TvmConst::Message::DefaultMsgValue); // tons
+		p.setIndexQ(TvmConst::C7::ReturnParam::Value);
+		p.pushNull(); // currency
+		p.setIndexQ(TvmConst::C7::ReturnParam::Currencies);
+		p.pushInt(TvmConst::SENDRAWMSG::DefaultFlag); // flag
+		p.setIndexQ(TvmConst::C7::ReturnParam::Flag);
+		p.setGlob(TvmConst::C7::ReturnParams);
+		s += p.code().str();
 	} else {
 		s += R"(
 PLDU 4
@@ -1730,7 +1865,7 @@ void TVMFunctionCompiler::fillInlineFunctionsAndConstants(std::string &pattern) 
 
 		if (m_contract->receiveFunction()) {
 			boost::replace_all(pattern, tab + "INSERT_RECEIVE_FUNCTION",
-					  m_pusher.ctx().m_inlinedFunctions.at("receive").str(tab));
+					  m_pusher.ctx().getInlinedFunction("receive").str(tab));
 		} else {
 			boost::replace_all(pattern, tab + "INSERT_RECEIVE_FUNCTION", "");
 		}
@@ -1739,18 +1874,18 @@ void TVMFunctionCompiler::fillInlineFunctionsAndConstants(std::string &pattern) 
 			boost::replace_all(pattern, tab + "INSERT_FALLBACK_FUNCTION", callFallback);
 			boost::replace_all(pattern, tab + "SWITCH_SELECTOR_INSERT_FALLBACK_FUNCTION", callFallbackWithSwitch);
 		} else {
-			boost::replace_all(pattern, tab + "INSERT_FALLBACK_FUNCTION", tab + "THROW 60");
-			boost::replace_all(pattern, tab + "SWITCH_SELECTOR_INSERT_FALLBACK_FUNCTION", tab + "THROW 60");
+			boost::replace_all(pattern, tab + "INSERT_FALLBACK_FUNCTION", tab + "THROW " + toString(TvmConst::RuntimeException::NoFallback));
+			boost::replace_all(pattern, tab + "SWITCH_SELECTOR_INSERT_FALLBACK_FUNCTION", tab + "THROW " + toString(TvmConst::RuntimeException::NoFallback));
 		}
 
 		if (!isEmptyFunction(m_contract->onBounceFunction())) {
 			boost::replace_all(pattern, tab + "INSERT_ON_BOUNCE_FUNCTION",
-					  m_pusher.ctx().m_inlinedFunctions.at("onBounce").str(tab));
+					  m_pusher.ctx().getInlinedFunction("onBounce").str(tab));
 		}
 	}
 
 	size_t pos{};
-	while ((pos = pattern.find("\n\n"))!= std::string::npos) {
+	while ((pos = pattern.find("\n\n")) != std::string::npos) {
 		pattern.erase(pos, 1);
 	}
 }

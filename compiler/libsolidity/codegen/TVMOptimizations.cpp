@@ -119,10 +119,13 @@ struct TVMOptimizer {
 			if (is("BLKSWAP")) {
 				return fetch_first_int() + fetch_second_int();
 			}
-			solAssert(false, "");
+			solUnimplemented("");
 		}
 
 		int get_index() const {
+			if (cmd_ == "DUP") {
+				return 0;
+			}
 			string s = rest();
 			solAssert(isIn(s.at(0), 's', 'S'), "");
 			s.erase(s.begin()); // skipping char S
@@ -170,8 +173,8 @@ struct TVMOptimizer {
 		bool is_NIP() const 	{ 	return is("NIP"); 		}
 		bool is_SWAP() const 	{ 	return is("SWAP"); 		}
 		bool is_DUP() const 	{ 	return is("DUP"); 		}
-		bool is_PUSH() const 	{ 	return is("PUSH") || is("DUP"); 		}
-		bool is_PUSHINT() const { 	return is("PUSHINT"); 	}
+		bool is_PUSH() const 	{ 	return (is("PUSH") && ((boost::starts_with(rest_, "S") || boost::starts_with(rest_, "s")))) || is("DUP"); 		}
+		bool is_PUSHINT() const { 	return is("PUSHINT"); }
 		bool is_POP() const 	{ 	return is("POP"); 		}
 		bool isBLKSWAP() const  { return is("ROT") || is("ROTREV") || is("SWAP2") || is("BLKSWAP"); }
 
@@ -568,7 +571,7 @@ struct TVMOptimizer {
 			cmd2.is("THROWIF")) {
 			return Result::Replace(2, "THROWIFNOT " + cmd2.rest());
 		}
-		if (cmd1.is("PUSH")) {
+		if (cmd1.is_PUSH()) {
 			// PUSH Sx
 			// XCHG n
 			// BLKDROP n
@@ -701,10 +704,14 @@ struct TVMOptimizer {
 			cmd2.is("INDEX") && 0 <= stoi(cmd2.rest()) && stoi(cmd2.rest()) <= 3) {
 			return Result(true, 2, {"INDEX2 " + cmd1.rest() + ", " + cmd2.rest()});
 		}
+		if (cmd2.is("THROWANY") &&
+			cmd1.is("PUSHINT") && 0 <= stoi(cmd1.rest()) && stoi(cmd1.rest()) < (1L << 11)) {
+			return Result(true, 2, {"THROW " + cmd1.rest()});
+		}
 		return Result(false);
 	}
 
-	std::string toBitString(const std::string& slice) const {
+	static std::string toBitString(const std::string& slice) {
 		std::string bitString;
 		if (slice.at(0) == 'x') {
 			for (std::size_t i = 1; i < slice.size(); ++i) {
@@ -733,7 +740,7 @@ struct TVMOptimizer {
 			if (isIn(slice, "0", "1")) {
 				return slice;
 			}
-			solAssert(false, "");
+			solUnimplemented("");
 		}
 		return bitString;
 	}

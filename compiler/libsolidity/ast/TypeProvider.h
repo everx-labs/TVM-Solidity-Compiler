@@ -73,19 +73,20 @@ public:
 	static ArrayType const* stringMemory();
 
 	/// Constructor for a byte array ("bytes") and string.
-	static ArrayType const* array(DataLocation _location, bool _isString = false);
+	static ArrayType const* array(bool _isString = false);
 
 	/// Constructor for a dynamically sized array type ("type[]")
-	static ArrayType const* array(DataLocation _location, Type const* _baseType);
+	static ArrayType const* array(Type const* _baseType);
 
 	/// Constructor for a fixed-size array type ("type[20]")
-	static ArrayType const* array(DataLocation _location, Type const* _baseType, u256 const& _length);
+	static ArrayType const* array(Type const* _baseType, u256 const& _length);
 
 	static ArraySliceType const* arraySlice(ArrayType const& _arrayType);
 
 	static AddressType const* address() noexcept { return &m_address; }
 	static VarInteger const* varInteger() noexcept { return &m_varInteger; }
 	static InitializerListType const* initializerList() noexcept { return &m_initializerList; }
+	static CallListType const* callList() noexcept { return &m_callList; }
 
 
 	static IntegerType const* integer(unsigned _bits, IntegerType::Modifier _modifier)
@@ -110,15 +111,15 @@ public:
 
 	static TupleType const* emptyTuple() noexcept { return &m_emptyTuple; }
 
-	static ReferenceType const* withLocation(ReferenceType const* _type, DataLocation _location, bool _isPointer);
+	static ReferenceType const* withLocation(ReferenceType const* _type, bool _isPointer);
 
 	/// @returns a copy of @a _type having the same location as this (and is not a pointer type)
 	///          if _type is a reference type and an unmodified copy of _type otherwise.
 	///          This function is mostly useful to modify inner types appropriately.
-	static Type const* withLocationIfReference(DataLocation _location, Type const* _type)
+	static Type const* withLocationIfReference(Type const* _type)
 	{
 		if (auto refType = dynamic_cast<ReferenceType const*>(_type))
-			return withLocation(refType, _location, false);
+			return withLocation(refType, false);
 
 		return _type;
 	}
@@ -179,7 +180,7 @@ public:
 
 	static TypeType const* typeType(Type const* _actualType);
 
-	static StructType const* structType(StructDefinition const& _struct, DataLocation _location);
+	static StructType const* structType(StructDefinition const& _struct);
 
 	static ModifierType const* modifier(ModifierDefinition const& _modifierDef);
 
@@ -187,9 +188,9 @@ public:
 
 	static MagicType const* meta(Type const* _type);
 
-	static MappingType const* mapping(Type const* _keyType, Type const* _valueType, DataLocation _location);
+	static MappingType const* mapping(Type const* _keyType, Type const* _valueType);
 
-	static ExtraCurrencyCollectionType const* extraCurrencyCollection(DataLocation _location);
+	static ExtraCurrencyCollectionType const* extraCurrencyCollection();
 
 	static OptionalType const* optional(Type const* _type);
 
@@ -221,6 +222,7 @@ private:
 	static AddressType const m_address;
 	static VarInteger const m_varInteger;
 	static InitializerListType const m_initializerList;
+	static CallListType const m_callList;
 	static std::array<std::unique_ptr<IntegerType>, 32> const m_intM;
 	static std::array<std::unique_ptr<IntegerType>, 32> const m_uintM;
 	static std::array<std::unique_ptr<FixedBytesType>, 32> const m_bytesM;

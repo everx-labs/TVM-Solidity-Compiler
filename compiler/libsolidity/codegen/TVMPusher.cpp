@@ -101,7 +101,7 @@ STSLICER
 )");
 }
 
-bool StackPusherHelper::doesFitInOneCell(Type const* key, Type const* value) {
+bool StackPusherHelper::doesFitInOneCellAndHaveNoStruct(Type const* key, Type const* value) {
 	int keyLength = lengthOfDictKey(key);
 	return
 		2 + // hml_long$10
@@ -150,9 +150,12 @@ int StackPusherHelper::maxBitLengthOfDictValue(Type const* type) {
 			return StructCompiler::maxBitLength(to<StructType>(type));
 		}
 
-		default:
-			solAssert(false, "Unsupported " + type->toString());
+		case DictValueType::Function: {
+			return 32;
+		}
 	}
+
+	solUnimplemented("Unsupported " + type->toString());
 }
 
 DataType
@@ -171,7 +174,7 @@ StackPusherHelper::prepareValueForDictOperations(Type const *keyType, Type const
 
 		case DictValueType::Address:
 		case DictValueType::Contract: {
-			if (!doesFitInOneCell(keyType, valueType)) {
+			if (!doesFitInOneCellAndHaveNoStruct(keyType, valueType)) {
 				solAssert(!isValueBuilder, "");
 				push(+1, "NEWC");
 				push(-1, "STSLICE");
@@ -199,13 +202,14 @@ StackPusherHelper::prepareValueForDictOperations(Type const *keyType, Type const
 		case DictValueType::Mapping:
 		case DictValueType::Optional:
 		case DictValueType::VarInteger:
+		case DictValueType::Function:
 		{
 			if (!isValueBuilder) {
 				push(0, "NEWC");
 				store(valueType, false, 0);
 				push(+1, "");
 			}
-			if (!doesFitInOneCell(keyType, valueType)) {
+			if (!doesFitInOneCellAndHaveNoStruct(keyType, valueType)) {
 				push(0, "NEWC");
 				push(0, "STBREF");
 			}
@@ -217,7 +221,7 @@ StackPusherHelper::prepareValueForDictOperations(Type const *keyType, Type const
 				StructCompiler sc{this, to<StructType>(valueType)};
 				sc.tupleToBuilder();
 			}
-			if (!doesFitInOneCell(keyType, valueType)) {
+			if (!doesFitInOneCellAndHaveNoStruct(keyType, valueType)) {
 				push(0, "ENDC");
 				return DataType::Cell;
 			}
@@ -248,7 +252,7 @@ bool StackPusherHelper::doesDictStoreValueInRef(Type const* keyType, Type const*
 			if (isByteArrayOrString(valueType)) {
 				return true;
 			}
-			return !doesFitInOneCell(keyType, valueType);
+			return !doesFitInOneCellAndHaveNoStruct(keyType, valueType);
 		}
 
 
@@ -263,7 +267,8 @@ bool StackPusherHelper::doesDictStoreValueInRef(Type const* keyType, Type const*
 		case DictValueType::Optional:
 		case DictValueType::VarInteger:
 		case DictValueType::Struct:
-			return !doesFitInOneCell(keyType, valueType);
+		case DictValueType::Function:
+			return !doesFitInOneCellAndHaveNoStruct(keyType, valueType);
 	}
 	solUnimplemented("");
 }
@@ -321,6 +326,7 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 			case DictValueType::Optional:
 			case DictValueType::Struct:
 			case DictValueType::VarInteger:
+			case DictValueType::Function:
 			{
 				if (didUseOpcodeWithRef) {
 					push(0, "CTOS");
@@ -340,6 +346,12 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 				}
 				break;
 			}
+		}
+	};
+
+	auto checkOnMappingOrOptional = [&]() {
+		if (isIn(valueType->category(), Type::Category::Mapping, Type::Category::Optional)) {
+			tuple(1);
 		}
 	};
 
@@ -378,6 +390,8 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 			preloadValue();
 			if (haveKey) {
 				tuple(2);
+			} else {
+				checkOnMappingOrOptional();
 			}
 			endContinuation();
 
@@ -389,6 +403,7 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 
 			startContinuation();
 			preloadValue();
+			checkOnMappingOrOptional();
 			endContinuation();
 
 			push(0, "IFNOT");
@@ -601,7 +616,7 @@ void StackPusherHelper::index(int index) {
 	}
 }
 
-void StackPusherHelper::set_index(int index) {
+void StackPusherHelper::setIndex(int index) {
 	solAssert(0 <= index, "");
 	if (index <= 15) {
 		push(-2 + 1, "SETINDEX " + toString(index));
@@ -609,6 +624,17 @@ void StackPusherHelper::set_index(int index) {
 		solAssert(index <= 254, "");
 		pushInt(index);
 		push(-1 - 2 + 1, "SETINDEXVAR");
+	}
+}
+
+void StackPusherHelper::setIndexQ(int index) {
+	solAssert(0 <= index, "");
+	if (index <= 15) {
+		push(-2 + 1, "SETINDEXQ " + toString(index));
+	} else {
+		solAssert(index <= 254, "");
+		pushInt(index);
+		push(-1 - 2 + 1, "SETINDEXVARQ");
 	}
 }
 
@@ -678,7 +704,7 @@ void StackPusherHelper::popS(int i) {
 	push(-1, "POP S" + toString(i));
 }
 
-void StackPusherHelper::pushInt(int i) {
+void StackPusherHelper::pushInt(int64_t i) {
 	push(+1, "PUSHINT " + toString(i));
 }
 
@@ -693,7 +719,6 @@ bool StackPusherHelper::fastLoad(const Type* type) {
 			exchange(0, 1); // slice value
 			pushS(0); // slice value value
 			push(-1 + 1, "ISNULL"); // slice value isNull
-
 			push(-1, ""); // fix stack
 
 			startContinuation();
@@ -701,6 +726,9 @@ bool StackPusherHelper::fastLoad(const Type* type) {
 			push(0, "CTOS"); // slice sliceValue
 			// TODO add test
 			preload(opt->valueType(), UseCurrentSlice); // slice value
+			if (isIn(opt->valueType()->category(), Type::Category::Mapping, Type::Category::Optional)) {
+				tuple(1);
+			}
 			endContinuation();
 
 			push(0, "IFNOT");
@@ -733,6 +761,10 @@ bool StackPusherHelper::fastLoad(const Type* type) {
 			push(-1 + 2, cmd + toString(ti.numBits));
 			return true;
 		}
+		case Type::Category::Function: {
+			push(-1 + 2, "LDU 32");
+			return true;
+		}
 		case Type::Category::Array: {
 			auto arrayType = to<ArrayType>(type);
 			if (arrayType->isByteArray()) {
@@ -750,7 +782,7 @@ bool StackPusherHelper::fastLoad(const Type* type) {
 			push(-1 + 2, "LDDICT");
 			return true;
 		default:
-			solAssert(false, "");
+			solUnimplemented("");
 	}
 }
 
@@ -781,7 +813,10 @@ void StackPusherHelper::preload(const Type *type, uint32_t mask) {
 			// stack: slice
 			push(-1 + 1, "PLDREF");
 			push(-1 + 1, "CTOS");
-			preload(opt->valueType(), mask | UseCurrentSlice);
+			preload(opt->valueType(),UseCurrentSlice);
+			if (isIn(opt->valueType()->category(), Type::Category::Mapping, Type::Category::Optional)) {
+				tuple(1);
+			}
 			endContinuation();
 			getStack().ensureSize(savedStake0);
 
@@ -827,6 +862,10 @@ void StackPusherHelper::preload(const Type *type, uint32_t mask) {
 			solAssert(ti.isNumeric, "");
 			string cmd = ti.isSigned ? "PLDI " : "PLDU ";
 			push(-1 + 1, cmd + toString(ti.numBits));
+			break;
+		}
+		case Type::Category::Function: {
+			push(-1 + 1, "PLDU 32");
 			break;
 		}
 		case Type::Category::Array: {
@@ -881,10 +920,13 @@ void StackPusherHelper::store(
 			push(-1 + 1, "NOT");	// builder value !isnull
 
 			push(-1, ""); // fix stack
-
 			getStack().ensureSize(stackSize);
+
 			startContinuation();
 			// builder value
+			if (isIn(optType->valueType()->category(), Type::Category::Optional, Type::Category::Mapping)) {
+				untuple(1);
+			}
 			push(+1, "NEWC"); // builder value builder
 			store(optType->valueType(), false, 0); // builder builderWithValue
 			exchange(0, 1); // builderWithValue builder
@@ -892,8 +934,8 @@ void StackPusherHelper::store(
 			push(-1, "STBREF");	// builder
 			endContinuation();
 			push(+1, ""); // fix stack
-
 			getStack().ensureSize(stackSize);
+
 			startContinuation();
 			// builder value
 			drop(1); // builder
@@ -924,7 +966,7 @@ void StackPusherHelper::store(
 				if (mask & StoreFlag::StoreStructInRef)
 					push(-1, reverse? "STBREFR" : "STBREF"); // builder
 				else
-					solAssert(false, "TODO");
+					solUnimplemented("TODO");
 			} else {
 				if (!reverse) {
 					push(0, "SWAP"); // builder struct
@@ -956,6 +998,15 @@ void StackPusherHelper::store(
 				push(-1, storeIntegralOrAddress(type, reverse));
 			}
 			break;
+		case Type::Category::Function: {
+			if (mask & StoreFlag::ValueIsBuilder) {
+				push(-1, reverse ? "STBR" : "STB");
+				solUnimplemented("");
+			} else {
+				push(-1, reverse ? "STUR 32" : "STU 32");
+			}
+			break;
+		}
 		case Type::Category::Mapping:
 		case Type::Category::ExtraCurrencyCollection:
 			if (reverse) {
@@ -1255,7 +1306,7 @@ void StackPusherHelper::exchange(int i, int j) {
 		exchange(0, j);
 		exchange(0, i);
 	} else {
-		solAssert(false, "");
+		solUnimplemented("");
 	}
 }
 
@@ -1269,7 +1320,7 @@ TypePointer StackPusherHelper::parseIndexType(Type const *type) {
 	if (auto currencyType = to<ExtraCurrencyCollectionType>(type)) {
 		return currencyType->keyType();
 	}
-	solAssert(false, "");
+	solUnimplemented("");
 }
 
 TypePointer StackPusherHelper::parseValueType(IndexAccess const &indexAccess) {
@@ -1339,8 +1390,7 @@ void StackPusherHelper::prepareKeyForDictOperations(Type const *key, bool doIgno
 	}
 }
 
-std::pair<std::string, int>
-StackPusherHelper::int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams) {
+int StackPusherHelper::int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams) {
 	// int_msg_info$0  ihr_disabled:Bool  bounce:Bool(#1)  bounced:Bool
 	//                 src:MsgAddress  dest:MsgAddressInt(#4)
 	//                 value:CurrencyCollection(#5,#6)  ihr_fee:Grams  fwd_fee:Grams
@@ -1365,6 +1415,7 @@ StackPusherHelper::int_msg_info(const std::set<int> &isParamOnStack, const std::
 			bitString += std::string(zeroes[param], '0');
 			solAssert(param != TvmConst::int_msg_info::dest, "");
 		} else {
+			maxBitStringSize += bitString.size();
 			appendToBuilder(bitString);
 			bitString = "";
 			switch (param) {
@@ -1385,42 +1436,55 @@ StackPusherHelper::int_msg_info(const std::set<int> &isParamOnStack, const std::
 					break;
 				case TvmConst::int_msg_info::currency:
 					push(-1, "STDICT");
+					++maxBitStringSize;
 					break;
 				default:
-					solAssert(false, "");
+					solUnimplemented("");
 			}
 		}
 	}
 	maxBitStringSize += bitString.size();
-	return {bitString, maxBitStringSize};
+	appendToBuilder(bitString);
+	bitString = "";
+	return maxBitStringSize;
 }
 
-std::pair<std::string, int>
-StackPusherHelper::ext_msg_info(const set<int> &isParamOnStack) {
+int StackPusherHelper::ext_msg_info(const set<int> &isParamOnStack, bool isOut = true) {
+	// ext_in_msg_info$10 src:MsgAddressExt dest:MsgAddressInt
+	// import_fee:Grams = CommonMsgInfo;
+	//
 	// ext_out_msg_info$11 src:MsgAddressInt dest:MsgAddressExt
 	// created_lt:uint64 created_at:uint32 = CommonMsgInfo;
 
-	const std::vector<int> zeroes {2, 2,
-								   64, 32};
-	std::string bitString = "11";
+	std::vector<int> zeroes {2, 2};
+	if (isOut) {
+		zeroes.push_back(64);
+		zeroes.push_back(32);
+	} else {
+		zeroes.push_back(4);
+	}
+	std::string bitString = isOut ? "11" : "10";
 	int maxBitStringSize = 0;
 	push(+1, "NEWC");
 	for (int param = 0; param < static_cast<int>(zeroes.size()); ++param) {
 		if (isParamOnStack.count(param) == 0) {
 			bitString += std::string(zeroes.at(param), '0');
 		} else {
+			maxBitStringSize += bitString.size();
 			appendToBuilder(bitString);
 			bitString = "";
 			if (param == TvmConst::ext_msg_info::dest) {
 				push(-1, "STSLICE");
 				maxBitStringSize += AddressInfo::maxBitLength();
 			} else {
-				solAssert(false, "");
+				solUnimplemented("");
 			}
 		}
 	}
 	maxBitStringSize += bitString.size();
-	return {bitString, maxBitStringSize};
+	appendToBuilder(bitString);
+	bitString = "";
+	return maxBitStringSize;
 }
 
 
@@ -1446,7 +1510,7 @@ void StackPusherHelper::appendToBuilder(const std::string &bitString) {
 
 void StackPusherHelper::checkOptionalValue() {
 	push(-1 + 1, "ISNULL");
-	push(-1, "THROWIF " + toString(TvmConst::Message::Exception::GetOptionalException));
+	push(-1, "THROWIF " + toString(TvmConst::RuntimeException::GetOptionalException));
 }
 
 void StackPusherHelper::stzeroes(int qty) {
@@ -1486,24 +1550,29 @@ void StackPusherHelper::sendIntMsg(const std::map<int, Expression const *> &expr
 		isParamOnStack.insert(param);
 		TVMExpressionCompiler{*this}.compileNewExpr(expr);
 	}
-	sendMsg(isParamOnStack, constParams, appendBody, nullptr, pushSendrawmsgFlag, true);
+	sendMsg(isParamOnStack, constParams, appendBody, nullptr, pushSendrawmsgFlag);
 }
 
-void StackPusherHelper::sendMsg(const std::set<int>& isParamOnStack,
+
+
+void StackPusherHelper::prepareMsg(const std::set<int>& isParamOnStack,
 								const std::map<int, std::string> &constParams,
 								const std::function<void(int)> &appendBody,
 								const std::function<void()> &appendStateInit,
-								const std::function<void()> &pushSendrawmsgFlag,
-								bool isInternalMessage) {
-	std::string bitString;
-	int msgInfoSize;
-	if (isInternalMessage) {
-		std::tie(bitString, msgInfoSize) = int_msg_info(isParamOnStack, constParams);
-	} else {
-		std::tie(bitString, msgInfoSize) = ext_msg_info(isParamOnStack);
+								MsgType messageType) {
+	int msgInfoSize = 0;
+	switch (messageType) {
+		case MsgType::Internal:
+			msgInfoSize = int_msg_info(isParamOnStack, constParams);
+			break;
+		case MsgType::ExternalOut:
+			msgInfoSize = ext_msg_info(isParamOnStack);
+			break;
+		case MsgType::ExternalIn:
+			msgInfoSize = ext_msg_info(isParamOnStack, false);
+			break;
 	}
 	// stack: builder
-	appendToBuilder(bitString);
 
 	if (appendStateInit) {
 		// stack: values... builder
@@ -1527,6 +1596,15 @@ void StackPusherHelper::sendMsg(const std::set<int>& isParamOnStack,
 
 	// stack: builder'
 	push(0, "ENDC"); // stack: cell
+}
+
+void StackPusherHelper::sendMsg(const std::set<int>& isParamOnStack,
+								const std::map<int, std::string> &constParams,
+								const std::function<void(int)> &appendBody,
+								const std::function<void()> &appendStateInit,
+								const std::function<void()> &pushSendrawmsgFlag,
+								MsgType messageType) {
+	prepareMsg(isParamOnStack, constParams, appendBody, appendStateInit, messageType);
 	if (pushSendrawmsgFlag) {
 		pushSendrawmsgFlag();
 	} else {
@@ -1549,6 +1627,7 @@ bool TVMStack::isParam(Declaration const *name) const {
 }
 
 void TVMStack::add(Declaration const *name, bool doAllocation) {
+	solAssert(name != nullptr, "");
 	solAssert(m_params.count(name) == 0, "");
 	m_params[name] = doAllocation? m_size++ : m_size - 1;
 }
@@ -1622,19 +1701,9 @@ void CodeLines::append(const CodeLines &oth) {
 	}
 }
 
-void TVMCompilerContext::addFunction(FunctionDefinition const *_function) {
-	if (!_function->isConstructor()) {
-		string name = functionName(_function);
-		m_functions[name] = _function;
-	}
-}
-
 void TVMCompilerContext::initMembers(ContractDefinition const *contract) {
 	solAssert(!m_contract, "");
 	m_contract = contract;
-	for (const auto &pair : getContractFunctionPairs(contract)) {
-		m_function2contract.insert(pair);
-	}
 
 	for (ContractDefinition const* base : contract->annotation().linearizedBaseContracts) {
 		for (FunctionDefinition const* f : base->definedFunctions()) {
@@ -1643,13 +1712,8 @@ void TVMCompilerContext::initMembers(ContractDefinition const *contract) {
 	}
 
 	ignoreIntOverflow |= m_pragmaHelper.haveIgnoreIntOverflow();
-	for (const auto f : getContractFunctions(contract)) {
-		if (isPureFunction(f))
-			continue;
-		addFunction(f);
-	}
 	for (VariableDeclaration const *variable: notConstantStateVariables()) {
-		m_stateVarIndex[variable] = TvmConst::C7::FirstIndexForVariables +  + m_stateVarIndex.size();
+		m_stateVarIndex[variable] = TvmConst::C7::FirstIndexForVariables + m_stateVarIndex.size();
 	}
 }
 
@@ -1702,7 +1766,7 @@ bool TVMCompilerContext::haveTimeInAbiHeader() const {
 	if (m_pragmaHelper.abiVersion() == 2) {
 		return m_pragmaHelper.haveTime() || afterSignatureCheck() == nullptr;
 	}
-	solAssert(false, "");
+	solUnimplemented("");
 }
 
 bool TVMCompilerContext::isStdlib() const {
@@ -1734,21 +1798,8 @@ string TVMCompilerContext::getFunctionExternalName(FunctionDefinition const *_fu
 	return fname;
 }
 
-bool TVMCompilerContext::isPureFunction(FunctionDefinition const *f) const {
-	const auto& vec = getContract(f)->annotation().unimplementedFunctions;
-	return std::find(vec.cbegin(), vec.cend(), f) != vec.end();
-}
-
 const ContractDefinition *TVMCompilerContext::getContract() const {
 	return m_contract;
-}
-
-const ContractDefinition *TVMCompilerContext::getContract(const FunctionDefinition *f) const {
-	return m_function2contract.at(f);
-}
-
-const FunctionDefinition *TVMCompilerContext::getLocalFunction(const string& fname) const {
-	return get_from_map(m_functions, fname, nullptr);
 }
 
 bool TVMCompilerContext::ignoreIntegerOverflow() const {
@@ -1781,6 +1832,15 @@ std::vector<std::pair<VariableDeclaration const*, int>> TVMCompilerContext::getS
 		}
 	}
 	return vect;
+}
+
+void TVMCompilerContext::addInlineFunction(const std::string& name, const CodeLines& code) {
+	solAssert(m_inlinedFunctions.count(name) == 0, "");
+	m_inlinedFunctions[name] = code;
+}
+
+CodeLines TVMCompilerContext::getInlinedFunction(const std::string& name) {
+	return m_inlinedFunctions.at(name);
 }
 
 void StackPusherHelper::pushNull() {
@@ -1859,22 +1919,19 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 			}
 			break;
 		case Type::Category::Function: {
-			// TODO store function as function id - uint
-			solAssert(!isResultBuilder, "");
-			auto functionType = to<FunctionType>(type);
-			StackPusherHelper pusherHelper(&ctx(), functionType->parameterTypes().size());
-			pusherHelper.drop(functionType->parameterTypes().size());
-			for (const TypePointer &param : functionType->returnParameterTypes()) {
-				pusherHelper.pushDefaultValue(param);
+			pushInt(TvmConst::FunctionId::DefaultValueForFunctionType);
+			if (isResultBuilder) {
+				solUnimplemented("TODO");
+				push(+1, "NEWC");
+				push(-1, "STU 32");
 			}
-			pushCont(pusherHelper.code());
 			break;
 		}
 		case Type::Category::Optional:
 			push(+1, "NULL");
 			break;
 		default:
-			solAssert(false, "");
+			solUnimplemented("");
 	}
 }
 
@@ -1910,7 +1967,7 @@ public:
 				else if (op == StackPusherHelper::GetDictOperation::GetReplaceFromMapping)
 					opcode += "REPLACEGET";
 				else
-					solAssert(false, "");
+					solUnimplemented("");
 
 				bool didUseOpcodeWithRef = false;
 				switch (dataType) {

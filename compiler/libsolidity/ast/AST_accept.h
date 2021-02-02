@@ -270,15 +270,6 @@ void VariableDeclaration::accept(ASTConstVisitor& _visitor) const
 	if (_visitor.visit(*this))
 	{
 		if (m_typeName) {
-			if (auto map = dynamic_cast<Mapping*>(m_typeName.get()))
-				if (m_location != Location::Memory)
-					map->setLocation(DataLocation::Storage);
-			if (auto arr = dynamic_cast<ArrayTypeName*>(m_typeName.get()))
-				if (m_location != Location::Memory)
-					arr->setLocation(DataLocation::Storage);
-			if (auto currency = dynamic_cast<ElementaryTypeName*>(m_typeName.get()))
-				if (m_location != Location::Memory)
-					currency->setLocation(DataLocation::Storage);
 			m_typeName->accept(_visitor);
 		}
 		if (m_overrides)
@@ -669,17 +660,23 @@ void Break::accept(ASTConstVisitor& _visitor) const
 
 void Return::accept(ASTVisitor& _visitor)
 {
-	if (_visitor.visit(*this))
+	if (_visitor.visit(*this)) {
+		for (const ASTPointer<Expression>& opt : m_options)
+			opt->accept(_visitor);
 		if (m_expression)
 			m_expression->accept(_visitor);
+	}
 	_visitor.endVisit(*this);
 }
 
 void Return::accept(ASTConstVisitor& _visitor) const
 {
-	if (_visitor.visit(*this))
+	if (_visitor.visit(*this)) {
+		for (const ASTPointer<Expression>& opt : m_options)
+			opt->accept(_visitor);
 		if (m_expression)
 			m_expression->accept(_visitor);
+	}
 	_visitor.endVisit(*this);
 }
 
@@ -880,6 +877,24 @@ void InitializerList::accept(ASTConstVisitor &_visitor) const {
 	if (_visitor.visit(*this))
 	{
 		listAccept(m_options, _visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void CallList::accept(ASTVisitor &_visitor) {
+	if (_visitor.visit(*this))
+	{
+		m_function->accept(_visitor);
+		listAccept(m_arguments, _visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void CallList::accept(ASTConstVisitor &_visitor) const {
+	if (_visitor.visit(*this))
+	{
+		m_function->accept(_visitor);
+		listAccept(m_arguments, _visitor);
 	}
 	_visitor.endVisit(*this);
 }

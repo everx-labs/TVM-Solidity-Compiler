@@ -129,8 +129,7 @@ void Parser::parsePragmaVersion(SourceLocation const& _location, vector<Token> c
 			m_errorReporter.fatalParserError(
 				_location,
 				"Source file requires different compiler version (current compiler is " +
-				string(VersionString) + " - note that nightly builds are considered to be "
-				"strictly less than the released version"
+				string(VersionString) + ")"
 			);
 }
 
@@ -184,10 +183,26 @@ ASTPointer<PragmaDirective> Parser::parsePragmaDirective()
 
 	if (literals.size() >= 2 && literals[0] == "solidity")
 	{
+		SemVerVersion recommendedVersion{string(VersionString)};
+		std::string errorString =
+				"It's deprecated."
+				" Consider adding \"pragma ton-solidity ^" +
+				to_string(recommendedVersion.major()) +
+				string(".") +
+				to_string(recommendedVersion.minor()) +
+				string(".") +
+				to_string(recommendedVersion.patch()) +
+				string(";\"") +
+				" to set a version of the compiler.";
+		m_errorReporter.warning(nodeFactory.location(), errorString);
+	}
+
+	if (literals.size() >= 3 && literals[0] == "ton")
+	{
 		parsePragmaVersion(
 			nodeFactory.location(),
-			vector<Token>(tokens.begin() + 1, tokens.end()),
-			vector<string>(literals.begin() + 1, literals.end())
+			vector<Token>(tokens.begin() + 3, tokens.end()),
+			vector<string>(literals.begin() + 3, literals.end())
 		);
 	}
 
@@ -772,7 +787,6 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 	ASTPointer<OverrideSpecifier> overrides = nullptr;
 	Visibility visibility(Visibility::Default);
 	bool isStatic{false};
-	VariableDeclaration::Location location = VariableDeclaration::Location::Unspecified;
 	ASTPointer<ASTString> identifier;
 
 	while (true)
@@ -817,22 +831,17 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 			else if (_options.allowLocationSpecifier && TokenTraits::isLocationSpecifier(token))
 			{
 				parserWarning("Memory access modifiers have no effect in TON.");
-				if (location != VariableDeclaration::Location::Unspecified)
-					parserError(string("Location already specified."));
-				else if (!type)
+				if (!type)
 					parserError(string("Location specifier needs explicit type name."));
 				else
 				{
 					switch (token)
 					{
 					case Token::Storage:
-						location = VariableDeclaration::Location::Storage;
 						break;
 					case Token::Memory:
-						location = VariableDeclaration::Location::Memory;
 						break;
 					case Token::CallData:
-						location = VariableDeclaration::Location::CallData;
 						break;
 					default:
 						solAssert(false, "Unknown data location.");
@@ -867,20 +876,6 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 		}
 	}
 
-	auto elemType = dynamic_cast<ElementaryTypeName * >(type.get());
-
-	auto structType = dynamic_cast<UserDefinedTypeName * >(type.get());
-	if (
-		(location == VariableDeclaration::Location::Unspecified) && m_insideFunctionDefenition &&
-		(dynamic_cast<Mapping * >(type.get()) ||
-			structType ||
-			(elemType && (elemType->typeName().toString() == "string" ||
-							elemType->typeName().toString() == "bytes" ||
-	                        elemType->typeName().toString() == "ExtraCurrencyCollection")) ||
-			dynamic_cast<ArrayTypeName * >(type.get())
-    ))
-		location = VariableDeclaration::Location::Memory;
-
 	return nodeFactory.createNode<VariableDeclaration>(
 		type,
 		identifier,
@@ -890,7 +885,6 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 		isIndexed,
 		isDeclaredConst,
 		overrides,
-		location,
 		attributeName,
 		isStatic
 	);
@@ -1260,15 +1254,24 @@ ASTPointer<Statement> Parser::parseStatement()
 			break;
 		case Token::Return:
 		{
+			expectToken(Token::Return);
+
+			pair<vector<ASTPointer<Expression>>, vector<ASTPointer<ASTString>>> namesArgs;
+			if (currentToken() == Token::LBrace) {
+				expectToken(Token::LBrace);
+				namesArgs = parseNamedArguments();
+				expectToken(Token::RBrace);
+			}
+
 			ASTNodeFactory nodeFactory(*this);
 			ASTPointer<Expression> expression;
-			if (m_scanner->next() != Token::Semicolon)
-				{
-					expression = parseExpression();
-					nodeFactory.setEndPositionFromNode(expression);
-				}
-			statement = nodeFactory.createNode<Return>(docString, expression);
-				break;
+			if (m_scanner->currentToken() != Token::Semicolon)
+			{
+				expression = parseExpression();
+				nodeFactory.setEndPositionFromNode(expression);
+			}
+			statement = nodeFactory.createNode<Return>(docString, expression, namesArgs.first, namesArgs.second);
+			break;
 		}
 		case Token::Throw:
 		{
@@ -1316,7 +1319,7 @@ ASTPointer<Statement> Parser::parseStatement()
 
 ASTPointer<InlineAssembly> Parser::parseInlineAssembly(ASTPointer<ASTString> const& /*_docString*/)
 {
-	solAssert(false, "Inline assembly is disabled.");
+	m_errorReporter.fatalTypeError(currentLocation(), "Inline assembly is disabled.");
 	return nullptr;
 }
 
@@ -2072,14 +2075,14 @@ ASTPointer<Expression> Parser::parsePrimaryExpression()
 	return expression;
 }
 
-vector<ASTPointer<Expression>> Parser::parseFunctionCallListArguments()
+vector<ASTPointer<Expression>> Parser::parseFunctionCallListArguments(Token endToken)
 {
 	RecursionGuard recursionGuard(*this);
 	vector<ASTPointer<Expression>> arguments;
-	if (m_scanner->currentToken() != Token::RParen)
+	if (m_scanner->currentToken() != endToken)
 	{
 		arguments.push_back(parseExpression());
-		while (m_scanner->currentToken() != Token::RParen)
+		while (m_scanner->currentToken() != endToken)
 		{
 			expectToken(Token::Comma);
 			arguments.push_back(parseExpression());
@@ -2119,17 +2122,26 @@ pair<vector<ASTPointer<Expression>>, vector<ASTPointer<ASTString>>> Parser::pars
 		expectToken(Token::Colon);
 		Token t = m_scanner->currentToken();
 		if (t == Token::LBrace) {
-
-			ASTNodeFactory nodeFactory = ASTNodeFactory(*this);
-
-			expectToken(Token::LBrace);
-			auto optionList = parseNamedArguments();
-
-			nodeFactory.markEndPosition();
-			expectToken(Token::RBrace);
-
-			auto expression = nodeFactory.createNode<InitializerList>(optionList.first, optionList.second);
-			ret.first.push_back(expression);
+			if (*ret.second.back() == "varInit") {
+				ASTNodeFactory nodeFactory = ASTNodeFactory(*this);
+				expectToken(Token::LBrace);
+				auto optionList = parseNamedArguments();
+				nodeFactory.markEndPosition();
+				expectToken(Token::RBrace);
+				auto expression = nodeFactory.createNode<InitializerList>(optionList.first, optionList.second);
+				ret.first.push_back(expression);
+			} else if (*ret.second.back() == "call") {
+				ASTNodeFactory nodeFactory = ASTNodeFactory(*this);
+				expectToken(Token::LBrace);
+				auto function = parseExpression();
+				if (m_scanner->currentToken() != Token::RBrace)
+					expectToken(Token::Comma);
+				auto arguments = parseFunctionCallListArguments(Token::RBrace);
+				nodeFactory.markEndPosition();
+				expectToken(Token::RBrace);
+				auto expression = nodeFactory.createNode<CallList>(function, arguments);
+				ret.first.push_back(expression);
+			}
 		} else {
 			ret.first.push_back(parseExpression());
 		}

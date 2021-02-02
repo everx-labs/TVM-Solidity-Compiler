@@ -97,7 +97,7 @@ public:
 	static void generateGetter(StackPusherHelper& pusher, VariableDeclaration const* vd);
 
 public:
-	void decodeFunctionParamsAndLocateVars();
+	void decodeFunctionParamsAndLocateVars(bool hasCallback);
 protected:
 	ast_vec<ModifierInvocation> functionModifiers();
 	void endContinuation2(const bool doDrop);
@@ -119,7 +119,7 @@ public:
 private:
 	void visitForOrWhileCondition(const ContInfo& ci, const ControlFlowInfo& info, const std::function<void()>& pushCondition);
 	void afterLoopCheck(const ContInfo& ci, const int& loopVarQty);
-	bool visitNode(ASTNode const&) override { solAssert(false, "Internal error: unreachable"); }
+	bool visitNode(ASTNode const&) override { solUnimplemented("Internal error: unreachable"); }
 
 	bool visit(VariableDeclarationStatement const& _variableDeclarationStatement) override;
 	bool visit(Block const& /*_block*/) override;

@@ -98,16 +98,16 @@ bool SemVerMatchExpression::MatchComponent::matches(SemVerVersion const& _versio
 	else
 	{
 		int cmp = 0;
-		bool didCompare = false;
+//		bool didCompare = false;
 		for (unsigned i = 0; i < levelsPresent && cmp == 0; i++)
 			if (version.numbers[i] != unsigned(-1))
 			{
-				didCompare = true;
+//				didCompare = true;
 				cmp = _version.numbers[i] - version.numbers[i];
 			}
 
-		if (cmp == 0 && !_version.prerelease.empty() && didCompare)
-			cmp = -1;
+//		if (cmp == 0 && !_version.prerelease.empty() && didCompare)
+//			cmp = -1;
 
 		switch (prefix)
 		{

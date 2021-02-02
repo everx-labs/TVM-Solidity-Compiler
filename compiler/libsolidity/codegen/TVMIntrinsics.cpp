@@ -258,16 +258,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		m_pusher.push(-1+1, "BREMBITS");
 		return true;
 	}
-	if (iname == "tvm_getfromdict") {
-		// tvm_getfromdict(uint dict, uint nbits, uint idx)
-		// returns (uint /* slice */)
-		acceptExpr(arguments[2].get());
-		acceptExpr(arguments[0].get());
-		acceptExpr(arguments[1].get());
-		m_pusher.push(-3+2, "DICTUGET");
-		m_pusher.push(-1, "THROWIFNOT 10");
-		return true;
-	}
 	if (iname == "tvm_get_slice_from_integer_dict") {
 		acceptExpr(arguments[0].get());
 		acceptExpr(arguments[1].get());
@@ -319,20 +309,16 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		m_pusher.push(+1,   "PUSHINT " + toString(TvmConst::C4::KeyLength));
 		return true;
 	}
-	if (iname == "tvm_exception_constructoriscalledtwice") {
-		m_pusher.push(+1, "PUSHINT " + toString(TvmConst::Message::Exception::ConstructorIsCalledTwice));
-		return true;
-	}
 	if (iname == "tvm_exception_replayprotection") {
-		m_pusher.push(+1, "PUSHINT " + toString(TvmConst::Message::Exception::ReplayProtection));
+		m_pusher.push(+1, "PUSHINT " + toString(TvmConst::RuntimeException::ReplayProtection));
 		return true;
 	}
 	if (iname == "tvm_exception_unpackaddress") {
-		m_pusher.push(+1, "PUSHINT " + toString(TvmConst::Message::Exception::AddressUnpackException));
+		m_pusher.push(+1, "PUSHINT " + toString(TvmConst::RuntimeException::AddressUnpackException));
 		return true;
 	}
 	if (iname == "tvm_exception_insertpubkey") {
-		m_pusher.push(+1, "PUSHINT " + toString(TvmConst::Message::Exception::InsertPubkeyException));
+		m_pusher.push(+1, "PUSHINT " + toString(TvmConst::RuntimeException::InsertPubkeyException));
 		return true;
 	}
 	if (iname == "tvm_default_replay_protection_interval"){
@@ -894,7 +880,7 @@ IF
 		return true;
 	}
 	if (iname == "tvm_migratePubkey") {
-		m_pusher.pushLines(R"(
+		std::string str = R"(
 DEPTH
 TUPLEVAR
 SETGLOB 8
@@ -903,7 +889,7 @@ PUSHCONT {
 	GETGLOB 2
 	PUSHINT 64
 	DICTUGET
-	THROWIFNOT 62
+	THROWIFNOT MigratePubkey
 	PLDU 256
 	SETGLOB 2
 }
@@ -914,8 +900,9 @@ TRY
 GETGLOB 8
 DUP
 TLEN
-UNTUPLEVAR
-)");
+UNTUPLEVAR)";
+		boost::replace_all(str, "MigratePubkey", toString(TvmConst::RuntimeException::MigratePubkey));
+		m_pusher.pushLines(str);
 		return true;
 	}
 	return false;

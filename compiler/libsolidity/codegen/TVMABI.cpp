@@ -101,7 +101,7 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 			const auto &ename = e->name();
 			solAssert(!ename.empty(), "Empty event name!");
 			if (usedEvents.count(ename)) {
-				solAssert(false, "Event name duplication!");
+				solUnimplemented("Event name duplication!");
 			}
 			usedEvents.insert(ename);
 			Json::Value cur;
@@ -116,10 +116,8 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 	{
 		Json::Value data(Json::arrayValue);
 		for (const auto &[v, index] : ctx.getStaticVaribles()) {
-			Json::Value cur;
+			Json::Value cur = setupType(v->name(), v->type(), *v);
 			cur["key"] = index;
-			cur["name"] = v->name();
-			cur["type"] = getParamTypeString(v->type(), *v);
 			data.append(cur);
 		}
 		root["data"] = data;
@@ -490,21 +488,22 @@ DecodeFunctionParams::DecodeFunctionParams(StackPusherHelper *pusher) :
 
 }
 
-int DecodeFunctionParams::maxBits() {
+int DecodeFunctionParams::maxBits(bool hasCallback) {
 	// external inbound message
 	int maxUsed = 1 + 512 + // signature
 				  (pusher->ctx().pragmaHelper().havePubkey()? 1 + 256 : 0) +
 				  (pusher->ctx().haveTimeInAbiHeader()? 64 : 0) +
 				  (pusher->ctx().pragmaHelper().haveExpire()? 32 : 0) +
-				  32; // functionID
+				  32 + // functionID
+				  (hasCallback ? 32 : 0); // callback function
 	return maxUsed;
 }
 
-int DecodeFunctionParams::minBits() {
-	return 32; // internal inbound message
+int DecodeFunctionParams::minBits(bool hasCallback) {
+	return 32 + (hasCallback ? 32 : 0);
 }
 
-void DecodeFunctionParams::decodeParameters(const ast_vec<VariableDeclaration> &params) {
+void DecodeFunctionParams::decodeParameters(const ast_vec<VariableDeclaration> &params, bool hasCallback) {
 	// slice are on stack
 	solAssert(pusher->getStack().size() >= 1, "");
 
@@ -514,11 +513,11 @@ void DecodeFunctionParams::decodeParameters(const ast_vec<VariableDeclaration> &
 			position = std::make_unique<DecodePositionAbiV1>();
 			break;
 		case 2: {
-			position = std::make_unique<DecodePositionAbiV2>(minBits(), maxBits(), params);
+			position = std::make_unique<DecodePositionAbiV2>(minBits(hasCallback), maxBits(hasCallback), params);
 			break;
 		}
 		default:
-			solAssert(false, "");
+			solUnimplemented("");
 	}
 
 	pusher->push(0, "; Decode input parameters");
@@ -621,6 +620,7 @@ void DecodeFunctionParams::loadq(const DecodePosition::Algo algo, const std::str
 	}
 }
 
+// TODO unit with loadTypeFromSlice
 void DecodeFunctionParams::decodeParameter(VariableDeclaration const *variable, DecodePosition *position) {
 	auto type = getType(variable);
 	const Type::Category category = variable->type()->category();
@@ -664,7 +664,7 @@ void DecodeFunctionParams::decodeParameter(VariableDeclaration const *variable, 
 		DecodePosition::Algo algo = position->updateStateAndGetLoadAlgo(type);
 		loadq(algo, "LDDICTQ", "LDDICT");
 	} else {
-		cast_error(*variable, "Unsupported parameter type for decoding: " + type->toString());
+		solUnimplemented("Unsupported parameter type for decoding: " + type->toString());
 	}
 }
 
@@ -729,26 +729,6 @@ void EncodePosition::init(Type const* t) {
 
 int EncodePosition::countOfCreatedBuilders() const {
 	return qtyOfCreatedBuilders;
-}
-
-void EncodeFunctionParams::createMsgBodyAndAppendToBuilder2(
-	const ast_vec<Expression const> &arguments,
-	const std::vector<VariableDeclaration const*> &params,
-	uint32_t functionId,
-	int builderSize
-) {
-	const int saveStackSize = pusher->getStack().size();
-	solAssert(params.size() == arguments.size(), "");
-	createMsgBodyAndAppendToBuilder(
-			[&](size_t idx) {
-				pusher->push(0, ";; " + params[idx]->name());
-				TVMExpressionCompiler{*pusher}.compileNewExpr(arguments[idx].get());
-			},
-			params,
-			functionId,
-			builderSize
-	);
-	solAssert(saveStackSize == pusher->getStack().size(), "");
 }
 
 void EncodeFunctionParams::createDefaultConstructorMsgBodyAndAppendToBuilder(const int bitSizeBuilder)
@@ -865,40 +845,60 @@ std::pair<uint32_t, bool> EncodeFunctionParams::calculateFunctionID(const Callab
 void EncodeFunctionParams::createMsgBodyAndAppendToBuilder(
 	const std::function<void(size_t)>& pushParam,
 	const std::vector<VariableDeclaration const*> &params,
-	const uint32_t functionId,
+	const std::variant<uint32_t, std::function<void()>>& functionId,
+	const std::optional<uint32_t>& callbackFunctionId,
 	const int bitSizeBuilder
 ) {
+	const int saveStackSize = pusher->getStack().size();
+
 	std::vector<Type const*> types = getParams(params).first;
 
-	std::unique_ptr<EncodePosition> position = std::make_unique<EncodePosition>(bitSizeBuilder + 32, types);
+	const int callbackLenght = callbackFunctionId.has_value() ? 32 : 0;
+	std::unique_ptr<EncodePosition> position = std::make_unique<EncodePosition>(bitSizeBuilder + 32 + callbackLenght, types);
 	const bool doAppend = position->countOfCreatedBuilders() == 0;
 	if (doAppend) {
 		pusher->stzeroes(1);
 	} else {
 		pusher->stones(1);
-		position = std::make_unique<EncodePosition>(32, types);
+		position = std::make_unique<EncodePosition>(32 + callbackLenght, types);
 		pusher->push(+1, "NEWC");
 	}
 
-	createMsgBody(pushParam, params, functionId, *position);
+	createMsgBody(pushParam, params, functionId, callbackFunctionId, *position);
 
 	if (!doAppend) {
 		pusher->push(-1, "STBREFR");
 	}
+
+	solAssert(saveStackSize == pusher->getStack().size(), "");
 }
 
 void EncodeFunctionParams::createMsgBody(
 	const std::function<void (size_t)> &pushParam,
 	const std::vector<VariableDeclaration const*> &params,
-	const uint32_t functionId,
+	const std::variant<uint32_t, std::function<void()>>& functionId,
+	const std::optional<uint32_t>& callbackFunctionId,
 	EncodePosition &position
 ) {
 	std::vector<Type const*> types;
 	std::vector<ASTNode const*> nodes;
 	std::tie(types, nodes) = getParams(params);
-	std::stringstream ss;
-	ss << "x" << std::hex << std::setfill('0') << std::setw(8) << functionId;
-	pusher->push(0, "STSLICECONST " + ss.str());
+
+	if (functionId.index() == 0) {
+		std::stringstream ss;
+		ss << "x" << std::hex << std::setfill('0') << std::setw(8) << std::get<0>(functionId);
+		pusher->push(0, "STSLICECONST " + ss.str());
+	} else {
+		std::get<1>(functionId)();
+		pusher->push(-1, "STUR 32");
+	}
+
+	if (callbackFunctionId.has_value()) {
+		std::stringstream ss;
+		ss << "x" << std::hex << std::setfill('0') << std::setw(8) << callbackFunctionId.value();
+		pusher->push(0, "STSLICECONST " + ss.str());
+	}
+
 	encodeParameters(types, nodes, pushParam, position);
 }
 

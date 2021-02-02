@@ -97,7 +97,7 @@ private:
 	bool m_placeholderFound = false;
 
 	/// Flag that indicates whether some version pragma was present.
-	bool m_versionPragmaFound = false;
+	std::optional<langutil::SourceLocation const* > m_versionPragma;
 	bool m_msgValuePragmaFound = false;
 
 	int m_inLoopDepth = 0;

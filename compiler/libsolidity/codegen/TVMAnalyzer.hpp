@@ -41,7 +41,7 @@ public:
 	bool analyze(SourceUnit const& _sourceUnit);
 
 private:
-
+	bool visit(ContractDefinition const& contract) override;
 	bool visit(Assignment const& _variable) override;
 	bool visit(UnaryOperation const& _node) override;
 	bool visit(FunctionDefinition const& _function) override;
@@ -59,9 +59,27 @@ private:
 	std::vector<std::pair<size_t, VariableDeclaration const*>> m_declaredReturns;
 
 	bool m_structWarning = false;
-
 	FunctionDefinition const* m_currentFunction = nullptr;
+};
 
+class ContactsUsageScanner: public ASTConstVisitor
+{
+public:
+	explicit ContactsUsageScanner(ContractDefinition const& cd);
+	bool visit(FunctionCall const& _functionCall) override;
+	bool visit(MemberAccess const &_node) override;
+	bool visit(FunctionDefinition const& fd) override;
+
+	bool haveMsgPubkey{};
+	bool haveMsgSenderOrCallbackFunction{};
+};
+
+class FunctionUsageScanner: public ASTConstVisitor
+{
+public:
+	explicit FunctionUsageScanner(const ASTNode& node);
+	bool visit(FunctionCall const& _functionCall) override;
+	bool havePrivateFunctionCall{};
 };
 
 }

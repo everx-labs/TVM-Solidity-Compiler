@@ -225,19 +225,18 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 {
 	StateMutability mutability = StateMutability::Pure;
 	bool writes = _memberAccess.annotation().lValueRequested;
+	const bool isStateVar = isStateVariable(_memberAccess);
 
 	ASTString const& member = _memberAccess.memberName();
 	switch (_memberAccess.expression().annotation().type->category())
 	{
 	case Type::Category::Optional:
-		if (member == "set") {
-			// TODO set correct mutability
-			// mapping(uint64 => optional(uint32))[] m_map;
-			// m_map[0][111].set(321);
-			// same for mapping
-			//if (_memberAccess.expression().annotation().type->dataStoredIn(DataLocation::Storage))
+		if (member == "set" || member == "reset")
+			if (isStateVar)
 				mutability = StateMutability::NonPayable;
-		}
+		if (member == "get" || member == "hasValue")
+			if (isStateVar)
+				mutability = StateMutability::View;
 		break;
 	case Type::Category::ExtraCurrencyCollection:
 	case Type::Category::Mapping:
@@ -248,7 +247,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			member == "getSet" ||
 			member == "getAdd" ||
 			member == "getReplace") {
-			if (_memberAccess.expression().annotation().type->dataStoredIn(DataLocation::Storage))
+			if (isStateVar)
 				mutability = StateMutability::NonPayable;
 		}
 		break;
@@ -291,6 +290,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::Transaction, "timestamp"},
 			{MagicType::Kind::TVM, "accept"},
 			{MagicType::Kind::TVM, "buildStateInit"},
+			{MagicType::Kind::TVM, "buildExtMsg"},
 			{MagicType::Kind::TVM, "checkSign"},
 			{MagicType::Kind::TVM, "configParam"},
 			{MagicType::Kind::TVM, "encodeBody"},
@@ -325,19 +325,19 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 	}
 	case Type::Category::Struct:
 	{
-		if (_memberAccess.expression().annotation().type->dataStoredIn(DataLocation::Storage))
+		if (isStateVar)
 			mutability = writes ? StateMutability::NonPayable : StateMutability::View;
 		break;
 	}
 	case Type::Category::Array:
 	{
-		auto const& type = dynamic_cast<ArrayType const&>(*_memberAccess.expression().annotation().type);
-		if (member == "length" && type.isDynamicallySized() && type.dataStoredIn(DataLocation::Storage))
-			mutability = StateMutability::View;
-		if (member == "pop" || member == "push"){
-			if (_memberAccess.expression().annotation().type->dataStoredIn(DataLocation::Storage))
+		if (member == "length")
+			if (isStateVar)
+				mutability = StateMutability::View;
+
+		if (member == "pop" || member == "push" || member == "append")
+			if (isStateVar)
 				mutability = StateMutability::NonPayable;
-		}
 		break;
 	}
 	default:
@@ -360,7 +360,7 @@ void ViewPureChecker::endVisit(IndexAccess const& _indexAccess)
 	else
 	{
 		bool writes = _indexAccess.annotation().lValueRequested;
-		if (_indexAccess.baseExpression().annotation().type->dataStoredIn(DataLocation::Storage))
+		if (isStateVariable(_indexAccess))
 			reportMutability(writes ? StateMutability::NonPayable : StateMutability::View, _indexAccess.location());
 	}
 }
@@ -368,20 +368,24 @@ void ViewPureChecker::endVisit(IndexAccess const& _indexAccess)
 void ViewPureChecker::endVisit(IndexRangeAccess const& _indexRangeAccess)
 {
 	bool writes = _indexRangeAccess.annotation().lValueRequested;
-	if (_indexRangeAccess.baseExpression().annotation().type->dataStoredIn(DataLocation::Storage))
+	if (isStateVariable(_indexRangeAccess))
 		reportMutability(writes ? StateMutability::NonPayable : StateMutability::View, _indexRangeAccess.location());
 }
 
-void ViewPureChecker::endVisit(ModifierInvocation const& _modifier)
+void ViewPureChecker::endVisit(ModifierInvocation const& /*_modifier*/)
 {
-	solAssert(_modifier.name(), "");
-	if (ModifierDefinition const* mod = dynamic_cast<decltype(mod)>(_modifier.name()->annotation().referencedDeclaration))
-	{
-		solAssert(m_inferredMutability.count(mod), "");
-		auto const& mutAndLocation = m_inferredMutability.at(mod);
-		reportMutability(mutAndLocation.mutability, _modifier.location(), mutAndLocation.location);
-	}
-	else
-		solAssert(dynamic_cast<ContractDefinition const*>(_modifier.name()->annotation().referencedDeclaration), "");
 }
 
+bool ViewPureChecker::isStateVariable(Expression const& expression) const {
+	if (auto m = dynamic_cast<MemberAccess const *>(&expression)) {
+		return isStateVariable(m->expression());
+	}
+	if (auto index = dynamic_cast<IndexAccess const *>(&expression)) {
+		return isStateVariable(index->baseExpression());
+	}
+	if (auto indef = dynamic_cast<Identifier const*>(&expression)) {
+		auto varDecl = dynamic_cast<VariableDeclaration const *>(indef->annotation().referencedDeclaration);
+		return varDecl != nullptr && varDecl->isStateVariable();
+	}
+	return false;
+}

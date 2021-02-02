@@ -151,7 +151,7 @@ private:
 		ASTPointer<Expression> const& _partiallyParsedExpression = ASTPointer<Expression>()
 	);
 	ASTPointer<Expression> parsePrimaryExpression();
-	std::vector<ASTPointer<Expression>> parseFunctionCallListArguments();
+	std::vector<ASTPointer<Expression>> parseFunctionCallListArguments(langutil::Token endToken = Token::RParen);
 	std::pair<std::vector<ASTPointer<Expression>>, std::vector<ASTPointer<ASTString>>> parseFunctionCallArguments();
 	std::pair<std::vector<ASTPointer<Expression>>, std::vector<ASTPointer<ASTString>>> parseNamedArguments();
 	///@}

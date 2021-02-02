@@ -1,4 +1,23 @@
+/*
+ * Copyright 2018-2019 TON DEV SOLUTIONS LTD.
+ *
+ * Licensed under the  terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License.
+ *
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
+ */
+/**
+ * @author TON Labs <connect@tonlabs.io>
+ * @date 2019
+ * AST analyzer specified to search for TVM specific issues.
+ */
+
 #include "TVMAnalyzer.hpp"
+#include "TVMCommons.hpp"
 
 #include <liblangutil/ErrorReporter.h>
 #include <libsolidity/codegen/TVMConstants.hpp>
@@ -18,12 +37,28 @@ bool TVMAnalyzer::analyze(const SourceUnit &_sourceUnit)
 	return Error::containsOnlyWarnings(m_errorReporter.errors());
 }
 
+bool TVMAnalyzer::visit(ContractDefinition const& contract) {
+	std::map<std::string, EventDefinition const*> used;
+	for (EventDefinition const* event : contract.interfaceEvents()) {
+		if (used.count(event->name())) {
+			m_errorReporter.declarationError(
+				event->location(),
+				SecondarySourceLocation().append("Another declaration is here:", used.at(event->name())->location()),
+				"Event overriding is not supported."
+			);
+		} else {
+			used[event->name()] = event;
+		}
+	}
+	return true;
+}
+
 bool TVMAnalyzer::visit(Assignment const& _variable) {
 	std::vector<const Identifier *> lefts;
 	if (auto ident = dynamic_cast<const Identifier *>(&_variable.leftHandSide()))
 		lefts.push_back(ident);
 	if (auto tuple = dynamic_cast<const TupleExpression *>(&_variable.leftHandSide()))
-		for (auto tup: tuple->components())
+		for (const auto& tup: tuple->components())
 			if (auto ident = dynamic_cast<const Identifier *>(tup.get()))
 				lefts.push_back(ident);
 
@@ -39,7 +74,7 @@ bool TVMAnalyzer::visit(Assignment const& _variable) {
 	if (auto ident = dynamic_cast<const MemberAccess *>(&_variable.leftHandSide()))
 		lefts2.push_back(ident);
 	if (auto tuple = dynamic_cast<const TupleExpression *>(&_variable.leftHandSide()))
-		for (auto tup: tuple->components())
+		for (const auto& tup: tuple->components())
 			if (auto ident = dynamic_cast<const MemberAccess *>(tup.get()))
 				lefts2.push_back(ident);
 
@@ -57,7 +92,7 @@ bool TVMAnalyzer::visit(Assignment const& _variable) {
 	if (auto ident = dynamic_cast<const Identifier *>(&_variable.rightHandSide()))
 		rights.push_back(ident);
 	if (auto tuple = dynamic_cast<const TupleExpression *>(&_variable.rightHandSide()))
-		for (auto tup: tuple->components())
+		for (const auto& tup: tuple->components())
 			if (auto ident = dynamic_cast<const Identifier *>(tup.get()))
 				rights.push_back(ident);
 
@@ -97,11 +132,11 @@ bool TVMAnalyzer::visit(UnaryOperation const& _node) {
 bool TVMAnalyzer::visit(FunctionDefinition const& _function) {
 	if (_function.isImplemented())
 			m_currentFunction = &_function;
-		else
-			solAssert(!m_currentFunction, "");
+	else
+		solAssert(!m_currentFunction, "");
 
-	for (auto ret: _function.returnParameters())
-			m_declaredReturns.push_back(make_pair(ret->id(), ret.get()));
+	for (const auto& ret: _function.returnParameters())
+			m_declaredReturns.emplace_back(ret->id(), ret.get());
 		return true;
 }
 
@@ -112,7 +147,7 @@ bool TVMAnalyzer::visit(Return const& _return) {
 			rets.push_back(ident);
 
 		if (auto tuple = dynamic_cast<const TupleExpression*>(_return.expression()))
-			for (auto tup: tuple->components())
+			for (const auto& tup: tuple->components())
 				if (auto ident = dynamic_cast<const Identifier*>(tup.get()))
 					rets.push_back(ident);
 
@@ -131,7 +166,7 @@ bool TVMAnalyzer::visit(Return const& _return) {
 }
 
 bool TVMAnalyzer::visit(FunctionCall const& _functionCall) {
-	for (ASTPointer<const Expression> argument: _functionCall.arguments()) {
+	for (const ASTPointer<const Expression>& argument: _functionCall.arguments()) {
 		if (auto ident = dynamic_cast<const Identifier*>(argument.get())) {
 			if (auto var = dynamic_cast<VariableDeclaration const*>(ident->annotation().referencedDeclaration)) {
 				solAssert(!var->name().empty(), "");
@@ -146,7 +181,7 @@ bool TVMAnalyzer::visit(FunctionCall const& _functionCall) {
 }
 
 bool TVMAnalyzer::visit(VariableDeclaration const& _variable) {
-	if (dynamic_cast<const StructType *>(_variable.type()) && _variable.isLocalVariable() && _variable.name().size())
+	if (dynamic_cast<const StructType *>(_variable.type()) && _variable.isLocalVariable() && !_variable.name().empty())
 		m_structLoads[std::make_pair(_variable.id(), &_variable)] = &_variable;
 	return true;
 }
@@ -165,3 +200,51 @@ void TVMAnalyzer::endVisit(FunctionDefinition const&) {
 	m_currentFunction = nullptr;
 }
 
+ContactsUsageScanner::ContactsUsageScanner(const ContractDefinition &cd) {
+	for (ContractDefinition const* base : cd.annotation().linearizedBaseContracts) {
+		base->accept(*this);
+	}
+}
+
+bool ContactsUsageScanner::visit(const FunctionCall &_functionCall) {
+	auto ma = to<MemberAccess>(&_functionCall.expression());
+	if (ma && ma->memberName() == "pubkey" && ma->expression().annotation().type->category() == Type::Category::Magic) {
+		auto expr = to<Identifier>(&ma->expression());
+		if (expr && expr->name() == "msg") {
+			haveMsgPubkey = true;
+		}
+	}
+	return true;
+}
+
+bool ContactsUsageScanner::visit(const MemberAccess &_node) {
+	if (_node.expression().annotation().type->category() == Type::Category::Magic) {
+		auto identifier = to<Identifier>(&_node.expression());
+		if (identifier && identifier->name() == "msg" && _node.memberName() == "sender") {
+			haveMsgSenderOrCallbackFunction = true;
+		}
+	}
+	return true;
+}
+
+bool ContactsUsageScanner::visit(const FunctionDefinition &fd) {
+	if (fd.isPublic() && !fd.parameters().empty())
+		haveMsgSenderOrCallbackFunction = true;
+	return true;
+}
+
+FunctionUsageScanner::FunctionUsageScanner(const ASTNode &node) {
+	node.accept(*this);
+}
+
+bool FunctionUsageScanner::visit(const FunctionCall &_functionCall) {
+	auto identifier = to<Identifier>(&_functionCall.expression());
+	if (identifier) {
+		auto functionDefinition = to<FunctionDefinition>(identifier->annotation().referencedDeclaration);
+		if (functionDefinition && !functionDefinition->isInline()) {
+			havePrivateFunctionCall = true;
+		}
+	}
+
+	return true;
+}

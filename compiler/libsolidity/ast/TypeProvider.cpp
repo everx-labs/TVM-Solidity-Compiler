@@ -43,6 +43,7 @@ TupleType const TypeProvider::m_emptyTuple{};
 AddressType const TypeProvider::m_address{};
 VarInteger const TypeProvider::m_varInteger{};
 InitializerListType const TypeProvider::m_initializerList{};
+CallListType const TypeProvider::m_callList{};
 
 array<unique_ptr<IntegerType>, 32> const TypeProvider::m_intM{{
 	{make_unique<IntegerType>(8 * 1, IntegerType::Modifier::Signed)},
@@ -252,7 +253,7 @@ Type const* TypeProvider::fromElementaryTypeName(ElementaryTypeNameToken const& 
 	case Token::TvmBuilder:
 		return tvmbuilder();
 	case Token::ExtraCurrencyCollection:
-		return extraCurrencyCollection(DataLocation::Memory);
+		return extraCurrencyCollection();
 	case Token::Bytes:
 		return bytesStorage();
 	case Token::String:
@@ -278,19 +279,7 @@ TypePointer TypeProvider::fromElementaryTypeName(string const& _name)
 	auto t = fromElementaryTypeName(ElementaryTypeNameToken(token, firstNum, secondNum));
 	if (auto* ref = dynamic_cast<ReferenceType const*>(t))
 	{
-		DataLocation location = DataLocation::Storage;
-		if (nameParts.size() == 2)
-		{
-			if (nameParts[1] == "storage")
-				location = DataLocation::Storage;
-			else if (nameParts[1] == "calldata")
-				location = DataLocation::CallData;
-			else if (nameParts[1] == "memory")
-				location = DataLocation::Memory;
-			else
-				solAssert(false, "Unknown data location: " + nameParts[1]);
-		}
-		return withLocation(ref, location, true);
+		return withLocation(ref, true);
 	}
 	else if (t->category() == Type::Category::Address)
 	{
@@ -313,35 +302,35 @@ TypePointer TypeProvider::fromElementaryTypeName(string const& _name)
 ArrayType const* TypeProvider::bytesStorage()
 {
 	if (!m_bytesStorage)
-		m_bytesStorage = make_unique<ArrayType>(DataLocation::Storage, false);
+		m_bytesStorage = make_unique<ArrayType>(false);
 	return m_bytesStorage.get();
 }
 
 ArrayType const* TypeProvider::bytesMemory()
 {
 	if (!m_bytesMemory)
-		m_bytesMemory = make_unique<ArrayType>(DataLocation::Memory, false);
+		m_bytesMemory = make_unique<ArrayType>(false);
 	return m_bytesMemory.get();
 }
 
 ArrayType const* TypeProvider::bytesCalldata()
 {
 	if (!m_bytesCalldata)
-		m_bytesCalldata = make_unique<ArrayType>(DataLocation::CallData, false);
+		m_bytesCalldata = make_unique<ArrayType>(false);
 	return m_bytesCalldata.get();
 }
 
 ArrayType const* TypeProvider::stringStorage()
 {
 	if (!m_stringStorage)
-		m_stringStorage = make_unique<ArrayType>(DataLocation::Storage, true);
+		m_stringStorage = make_unique<ArrayType>(true);
 	return m_stringStorage.get();
 }
 
 ArrayType const* TypeProvider::stringMemory()
 {
 	if (!m_stringMemory)
-		m_stringMemory = make_unique<ArrayType>(DataLocation::Memory, true);
+		m_stringMemory = make_unique<ArrayType>(true);
 	return m_stringMemory.get();
 }
 
@@ -412,12 +401,12 @@ TupleType const* TypeProvider::tuple(vector<Type const*> members)
 	return createAndGet<TupleType>(move(members));
 }
 
-ReferenceType const* TypeProvider::withLocation(ReferenceType const* _type, DataLocation _location, bool _isPointer)
+ReferenceType const* TypeProvider::withLocation(ReferenceType const* _type, bool _isPointer)
 {
-	if (_type->location() == _location && _type->isPointer() == _isPointer)
+	if (_type->isPointer() == _isPointer)
 		return _type;
 
-	instance().m_generalTypes.emplace_back(_type->copyForLocation(_location, _isPointer));
+	instance().m_generalTypes.emplace_back(_type->copyForLocation(_isPointer));
 	return static_cast<ReferenceType const*>(instance().m_generalTypes.back().get());
 }
 
@@ -487,33 +476,19 @@ RationalNumberType const* TypeProvider::rationalNumber(rational const& _value, T
 	return createAndGet<RationalNumberType>(_value, _compatibleBytesType);
 }
 
-ArrayType const* TypeProvider::array(DataLocation _location, bool _isString)
+ArrayType const* TypeProvider::array(bool _isString)
 {
-	if (_isString)
-	{
-		if (_location == DataLocation::Storage)
-			return stringStorage();
-		if (_location == DataLocation::Memory)
-			return stringMemory();
-	}
-	else
-	{
-		if (_location == DataLocation::Storage)
-			return bytesStorage();
-		if (_location == DataLocation::Memory)
-			return bytesMemory();
-	}
-	return createAndGet<ArrayType>(_location, _isString);
+	return _isString ? stringStorage() : bytesStorage();
 }
 
-ArrayType const* TypeProvider::array(DataLocation _location, Type const* _baseType)
+ArrayType const* TypeProvider::array(Type const* _baseType)
 {
-	return createAndGet<ArrayType>(_location, _baseType);
+	return createAndGet<ArrayType>(_baseType);
 }
 
-ArrayType const* TypeProvider::array(DataLocation _location, Type const* _baseType, u256 const& _length)
+ArrayType const* TypeProvider::array(Type const* _baseType, u256 const& _length)
 {
-	return createAndGet<ArrayType>(_location, _baseType, _length);
+	return createAndGet<ArrayType>(_baseType, _length);
 }
 
 ArraySliceType const* TypeProvider::arraySlice(ArrayType const& _arrayType)
@@ -541,9 +516,9 @@ TypeType const* TypeProvider::typeType(Type const* _actualType)
 	return createAndGet<TypeType>(_actualType);
 }
 
-StructType const* TypeProvider::structType(StructDefinition const& _struct, DataLocation _location)
+StructType const* TypeProvider::structType(StructDefinition const& _struct)
 {
-	return createAndGet<StructType>(_struct, _location);
+	return createAndGet<StructType>(_struct);
 }
 
 ModifierType const* TypeProvider::modifier(ModifierDefinition const& _def)
@@ -563,14 +538,14 @@ MagicType const* TypeProvider::meta(Type const* _type)
 	return createAndGet<MagicType>(_type);
 }
 
-MappingType const* TypeProvider::mapping(Type const* _keyType, Type const* _valueType, DataLocation _location)
+MappingType const* TypeProvider::mapping(Type const* _keyType, Type const* _valueType)
 {
-	return createAndGet<MappingType>(_keyType, _valueType, _location);
+	return createAndGet<MappingType>(_keyType, _valueType);
 }
 
-ExtraCurrencyCollectionType const *TypeProvider::extraCurrencyCollection(DataLocation _location)
+ExtraCurrencyCollectionType const *TypeProvider::extraCurrencyCollection()
 {
-	return createAndGet<ExtraCurrencyCollectionType>(_location);
+	return createAndGet<ExtraCurrencyCollectionType>();
 }
 
 OptionalType const* TypeProvider::optional(Type const* _type)

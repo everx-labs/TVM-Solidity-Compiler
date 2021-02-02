@@ -35,31 +35,6 @@ using namespace std;
 using namespace solidity;
 using namespace solidity::frontend;
 
-void Mapping::setLocation(DataLocation _location) {
-	m_location = _location;
-	if (auto map = dynamic_cast<Mapping*>(m_valueType.get()))
-		map->setLocation(_location);
-	if (auto arr = dynamic_cast<ArrayTypeName*>(m_valueType.get()))
-		arr->setLocation(_location);
-	if (auto cc = dynamic_cast<ElementaryTypeName*>(m_valueType.get()))
-		if (cc->typeName().token() == Token::ExtraCurrencyCollection)
-			cc->setLocation(_location);
-}
-
-void ArrayTypeName::setLocation(DataLocation _location) {
-	m_location = _location;
-	if (auto map = dynamic_cast<Mapping*>(m_baseType.get()))
-		map->setLocation(_location);
-	if (auto arr = dynamic_cast<ArrayTypeName*>(m_baseType.get()))
-		arr->setLocation(_location);
-	if (auto cc = dynamic_cast<ElementaryTypeName*>(m_baseType.get()))
-		if (cc->typeName().token() == Token::ExtraCurrencyCollection)
-			cc->setLocation(_location);
-}
-
-void ElementaryTypeName::setLocation(DataLocation _location) {
-	m_location = _location;
-}
 
 ASTNode::ASTNode(int64_t _id, SourceLocation const& _location):
 	m_id(_id),
@@ -259,7 +234,7 @@ TypeNameAnnotation& TypeName::annotation() const
 
 TypePointer StructDefinition::type() const
 {
-	return TypeProvider::typeType(TypeProvider::structType(*this, DataLocation::Storage));
+	return TypeProvider::typeType(TypeProvider::structType(*this));
 }
 
 TypeDeclarationAnnotation& StructDefinition::annotation() const
@@ -538,44 +513,6 @@ bool VariableDeclaration::hasReferenceOrMappingType() const
 	solAssert(typeName()->annotation().type, "Can only be called after reference resolution");
 	Type const* type = typeName()->annotation().type;
 	return type->category() == Type::Category::Mapping || dynamic_cast<ReferenceType const*>(type);
-}
-
-set<VariableDeclaration::Location> VariableDeclaration::allowedDataLocations() const
-{
-	using Location = VariableDeclaration::Location;
-	return set<Location>{ Location::Memory, Location::Storage, Location::Unspecified, Location::CallData};
-
-	if (!hasReferenceOrMappingType() || isStateVariable() || isEventParameter())
-		return set<Location>{ Location::Unspecified };
-	else if (isStateVariable() && isConstant())
-		return set<Location>{ Location::Memory };
-	else if (isExternalCallableParameter())
-	{
-		set<Location> locations{ Location::CallData };
-		if (isLibraryFunctionParameter())
-			locations.insert(Location::Storage);
-		return locations;
-	}
-	else if (isCallableOrCatchParameter())
-	{
-		set<Location> locations{ Location::Memory };
-		if (isInternalCallableParameter() || isLibraryFunctionParameter() || isTryCatchParameter())
-			locations.insert(Location::Storage);
-		return locations;
-	}
-	else if (isLocalVariable())
-	{
-		solAssert(typeName(), "");
-		solAssert(typeName()->annotation().type, "Can only be called after reference resolution");
-		if (typeName()->annotation().type->category() == Type::Category::Mapping)
-			return set<Location>{ Location::Storage, Location::Memory };
-		else
-			//  TODO: add Location::Calldata once implemented for local variables.
-			return set<Location>{ Location::Memory, Location::Storage };
-	}
-	else
-		// Struct members etc.
-		return set<Location>{ Location::Unspecified };
 }
 
 string VariableDeclaration::externalIdentifierHex() const

@@ -1,4 +1,20 @@
-### 0.34 (2020-12-21)
+### 0.35 (2021-02-01)
+
+Compiler Features:
+ * Support callback functions used for intercontract communication.
+ * Added **string** type method `append` that allows to concatenate long strings.
+ * Support function `sha256(TvmSlice slice) returns (uint256)`
+ * Added api function `tvm.buildExtMsg()` to generate an external inbound message to call contract function.
+ * Support constant variables of address type.
+
+Breaking changes:
+ * Use `pragma ton-solidity ...;` instead of `pragma solidity ...;` to restrict compiler version
+
+Bugfixes:
+ * Fixed an issue with modifier.
+ * Fixed a function type issue.
+
+### 0.34 (2020-12-30)
 
 Compiler Features:
  * Struct type can be used as a key of a mapping. Some restrictions are imposed on such structs.
@@ -8,6 +24,9 @@ Compiler Features:
 
 Breaking changes:
 * **fallback** function is not called on plain tons transfers if there is no receive function in the contract. In this case default **receive** function is called.
+
+Bugfixes:
+ * Fixed an issue with generating `*.abi.json` file.
 
 ### 0.33 (2020-11-18)
 
