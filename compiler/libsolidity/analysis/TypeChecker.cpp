@@ -2574,6 +2574,14 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				returnTypes.push_back(result);
 				break;
 			}
+			case FunctionType::Kind::MathDivMod:
+			{
+				checkArgNumAndIsInteger(arguments, 2, std::equal_to<>(), "This function takes two arguments.");
+				TypePointer result = getCommonType(arguments);
+				returnTypes.push_back(result);
+				returnTypes.push_back(result);
+				break;
+			}
 			case FunctionType::Kind::MathMulDiv:
 			case FunctionType::Kind::MathMulDivMod:
 			{
@@ -2675,6 +2683,34 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				returnTypes.push_back(TypeProvider::optional(TypeProvider::tuple(members)));
 				break;
 			}
+			case FunctionType::Kind::Format: {
+				auto cat = arguments[0]->annotation().type->category();
+				if (cat != Type::Category::StringLiteral) {
+					m_errorReporter.fatalTypeError(
+							arguments[0]->location(),
+							string("First parameter should be a literal string")
+					);
+				}
+				auto lit = dynamic_cast<const Literal *>(arguments[0].get());
+				std::string format = lit->value();
+				size_t placeholdersCnt = 0;
+				for(size_t i = 0; i < format.size() - 1; i++) {
+					if (format[i] == '{') {
+						auto c = format[i+1];
+						if (c == '}' || c == ':')
+							placeholdersCnt++;
+					}
+				}
+				if (arguments.size() != placeholdersCnt + 1) {
+					m_errorReporter.fatalTypeError(
+							_functionCall.location(),
+							string("Number of arguments is not equal to the number of placeholders!")
+					);
+				}
+				typeCheckFunctionCall(_functionCall, functionType);
+				returnTypes = functionType->returnParameterTypes();
+				break;
+			}
 			case FunctionType::Kind::TVMBuildExtMsg: {
 				vector<ASTPointer<ASTString>> const &argumentNames = _functionCall.names();
 				bool hasNames = !argumentNames.empty();
@@ -2721,38 +2757,31 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 						}
 					}
 				}
-				int timeIndex = findName("time");
-				if (timeIndex != -1){
-					Type const* mt = arguments[timeIndex]->annotation().type->mobileType();
-					auto isInt = dynamic_cast<IntegerType const*>(mt);
-					if (isInt == nullptr || isInt->isSigned()) {
+				std::vector<std::string> intParams= {"time", "expire", "callbackId", "abiVer", "onErrorId"};
+				std::vector<unsigned>intBits = {64, 32, 32, 8, 32};
+				std::vector<bool> isMandatory = {false, false, true, true, true};
+				for (size_t i = 0; i < intParams.size(); i++) {
+					int nameIndex = findName(intParams[i]);
+					if (nameIndex != -1){
+						Type const* mt = arguments[nameIndex]->annotation().type->mobileType();
+						auto isInt = dynamic_cast<IntegerType const*>(mt);
+						if (isInt == nullptr || isInt->isSigned()) {
+							m_errorReporter.fatalTypeError(
+									arguments[nameIndex]->location(),
+									string("\"") + intParams[i] + "\" parameter must have an unsigned integer type."
+							);
+						}
+						if (isInt->numBits() > intBits[i])
+							m_errorReporter.fatalTypeError(
+									arguments[nameIndex]->location(),
+									string("\"") + intParams[i] + "\" parameter must fit in uint" + to_string(intBits[i]) + " type."
+							);
+					} else if (isMandatory[i]) {
 						m_errorReporter.fatalTypeError(
-								arguments[timeIndex]->location(),
-								"\"time\" parameter must have an unsigned integer type."
+								_functionCall.location(),
+								string("\"") + intParams[i] + "\" parameter must be set."
 						);
 					}
-					if (isInt->numBits() > 64) {
-						m_errorReporter.fatalTypeError(
-								arguments[timeIndex]->location(),
-								"\"time\" parameter must fit in uin64 type."
-						);
-					}
-				}
-				int expireIndex = findName("expire");
-				if (expireIndex != -1){
-					Type const* mt = arguments[expireIndex]->annotation().type->mobileType();
-					auto isInt = dynamic_cast<IntegerType const*>(mt);
-					if (isInt == nullptr || isInt->isSigned()) {
-						m_errorReporter.fatalTypeError(
-								arguments[expireIndex]->location(),
-								"\"expire\" parameter must have an unsigned integer type."
-						);
-					}
-					if (isInt->numBits() > 32)
-						m_errorReporter.fatalTypeError(
-								arguments[expireIndex]->location(),
-								"\"expire\" parameter must fit in uin32 type."
-						);
 				}
 
 				int KeyIndex = findName("pubkey");
@@ -2773,6 +2802,16 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 									"\"pubkey\" parameter must have an optional uint256 type."
 							);
 						}
+					}
+				}
+				int stateIndex = findName("statInit");
+				if (stateIndex != -1){
+					auto cat = arguments[stateIndex]->annotation().type->category();
+					if (cat !=Type::Category::TvmCell) {
+						m_errorReporter.fatalTypeError(
+								arguments[stateIndex]->location(),
+								"\"stateInit\" parameter must have a TvmCell type."
+						);
 					}
 				}
 				int SignIndex = findName("sign");
@@ -2988,6 +3027,8 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	bool setExtMsg = false;
 	bool setExpire = false;
 	bool setTime = false;
+	bool setAbi = false;
+	bool setOnError = false;
 
 	FunctionType::Kind kind = expressionFunctionType->kind();
 	if (
@@ -3052,6 +3093,18 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 			} else if (name == "pubkey") {
 				expectType(*_functionCallOptions.options()[i], *TypeProvider::optional(TypeProvider::uint256()));
 				setCheckOption(setPubkey, "pubkey", false);
+			} else if (name == "abiVer") {
+				expectType(*_functionCallOptions.options()[i], *TypeProvider::optional(TypeProvider::uint(8)));
+				setCheckOption(setAbi, "abiVer", false);
+			} else if (name == "stateInit") {
+				expectType(*_functionCallOptions.options()[i], *TypeProvider::optional(TypeProvider::tvmcell()));
+				setCheckOption(setStateInit, "stateInit", false);
+			} else if (name == "callbackId") {
+				expectType(*_functionCallOptions.options()[i], *TypeProvider::optional(TypeProvider::uint(32)));
+				setCheckOption(setCallback, "callbackId", false);
+			} else if (name == "onErrorId") {
+				expectType(*_functionCallOptions.options()[i], *TypeProvider::optional(TypeProvider::uint(32)));
+				setCheckOption(setOnError, "onErrorId", false);
 			} else if (name == "expire") {
 				expectType(*_functionCallOptions.options()[i], *TypeProvider::optional(TypeProvider::uint(32)));
 				setCheckOption(setExpire, "expire", false);
@@ -3063,7 +3116,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 					_functionCallOptions.location(),
 					"Unknown external call option \"" +
 					name +
-					R"(". Valid options are "extMsg", "sign", "pubkey", "expire" and "time".)"
+					R"(". Valid options are "extMsg", "abiVer", "callbackId", "onErrorId", "sign", "pubkey", "expire" and "time".)"
 				);
 			}
 		} else {
@@ -3230,6 +3283,12 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		}
 	}
 
+	if (isExternalInboundMessage && (!setCallback || !setAbi || !setOnError)) {
+		m_errorReporter.typeError(
+			_functionCallOptions.location(),
+			R"("callbackId", "onErrorId" and "abiVer" options must be set.)"
+		);
+	}
 	if (!isExternalInboundMessage && !setCallback && !isNewExpression && !expressionFunctionType->returnParameterTypes().empty()) {
 		m_errorReporter.typeError(
 			_functionCallOptions.location(),

@@ -155,12 +155,7 @@ void TVMExpressionCompiler::visitStringLiteralAbiV1(Literal const &_node) {
 		int builderQty = 0;
 		int cntBlock = (size + step - 1) / step;
 		for (int start = size - cntBlock * step; start < size; start += step, ++builderQty) {
-			std::string slice;
-			for (int index = max(0, start); index < start + step; ++index) {
-				std::stringstream ss;
-				ss << std::hex << std::setfill('0') << std::setw(2) << (static_cast<unsigned>(str.at(index)) & 0xFF);
-				slice += ss.str();
-			}
+			std::string slice = stringToBytes(str.substr(max(0, start), step));
 			if (slice.size() > 124) { // there is bug in linker or in spec.
 				m_pusher.push(+1, "NEWC");
 				m_pusher.push(+1, "PUSHSLICE x" + slice.substr(0, 2 * (127 - 124)));
@@ -193,13 +188,7 @@ void TVMExpressionCompiler::visitStringLiteralAbiV2(Literal const &_node) {
 		const int bytesInCell = TvmConst::CellBitLength / 8; // 127
 		int builderQty = 0;
 		for (int start = 0; start < stringLiteralLength; start += bytesInCell, ++builderQty) {
-			std::string slice;
-			for (int index = start; index < std::min(start + bytesInCell, stringLiteralLength); ++index) {
-				std::stringstream ss;
-				ss << std::hex << std::setfill('0') << std::setw(2)
-					<< (static_cast<unsigned>(str.at(index)) & 0xFF);
-				slice += ss.str();
-			}
+			std::string slice = stringToBytes(str.substr(start, std::min(bytesInCell, stringLiteralLength - start)));
 			if (slice.size() > TvmConst::MaxPushSliceLength) {
 				m_pusher.push(+1, "PUSHSLICE x" + slice.substr(TvmConst::MaxPushSliceLength));
 				m_pusher.push(+1, "PUSHSLICE x" + slice.substr(0, TvmConst::MaxPushSliceLength));
@@ -988,17 +977,21 @@ void TVMExpressionCompiler::generateExtInboundMsg(bool addSignature,
 												  const Expression * pubkey,
 												  const Expression * expire,
 												  const Expression * time,
+												  const Expression * callbackid,
+												  const Expression * abiVer,
+												  const Expression * onerrorid,
+												  const Expression * stateInit,
 												  CallableDeclaration const* functionDefinition,
 												  const ast_vec<Expression const> arguments) {
 
 	auto appendBody = [&](int builderSize) {
 		/* builder size:
 		2 header
-		2 src addr_none
+		86 src abi + callbackid
 		267 dest addr_std
 		4 import_fee:Grams
 		1 stateInit
-		= 276
+		= 360
 		*/
 
 		if (addSignature) {
@@ -1054,8 +1047,10 @@ void TVMExpressionCompiler::generateExtInboundMsg(bool addSignature,
 		}
 
 		// function call body
-
-		const std::vector<VariableDeclaration const*> &params = convertArray(functionDefinition->parameters());
+		std::vector<ASTPointer<VariableDeclaration>> funcParams;
+		if (functionDefinition != nullptr)
+			funcParams = functionDefinition->parameters();
+		const std::vector<VariableDeclaration const*> &params = convertArray(funcParams);
 		const std::function<void(size_t)>& pushParam = [&](size_t idx) {
 			m_pusher.push(0, ";; " + params[idx]->name());
 			TVMExpressionCompiler{m_pusher}.compileNewExpr(arguments[idx].get());
@@ -1065,7 +1060,12 @@ void TVMExpressionCompiler::generateExtInboundMsg(bool addSignature,
 		types = getParams(params).first;
 		builderSize += 32;
 		std::unique_ptr<EncodePosition> position = std::make_unique<EncodePosition>(builderSize, types);
-		uint32_t functionId = EncodeFunctionParams{&m_pusher}.calculateFunctionIDWithReason(functionDefinition, ReasonOfOutboundMessage::RemoteCallInternal);
+		uint32_t functionId;
+		EncodeFunctionParams encoder{&m_pusher};
+		if (functionDefinition != nullptr)
+			functionId = encoder.calculateFunctionIDWithReason(functionDefinition, ReasonOfOutboundMessage::RemoteCallInternal);
+		else
+			functionId = (encoder.calculateConstructorFunctionID() & 0x7FFFFFFFu);
 
 
 		EncodeFunctionParams{&m_pusher}.createMsgBody(pushParam, params, functionId, {}, *position);
@@ -1073,8 +1073,42 @@ void TVMExpressionCompiler::generateExtInboundMsg(bool addSignature,
 		if (addSignature)
 			m_pusher.push(-1, "STBREFR");
 	};
+	// store dest address
 	acceptExpr(destination);
-	m_pusher.prepareMsg({TvmConst::ext_msg_info::dest}, {}, appendBody, nullptr, StackPusherHelper::MsgType::ExternalIn);
+
+	// generate payload to store it as a src address with addr_extern type
+	m_pusher.push(+1, "NEWC");
+	m_pusher.push(0, "STSLICECONST x497_"); // header 01 + const length 75
+	acceptExpr(callbackid);
+	m_pusher.push(-1, "STUR 32");
+	acceptExpr(onerrorid);
+	m_pusher.push(-1, "STUR 32");
+	acceptExpr(abiVer);
+	m_pusher.push(-1, "STUR 8");
+
+	if (time != nullptr)
+		m_pusher.push(0, "STONE");
+	else
+		m_pusher.push(0, "STZERO");
+	if (expire != nullptr)
+		m_pusher.push(0, "STONE");
+	else
+		m_pusher.push(0, "STZERO");
+	if (pubkey != nullptr)
+		m_pusher.push(0, "STONE");
+	else
+		m_pusher.push(0, "STZERO");
+
+
+	std::function<void()> appendStateInit = nullptr;
+	if (stateInit != nullptr)
+		appendStateInit = [&]() {
+			m_pusher.stones(1);
+			acceptExpr(stateInit);
+			m_pusher.push(-1, "STREFR");
+		};
+
+	m_pusher.prepareMsg({TvmConst::ext_msg_info::src, TvmConst::ext_msg_info::dest}, {}, appendBody, appendStateInit, StackPusherHelper::MsgType::ExternalIn);
 }
 
 void TVMExpressionCompiler::checkExtMsgSend(FunctionCall const& _functionCall) {
@@ -1103,10 +1137,19 @@ void TVMExpressionCompiler::checkExtMsgSend(FunctionCall const& _functionCall) {
 	const Expression * pubkey = nullptr;
 	ASTPointer<Expression const> expire = nullptr;
 	ASTPointer<Expression const> time = nullptr;
+	ASTPointer<Expression const> callbackid = nullptr;
+	ASTPointer<Expression const> abiVer = nullptr;
+	ASTPointer<Expression const> onerrorid = nullptr;
+	const Expression * stateInit= nullptr;
 
 	const int pubkeyIndex = getIndex("pubkey");
 	if (pubkeyIndex != -1) {
 		pubkey = functionOptions->options()[pubkeyIndex].get();
+	}
+
+	const int stateIndex = getIndex("stateInit");
+	if (stateIndex != -1) {
+		stateInit = functionOptions->options()[stateIndex].get();
 	}
 
 	const int expireIndex = getIndex("expire");
@@ -1115,11 +1158,21 @@ void TVMExpressionCompiler::checkExtMsgSend(FunctionCall const& _functionCall) {
 	const int timeIndex = getIndex("time");
 	time = functionOptions->options()[timeIndex];
 
+	const int callbackIndex = getIndex("callbackId");
+	callbackid = functionOptions->options()[callbackIndex];
+
+	const int abiIndex = getIndex("abiVer");
+	abiVer = functionOptions->options()[abiIndex];
+
+	const int onErrorIndex = getIndex("onErrorId");
+	onerrorid = functionOptions->options()[onErrorIndex];
+
 	auto memberAccess = to<MemberAccess>(&functionOptions->expression());
 	FunctionDefinition const* functionDefinition = getRemoteFunctionDefinition(memberAccess);
 
 	const Expression * destination = &memberAccess->expression();
-	generateExtInboundMsg(addSignature, destination, pubkey, expire.get(), time.get(), functionDefinition, arguments);
+	generateExtInboundMsg(addSignature, destination, pubkey, expire.get(), time.get(), callbackid.get(),
+						  abiVer.get(), onerrorid.get(), stateInit, functionDefinition, arguments);
 	m_pusher.pushInt(TvmConst::SENDRAWMSG::DefaultFlag);
 	m_pusher.sendrawmsg();
 }
@@ -1600,7 +1653,7 @@ TVMExpressionCompiler::expandLValue(
 			auto ma = to<MemberAccess>(&funCall->expression());
 			expr = &ma->expression();
 		} else {
-			cast_error(*expr, "Unsupported lvalue");
+			cast_error(*expr, "Unsupported lvalue.");
 		}
 	}
 	std::reverse(lValueInfo.expressions.begin(), lValueInfo.expressions.end());

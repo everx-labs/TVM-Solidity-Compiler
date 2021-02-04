@@ -23,16 +23,6 @@
 
 using namespace solidity::frontend;
 
-static string getLastContractName() {
-	string name;
-	for (auto c : TVMContractCompiler::m_allContracts) {
-		if (c->canBeDeployed()) {
-			name = c->name();
-		}
-	}
-	return name;
-}
-
 void TVMCompilerProceedContract(langutil::ErrorReporter* errorReporter, ContractDefinition const& _contract,
 								std::vector<PragmaDirective const *> const* pragmaDirectives) {
 	if (!TVMContractCompiler::m_optionsEnabled)
@@ -40,23 +30,13 @@ void TVMCompilerProceedContract(langutil::ErrorReporter* errorReporter, Contract
 
 	TVMContractCompiler::g_errorReporter = errorReporter;
 
-	std::string mainContract = (TVMContractCompiler::m_mainContractName.empty()) ?
-				getLastContractName() : TVMContractCompiler::m_mainContractName;
-
-	if (TVMContractCompiler::m_outputFolder.empty()) {
-		if (_contract.name() != mainContract)
-			return;
-	} else {
-		if (_contract.abstract() || _contract.isInterface())
-			return;
+	if (!TVMContractCompiler::m_outputFolder.empty()) {
 		TVMContractCompiler::m_outputToFile = true;
 		namespace fs = boost::filesystem;
 		TVMContractCompiler::m_fileName = (fs::path(TVMContractCompiler::m_outputFolder) / _contract.name()).string();
     }
 
-	for (ContractDefinition const* c : TVMContractCompiler::m_allContracts) {
-		TVMTypeChecker::check(c, *pragmaDirectives);
-	}
+	TVMTypeChecker::check(&_contract, *pragmaDirectives);
 
 	PragmaDirectiveHelper pragmaHelper{*pragmaDirectives};
 	switch (TVMContractCompiler::m_tvmOption) {
@@ -82,11 +62,6 @@ void TVMCompilerEnable(const TvmOption tvmOption, bool without_logstr, bool opti
 	TVMContractCompiler::m_tvmOption = tvmOption;
 	TVMContractCompiler::g_without_logstr = without_logstr;
 	TVMContractCompiler::g_disable_optimizer = !optimize;
-}
-
-void TVMSetAllContracts(const std::vector<ContractDefinition const*>& allContracts, const std::string& mainContract) {
-	TVMContractCompiler::m_allContracts = allContracts;
-	TVMContractCompiler::m_mainContractName = mainContract;
 }
 
 void TVMSetFileName(std::string _fileName) {

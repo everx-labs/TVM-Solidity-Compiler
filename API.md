@@ -25,6 +25,7 @@ contract development.
     * [\<TvmSlice\>.loadSigned()](#tvmsliceloadsigned)
     * [\<TvmSlice\>.loadUnsigned()](#tvmsliceloadunsigned)
     * [\<TvmSlice\>.loadTons()](#tvmsliceloadtons)
+    * [\<TvmSlice\>.loadSlice()](#tvmsliceloadslice)
     * [\<TvmSlice\>.decodeFunctionParams()](#tvmslicedecodefunctionparams)
   * [TvmBuilder](#tvmbuilder)
     * [\<TvmBuilder\>.toSlice()](#tvmbuildertoslice)
@@ -175,6 +176,7 @@ contract development.
     * [math.divr() math.divc()](#mathdivr-mathdivc)
     * [math.muldiv() math.muldivr() math.muldivc()](#mathmuldiv-mathmuldivr-mathmuldivc)
     * [math.muldivmod()](#mathmuldivmod)
+    * [math.divmod()](#mathdivmod)
   * [**tx** namespace](#tx-namespace)
     * [tx.timestamp](#txtimestamp)
   * [**block** namespace](#block-namespace)
@@ -378,6 +380,14 @@ Loads an unsigned integer with the given **bitSize** from the slice.
 ```
 
 Loads (deserializes) **VarUInteger 16** and returns an unsigned 128-bit integer. See [TL-B scheme][3].
+
+##### \<TvmSlice\>.loadSlice()
+
+```TVMSolidity
+<TvmSlice>.loadSlice(uint16 length) returns (TvmSlice);
+```
+
+Loads the first `length` bits from the slice into a separate slice.
 
 ##### \<TvmSlice\>.decodeFunctionParams()
 
@@ -831,7 +841,14 @@ format(string template, TypeA a, TypeB b, ...) returns (string);
 ```
 
 Builds a string with arbitrary parameters. Empty placeholder {} can be filled with integer
-(in decimal view) or address. The only specified format is {:x} to fill with integer in a hexadecimal view.  
+(in decimal view), address or string.  
+Placeholder should be specified in such formats:
+
+* "{}" - empty placeholder
+* "{:[0]<width>{"x","d"}}" - placeholder for integers. Fills num with 0 if format starts with "0".
+Formats integer to have specified `width`. Can format integers in decimal ("d" postfix) or hex ("x")
+form.
+
 **Note**\: total length of the string shouldn't exceed 127.  
 Warning: this function consumes too much gas, that's why it's better not to use it onchain.
 Example:
@@ -841,6 +858,14 @@ string str = format("Hello {} 0x{:x} {}  {}.{} tons", 123, 255, address.makeAddr
 require(str == "Hello 123 0xFF -21:7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF123456789ABCDE  100500.32 tons", 101);
 require(format("Hello {}", 123) == "Hello 123", 102);
 require(format("Hello 0x{:x}", 123) == "Hello 0x7B", 103);
+require(format("{}", -123) == "-123", 103);
+require(format("{}", address.makeAddrStd(127,0)) == "7F:0000000000000000000000000000000000000000000000000000000000000000", 104);
+require(format("{}", address.makeAddrStd(-128,0)) == "-80:0000000000000000000000000000000000000000000000000000000000000000", 105);
+require(format("{:6}", 123) == "   123", 106);
+require(format("{:06}", 123) == "000123", 107);
+require(format("{:06d}", 123) == "000123", 108);
+require(format("{:06x}", 123) == "00007B", 109);
+require(format("{:6x}", 123) == "    7B", 110);
 ```
 
 #### stoi()
@@ -2378,19 +2403,39 @@ tvm.buildExtMsg({
     expire: uint32,
     call: {functionIdentifier [, list of function arguments]},
     sign: bool,
-    pubkey: optional(uint256)
+    pubkey: optional(uint256),
+    abiVer: uint8,
+    callbackId: uint32.
+    onErrorId: uint32,
+    stateInit: TvmCell
 })
 returns (TvmCell);
 ```
 
-Function allows to create an external inbound message, that calls the **func** function of the
-contract on address **destination** with specified function arguments. Other function parameters
-define the fields of the message:
+Allows to create an external inbound message, that calls the **func** function of the
+contract on address **destination** with specified function arguments.
+Mandatory parameters that are used to form a src address field that is used for debots:
+
+* `abiVer` - ABI version.
+* `callbackId` - identifier of the callback function.
+* `onErrorId` - identifier of the function that is called in case of error.
+
+This parameters are stored in addr_extern and placed to the src field of the message.
+Message is of type [ext_in_msg_info](https://github.com/ton-blockchain/ton/blob/24dc184a2ea67f9c47042b4104bbb4d82289fac1/crypto/block/block.tlb#L127) and src addr is of type [addr_extern](https://github.com/ton-blockchain/ton/blob/24dc184a2ea67f9c47042b4104bbb4d82289fac1/crypto/block/block.tlb#L101) but stores special data:
+
+* callback id - 32 bits;
+* on error id - 32 bits;
+* abi version - 8 bits;
+* header mask - 3 bits in such order: time, expire, pubkey.
+
+Other function parameters define fields of the message:
 
 * `time` - message creation timestamp. Used for replay attack protection, encoded as 64 bit Unix time in milliseconds.
 * `expire` - Unix time (in seconds, 32 bit) after that message should not be processed by contract.
 * `pubkey` - public key from key pair used for signing the message body. This parameter is optional and can be omitted.
 * `sign` - constant bool flag that shows whether message should contain signature. If set to **true** message is generated with signature field filled with zeroes. This parameter is optional and can be omitted (in this case is equal to **false**).
+
+Also user can attach stateInit to the message using `stateInit` parameter.
 
 Function throws an exception with code 64 if function is called with wrong parameters (pubkey is set and has value, but sign is false or omitted).
 
@@ -2404,24 +2449,27 @@ interface Foo {
 
 contract Test {
 
+    TvmCell public m_cell;
+
     function generate0() public {
         tvm.accept();
         address addr = address.makeAddrStd(0, 0x0123456789012345678901234567890123456789012345678901234567890123);
-        m_cell = tvm.buildExtMsg({dest: addr, time: 0x123, expire: 0x12345, call: {Foo.bar, 123, 45}});
+        m_cell = tvm.buildExtMsg({abiVer: 1, callbackId: 0, onErrorId: 0, dest: addr, time: 0x123, expire: 0x12345, call: {Foo.bar, 111, 88}});
     }
 
     function generate1() public {
         tvm.accept();
         optional(uint) pubkey;
         address addr = address.makeAddrStd(0, 0x0123456789012345678901234567890123456789012345678901234567890123);
-        m_cell = tvm.buildExtMsg({dest: addr, time: 0x123, expire: 0x12345, call: {Foo.bar, 123, 45}, pubkey: pubkey});
+        m_cell = tvm.buildExtMsg({abiVer: 1, callbackId: 0, onErrorId: 0, dest: addr, time: 0x123, expire: 0x12345, call: {Foo.bar, 111, 88}, pubkey: pubkey});
     }
 
     function generate2() public {
         tvm.accept();
-        optional(uint) pubkey = 0x95c06aa743d1f9000dd64b75498f106af4b7e7444234d7de67ea26988f6181df;
+        optional(uint) pubkey;
+        pubkey.set(0x95c06aa743d1f9000dd64b75498f106af4b7e7444234d7de67ea26988f6181df);
         address addr = address.makeAddrStd(0, 0x0123456789012345678901234567890123456789012345678901234567890123);
-        m_cell = tvm.buildExtMsg({dest: addr, time: 0x1771c58ef9a, expire: 0x600741e4, call: {Foo.bar, 123, 45}, pubkey: pubkey, sign: true});
+        m_cell = tvm.buildExtMsg({abiVer: 1, callbackId: 0, onErrorId: 0, dest: addr, time: 0x1771c58ef9a, expire: 0x600741e4, call: {Foo.bar, 111, 88}, pubkey: pubkey, sign: true});
     }
 
 }
@@ -2556,10 +2604,9 @@ require(math.muldivc(3, 7, 2) == 11);
 ##### math.muldivmod()
 
 ```TVMSolidity
-math.muldivmod(uint a, uint b, uint c) returns (uint /*result*/, uint /*remainder*/);
+math.muldivmod(T a, T b, T c) returns (T /*result*/, T /*remainder*/);
 ```
 
-Executes TVM instruction "MULDIVMOD" ([TVM][1] - A.5.2. - A98C).
 This instruction multiplies first two arguments, divides the result
 by third argument and returns the result and the remainder.
 Intermediate result is stored in the 514 bit buffer, and the final result
@@ -2576,6 +2623,26 @@ int e = -1;
 int f = 3;
 int g = 2;
 (int h, int p) = math.muldivmod(e, f, g);
+```
+
+##### math.divmod()
+
+```TVMSolidity
+math.divmod(T a, T b) returns (T /*result*/, T /*remainder*/);
+```
+
+This instruction divides the first number by the second one and returns the 
+result and the remainder. Result is rounded to the floor.
+
+Example:
+
+```TVMSolidity
+uint a = 3;
+uint b = 2;
+(uint d, uint r) = math.divmod(a, b);
+int e = -1;
+int f = 3;
+(int h, int p) = math.divmod(e, f);
 ```
 
 ##### **tx** namespace
@@ -2718,6 +2785,7 @@ Solidity runtime error codes:
 * 63 - See [\<optional(Type)\>.get()](#optionaltypeget).
 * 64 - `tvm.buildExtMSg()` call with wrong parameters. See [tvm.buildExtMsg()](#tvmbuildextmsg).
 * 65 - Calling of unassigned variable of function type. See [Function type](#function-type).
+* 66 - Converting an integer to a string with width less than number length. See [format()](#format).
 
 [1]: https://ton.org/tvm.pdf        "TVM"
 [2]: https://ton.org/tblkch.pdf     "TBLKCH"

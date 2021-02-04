@@ -2897,6 +2897,7 @@ string FunctionType::richIdentifier() const
 	case Kind::MathModpow2: id += "mathmodpow2"; break;
 	case Kind::MathMulDiv: id += "mathmuldiv"; break;
 	case Kind::MathMulDivMod: id += "mathmuldivmod"; break;
+	case Kind::MathDivMod: id += "mathdivmod"; break;
 
 	case Kind::MappingAt: id += "mappingat"; break;
 	case Kind::MappingGetMinMax: id += "mapgetminmax"; break;
@@ -4001,17 +4002,25 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 		members.emplace_back("buildExtMsg", TypeProvider::function(
 				TypePointers{TypeProvider::address(),
 							 TypeProvider::callList(),
+							 TypeProvider::uint(32),
+							 TypeProvider::uint(8),
+							 TypeProvider::uint(32),
 							 TypeProvider::uint(64),
 							 TypeProvider::uint(32),
 							 TypeProvider::optional(TypeProvider::uint256()),
-							 TypeProvider::boolean()},
+							 TypeProvider::boolean(),
+							 TypeProvider::tvmcell()},
 				TypePointers{TypeProvider::tvmcell()},
-				strings{string("dest"),	// mandatory
-						string("call"), // mandatory
-						string("time"),	// can be omitted
-						string("expire"),	// can be omitted
-						string("pubkey"),	// can be omitted
-						string("sign")},	// can be omitted
+				strings{string("dest"),			// mandatory
+						string("call"),			// mandatory
+						string("callbackId"),	// mandatory
+						string("abiVer"),		// mandatory
+						string("onErrorId"),	// mandatory
+						string("time"),			// can be omitted
+						string("expire"),		// can be omitted
+						string("pubkey"),		// can be omitted
+						string("sign"),			// can be omitted
+						string("stateInit")},	// can be omitted
 				strings{string()},
 				FunctionType::Kind::TVMBuildExtMsg,
 				true, StateMutability::Pure
@@ -4158,6 +4167,14 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				strings{},
 				strings{},
 				FunctionType::Kind::MathMulDivMod,
+				true, StateMutability::Pure
+		));
+		members.emplace_back("divmod", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::MathDivMod,
 				true, StateMutability::Pure
 		));
 		members.emplace_back("abs", TypeProvider::function(
@@ -4428,6 +4445,16 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) co
 			TypePointers{},
 			TypePointers{TypeProvider::uint(128)},
 			strings{},
+			strings{string()},
+			FunctionType::Kind::TVMLoadRef,
+			false,
+			StateMutability::Pure
+	));
+
+	members.emplace_back("loadSlice", TypeProvider::function(
+			TypePointers{TypeProvider::uint(16)},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{string()},
 			strings{string()},
 			FunctionType::Kind::TVMLoadRef,
 			false,

@@ -158,8 +158,6 @@ bool TVMContractCompiler::m_outputProduced = false;
 bool TVMContractCompiler::g_without_logstr = false;
 bool TVMContractCompiler::g_disable_optimizer = false;
 langutil::ErrorReporter* TVMContractCompiler::g_errorReporter{};
-std::vector<ContractDefinition const*> TVMContractCompiler::m_allContracts;
-std::string TVMContractCompiler::m_mainContractName;
 std::string TVMContractCompiler::m_fileName;
 std::string TVMContractCompiler::m_outputFolder;
 bool TVMContractCompiler::m_outputToFile = false;

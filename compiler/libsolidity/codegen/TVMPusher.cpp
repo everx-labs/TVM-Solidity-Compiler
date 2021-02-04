@@ -78,17 +78,6 @@ POP C4
 	push(0, " ");
 }
 
-std::string stringToBytes(std::string str) {
-	std::string slice;
-	for (size_t index = 0; index < str.length(); ++index) {
-		std::stringstream ss;
-		ss << std::hex << std::setfill('0') << std::setw(2)
-			<< (static_cast<unsigned>(str.at(index)) & 0xFF);
-		slice += ss.str();
-	}
-	return slice;
-}
-
 void StackPusherHelper::storeStringInABuilder(string str) {
 	size_t maxSlice = (TvmConst::MaxPushSliceLength >> 1);
 	pushLines
@@ -1476,6 +1465,9 @@ int StackPusherHelper::ext_msg_info(const set<int> &isParamOnStack, bool isOut =
 			if (param == TvmConst::ext_msg_info::dest) {
 				push(-1, "STSLICE");
 				maxBitStringSize += AddressInfo::maxBitLength();
+			} else if (param == TvmConst::ext_msg_info::src) {
+				push(-1, "STB");
+				maxBitStringSize += TvmConst::ExtInboundSrcLength;
 			} else {
 				solUnimplemented("");
 			}

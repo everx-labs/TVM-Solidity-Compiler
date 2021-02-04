@@ -467,7 +467,7 @@ bool CompilerStack::isRequestedContract(ContractDefinition const& _contract) con
 	return false;
 }
 
-bool CompilerStack::compile()
+bool CompilerStack::compile(const std::string& mainPath)
 {
 	if (m_stackState < AnalysisPerformed)
 		if (!parseAndAnalyze())
@@ -476,24 +476,16 @@ bool CompilerStack::compile()
 	if (m_hasError)
 		BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("Called compile with errors."));
 
-	bool mainFound = (m_mainContract == "") ? true : false;
-	std::vector<const ContractDefinition*> allContracts;
-	for (Source const* source: m_sourceOrder)
-		for (ASTPointer<ASTNode> const& node: source->ast->nodes())
-			if (auto contract = dynamic_cast<ContractDefinition const*>(node.get())) {
-				allContracts.push_back(contract);
-				if (!mainFound)
-					mainFound = contract->name() == m_mainContract;
-			}
-
-	if (!mainFound)
-		BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("Specified contract was not found in sources."));
-
-	TVMSetAllContracts(allContracts, m_mainContract);
-
 	// Only compile contracts individually which have been requested.
+	ContractDefinition const* targetContract{};
 	map<ContractDefinition const*, shared_ptr<Compiler const>> otherCompilers;
 	for (Source const* source: m_sourceOrder) {
+
+		if (source->ast->annotation().path != mainPath) {
+			continue;
+		}
+
+
 		std::vector<PragmaDirective const *> pragmaDirectives;
 		for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
 			if (auto pragma = dynamic_cast<PragmaDirective const *>(node.get())) {
@@ -506,22 +498,66 @@ bool CompilerStack::compile()
 				typeChecker.checkTypeRequirements(*pragma->parameter().get());
 			}
 		}
-		for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
-			if (auto contract = dynamic_cast<ContractDefinition const *>(node.get())) {
-				if (isRequestedContract(*contract)) {
-//					compileContract(*contract, otherCompilers);
-//					if (m_generateIR || m_generateEwasm)
-//						generateIR(*contract);
-//					if (m_generateEwasm)
-//						generateEwasm(*contract);
-					try {
-						TVMCompilerProceedContract(&m_errorReporter, *contract, &pragmaDirectives);
-					} catch (FatalError const&) {
-						return false;
+
+		if (!m_mainContract.empty()) {
+			for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
+				if (auto contract = dynamic_cast<ContractDefinition const *>(node.get())) {
+					if (contract->name() == m_mainContract) {
+						if (!contract->canBeDeployed()) {
+							m_errorReporter.typeError(
+									contract->location(),
+									"The desired contract isn't deployable (it has not public constructor or it's abstract or it's interface or it's library)."
+							);
+							return false;
+						}
+						targetContract = contract;
+						if (targetContract != nullptr) {
+							try {
+								TVMCompilerProceedContract(&m_errorReporter, *targetContract, &pragmaDirectives);
+							} catch (FatalError const &) {
+								return false;
+							}
+						}
+						break;
+					}
+				}
+			}
+		} else {
+			for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
+				if (auto contract = dynamic_cast<ContractDefinition const *>(node.get())) {
+					if (contract->canBeDeployed() && !contract->isLibrary()) {
+						if (targetContract != nullptr) {
+							m_errorReporter.typeError(
+									contract->location(),
+									SecondarySourceLocation().append("Previous deployable contract:",
+																	 targetContract->location()),
+									"Source file contains at least two deployable contracts."
+									" Consider adding the option --contract in compiler command line to select the desired contract."
+							);
+							return false;
+						}
+						targetContract = contract;
 					}
 				}
 			}
 		}
+
+		if (targetContract != nullptr) {
+			try {
+				TVMCompilerProceedContract(&m_errorReporter, *targetContract, &pragmaDirectives);
+				break;
+			} catch (FatalError const &) {
+				return false;
+			}
+		}
+	}
+
+	if (targetContract == nullptr) {
+		m_errorReporter.typeError(
+				SourceLocation(),
+				"Source file doesn't contain the desired contract \"" + m_mainContract + "\"."
+		);
+		return false;
 	}
 
 	m_stackState = CompilationSuccessful;

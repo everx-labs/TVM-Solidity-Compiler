@@ -212,7 +212,7 @@ public:
 
 	/// Compiles the source units that were previously added and parsed.
 	/// @returns false on error.
-	bool compile();
+	bool compile(const std::string& mainPath);
 
 	/// @returns the list of sources (paths) used
 	std::vector<std::string> sourceNames() const;

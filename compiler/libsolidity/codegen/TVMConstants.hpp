@@ -55,6 +55,9 @@ namespace TvmConst {
 	const int ArrayKeyLength = 32;
 	const int MaxPushSliceLength = 249; // PUSHSLICE xSSSS;    SSSS.length() <= MaxPushSliceLength
 	const int MaxSTSLICECONST = 7 * 8; // STSLICECONST xSSSS;    SSSS.length() <= MaxSTSLICECONST
+	const int ExtInboundSrcLength = 72 + 9 + 2 + 3; // src field of external inbound message. Contains addr_extern with
+													// abi version (8 bit), callback id (32 bit), on error id (32 bit),
+													// header mask (3 bit).
 
 	namespace RuntimeException {
 		const int BadSignature = 40;
@@ -89,6 +92,7 @@ namespace TvmConst {
 	}
 
 	namespace ext_msg_info {
+		const int src = 0;
 		const int dest = 1;
 	}
 

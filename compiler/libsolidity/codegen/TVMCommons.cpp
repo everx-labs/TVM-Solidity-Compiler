@@ -360,4 +360,15 @@ int integerLog2(int x) {
 		   : 1;
 }
 
+std::string stringToBytes(std::string str) {
+	std::string slice;
+	for (size_t index = 0; index < str.length(); ++index) {
+		std::stringstream ss;
+		ss << std::hex << std::setfill('0') << std::setw(2)
+			<< (static_cast<unsigned>(str.at(index)) & 0xFF);
+		slice += ss.str();
+	}
+	return slice;
+}
+
 } // end namespace solidity::frontend

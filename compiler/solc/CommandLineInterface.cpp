@@ -277,7 +277,7 @@ Allowed options)",
 		(
 			(g_argSetContract + ",c").c_str(),
 			po::value<string>()->value_name("contract"),
-			"If given, sets the Contract from source file to be compiled, otherwise the last one is compiled."
+			"Sets the name of contract from the source file to be compiled."
 		)
 			;
 	po::options_description outputComponents("Output Components");
@@ -434,7 +434,15 @@ bool CommandLineInterface::processInput()
 		if (m_args.count(g_argOutputDir))
 			TVMContractCompiler::m_outputFolder = m_args[g_argOutputDir].as<string>();
 
-		bool successful = m_compiler->compile();
+		string mainPath;
+		for (const string& path : m_args[g_argInputFile].as<vector<string>>()) {
+			if (!mainPath.empty()) {
+				solUnimplemented("In command line there are more than 2 files.");
+			}
+			mainPath = path;
+		}
+
+		bool successful = m_compiler->compile(mainPath);
 
 		for (auto const& error: m_compiler->errors())
 		{

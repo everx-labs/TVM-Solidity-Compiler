@@ -313,6 +313,10 @@ bool FunctionCallCompiler::checkForTvmBuildMsgMethods(MemberAccess const &_node,
 		int expireArg = -1;
 		int pubkeyArg = -1;
 		int signArg = -1;
+		int abiArg = -1;
+		int callbackArg = -1;
+		int onerrorArg = -1;
+		int stateArg = -1;
 		if (!m_functionCall.names().empty()) {
 			const std::vector<ASTPointer<ASTString>>& names = m_functionCall.names();
 			for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
@@ -335,6 +339,18 @@ bool FunctionCallCompiler::checkForTvmBuildMsgMethods(MemberAccess const &_node,
 					case str2int("sign"):
 						signArg = arg;
 						break;
+					case str2int("abiVer"):
+						abiArg = arg;
+						break;
+					case str2int("callbackId"):
+						callbackArg = arg;
+						break;
+					case str2int("onErrorId"):
+						onerrorArg = arg;
+						break;
+					case str2int("stateInit"):
+						stateArg = arg;
+						break;
 				}
 			}
 		}
@@ -352,6 +368,10 @@ bool FunctionCallCompiler::checkForTvmBuildMsgMethods(MemberAccess const &_node,
 											  (pubkeyArg != -1) ? m_arguments[pubkeyArg].get() : nullptr,
 											  (expireArg != -1) ? m_arguments[expireArg].get() : nullptr,
 											  (timeArg != -1) ? m_arguments[timeArg].get() : nullptr,
+											  m_arguments[callbackArg].get(),
+											  m_arguments[abiArg].get(),
+											  m_arguments[onerrorArg].get(),
+											  (stateArg != -1) ? m_arguments[stateArg].get() : nullptr,
 											  functionDefinition, funcCall->arguments());
 		return true;
 	}
@@ -586,6 +606,14 @@ IFELSE
 			}
 		} else if (_node.memberName() == "loadTons") {
 			m_pusher.push(-1 + 2, "LDVARUINT16");
+		} else if (_node.memberName() == "loadSlice") {
+			const auto& [ok, value] = TVMExpressionCompiler::constValue(*m_arguments[0].get());
+			if (ok) {
+				m_pusher.push(+1, "LDSLICE " + value.str());
+			} else {
+				acceptExpr(m_arguments[0].get());
+				m_pusher.push(-2+2, "LDSLICEX");
+			}
 		} else {
 			solUnimplemented("");
 		}
@@ -1449,12 +1477,23 @@ void FunctionCallCompiler::mathFunction(const MemberAccess &_node) {
 		if (!m_pusher.ctx().ignoreIntegerOverflow()) {
 			m_pusher.push(0, checkValFitsType(ret));
 		}
+	} else if (_node.memberName() == "divmod") {
+		pushArgs();
+		m_pusher.push(-2 + 2, "DIVMOD");
+		if (!m_pusher.ctx().ignoreIntegerOverflow()) {
+			auto retTuple = to<TupleType>(ret);
+			m_pusher.push(0, "SWAP");
+			m_pusher.push(0, checkValFitsType(retTuple->components()[0]));
+			m_pusher.push(0, "SWAP");
+		}
 	} else if (_node.memberName() == "muldivmod") {
 		pushArgs();
 		m_pusher.push(-3 + 2, "MULDIVMOD");
 		if (!m_pusher.ctx().ignoreIntegerOverflow()) {
 			auto retTuple = to<TupleType>(ret);
+			m_pusher.push(0, "SWAP");
 			m_pusher.push(0, checkValFitsType(retTuple->components()[0]));
+			m_pusher.push(0, "SWAP");
 		}
 	} else if (_node.memberName() == "abs") {
 		pushArgs();
@@ -1769,7 +1808,7 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 		const auto& [ok, val] = TVMExpressionCompiler::constValue(*e);
 		if (ok) {
 			if (val >= 65536 || val < 0) {
-				cast_error(*e, "Exception code must be in the range 0 - 65535.");
+				cast_error(*e, "Exception code must be in the range 2 - 65535.");
 			}
 			return {true, val};
 		}
@@ -1880,72 +1919,128 @@ IF
 		}
 	} else if (name == "format") {
 		auto literal = to<Literal>(m_arguments[0].get());
-		if (!literal)
-			cast_error(m_functionCall, "First parameter should be a literal string");
 		std::string formatStr = literal->value();
 		size_t pos = 0;
-		std::vector<std::pair<std::string, bool> > substrings;
+		std::vector<std::pair<std::string, std::string> > substrings;
 		while (true) {
 			pos = formatStr.find('{', pos);
 			size_t close_pos = formatStr.find('}', pos);
 			if (pos == string::npos || close_pos == string::npos)
 				break;
-			if ((close_pos - pos != 1) && (close_pos - pos != 3)) {
+			if ((formatStr[pos + 1] != ':') && (close_pos != pos + 1)) {
 				pos++;
 				continue;
 			}
-			bool isHex = false;
-			if (close_pos - pos == 3) {
-				if (formatStr[close_pos - 2] != ':') {
-					pos++;
-					continue;
-				}
-				char formatCharacter = formatStr[close_pos - 1];
-				if (formatCharacter != 'x')
-					cast_error(m_functionCall, "The only supported specified format is x");
-				isHex = true;
-			}
-			substrings.emplace_back(formatStr.substr(0, pos), isHex);
+
+			std::string format = formatStr.substr(pos + 1, close_pos - pos - 1);
+			if (format[0] == ':') format.erase(0, 1);
+			substrings.emplace_back(formatStr.substr(0, pos), format);
 			formatStr = formatStr.substr(close_pos + 1);
 			pos = 0;
 		}
-		if (substrings.size() + 1 != m_arguments.size())
-			cast_error(m_functionCall, "Number of arguments is not equal to the number of placeholders!");
+		// create new BldrList struct
+		m_pusher.push(+1, "NEWC");
+		m_pusher.push(+1, "NULL");
+		m_pusher.push(-1, "TUPLE 2");
+		// create new builder to store data in it
 		m_pusher.push(+1, "NEWC");
 		for(size_t it = 0; it < substrings.size(); it++) {
-			if (substrings[it].first.length())
-				m_pusher.storeStringInABuilder(substrings[it].first);
-			Type::Category cat = m_arguments[it + 1]->annotation().type->category();
-			if (cat == Type::Category::Integer || cat == Type::Category::RationalNumber) {
-				acceptExpr(m_arguments[it + 1].get());
-				m_pusher.pushLines(convertToStr(substrings[it].second, false));
-				m_pusher.push(-1, "STBR");
-			} else if (cat == Type::Category::Address) {
-				acceptExpr(m_arguments[it + 1].get());
-				m_pusher.pushLines(R"(
-LDU 3
-NIP
-LDI 8
-LDU 256
-DROP
-SWAP
-)");
-				m_pusher.pushLines(convertToStr(true, false));
+			// stack: BldrList builder
+			std::string constStr = substrings[it].first;
+			if (constStr.length()) {
+				size_t maxSlice = (TvmConst::MaxPushSliceLength >> 1);
+				if (constStr.length() <= maxSlice){
+					m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr));
+				} else {
+					m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr.substr(0, maxSlice)));
+					// stack: BldrList builder Slice
+					m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders");
+					m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
+					// stack: BldrList builder
+					m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr.substr(maxSlice)));
+				}
+				// stack: BldrList builder Slice
+				m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders");
+				m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
+				// stack: BldrList builder
+			}
 
-				m_pusher.pushLines(R"(
-STSLICECONST x3A
-SWAP
-)");
-				m_pusher.pushLines(convertToStr(true, false));
-				m_pusher.push(0, "STBR");
-				m_pusher.push(-1, "STBR");
+
+			Type::Category cat = m_arguments[it + 1]->annotation().type->category();
+			Type const* argType = m_arguments[it + 1]->annotation().type;
+			if (cat == Type::Category::Integer || cat == Type::Category::RationalNumber) {
+				// stack: BldrList builder
+				std::string format = substrings[it].second;
+				bool leadingZeroes = format.size() ? (format[0] == '0') : false;
+				bool isHex = format.size() ? (format.back() == 'x') : false;
+				while (format.size() && (format.back() <'0' || format.back() > '9')) {
+					format.erase(format.size() - 1, 1);
+				}
+				int width = 0;
+				if (format.length() > 0)
+					width = std::stoi(format);
+				if (width < 0)
+					solUnimplemented("Width should be a positive integer.");
+				auto mt = m_arguments[it + 1]->annotation().type->mobileType();
+				auto isInt = dynamic_cast<IntegerType const*>(mt);
+				acceptExpr(m_arguments[it + 1].get());
+				if (isInt->isSigned())
+					m_pusher.push(0, "ABS");
+				m_pusher.pushInt(width);
+				m_pusher.push(+1, leadingZeroes ? "TRUE" : "FALSE");
+				if (isInt->isSigned()) {
+					acceptExpr(m_arguments[it + 1].get());
+					m_pusher.push(0, "ISNEG");
+				} else {
+					m_pusher.push(+1, "FALSE");
+				}
+				// stack: BldrList builder abs(number) width leadingZeroes addMinus
+				if (isHex){
+					m_pusher.pushPrivateFunctionOrMacroCall(-2, "convertIntToHexStr");
+				} else {
+					m_pusher.pushPrivateFunctionOrMacroCall(-2, "convertIntToDecStr");
+				}
+				// stack: BldrList builder builder bool
+				m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
+				// stack: BldrList builder
+			} else if (cat == Type::Category::Address) {
+				// stack: BldrList builder
+				acceptExpr(m_arguments[it + 1].get());
+				// stack: BldrList builder address
+				m_pusher.pushPrivateFunctionOrMacroCall(-1, "convertAddressToHexString");
+				// stack: BldrList builder
+			} else if (isStringOrStringLiteralOrBytes(argType)) {
+				// stack: BldrList builder
+				acceptExpr(m_arguments[it + 1].get());
+				// stack: BldrList builder string(cell)
+				m_pusher.push(0, "CTOS");
+				// stack: BldrList builder string(slice)
+				m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders");
+				m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
+				// stack: BldrList builder
 			} else {
 				cast_error(*m_arguments[it + 1].get(), "Unsupported argument type");
 			}
 		}
-		if (formatStr.length())
-			m_pusher.storeStringInABuilder(formatStr);
-		m_pusher.push(0, "ENDC");
+		if (formatStr.length()) {
+			size_t maxSlice = (TvmConst::MaxPushSliceLength >> 1);
+			if (formatStr.length() <= maxSlice){
+				m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(formatStr));
+			} else {
+				m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(formatStr.substr(0, maxSlice)));
+				// stack: BldrList builder Slice
+				m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders");
+				m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
+				// stack: BldrList builder
+				m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(formatStr.substr(maxSlice)));
+			}
+			// stack: BldrList builder Slice
+			m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders");
+			m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
+			// stack: BldrList builder
+		}
+		m_pusher.pushPrivateFunctionOrMacroCall(-1, "assembleList");
+
 	} else if (name == "stoi") {
 		m_pusher.push(+1, "TRUE");
 		acceptExpr(m_arguments[0].get());
@@ -2072,7 +2167,7 @@ IF
 SWAP
 )");
 		m_pusher.push(-4, "");
-	}else if (name == "hexstring") {
+	} else if (name == "hexstring") {
 		Type::Category cat = m_arguments[0]->annotation().type->category();
 		if (cat == Type::Category::Integer || cat == Type::Category::RationalNumber) {
 			TypeInfo ti{m_arguments[0]->annotation().type};

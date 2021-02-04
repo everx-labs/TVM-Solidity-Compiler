@@ -1,3 +1,9 @@
+### 0.36 (2021-02-04)
+
+Assorted features requested by DeBot support:
+ * `format` function now can create long strings (which does not fit one cell), can take string arguments and format integers width and fill settings.
+ * Some additional parameters were added for `tvm.buildExtMsg()` and `extMsg` call to support DeBot external function calls and deploy.
+
 ### 0.35 (2021-02-01)
 
 Compiler Features:
