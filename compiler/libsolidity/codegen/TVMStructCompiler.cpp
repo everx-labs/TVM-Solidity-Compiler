@@ -76,6 +76,7 @@ StructCompiler::FieldSizeInfo::FieldSizeInfo(Type const* type) : type{type} {
 			maxRefLength = 1;
 			break;
 		case Type::Category::TvmCell:
+		case Type::Category::TvmBuilder:
 		case Type::Category::Struct: {
 			isBitFixed = true;
 			isRefFixed = true;

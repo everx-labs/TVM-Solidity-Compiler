@@ -268,6 +268,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::Block, "timestamp"},
 			{MagicType::Kind::Math, "abs"},
 			{MagicType::Kind::Math, "divc"},
+			{MagicType::Kind::Math, "divmod"},
 			{MagicType::Kind::Math, "divr"},
 			{MagicType::Kind::Math, "max"},
 			{MagicType::Kind::Math, "min"},

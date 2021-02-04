@@ -114,6 +114,10 @@ public:
 								const Expression *pubkey,
 								const Expression *expire,
 								const Expression *time,
+								const Expression *callbackid,
+								const Expression *abiVer,
+								const Expression *onerrorid,
+								const Expression *stateInit,
 								const CallableDeclaration *functionDefinition,
 								const ast_vec<Expression const> arguments);
 protected:

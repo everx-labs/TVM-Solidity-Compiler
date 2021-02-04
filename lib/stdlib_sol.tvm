@@ -267,3 +267,1609 @@ IFNOT
 ;; returning named params
 ; end function message_balance_macro
 
+.globl	convertIntToDecStr_short
+.type	convertIntToDecStr_short, @function
+;; param: builder
+;; param: integer
+; function convertIntToDecStr_short
+;; return
+;; push identifier builder
+;; push identifier integer
+DUP2
+ABS
+;; uint
+UFITS 256
+PUSHINT 0
+FALSE
+;; push identifier integer
+PUSH S4
+LESSINT 0
+CALL $convertIntToDecStr$
+BLKDROP2 2, 3
+; end function convertIntToDecStr_short
+
+.globl	convertIntToDecStr
+.type	convertIntToDecStr, @function
+;; param: builder
+;; param: integer
+;; param: width
+;; param: leadingZeros
+;; param: addMinus
+; function convertIntToDecStr
+;; push identifier builder
+PUSH S4
+BREMBITS
+PUSHINT 8
+;; /
+DIV
+;; decl: remBytes
+NEWC
+;; decl: oldBuilder
+NEWC
+;; decl: newBuilder
+FALSE
+;; decl: addedNewBuilder
+;; if
+;; push identifier remBytes
+PUSH S3
+PUSHCONT {
+	; expValue
+	; end expValue
+	; colValue
+	DROP
+	TRUE
+	; end colValue
+	; expValue
+	; end expValue
+	;; push identifier builder
+	PUSH S8
+	; colValue
+	POP S3
+	; end colValue
+	; expValue
+	; end expValue
+	;; push identifier newBuilder
+	PUSH S1
+	; colValue
+	POP S9
+	; end colValue
+	; expValue
+	; end expValue
+	PUSHINT 127
+	; colValue
+	POP S4
+	; end colValue
+}
+IFNOT
+;; end if
+;; push identifier leadingZeros
+PUSH S5
+PUSHCONT {
+	PUSHINT 48
+}
+PUSHCONT {
+	PUSHINT 32
+}
+IFELSE
+;; decl: fill
+;; if
+;; push identifier addMinus
+PUSH S5
+PUSHCONT {
+	; expValue
+	PUSH S9
+	; end expValue
+	PUSHINT 45
+	STUR 8
+	; colValue
+	POP S10
+	; end colValue
+}
+IF
+;; end if
+;; --
+; expValue
+PUSH S4
+; end expValue
+DEC
+; colValue
+POP S5
+; end colValue
+;; if
+;; push identifier remBytes
+PUSH S4
+PUSHCONT {
+	; expValue
+	; end expValue
+	TRUE
+	; colValue
+	POP S2
+	; end colValue
+	; expValue
+	; end expValue
+	;; push identifier builder
+	PUSH S9
+	; colValue
+	POP S4
+	; end colValue
+	; expValue
+	; end expValue
+	;; push identifier newBuilder
+	PUSH S2
+	; colValue
+	POP S10
+	; end colValue
+	; expValue
+	; end expValue
+	PUSHINT 127
+	; colValue
+	POP S5
+	; end colValue
+}
+IFNOT
+;; end if
+;; push identifier integer
+PUSH S8
+PUSHINT 10
+;; param: integer
+;; param: modulo
+; function parseInteger
+;; ret param: length
+PUSHINT 0
+;; ret param: digits
+PUSHINT 0
+NULL
+TUPLE 2
+PUSHCONT {
+	; expValue
+	; end expValue
+	;; push identifier digits
+	; colValue
+	DUP
+	SETINDEX 1
+	; end colValue
+	;; if
+	;; push identifier integer
+	PUSH S3
+	PUSHCONT {
+		PUSHINT 0
+		NULL
+		TUPLE 2
+		;; decl: digit
+		; expValue
+		; end expValue
+		; colValue
+		PUSHINT 0
+		SETINDEX 0
+		; end colValue
+		; expValue
+		; end expValue
+		;; push identifier digits
+		; colValue
+		PUSH S1
+		SETINDEX 1
+		; end colValue
+		; expValue
+		; end expValue
+		;; push identifier digit
+		DUP
+		; colValue
+		POP S2
+		; end colValue
+		;; return
+		PUSHINT 1
+		;; push identifier digits
+		PUSH S2
+		BLKDROP2 5, 2
+	}
+	IFNOTJMP
+	;; end if
+	; while
+	PUSHCONT {
+		;; push identifier integer
+		PUSH S3
+		NEQINT 0
+	}
+	PUSHCONT {
+		;; ++
+		; expValue
+		PUSH S1
+		; end expValue
+		INC
+		; colValue
+		POP S2
+		; end colValue
+		PUSHINT 0
+		NULL
+		TUPLE 2
+		;; decl: digit
+		;; push identifier integer
+		;; push identifier modulo
+		BLKPUSH 2, 4
+		DIVMOD
+		SWAP
+		; expValue
+		; end expValue
+		; colValue
+		POP S6
+		; end colValue
+		; expValue
+		PUSH S2
+		; end expValue
+		SWAP
+		; colValue
+		SETINDEX 0
+		POP S2
+		; end colValue
+		; expValue
+		; end expValue
+		;; push identifier digits
+		; colValue
+		; end colValue
+		; expValue
+		; end expValue
+		;; push identifier digit
+		; colValue
+		; end colValue
+		SWAP
+		SETINDEX 1
+	}
+	WHILE
+	; end while
+	;; get member tail
+	;; push identifier digits
+	DUP
+	INDEX 1
+	DUP
+	ISNULL
+	THROWIF 63
+	; expValue
+	; end expValue
+	; colValue
+	NIP
+	; end colValue
+	;; returning named params
+	SWAP2
+	DROP2
+}
+CALLX
+; end function parseInteger
+;; decl: length
+;; decl: digits
+;; if
+;; push identifier width
+PUSH S9
+PUSHCONT {
+	;; if
+	;; push identifier width
+	;; push identifier length
+	PUSH2 S9, S1
+	;; <
+	LESS
+	;; short-circuiting ||
+	DUP
+	PUSHCONT {
+		DROP
+		;; push identifier width
+		PUSH S9
+		GTINT 127
+	}
+	IFNOT
+	THROWIF 66
+	;; end if
+	;; push identifier width
+	;; push identifier length
+	PUSH2 S9, S1
+	;; -
+	SUB
+	;; decl: zeroes
+	;; if
+	;; push identifier zeroes
+	;; push identifier remBytes
+	PUSH2 S0, S7
+	;; <=
+	LEQ
+	PUSHCONT {
+		; while
+		;; push identifier zeroes
+		DUP
+		PUSHCONT {
+			; expValue
+			; end expValue
+			;; push identifier fill
+			PUSH2 S12, S3
+			STUR 8
+			; colValue
+			POP S13
+			; end colValue
+		}
+		REPEAT
+		; end while
+		;; push identifier zeroes
+		; expValue
+		; end expValue
+		PUSH2 S7, S0
+		SUB
+		; colValue
+		POP S8
+		; end colValue
+		;; if
+		;; push identifier remBytes
+		PUSH S7
+		PUSHCONT {
+			; expValue
+			; end expValue
+			TRUE
+			; colValue
+			POP S5
+			; end colValue
+			; expValue
+			; end expValue
+			;; push identifier builder
+			PUSH S12
+			; colValue
+			POP S7
+			; end colValue
+			; expValue
+			; end expValue
+			;; push identifier newBuilder
+			PUSH S5
+			; colValue
+			POP S13
+			; end colValue
+			; expValue
+			; end expValue
+			PUSHINT 127
+			; colValue
+			POP S8
+			; end colValue
+		}
+		IFNOT
+		;; end if
+	}
+	PUSHCONT {
+		; while
+		;; push identifier remBytes
+		PUSH S7
+		PUSHCONT {
+			; expValue
+			; end expValue
+			;; push identifier fill
+			PUSH2 S12, S3
+			STUR 8
+			; colValue
+			POP S13
+			; end colValue
+		}
+		REPEAT
+		; end while
+		; expValue
+		; end expValue
+		TRUE
+		; colValue
+		POP S5
+		; end colValue
+		; expValue
+		; end expValue
+		;; push identifier builder
+		PUSH S12
+		; colValue
+		POP S7
+		; end colValue
+		; expValue
+		; end expValue
+		;; push identifier newBuilder
+		PUSH S5
+		; colValue
+		POP S13
+		; end colValue
+		; while
+		;; push identifier zeroes
+		;; push identifier remBytes
+		PUSH2 S0, S7
+		;; -
+		SUB
+		PUSHCONT {
+			; expValue
+			; end expValue
+			;; push identifier fill
+			PUSH2 S12, S3
+			STUR 8
+			; colValue
+			POP S13
+			; end colValue
+		}
+		REPEAT
+		; end while
+		; expValue
+		; end expValue
+		PUSHINT 127
+		;; push identifier zeroes
+		PUSH S1
+		;; -
+		SUB
+		;; push identifier remBytes
+		PUSH S8
+		;; +
+		ADD
+		; colValue
+		POP S8
+		; end colValue
+	}
+	IFELSE
+	;; end if
+	DROP
+}
+IF
+;; end if
+;; if
+;; push identifier length
+;; push identifier remBytes
+PUSH2 S1, S6
+;; <=
+LEQ
+PUSHCONT {
+	; while
+	;; push identifier length
+	PUSH S1
+	PUSHCONT {
+		; expValue
+		PUSH S11
+		; end expValue
+		PUSHINT 48
+		;; get member num
+		;; push identifier digits
+		PUSH S2
+		INDEX 0
+		;; +
+		ADD
+		STUR 8
+		; colValue
+		POP S12
+		; end colValue
+		;; get member tail
+		;; push identifier digits
+		DUP
+		INDEX 1
+		DUP
+		ISNULL
+		THROWIF 63
+		; expValue
+		; end expValue
+		; colValue
+		NIP
+		; end colValue
+	}
+	REPEAT
+	; end while
+}
+PUSHCONT {
+	; while
+	;; push identifier remBytes
+	PUSH S6
+	PUSHCONT {
+		; expValue
+		PUSH S11
+		; end expValue
+		PUSHINT 48
+		;; get member num
+		;; push identifier digits
+		PUSH S2
+		INDEX 0
+		;; +
+		ADD
+		STUR 8
+		; colValue
+		POP S12
+		; end colValue
+		;; get member tail
+		;; push identifier digits
+		DUP
+		INDEX 1
+		DUP
+		ISNULL
+		THROWIF 63
+		; expValue
+		; end expValue
+		; colValue
+		NIP
+		; end colValue
+	}
+	REPEAT
+	; end while
+	; expValue
+	; end expValue
+	TRUE
+	; colValue
+	POP S4
+	; end colValue
+	; expValue
+	; end expValue
+	;; push identifier builder
+	PUSH S11
+	; colValue
+	POP S6
+	; end colValue
+	; expValue
+	; end expValue
+	;; push identifier newBuilder
+	PUSH S4
+	; colValue
+	POP S12
+	; end colValue
+	; while
+	;; push identifier length
+	;; push identifier remBytes
+	PUSH2 S1, S6
+	;; -
+	SUB
+	PUSHCONT {
+		; expValue
+		PUSH S11
+		; end expValue
+		PUSHINT 48
+		;; get member num
+		;; push identifier digits
+		PUSH S2
+		INDEX 0
+		;; +
+		ADD
+		STUR 8
+		; colValue
+		POP S12
+		; end colValue
+		;; get member tail
+		;; push identifier digits
+		DUP
+		INDEX 1
+		DUP
+		ISNULL
+		THROWIF 63
+		; expValue
+		; end expValue
+		; colValue
+		NIP
+		; end colValue
+	}
+	REPEAT
+	; end while
+}
+IFELSE
+;; end if
+;; if
+;; !
+;; push identifier addedNewBuilder
+PUSH S3
+NOT
+PUSHCONT {
+	; expValue
+	; end expValue
+	;; push identifier builder
+	PUSH S11
+	; colValue
+	POP S6
+	; end colValue
+}
+PUSHCONT {
+	; expValue
+	; end expValue
+	;; push identifier builder
+	PUSH S11
+	; colValue
+	POP S5
+	; end colValue
+}
+IFELSE
+;; end if
+;; return
+;; push identifier oldBuilder
+;; push identifier newBuilder
+;; push identifier addedNewBuilder
+BLKPUSH 3, 5
+BLKDROP2 12, 3
+; end function convertIntToDecStr
+
+.globl	convertAddressToHexString
+.type	convertAddressToHexString, @function
+;; param: list
+;; param: builder
+;; param: addr
+; function convertAddressToHexString
+;; address.unpack()
+;; push identifier addr
+DUP
+CALL $unpack_address_macro$
+;; decl: wid
+;; decl: value
+NEWC
+;; decl: first
+NEWC
+;; decl: second
+PUSHINT 0
+;; decl: flag
+;; push identifier builder
+;; push identifier wid
+PUSH2 S6, S4
+CALL $convertIntToHexStr_short$
+XCHG s2
+; expValue
+; end expValue
+; colValue
+POP S5
+; end colValue
+; expValue
+; end expValue
+; colValue
+POP S3
+; end colValue
+; expValue
+; end expValue
+; colValue
+NIP
+; end colValue
+;; push identifier list
+PUSH S7
+;; push identifier first
+;; push identifier second
+;; push identifier flag
+BLKPUSH 3, 3
+CALL $appendToList$
+SWAP
+; expValue
+; end expValue
+; colValue
+POP S9
+; end colValue
+; expValue
+; end expValue
+; colValue
+POP S7
+; end colValue
+;; push identifier builder
+PUSH S6
+BREMBITS
+;; decl: remBits
+;; if
+;; push identifier remBits
+DUP
+GTINT 8
+PUSHCONT {
+	; expValue
+	PUSH S7
+	; end expValue
+	PUSHINT 58
+	STUR 8
+	; colValue
+	POP S8
+	; end colValue
+}
+PUSHCONT {
+	NEWC
+	;; decl: nBuilder
+	; expValue
+	DUP
+	; end expValue
+	PUSHINT 58
+	STUR 8
+	; colValue
+	NIP
+	; end colValue
+	;; push identifier list
+	;; push identifier builder
+	BLKPUSH 2, 9
+	;; push identifier nBuilder
+	PUSH S2
+	TRUE
+	CALL $appendToList$
+	SWAP
+	; expValue
+	; end expValue
+	; colValue
+	POP S11
+	; end colValue
+	; expValue
+	; end expValue
+	; colValue
+	POP S9
+	; end colValue
+	DROP
+}
+IFELSE
+;; end if
+;; push identifier builder
+;; push identifier value
+PUSH2 S7, S4
+PUSHINT 64
+TRUE
+FALSE
+CALL $convertIntToHexStr$
+XCHG s2
+; expValue
+; end expValue
+; colValue
+POP S6
+; end colValue
+; expValue
+; end expValue
+; colValue
+POP S4
+; end colValue
+; expValue
+; end expValue
+; colValue
+POP S2
+; end colValue
+;; return
+;; push identifier list
+PUSH S8
+;; push identifier first
+;; push identifier second
+;; push identifier flag
+BLKPUSH 3, 4
+CALL $appendToList$
+BLKDROP2 9, 2
+; end function convertAddressToHexString
+
+.globl	convertIntToHexStr_short
+.type	convertIntToHexStr_short, @function
+;; param: builder
+;; param: integer
+; function convertIntToHexStr_short
+;; return
+;; push identifier builder
+;; push identifier integer
+DUP2
+ABS
+;; uint
+UFITS 256
+PUSHINT 0
+FALSE
+;; push identifier integer
+PUSH S4
+LESSINT 0
+CALL $convertIntToHexStr$
+BLKDROP2 2, 3
+; end function convertIntToHexStr_short
+
+.globl	convertIntToHexStr
+.type	convertIntToHexStr, @function
+;; param: builder
+;; param: integer
+;; param: width
+;; param: leadingZeros
+;; param: addMinus
+; function convertIntToHexStr
+;; push identifier builder
+PUSH S4
+BREMBITS
+PUSHINT 8
+;; /
+DIV
+;; decl: remBytes
+NEWC
+;; decl: oldBuilder
+NEWC
+;; decl: newBuilder
+FALSE
+;; decl: addedNewBuilder
+;; if
+;; push identifier remBytes
+PUSH S3
+PUSHCONT {
+	; expValue
+	; end expValue
+	; colValue
+	DROP
+	TRUE
+	; end colValue
+	; expValue
+	; end expValue
+	;; push identifier builder
+	PUSH S8
+	; colValue
+	POP S3
+	; end colValue
+	; expValue
+	; end expValue
+	;; push identifier newBuilder
+	PUSH S1
+	; colValue
+	POP S9
+	; end colValue
+	; expValue
+	; end expValue
+	PUSHINT 127
+	; colValue
+	POP S4
+	; end colValue
+}
+IFNOT
+;; end if
+;; push identifier leadingZeros
+PUSH S5
+PUSHCONT {
+	PUSHINT 48
+}
+PUSHCONT {
+	PUSHINT 32
+}
+IFELSE
+;; decl: fill
+;; if
+;; push identifier addMinus
+PUSH S5
+PUSHCONT {
+	; expValue
+	PUSH S9
+	; end expValue
+	PUSHINT 45
+	STUR 8
+	; colValue
+	POP S10
+	; end colValue
+}
+IF
+;; end if
+;; --
+; expValue
+PUSH S4
+; end expValue
+DEC
+; colValue
+POP S5
+; end colValue
+;; if
+;; push identifier remBytes
+PUSH S4
+PUSHCONT {
+	; expValue
+	; end expValue
+	TRUE
+	; colValue
+	POP S2
+	; end colValue
+	; expValue
+	; end expValue
+	;; push identifier builder
+	PUSH S9
+	; colValue
+	POP S4
+	; end colValue
+	; expValue
+	; end expValue
+	;; push identifier newBuilder
+	PUSH S2
+	; colValue
+	POP S10
+	; end colValue
+	; expValue
+	; end expValue
+	PUSHINT 127
+	; colValue
+	POP S5
+	; end colValue
+}
+IFNOT
+;; end if
+;; push identifier integer
+PUSH S8
+PUSHINT 16
+;; param: integer
+;; param: modulo
+; function parseInteger
+;; ret param: length
+PUSHINT 0
+;; ret param: digits
+PUSHINT 0
+NULL
+TUPLE 2
+PUSHCONT {
+	; expValue
+	; end expValue
+	;; push identifier digits
+	; colValue
+	DUP
+	SETINDEX 1
+	; end colValue
+	;; if
+	;; push identifier integer
+	PUSH S3
+	PUSHCONT {
+		PUSHINT 0
+		NULL
+		TUPLE 2
+		;; decl: digit
+		; expValue
+		; end expValue
+		; colValue
+		PUSHINT 0
+		SETINDEX 0
+		; end colValue
+		; expValue
+		; end expValue
+		;; push identifier digits
+		; colValue
+		PUSH S1
+		SETINDEX 1
+		; end colValue
+		; expValue
+		; end expValue
+		;; push identifier digit
+		DUP
+		; colValue
+		POP S2
+		; end colValue
+		;; return
+		PUSHINT 1
+		;; push identifier digits
+		PUSH S2
+		BLKDROP2 5, 2
+	}
+	IFNOTJMP
+	;; end if
+	; while
+	PUSHCONT {
+		;; push identifier integer
+		PUSH S3
+		NEQINT 0
+	}
+	PUSHCONT {
+		;; ++
+		; expValue
+		PUSH S1
+		; end expValue
+		INC
+		; colValue
+		POP S2
+		; end colValue
+		PUSHINT 0
+		NULL
+		TUPLE 2
+		;; decl: digit
+		;; push identifier integer
+		;; push identifier modulo
+		BLKPUSH 2, 4
+		DIVMOD
+		SWAP
+		; expValue
+		; end expValue
+		; colValue
+		POP S6
+		; end colValue
+		; expValue
+		PUSH S2
+		; end expValue
+		SWAP
+		; colValue
+		SETINDEX 0
+		POP S2
+		; end colValue
+		; expValue
+		; end expValue
+		;; push identifier digits
+		; colValue
+		; end colValue
+		; expValue
+		; end expValue
+		;; push identifier digit
+		; colValue
+		; end colValue
+		SWAP
+		SETINDEX 1
+	}
+	WHILE
+	; end while
+	;; get member tail
+	;; push identifier digits
+	DUP
+	INDEX 1
+	DUP
+	ISNULL
+	THROWIF 63
+	; expValue
+	; end expValue
+	; colValue
+	NIP
+	; end colValue
+	;; returning named params
+	SWAP2
+	DROP2
+}
+CALLX
+; end function parseInteger
+;; decl: length
+;; decl: digits
+;; if
+;; push identifier width
+PUSH S9
+PUSHCONT {
+	;; if
+	;; push identifier width
+	;; push identifier length
+	PUSH2 S9, S1
+	;; <
+	LESS
+	;; short-circuiting ||
+	DUP
+	PUSHCONT {
+		DROP
+		;; push identifier width
+		PUSH S9
+		GTINT 127
+	}
+	IFNOT
+	THROWIF 69
+	;; end if
+	;; push identifier width
+	;; push identifier length
+	PUSH2 S9, S1
+	;; -
+	SUB
+	;; decl: zeroes
+	;; if
+	;; push identifier zeroes
+	;; push identifier remBytes
+	PUSH2 S0, S7
+	;; <=
+	LEQ
+	PUSHCONT {
+		; while
+		;; push identifier zeroes
+		DUP
+		PUSHCONT {
+			; expValue
+			; end expValue
+			;; push identifier fill
+			PUSH2 S12, S3
+			STUR 8
+			; colValue
+			POP S13
+			; end colValue
+		}
+		REPEAT
+		; end while
+		;; push identifier zeroes
+		; expValue
+		; end expValue
+		PUSH2 S7, S0
+		SUB
+		; colValue
+		POP S8
+		; end colValue
+		;; if
+		;; push identifier remBytes
+		PUSH S7
+		PUSHCONT {
+			; expValue
+			; end expValue
+			TRUE
+			; colValue
+			POP S5
+			; end colValue
+			; expValue
+			; end expValue
+			;; push identifier builder
+			PUSH S12
+			; colValue
+			POP S7
+			; end colValue
+			; expValue
+			; end expValue
+			;; push identifier newBuilder
+			PUSH S5
+			; colValue
+			POP S13
+			; end colValue
+			; expValue
+			; end expValue
+			PUSHINT 127
+			; colValue
+			POP S8
+			; end colValue
+		}
+		IFNOT
+		;; end if
+	}
+	PUSHCONT {
+		; while
+		;; push identifier remBytes
+		PUSH S7
+		PUSHCONT {
+			; expValue
+			; end expValue
+			;; push identifier fill
+			PUSH2 S12, S3
+			STUR 8
+			; colValue
+			POP S13
+			; end colValue
+		}
+		REPEAT
+		; end while
+		; expValue
+		; end expValue
+		TRUE
+		; colValue
+		POP S5
+		; end colValue
+		; expValue
+		; end expValue
+		;; push identifier builder
+		PUSH S12
+		; colValue
+		POP S7
+		; end colValue
+		; expValue
+		; end expValue
+		;; push identifier newBuilder
+		PUSH S5
+		; colValue
+		POP S13
+		; end colValue
+		; while
+		;; push identifier zeroes
+		;; push identifier remBytes
+		PUSH2 S0, S7
+		;; -
+		SUB
+		PUSHCONT {
+			; expValue
+			; end expValue
+			;; push identifier fill
+			PUSH2 S12, S3
+			STUR 8
+			; colValue
+			POP S13
+			; end colValue
+		}
+		REPEAT
+		; end while
+		; expValue
+		; end expValue
+		PUSHINT 127
+		;; push identifier zeroes
+		PUSH S1
+		;; -
+		SUB
+		;; push identifier remBytes
+		PUSH S8
+		;; +
+		ADD
+		; colValue
+		POP S8
+		; end colValue
+	}
+	IFELSE
+	;; end if
+	DROP
+}
+IF
+;; end if
+;; if
+;; push identifier length
+;; push identifier remBytes
+PUSH2 S1, S6
+;; <=
+LEQ
+PUSHCONT {
+	; while
+	;; push identifier length
+	PUSH S1
+	PUSHCONT {
+		;; get member num
+		;; push identifier digits
+		DUP
+		INDEX 0
+		;; decl: dig
+		;; if
+		;; push identifier dig
+		DUP
+		LESSINT 10
+		PUSHCONT {
+			; expValue
+			PUSH S12
+			; end expValue
+			PUSHINT 48
+			;; push identifier dig
+			PUSH S2
+			;; +
+			ADD
+			STUR 8
+			; colValue
+			POP S13
+			; end colValue
+		}
+		PUSHCONT {
+			; expValue
+			PUSH S12
+			; end expValue
+			PUSHINT 55
+			;; push identifier dig
+			PUSH S2
+			;; +
+			ADD
+			STUR 8
+			; colValue
+			POP S13
+			; end colValue
+		}
+		IFELSE
+		;; end if
+		;; get member tail
+		;; push identifier digits
+		PUSH S1
+		INDEX 1
+		DUP
+		ISNULL
+		THROWIF 63
+		; expValue
+		; end expValue
+		; colValue
+		POP S2
+		; end colValue
+		DROP
+	}
+	REPEAT
+	; end while
+}
+PUSHCONT {
+	; while
+	;; push identifier remBytes
+	PUSH S6
+	PUSHCONT {
+		;; get member num
+		;; push identifier digits
+		DUP
+		INDEX 0
+		;; decl: dig
+		;; if
+		;; push identifier dig
+		DUP
+		LESSINT 10
+		PUSHCONT {
+			; expValue
+			PUSH S12
+			; end expValue
+			PUSHINT 48
+			;; push identifier dig
+			PUSH S2
+			;; +
+			ADD
+			STUR 8
+			; colValue
+			POP S13
+			; end colValue
+		}
+		PUSHCONT {
+			; expValue
+			PUSH S12
+			; end expValue
+			PUSHINT 55
+			;; push identifier dig
+			PUSH S2
+			;; +
+			ADD
+			STUR 8
+			; colValue
+			POP S13
+			; end colValue
+		}
+		IFELSE
+		;; end if
+		;; get member tail
+		;; push identifier digits
+		PUSH S1
+		INDEX 1
+		DUP
+		ISNULL
+		THROWIF 63
+		; expValue
+		; end expValue
+		; colValue
+		POP S2
+		; end colValue
+		DROP
+	}
+	REPEAT
+	; end while
+	; expValue
+	; end expValue
+	TRUE
+	; colValue
+	POP S4
+	; end colValue
+	; expValue
+	; end expValue
+	;; push identifier builder
+	PUSH S11
+	; colValue
+	POP S6
+	; end colValue
+	; expValue
+	; end expValue
+	;; push identifier newBuilder
+	PUSH S4
+	; colValue
+	POP S12
+	; end colValue
+	; while
+	;; push identifier length
+	;; push identifier remBytes
+	PUSH2 S1, S6
+	;; -
+	SUB
+	PUSHCONT {
+		;; get member num
+		;; push identifier digits
+		DUP
+		INDEX 0
+		;; decl: dig
+		;; if
+		;; push identifier dig
+		DUP
+		LESSINT 10
+		PUSHCONT {
+			; expValue
+			PUSH S12
+			; end expValue
+			PUSHINT 48
+			;; push identifier dig
+			PUSH S2
+			;; +
+			ADD
+			STUR 8
+			; colValue
+			POP S13
+			; end colValue
+		}
+		PUSHCONT {
+			; expValue
+			PUSH S12
+			; end expValue
+			PUSHINT 55
+			;; push identifier dig
+			PUSH S2
+			;; +
+			ADD
+			STUR 8
+			; colValue
+			POP S13
+			; end colValue
+		}
+		IFELSE
+		;; end if
+		;; get member tail
+		;; push identifier digits
+		PUSH S1
+		INDEX 1
+		DUP
+		ISNULL
+		THROWIF 63
+		; expValue
+		; end expValue
+		; colValue
+		POP S2
+		; end colValue
+		DROP
+	}
+	REPEAT
+	; end while
+}
+IFELSE
+;; end if
+;; if
+;; !
+;; push identifier addedNewBuilder
+PUSH S3
+NOT
+PUSHCONT {
+	; expValue
+	; end expValue
+	;; push identifier builder
+	PUSH S11
+	; colValue
+	POP S6
+	; end colValue
+}
+PUSHCONT {
+	; expValue
+	; end expValue
+	;; push identifier builder
+	PUSH S11
+	; colValue
+	POP S5
+	; end colValue
+}
+IFELSE
+;; end if
+;; return
+;; push identifier oldBuilder
+;; push identifier newBuilder
+;; push identifier addedNewBuilder
+BLKPUSH 3, 5
+BLKDROP2 12, 3
+; end function convertIntToHexStr
+
+.globl	storeStringInBuilders
+.type	storeStringInBuilders, @function
+;; param: first
+;; param: second
+; function storeStringInBuilders
+;; push identifier first
+PUSH S1
+BREMBITS
+;; -
+ADDCONST -7
+;; decl: remBits
+;; push identifier second
+PUSH S1
+SBITS
+;; decl: bitLen
+NEWC
+;; decl: newBuilder
+;; push identifier bitLen
+;; push identifier remBits
+PUSH2 S1, S2
+;; <=
+LEQ
+;; decl: fits
+;; if
+;; push identifier fits
+DUP
+PUSHCONT {
+	; expValue
+	; end expValue
+	;; push identifier second
+	BLKPUSH 2, 5
+	STSLICER
+	; colValue
+	POP S6
+	; end colValue
+}
+PUSHCONT {
+	; expValue
+	; end expValue
+	;; push identifier remBits
+	BLKPUSH 2, 4
+	LDSLICEX
+	; colValue
+	POP S6
+	; end colValue
+	;; decl: start
+	; expValue
+	; end expValue
+	;; push identifier start
+	PUSH2 S6, S0
+	STSLICER
+	; colValue
+	POP S7
+	; end colValue
+	; expValue
+	; end expValue
+	;; push identifier second
+	PUSH2 S2, S5
+	STSLICER
+	; colValue
+	POP S3
+	; end colValue
+	DROP
+}
+IFELSE
+;; end if
+;; return
+;; push identifier first
+PUSH S5
+;; push identifier newBuilder
+;; !
+;; push identifier fits
+BLKPUSH 2, 2
+NOT
+BLKDROP2 6, 3
+; end function storeStringInBuilders
+
+.globl	appendToList
+.type	appendToList, @function
+;; param: list
+;; param: first
+;; param: second
+;; param: secondIsValid
+; function appendToList
+;; if
+;; !
+;; push identifier secondIsValid
+DUP
+PUSHCONT {
+	;; return
+	;; push identifier list
+	;; push identifier first
+	OVER2
+	BLKDROP2 4, 2
+}
+IFNOTJMP
+;; end if
+NEWC
+NULL
+TUPLE 2
+;; decl: nList
+; expValue
+; end expValue
+;; push identifier list
+; colValue
+PUSH S4
+SETINDEX 1
+; end colValue
+; expValue
+; end expValue
+;; push identifier first
+; colValue
+PUSH S3
+SETINDEX 0
+; end colValue
+;; return
+;; push identifier nList
+;; push identifier second
+PUSH2 S0, S2
+BLKDROP2 5, 2
+; end function appendToList
+
+.globl	assembleList
+.type	assembleList, @function
+;; param: list
+;; param: builder
+; function assembleList
+;; push identifier builder
+DUP
+;; decl: curBuilder
+; while
+PUSHCONT {
+	;; get member tail
+	;; push identifier list
+	PUSH S2
+	INDEX 1
+	ISNULL
+	NOT
+}
+PUSHCONT {
+	; expValue
+	PUSH2 S2, S2
+	INDEX 0
+	; end expValue
+	;; push identifier curBuilder
+	PUSH S2
+	STBREFR
+	; colValue
+	SETINDEX 0
+	POP S3
+	; end colValue
+	; expValue
+	; end expValue
+	;; get member builder
+	;; push identifier list
+	; colValue
+	DROP
+	PUSH S1
+	INDEX 0
+	; end colValue
+	;; get member tail
+	;; push identifier list
+	PUSH S2
+	INDEX 1
+	DUP
+	ISNULL
+	THROWIF 63
+	; expValue
+	; end expValue
+	; colValue
+	POP S3
+	; end colValue
+}
+WHILE
+; end while
+;; return
+;; push identifier curBuilder
+DUP
+ENDC
+XCHG s3
+BLKDROP 3
+; end function assembleList
+

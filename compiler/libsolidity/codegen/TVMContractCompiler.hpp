@@ -43,8 +43,6 @@ private:
 
 class TVMContractCompiler: private boost::noncopyable {
 public:
-	static std::vector<ContractDefinition const*> m_allContracts;
-	static std::string m_mainContractName;
 	static bool m_outputToFile;
 	static std::string m_fileName;
 	static std::string m_outputFolder;

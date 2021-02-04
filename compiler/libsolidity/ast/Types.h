@@ -1168,7 +1168,7 @@ public:
 		Log3,
 		Log4,
 		LogTVM,
-		HexString,
+		HexString, ///< convert integer to hex string
 		Format, ///< format function to generate an arbitrary string.
 		Event, ///< syntactic sugar for LOG*
 		SetGas, ///< modify the default gas value for the function call
@@ -1188,6 +1188,7 @@ public:
 		MathModpow2, ///< math.modpow2()
 		MathMulDiv, ///< math.muldiv()
 		MathMulDivMod, ///< math.muldivmod()
+		MathDivMod, ///< math.divmod()
 
 		TVMAccept, ///< tvm.accept()
 		TVMBuildExtMsg, ///< tvm.buildExtMsg()

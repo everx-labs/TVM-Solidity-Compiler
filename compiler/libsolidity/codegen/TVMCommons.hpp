@@ -378,4 +378,6 @@ DictValueType toDictValueType(const Type::Category& category);
 
 int integerLog2(int value);
 
+std::string stringToBytes(std::string str);
+
 } // end solidity::frontend
