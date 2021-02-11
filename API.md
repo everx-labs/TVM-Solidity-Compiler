@@ -2150,7 +2150,7 @@ Returns contract's public key, stored in contract data. If key is not set functi
 tvm.setCurrentCode(TvmCell newCode);
 ```
 
-Changes this smart contract current code to that given by Cell **newCode**.
+Changes this smart contract current code to that given by Cell **newCode** for currently transaction, but not saved it for subsequent transactions. For permanent changes code see [tvm.setcode()](#tvmsetcode).
 
 See example of how to use this function:
 
