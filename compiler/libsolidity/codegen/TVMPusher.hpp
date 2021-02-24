@@ -71,9 +71,12 @@ struct CodeLines {
 	int tabQty{};
 
 	string str(const string& indent = "") const;
-	void addTabs(const int qty = 1);
-	void subTabs(const int qty = 1);
+	void addTabs(int qty = 1);
+	void subTabs(int qty = 1);
 	void startContinuation();
+	void startIfRef();
+	void startIfNotRef();
+	void startCallRef();
 	void endContinuation();
 	void push(const string& cmd);
 	void append(const CodeLines& oth);
@@ -126,10 +129,14 @@ public:
 
 public:
 	explicit StackPusherHelper(TVMCompilerContext* ctx, const int stackSize = 0);
+
 	void tryPollLastRetOpcode();
 	bool tryPollConvertBuilderToSlice();
 	bool tryPollEmptyPushCont();
+	bool cmpLastCmd(const std::string& cmd, int offset = 0);
 	void pollLastOpcode();
+	bool optimizeIf();
+
 	void append(const CodeLines& oth);
 	void addTabs(const int qty = 1);
 	void subTabs(const int qty = 1);
@@ -142,8 +149,13 @@ public:
 	[[nodiscard]]
 	TVMCompilerContext& ctx();
 	void push(int stackDiff, const string& cmd);
+
 	void startContinuation(int deltaStack = 0);
+	void startIfRef(int deltaStack = 0);
+	void startIfNotRef(int deltaStack = 0);
+	void startCallRef(int deltaStack = 0);
 	void endContinuation(int deltaStack = 0);
+
 	StructCompiler& structCompiler();
 	TVMStack& getStack();
 	void pushLog(const std::string& str);
@@ -160,7 +172,7 @@ public:
 	void setGlob(VariableDeclaration const * vd);
 	void pushS(int i);
 	void popS(int i);
-	void pushInt(int64_t i);
+	void pushInt(const bigint& i);
 	void stzeroes(int qty);
 	void stones(int qty);
 	void sendrawmsg();
@@ -179,25 +191,27 @@ public:
 	);
 	void pushZeroAddress();
 	void generateC7ToT4Macro();
-	void storeStringInABuilder(std::string str);
 
 	static void addBinaryNumberToString(std::string &s, u256 value, int bitlen = 256);
 	static std::string binaryStringToSlice(const std::string & s);
 	static std::string tonsToBinaryString(Literal const* literal);
-	static std::string tonsToBinaryString(u256 value);
+	static std::string tonsToBinaryString(const u256& value);
 	static std::string tonsToBinaryString(bigint value);
 	std::string literalToSliceAddress(Literal const* literal, bool pushSlice = true);
+	static bigint pow10(int power);
 
-	bool tryImplicitConvert(Type const *leftType, Type const *rightType);
+	void hardConvert(Type const *leftType, Type const *rightType);
+	void checkFit(Type const *type);
 	void push(const CodeLines& codeLines);
-	void pushPrivateFunctionOrMacroCall(const int stackDelta, const string& fname);
+	void pushMacroCallInCallRef(int stackDelta, const string& fname);
+	void pushPrivateFunctionOrMacroCall(int stackDelta, const string& fname);
 	void pushCall(const string& functionName, const FunctionType* ft);
 	void drop(int cnt = 1);
 	void blockSwap(int m, int n);
 	void reverse(int i, int j);
 	void dropUnder(int leftCount, int droppedCount);
 	void exchange(int i, int j);
-	void prepareKeyForDictOperations(Type const* key, bool doIgnoreBytes = false);
+	void prepareKeyForDictOperations(Type const* key, bool doIgnoreBytes);
 	[[nodiscard]]
 	int int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams);
 	[[nodiscard]]
@@ -255,8 +269,6 @@ public:
 		const bool resultAsSliceForStruct,
   		const DataType& dataType = DataType::Slice
 	);
-
-	void ensureValueFitsType(const ElementaryTypeNameToken& typeName, const ASTNode& node);
 
 	void pushNull();
 	void pushDefaultValue(Type const* type, bool isResultBuilder = false);

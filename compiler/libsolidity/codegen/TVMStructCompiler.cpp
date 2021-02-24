@@ -39,6 +39,7 @@ StructCompiler::FieldSizeInfo::FieldSizeInfo(Type const* type) : type{type} {
 		case Type::Category::Enum:
 		case Type::Category::Integer:
 		case Type::Category::Bool:
+		case Type::Category::FixedPoint:
 		case Type::Category::FixedBytes: {
 			TypeInfo ti{type};
 			isBitFixed = true;
@@ -321,7 +322,7 @@ void StructCompiler::setMemberForTuple(const std::string &memberName) {
 
 void StructCompiler::structConstructor(
 	std::vector<ASTPointer<ASTString>> const& names,
-	const std::function<void(int)>& pushParam
+	const std::function<void(int, Type const*)>& pushParam
 ) {
 	if (names.empty()) {
 		int i{};
@@ -329,7 +330,7 @@ void StructCompiler::structConstructor(
 			if (type->category() == Type::Category::Mapping) {
 				pusher->pushDefaultValue(type, false);
 			} else {
-				pushParam(i++);
+				pushParam(i++, type);
 			}
 		}
 	} else {
@@ -344,7 +345,7 @@ void StructCompiler::structConstructor(
 				pusher->pushDefaultValue(type);
 			} else {
 				int index = it - names.begin();
-				pushParam(index);
+				pushParam(index, type);
 			}
 			++i;
 		}

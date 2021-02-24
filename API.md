@@ -27,6 +27,9 @@ contract development.
     * [\<TvmSlice\>.loadTons()](#tvmsliceloadtons)
     * [\<TvmSlice\>.loadSlice()](#tvmsliceloadslice)
     * [\<TvmSlice\>.decodeFunctionParams()](#tvmslicedecodefunctionparams)
+    * [\<TvmSlice\>.skip()](#tvmsliceskip)
+    * [\<TvmSlice\>.hasNBits(), \<TvmSlice\>.hasNRefs() and \<TvmSlice\>.hasNBitsAndRefs()](#tvmslicehasnbits-tvmslicehasnrefs-and-tvmslicehasnbitsandrefs)
+    * [\<TvmSlice\>.compare()](#tvmslicecompare)
   * [TvmBuilder](#tvmbuilder)
     * [\<TvmBuilder\>.toSlice()](#tvmbuildertoslice)
     * [\<TvmBuilder\>.toCell()](#tvmbuildertocell)
@@ -59,8 +62,6 @@ contract development.
     * [\<string\>.byteLength()](#stringbytelength)
     * [\<string\>.substr()](#stringsubstr)
     * [\<string\>.append()](#stringappend)
-    * [string(int)](#stringint)
-    * [hexstring()](#hexstring)
     * [format()](#format)
     * [stoi()](#stoi)
   * [bytes](#bytes)
@@ -91,7 +92,7 @@ contract development.
   * [mapping](#mapping)
     * [\<mapping\>.operator[]](#mappingoperator)
     * [\<mapping\>.at()](#mappingat)
-    * [\<mapping\>.min() and mapping.max()](#mappingmin-and-mappingmax)
+    * [\<mapping\>.min() and \<mapping\>.max()](#mappingmin-and-mappingmax)
     * [\<mapping\>.next() and \<mapping\>.prev()](#mappingnext-and-mappingprev)
     * [\<mapping\>.nextOrEq() and \<mapping\>.prevOrEq()](#mappingnextoreq-and-mappingprevoreq)
     * [\<mapping\>.delMin() and \<mapping\>.delMax()](#mappingdelmin-and-mappingdelmax)
@@ -103,6 +104,7 @@ contract development.
     * [\<mapping\>.getSet()](#mappinggetset)
     * [\<mapping\>.getAdd()](#mappinggetadd)
     * [\<mapping\>.getReplace()](#mappinggetreplace)
+  * [Fixed point number](#fixed-point-number)
   * [Function type](#function-type)
   * [require, revert](#require-revert)
     * [require](#require)
@@ -134,6 +136,7 @@ contract development.
   * [extAddr](#extaddr)
   * [return](#return)
 * [External function calls](#external-function-calls)
+* [Delete variables](#delete-variables)
 * [API functions and members](#api-functions-and-members)
   * [**msg** namespace](#msg-namespace)
     * [msg.value](#msgvalue)
@@ -169,7 +172,7 @@ contract development.
       * [tvm.exit() and tvm.exit1()](#tvmexit-and-tvmexit1)
       * [tvm.buildExtMsg()](#tvmbuildextmsg)
   * [**math** namespace](#math-namespace)
-    * [math.min() and math.max()](#mathmin-and-mathmax)
+    * [math.min() math.max()](#mathmin-mathmax)
     * [math.minmax()](#mathminmax)
     * [math.abs()](#mathabs)
     * [math.modpow2()](#mathmodpow2)
@@ -188,6 +191,8 @@ contract development.
     * [rnd.shuffle](#rndshuffle)
   * [selfdestruct](#selfdestruct)
   * [sha256](#sha256)
+  * [gasToValue](#gastovalue)
+  * [valueToGas](#valuetogas)
 * [Solidity runtime errors](#solidity-runtime-errors)
 
 ## Detailed description
@@ -384,10 +389,11 @@ Loads (deserializes) **VarUInteger 16** and returns an unsigned 128-bit integer.
 ##### \<TvmSlice\>.loadSlice()
 
 ```TVMSolidity
-<TvmSlice>.loadSlice(uint16 length) returns (TvmSlice);
+<TvmSlice>.loadSlice(uint length) returns (TvmSlice);
+<TvmSlice>.loadSlice(uint length, uint refs) returns (TvmSlice);
 ```
 
-Loads the first `length` bits from the slice into a separate slice.
+Loads the first `length` bits and `refs` references from the slice into a separate slice.
 
 ##### \<TvmSlice\>.decodeFunctionParams()
 
@@ -408,6 +414,37 @@ Decodes parameters of the function or constructor (if contract type is provided)
 See example of how to use **onBounce** function:
 
 * [onBounceHandler](https://github.com/tonlabs/samples/blob/master/solidity/16_onBounceHandler.sol)
+
+##### \<TvmSlice\>.skip()
+
+```TVMSolidity
+<TvmSlice>.skip(uint length);
+<TvmSlice>.skip(uint length, uint refs);
+```
+
+Skips the first `length` bits and `refs` references from the slice.
+
+##### \<TvmSlice\>.hasNBits(), \<TvmSlice\>.hasNRefs() and \<TvmSlice\>.hasNBitsAndRefs()
+
+```TVMSolidity
+<TvmSlice>.hasNBits(uint16 bits) returns (bool);
+<TvmSlice>.hasNRefs(uint8 bits) returns (bool);
+<TvmSlice>.hasNBitsAndRefs(uint16 bits, uint8 refs) returns (bool);
+```
+
+Checks whether the slice contains the specified amount of data bits and references.
+
+##### \<TvmSlice\>.compare()
+
+```TVMSolidity
+<TvmSlice>.compare(TvmSlice other) returns (int8);
+```
+
+Lexicographically compares the `slice` and `other` data bits of the root slice and returns result as an integer:
+
+* 1 - `slice` > `other`
+* 0 - `slice` == `other`
+* -1 - `slice` < `other`
 
 #### TvmBuilder
 
@@ -779,17 +816,17 @@ TON Solidity compiler expands **string** type with the following functions:
 <string>.byteLength() returns (uint8);
 ```
 
-Returns byte length of the string data.  
-Warning: if length of the string is greater than 127 then function returns 127.
+Returns byte length of the string data.
 
 ##### \<string\>.substr()
 
 ```TVMSolidity
-<string>.substr(uint8 from, uint8 count) returns (string);
+<string>.substr(uint from, int count) returns (string);
 ```
 
 Returns a substring starting from the byte with number **from** with byte length **count**.  
-Warning: **from** must be in range 0 to 127 inclusive and **from + count** must be in range 1 to 127 inclusive.
+!Note: if count is set to -1, then the new string will be cut from the **from** byte to the end
+of the string.
 
 ##### \<string\>.append()
 
@@ -798,41 +835,6 @@ Warning: **from** must be in range 0 to 127 inclusive and **from + count** must 
 ```
 
 Modifies the string by concatenating **tail** string to the end of the string.
-
-#### string(int)
-
-```TvmSolidity
-string(int value) returns (string);
-```
-
-Converts an integer to a decimal string.  
-Warning: this function consumes too much gas, that's why it's better not to use it onchain.
-Example:
-
-```TVMSolidity
-uint n = 123;
-string b = string(n);
-require(a == b, 101);
-require("6465321365465" == string(6465321365465), 102);
-require("-1113" == string(-1113));
-```
-
-#### hexstring()
-
-```TvmSolidity
-hexstring(Type value) returns (string);
-```
-
-Converts an integer or address into a hex string.  
-Warning: this function consumes too much gas, that's why it's better not to use it onchain.
-Example:
-
-```TVMSolidity
-require(hexstring(0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff) == "7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", 101);
-require(hexstring(255) == "FF", 102);
-require(hexstring(-65535) == "-FFFF", 103);
-require(hexstring(address.makeAddrStd(127,0x7fffffffffffffffffffffffffffffffffffffffffffffffff123456789abcde)) == "7F:7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF123456789ABCDE", 104);
-```
 
 #### format()
 
@@ -844,28 +846,27 @@ Builds a string with arbitrary parameters. Empty placeholder {} can be filled wi
 (in decimal view), address or string.  
 Placeholder should be specified in such formats:
 
-* "{}" - empty placeholder
-* "{:[0]<width>{"x","d"}}" - placeholder for integers. Fills num with 0 if format starts with "0".
-Formats integer to have specified `width`. Can format integers in decimal ("d" postfix) or hex ("x")
-form.
+* `"{}"` - empty placeholder
+* `"{:[0]<width>{"x","d","X"}}"` - placeholder for integers. Fills num with 0 if format starts with "0".
+Formats integer to have specified `width`. Can format integers in decimal ("d" postfix), lower hex ("x")
+or upper hex ("X") form.
 
-**Note**\: total length of the string shouldn't exceed 127.  
 Warning: this function consumes too much gas, that's why it's better not to use it onchain.
 Example:
 
 ```TVMSolidity
-string str = format("Hello {} 0x{:x} {}  {}.{} tons", 123, 255, address.makeAddrStd(-33,0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF123456789ABCDE), 100500, 32);
-require(str == "Hello 123 0xFF -21:7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF123456789ABCDE  100500.32 tons", 101);
+string str = format("Hello {} 0x{:X} {}  {}.{} tons", 123, 255, address.makeAddrStd(-33,0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF123456789ABCDE), 100500, 32);
+require(str == "Hello 123 0xFF -21:7fffffffffffffffffffffffffffffffffffffffffffffffff123456789abcde  100500.32 tons", 101);
 require(format("Hello {}", 123) == "Hello 123", 102);
-require(format("Hello 0x{:x}", 123) == "Hello 0x7B", 103);
+require(format("Hello 0x{:X}", 123) == "Hello 0x7B", 103);
 require(format("{}", -123) == "-123", 103);
-require(format("{}", address.makeAddrStd(127,0)) == "7F:0000000000000000000000000000000000000000000000000000000000000000", 104);
+require(format("{}", address.makeAddrStd(127,0)) == "7f:0000000000000000000000000000000000000000000000000000000000000000", 104);
 require(format("{}", address.makeAddrStd(-128,0)) == "-80:0000000000000000000000000000000000000000000000000000000000000000", 105);
 require(format("{:6}", 123) == "   123", 106);
 require(format("{:06}", 123) == "000123", 107);
 require(format("{:06d}", 123) == "000123", 108);
-require(format("{:06x}", 123) == "00007B", 109);
-require(format("{:6x}", 123) == "    7B", 110);
+require(format("{:06X}", 123) == "00007B", 109);
+require(format("{:6x}", 123) == "    7b", 110);
 ```
 
 #### stoi()
@@ -1126,7 +1127,7 @@ if key is not in the mapping.
 Returns the item of ValueType with **index** key. Throws an exception if key
 is not in the mapping.
 
-##### \<mapping\>.min() and mapping.max()
+##### \<mapping\>.min() and \<mapping\>.max()
 
 ```TVMSolidity
 <map>.min() returns (optional(KeyType, ValueType));
@@ -1261,9 +1262,26 @@ Sets the value associated with **key**, but only if **key** presents in the mapp
 On success, returns an optional with the old value associated with the **key**.
 Otherwise, returns an empty optional.
 
+#### Fixed point number
+
+`fixed` / `ufixed`: Signed and unsigned fixed point number of various sizes. Keywords `ufixedMxN`
+and `fixedMxN`, where `M` represents the number of bits taken by the type and `N` represents how
+many decimal points are available. `M` must be divisible by 8 and goes from 8 to 256 bits. `N` must
+be between 0 and 80, inclusive. `ufixed` and `fixed` are aliases for `ufixed128x18` and
+`fixed128x18`, respectively.
+
+Operators:
+
+ * Comparisons: `<=`, `<`, `==`, `!=`, `>=`, `>` (evaluate to bool)
+ * Arithmetic operators: `+`, `-`, unary `-`, `*`, `/`, `%` (modulo)
+ * Math operations: [math.min(), math.max()](#mathmin-mathmax), [math.minmax()](#mathminmax),
+[math.abs()](#mathabs), [math.divr() math.divc()](#mathdivr-mathdivc)
+
 #### Function type
 
-Function types are the types of functions. Variables of function type can be assigned from functions and function parameters of function type can be used to pass functions to and return functions from function calls.
+Function types are the types of functions. Variables of function type can be assigned from functions
+and function parameters of function type can be used to pass functions to and return functions from
+function calls.
 
 If unassigned variable of function type is called then exception with code 65 is thrown.
 
@@ -1283,7 +1301,7 @@ function process(int a, int b, uint8 mode) public returns (int) {
     } else if (mode == 1) {
         fun = getSub;
     }
-    return fun(a, b); // if fun isn't initialized than exception is thrown 
+    return fun(a, b); // if `fun` isn't initialized then exception is thrown 
 }
 ```
 
@@ -1578,7 +1596,7 @@ Example:
 ```TVMSolidity
 contract Sink {
     uint counter = 0;
-    receive() external payable {
+    receive() external {
         ++counter;
     }
 }
@@ -1586,7 +1604,8 @@ contract Sink {
 
 ##### fallback
 
-**fallback** function is called when a body of an inbound message contains invalid function id.
+**fallback** function is called when a body of an inbound internal/external message contains invalid
+function id. If in the contract there is no fallback function then exception is thrown.
 
 Example:
 
@@ -1801,26 +1820,91 @@ Example of external calling of function which returns some values:
 
 ```TVMSolidity
 contract RemoteContract {
-	function getCost(uint x) public pure returns (uint) {
-		uint cost = x == 0 ? 111 : 222;
-		// return cost and set option for outbound internal message.
-		return{value: 0, bounce: false, flag: 64} cost;  
-	}
+    function getCost(uint x) public pure returns (uint) {
+        uint cost = x == 0 ? 111 : 222;
+        // return cost and set option for outbound internal message.
+        return{value: 0, bounce: false, flag: 64} cost;  
+    }
 }
 
 contract Caller {
-	function test(address addr, uint x) public pure {
-		// `getCost` returns result to `onGetCost`
-		RemoteContract(addr).getCost{value: 1 ton, callback: onGetCost}(x);
-	}
-	
+    function test(address addr, uint x) public pure {
+        // `getCost` returns result to `onGetCost`
+        RemoteContract(addr).getCost{value: 1 ton, callback: onGetCost}(x);
+    }
+
     function onGetCost(uint cost) public {
-		// we get cost value, we can handle this value
-	}
+        // we get cost value, we can handle this value
+    }
 }
 ```
 
 See also: [return](#return)
+
+### Delete variables
+
+As in classic Solidity `delete` operation assigns the initial value for the type to a variable.
+Delete operation can be applied not only to variables itself, but to its fields or indexed values.
+
+Example:
+
+```TVMSolidity
+int a = 5;
+delete a;
+require(a == 0);
+
+uint[] arr;
+arr.push(11);
+arr.push(22);
+arr.push(33);
+
+delete arr[1];
+require(arr[0] == 11);
+require(arr[1] == 0);
+require(arr[2] == 33);
+delete arr;
+require(arr.length == 0);
+
+mapping(uint => uint) l_map;
+l_map[1] = 2;
+delete l_map[1];
+require(!l_map.exists(1));
+l_map[1] = 2;
+delete l_map;
+require(!l_map.exists(1));
+
+struct DataStruct {
+    uint m_uint;
+    bool m_bool;
+}
+
+DataStruct l_struct;
+l_struct.m_uint = 1;
+delete l_struct;
+require(l_struct.m_uint == 0);
+
+TvmBuilder b;
+uint i = 0x54321;
+b.store(i);
+TvmCell c = b.toCell();
+delete c;
+TvmCell empty;
+require(tvm.hash(empty) == tvm.hash(c));
+b.store(c);
+
+TvmSlice slice = b.toSlice();
+require(slice.bits() == 256);
+require(slice.refs() == 1);
+delete slice;
+require(slice.bits() == 0);
+require(slice.refs() == 0);
+
+require(b.bits() == 256);
+require(b.refs() == 1);
+delete b;
+require(b.bits() == 0);
+require(b.refs() == 0);
+```
 
 ### API functions and members
 
@@ -1906,11 +1990,16 @@ tvm.log(string log);
 logtvm(string log);
 ```
 
-Executes TVM instruction "PRINTSTR" ([TVM][1] - A.12.2. - FEFn01ssss).
-This command may be ignored if --without-logstr flag is set in the
-command line for the compiler.
+Dumps `log` string literal. This function is wrapper for TVM instruction `PRINTSTR`
+([TVM][1] - A.12.2. - FEFn01ssss). `logtvm` is an alias for `tvm.log(string)`. Example:
 
-**logtvm** is an alias for tvm.log(string).
+```TVMSolidity
+tvm.log("Hello, world!");
+logtvm("99 Bottles");
+
+string s = "Some text";
+// tvm.log(s); // error: expected a string literal
+```
 
 ##### tvm.setcode()
 
@@ -1918,7 +2007,6 @@ command line for the compiler.
 tvm.setcode(TvmCell newCode);
 ```
 
-Executes TVM instruction "SETCODE" ([TVM][1] - A.11.9. - FB04).
 This command creates an output action that would change this smart contract
 code to that given by Cell **newCode** (this change will take effect only
 after the successful termination of the current run of the smart contract).
@@ -2273,7 +2361,9 @@ Returns contract's public key, stored in contract data. If key is not set functi
 tvm.setCurrentCode(TvmCell newCode);
 ```
 
-Changes this smart contract current code to that given by Cell **newCode**.
+Changes this smart contract current code to that given by Cell **newCode**. Unlike [tvm.setcode()](#tvmsetcode)
+this function changes code of the smart contract only for current TVM execution, but has no effect
+after termination of the current run of the smart contract.
 
 See example of how to use this function:
 
@@ -2500,25 +2590,22 @@ contract Test {
 
 #### **math** namespace
 
-##### math.min() and math.max()
+##### math.min() math.max()
 
 ```TVMSolidity
-math.min(int a, int b, ...) returns (int);
-math.max(int a, int b, ...) returns (int);
-math.min(uint a, uint b, ...) returns (uint);
-math.max(uint a, uint b, ...) returns (uint);
+math.min(T a, T b, ...) returns (T);
+math.max(T a, T b, ...) returns (T);
 ```
 
-Returns the minimal (maximal) value of the passed arguments.
+Returns the minimal (maximal) value of the passed arguments. `T` should be an integer or fixed point type
 
 ##### math.minmax()
 
 ```TVMSolidity
-math.minmax(uint, uint) returns (uint /*min*/, uint /*max*/);
-math.minmax(int, int) returns (int /*min*/, int /*max*/);
+math.minmax(T a, T b) returns (T /*min*/, T /*max*/);
 ```
 
-Returns min and max values of the passed arguments.
+Returns minimal and maximal values of the passed arguments. `T` should be an integer or fixed point type
 
 Example:
 
@@ -2529,7 +2616,8 @@ Example:
 ##### math.abs()
 
 ```TVMSolidity
-math.abs(int val) returns (int);
+math.abs(intM val) returns (intM);
+math.abs(fixedMxN val) returns (fixedMxN);
 ```
 
 Computes the absolute value of the given integer.
@@ -2562,11 +2650,11 @@ uint b = math.modpow2(val, pow);
 ##### math.divr() math.divc()
 
 ```TVMSolidity
-math.divc(int a, int b) returns (int);
-math.divr(int a, int b) returns (int);
+math.divc(T a, T b) returns (T);
+math.divr(T a, T b) returns (T);
 ```
 
-Returns result of the division of two integers.
+Returns result of the division of two integers. `T` should be an integer or fixed point type  
 The return value is rounded.  
 Round mode "nearest integer" is used for `divr`.  
 Round mode "ceiling" is used for `divc`.
@@ -2576,17 +2664,21 @@ Example:
 ```TVMSolidity
 int c = math.divc(10, 3); // 4
 int c = math.divr(10, 3); // 3
+
+fixed32x2 a = 0.25;
+fixed32x2 res = math.divc(a, 2);
+require(res == 0.13);
 ```
 
 ##### math.muldiv() math.muldivr() math.muldivc()
 
 ```TVMSolidity
-math.muldiv(int a, int b, int c) returns (int);
-math.muldivr(int a, int b, int c) returns (int);
-math.muldivc(int a, int b, int c) returns (int);
+math.muldiv(T a, T b, T c) returns (T);
+math.muldivr(T a, T b, T c) returns (T);
+math.muldivc(T a, T b, T c) returns (T);
 ```
 
-Multiplies two values and then divides the result by a third value.
+Multiplies two values and then divides the result by a third value. `T` is integer type.  
 The return value is rounded.  
 Round mode "floor" is used for `muldiv`.  
 Round mode "nearest integer" is used for `muldivr`.  
@@ -2607,10 +2699,9 @@ require(math.muldivc(3, 7, 2) == 11);
 math.muldivmod(T a, T b, T c) returns (T /*result*/, T /*remainder*/);
 ```
 
-This instruction multiplies first two arguments, divides the result
-by third argument and returns the result and the remainder.
-Intermediate result is stored in the 514 bit buffer, and the final result
-is rounded to the floor.
+This instruction multiplies first two arguments, divides the result by third argument and returns
+the result and the remainder. Intermediate result is stored in the 514 bit buffer, and the final
+result is rounded to the floor.
 
 Example:
 
@@ -2618,11 +2709,11 @@ Example:
 uint a = 3;
 uint b = 2;
 uint c = 5;
-(uint d, uint r) = math.muldivmod(a, b, c);
+(uint d, uint r) = math.muldivmod(a, b, c); // (1, 1)
 int e = -1;
 int f = 3;
 int g = 2;
-(int h, int p) = math.muldivmod(e, f, g);
+(int h, int p) = math.muldivmod(e, f, g); // (-2, 1)
 ```
 
 ##### math.divmod()
@@ -2631,8 +2722,8 @@ int g = 2;
 math.divmod(T a, T b) returns (T /*result*/, T /*remainder*/);
 ```
 
-This instruction divides the first number by the second one and returns the 
-result and the remainder. Result is rounded to the floor.
+This instruction divides the first number by the second one and returns the result and the  
+remainder. Result is rounded to the floor.  `T` is integer type.
 
 Example:
 
@@ -2678,15 +2769,15 @@ parameters) each time before using the pseudorandom number generator.
 ##### rnd.next
 
 ```TVMSolidity
-rnd.next([Type mod]) returns (Type);
+rnd.next([Type limit]) returns (Type);
 ```
 
 Generates a new pseudo-random number.  
 
 1) Returns `uint256` number.
-2) If the first argument `mod > 0` then function returns the value in the
-range `0..mod-1`. Else if `mod < 0` then the returned value lies in range
-`mod..-1`. Else if `mod == 0` than it returns `0`.
+2) If the first argument `limit > 0` then function returns the value in the
+range `0..limit-1`. Else if `limit < 0` then the returned value lies in range
+`limit..-1`. Else if `limit == 0` than it returns `0`.
 
 Example:
 
@@ -2765,6 +2856,24 @@ exception.
 
 Also see [tvm.hash()](#tvmhash) to count representation hash of tree of cells.
 
+#### gasToValue
+
+```TVMSolidity
+gasToValue(uint128 gas, int8 wid) returns (uint128 value)
+```
+
+Returns worth of `gas` in workchain `wid`.
+Throws an exception if `wid` doesn't equal `0` and `-1`.
+
+#### valueToGas
+
+```TVMSolidity
+valueToGas(uint128 value, int8 wid) returns (uint128 gas)
+```
+
+Returns how much `gas` could be bought on `value` nanotons in workchain `wid`.
+Throws an exception if `wid` doesn't equal `0` and `-1`.
+
 ### Solidity runtime errors
 
 Smart-contract written on solidity can throw runtime errors while execution.
@@ -2779,13 +2888,16 @@ Solidity runtime error codes:
 * 55 - See [tvm.insertPubkey()](#tvminsertpubkey).
 * 57 - External inbound message is expired. See `expire` in [pragma AbiHeader](#pragma-abiheader).
 * 58 - External inbound message has no signature but has public key. See `pubkey` in [pragma AbiHeader](#pragma-abiheader).
-* 60 - Inbound message has wrong function id. In contract there are no functions with such function id and also there is no fallback function which could handle the message.
+* 60 - Inbound message has wrong function id. In contract there are no functions with such function id and also there is no fallback function which could handle the message. See [fallback](#fallback).
 * 61 - Deploying `StateInit` has no public key in `data` field.
 * 62 - Reserved for internal usage.
 * 63 - See [\<optional(Type)\>.get()](#optionaltypeget).
 * 64 - `tvm.buildExtMSg()` call with wrong parameters. See [tvm.buildExtMsg()](#tvmbuildextmsg).
 * 65 - Calling of unassigned variable of function type. See [Function type](#function-type).
 * 66 - Converting an integer to a string with width less than number length. See [format()](#format).
+* 67 - See [gasToValue](#gastovalue) and [valueToGas](#valuetogas).
+* 68 - There is no config parameter 20 or 21.
+* 69 - Calculating zero to the power of zero (`0**0` in solidity style or `0^0`).
 
 [1]: https://ton.org/tvm.pdf        "TVM"
 [2]: https://ton.org/tblkch.pdf     "TBLKCH"

@@ -36,8 +36,6 @@
 #include <libsolidity/analysis/TypeChecker.h>
 #include <libsolidity/analysis/ViewPureChecker.h>
 
-#include <libsolidity/codegen/TVMAnalyzer.hpp>
-
 #include <libsolidity/ast/AST.h>
 #include <libsolidity/ast/TypeProvider.h>
 #include <libsolidity/ast/ASTJsonImporter.h>
@@ -55,7 +53,10 @@
 
 #include <json/json.h>
 #include <boost/algorithm/string.hpp>
+
 #include <libsolidity/codegen/TVM.h>
+#include <libsolidity/codegen/TVMTypeChecker.hpp>
+#include <libsolidity/codegen/TVMAnalyzer.hpp>
 
 using namespace std;
 using namespace solidity;
@@ -202,7 +203,6 @@ void CompilerStack::setSources(StringMap _sources)
 	for (auto source: _sources)
 		m_sources[source.first].scanner = make_shared<Scanner>(CharStream(/*content*/std::move(source.second), /*name*/source.first));
 	m_stackState = SourcesSet;
-	TVMSetFileName((m_sources.rbegin())->first);
 }
 
 bool CompilerStack::parse()
@@ -210,9 +210,6 @@ bool CompilerStack::parse()
 	if (m_stackState != SourcesSet)
 		BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("Must call parse only after the SourcesSet state."));
 	m_errorReporter.clear();
-
-//	if (SemVerVersion{string(VersionString)}.isPrerelease())
-//		m_errorReporter.warning("This is a pre-release compiler version, please do not use it in production.");
 
 	Parser parser{m_errorReporter, m_evmVersion, m_parserErrorRecovery};
 
@@ -391,14 +388,6 @@ bool CompilerStack::analyze()
 					noErrors = false;
 		}
 
-		if (noErrors) {
-			//Checks for TVM specific issues.
-			TVMAnalyzer tvmAnalyzer(m_errorReporter, m_structWarning);
-			for (Source const* source: m_sourceOrder)
-				if (source->ast && !tvmAnalyzer.analyze(*source->ast))
-					noErrors = false;
-		}
-
 		if (noErrors)
 		{
 			// Check for state mutability in every function.
@@ -411,13 +400,26 @@ bool CompilerStack::analyze()
 				noErrors = false;
 		}
 
+		if (noErrors) {
+			//Checks for TVM specific issues.
+			TVMAnalyzer tvmAnalyzer(m_errorReporter, m_structWarning);
+			for (Source const* source: m_sourceOrder)
+				if (source->ast && !tvmAnalyzer.analyze(*source->ast))
+					noErrors = false;
+		}
+
 		if (noErrors)
 		{
-			// ModelChecker modelChecker(m_errorReporter, m_smtlib2Responses, m_readFile, m_enabledSMTSolvers);
-			// for (Source const* source: m_sourceOrder)
-				// if (source->ast)
-					// modelChecker.analyze(*source->ast);
-			// m_unhandledSMTLib2Queries += modelChecker.unhandledQueries();
+
+			for (Source const* source: m_sourceOrder) {
+
+				std::vector<PragmaDirective const *> pragmaDirectives = getPragmaDirectives(source);
+				TVMTypeChecker checker(m_errorReporter, pragmaDirectives);
+				source->ast->accept(checker);
+				if (m_errorReporter.hasErrors()) {
+					noErrors = false;
+				}
+			}
 		}
 	}
 	catch (FatalError const&)
@@ -467,18 +469,19 @@ bool CompilerStack::isRequestedContract(ContractDefinition const& _contract) con
 	return false;
 }
 
-bool CompilerStack::compile(const std::string& mainPath)
+std::pair<bool, bool> CompilerStack::compile(const std::string& mainPath)
 {
+	bool didCompileSomething{};
 	if (m_stackState < AnalysisPerformed)
 		if (!parseAndAnalyze())
-			return false;
+			return {false, didCompileSomething};
 
 	if (m_hasError)
 		BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("Called compile with errors."));
 
-	// Only compile contracts individually which have been requested.
-	ContractDefinition const* targetContract{};
-	map<ContractDefinition const*, shared_ptr<Compiler const>> otherCompilers;
+	ContractDefinition const *targetContract{};
+	std::vector<PragmaDirective const *> targetPragmaDirectives;
+
 	for (Source const* source: m_sourceOrder) {
 
 		if (source->ast->annotation().path != mainPath) {
@@ -486,83 +489,101 @@ bool CompilerStack::compile(const std::string& mainPath)
 		}
 
 
-		std::vector<PragmaDirective const *> pragmaDirectives;
-		for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
-			if (auto pragma = dynamic_cast<PragmaDirective const *>(node.get())) {
-				pragmaDirectives.push_back(pragma);
-			}
-		}
-		for(auto pragma: pragmaDirectives) {
+		std::vector<PragmaDirective const *> pragmaDirectives = getPragmaDirectives(source);
+		for (auto pragma: pragmaDirectives) {
 			if (pragma->parameter()) {
 				TypeChecker typeChecker(m_evmVersion, m_errorReporter);
 				typeChecker.checkTypeRequirements(*pragma->parameter().get());
 			}
 		}
 
-		if (!m_mainContract.empty()) {
-			for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
-				if (auto contract = dynamic_cast<ContractDefinition const *>(node.get())) {
-					if (contract->name() == m_mainContract) {
-						if (!contract->canBeDeployed()) {
-							m_errorReporter.typeError(
-									contract->location(),
-									"The desired contract isn't deployable (it has not public constructor or it's abstract or it's interface or it's library)."
-							);
-							return false;
-						}
-						targetContract = contract;
-						if (targetContract != nullptr) {
-							try {
-								TVMCompilerProceedContract(&m_errorReporter, *targetContract, &pragmaDirectives);
-							} catch (FatalError const &) {
-								return false;
-							}
-						}
-						break;
-					}
-				}
-			}
-		} else {
-			for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
-				if (auto contract = dynamic_cast<ContractDefinition const *>(node.get())) {
-					if (contract->canBeDeployed() && !contract->isLibrary()) {
-						if (targetContract != nullptr) {
-							m_errorReporter.typeError(
-									contract->location(),
-									SecondarySourceLocation().append("Previous deployable contract:",
-																	 targetContract->location()),
-									"Source file contains at least two deployable contracts."
-									" Consider adding the option --contract in compiler command line to select the desired contract."
-							);
-							return false;
-						}
-						targetContract = contract;
-					}
-				}
+		std::vector<ContractDefinition const *> contracts;
+		for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
+			if (auto contract = dynamic_cast<ContractDefinition const *>(node.get())) {
+				contracts.push_back(contract);
 			}
 		}
 
-		if (targetContract != nullptr) {
-			try {
-				TVMCompilerProceedContract(&m_errorReporter, *targetContract, &pragmaDirectives);
-				break;
-			} catch (FatalError const &) {
-				return false;
+
+		if (!m_mainContract.empty()) {
+			for (ContractDefinition const *contract : contracts) {
+				if (contract->name() == m_mainContract) {
+					if (m_generateCode && !contract->canBeDeployed()) {
+						m_errorReporter.typeError(
+								contract->location(),
+								"The desired contract isn't deployable (it has not public constructor or it's abstract or it's interface or it's library)."
+						);
+						return {false, didCompileSomething};
+					}
+					targetContract = contract;
+					targetPragmaDirectives = pragmaDirectives;
+				}
+			}
+			if (targetContract == nullptr) {
+				m_errorReporter.typeError(
+						SourceLocation(),
+						"Source file doesn't contain the desired contract \"" + m_mainContract + "\"."
+				);
+				return {false, didCompileSomething};
+			}
+		} else {
+			for (ContractDefinition const *contract : contracts) {
+				if (m_generateAbi && !m_generateCode) {
+					if (!contract->isLibrary()) {
+						if (targetContract != nullptr) {
+							m_errorReporter.typeError(
+									targetContract->location(),
+									SecondarySourceLocation().append("Previous contract:",
+																	 contract->location()),
+									"Source file contains at least two contracts/interfaces."
+									" Consider adding the option --contract in compiler command line to select the desired contract/interface."
+							);
+							return {false, didCompileSomething};
+						}
+						targetContract = contract;
+						targetPragmaDirectives = pragmaDirectives;
+					}
+				} else if (contract->canBeDeployed() && !contract->isLibrary()) {
+					if (targetContract != nullptr) {
+						m_errorReporter.typeError(
+								targetContract->location(),
+								SecondarySourceLocation().append("Previous deployable contract:",
+																 contract->location()),
+								"Source file contains at least two deployable contracts."
+								" Consider adding the option --contract in compiler command line to select the desired contract."
+						);
+						return {false, didCompileSomething};
+					}
+					targetContract = contract;
+					targetPragmaDirectives = pragmaDirectives;
+				}
 			}
 		}
 	}
 
-	if (targetContract == nullptr) {
-		m_errorReporter.typeError(
-				SourceLocation(),
-				"Source file doesn't contain the desired contract \"" + m_mainContract + "\"."
-		);
-		return false;
+
+	if (targetContract != nullptr) {
+		try {
+			TVMCompilerProceedContract(
+				&m_errorReporter,
+				*targetContract,
+				&targetPragmaDirectives,
+				m_generateAbi,
+				m_generateCode,
+				m_withOptimizations,
+				m_doPrintInConsole,
+				mainPath,
+				m_folder
+			);
+			didCompileSomething = true;
+		} catch (FatalError const &) {
+			return {false, didCompileSomething};
+		}
 	}
 
 	m_stackState = CompilationSuccessful;
 	this->link();
-	return true;
+	return {true, didCompileSomething};
 }
 
 void CompilerStack::link()
@@ -1261,4 +1282,15 @@ bytes CompilerStack::createCBORMetadata(string const& _metadata, bool _experimen
 	else
 		encoder.pushString("solc", VersionStringStrict);
 	return encoder.serialise();
+}
+
+
+std::vector<PragmaDirective const *> CompilerStack::getPragmaDirectives(Source const* source) const {
+	std::vector<PragmaDirective const *> pragmaDirectives;
+	for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
+		if (auto pragma = dynamic_cast<PragmaDirective const *>(node.get())) {
+			pragmaDirectives.push_back(pragma);
+		}
+	}
+	return pragmaDirectives;
 }

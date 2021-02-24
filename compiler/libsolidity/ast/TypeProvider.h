@@ -91,6 +91,10 @@ public:
 
 	static IntegerType const* integer(unsigned _bits, IntegerType::Modifier _modifier)
 	{
+		if (_bits == 257 && _modifier == IntegerType::Modifier::Signed) {
+			return m_int257.get();
+		}
+
 		solAssert((_bits % 8) == 0, "");
 		if (_modifier == IntegerType::Modifier::Unsigned)
 			return m_uintM.at(_bits / 8 - 1).get();
@@ -223,6 +227,7 @@ private:
 	static VarInteger const m_varInteger;
 	static InitializerListType const m_initializerList;
 	static CallListType const m_callList;
+	static std::unique_ptr<IntegerType> const m_int257;
 	static std::array<std::unique_ptr<IntegerType>, 32> const m_intM;
 	static std::array<std::unique_ptr<IntegerType>, 32> const m_uintM;
 	static std::array<std::unique_ptr<FixedBytesType>, 32> const m_bytesM;

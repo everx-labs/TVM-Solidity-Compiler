@@ -19,55 +19,45 @@
 
 #include "TVM.h"
 #include "TVMContractCompiler.hpp"
-#include "TVMTypeChecker.hpp"
 
 using namespace solidity::frontend;
 
-void TVMCompilerProceedContract(langutil::ErrorReporter* errorReporter, ContractDefinition const& _contract,
-								std::vector<PragmaDirective const *> const* pragmaDirectives) {
-	if (!TVMContractCompiler::m_optionsEnabled)
-		return;
-
+void TVMCompilerProceedContract(
+	langutil::ErrorReporter* errorReporter,
+	ContractDefinition const& _contract,
+	std::vector<PragmaDirective const *> const* pragmaDirectives,
+	bool generateAbi,
+	bool generateCode,
+	bool withOptimizations,
+	bool doPrintInConsole,
+	const std::string& solFileName,
+	const std::string& outputFolder
+) {
 	TVMContractCompiler::g_errorReporter = errorReporter;
 
-	if (!TVMContractCompiler::m_outputFolder.empty()) {
-		TVMContractCompiler::m_outputToFile = true;
-		namespace fs = boost::filesystem;
-		TVMContractCompiler::m_fileName = (fs::path(TVMContractCompiler::m_outputFolder) / _contract.name()).string();
-    }
-
-	TVMTypeChecker::check(&_contract, *pragmaDirectives);
+	string baseFileName;
+	if (!outputFolder.empty()) {
+		solUnimplemented("");
+//		fileName = _contract.name()
+//		TVMContractCompiler::m_outputToFile = true;
+//		namespace fs = boost::filesystem;
+//		fileName = (fs::path(outputFolder) / _contract.name()).string();
+//	ensurePathExists();
+//	boost::filesystem::path(fileName).stem().string()
+    } else {
+		if (boost::algorithm::ends_with(solFileName, ".sol")) {
+			baseFileName = solFileName.substr(0, solFileName.size() - 4);
+		} else {
+			baseFileName = solFileName;
+		}
+	}
 
 	PragmaDirectiveHelper pragmaHelper{*pragmaDirectives};
-	switch (TVMContractCompiler::m_tvmOption) {
-		case TvmOption::Code:
-			TVMContractCompiler::proceedContract(&_contract, pragmaHelper);
-			break;
-		case TvmOption::Abi:
-			TVMContractCompiler::generateABI(&_contract, *pragmaDirectives);
-			break;
-		case TvmOption::DumpStorage:
-			TVMContractCompiler::proceedDumpStorage(&_contract, pragmaHelper);
-			break;
-		case TvmOption::CodeAndAbi:
-			TVMContractCompiler::m_outputToFile = true;
-			TVMContractCompiler::proceedContract(&_contract, pragmaHelper);
-			TVMContractCompiler::generateABI(&_contract, *pragmaDirectives);
-			break;
+	if (generateCode) {
+		TVMContractCompiler::proceedContract(doPrintInConsole ? "" : baseFileName + ".code", _contract, pragmaHelper, withOptimizations);
 	}
-}
+	if (generateAbi) {
+		TVMContractCompiler::generateABI(doPrintInConsole ? "" : baseFileName + ".abi.json", &_contract, *pragmaDirectives);
+	}
 
-void TVMCompilerEnable(const TvmOption tvmOption, bool without_logstr, bool optimize) {
-	TVMContractCompiler::m_optionsEnabled = true;
-	TVMContractCompiler::m_tvmOption = tvmOption;
-	TVMContractCompiler::g_without_logstr = without_logstr;
-	TVMContractCompiler::g_disable_optimizer = !optimize;
-}
-
-void TVMSetFileName(std::string _fileName) {
-	TVMContractCompiler::m_fileName = boost::filesystem::path(_fileName).stem().string();
-}
-
-bool TVMIsOutputProduced() {
-	return TVMContractCompiler::m_outputProduced;
 }

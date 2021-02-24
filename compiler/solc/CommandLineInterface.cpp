@@ -62,9 +62,7 @@
 #include <iostream>
 #include <fstream>
 
-#include <libsolidity/codegen/TVM.h>
 #include <libsolidity/codegen/TVMOptimizations.hpp>
-#include <libsolidity/codegen/TVMContractCompiler.hpp>
 
 #if !defined(STDERR_FILENO)
 	#define STDERR_FILENO 2
@@ -121,11 +119,8 @@ static string const g_argTvm = "tvm";
 static string const g_argTvmABI = "tvm-abi";
 static string const g_argTvmOptimize = "tvm-optimize";
 static string const g_argTvmUnsavedStructs = "tvm-unsaved-structs";
-static string const g_argTvmWithoutLogStr = "without-logstr";
-static string const g_argTvmDumpStorage = "dump-storage";
 static string const g_argTvmPeephole = "tvm-peephole";
 static string const g_argSetContract = "contract";
-static string const g_argTvmMuteFlagWarning = "tvm-mute";
 
 static void version()
 {
@@ -287,13 +282,10 @@ Allowed options)",
 		(g_argNatspecUser.c_str(), "Natspec user documentation of all contracts.")
 		(g_argNatspecDev.c_str(), "Natspec developer documentation of all contracts.")
 		(g_argTvm.c_str(), "Produce TVM assembly (deprecated).")
-		(g_argTvmWithoutLogStr.c_str(), "Ignore tvm.log(string) and logtvm(string)")
-		(g_argTvmABI.c_str(), "Produce JSON ABI for contract (deprecated).")
-		(g_argTvmDumpStorage.c_str(), "Dump state vars")
+		(g_argTvmABI.c_str(), "Produce JSON ABI for contract.")
 		(g_argTvmPeephole.c_str(), "Run peephole optimization pass")
 		(g_argTvmOptimize.c_str(), "Optimize produced TVM assembly code")
-		(g_argTvmUnsavedStructs.c_str(), "Enable struct usage analizer");
-//		(g_argTvmMuteFlagWarning.c_str(), "Mute warning about --tvm and --tvm-abi flags. Use at your own risk.");
+		(g_argTvmUnsavedStructs.c_str(), "Enable struct usage analyzer");
 	desc.add(outputComponents);
 
 	po::options_description allOptions = desc;
@@ -319,26 +311,11 @@ Allowed options)",
 
 	const bool tvmAbi = m_args.count(g_argTvmABI);
 	const bool tvmCode = m_args.count(g_argTvm);
-	const bool tvmDump = m_args.count(g_argTvmDumpStorage);
-	if ((tvmAbi && tvmCode) || (tvmAbi && tvmDump) || (tvmCode && tvmDump))
+	if (tvmAbi && tvmCode)
 	{
-		serr() << "Option " << g_argTvmABI << ", " << g_argTvm << " and " << g_argTvmDumpStorage << " are mutualy exclusive." << endl;
+		serr() << "Option " << g_argTvmABI << " and " << g_argTvm << " are mutually exclusive." << endl;
 		return false;
 	}
-
-	TvmOption op;
-	if (tvmAbi) op = TvmOption::Abi;
-	else if (tvmDump) op = TvmOption::DumpStorage;
-	else if (tvmCode) op = TvmOption::Code;
-	else op = TvmOption::CodeAndAbi;
-	TVMCompilerEnable(op, m_args.count(g_argTvmWithoutLogStr), m_args.count(g_argTvmOptimize) > 0);
-
-//	const bool tvmMute = m_args.count(g_argTvmMuteFlagWarning);
-//	if ((tvmAbi || tvmCode) && !tvmMute) {
-//		serr() << "Warning: options --tvm and --tvm-abi are deprecated. Use solc without options to produce TVM assembly and ABI:" << endl;
-//		serr() << "  solc contract.sol" << endl;
-//		serr() << "This command compiles the contract and generates contract.code and contract.abi.json files." << endl;
-//	}
 
 	if (m_args.count(g_argTvmPeephole)) {
 		for (int i = 1; i < _argc; i++) {
@@ -432,7 +409,22 @@ bool CommandLineInterface::processInput()
 			m_compiler->setMainContract(m_args[g_argSetContract].as<string>());
 
 		if (m_args.count(g_argOutputDir))
-			TVMContractCompiler::m_outputFolder = m_args[g_argOutputDir].as<string>();
+			m_compiler->setOutputFolder(m_args[g_argOutputDir].as<string>());
+
+		if (m_args.count(g_argTvmABI))
+			m_compiler->generateAbi();
+		if (m_args.count(g_argTvm))
+			m_compiler->generateCode();
+		if (m_args.count(g_argTvm) == 0 && m_args.count(g_argTvmABI) == 0) {
+			m_compiler->generateCode();
+			m_compiler->generateAbi();
+		}
+		if (m_args.count(g_argTvmOptimize)) {
+			m_compiler->withOptimizations();
+		}
+		if (m_args.count(g_argTvm) || m_args.count(g_argTvmABI)) {
+			m_compiler->doPrintInConsole();
+		}
 
 		string mainPath;
 		for (const string& path : m_args[g_argInputFile].as<vector<string>>()) {
@@ -442,7 +434,10 @@ bool CommandLineInterface::processInput()
 			mainPath = path;
 		}
 
-		bool successful = m_compiler->compile(mainPath);
+		bool successful{};
+		bool didCompileSomething{};
+		std::tie(successful, didCompileSomething) = m_compiler->compile(mainPath);
+		g_hasOutput |= didCompileSomething;
 
 		for (auto const& error: m_compiler->errors())
 		{
@@ -566,8 +561,6 @@ void CommandLineInterface::outputCompilationResults()
 		handleNatspec(true, contract);
 		handleNatspec(false, contract);
 	} // end of contracts iteration
-
-	g_hasOutput = TVMIsOutputProduced();
 
 	if (!g_hasOutput)
 	{

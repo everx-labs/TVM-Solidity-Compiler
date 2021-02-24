@@ -43,23 +43,18 @@ private:
 
 class TVMContractCompiler: private boost::noncopyable {
 public:
-	static bool m_outputToFile;
-	static std::string m_fileName;
-	static std::string m_outputFolder;
-	static bool m_optionsEnabled;
-	static TvmOption m_tvmOption;
-	static bool m_outputProduced;
-	static bool g_without_logstr;
-	static bool g_disable_optimizer;
 	static langutil::ErrorReporter* g_errorReporter;
 
 public:
-	static void generateABI(ContractDefinition const* contract, std::vector<PragmaDirective const *> const& pragmaDirectives);
-	static void printStorageScheme(int v, const std::vector<StructCompiler::Node>& nodes, const int tabs = 0);
-	static void proceedDumpStorage(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
-	static void proceedContract(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
-	static CodeLines proceedContractMode0(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
-	static CodeLines proceedContractMode1(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
+	static void generateABI(const std::string& fileName, ContractDefinition const* contract, std::vector<PragmaDirective const *> const& pragmaDirectives);
+	static void proceedContract(
+		const std::string& fileName,
+		ContractDefinition const& contract,
+		PragmaDirectiveHelper const &pragmaHelper,
+		bool withOptimizations
+	);
+	static CodeLines proceedContractMode0(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper, bool disable_optimizer);
+	static CodeLines proceedContractMode1(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper, bool disable_optimizer);
 	static void fillInlineFunctions(TVMCompilerContext& ctx, ContractDefinition const* contract);
 
 	static void ensurePathExists();

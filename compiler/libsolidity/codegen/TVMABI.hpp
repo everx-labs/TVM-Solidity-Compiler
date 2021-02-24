@@ -42,6 +42,7 @@ private:
 	);
 	static Json::Value encodeParams(const std::vector<VariableDeclaration const*> &params);
 	static Json::Value setupType(const string& name, const Type* type, ASTNode const& node);
+	static Json::Value setupComponents(Json::Value json, const Type* type, ASTNode const& node);
 	static Json::Value setupStructComponents(const StructType* type, ASTNode const& node);
 };
 
@@ -94,7 +95,7 @@ public:
 	explicit DecodeFunctionParams(StackPusherHelper *pusher);
 private:
 	int maxBits(bool hasCallback);
-	int minBits(bool hasCallback);
+	static int minBits(bool hasCallback);
 public:
 	void decodeParameters(const ast_vec<VariableDeclaration>& params, bool hasCallback);
 private:
@@ -147,14 +148,14 @@ public:
 	uint32_t calculateConstructorFunctionID();
 	std::pair<uint32_t, bool> calculateFunctionID(const CallableDeclaration *declaration);
 	uint32_t calculateFunctionID(
-		const std::string name,
-		const std::vector<ASTPointer<VariableDeclaration> > inputs,
+		const std::string& name,
+		const std::vector<ASTPointer<VariableDeclaration> >& inputs,
 		const std::vector<VariableDeclaration const*> *outputs
 	);
 	uint32_t calculateFunctionIDWithReason(const CallableDeclaration *funcDef, const ReasonOfOutboundMessage &reason);
 	uint32_t calculateFunctionIDWithReason(
-		const std::string name,
-		const std::vector<ASTPointer<VariableDeclaration> > inputs,
+		const std::string& name,
+		const std::vector<ASTPointer<VariableDeclaration> >& inputs,
 		const std::vector<VariableDeclaration const*> *outputs,
 		const ReasonOfOutboundMessage &reason,
 		std::optional<uint32_t> functionId

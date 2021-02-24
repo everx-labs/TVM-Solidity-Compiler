@@ -23,34 +23,18 @@
 #include "TVMCommons.hpp"
 #include "TVMConstants.hpp"
 #include "TVMContractCompiler.hpp"
-#include "TVMStructCompiler.hpp"
 #include "TVMTypeChecker.hpp"
 
 using namespace solidity::frontend;
 
-TVMTypeChecker::TVMTypeChecker(ContractDefinition const *contractDefinition,
-                               std::vector<PragmaDirective const *> const &pragmaDirectives) :
-		contractDefinition{contractDefinition},
-		pragmaDirectives{pragmaDirectives} {
-
-}
-
-void TVMTypeChecker::check(ContractDefinition const *contractDefinition,
-                           std::vector<PragmaDirective const *> const &pragmaDirectives) {
-	TVMTypeChecker checker{contractDefinition, pragmaDirectives};
-	checker.checkInlineFunctions();
-	checker.checkIntrinsic();
-	checker.checkStateVariables();
-	checker.checkOverrideAndOverload();
-	if (contractDefinition->name() != "stdlib") {
-		checker.checkPragma();
-	}
-	checker.check_onCodeUpgrade();
-
-	contractDefinition->accept(checker);
-	if (TVMContractCompiler::g_errorReporter->hasErrors()) {
-		BOOST_THROW_EXCEPTION(FatalError());
-	}
+TVMTypeChecker::TVMTypeChecker(
+	langutil::ErrorReporter& _errorReporter,
+    std::vector<PragmaDirective const *> const &pragmaDirectives
+) :
+	m_errorReporter{_errorReporter},
+	pragmaDirectives{pragmaDirectives}
+{
+	checkPragma();
 }
 
 void TVMTypeChecker::checkPragma() {
@@ -60,44 +44,10 @@ void TVMTypeChecker::checkPragma() {
 		for (const std::string& s : {"expire", "time", "pubkey"}) {
 			auto [have, astNode] = pragmaHelper.haveHeader(s);
 			if (have) {
-				cast_error(*astNode, R"("pragma AbiHeader v1" are not compatible with "pragma AbiHeader expire", "pragma AbiHeader time" and "pragma AbiHeader pubkey")");
+				m_errorReporter.fatalDeclarationError(
+					astNode->location(),
+			 		R"("pragma AbiHeader v1" are not compatible with "pragma AbiHeader expire", "pragma AbiHeader time" and "pragma AbiHeader pubkey")");
 			}
-		}
-	}
-
-	for (FunctionDefinition const* f : contractDefinition->definedFunctions()) {
-		if (f->name() == "afterSignatureCheck") {
-			const std::string s = "function afterSignatureCheck(TvmSlice restOfMessageBody, TvmCell message) private inline returns (TvmSlice) { /*...*/ }";
-			if (f->parameters().size() != 2) {
-				cast_error(*f, "Should have follow format: " + s);
-			}
-			if (f->returnParameters().size() != 1) {
-				cast_error(*f, "Should have follow format: " + s);
-			}
-			if (f->isPublic()) {
-				cast_error(*f, "Should have follow format: " + s);
-			}
-			if (!f->isInline()) {
-				cast_error(*f, "Should have follow format: " + s);
-			}
-		}
-	}
-}
-
-void TVMTypeChecker::checkStateVariables() {
-	std::set<std::string> usedNames;
-	for (ContractDefinition const* c : contractDefinition->annotation().linearizedBaseContracts | boost::adaptors::reversed) {
-		for (VariableDeclaration const *variable: c->stateVariables()) {
-			if (usedNames.count(variable->name()) != 0) {
-				// TODO print prev name
-				cast_error(*variable, "Duplicate member variable");
-			}
-			usedNames.insert(variable->name());
-
-			// TODO228
-//			if (variable->isPublic()) {
-//				checkDecodeEncodeParam(variable->type(), *variable, 0);
-//			}
 		}
 	}
 }
@@ -119,10 +69,15 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 					auto fBase = to<FunctionDefinition>(base);
 					overridedFunctions.insert(base);
 					if ((!f->functionID().has_value() && fBase->functionID()) || (f->functionID().has_value() && !fBase->functionID())) {
-						cast_error(*f, "Both override and base functions should have functionID if for one is defined.");
-					}
-					if (f->functionID().has_value() && f->functionID() != fBase->functionID()) {
-						cast_error(*f, "Override function should have functionID = " + toString(fBase->functionID().value()) + ".");
+						m_errorReporter.typeError(
+								f->location(),
+								SecondarySourceLocation().append("Declaration of the base function: ", fBase->location()),
+								"Both override and base functions should have functionID if it is defined for one of them.");
+					} else if (f->functionID().has_value() && f->functionID() != fBase->functionID()) {
+						m_errorReporter.typeError(
+							f->location(),
+							SecondarySourceLocation().append("Declaration of the base function: ", fBase->location()),
+							"Override function should have functionID = " + toString(fBase->functionID().value()) + ".");
 					}
 				}
 			}
@@ -130,6 +85,8 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 		}
 	}
 
+
+	std::set<std::pair<CallableDeclaration const*, CallableDeclaration const*>> used{};
 	for (CallableDeclaration const* f : functions) {
 		if (overridedFunctions.count(f)) {
 			continue;
@@ -139,36 +96,20 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 				continue;
 			}
 			if (f->name() == ff->name()) {
-				cast_error(*f, "Function overloading is not supported.");
+				if (used.count(std::make_pair(f, ff)) == 0) {
+					m_errorReporter.typeError(
+						f->location(),
+						SecondarySourceLocation().append("Another overloaded function is here:", ff->location()),
+						"Function overloading is not supported.");
+					used.insert({f, ff});
+					used.insert({ff, f});
+				}
 			}
 		}
 	}
 }
 
-void TVMTypeChecker::checkIntrinsic() {
-	for (FunctionDefinition const* f : contractDefinition->definedFunctions()) {
-		if (isTvmIntrinsic(f->name())) {
-			checkTvmIntrinsic(f, contractDefinition);
-		}
-	}
-}
-
-void TVMTypeChecker::checkInlineFunctions() {
-	for (FunctionDefinition const* f : contractDefinition->definedFunctions()) {
-		if (ends_with(f->name(), "_inline")) {
-			cast_warning(*f, "Suffix is deprecated it will be removed from compiler soon.");
-		}
-		if ((ends_with(f->name(), "_inline") || f->isInline()) && f->isPublic()) {
-			cast_error(*f, "Inline function should have private or internal visibility");
-		}
-	}
-}
-
-void TVMTypeChecker::checkTvmIntrinsic(FunctionDefinition const *f, ContractDefinition const *contractDefinition) {
-	if (f->visibility() != Visibility::Private) {
-		cast_error(*f, "Intrinsic should have private visibility");
-	}
-
+void TVMTypeChecker::checkTvmIntrinsic(FunctionDefinition const *f) {
 	std::map<std::string, std::string> deprecatedFunctionsReplacement;
 
 	deprecatedFunctionsReplacement["tvm_sender_pubkey"] = "msg.pubkey()";
@@ -191,7 +132,6 @@ void TVMTypeChecker::checkTvmIntrinsic(FunctionDefinition const *f, ContractDefi
 	deprecatedFunctionsReplacement["tvm_config_param15"] = "tvm.configParam()";
 	deprecatedFunctionsReplacement["tvm_config_param17"] = "tvm.configParam()";
 	deprecatedFunctionsReplacement["tvm_config_param34"] = "tvm.configParam()";
-	deprecatedFunctionsReplacement["tvm_deploy_contract"] = "tvm.deploy()";
 	deprecatedFunctionsReplacement["tvm_insert_pubkey"] = "tvm.insertPubkey()";
 	deprecatedFunctionsReplacement["tvm_build_state_init"] = "tvm.buildStateInit()";
 	deprecatedFunctionsReplacement["tvm_ignore_integer_overflow"] = "pragma ignoreIntOverflow";
@@ -222,42 +162,17 @@ void TVMTypeChecker::checkTvmIntrinsic(FunctionDefinition const *f, ContractDefi
 	                                                      "tvm_skip_and_load_uint256_in_slice_copy", "tvm_unpackfirst4",
 	                                                      "tvm_stack"
 	))) {
-		cast_warning(*f, "Function is internal, use at your own risk.");
-	}
-
-	if (isIn(f->name(), "tvm_commit", "tvm_reset_storage")) {
-		if (f->stateMutability() != StateMutability::NonPayable) {
-			cast_error(*f, R"(Should have "NonPayable" state mutability)");
-		}
-	} else {
-		if (f->stateMutability() != StateMutability::Pure) {
-			cast_error(*f, R"(Should have "pure" state mutability)");
-		}
-	}
-
-	auto arguments = f->parameters();
-
-	if (f->name() == "tvm_deploy_contract") {
-		Type const * type3 = f->parameters()[3]->annotation().type;
-		if (!to<TvmCellType>(type3)) {
-			TypeInfo ti(type3);
-			if (!ti.isNumeric || ti.numBits != 32 || ti.isSigned)
-				cast_error(*(f->parameters()[3].get()),"Constructor id argument should be of type uint32.");
-		}
+		m_errorReporter.warning(f->location(), "Function is internal, use at your own risk.");
 	}
 }
 
-void TVMTypeChecker::check_onCodeUpgrade() {
-	for (FunctionDefinition const* f : contractDefinition->definedFunctions()) {
-		if (f->name() == "onCodeUpgrade") {
-			const std::string s = "function onCodeUpgrade(...) (internal|private) { /*...*/ }";
-			if (!f->returnParameters().empty()) {
-				cast_error(*f->returnParameters()[0], "Should have follow format: " + s);
-			}
-			if (f->isPublic()) {
-				cast_error(*f, "Should have follow format: " + s);
-			}
-		}
+void TVMTypeChecker::check_onCodeUpgrade(FunctionDefinition const& f) {
+	const std::string s = "\nfunction onCodeUpgrade(...) (internal|private) { /*...*/ }";
+	if (!f.returnParameters().empty()) {
+		m_errorReporter.typeError(f.returnParameters().at(0)->location(), "Function mustn't return any parameters. Expected function signature:" + s);
+	}
+	if (f.isPublic()) {
+		m_errorReporter.typeError(f.location(), "Bad function visibility. Expected function signature:" + s);
 	}
 }
 
@@ -270,15 +185,18 @@ bool TVMTypeChecker::visit(const Mapping &_mapping) {
             for (const auto& member : structDefinition.members()) {
                 TypeInfo ti {member->type()};
                 if (!ti.isNumeric) {
-                    cast_error(_mapping.keyType(), "If struct are used as key for mapping than "
-                                                   "fields of struct must have integer types, boolean types, fixed bytes types or enums");
-                    // TODO also print this field (see SecondarySourceLocation)
+					m_errorReporter.typeError(
+						_mapping.keyType().location(),
+						SecondarySourceLocation().append("Bad field: ", member->location()),
+						"If struct type is used as a key type for mapping, then "
+						"fields of the struct must have integer, boolean, fixed bytes or enum type"
+					);
                 }
                 bitLength += ti.numBits;
             }
             if (bitLength > TvmConst::CellBitLength) {
-                cast_error(_mapping.keyType(), "If struct are used as key for mapping than "
-                                               "struct size must be no more than " + toString(TvmConst::CellBitLength) + " bits");
+				m_errorReporter.typeError(_mapping.keyType().location(), "If struct type is used as a key type for mapping, then "
+											   "struct must fit in " + toString(TvmConst::CellBitLength) + " bits");
             }
         }
     }
@@ -306,11 +224,11 @@ bool TVMTypeChecker::visit(FunctionCall const& functionCall) {
 			};
 
 			if (!have(stateInit) && !have(code)) {
-				cast_error(*functionOptions, R"(Either option "stateInit" or option "code" must be set.)");
+				m_errorReporter.typeError(functionOptions->location(), R"(Either option "stateInit" or option "code" must be set.)");
 			}
 
 			if (have(stateInit) && have(pubkey)) {
-				TVMContractCompiler::g_errorReporter->declarationError(
+				m_errorReporter.declarationError(
 					getLocation(pubkey),
 					SecondarySourceLocation().append(R"(Option "stateInit" is set here: )", getLocation(stateInit)),
 					R"(Option "pubkey" is not compatible with option "stateInit". Only with option "code".)"
@@ -318,7 +236,7 @@ bool TVMTypeChecker::visit(FunctionCall const& functionCall) {
 			}
 
 			if (have(stateInit) && have(varInit)) {
-				TVMContractCompiler::g_errorReporter->declarationError(
+				m_errorReporter.declarationError(
 					getLocation(varInit),
 					SecondarySourceLocation().append(R"(Option "stateInit" is set here: )", getLocation(stateInit)),
 					R"(Option "varInit" is not compatible with option "stateInit". Only with option "code".)"
@@ -326,7 +244,7 @@ bool TVMTypeChecker::visit(FunctionCall const& functionCall) {
 			}
 
 			if (!have(value)) {
-				cast_error(*functionOptions, R"(Option "value" must be set.)");
+				m_errorReporter.typeError(functionOptions->location(), R"(Option "value" must be set.)");
 			}
 
 			if (have(varInit)) {
@@ -346,7 +264,7 @@ bool TVMTypeChecker::visit(FunctionCall const& functionCall) {
 							TypePointer valueType = initVars->options().at(i)->annotation().type;
 							TypePointer varType = v->type();
 							if (!valueType->isImplicitlyConvertibleTo(*varType)) {
-								TVMContractCompiler::g_errorReporter->declarationError(
+								m_errorReporter.declarationError(
 									initVars->options().at(i)->location(),
 									SecondarySourceLocation().append(R"(Variable is defined here: )", v->location()),
 									"Type " + valueType->toString(true) +
@@ -359,7 +277,7 @@ bool TVMTypeChecker::visit(FunctionCall const& functionCall) {
 						}
 					}
 					if (!find) {
-						TVMContractCompiler::g_errorReporter->declarationError(
+						m_errorReporter.declarationError(
 							initVars->options().at(i)->location(),
 							SecondarySourceLocation().append(R"(Contract is defined here: )", ct->contractDefinition().location()),
 							"In contract there is no \"" + *name + "\" static state variable."
@@ -370,4 +288,52 @@ bool TVMTypeChecker::visit(FunctionCall const& functionCall) {
 		}
 	}
 	return true;
+}
+
+bool TVMTypeChecker::visit(const FunctionDefinition &f) {
+	if (f.isInline() && f.isPublic()) {
+		m_errorReporter.typeError(f.location(), "Inline function should have private or internal visibility");
+	}
+	if (isTvmIntrinsic(f.name())) {
+		checkTvmIntrinsic(&f);
+	}
+	if (f.name() == "onCodeUpgrade") {
+		check_onCodeUpgrade(f);
+	}
+
+	if (f.name() == "afterSignatureCheck") {
+		const std::string s = "\nExpected follow format: \"function afterSignatureCheck(TvmSlice restOfMessageBody, TvmCell message) private inline returns (TvmSlice) { /*...*/ }\"";
+		if (
+				f.parameters().size() != 2 ||
+				f.parameters().at(0)->type()->category() != Type::Category::TvmSlice ||
+				f.parameters().at(1)->type()->category() != Type::Category::TvmCell
+				) {
+			m_errorReporter.typeError(f.location(),
+									  "Unexpected function parameters." + s);
+		}
+		if (f.returnParameters().size() != 1 ||
+			f.returnParameters().at(0)->type()->category() != Type::Category::TvmSlice) {
+			m_errorReporter.typeError(f.location(), "Should return TvmSlice." + s);
+		}
+		if (f.visibility() != Visibility::Private) {
+			m_errorReporter.typeError(f.location(), "Should be marked as private." + s);
+		}
+		if (!f.isInline()) {
+			m_errorReporter.typeError(f.location(), "Should be marked as inline." + s);
+		}
+	}
+
+	return true;
+}
+
+bool TVMTypeChecker::visit(ContractDefinition const& cd) {
+	contractDefinition = &cd;
+
+	checkOverrideAndOverload();
+
+	return true;
+}
+
+void TVMTypeChecker::endVisit(ContractDefinition const& ) {
+	contractDefinition = nullptr;
 }

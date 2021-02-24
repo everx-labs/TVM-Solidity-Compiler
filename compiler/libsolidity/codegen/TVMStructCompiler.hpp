@@ -103,7 +103,7 @@ public:
 	void createDefaultStruct(bool resultIsBuilder = false);
 	void pushMember(const std::string &memberName, bool isStructTuple, bool returnStructAsSlice);
 	void setMemberForTuple(const std::string &memberName);
-	void structConstructor(ast_vec<ASTString> const& names, const std::function<void(int)>& pushParam);
+	void structConstructor(ast_vec<ASTString> const& names, const std::function<void(int, Type const*)>& pushParam);
 	void tupleToBuilder();
 	void stateVarsToBuilder();
 	void expandStruct(const std::string &memberName, bool doPushMemberOnStack);

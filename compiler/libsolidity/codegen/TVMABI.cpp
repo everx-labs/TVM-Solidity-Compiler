@@ -20,7 +20,6 @@
 #include "TVMABI.hpp"
 #include "TVMPusher.hpp"
 #include "TVMStructCompiler.hpp"
-#include "TVMExpressionCompiler.hpp"
 
 using namespace solidity::frontend;
 
@@ -292,38 +291,33 @@ string TVMABI::getParamTypeString(Type const *type, ASTNode const &node) {
 	cast_error(node, "Unsupported param type " + type->toString(true));
 }
 
-Json::Value TVMABI::setupType(const string &name, const Type *type, ASTNode const &node) {
-	Json::Value json(Json::objectValue);
-	json["name"] = name;
-	json["type"] = getParamTypeString(type, node);
-
-	auto setupComponents = [&](Type const* type){
-		json["components"] = setupStructComponents(to<StructType>(type), node);
-	};
-
+Json::Value TVMABI::setupComponents(Json::Value json, const Type *type, ASTNode const &node) {
 	switch (type->category()) {
 		case Type::Category::Struct:
-			setupComponents(type);
+			json["components"] = setupStructComponents(to<StructType>(type), node);
 			break;
 		case Type::Category::Array: {
 			auto arrayType = to<ArrayType>(type);
-			Type const *arrayBaseType = arrayType->baseType();
-			if (arrayBaseType->category() == Type::Category::Struct) {
-				setupComponents(arrayBaseType);
-			}
+			json = setupComponents(json, arrayType->baseType(), node);
 			break;
 		}
 		case Type::Category::Mapping: {
 			auto mappingType = to<MappingType>(type);
-			Type const *valueType = mappingType->valueType();
-			if (valueType->category() == Type::Category::Struct) {
-				setupComponents(valueType);
-			}
+			json = setupComponents(json, mappingType->valueType(), node);
 			break;
 		}
 		default:
 			break;
 	}
+	return json;
+}
+
+Json::Value TVMABI::setupType(const string &name, const Type *type, ASTNode const &node) {
+	Json::Value json(Json::objectValue);
+	json["name"] = name;
+	json["type"] = getParamTypeString(type, node);
+
+	json = setupComponents(json, type, node);
 	return json;
 }
 
@@ -759,8 +753,8 @@ void EncodeFunctionParams::createDefaultConstructorMessage2()
 }
 
 uint32_t EncodeFunctionParams::calculateFunctionID(
-	const std::string name,
-	const std::vector<ASTPointer<VariableDeclaration>> inputs,
+	const std::string& name,
+	const std::vector<ASTPointer<VariableDeclaration>>& inputs,
 	const std::vector<VariableDeclaration const*> * outputs
 ) {
 	std::stringstream ss;
@@ -940,8 +934,8 @@ uint32_t EncodeFunctionParams::calculateFunctionIDWithReason(
 }
 
 uint32_t EncodeFunctionParams::calculateFunctionIDWithReason(
-	const std::string name,
-	const std::vector<ASTPointer<VariableDeclaration> > inputs,
+	const std::string& name,
+	const std::vector<ASTPointer<VariableDeclaration> >& inputs,
 	const std::vector<VariableDeclaration const*> *outputs,
 	const ReasonOfOutboundMessage &reason,
 	std::optional<uint32_t> functionId

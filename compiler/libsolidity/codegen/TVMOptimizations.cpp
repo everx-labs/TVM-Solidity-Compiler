@@ -18,7 +18,9 @@
 
 #include "TVMOptimizations.hpp"
 #include "TVMPusher.hpp"
+#include <boost/algorithm/string/trim.hpp>
 #include <boost/format.hpp>
+#include <boost/lexical_cast.hpp>
 
 namespace solidity::frontend {
 
@@ -37,6 +39,11 @@ struct TVMOptimizer {
 		}
 		// empty line
 		return true;
+	}
+
+	static int strToInt(const std::string& str) {
+		const std::string& trimed = boost::algorithm::trim_copy(str);
+		return boost::lexical_cast<int>(trimed);
 	}
 
 	struct Cmd {
@@ -71,18 +78,19 @@ struct TVMOptimizer {
 			return cmd_ + " " + rest_;
 		}
 
-		// TODO: Function fetch_int return int. And don't check integer overflow.
-		//		 What if there is big number. For example 128 unsigned int.
-		//		 Maybe use using u256 = boost::multiprecision::number<boost::multiprecision::cpp_int_backend<256, 256, boost::multiprecision::unsigned_magnitude, boost::multiprecision::unchecked, void>>;
-		//		 from libsolutil/Common.h or something else
+		bigint fetch_bigint() const {
+			std::string trimed = boost::algorithm::trim_copy(rest_);
+			return bigint{trimed};
+		}
+
 		int fetch_int() const {
-			return atoi(rest_.c_str());
+			return strToInt(rest_);
 		}
 
 		int fetch_first_int() const {
 			size_t i = rest_.find(',');
 			solAssert(i != string::npos, "");
-			return atoi(rest_.substr(0, i).c_str());
+			return strToInt(rest_.substr(0, i));
 		}
 
 		int fetch_second_int() const {
@@ -92,7 +100,7 @@ struct TVMOptimizer {
 			while (i < rest_.size() && is_space(rest_[i]))
 				i++;
 			solAssert(i != rest_.size(), "");
-			return atoi(rest_.substr(i).c_str());
+			return strToInt(rest_.substr(i));
 		}
 
 		bool is_drop_kind() const {
@@ -109,7 +117,7 @@ struct TVMOptimizer {
 			return 0;
 		}
 
-		int sumBLKSWAP() {
+		int sumBLKSWAP() const {
 			if (is("ROT") || is("ROTREV")) {
 				return 3;
 			}
@@ -129,7 +137,7 @@ struct TVMOptimizer {
 			string s = rest();
 			solAssert(isIn(s.at(0), 's', 'S'), "");
 			s.erase(s.begin()); // skipping char S
-			return atoi(s.c_str());
+			return strToInt(s);
 		}
 
 		int get_push_index() const {
@@ -145,8 +153,8 @@ struct TVMOptimizer {
 			std::regex re1(R"([S|s](\d+),\s*[S|s](\d+))");
 			std::regex_search(target, sm, re1);
 
-			int si = std::stoi(sm[1]);
-			int sj = std::stoi(sm[2]);
+			int si = strToInt(sm[1]);
+			int sj = strToInt(sm[2]);
 			return {si, sj};
 		}
 
@@ -154,7 +162,7 @@ struct TVMOptimizer {
 			solAssert(is_POP(), "");
 			string s = rest();
 			s.erase(s.begin());
-			return atoi(s.c_str());
+			return strToInt(s);
 		}
 
 		bool is_commutative() const {
@@ -168,13 +176,25 @@ struct TVMOptimizer {
 
 		bool is_ADD() const 	{ 	return is("ADD"); 		}
 		bool is_MUL() const 	{ 	return is("MUL");		}
+		bool is_DIV() const 	{ 	return is("DIV");		}
 		bool is_SUB() const 	{ 	return is("SUB"); 		}
 		bool is_DROP() const 	{ 	return is("DROP"); 		}
 		bool is_NIP() const 	{ 	return is("NIP"); 		}
 		bool is_SWAP() const 	{ 	return is("SWAP"); 		}
 		bool is_DUP() const 	{ 	return is("DUP"); 		}
 		bool is_PUSH() const 	{ 	return (is("PUSH") && ((boost::starts_with(rest_, "S") || boost::starts_with(rest_, "s")))) || is("DUP"); 		}
-		bool is_PUSHINT() const { 	return is("PUSHINT"); }
+
+		bool is_PUSHINT() const {
+			int i{};
+			for (char ch : boost::algorithm::trim_copy(rest_)) {
+				if (!(isdigit(ch) || (i == 0 && ch=='-'))) {
+					return false; // e.g. PUSHINT $func_name$
+				}
+				++i;
+			}
+			return is("PUSHINT");
+		}
+
 		bool is_POP() const 	{ 	return is("POP"); 		}
 		bool isBLKSWAP() const  { return is("ROT") || is("ROTREV") || is("SWAP2") || is("BLKSWAP"); }
 
@@ -290,16 +310,16 @@ struct TVMOptimizer {
 		lines_.insert(lines_.begin() + idx, pfx + cmd);
 	}
 
-	bool is_cmd(int idx, const string& cmd) const {
-		return valid(idx) && get_cmd(lines_[idx]) == cmd;
-	}
+//	bool is_cmd(int idx, const string& cmd) const {
+//		return valid(idx) && get_cmd(lines_[idx]) == cmd;
+//	}
 
 	struct Result {
 		bool continue_;
 		int remove_ = 0;
 		vector<string> commands_;
 
-		Result(bool cont, int remove = 0, vector<string> commands = {}) :
+		explicit Result(bool cont, int remove = 0, vector<string> commands = {}) :
 			continue_(cont), remove_(remove), commands_{std::move(commands)} {
 
 		}
@@ -337,9 +357,9 @@ struct TVMOptimizer {
 		if (cmd1.is_PUSHINT() && cmd3.is_PUSHINT()) {
 			// TODO: consider INC/DEC as well
 			if (cmd2.is_add_or_sub() && cmd4.is_add_or_sub()) {
-				int sum = 0;
-				sum += (cmd2.is_ADD()? +1 : -1) * cmd1.fetch_int();
-				sum += (cmd4.is_ADD()? +1 : -1) * cmd3.fetch_int();
+				bigint sum = 0;
+				sum += (cmd2.is_ADD()? +1 : -1) * cmd1.fetch_bigint();
+				sum += (cmd4.is_ADD()? +1 : -1) * cmd3.fetch_bigint();
 				return Result::Replace(4, "PUSHINT " + toString(sum), "ADD");
 			}
 		}
@@ -348,13 +368,13 @@ struct TVMOptimizer {
 				if (cmd2.is_ADD()) return Result::Replace(2, "INC");
 				if (cmd2.is_SUB()) return Result::Replace(2, "DEC");
 			}
-			int value = cmd1.fetch_int();
+			bigint value = cmd1.fetch_bigint();
 			if (-128 <= value && value <= 127) {
-				if (cmd2.is_ADD()) return Result::Replace(2, "ADDCONST " + std::to_string(value));
-				if (cmd2.is_MUL()) return Result::Replace(2, "MULCONST " + std::to_string(value));
+				if (cmd2.is_ADD()) return Result::Replace(2, "ADDCONST " + toString(value));
+				if (cmd2.is_MUL()) return Result::Replace(2, "MULCONST " + toString(value));
 			}
 			if (-128 <= -value && -value <= 127) {
-				if (cmd2.is_SUB()) return Result::Replace(2, "ADDCONST " + std::to_string(-value));
+				if (cmd2.is_SUB()) return Result::Replace(2, "ADDCONST " + toString(-value));
 			}
 		}
 		if (cmd1.is("RET") || cmd1.is("THROWANY") || cmd1.is("THROW")) {
@@ -392,7 +412,7 @@ struct TVMOptimizer {
 		}
 		if (cmd1.is_PUSHINT() && cmd2.is_PUSHINT() && cmd3.is_PUSHINT()) {
 			int i = idx1, n = 0;
-			while (cmd(i).is_PUSHINT() && cmd(i).fetch_int() == 0) {
+			while (cmd(i).is_PUSHINT() && cmd(i).fetch_bigint() == 0) {
 				n++;
 				i = next_command_line(i);
 			}
@@ -603,8 +623,8 @@ struct TVMOptimizer {
 		if (cmd1.is("ROTREV") && cmd2.is("ROT")) {
 			return Result::Replace(2);
 		}
-		if (cmd1.is("PUSHINT") && cmd2.is("STZEROES") && cmd3.is("STSLICECONST") && cmd3.rest() == "0") {
-			return Result::Replace(3, "PUSHINT " + toString(cmd1.fetch_int() + 1), "STZEROES");
+		if (cmd1.is_PUSHINT() && cmd2.is("STZEROES") && cmd3.is("STSLICECONST") && cmd3.rest() == "0") {
+			return Result::Replace(3, "PUSHINT " + toString(cmd1.fetch_bigint() + 1), "STZEROES");
 		}
 
 		if (cmd1.is("PUSHSLICE") &&
@@ -629,7 +649,7 @@ struct TVMOptimizer {
 				return Result(true, 3, opcodes);
 			}
 		}
-		if (cmd1.is("PUSHINT") &&
+		if (cmd1.is_PUSHINT() &&
 			cmd2.is("STZEROES") &&
 			cmd3.is("STSLICECONST") && cmd3.rest().length() > 1) {
 			std::string::size_type integer = cmd1.fetch_int();
@@ -695,22 +715,110 @@ struct TVMOptimizer {
 					return Result(true, 4, {"ADDCONST " + std::to_string(final_add), "UFITS " + cmd2.rest()});
 			}
 		}
-		if (cmd1.is("INDEX") && 0 <= stoi(cmd1.rest()) && stoi(cmd1.rest()) <= 3 &&
-			cmd2.is("INDEX") && 0 <= stoi(cmd2.rest()) && stoi(cmd2.rest()) <= 3 &&
-			cmd3.is("INDEX") && 0 <= stoi(cmd3.rest()) && stoi(cmd3.rest()) <= 3) {
+		if (cmd1.is("INDEX") && 0 <= strToInt(cmd1.rest()) && strToInt(cmd1.rest()) <= 3 &&
+			cmd2.is("INDEX") && 0 <= strToInt(cmd2.rest()) && strToInt(cmd2.rest()) <= 3 &&
+			cmd3.is("INDEX") && 0 <= strToInt(cmd3.rest()) && strToInt(cmd3.rest()) <= 3) {
 			return Result(true, 3, {"INDEX3 " + cmd1.rest() + ", " + cmd2.rest() + ", " + cmd3.rest()});
 		}
-		if (cmd1.is("INDEX") && 0 <= stoi(cmd1.rest()) && stoi(cmd1.rest()) <= 3 &&
-			cmd2.is("INDEX") && 0 <= stoi(cmd2.rest()) && stoi(cmd2.rest()) <= 3) {
+		if (cmd1.is("INDEX") && 0 <= strToInt(cmd1.rest()) && strToInt(cmd1.rest()) <= 3 &&
+			cmd2.is("INDEX") && 0 <= strToInt(cmd2.rest()) && strToInt(cmd2.rest()) <= 3) {
 			return Result(true, 2, {"INDEX2 " + cmd1.rest() + ", " + cmd2.rest()});
 		}
-		if (cmd2.is("THROWANY") &&
-			cmd1.is("PUSHINT") && 0 <= stoi(cmd1.rest()) && stoi(cmd1.rest()) < (1L << 11)) {
+		if (cmd1.is_PUSHINT() && 0 <= cmd1.fetch_bigint() && cmd1.fetch_bigint() < (1LU << 11) &&
+			cmd2.is("THROWANY")) {
 			return Result(true, 2, {"THROW " + cmd1.rest()});
 		}
+		if (cmd1.is_PUSHINT() && 1 <= cmd1.fetch_bigint() && cmd1.fetch_bigint() <= 256 &&
+			(cmd2.is("RSHIFT") || cmd2.is("LSHIFT"))) {
+			return Result(true, 2, {cmd2.cmd_ + " " + cmd1.rest()});
+		}
+
+		std::map<bigint, int> map;
+		for (int p2 = 2, p = 1; p2 <= 256; p2 *= 2, ++p) {
+			map[p2] = p;
+		}
+
+		if (cmd1.is_PUSHINT() &&
+			(cmd2.is("DIV") || cmd2.is("MUL"))) {
+			bigint val = cmd1.fetch_bigint();
+			if (map.count(val)) {
+				const std::string& newOp = cmd2.is("DIV") ? "RSHIFT" : "LSHIFT";
+				return Result(true, 2, {newOp + " " + toString(map.at(val))});
+			}
+		}
+		if (cmd1.is_PUSHINT() &&
+			cmd2.is("MOD")) {
+			bigint val = cmd1.fetch_bigint();
+			if (map.count(val)) {
+				return Result(true, 2, {"MODPOW2 " + toString(map.at(val))});
+			}
+		}
+
+		if (cmd1.is_PUSHINT()) {
+			bigint val = cmd1.fetch_bigint();
+			if (-128 <= val && val < 128) {
+				if (cmd2.is("NEQ"))
+					return Result(true, 2, {"NEQINT " + toString(val)});
+				if (cmd2.is("EQUAL"))
+					return Result(true, 2, {"EQINT " + toString(val)});
+				if (cmd2.is("GREATER"))
+					return Result(true, 2, {"GTINT " + toString(val)});
+				if (cmd2.is("LESS"))
+					return Result(true, 2, {"LESSINT " + toString(val)});
+			}
+		}
+
+		if (cmd1.is("ROTREV") && cmd2.is("ROTREV") && cmd3.is("ROTREV")) {
+			return Result(true, 3, {});
+		}
+
+		if (cmd1.is("BLKSWAP")) {
+			int n = cmd1.fetch_first_int();
+			bool ok = true;
+			for (int iter = 0; iter < n + 1; ++iter) {
+				Cmd c = cmd(idx1 + iter);
+				ok &= c.is("BLKSWAP") && c.fetch_first_int() == n && c.fetch_second_int() == 1;
+			}
+			if (ok) {
+				return Result(true, n + 1, {});
+			}
+		}
+
+		if (cmd1.is_PUSHINT() &&
+			cmd2.is_PUSHINT() &&
+			cmd3.is_MUL()
+		) {
+			bigint a = cmd1.fetch_bigint();
+			bigint b = cmd2.fetch_bigint();
+			bigint c = a * b;
+			return Result(true, 3, {"PUSHINT " + toString(c)});
+		}
+
+		if (cmd1.is_PUSHINT() &&
+			cmd2.is_PUSHINT() &&
+			cmd3.is_DIV()
+		) {
+			bigint a = cmd1.fetch_bigint();
+			bigint b = cmd2.fetch_bigint();
+			if (a >= 0 && b > 0) { // note in TVM  -9 / 2 == -5, TODO handle this cases
+				bigint c = a / b;
+				return Result(true, 3, {"PUSHINT " + toString(c)});
+			}
+		}
+
+		if (cmd1.is("PUSHSLICE") &&
+			cmd2.is("NEWC") &&
+			cmd3.is("STSLICE") &&
+			cmd4.is("ENDC") &&
+			cmd5.is("DROP")
+		) {
+			return Result(true, 5, {});
+		}
+
 		return Result(false);
 	}
 
+	// TODO move to common file. See also binaryStringToSlice
 	static std::string toBitString(const std::string& slice) {
 		std::string bitString;
 		if (slice.at(0) == 'x') {
@@ -745,11 +853,11 @@ struct TVMOptimizer {
 		return bitString;
 	}
 
-	std::vector<std::string> unitSlices(const std::string& sliceA, const std::string& sliceB) const {
+	static std::vector<std::string> unitSlices(const std::string& sliceA, const std::string& sliceB) {
 		return unitBitString(toBitString(sliceA), toBitString(sliceB));
 	}
 
-	std::vector<std::string> unitBitString(const std::string& bitStringA, const std::string& bitStringB) const {
+	static std::vector<std::string> unitBitString(const std::string& bitStringA, const std::string& bitStringB) {
 		const std::string& bitString = bitStringA + bitStringB;
 		std::vector<std::string> opcodes;
 		for (int i = 0; i < static_cast<int>(bitString.length()); i += 4 * TvmConst::MaxPushSliceLength) {
@@ -968,7 +1076,7 @@ struct TVMOptimizer {
 			for (auto it = linesToRemove.rbegin(); it != linesToRemove.rend(); it++)
 				DBG(lines_[*it]);
 			DBG("> with");
-			for (auto s : res.commands_)
+			for (const auto& s : res.commands_)
 				DBG(s);
 		}
 

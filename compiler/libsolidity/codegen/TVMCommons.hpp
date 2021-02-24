@@ -105,6 +105,8 @@ bool isByteArrayOrString(const Type* type);
 
 bool isString(const Type* type);
 
+bool isSlice(const Type* type);
+
 struct AddressInfo {
 
 	static int stdAddrLength() {
@@ -145,10 +147,14 @@ struct TypeInfo {
 			isNumeric = true;
 			isSigned = false;
 			numBits = 8 * static_cast<int>(fixedBytesType->numBytes());
-		} else if (auto* enumType = to<EnumType>(type)) {
+		} else if (auto enumType = to<EnumType>(type)) {
 			isNumeric = true;
 			isSigned = false;
 			numBits = bitsForEnum(enumType->numberOfMembers());
+		} else if (auto* fp = to<FixedPointType>(type)) {
+			isNumeric = true;
+			isSigned = fp->isSigned();
+			numBits = fp->numBits();
 		}
 		category = type->category();
 	}
@@ -175,6 +181,9 @@ int lengthOfDictKey(Type const* key);
 IntegerType getKeyTypeOfC4();
 
 IntegerType getKeyTypeOfArray();
+
+std::tuple<Type const*, Type const*>
+dictKeyValue(Type const* type);
 
 string storeIntegralOrAddress(const Type* type, bool reverse);
 
@@ -364,6 +373,7 @@ enum class DictValueType {
 	Enum,
 	ExtraCurrencyCollection,
 	FixedBytes,
+	FixedPoint,
 	Function,
 	Integer,
 	Mapping,

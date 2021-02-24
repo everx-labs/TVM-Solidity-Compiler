@@ -22,18 +22,15 @@
 #include <liblangutil/ErrorReporter.h>
 #include <libsolidity/ast/ASTForward.h>
 
-enum class TvmOption {
-	Code,
-	Abi,
-	DumpStorage,
-	CodeAndAbi
-};
 
-void TVMSetFileName(std::string _fileName);
-void TVMCompilerEnable(const TvmOption tvmOption, bool without_logstr, bool optimize);
-void TVMSetAllContracts(const std::vector<solidity::frontend::ContractDefinition const*>& allContracts,
-						const std::string& mainContract);
-bool TVMIsOutputProduced();
-void TVMCompilerProceedContract(solidity::langutil::ErrorReporter* errorReporter,
-								solidity::frontend::ContractDefinition const& _contract,
-                                std::vector<solidity::frontend::PragmaDirective const *> const* pragmaDirectives);
+void TVMCompilerProceedContract(
+	solidity::langutil::ErrorReporter* errorReporter,
+	solidity::frontend::ContractDefinition const& _contract,
+	std::vector<solidity::frontend::PragmaDirective const *> const* pragmaDirectives,
+	bool generateAbi,
+	bool generateCode,
+	bool withOptimizations,
+	bool doPrintInConsole,
+	const std::string& solFileName,
+	const std::string& outputFolder
+);

@@ -1,3 +1,16 @@
+### 0.37 (2021-02-24)
+
+Compiler Features:
+ * Support fixed point numbers (`fixed` / `ufixed`).
+ * Support functions to convert gas to tons (`gasToValue()`) and vice versa (`valueToGas()`).
+ * Support `string` methods `byteLength()` and `substr()` to work with long strings (which are stored in more than one cell).
+ * Add methods `skip()`, `compare()`, `hasNBits()`, `hasNRefs()` and `hasNBitsAndRefs()` for TvmSlice type.
+ * Support proper `string` type comparison which works right with long strings.
+ * Removed deprecated function `hexstring()` and explicit int to string conversion.
+
+Bugfixes:
+ * Fixed a bug with slices comparison.
+
 ### 0.36 (2021-02-04)
 
 Assorted features requested by DeBot support:

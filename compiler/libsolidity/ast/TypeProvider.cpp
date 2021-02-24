@@ -45,6 +45,8 @@ VarInteger const TypeProvider::m_varInteger{};
 InitializerListType const TypeProvider::m_initializerList{};
 CallListType const TypeProvider::m_callList{};
 
+std::unique_ptr<IntegerType> const TypeProvider::m_int257 = make_unique<IntegerType>(257, IntegerType::Modifier::Signed);
+
 array<unique_ptr<IntegerType>, 32> const TypeProvider::m_intM{{
 	{make_unique<IntegerType>(8 * 1, IntegerType::Modifier::Signed)},
 	{make_unique<IntegerType>(8 * 2, IntegerType::Modifier::Signed)},

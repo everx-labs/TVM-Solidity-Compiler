@@ -41,9 +41,7 @@ StackPusherHelper::StackPusherHelper(TVMCompilerContext *ctx, const int stackSiz
 }
 
 void StackPusherHelper::pushLog(const std::string& str) {
-	if (!TVMContractCompiler::g_without_logstr) {
-		push(0, "PRINTSTR " + str);
-	}
+	push(0, "PRINTSTR " + str);
 }
 
 StructCompiler &StackPusherHelper::structCompiler() {
@@ -52,7 +50,7 @@ StructCompiler &StackPusherHelper::structCompiler() {
 
 void StackPusherHelper::generateC7ToT4Macro() {
 	push(+1, ""); // fix stack, allocate builder
-	generateGlobl("c7_to_c4", false);
+	generateMacro("c7_to_c4");
 	pushLines(R"(
 GETGLOB 2
 NEWC
@@ -78,18 +76,6 @@ POP C4
 	push(0, " ");
 }
 
-void StackPusherHelper::storeStringInABuilder(string str) {
-	size_t maxSlice = (TvmConst::MaxPushSliceLength >> 1);
-	pushLines
-(R"(
-PUSHSLICE x)" + ((str.length() <= maxSlice) ?  stringToBytes(str)
-: (stringToBytes(str.substr(0, maxSlice)) + R"(
-STSLICER
-PUSHSLICE x)" + stringToBytes(str.substr(maxSlice)))) + R"(
-STSLICER
-)");
-}
-
 bool StackPusherHelper::doesFitInOneCellAndHaveNoStruct(Type const* key, Type const* value) {
 	int keyLength = lengthOfDictKey(key);
 	return
@@ -106,7 +92,8 @@ int StackPusherHelper::maxBitLengthOfDictValue(Type const* type) {
 		case DictValueType::Enum:
 		case DictValueType::Integer:
 		case DictValueType::Bool:
-		case DictValueType::FixedBytes: {
+		case DictValueType::FixedBytes:
+		case DictValueType::FixedPoint: {
 			TypeInfo ti{type};
 			return ti.numBits;
 		}
@@ -176,7 +163,7 @@ StackPusherHelper::prepareValueForDictOperations(Type const *keyType, Type const
 		case DictValueType::Array: {
 			if (isByteArrayOrString(valueType)) {
 				if (isValueBuilder) {
-					push(-1 + 1, "ENDC"); // TODO try to push the builder in new builder
+					push(-1 + 1, "ENDC");
 				}
 				return DataType::Cell;
 			}
@@ -187,6 +174,7 @@ StackPusherHelper::prepareValueForDictOperations(Type const *keyType, Type const
 		case DictValueType::Enum:
 		case DictValueType::ExtraCurrencyCollection:
 		case DictValueType::FixedBytes:
+		case DictValueType::FixedPoint:
 		case DictValueType::Integer:
 		case DictValueType::Mapping:
 		case DictValueType::Optional:
@@ -251,6 +239,7 @@ bool StackPusherHelper::doesDictStoreValueInRef(Type const* keyType, Type const*
 		case DictValueType::Enum:
 		case DictValueType::ExtraCurrencyCollection:
 		case DictValueType::FixedBytes:
+		case DictValueType::FixedPoint:
 		case DictValueType::Integer:
 		case DictValueType::Mapping:
 		case DictValueType::Optional:
@@ -310,6 +299,7 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 			case DictValueType::Enum:
 			case DictValueType::ExtraCurrencyCollection:
 			case DictValueType::FixedBytes:
+			case DictValueType::FixedPoint:
 			case DictValueType::Integer:
 			case DictValueType::Mapping:
 			case DictValueType::Optional:
@@ -472,7 +462,7 @@ void StackPusherHelper::tryPollLastRetOpcode() {
 	if (m_code.lines.empty()) {
 		return;
 	}
-	if (std::regex_match(m_code.lines.back(), std::regex("(\t*)RET"))) {
+	if (cmpLastCmd("RET")) {
 		m_code.lines.pop_back();
 	}
 }
@@ -480,8 +470,8 @@ void StackPusherHelper::tryPollLastRetOpcode() {
 bool StackPusherHelper::tryPollConvertBuilderToSlice() {
 	int n = m_code.lines.size();
 	if (n >= 2 &&
-		std::regex_match(m_code.lines[n - 1], std::regex("(\t*)CTOS")) &&
-		std::regex_match(m_code.lines[n - 2], std::regex("(\t*)ENDC"))
+		cmpLastCmd("CTOS") &&
+		cmpLastCmd("ENDC", 1)
 	)
 	{
 		m_code.lines.pop_back();
@@ -494,10 +484,9 @@ bool StackPusherHelper::tryPollConvertBuilderToSlice() {
 bool StackPusherHelper::tryPollEmptyPushCont() {
 	int n = m_code.lines.size();
 	if (n >= 2 &&
-		std::regex_match(m_code.lines[n - 2], std::regex("(\t*)PUSHCONT \\{")) &&
-		std::regex_match(m_code.lines[n - 1], std::regex("(\t*)\\}"))
-	)
-	{
+		cmpLastCmd("PUSHCONT \\{", 1) &&
+		cmpLastCmd("\\}")
+	) {
 		m_code.lines.pop_back();
 		m_code.lines.pop_back();
 		return true;
@@ -505,8 +494,30 @@ bool StackPusherHelper::tryPollEmptyPushCont() {
 	return false;
 }
 
+bool StackPusherHelper::cmpLastCmd(const std::string& cmd, int offset) {
+	int n = m_code.lines.size() - 1 - offset;
+	return n >= 0 &&
+		std::regex_match(m_code.lines[n], std::regex("(\t*)" + cmd));
+}
+
 void StackPusherHelper::pollLastOpcode() {
 	m_code.lines.pop_back();
+}
+
+bool StackPusherHelper::optimizeIf() {
+	bool reverseOpcode = false;
+	if (cmpLastCmd("NOT")) {
+		while (cmpLastCmd("NOT")) {
+			pollLastOpcode();
+			reverseOpcode ^= true;
+		}
+	} else if (cmpLastCmd("EQINT 0")) {
+		pollLastOpcode();
+		reverseOpcode ^= true;
+	} else if (cmpLastCmd("NEQINT 0")) {
+		pollLastOpcode();
+	}
+	return reverseOpcode;
 }
 
 void StackPusherHelper::append(const CodeLines &oth) {
@@ -563,6 +574,21 @@ void StackPusherHelper::push(int stackDiff, const string &cmd) {
 
 void StackPusherHelper::startContinuation(int deltaStack) {
 	m_code.startContinuation();
+	m_stack.change(deltaStack);
+}
+
+void StackPusherHelper::startIfRef(int deltaStack) {
+	m_code.startIfRef();
+	m_stack.change(deltaStack);
+}
+
+void StackPusherHelper::startIfNotRef(int deltaStack) {
+	m_code.startIfNotRef();
+	m_stack.change(deltaStack);
+}
+
+void StackPusherHelper::startCallRef(int deltaStack) {
+	m_code.startCallRef();
 	m_stack.change(deltaStack);
 }
 
@@ -693,7 +719,7 @@ void StackPusherHelper::popS(int i) {
 	push(-1, "POP S" + toString(i));
 }
 
-void StackPusherHelper::pushInt(int64_t i) {
+void StackPusherHelper::pushInt(const bigint& i) {
 	push(+1, "PUSHINT " + toString(i));
 }
 
@@ -743,6 +769,7 @@ bool StackPusherHelper::fastLoad(const Type* type) {
 		case Type::Category::Enum:
 		case Type::Category::Integer:
 		case Type::Category::Bool:
+		case Type::Category::FixedPoint:
 		case Type::Category::FixedBytes: {
 			TypeInfo ti{type};
 			solAssert(ti.isNumeric, "");
@@ -771,7 +798,7 @@ bool StackPusherHelper::fastLoad(const Type* type) {
 			push(-1 + 2, "LDDICT");
 			return true;
 		default:
-			solUnimplemented("");
+			solUnimplemented(type->toString());
 	}
 }
 
@@ -846,6 +873,7 @@ void StackPusherHelper::preload(const Type *type, uint32_t mask) {
 		case Type::Category::Integer:
 		case Type::Category::Enum:
 		case Type::Category::Bool:
+		case Type::Category::FixedPoint:
 		case Type::Category::FixedBytes: {
 			TypeInfo ti{type};
 			solAssert(ti.isNumeric, "");
@@ -981,6 +1009,7 @@ void StackPusherHelper::store(
 		case Type::Category::Enum:
 		case Type::Category::Bool:
 		case Type::Category::FixedBytes:
+		case Type::Category::FixedPoint:
 			if (mask & StoreFlag::ValueIsBuilder) {
 				push(-1, reverse ? "STBR" : "STB");
 			} else {
@@ -1099,7 +1128,7 @@ std::string StackPusherHelper::tonsToBinaryString(Literal const *literal) {
 	return tonsToBinaryString(value);
 }
 
-std::string StackPusherHelper::tonsToBinaryString(u256 value) {
+std::string StackPusherHelper::tonsToBinaryString(const u256& value) {
 	return tonsToBinaryString(bigint(value));
 }
 
@@ -1144,23 +1173,264 @@ std::string StackPusherHelper::literalToSliceAddress(Literal const *literal, boo
 	return s;
 }
 
-bool StackPusherHelper::tryImplicitConvert(Type const *leftType, Type const *rightType) {
-	if (leftType->category() == Type::Category::FixedBytes && rightType->category() == Type::Category::StringLiteral) {
-		auto stringLiteralType = to<StringLiteralType>(rightType);
-		u256 value = 0;
-		for (char c : stringLiteralType->value()) {
-			value = value * 256 + c;
-		}
-		push(+1, "PUSHINT " + toString(value));
-		return true;
+bigint StackPusherHelper::pow10(int power) {
+	bigint r = 1;
+	for (int i = 1; i <= power; ++i) {
+		r *= 10;
 	}
-	return false;
+	return r;
+}
+
+void StackPusherHelper::hardConvert(Type const *leftType, Type const *rightType) {
+	// case opt(T) = T
+	if (leftType->category() == Type::Category::Optional && *leftType != *rightType) {
+		auto l = to<OptionalType>(leftType);
+		hardConvert(l->valueType(), rightType);
+		if (isIn(l->valueType()->category(), Type::Category::Mapping, Type::Category::Optional)) {
+			tuple(1);
+		}
+		return;
+	}
+
+
+
+	bool impl = rightType->isImplicitlyConvertibleTo(*leftType);
+
+	auto fixedPointFromFixedPoint = [this, impl](FixedPointType const* l, FixedPointType const* r) {
+		int powerDiff = l->fractionalDigits() - r->fractionalDigits();
+		if (powerDiff != 0) {
+			if (powerDiff > 0) {
+				pushInt(pow10(powerDiff));
+				push(-2 + 1, "MUL");
+			} else {
+				pushInt(pow10(-powerDiff));
+				push(-2 + 1, "DIV");
+			}
+		}
+		if (!impl)
+			checkFit(l);
+	};
+
+	auto integerFromFixedPoint = [this, impl](IntegerType const* l, FixedPointType const* r) {
+		int powerDiff = r->fractionalDigits();
+		if (powerDiff > 0) {
+			pushInt(pow10(powerDiff));
+			push(-2 + 1, "DIV");
+		}
+		if (!impl)
+			checkFit(l);
+	};
+
+	auto integerFromInteger = [this, impl](IntegerType const* l, IntegerType const* /*r*/) {
+		if (!impl)
+			checkFit(l);
+	};
+
+	auto fixedPointFromInteger = [this, impl](FixedPointType const* l, IntegerType const* /*r*/) {
+		int powerDiff = l->fractionalDigits();
+		if (powerDiff > 0) {
+			pushInt(pow10(powerDiff));
+			push(-2 + 1, "MUL");
+		}
+		if (!impl)
+			checkFit(l);
+	};
+
+	auto fixedBytesFromFixedBytes = [this](FixedBytesType const* l, FixedBytesType const* r) {
+		int diff = 8 * (l->numBytes() - r->numBytes());
+		if (diff > 0) {
+			push(0, "LSHIFT " + std::to_string(diff));
+		} else if (diff < 0) {
+			push(0, "RSHIFT " + std::to_string(-diff));
+		}
+	};
+
+	auto fixedBytesFromStringLiteral = [this](FixedBytesType const* l, StringLiteralType const* r) {
+		size_t bytes = 0;
+		u256 value = 0;
+		for (char c : r->value()) {
+			value = value * 256 + c;
+			++bytes;
+		}
+		while (bytes < l->numBytes()) {
+			value *= 256;
+			++bytes;
+		}
+		drop(1); // delete old value
+		push(+1, "PUSHINT " + toString(value));
+	};
+
+	auto fromFixedPoint = [&](FixedPointType const* r) {
+		switch (leftType->category()) {
+			case Type::Category::FixedPoint:
+				fixedPointFromFixedPoint(to<FixedPointType>(leftType), r);
+				break;
+			case Type::Category::Integer:
+				integerFromFixedPoint(to<IntegerType>(leftType), r);
+				break;
+			default:
+				solUnimplemented("");
+				break;
+		}
+	};
+
+	auto fromInteger = [&](IntegerType const* r) {
+		switch (leftType->category()) {
+			case Type::Category::FixedPoint:
+				fixedPointFromInteger(to<FixedPointType>(leftType), r);
+				break;
+			case Type::Category::Integer:
+				integerFromInteger(to<IntegerType>(leftType), r);
+				break;
+			case Type::Category::FixedBytes:
+				// nothing do here
+				break;
+			case Type::Category::Address:
+				solUnimplemented("See FunctionCallCompiler::typeConversion");
+				break;
+			default:
+				solUnimplemented(leftType->toString());
+				break;
+		}
+	};
+	
+	
+	
+	
+	switch (rightType->category()) {
+
+		case Type::Category::RationalNumber: {
+			Type const* mt = rightType->mobileType();
+			if (mt->category() == Type::Category::Integer) {
+				fromInteger(to<IntegerType>(mt));
+			} else if (mt->category() == Type::Category::FixedPoint) {
+				fromFixedPoint(to<FixedPointType>(mt));
+			} else {
+				solUnimplemented("");
+			}
+			break;
+		}
+
+		case Type::Category::FixedPoint: {
+			fromFixedPoint(to<FixedPointType>(rightType));
+			break;
+		}
+
+		case Type::Category::Integer: {
+			fromInteger(to<IntegerType>(rightType));
+			break;
+		}
+
+		case Type::Category::FixedBytes: {
+			auto r = to<FixedBytesType>(rightType);
+			switch (leftType->category()) {
+				case Type::Category::FixedBytes:
+					fixedBytesFromFixedBytes(to<FixedBytesType>(leftType), r);
+					break;
+				default:
+					solUnimplemented("");
+					break;
+			}
+			break;
+		}
+
+
+		case Type::Category::Array: {
+			auto r = to<ArrayType>(rightType);
+			if (!r->isByteArray()) {
+				break;
+			}
+			// bytes or string
+			switch (leftType->category()) {
+				case Type::Category::Array:
+					break;
+				default:
+					solUnimplemented("");
+					break;
+			}
+			break;
+		}
+
+		case Type::Category::Address:
+		case Type::Category::Bool:
+		case Type::Category::Contract:
+		case Type::Category::Enum:
+		case Type::Category::ExtraCurrencyCollection:
+		case Type::Category::Function:
+		case Type::Category::Mapping:
+		case Type::Category::Optional: // !!!
+		case Type::Category::Struct:
+		case Type::Category::TvmBuilder:
+		case Type::Category::TvmCell:
+		case Type::Category::TvmSlice:
+			break;
+
+		case Type::Category::Tuple:
+			// opt(fixed32x5, fixed32x5) a;
+//			 a.get() = (1, 2, 4);
+			break;
+
+		case Type::Category::StringLiteral: {
+			auto r = to<StringLiteralType>(rightType);
+			switch (leftType->category()) {
+				case Type::Category::FixedBytes:
+					fixedBytesFromStringLiteral(to<FixedBytesType>(leftType), r);
+					break;
+				case Type::Category::Array:
+					break;
+				default:
+					solUnimplemented("");
+					break;
+			}
+			break;
+		}
+
+		default:
+			solUnimplemented(rightType->toString());
+			break;
+	}
+}
+
+void StackPusherHelper::checkFit(Type const *type) {
+	switch (type->category()) {
+
+		case Type::Category::Integer: {
+			auto it = to<IntegerType>(type);
+			if (it->isSigned()) {
+				push(0, "FITS " + toString(it->numBits()));
+			} else {
+				push(0, "UFITS " + toString(it->numBits()));
+			}
+			break;
+		}
+
+		case Type::Category::FixedPoint: {
+			auto fp = to<FixedPointType>(type);
+			if (fp->isSigned()) {
+				push(0, "FITS " + toString(fp->numBits()));
+			} else {
+				push(0, "UFITS " + toString(fp->numBits()));
+			}
+			break;
+		}
+
+		default:
+			solUnimplemented("");
+			break;
+	}
+
 }
 
 void StackPusherHelper::push(const CodeLines &codeLines) {
 	for (const std::string& s : codeLines.lines) {
 		push(0, s);
 	}
+}
+
+void StackPusherHelper::pushMacroCallInCallRef(int stackDelta, const string& fname) {
+	startCallRef();
+	pushPrivateFunctionOrMacroCall(stackDelta, fname);
+	endContinuation();
 }
 
 void StackPusherHelper::pushPrivateFunctionOrMacroCall(const int stackDelta, const string &fname) {
@@ -1336,35 +1606,6 @@ bool StackPusherHelper::tryAssignParam(Declaration const *name) {
 	return false;
 }
 
-void StackPusherHelper::ensureValueFitsType(const ElementaryTypeNameToken &typeName, const ASTNode &node) {
-	push(0, ";; " + typeName.toString());
-	switch (typeName.token()) {
-		case Token::IntM:
-			push(0, "FITS " + toString(typeName.firstNumber()));
-			break;
-		case Token::UIntM:
-			push(0, "UFITS " + toString(typeName.firstNumber()));
-			break;
-		case Token::BytesM:
-			push(0, "UFITS " + toString(8 * typeName.firstNumber()));
-			break;
-		case Token::Int:
-			push(0, "FITS 256");
-			break;
-		case Token::Address:
-			// Address is a slice
-			break;
-		case Token::UInt:
-			push(0, "UFITS 256");
-			break;
-		case Token::Bool:
-			push(0, "FITS 1");
-			break;
-		default:
-			cast_error(node, "Unimplemented casting");
-	}
-}
-
 void StackPusherHelper::prepareKeyForDictOperations(Type const *key, bool doIgnoreBytes) {
 	// stack: key
 	if (isStringOrStringLiteralOrBytes(key) || key->category() == Type::Category::TvmCell) {
@@ -1376,6 +1617,7 @@ void StackPusherHelper::prepareKeyForDictOperations(Type const *key, bool doIgno
 		sc.tupleToBuilder();
 		push(0, "ENDC");
 		push(0, "CTOS");
+	} else {
 	}
 }
 
@@ -1667,6 +1909,21 @@ void CodeLines::startContinuation() {
 	++tabQty;
 }
 
+void CodeLines::startIfRef() {
+	push("IFREF {");
+	++tabQty;
+}
+
+void CodeLines::startIfNotRef() {
+	push("IFNOTREF {");
+	++tabQty;
+}
+
+void CodeLines::startCallRef() {
+	push("CALLREF {");
+	++tabQty;
+}
+
 void CodeLines::endContinuation() {
 	--tabQty;
 	push("}");
@@ -1765,7 +2022,7 @@ bool TVMCompilerContext::isStdlib() const {
 	return m_contract->name() == "stdlib";
 }
 
-string TVMCompilerContext::getFunctionInternalName(FunctionDefinition const *_function) const {
+string TVMCompilerContext::getFunctionInternalName(FunctionDefinition const* _function) const {
 	if (isStdlib()) {
 		return _function->name();
 	}
@@ -1775,7 +2032,12 @@ string TVMCompilerContext::getFunctionInternalName(FunctionDefinition const *_fu
 	if (_function->isFallback()) {
 		return "fallback";
 	}
-	return _function->name() + "_internal";
+
+	string name = _function->name() + "_internal";
+	if (_function != getContractFunctions(getContract(), _function->name()).back()) {
+		name = _function->annotation().contract->name() + "_" + _function->name();
+	}
+	return name;
 }
 
 string TVMCompilerContext::getFunctionExternalName(FunctionDefinition const *_function) {
@@ -1921,6 +2183,9 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 		}
 		case Type::Category::Optional:
 			push(+1, "NULL");
+			break;
+		case Type::Category::FixedPoint:
+			pushInt(0);
 			break;
 		default:
 			solUnimplemented("");

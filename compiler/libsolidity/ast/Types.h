@@ -494,6 +494,7 @@ public:
 
 	std::string toString(bool _short) const override;
 	u256 literalValue(Literal const* _literal) const override;
+	bigint value() const;
 	TypePointer mobileType() const override;
 
 	/// @returns the smallest integer type that can hold the value or an empty pointer if not possible.
@@ -505,8 +506,6 @@ public:
 
 	/// @returns true if the value is not an integer.
 	bool isFractional() const { return m_value.denominator() != 1; }
-
-	bigint numerator() const { return m_value.numerator(); }
 
 	/// @returns true if the value is negative.
 	bool isNegative() const { return m_value < 0; }
@@ -785,9 +784,9 @@ public:
 	/// non-storage objects to a variable of storage pointer type is not possible.
 	bool isPointer() const { return m_isPointer; }
 
-	bool operator==(ReferenceType const& _other) const
+	bool operator==(ReferenceType const& /*_other*/) const
 	{
-		return /*location() == _other.location() && */isPointer() == _other.isPointer();
+		return true;
 	}
 
 	Type const* withLocation(bool _isPointer) const;
@@ -797,6 +796,7 @@ protected:
 	/// @returns the suffix computed from the reference part to be used by identifier();
 	std::string identifierLocationSuffix() const;
 
+	// it's useless parameter in TON
 	bool m_isPointer = true;
 };
 
@@ -1148,9 +1148,13 @@ public:
 
 		DecodeFunctionParams, ///< slice.decodeFunctionParams(function_name)
 		TVMLoadRef, ///< slice.loadRef()
+		TVMLoadSlice, ///< slice.loadSlice()
 		TVMSliceDataSize, ///< slice.dataSize()
 		TVMSliceDecode, ///< slice.decode(types)
 		TVMSliceSize, ///< slice.size()
+		TVMSliceSkip, ///< slice.skip()
+		TVMSliceCompare, ///< slice.compare()
+		TVMSliceHas, ///< slice.hasXXX()
 
 		TVMBuilderMethods, ///< builder.*()
 		TVMBuilderStore, ///< builder.store(...)
@@ -1168,7 +1172,6 @@ public:
 		Log3,
 		Log4,
 		LogTVM,
-		HexString, ///< convert integer to hex string
 		Format, ///< format function to generate an arbitrary string.
 		Event, ///< syntactic sugar for LOG*
 		SetGas, ///< modify the default gas value for the function call
@@ -1178,12 +1181,16 @@ public:
 		BlockHash, ///< BLOCKHASH
 		AddMod, ///< ADDMOD
 		MulMod, ///< MULMOD
+		ValueToGas, ///< valueToGas
+		GasToValue, ///< gasToValue
+
 		MessagePubkey, ///< msg.pubkey()
 
 		MathAbs, ///< math.abs()
 		MathDivC, ///< math.divc()
 		MathDivR, ///< math.divr()
-		MathMinOrMax, ///< math.min(a, b, ...) or math.max(a, b, ...)
+		MathMin, ///< math.min(a, b, ...)
+		MathMax, ///< math.max(a, b, ...)
 		MathMinMax, ///< math.minmax()
 		MathModpow2, ///< math.modpow2()
 		MathMulDiv, ///< math.muldiv()
@@ -1237,6 +1244,7 @@ public:
 		OptionalReset,  ///< .reset() for optional
 
 		StringMethod,  ///< string methods
+		StringSubstr,  ///< string.substr()
 		ObjectCreation, ///< array creation using new
 		Assert, ///< assert()
 		Require, ///< require()
