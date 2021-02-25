@@ -648,12 +648,13 @@ bool TypeChecker::visit(VariableDeclaration const& _variable)
 			case Type::Category::Integer:
 			case Type::Category::Struct: // length of struct is checked in another place
 			case Type::Category::TvmCell:
+			case Type::Category::FixedPoint:
 				break;
 			default:
 				m_errorReporter.typeError(
 					_variable.location(),
 				  	"Type " + mapType->keyType()->toString() + " can't be used as mapping key. "
-				  	"Allowed types: address, bytes, string, bool, contract, enum, fixed bytes, integer and struct.");
+				  	"Allowed types: address, bytes, string, bool, contract, enum, fixed bytes, fixed-point number, integer and struct.");
 				break;
 		}
 		break;
@@ -666,12 +667,6 @@ bool TypeChecker::visit(VariableDeclaration const& _variable)
 		m_errorReporter.syntaxError(
 			_variable.value()->location(),
 			"Static variables can be initialized only during contract deployment.");
-	}
-
-	if (_variable.type()->category() == Type::Category::FixedPoint) {
-		m_errorReporter.typeError(
-			_variable.location(),
-			"Rational numbers in not supported yet.");
 	}
 
 	if (_variable.type()->category() == Type::Category::Function) {
@@ -2322,18 +2317,33 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 }
 
 FunctionDefinition const*
-TypeChecker::checkPubFunctionOrContractTypeAndGetDefinition(Expression const& arg) {
+TypeChecker::checkPubFunctionAndGetDefinition(Expression const& arg, bool printError) {
 	FunctionDefinition const* funcDef = getFunctionDefinition(&arg);
 	if (funcDef) {
 		if (!funcDef->isPublic()) {
 			m_errorReporter.fatalTypeError(
-				arg.location(),
-				SecondarySourceLocation().append("Declaration is here:", funcDef->location()),
-				"Public/external function or contract type required, but \"" +
-						Declaration::visibilityToString(funcDef->visibility()) +
-				"\" function is provided."
+					arg.location(),
+					SecondarySourceLocation().append("Declaration is here:", funcDef->location()),
+					"Public/external function or contract type required, but \"" +
+					Declaration::visibilityToString(funcDef->visibility()) +
+					"\" function is provided."
 			);
 		}
+	} else if (printError) {
+		m_errorReporter.fatalTypeError(
+			arg.location(),
+			"Expected function type, but got " +
+			toString(arg.annotation().type->toString()) +
+			"."
+		);
+	}
+	return funcDef;
+}
+
+FunctionDefinition const*
+TypeChecker::checkPubFunctionOrContractTypeAndGetDefinition(Expression const& arg) {
+	FunctionDefinition const* funcDef = checkPubFunctionAndGetDefinition(arg);
+	if (funcDef) {
 		return funcDef;
 	}
 
@@ -2442,29 +2452,70 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		break;
 	}
 
-	auto isIntegerType = [this](ASTPointer<Expression const> arg){
-		Type::Category cat = arg->annotation().type->category();
-		if (cat != Type::Category::Integer && cat != Type::Category::RationalNumber) {
+	auto checkArgNumAndIsInteger = [&](
+		vector<ASTPointer<Expression const>> const& arguments,
+		size_t arguments_cnt,
+		const std::function<bool(size_t, size_t)>& cmpOperator,
+		const std::string& errorMsg
+	){
+		if (!cmpOperator(arguments.size(), arguments_cnt)) {
 			m_errorReporter.fatalTypeError(
-					arg->location(),
-					"Argument must have integer type."
+				_functionCall.location(),
+				errorMsg
 			);
+		}
+
+		for (const auto & arg : arguments) {
+			Type::Category cat = arg->annotation().type->mobileType()->category();
+			if (cat != Type::Category::Integer) {
+				m_errorReporter.fatalTypeError(
+					arg->location(),
+					"Expected an integer type."
+				);
+			}
 		}
 	};
 
-	auto checkArgNumAndIsInteger = [&](vector<ASTPointer<Expression const>> const& arguments,
-		size_t arguments_cnt, std::function<bool(size_t, size_t)> cmpOperator,
-			std::string errorMsg){
-			if (!cmpOperator(arguments.size(), arguments_cnt)) {
+	auto checkArgNumAndIsIntegerOrFixedPoint = [&](
+		vector<ASTPointer<Expression const>> const& arguments,
+		size_t arguments_cnt,
+		const std::function<bool(size_t, size_t)>& cmpOperator,
+		const std::string& errorMsg
+	){
+		if (!cmpOperator(arguments.size(), arguments_cnt)) {
+			m_errorReporter.fatalTypeError(
+				_functionCall.location(),
+				errorMsg
+			);
+		}
+
+		for (const auto & arg : arguments) {
+			Type::Category cat = arg->annotation().type->mobileType()->category();
+			if (cat != Type::Category::Integer && cat != Type::Category::FixedPoint) {
 				m_errorReporter.fatalTypeError(
-						_functionCall.location(),
-						errorMsg
+					arg->location(),
+					"Expected integer or fixed point type."
 				);
 			}
+		}
+	};
 
-			for (std::size_t i = 0; i < arguments.size(); ++i) {
-				isIntegerType(arguments.at(i));
-			}
+	auto checkAllAreNotFractions = [&] (vector<ASTPointer<Expression const>> const& arguments) {
+		bool areAllConstants = true;
+		bool haveAnyFraction = false;
+		SourceLocation loc;
+		for (const auto & arg : arguments) {
+			auto r = dynamic_cast<RationalNumberType const*>(arg->annotation().type);
+			areAllConstants &= r != nullptr;
+			haveAnyFraction |= r != nullptr && r->isFractional();
+			loc = SourceLocation::smallestCovering(loc, arg->location());
+		}
+		if (areAllConstants && haveAnyFraction) {
+			m_errorReporter.fatalTypeError(
+				loc,
+				"Cannot perform operation for constant literals. Please convert at least one function argument to an explicit type."
+			);
+		}
 	};
 
 	auto getCommonType = [&](vector<ASTPointer<Expression const>> const& arguments){
@@ -2482,7 +2533,10 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		return result;
 	};
 
+
 	// Determine return types
+	// and target params arguments if function takes variable count of arguments or
+	// takes fixed count of arguments but returned type depends on types of parameters
 	switch (funcCallAnno.kind)
 	{
 	case FunctionCallKind::TypeConversion:
@@ -2492,7 +2546,15 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 	case FunctionCallKind::StructConstructorCall: // fall-through
 	case FunctionCallKind::FunctionCall:
 	{
+		TypePointers paramTypes = functionType->parameterTypes();
 		TypePointers returnTypes;
+		auto checkArgConversion = [&]() {
+			for (size_t i = 0; i < paramTypes.size(); ++i) {
+				if (!arguments.at(i)->annotation().type->isImplicitlyConvertibleTo(*paramTypes.at(i))) {
+					m_errorReporter.typeError(_functionCall.location(), "Expected at least one argument.");
+				}
+			}
+		};
 
 		switch (functionType->kind())
 		{
@@ -2520,7 +2582,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				if (arguments.size() != 1) {
 					m_errorReporter.fatalTypeError(
 						_functionCall.location(),
-						string("One argument is expected.")
+						string("Expected one argument.")
 					);
 				}
 				FunctionDefinition const* functionDeclaration = checkPubFunctionOrContractTypeAndGetDefinition(*arguments.front().get());
@@ -2536,32 +2598,30 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			}
 			case FunctionType::Kind::RndNext:
 			{
-				checkArgNumAndIsInteger(arguments, 1, std::less_equal<>(), "Must take at most one argument.");
+				checkArgNumAndIsInteger(arguments, 1, std::less_equal<>(), "Expected at most one argument.");
 				if (arguments.empty()) {
 					returnTypes.push_back(TypeProvider::uint256());
 				} else {
-					TypePointer result = arguments.at(0)->annotation().type;
-					result = result->mobileType();
+					TypePointer result = arguments.at(0)->annotation().type->mobileType();
+					paramTypes.push_back(result);
 					returnTypes.push_back(result);
 				}
 				break;
 			}
-			case FunctionType::Kind::RndShuffle:
+			case FunctionType::Kind::MathMin:
+			case FunctionType::Kind::MathMax:
 			{
-				checkArgNumAndIsInteger(arguments, 1, std::less_equal<>(), "Must take at most one argument.");
-				break;
-			}
-			case FunctionType::Kind::MathMinOrMax:
-			{
-				checkArgNumAndIsInteger(arguments, 2, std::greater_equal<>(), "This function takes at least two arguments.");
+				checkArgNumAndIsIntegerOrFixedPoint(arguments, 2, std::greater_equal<>(), "Expected at least two arguments.");
 				TypePointer result = getCommonType(arguments);
+				paramTypes = TypePointers(arguments.size(), result);
 				returnTypes.push_back(result);
 				break;
 			}
 			case FunctionType::Kind::MathMinMax:
 			{
-				checkArgNumAndIsInteger(arguments, 2, std::equal_to<>(), "This function takes two arguments.");
+				checkArgNumAndIsIntegerOrFixedPoint(arguments, 2, std::equal_to<>(), "Expected two arguments.");
 				TypePointer result = getCommonType(arguments);
+				paramTypes = TypePointers(arguments.size(), result);
 				returnTypes.push_back(result);
 				returnTypes.push_back(result);
 				break;
@@ -2569,15 +2629,19 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			case FunctionType::Kind::MathDivR:
 			case FunctionType::Kind::MathDivC:
 			{
-				checkArgNumAndIsInteger(arguments, 2, std::equal_to<>(), "Must take two arguments.");
+				checkArgNumAndIsIntegerOrFixedPoint(arguments, 2, std::equal_to<>(), "Expected two arguments.");
+				checkAllAreNotFractions(arguments);
 				TypePointer result = getCommonType(arguments);
+				paramTypes = TypePointers(arguments.size(), result);
 				returnTypes.push_back(result);
 				break;
 			}
 			case FunctionType::Kind::MathDivMod:
 			{
-				checkArgNumAndIsInteger(arguments, 2, std::equal_to<>(), "This function takes two arguments.");
+				checkArgNumAndIsInteger(arguments, 2, std::equal_to<>(), "Expected two arguments.");
 				TypePointer result = getCommonType(arguments);
+				paramTypes.push_back(result);
+				paramTypes.push_back(result);
 				returnTypes.push_back(result);
 				returnTypes.push_back(result);
 				break;
@@ -2585,33 +2649,37 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			case FunctionType::Kind::MathMulDiv:
 			case FunctionType::Kind::MathMulDivMod:
 			{
-				checkArgNumAndIsInteger(arguments, 3, std::equal_to<>(), "This function takes three arguments.");
+				checkArgNumAndIsInteger(arguments, 3, std::equal_to<>(), "Expected three arguments.");
 				TypePointer result = getCommonType(arguments);
+				paramTypes.push_back(result);
+				paramTypes.push_back(result);
+				paramTypes.push_back(result);
 				returnTypes.push_back(result);
-				if (functionType->kind() == FunctionType::Kind::MathMulDivMod)
+				if (functionType->kind() == FunctionType::Kind::MathMulDivMod) {
 					returnTypes.push_back(result);
+				}
 				break;
 			}
 			case FunctionType::Kind::MathAbs:
 			{
-				checkArgNumAndIsInteger(arguments, 1, std::equal_to<>(), "This function takes one argument.");
-				TypePointer type = arguments[0]->annotation().type;
+				checkArgNumAndIsIntegerOrFixedPoint(arguments, 1, std::equal_to<>(), "Expected one argument.");
+				TypePointer type = arguments[0]->annotation().type->mobileType();
+				paramTypes.push_back(type);
 				returnTypes.push_back(type->mobileType());
 				break;
 			}
 			case FunctionType::Kind::MathModpow2:
 			{
-				checkArgNumAndIsInteger(arguments, 2, std::equal_to<>(), "This function takes two arguments.");
-				bool isConst = arguments[1]->annotation().isPure &&
-						((arguments[1]->annotation().type->category() == Type::Category::RationalNumber) ||
-						(arguments[1]->annotation().type->category() == Type::Category::Integer));
+				checkArgNumAndIsInteger(arguments, 2, std::equal_to<>(), "Expected two arguments.");
+				bool isConst = arguments[1]->annotation().isPure;
 				if (!isConst) {
 					m_errorReporter.fatalTypeError(
 							arguments.at(1)->location(),
-							"Second argument for this function should be a constant integer."
+							"Expected a constant integer type but got " +
+							arguments[1]->annotation().type->toString() + "."
 					);
 				}
-				returnTypes.push_back(arguments.at(0)->annotation().type);
+				returnTypes.push_back(arguments.at(0)->annotation().type->mobileType());
 				break;
 			}
 			case FunctionType::Kind::TVMBuilderStore:
@@ -2674,6 +2742,14 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 							m_errorReporter.typeError(arguments[0]->location(), errorMsg);
 						}
 					}
+					auto arrKey = dynamic_cast<ArrayType const*>(keyType);
+					if (arrKey != nullptr && arrKey->isByteArray()) { // string or bytes
+						paramTypes.push_back(TypeProvider::uint256());
+					} else if (keyType->category() == Type::Category::Integer) {
+						paramTypes.push_back(TypeProvider::integer(257, IntegerType::Modifier::Signed));
+					} else {
+						paramTypes.push_back(keyType);
+					}
 				} else {
 					if (!arguments.empty()) {
 						m_errorReporter.typeError(arguments[0]->location(), "Expected no arguments.");
@@ -2729,7 +2805,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				};
 				std::vector<std::string> names = {"dest", "call"};
 				std::vector<int> indexes;
-				for(auto name: names) {
+				for(const auto& name: names) {
 					int index = findName(name);
 					indexes.push_back(index);
 					if (index == -1){
@@ -2804,7 +2880,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 						}
 					}
 				}
-				int stateIndex = findName("statInit");
+				int stateIndex = findName("stateInit");
 				if (stateIndex != -1){
 					auto cat = arguments[stateIndex]->annotation().type->category();
 					if (cat !=Type::Category::TvmCell) {
@@ -2869,13 +2945,13 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 					if (hasData && (hasVarInit || hasPubkey)) {
 						m_errorReporter.fatalTypeError(
 								_functionCall.location(),
-								string("Parameter \"data\" can't be specified with \"pubkey\" or \"varInit\".")
+								string(R"(Parameter "data" can't be specified with "pubkey" or "varInit".)")
 						);
 					}
 					if (hasVarInit != hasContr) {
 						m_errorReporter.fatalTypeError(
 								_functionCall.location(),
-								string("Parameter \"varInit\" requires parameter \"contr\" and there is no need in \"contr\" without \"varInit\".")
+								string(R"(Parameter "varInit" requires parameter "contr" and there is no need in "contr" without "varInit".)")
 						);
 					}
 				}
@@ -2951,6 +3027,9 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 									toString(calleeParams.size()) + " function argument(s)."
 							);
 						} else {
+							if (needCallback) {
+								checkPubFunctionAndGetDefinition(*arguments.at(1).get(), true);
+							}
 							for (size_t i = 0; i < calleeParams.size(); i++)
 								expectType(*arguments[1 + shift + i], *calleeParams[i]->annotation().type);
 						}
@@ -2975,6 +3054,61 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				}
 				break;
 			}
+			case FunctionType::Kind::LogTVM: {
+				if (arguments.size() != 1) {
+					m_errorReporter.typeError(
+						_functionCall.location(),
+						"Expected one argument."
+					);
+				} else {
+					Type const *type = arguments.at(0)->annotation().type;
+					auto strLiteral = dynamic_cast<StringLiteralType const *>(type);
+					std::string errMsg;
+					if (strLiteral) {
+						if (strLiteral->value().size() >= 17)
+							errMsg = "String literal must not be longer than 16 characters.";
+					} else {
+						errMsg = "Expected a string literal, but got " + type->toString() + ".";
+					}
+					if (!errMsg.empty()) {
+						m_errorReporter.typeError(arguments.at(0)->location(), errMsg);
+					} else {
+						typeCheckFunctionCall(_functionCall, functionType);
+					}
+				}
+				returnTypes = functionType->returnParameterTypes();
+				break;
+			}
+			case FunctionType::Kind::Require: {
+				paramTypes.push_back(TypeProvider::boolean());
+				if (arguments.empty()) {
+					m_errorReporter.fatalTypeError(_functionCall.location(), "Expected at least one argument.");
+				}
+				if (arguments.size() >= 2) {
+					paramTypes.push_back(TypeProvider::uint256());
+				}
+				if (arguments.size() >= 3) {
+					paramTypes.push_back(arguments.at(2)->annotation().type->mobileType());
+				}
+				if (arguments.size() >= 4) {
+					m_errorReporter.typeError(_functionCall.location(), "Expected at most 3 arguments.");
+				}
+				checkArgConversion();
+				break;
+			}
+			case FunctionType::Kind::Revert: {
+				if (!arguments.empty()) {
+					paramTypes.push_back(TypeProvider::uint256());
+				}
+				if (arguments.size() >= 2) {
+					paramTypes.push_back(arguments.at(1)->annotation().type->mobileType());
+				}
+				if (arguments.size() >= 3) {
+					m_errorReporter.typeError(_functionCall.location(), "Expected at most 2 arguments.");
+				}
+				checkArgConversion();
+				break;
+			}
 			default:
 			{
 				typeCheckFunctionCall(_functionCall, functionType);
@@ -2982,6 +3116,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				break;
 			}
 		}
+		funcCallAnno.arguments->targetTypes = paramTypes;
 		funcCallAnno.type = returnTypes.size() == 1 ?
 			returnTypes.front() :
 			TypeProvider::tuple(move(returnTypes));
@@ -3813,34 +3948,6 @@ void TypeChecker::endVisit(CallList const& _expr) {
 
 void TypeChecker::endVisit(Literal const& _literal)
 {
-//	if (_literal.looksLikeAddress())
-//	{
-//		// Assign type here if it even looks like an address. This prevents double errors for invalid addresses
-//		_literal.annotation().type = TypeProvider::payableAddress();
-//
-//		string msg;
-//		if (_literal.valueWithoutUnderscores().length() != 42) // "0x" + 40 hex digits
-//			// looksLikeAddress enforces that it is a hex literal starting with "0x"
-//			msg =
-//				"This looks like an address but is not exactly 40 hex digits. It is " +
-//				to_string(_literal.valueWithoutUnderscores().length() - 2) +
-//				" hex digits.";
-//		else if (!_literal.passesAddressChecksum())
-//		{
-//			msg = "This looks like an address but has an invalid checksum.";
-//			if (!_literal.getChecksummedAddress().empty())
-//				msg += " Correct checksummed address: \"" + _literal.getChecksummedAddress() + "\".";
-//		}
-//
-//		if (!msg.empty())
-//			m_errorReporter.syntaxError(
-//				_literal.location(),
-//				msg +
-//				" If this is not used as an address, please prepend '00'. " +
-//				"For more information please see https://solidity.readthedocs.io/en/develop/types.html#address-literals"
-//			);
-//	}
-
 	if (_literal.isHexNumber() && _literal.subDenomination() != Literal::SubDenomination::None)
 		m_errorReporter.fatalTypeError(
 			_literal.location(),
@@ -3861,14 +3968,6 @@ void TypeChecker::endVisit(Literal const& _literal)
 		m_errorReporter.fatalTypeError(_literal.location(), "Invalid literal value.");
 
 	_literal.annotation().isPure = true;
-
-
-	if (type(_literal)->category() == Type::Category::RationalNumber) {
-		auto rat = dynamic_cast<RationalNumberType const*>(type(_literal));
-		if (rat->isFractional()) {
-			m_errorReporter.typeError(_literal.location(), "Rational numbers are not supported yet.");
-		}
-	}
 }
 
 bool TypeChecker::visit(Mapping const& _mapping)

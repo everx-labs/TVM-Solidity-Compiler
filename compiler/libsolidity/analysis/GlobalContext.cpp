@@ -44,7 +44,6 @@ int magicVariableToID(std::string const& _name)
 	else if (_name == "ecrecover") return -6;
 	else if (_name == "format") return -105;
 	else if (_name == "gasleft") return -7;
-	else if (_name == "hexstring") return -104;
 	else if (_name == "keccak256") return -8;
 	else if (_name == "log0") return -10;
 	else if (_name == "log1") return -11;
@@ -70,6 +69,8 @@ int magicVariableToID(std::string const& _name)
 	else if (_name == "tx") return -26;
 	else if (_name == "type") return -27;
 	else if (_name == "this") return -28;
+	else if (_name == "gasToValue") return -60;
+	else if (_name == "valueToGas") return -61;
 	else
 		solAssert(false, "Unknown magic variable: \"" + _name + "\".");
 }
@@ -89,20 +90,19 @@ inline vector<shared_ptr<MagicVariableDeclaration const>> constructMagicVariable
 		magicVarDecl("ecrecover", TypeProvider::function(strings{"bytes32", "uint8", "bytes32", "bytes32"}, strings{"address"}, FunctionType::Kind::ECRecover, false, StateMutability::Pure)),
 		magicVarDecl("format", TypeProvider::function(strings{}, strings{"string"}, FunctionType::Kind::Format, true, StateMutability::Pure)),
 		magicVarDecl("gasleft", TypeProvider::function(strings(), strings{"uint256"}, FunctionType::Kind::GasLeft, false, StateMutability::View)),
-		magicVarDecl("hexstring", TypeProvider::function(strings{}, strings{"string"}, FunctionType::Kind::HexString, true, StateMutability::Pure)),
 		magicVarDecl("keccak256", TypeProvider::function(strings{"bytes memory"}, strings{"bytes32"}, FunctionType::Kind::KECCAK256, false, StateMutability::Pure)),
 		magicVarDecl("log0", TypeProvider::function(strings{"bytes32"}, strings{}, FunctionType::Kind::Log0)),
 		magicVarDecl("log1", TypeProvider::function(strings{"bytes32", "bytes32"}, strings{}, FunctionType::Kind::Log1)),
 		magicVarDecl("log2", TypeProvider::function(strings{"bytes32", "bytes32", "bytes32"}, strings{}, FunctionType::Kind::Log2)),
 		magicVarDecl("log3", TypeProvider::function(strings{"bytes32", "bytes32", "bytes32", "bytes32"}, strings{}, FunctionType::Kind::Log3)),
 		magicVarDecl("log4", TypeProvider::function(strings{"bytes32", "bytes32", "bytes32", "bytes32", "bytes32"}, strings{}, FunctionType::Kind::Log4)),
-		magicVarDecl("logtvm", TypeProvider::function(strings{"bytes32"}, strings{}, FunctionType::Kind::LogTVM, false, StateMutability::Pure)),
+		magicVarDecl("logtvm", TypeProvider::function(strings{"string"}, strings{}, FunctionType::Kind::LogTVM, false, StateMutability::Pure)),
 		magicVarDecl("math", TypeProvider::magic(MagicType::Kind::Math)),
 		magicVarDecl("rnd", TypeProvider::magic(MagicType::Kind::Rnd)),
 		magicVarDecl("msg", TypeProvider::magic(MagicType::Kind::Message)),
 		magicVarDecl("mulmod", TypeProvider::function(strings{"uint256", "uint256", "uint256"}, strings{"uint256"}, FunctionType::Kind::MulMod, false, StateMutability::Pure)),
 		magicVarDecl("now", TypeProvider::uint(32)),
-		magicVarDecl("require", TypeProvider::function(strings{"bool"}, strings{}, FunctionType::Kind::Require, true, StateMutability::Pure)),
+		magicVarDecl("require", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::Require, true, StateMutability::Pure)),
 		magicVarDecl("revert", TypeProvider::function(strings(), strings(), FunctionType::Kind::Revert, true, StateMutability::Pure)),
 		magicVarDecl("ripemd160", TypeProvider::function(strings{"bytes memory"}, strings{"bytes20"}, FunctionType::Kind::RIPEMD160, false, StateMutability::Pure)),
 		magicVarDecl("selfdestruct", TypeProvider::function(strings{"address payable"}, strings{}, FunctionType::Kind::Selfdestruct)),
@@ -119,6 +119,8 @@ inline vector<shared_ptr<MagicVariableDeclaration const>> constructMagicVariable
 			false,
 			StateMutability::Pure
 		)),
+		magicVarDecl("valueToGas", TypeProvider::function({"uint128", "int8"}, {"uint128"}, FunctionType::Kind::ValueToGas, false, StateMutability::Pure)),
+		magicVarDecl("gasToValue", TypeProvider::function({"uint128", "int8"}, {"uint128"}, FunctionType::Kind::GasToValue, false, StateMutability::Pure)),
 	};
 }
 

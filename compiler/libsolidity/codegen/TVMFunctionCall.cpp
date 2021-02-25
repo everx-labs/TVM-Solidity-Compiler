@@ -20,7 +20,6 @@
 #include "TVMExpressionCompiler.hpp"
 #include "TVMIntrinsics.hpp"
 #include "TVMStructCompiler.hpp"
-#include "TVMContractCompiler.hpp"
 #include "TVMABI.hpp"
 
 #include <boost/algorithm/string.hpp>
@@ -28,40 +27,87 @@
 
 using namespace solidity::frontend;
 
-void FunctionCallCompiler::acceptExpr(const Expression *expr) {
-	m_exprCompiler->compileNewExpr(expr);
-}
 
-FunctionCallCompiler::FunctionCallCompiler(StackPusherHelper &m_pusher, TVMExpressionCompiler *exprCompiler,
-											FunctionCall const& _functionCall) :
+class DelMinOrMax : public DictOperation {
+public:
+	DelMinOrMax(StackPusherHelper& pusher, Type const &keyType, Type const &valueType, bool isDelMin, MemberAccess const* memberAccess)  :
+			DictOperation{pusher, keyType, valueType},
+			isDelMin{isDelMin},
+			memberAccess{memberAccess},
+			ec{pusher}
+	{
+
+	}
+
+	void delMinOrMax() {
+		bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
+		opcode = "DICT" + typeToDictChar(&keyType) + "REM" + (isDelMin? "MIN" : "MAX") + (isInRef? "REF" : "");
+		stackSize = pusher.getStack().size();
+
+		lValueInfo = ec.expandLValue(&memberAccess->expression(), true, false); // lValue... map
+		pusher.pushInt(keyLength); // dict nbits
+		pusher.push(-2 + 3, opcode); //  D value key -1
+
+		pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, true, isInRef, StackPusherHelper::DecodeType::DecodeValueOrPushNull, false);
+
+		// mapLValue... D optPair
+		const int cntOfValuesOnStack = pusher.getStack().size() - stackSize;
+		pusher.blockSwap(cntOfValuesOnStack - 1, 1); // optPair mapLValue... map
+		ec.collectLValue(lValueInfo, true, false); // value key
+	}
+
+private:
+	const bool isDelMin{};
+	MemberAccess const* memberAccess{};
+	TVMExpressionCompiler::LValueInfo lValueInfo{};
+	TVMExpressionCompiler ec;
+	int stackSize{};
+	std::string opcode;
+};
+
+	FunctionCallCompiler::FunctionCallCompiler(StackPusherHelper &m_pusher, TVMExpressionCompiler *exprCompiler,
+											FunctionCall const& _functionCall, bool isCurrentResultNeeded) :
 		m_pusher{m_pusher},
 		m_exprCompiler{exprCompiler},
 		m_functionCall{_functionCall},
-		m_arguments{_functionCall.arguments()} {
-
+		m_arguments{_functionCall.arguments()},
+		m_funcType{to<FunctionType>(m_functionCall.expression().annotation().type)},
+		m_retType{m_functionCall.annotation().type},
+		m_isCurrentResultNeeded{isCurrentResultNeeded}
+{
 }
 
 void FunctionCallCompiler::structConstructorCall() {
 	auto const& type = dynamic_cast<TypeType const&>(*m_functionCall.expression().annotation().type);
 	auto const& structType = dynamic_cast<StructType const&>(*type.actualType());
-	auto pushParam = [&](int index) {
-		acceptExpr(m_arguments.at(index).get());
+	auto pushParam = [&](int index, Type const* targetType) {
+		pushExprAndConvert(m_arguments.at(index).get(), targetType);
 	};
 	StructCompiler structCompiler{&m_pusher, &structType};
 	structCompiler.structConstructor(m_functionCall.names(), pushParam);
 }
 
-void FunctionCallCompiler::compile() {
+bool FunctionCallCompiler::compile() {
+	if (checkRemoteMethodCall(m_functionCall)) {
+		// To avoid situation when we call a function of a remote contract and don't save the result.
+		// Remote function can return a result but in fact we don't get it.
+		return false;
+	}
+
+
 	auto ma = to<MemberAccess>(&m_functionCall.expression());
 	auto reportError = [&](){
 		cast_error(m_functionCall, "Unsupported function call");
 	};
 
-	if (checkNewExpression() ||
+	if ((ma != nullptr && libraryCall(*ma)) ||
+		checkForMappingOrCurrenciesMethods() ||
+		checkNewExpression() ||
 		checkTvmIntrinsic() ||
 		checkAddressThis() ||
 		checkSolidityUnits() ||
 		checkLocalFunctionCallOrFuncVarCall()) {
+		// do nothing
 	} else if (ma != nullptr && getType(&ma->expression())->category() == Type::Category::Struct) {
 		if (!structMethodCall()) {
 			reportError();
@@ -117,11 +163,148 @@ void FunctionCallCompiler::compile() {
 			reportError();
 		}
 	}
+	return true;
+}
+
+bool FunctionCallCompiler::checkForMappingOrCurrenciesMethods() {
+	auto expr = &m_functionCall.expression();
+	auto ma = to<MemberAccess>(expr);
+	if (ma == nullptr || (!to<MappingType>(ma->expression().annotation().type) && !to<ExtraCurrencyCollectionType>(ma->expression().annotation().type)))
+		return false;
+
+	const ASTString &memberName = ma->memberName();
+	m_pusher.push(0, ";; map." + memberName);
+
+	if (isIn(memberName, "delMin", "delMax")) {
+		mappingDelMinOrMax(memberName == std::string{"delMin"});
+	} else  if (isIn(memberName, "at", "fetch", "exists", "replace", "add", "getSet", "getAdd", "getReplace")) {
+		mappingGetSet();
+	} else if (isIn(memberName, "min", "max")) {
+		mappingMinMaxMethod(memberName == std::string{"min"});
+	} else if (isIn(memberName, "next", "prev", "nextOrEq", "prevOrEq")) {
+		mappingPrevNextMethods();
+	} else if (memberName == "empty") {
+		mappingEmpty();
+	} else {
+		cast_error(m_functionCall, "Unsupported mapping method");
+	}
+
+	return true;
+}
+
+void FunctionCallCompiler::mappingDelMinOrMax(bool isDelMin) {
+	auto memberAccess = to<MemberAccess>(&m_functionCall.expression());
+
+	Type const* keyType{};
+	Type const* valueType{};
+	std::tie(keyType, valueType) = dictKeyValue(memberAccess->expression().annotation().type);
+
+	DelMinOrMax d{m_pusher, *keyType, *valueType, isDelMin, memberAccess};
+	d.delMinOrMax();
+}
+
+void FunctionCallCompiler::mappingGetSet() {
+	auto memberAccess = to<MemberAccess>(&m_functionCall.expression());
+
+	Type const* keyType{};
+	Type const* valueType{};
+	std::tie(keyType, valueType) = dictKeyValue(memberAccess->expression().annotation().type);
+
+	const ASTString &memberName = memberAccess->memberName();
+	if (isIn(memberName, "fetch", "at")) {
+		pushArgs(); // index
+		m_pusher.prepareKeyForDictOperations(keyType, false);
+		acceptExpr(&memberAccess->expression()); // index dict
+		if (memberName == "fetch")
+			m_pusher.getDict(*keyType, *valueType, StackPusherHelper::GetDictOperation::Fetch, false);
+		else
+			m_pusher.getDict(*keyType, *valueType, StackPusherHelper::GetDictOperation::GetFromArray, false);
+	} else if (memberName == "exists") {
+		pushArgs(); // index
+		m_pusher.prepareKeyForDictOperations(keyType, false);
+		acceptExpr(&memberAccess->expression()); // index dict
+		m_pusher.getDict(*keyType, *valueType, StackPusherHelper::GetDictOperation::Exist, false);
+	} else if (isIn(memberName, "replace", "add", "getSet", "getAdd", "getReplace")) {
+		const int stackSize = m_pusher.getStack().size();
+		auto ma = to<MemberAccess>(&m_functionCall.expression());
+		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&ma->expression(), true); // lValue... map
+		pushArgAndConvert(1); // lValue... map value
+		const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueType, false); // lValue... map value'
+		pushArgAndConvert(0); // mapLValue... map value key
+		m_pusher.prepareKeyForDictOperations(keyType, false);
+		m_pusher.push(0, "ROT"); // mapLValue... value key map
+
+		if (isIn(memberName, "replace", "add")) {
+			StackPusherHelper::SetDictOperation op;
+			if (memberName == "replace") {
+				op = StackPusherHelper::SetDictOperation::Replace;
+			} else if (memberName == "add") {
+				op = StackPusherHelper::SetDictOperation::Add;
+			} else {
+				solUnimplemented("");
+			}
+			m_pusher.setDict(*keyType, *valueType, dataType, op); // mapLValue... map {0, -1}
+		} else {
+			StackPusherHelper::GetDictOperation op;
+			if (memberName == "getSet") {
+				op = StackPusherHelper::GetDictOperation::GetSetFromMapping;
+			} else if (memberName == "getAdd") {
+				op = StackPusherHelper::GetDictOperation::GetAddFromMapping;
+			} else if (memberName == "getReplace") {
+				op = StackPusherHelper::GetDictOperation::GetReplaceFromMapping;
+			} else {
+				solUnimplemented("");
+			}
+			m_pusher.getDict(*keyType, *valueType, op, false, dataType);
+			// mapLValue... map optValue
+		}
+		const int cntOfValuesOnStack = m_pusher.getStack().size() - stackSize;  // mapLValue... map optValue
+		m_pusher.blockSwap(cntOfValuesOnStack - 1, 1); // optValue mapLValue... map
+		m_exprCompiler->collectLValue(lValueInfo, true, false); // optValue
+	} else {
+		solUnimplemented("");
+	}
+}
+
+void FunctionCallCompiler::mappingMinMaxMethod(bool isMin) {
+	auto expr = &m_functionCall.expression();
+	auto memberAccess = to<MemberAccess>(expr);
+
+	Type const* keyType{};
+	Type const* valueType{};
+	std::tie(keyType, valueType) = dictKeyValue(memberAccess->expression().annotation().type);
+
+	acceptExpr(&memberAccess->expression()); // dict
+
+	DictMinMax compiler{m_pusher, *keyType, *valueType, isMin};
+	compiler.minOrMax();
+}
+
+void FunctionCallCompiler::mappingPrevNextMethods() {
+	auto expr = &m_functionCall.expression();
+	auto memberAccess = to<MemberAccess>(expr);
+	Type const* keyType{};
+	Type const* valueType{};
+	std::tie(keyType, valueType) = dictKeyValue(memberAccess->expression().annotation().type);
+
+	pushArgAndConvert(0); // index
+	m_pusher.prepareKeyForDictOperations(keyType, true); // index'
+	acceptExpr(&memberAccess->expression()); // index' dict
+	m_pusher.pushInt(lengthOfDictKey(keyType)); // index' dict nbits
+
+	DictPrevNext compiler{m_pusher, *keyType, *valueType, memberAccess->memberName()};
+	compiler.prevNext();
+}
+
+void FunctionCallCompiler::mappingEmpty() {
+	auto expr = &m_functionCall.expression();
+	auto ma = to<MemberAccess>(expr);
+	acceptExpr(&ma->expression());
+	m_pusher.push(0, "DICTEMPTY");
 }
 
 void FunctionCallCompiler::superFunctionCall(MemberAccess const &_node) {
-	for (const auto &arg : m_arguments)
-		acceptExpr(arg.get());
+	pushArgs();
 	m_pusher.push(0, ";; super");
 
 	string fname = _node.memberName();
@@ -150,9 +333,7 @@ void FunctionCallCompiler::typeTypeMethods(MemberAccess const &_node) {
 			StackPusherHelper::addBinaryNumberToString(addr, u256(num), int(len));
 			m_pusher.push(+1, "PUSHSLICE x" + StackPusherHelper::binaryStringToSlice(addr));
 		} else {
-			for (const auto &arg : m_arguments) {
-				acceptExpr(arg.get());
-			}
+			pushArgs();
 			m_pusher.push(0, ";; address.makeAddrExtern()");
 			m_pusher.push(+1, "DUP"); // numb cntBit cntBit
 			m_pusher.push(+1, "NEWC"); // numb cntBit cntBit builder
@@ -176,9 +357,7 @@ void FunctionCallCompiler::typeTypeMethods(MemberAccess const &_node) {
 			StackPusherHelper::addBinaryNumberToString(addr, u256(val), 256);
 			m_pusher.push(+1, "PUSHSLICE x" + StackPusherHelper::binaryStringToSlice(addr));
 		} else {
-			for (const auto &arg : m_arguments | boost::adaptors::reversed) {
-				acceptExpr(arg.get());
-			}
+			pushArgs(true);
 			m_pusher.push(+1, "NEWC");
 			m_pusher.push(-1 + 1, "STSLICECONST x9_");
 			m_pusher.push(-1, "STI 8");
@@ -189,6 +368,43 @@ void FunctionCallCompiler::typeTypeMethods(MemberAccess const &_node) {
 	} else {
 		solUnimplemented("");
 	}
+}
+
+bool FunctionCallCompiler::libraryCall(MemberAccess const& ma) {
+	if (auto libFunction = to<FunctionDefinition>(ma.annotation().referencedDeclaration)) {
+		DeclarationAnnotation const &da = libFunction->annotation();
+		if (da.contract->contractKind() == ContractKind::Library) {
+			m_pusher.ctx().addLib(libFunction);
+
+			auto t = getType(&ma.expression());
+			const int argQty = static_cast<int>(m_arguments.size());
+			const int retQty = static_cast<int>(libFunction->returnParameters().size());
+			if (t->category() == Type::Category::TypeType) {
+				// uint z = MyLib.sum(a, b);
+				pushArgs();
+				m_pusher.pushPrivateFunctionOrMacroCall(-argQty + retQty,
+														da.contract->name() + "_no_obj_" + libFunction->name());
+			} else {
+				// using MathLib for uint;
+				// a.add(b);
+				const int stakeSize0 = m_pusher.getStack().size();
+				const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&ma.expression(),
+																								  true);
+				const int stakeSize1 = m_pusher.getStack().size();
+				const int lValueQty = stakeSize1 - stakeSize0;
+
+				pushArgs();
+				m_pusher.pushPrivateFunctionOrMacroCall((-1 - argQty) + (+1 + retQty),
+														da.contract->name() + "_with_obj_" + libFunction->name());
+
+				m_pusher.blockSwap(lValueQty, retQty);
+
+				m_exprCompiler->collectLValue(lValueInfo, true, false);
+			}
+			return true;
+		}
+	}
+	return false;
 }
 
 void FunctionCallCompiler::loadTypeFromSlice(MemberAccess const &_node, TypePointer type) {
@@ -232,11 +448,11 @@ void FunctionCallCompiler::loadTypeFromSlice(MemberAccess const &_node, TypePoin
 
 
 std::function<void()> FunctionCallCompiler::generateDataSection(
-			std::function<void()> pushKey,
+			const std::function<void()>& pushKey,
 			bool & hasVars,
-			ASTPointer<Expression const> vars,
+			const ASTPointer<Expression const>& vars,
 			bool & isNew,
-			ASTPointer<Expression const> contr
+			const ASTPointer<Expression const>& contr
 		) {
 	return [pushKey, this, hasVars, vars, isNew, contr]() {
 		// creat dict with variable values
@@ -280,7 +496,7 @@ std::function<void()> FunctionCallCompiler::generateDataSection(
 				const ASTPointer<ASTString> &name = initVars->names().at(i);
 				const auto &[varDecl, varIndex] = getDeclAndIndex(*name);
 				valueType = varDecl->type();
-				acceptExpr(initVars->options().at(i).get());
+				pushExprAndConvert(initVars->options().at(i).get(), valueType); // stack: dict value
 				const DataType& dataType2 = m_pusher.prepareValueForDictOperations(&keyType, valueType, false);
 				m_pusher.pushInt(varIndex);
 				// stack: dict value key
@@ -299,6 +515,396 @@ std::function<void()> FunctionCallCompiler::generateDataSection(
 	};
 }
 
+bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCall) {
+	const ast_vec<Expression const> arguments = _functionCall.arguments();
+
+	std::map<int, Expression const *> exprs;
+	std::map<int, std::string> constParams = {{TvmConst::int_msg_info::ihr_disabled, "1"}};
+	std::function<void(int)> appendBody;
+	std::function<void()> pushSendrawmsgFlag;
+	FunctionDefinition const* functionDefinition{};
+	std::optional<uint32_t> callbackFunctionId;
+
+	if (auto functionOptions = to<FunctionCallOptions>(&_functionCall.expression())) {
+		auto memberAccess = to<MemberAccess>(&functionOptions->expression());
+		if (!memberAccess) {
+			return false;
+		}
+
+		std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
+		auto getIndex = [&](const std::string& name) -> int {
+			auto it = std::find_if(optionNames.begin(), optionNames.end(), [&](auto el) { return *el == name;});
+			if (it == optionNames.end()) {
+				return -1;
+			}
+			return it - optionNames.begin();
+		};
+
+		// Search for bounce option
+		const int extIndex = getIndex("extMsg");
+		if (extIndex != -1) {
+			checkExtMsgSend(_functionCall);
+			return true;
+		}
+
+		// parse options they are stored in two vectors: names and options
+		for (const auto &option: optionNames)
+			if (!isIn(*option, "flag", "value", "currencies", "bounce", "callback"))
+				cast_error(_functionCall, "Unsupported function call option: " + *option);
+
+
+		// Search for bounce option
+		const int bounceIndex = getIndex("bounce");
+		if (bounceIndex != -1) {
+			exprs[TvmConst::int_msg_info::bounce] = functionOptions->options()[bounceIndex].get();
+		} else {
+			constParams[TvmConst::int_msg_info::bounce] = "1";
+		}
+
+		// Search for currencies option
+		const int currenciesIndex = getIndex("currencies");
+		if (currenciesIndex != -1) {
+			exprs[TvmConst::int_msg_info::currency] = functionOptions->options()[currenciesIndex].get();
+		} else {
+			constParams[TvmConst::int_msg_info::currency] = "0";
+		}
+
+		// Search for value (ton) option
+		const int valueIndex = getIndex("value");
+		if (valueIndex != -1) {
+			const auto& [ok, value] = TVMExpressionCompiler::constValue(*functionOptions->options().at(valueIndex));
+			if (ok) {
+				constParams[TvmConst::int_msg_info::tons] = StackPusherHelper::tonsToBinaryString(u256(value));
+			} else {
+				exprs[TvmConst::int_msg_info::tons] = functionOptions->options()[valueIndex].get();
+			}
+		} else {
+			constParams[TvmConst::int_msg_info::tons] = getDefaultMsgValue();
+		}
+
+		// remote_addr
+		exprs[TvmConst::int_msg_info::dest] = &memberAccess->expression();
+
+		// function definition
+		functionDefinition = getRemoteFunctionDefinition(memberAccess);
+
+
+		const int callbackIndex = getIndex("callback");
+		if (callbackIndex != -1) {
+			CallableDeclaration const* remoteFunction =
+					getFunctionDeclarationOrConstructor(functionOptions->options()[callbackIndex].get());
+			callbackFunctionId = EncodeFunctionParams{&m_pusher}.calculateFunctionIDWithReason(
+					remoteFunction,
+					ReasonOfOutboundMessage::RemoteCallInternal
+			);
+		}
+
+		// Search for sendRawMsg flag option
+		const int flagIndex = getIndex("flag");
+		if (flagIndex != -1) {
+			pushSendrawmsgFlag = [flagIndex, functionOptions, this]() {
+				acceptExpr(functionOptions->options()[flagIndex].get());
+			};
+		}
+	} else {
+		constParams[TvmConst::int_msg_info::tons] = getDefaultMsgValue();
+		constParams[TvmConst::int_msg_info::bounce] = "1";
+
+		Expression const *currentExpression = &_functionCall.expression();
+		while (true) {
+			auto currentFunctionCall = to<FunctionCall>(currentExpression);
+			if (currentFunctionCall == nullptr) {
+				break;
+			}
+
+			auto memberAccess = to<MemberAccess>(&currentFunctionCall->expression());
+			if (memberAccess == nullptr) {
+				return false;
+			}
+
+			if (memberAccess->memberName() == "flag") {
+				pushSendrawmsgFlag = [currentFunctionCall, this]() {
+					acceptExpr(currentFunctionCall->arguments().at(0).get());
+				};
+				currentExpression = &memberAccess->expression();
+			} else if (memberAccess->memberName() == "value") {
+				exprs[TvmConst::int_msg_info::tons] = currentFunctionCall->arguments()[0].get();
+				constParams.erase(TvmConst::int_msg_info::tons);
+				currentExpression = &memberAccess->expression();
+			} else {
+				break;
+			}
+		}
+		auto memberValue = to<MemberAccess>(currentExpression);
+		if (memberValue == nullptr) {
+			return false;
+		}
+		exprs[TvmConst::int_msg_info::dest] = &memberValue->expression();
+		functionDefinition = getRemoteFunctionDefinition(memberValue);
+		if (functionDefinition == nullptr) {
+			return false;
+		}
+	}
+
+	appendBody = [&](int builderSize) {
+		return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder(
+				[&](size_t idx) {
+					m_pusher.push(0, ";; " + functionDefinition->parameters()[idx]->name());
+					pushArgAndConvert(idx);
+				},
+				convertArray(functionDefinition->parameters()),
+				EncodeFunctionParams{&m_pusher}.calculateFunctionIDWithReason(functionDefinition, ReasonOfOutboundMessage::RemoteCallInternal),
+				callbackFunctionId,
+				builderSize
+		);
+	};
+
+	if (m_isCurrentResultNeeded)
+		cast_error(_functionCall, "Calls to remote contract do not return result.");
+
+	m_pusher.sendIntMsg(exprs, constParams, appendBody, pushSendrawmsgFlag);
+	return true;
+}
+
+void FunctionCallCompiler::checkExtMsgSend(FunctionCall const& _functionCall) {
+	const ast_vec<Expression const> arguments = _functionCall.arguments();
+	auto functionOptions = to<FunctionCallOptions>(&_functionCall.expression());
+
+	std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
+	auto getIndex = [&](const std::string& name) -> int {
+		auto it = std::find_if(optionNames.begin(), optionNames.end(), [&](auto el) { return *el == name;});
+		if (it == optionNames.end()) {
+			return -1;
+		}
+		return it - optionNames.begin();
+	};
+
+	const int extIndex = getIndex("extMsg");
+	const auto& [ok, value] = TVMExpressionCompiler::constBool(*functionOptions->options()[extIndex]);
+	solAssert(ok && value, "\"extMsg\" option should be set to constant true if set.");
+
+	bool addSignature = false;
+	const int signIndex = getIndex("sign");
+	if (signIndex != -1) {
+		addSignature = TVMExpressionCompiler::constBool(*functionOptions->options()[signIndex]).second;
+	}
+
+	const Expression * pubkey = nullptr;
+	ASTPointer<Expression const> expire = nullptr;
+	ASTPointer<Expression const> time = nullptr;
+	ASTPointer<Expression const> callbackid = nullptr;
+	ASTPointer<Expression const> abiVer = nullptr;
+	ASTPointer<Expression const> onerrorid = nullptr;
+	const Expression * stateInit= nullptr;
+
+	const int pubkeyIndex = getIndex("pubkey");
+	if (pubkeyIndex != -1) {
+		pubkey = functionOptions->options()[pubkeyIndex].get();
+	}
+
+	const int stateIndex = getIndex("stateInit");
+	if (stateIndex != -1) {
+		stateInit = functionOptions->options()[stateIndex].get();
+	}
+
+	const int expireIndex = getIndex("expire");
+	if (expireIndex != -1) {
+		expire = functionOptions->options()[expireIndex];
+	}
+
+	const int timeIndex = getIndex("time");
+	if (timeIndex != -1) {
+		time = functionOptions->options()[timeIndex];
+	}
+
+	const int callbackIndex = getIndex("callbackId");
+	callbackid = functionOptions->options()[callbackIndex];
+
+	const int abiIndex = getIndex("abiVer");
+	abiVer = functionOptions->options()[abiIndex];
+
+	const int onErrorIndex = getIndex("onErrorId");
+	onerrorid = functionOptions->options()[onErrorIndex];
+
+	auto memberAccess = to<MemberAccess>(&functionOptions->expression());
+	FunctionDefinition const* functionDefinition = getRemoteFunctionDefinition(memberAccess);
+
+	const Expression * destination = &memberAccess->expression();
+	generateExtInboundMsg(addSignature, destination, pubkey, expire.get(), time.get(), callbackid.get(),
+						  abiVer.get(), onerrorid.get(), stateInit, functionDefinition, arguments);
+	m_pusher.pushInt(TvmConst::SENDRAWMSG::DefaultFlag);
+	m_pusher.sendrawmsg();
+}
+
+std::string FunctionCallCompiler::getDefaultMsgValue() {
+	const auto expr = m_pusher.ctx().pragmaHelper().haveMsgValue();
+	if (!expr) {
+		return StackPusherHelper::tonsToBinaryString(u256{TvmConst::Message::DefaultMsgValue});
+	}
+	const auto& [ok, val] = m_exprCompiler->constValue(*expr);
+	if (!ok) {
+		cast_error(*expr, "Default value should be compile time expression of number type");
+	}
+	return StackPusherHelper::tonsToBinaryString(val);
+}
+
+const FunctionDefinition* FunctionCallCompiler::getRemoteFunctionDefinition(const MemberAccess* memberAccess) {
+	auto expr = &memberAccess->expression();
+	if (isSuper(expr))
+		return nullptr;
+	auto ctype = to<ContractType>(getType(expr));
+	if (!ctype)
+		return nullptr;
+	Declaration const* decl = memberAccess->annotation().referencedDeclaration;
+	auto f = to<FunctionDefinition>(decl);
+	if (!f) {
+		cast_error(*memberAccess, "Unsupported remote function call.");
+	}
+	ContractDefinition const& remoteContract = ctype->contractDefinition();
+	m_pusher.push( 0, ";; Remote call " + remoteContract.name() + "." + f->name());
+	return f;
+}
+
+void FunctionCallCompiler::generateExtInboundMsg(
+	bool addSignature,
+	const Expression * destination,
+	const Expression *pubkey,
+	const Expression *expire,
+	const Expression *time,
+	const Expression *callbackid,
+	const Expression *abiVer,
+	const Expression *onerrorid,
+	const Expression *stateInit,
+	const CallableDeclaration *functionDefinition,
+	const ast_vec<Expression const> arguments
+) {
+	auto appendBody = [&](int builderSize) {
+		/* builder size:
+		2 header
+		86 src abi + callbackid
+		267 dest addr_std
+		4 import_fee:Grams
+		1 stateInit
+		= 360
+		*/
+
+		if (addSignature) {
+			//store body in a reference
+			builderSize++;
+			m_pusher.stones(1);	// body:(Either X ^X)
+			builderSize = 0;
+			m_pusher.push(+1, "NEWC");
+			builderSize += 513;
+			m_pusher.stones(1);
+			m_pusher.stzeroes(512);	// Signature
+		} else {
+			builderSize += 2;
+			m_pusher.stzeroes(2);	// Signature
+		}
+
+		// store header
+		// [optional]pubkey: 1 + [256] bits
+		// time: 64 bits
+		// expire: 32 bits
+
+
+		if (pubkey != nullptr) {
+			// pubkey is set
+			builderSize += addSignature ? 257 : 1;
+			// pubkey is optional, check whether it presents
+			acceptExpr(pubkey);
+			m_pusher.push(-1, "ISNULL");
+			m_pusher.startContinuation();
+			m_pusher.stzeroes(1);
+			m_pusher.endContinuation();
+			m_pusher.startContinuation();
+			if (!addSignature)
+				m_pusher.push(0, "THROW " + toString(TvmConst::RuntimeException::MsgWithKeyButNoSign));
+			m_pusher.stones(1);
+			acceptExpr(pubkey);
+			m_pusher.push(-1, "STUR 256");
+			m_pusher.endContinuation();
+			m_pusher.push(0, "IFELSE");
+		}
+		// if no pubkey - encode nothing
+
+		if (time != nullptr) {
+			builderSize += 64;
+			acceptExpr(time);
+			m_pusher.push(-1, "STUR 64");
+		}
+
+		if (expire != nullptr) {
+			builderSize += 32;
+			acceptExpr(expire);
+			m_pusher.push(-1, "STUR 32");
+		}
+
+		// function call body
+		std::vector<ASTPointer<VariableDeclaration>> funcParams;
+		if (functionDefinition != nullptr)
+			funcParams = functionDefinition->parameters();
+		const std::vector<VariableDeclaration const*> &params = convertArray(funcParams);
+		const std::function<void(size_t)>& pushParam = [&](size_t idx) {
+			m_pusher.push(0, ";; " + params[idx]->name());
+			TVMExpressionCompiler{m_pusher}.compileNewExpr(arguments[idx].get());
+		};
+
+		std::vector<Type const*> types;
+		types = getParams(params).first;
+		builderSize += 32;
+		std::unique_ptr<EncodePosition> position = std::make_unique<EncodePosition>(builderSize, types);
+		uint32_t functionId;
+		EncodeFunctionParams encoder{&m_pusher};
+		if (functionDefinition != nullptr)
+			functionId = encoder.calculateFunctionIDWithReason(functionDefinition, ReasonOfOutboundMessage::RemoteCallInternal);
+		else
+			functionId = (encoder.calculateConstructorFunctionID() & 0x7FFFFFFFu);
+
+
+		EncodeFunctionParams{&m_pusher}.createMsgBody(pushParam, params, functionId, {}, *position);
+
+		if (addSignature)
+			m_pusher.push(-1, "STBREFR");
+	};
+	// store dest address
+	acceptExpr(destination);
+
+	// generate payload to store it as a src address with addr_extern type
+	m_pusher.push(+1, "NEWC");
+	m_pusher.push(0, "STSLICECONST x497_"); // header 01 + const length 75
+	acceptExpr(callbackid);
+	m_pusher.push(-1, "STUR 32");
+	acceptExpr(onerrorid);
+	m_pusher.push(-1, "STUR 32");
+	acceptExpr(abiVer);
+	m_pusher.push(-1, "STUR 8");
+
+	if (time != nullptr)
+		m_pusher.push(0, "STONE");
+	else
+		m_pusher.push(0, "STZERO");
+	if (expire != nullptr)
+		m_pusher.push(0, "STONE");
+	else
+		m_pusher.push(0, "STZERO");
+	if (pubkey != nullptr)
+		m_pusher.push(0, "STONE");
+	else
+		m_pusher.push(0, "STZERO");
+
+
+	std::function<void()> appendStateInit = nullptr;
+	if (stateInit != nullptr)
+		appendStateInit = [&]() {
+			m_pusher.stones(1);
+			acceptExpr(stateInit);
+			m_pusher.push(-1, "STREFR");
+		};
+
+	m_pusher.prepareMsg({TvmConst::ext_msg_info::src, TvmConst::ext_msg_info::dest}, {}, appendBody, appendStateInit, StackPusherHelper::MsgType::ExternalIn);
+
+}
 
 bool FunctionCallCompiler::checkForTvmBuildMsgMethods(MemberAccess const &_node, Type::Category category) {
 
@@ -364,7 +970,7 @@ bool FunctionCallCompiler::checkForTvmBuildMsgMethods(MemberAccess const &_node,
 			}
 		}
 
-		m_exprCompiler->generateExtInboundMsg(addSignature, m_arguments[destArg].get(),
+		generateExtInboundMsg(addSignature, m_arguments[destArg].get(),
 											  (pubkeyArg != -1) ? m_arguments[pubkeyArg].get() : nullptr,
 											  (expireArg != -1) ? m_arguments[expireArg].get() : nullptr,
 											  (timeArg != -1) ? m_arguments[timeArg].get() : nullptr,
@@ -380,12 +986,6 @@ bool FunctionCallCompiler::checkForTvmBuildMsgMethods(MemberAccess const &_node,
 }
 
 bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, Type::Category category) {
-	auto pushArgs = [&]() {
-		for (const ASTPointer<const Expression> &e : m_arguments) {
-			acceptExpr(e.get());
-		}
-	};
-
 	auto functionType = dynamic_cast<FunctionType const*>(m_functionCall.expression().annotation().type);
 	if (category != Type::Category::Magic || ((functionType->kind() != FunctionType::Kind::TVMDeploy)
 			&& functionType->kind() != FunctionType::Kind::TVMBuildStateInit))
@@ -401,21 +1001,22 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 		bool hasVars;
 		bool isNew = false;
 		std::map<StateInitMembers, std::function<void()>> exprs;
-		if (m_functionCall.names().empty()) {
+		const std::vector<ASTPointer<ASTString>>& names = m_functionCall.names();
+		if (names.empty()) {
 			solAssert(m_arguments.size() == 2 || m_arguments.size() == 3, "");
 			exprs[StateInitMembers::Code] = [&](){
-				acceptExpr(m_arguments.at(0).get());
+				pushArgAndConvert(0);
 			};
 			exprs[StateInitMembers::Data] = [&](){
-				acceptExpr(m_arguments.at(1).get());
+				pushArgAndConvert(1);
 			};
 			if (m_arguments.size() >= 3) {
 				exprs[StateInitMembers::SplitDepth] = [&](){
-					acceptExpr(m_arguments.at(2).get());
+					pushArgAndConvert(2);
 				};
 			}
 		} else {
-			const std::vector<ASTPointer<ASTString>>& names = m_functionCall.names();
+
 
 			bool dataIsSet = false;
 			// string("code"), string("data"), string("splitDepth"), string("varInit"), string("pubkey")
@@ -423,21 +1024,21 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 				switch (str2int(names[arg]->c_str())) {
 					case str2int("code"):
 						codeArg = arg;
-						exprs[StateInitMembers::Code] = [&](){
-							acceptExpr(m_arguments[codeArg].get());
+						exprs[StateInitMembers::Code] = [this, codeArg, name = *names.at(arg)](){
+							pushArgAndConvert(codeArg, name);
 						};
 						break;
 					case str2int("data"):
 						dataArg = arg;
-						exprs[StateInitMembers::Data] = [&](){
-							acceptExpr(m_arguments[dataArg].get());
+						exprs[StateInitMembers::Data] = [this, dataArg, name = *names.at(arg)](){
+							pushArgAndConvert(dataArg, name);
 						};
 						dataIsSet = true;
 						break;
 					case str2int("splitDepth"):
 						depthArg = arg;
-						exprs[StateInitMembers::SplitDepth] = [&](){
-							acceptExpr(m_arguments[depthArg].get());
+						exprs[StateInitMembers::SplitDepth] = [this, depthArg, name = *names.at(arg)](){
+							pushArgAndConvert(depthArg, name);
 						};
 						break;
 					case str2int("varInit"):
@@ -456,7 +1057,7 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 					if (keyArg == -1) {
 						m_pusher.pushInt(0);
 					} else {
-						acceptExpr(m_arguments[keyArg].get());
+						pushArgAndConvert(keyArg, "pubkey");
 					}
 				};
 				hasVars = (varArg != -1);
@@ -491,24 +1092,24 @@ DICTUSETB
 
 	if (_node.memberName() == "insertPubkey") {
 		pushArgs();
-		m_pusher.pushPrivateFunctionOrMacroCall(-2 + 1, "insert_pubkey_macro");
+		m_pusher.pushMacroCallInCallRef(-2 + 1, "insert_pubkey_macro");
 		return true;
 	}
 
 	if (_node.memberName() == "deploy") {
 		const std::function<void()> pushWid = [&](){
-			acceptExpr(m_arguments.at(3).get());
+			pushArgAndConvert(3);
 		};
 		const std::function<void()> pushValue = [&](){
-			acceptExpr(m_arguments.at(2).get());
+			pushArgAndConvert(2);
 		};
 		const std::function<void(int builderSize)> appendBody = [&](int /*builderSize*/){
 			m_pusher.stones(1);
-			acceptExpr(m_arguments.at(1).get());
+			pushArgAndConvert(1);
 			m_pusher.push(-1, "STREFR");
 		};
 		const std::function<void()> pushSendrawmsgFlag;
-		acceptExpr(m_arguments.at(0).get());
+		pushArgAndConvert(0);
 		// stack: stateInit
 		deployNewContract(pushWid, pushValue, {}, {}, appendBody, pushSendrawmsgFlag);
 		// stack: destAddress
@@ -521,11 +1122,11 @@ DICTUSETB
 void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 	if (_node.memberName() == "dataSize") {
 		acceptExpr(&_node.expression());
-		acceptExpr(m_arguments.at(0).get());
+		pushArgAndConvert(0);
 		m_pusher.push(-2 + 3, "SDATASIZE");
 	} else if (_node.memberName() == "dataSizeQ") {
 		acceptExpr(&_node.expression());
-		acceptExpr(m_arguments.at(0).get());
+		pushArgAndConvert(0);
 		m_pusher.pushLines(R"(
 SDATASIZEQ
 PUSHCONT {
@@ -543,6 +1144,23 @@ IFELSE
 	} else if (_node.memberName() == "bits") {
 		acceptExpr(&_node.expression());
 		m_pusher.push(-1+1, "SBITS");
+	} else if (_node.memberName() == "compare") {
+		acceptExpr(&_node.expression());
+		pushArgAndConvert(0);
+		m_pusher.push(-2+1, "SDLEXCMP");
+	} else if (_node.memberName() == "hasNBits") {
+		acceptExpr(&_node.expression());
+		pushArgAndConvert(0);
+		m_pusher.push(-2+1, "SCHKBITSQ");
+	} else if (_node.memberName() == "hasNRefs") {
+		acceptExpr(&_node.expression());
+		pushArgAndConvert(0);
+		m_pusher.push(-2+1, "SCHKREFSQ");
+	} else if (_node.memberName() == "hasNBitsAndRefs") {
+		acceptExpr(&_node.expression());
+		pushArgAndConvert(0);
+		pushArgAndConvert(1);
+		m_pusher.push(-3+1, "SCHKBITREFSQ");
 	} else if (_node.memberName() == "refs") {
 		acceptExpr(&_node.expression());
 		m_pusher.push(-1+1, "SREFS");
@@ -552,10 +1170,10 @@ IFELSE
 	} else if (_node.memberName() == "decode") {
 		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, false, _node.expression().annotation().isLValue);
 		TypePointers targetTypes;
-		if (auto const* targetTupleType = dynamic_cast<TupleType const*>(m_functionCall.annotation().type))
+		if (auto const* targetTupleType = dynamic_cast<TupleType const*>(m_retType))
 			targetTypes = targetTupleType->components();
 		else
-			targetTypes = TypePointers{m_functionCall.annotation().type};
+			targetTypes = TypePointers{m_retType};
 
 		for (auto type: targetTypes) {
 			loadTypeFromSlice(_node, type);
@@ -601,23 +1219,41 @@ IFELSE
 				}
 				m_pusher.push(-1 + 2, cmd + " " + val.str());
 			} else {
-				acceptExpr(m_arguments[0].get());
+				pushArgAndConvert(0);
 				m_pusher.push(-2 + 2, cmd + "X");
 			}
 		} else if (_node.memberName() == "loadTons") {
 			m_pusher.push(-1 + 2, "LDVARUINT16");
 		} else if (_node.memberName() == "loadSlice") {
-			const auto& [ok, value] = TVMExpressionCompiler::constValue(*m_arguments[0].get());
-			if (ok) {
-				m_pusher.push(+1, "LDSLICE " + value.str());
+			if (m_arguments.size() == 1) {
+				const auto& [ok, value] = TVMExpressionCompiler::constValue(*m_arguments[0].get());
+				if (ok) {
+					m_pusher.push(+1, "LDSLICE " + value.str());
+				} else {
+					pushArgAndConvert(0);
+					m_pusher.push(-2+2, "LDSLICEX");
+				}
 			} else {
-				acceptExpr(m_arguments[0].get());
-				m_pusher.push(-2+2, "LDSLICEX");
+				pushArgAndConvert(0);
+				pushArgAndConvert(1);
+				m_pusher.push(-3+2, "SPLIT");
 			}
 		} else {
 			solUnimplemented("");
 		}
 
+		m_exprCompiler->collectLValue(lValueInfo, true, false);
+	} else if (_node.memberName() == "skip") {
+		const TVMExpressionCompiler::LValueInfo lValueInfo =
+				m_exprCompiler->expandLValue(&_node.expression(), true, false, _node.expression().annotation().isLValue);
+		if (m_arguments.size() == 1) {
+			pushArgAndConvert(0);
+			m_pusher.push(-2+1, "SDSKIPFIRST");
+		} else {
+			pushArgAndConvert(0);
+			pushArgAndConvert(1);
+			m_pusher.push(-3+1, "SSKIPFIRST");
+		}
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
 	} else {
 		solUnimplemented("");
@@ -632,7 +1268,7 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
 
 		if (_node.memberName() == "storeRef") {
-			acceptExpr(m_arguments[0].get());
+			pushArgAndConvert(0);
 			m_pusher.push(-1, "STBREFR");
 		} else if (_node.memberName() == "store") {
 			for (const auto& argument: m_arguments) {
@@ -642,7 +1278,7 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 		} else if (_node.memberName() == "storeSigned" || _node.memberName() == "storeUnsigned") {
 			std::string cmd = "ST";
 			cmd += (_node.memberName() == "storeSigned" ? "I" : "U");
-			acceptExpr(m_arguments[0].get());
+			pushArgAndConvert(0);
 			const auto& [ok, val] = TVMExpressionCompiler::constValue(*m_arguments[1]);
 			if (ok) {
 				if (val < 1 || val > 256) {
@@ -650,11 +1286,11 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 				}
 				m_pusher.push(-1, cmd + "R " + val.str());
 			} else {
-				acceptExpr(m_arguments[1].get());
+				pushArgAndConvert(1);
 				m_pusher.push(-2, cmd + "XR");
 			}
 		} else if (_node.memberName() == "storeTons") {
-			acceptExpr(m_arguments[0].get());
+			pushArgAndConvert(0);
 			m_pusher.push(-1, "STGRAMS");
 		} else {
 			solUnimplemented("");
@@ -664,50 +1300,57 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 		return true;
 	}
 
-	acceptExpr(&_node.expression()); // TODO may return false?
-
 	if (_node.memberName() == "bits") {
+		acceptExpr(&_node.expression());
 		m_pusher.push(-1+1, "BBITS");
 		return true;
 	}
 
 	if (_node.memberName() == "refs") {
+		acceptExpr(&_node.expression());
 		m_pusher.push(-1+1, "BREFS");
 		return true;
 	}
 
 	if (_node.memberName() == "bitsAndRefs") {
+		acceptExpr(&_node.expression());
 		m_pusher.push(-1+2, "BBITREFS");
 		return true;
 	}
 
 	if (_node.memberName() == "remBits") {
+		acceptExpr(&_node.expression());
 		m_pusher.push(-1+1, "BREMBITS");
 		return true;
 	}
 
 	if (_node.memberName() == "remRefs") {
+		acceptExpr(&_node.expression());
 		m_pusher.push(-1+1, "BREMREFS");
 		return true;
 	}
 
 	if (_node.memberName() == "remBitsAndRefs") {
+		acceptExpr(&_node.expression());
 		m_pusher.push(-1+2, "BREMBITREFS");
 		return true;
 	}
 
 	if (_node.memberName() == "toCell") {
+		acceptExpr(&_node.expression());
 		m_pusher.push(-1+1, "ENDC");
 		return true;
 	}
 
 	if (_node.memberName() == "toSlice") {
+		acceptExpr(&_node.expression());
 		m_pusher.push(-1+1, "ENDC");
 		m_pusher.push(-1+1, "CTOS");
 		return true;
 	}
 
 	if (_node.memberName() == "depth") {
+		acceptExpr(&_node.expression());
 		m_pusher.push(-1 + 1, "BDEPTH");
 		return true;
 	}
@@ -718,30 +1361,28 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 	if (_node.memberName() == "substr") {
 		acceptExpr(&_node.expression());
-		m_pusher.push(+1 - 1, "CTOS");
-		for (const auto &arg : m_arguments) {
-			acceptExpr(arg.get());
-			m_pusher.push(+1 - 1, "MULCONST 8");
+		pushArgs();
+		if (m_arguments.size() == 1) {
+			m_pusher.pushInt(-1);
 		}
-		m_pusher.push(-3 + 1, "SDSUBSTR");
-		m_pusher.push(+1, "NEWC");
-		m_pusher.push(-1, "STSLICE");
-		m_pusher.push(+1 - 1, "ENDC");
+		m_pusher.pushMacroCallInCallRef(-3 +1, "__substr_macro");
 	} else if (_node.memberName() == "byteLength") {
 		acceptExpr(&_node.expression());
-		m_pusher.push(+1 - 1, "CTOS");
-		m_pusher.push(-1 + 1, "SBITS");
+		m_pusher.pushInt(0xFFFFFFFF);
+		m_pusher.push(-2 + 3, "CDATASIZE");
+		m_pusher.drop(1);
+		m_pusher.dropUnder(1, 1);
 		m_pusher.push(-1 + 1, "RSHIFT 3");
 	} else if (_node.memberName() == "dataSize") {
 		acceptExpr(&_node.expression());
-		acceptExpr(m_arguments.at(0).get());
+		pushArgAndConvert(0);
 		m_pusher.push(-2  + 3, "CDATASIZE");
 	} else if (_node.memberName() == "toSlice") {
-		m_exprCompiler->compileNewExpr(&_node.expression());
+		acceptExpr(&_node.expression());
 		m_pusher.push(-1 + 1, "CTOS");
 	} else if (_node.memberName() == "dataSizeQ") {
 		acceptExpr(&_node.expression());
-		acceptExpr(m_arguments.at(0).get());
+		pushArgAndConvert(0);
 		m_pusher.pushLines(R"(
 CDATASIZEQ
 PUSHCONT {
@@ -758,12 +1399,12 @@ IFELSE
 		auto arrayBaseType = to<ArrayType>(getType(&_node.expression()))->baseType();
 		const IntegerType key = getKeyTypeOfArray();
 		bool isValueBuilder{};
-		if (m_functionCall.arguments().empty()) {
+		if (m_arguments.empty()) {
 			isValueBuilder = true;
 			m_pusher.pushDefaultValue(arrayBaseType, true);
 		} else {
 			isValueBuilder = false;
-			m_exprCompiler->compileNewExpr(m_functionCall.arguments()[0].get());
+			pushArgs();
 		}
 		// stack: arr value
 		m_pusher.push(0, ";; array.push(..)");
@@ -793,116 +1434,9 @@ IFELSE
 		m_pusher.push(-2 + 1, "PAIR");  // arr
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
 	} else if (_node.memberName() == "append") {
-		m_pusher.push(0, ";; string.append");
 		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
-		acceptExpr(m_arguments.at(0).get());
-		m_pusher.push(-1, "PUSHINT 1");
-		m_pusher.push(0, "ROT");
-		// cell with original string
-		m_pusher.push(0, "CTOS");
-		// slice with original string
-		m_pusher.startContinuation();
-		m_pusher.push(0, "PUSH S0");
-		m_pusher.push(0, "SREFS");
-		m_pusher.endContinuation();
-		m_pusher.startContinuation();
-		m_pusher.push(0, "LDREF");
-		m_pusher.push(0, "NEWC");
-		m_pusher.push(0, "STSLICE");
-
-		m_pusher.push(0, "XCHG S2");
-		m_pusher.push(0, "INC");
-		m_pusher.push(0, "SWAP");
-
-		m_pusher.push(0, "CTOS");
-		m_pusher.endContinuation();
-		m_pusher.push(0, "WHILE");
-		m_pusher.push(0, "NEWC");
-		m_pusher.push(0, "STSLICE");
-		// builder_0
-		// ...
-		// builder_lastb1
-		// number of builders
-		// builder_last
-		m_pusher.push(0, "PUSH S0");
-		m_pusher.push(0, "BREMBITS");
-		m_pusher.push(0, "LESSINT 8");
-		// if less than 8 remaining bits create new builder
-		m_pusher.startContinuation();
-		m_pusher.push(0, "SWAP");
-		m_pusher.push(0, "INC");
-		m_pusher.push(0, "NEWC");
-		m_pusher.endContinuation();
-		m_pusher.push(0, "IF");
-		// tail
-		// builder_0
-		// ...
-		// number of builders
-		// builder_last (not full)
-		m_pusher.push(0, "PUSH S1");
-		m_pusher.push(0, "INC");
-		m_pusher.push(0, "ROLLX");
-
-		// cell with tail string
-		m_pusher.push(0, "CTOS");
-		// slice with tail string
-		m_pusher.startContinuation();
-		m_pusher.startContinuation();
-		m_pusher.push(0, "PUSH S0");
-		m_pusher.push(0, "SBITS");
-		m_pusher.endContinuation();
-		m_pusher.startContinuation();
-		m_pusher.push(0, "LDU 8");
-		m_pusher.push(0, "ROTREV");
-		m_pusher.push(0, "STUR 8");
-		m_pusher.push(0, "PUSH S0");
-		m_pusher.push(0, "BREMBITS");
-		m_pusher.push(0, "LESSINT 8");
-		// if less than 8 remaining bits create new builder
-		m_pusher.startContinuation();
-		m_pusher.push(0, "XCHG S2");
-		m_pusher.push(0, "INC");
-		m_pusher.push(0, "SWAP");
-		m_pusher.push(0, "NEWC");
-		m_pusher.endContinuation();
-		m_pusher.push(0, "IF");
-		m_pusher.push(0, "SWAP");
-		m_pusher.endContinuation();
-		m_pusher.push(0, "WHILE");
-		m_pusher.push(0, "PUSH S0");
-		m_pusher.push(0, "SREFS");
-		m_pusher.startContinuation();
-		m_pusher.push(0, "LDREF");
-		m_pusher.push(0, "DROP");
-		m_pusher.push(0, "CTOS");
-		m_pusher.push(0, "PUSHINT 0");
-		m_pusher.endContinuation();
-		m_pusher.startContinuation();
-		m_pusher.push(0, "DROP");
-		m_pusher.push(0, "PUSHINT 1");
-		m_pusher.endContinuation();
-		m_pusher.push(0, "IFELSE");
-		m_pusher.endContinuation();
-		m_pusher.push(0, "UNTIL");
-		m_pusher.push(0, "SWAP");
-		m_pusher.push(0, "DEC");
-		// builder_0
-		// ...
-		// builder_last
-		// number of builders - 1
-
-		m_pusher.startContinuation();
-		m_pusher.push(0, "PUSH S0");
-		m_pusher.endContinuation();
-		m_pusher.startContinuation();
-		m_pusher.push(0, "DEC");
-		m_pusher.push(0, "BLKSWAP 2,1");
-		m_pusher.push(0, "STBREFR");
-		m_pusher.push(0, "SWAP");
-		m_pusher.endContinuation();
-		m_pusher.push(0, "WHILE");
-		m_pusher.push(0, "DROP");
-		m_pusher.push(0, "ENDC");
+		pushArgAndConvert(0);
+		m_pusher.pushPrivateFunctionOrMacroCall(-2 +1, "concatenateStrings");
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
 	} else {
 		solUnimplemented("");
@@ -925,8 +1459,8 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 		acceptExpr(&_node.expression());
 		m_pusher.pushS(0);
 		m_pusher.checkOptionalValue();
-		Type::Category valueCat = m_functionCall.annotation().type->category();
-		if (auto tt = to<TupleType>(m_functionCall.annotation().type)) {
+		Type::Category valueCat = m_retType->category();
+		if (auto tt = to<TupleType>(m_retType)) {
 			m_pusher.untuple(tt->components().size());
 		} else if (isIn(valueCat, Type::Category::Mapping, Type::Category::Optional)) {
 			m_pusher.untuple(1);
@@ -936,9 +1470,7 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 
 	if (_node.memberName() == "set") {
 		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), false);
-		for (const ASTPointer<Expression const>& arg : m_arguments) {
-			acceptExpr(arg.get());
-		}
+		pushArgs();
 		Type::Category val0Cat = m_arguments.at(0)->annotation().type->category();
 		if (m_arguments.size() >= 2) {
 			m_pusher.tuple(m_arguments.size());
@@ -968,11 +1500,11 @@ void FunctionCallCompiler::cellMethods(MemberAccess const &_node) {
 		m_pusher.push(-1 + 1, "CDEPTH");
 	} else if (_node.memberName() == "dataSize") {
 		acceptExpr(&_node.expression());
-		acceptExpr(m_arguments.at(0).get());
+		pushArgAndConvert(0);
 		m_pusher.push(-2 + 3, "CDATASIZE");
 	} else if (_node.memberName() == "dataSizeQ") {
 		acceptExpr(&_node.expression());
-		acceptExpr(m_arguments.at(0).get());
+		pushArgAndConvert(0);
 		m_pusher.pushLines(R"(
 CDATASIZEQ
 PUSHCONT {
@@ -1057,12 +1589,14 @@ void FunctionCallCompiler::addressMethod() {
 				setBounce(m_arguments[1].get());
 			}
 			if (argumentQty >= 3) {
-				pushSendrawmsgFlag = [&]() { acceptExpr(m_arguments[2].get()); };
+				pushSendrawmsgFlag = [&]() {
+					pushArgAndConvert(2);
+				};
 			}
 			if (argumentQty >= 4) {
 				appendBody = [&](int /*size*/) {
 					m_pusher.stones(1);
-					acceptExpr(m_arguments[3].get());
+					pushArgAndConvert(3);
 					m_pusher.push(-1, "STREFR");
 					return false;
 				};
@@ -1087,7 +1621,7 @@ void FunctionCallCompiler::addressMethod() {
 	} else if (_node->memberName() == "unpack") {
 		m_pusher.push(0, ";; address.unpack()");
 		acceptExpr(&_node->expression());
-		m_pusher.pushPrivateFunctionOrMacroCall(-1 + 2, "unpack_address_macro");
+		m_pusher.pushMacroCallInCallRef(-1 + 2, "unpack_address_macro");
 	} else if (_node->memberName() == "getType") {
 		m_pusher.push(0, ";; address.getType()");
 		acceptExpr(&_node->expression());
@@ -1119,7 +1653,7 @@ IFELSE
 
 bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_node) {
 	if (_node.memberName() == "rawConfigParam") { // tvm.rawConfigParam
-		acceptExpr(m_arguments[0].get());
+		pushArgAndConvert(0);
 		m_pusher.push(-1 + 2, "CONFIGPARAM");
 		m_pusher.push(0, "NULLSWAPIFNOT");
 		return true;
@@ -1255,9 +1789,7 @@ bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_n
 
 bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node) {
 	if (_node.memberName() == "sendrawmsg") { // tvm.sendrawmsg
-		for (const auto &arg : m_arguments) {
-			acceptExpr(arg.get());
-		}
+		pushArgs();
 		m_pusher.push(-2, "SENDRAWMSG");
 	}  else {
 		return false;
@@ -1288,16 +1820,16 @@ void FunctionCallCompiler::rndFunction(MemberAccess const &_node) {
 	auto functionType = dynamic_cast<FunctionType const*>(expressionType);
 	switch (functionType->kind()) {
 		case FunctionType::Kind::RndNext:
+			pushArgs();
 			if (m_arguments.empty()) {
 				m_pusher.push(+1, "RANDU256");
 			} else {
-				acceptExpr(m_arguments.at(0).get());
 				m_pusher.push(-1 + 1, "RAND");
 			}
 			break;
 		case FunctionType::Kind::RndSetSeed:
 		{
-			acceptExpr(m_arguments.at(0).get());
+			pushArgAndConvert(0);
 			m_pusher.push(-1, "SETRAND");
 			break;
 		}
@@ -1311,7 +1843,7 @@ void FunctionCallCompiler::rndFunction(MemberAccess const &_node) {
 			if (m_arguments.empty()) {
 				m_pusher.push(+1, "LTIME");
 			} else {
-				acceptExpr(m_arguments.at(0).get());
+				pushArgs();
 			}
 			m_pusher.push(-1, "ADDRAND");
 			break;
@@ -1322,12 +1854,6 @@ void FunctionCallCompiler::rndFunction(MemberAccess const &_node) {
 }
 
 bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
-	auto pushArgs = [&]() {
-		for (const ASTPointer<const Expression> &e : m_arguments) {
-			acceptExpr(e.get());
-		}
-	};
-
 	if (_node.memberName() == "pubkey") { // tvm.pubkey
 		m_pusher.push(+1, "GETGLOB 2");
 	} else if (_node.memberName() == "accept") { // tvm.accept
@@ -1341,19 +1867,19 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 			pushArgs();
 			m_pusher.push(-3+1, "CHKSIGNS");
 		} else {
-			acceptExpr(m_arguments[0].get());
+			pushArgAndConvert(0);
 			if (cnt == 4) {
 				m_pusher.push(+1, "NEWC");
-				acceptExpr(m_arguments[1].get());
+				pushArgAndConvert(1);
 				m_pusher.push(-1, "STUR 256");
-				acceptExpr(m_arguments[2].get());
+				pushArgAndConvert(2);
 				m_pusher.push(-1, "STUR 256");
 				m_pusher.push(0, "ENDC");
 				m_pusher.push(0, "CTOS");
 			} else {
-				acceptExpr(m_arguments[1].get());
+				pushArgAndConvert(1);
 			}
-			acceptExpr(m_arguments[cnt - 1].get());
+			pushArgAndConvert(cnt - 1);
 			m_pusher.push(-3+1, "CHKSIGNU");
 		}
 	} else if (_node.memberName() == "setcode") { // tvm.setcode
@@ -1365,16 +1891,14 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		m_pusher.push(0, "BLESS");
 		m_pusher.push(-1, "POP c3");
 	} else if (_node.memberName() == "commit") { // tvm.commit
-		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
+		m_pusher.pushMacroCallInCallRef(0, "c7_to_c4");
 		m_pusher.push(0, "COMMIT");
 	} else if (_node.memberName() == "log") { // tvm.log
 		auto logstr = m_arguments[0].get();
 		if (auto literal = to<Literal>(logstr)) {
 			if (literal->value().length() > 15)
 				cast_error(_node, "Parameter string should have length no more than 15 chars");
-			if (!TVMContractCompiler::g_without_logstr) {
-				m_pusher.push(0, "PRINTSTR " + literal->value());
-			}
+			m_pusher.push(0, "PRINTSTR " + literal->value());
 		} else {
 			cast_error(_node, "Parameter should be a literal");
 		}
@@ -1431,10 +1955,11 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		m_pusher.getGlob(1);
 		m_pusher.push(-1 + 1, "ISNULL");
 		m_pusher.push(-1, ""); // fix stack
-		m_pusher.startContinuation();
+
+		m_pusher.startIfNotRef();
 		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
 		m_pusher.endContinuation();
-		m_pusher.push(0, "IFNOT");
+
 		if (_node.memberName() == "exit")
 			m_pusher.push(0, "THROW 0");
 		else
@@ -1445,18 +1970,8 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 	return true;
 }
 
-std::string checkValFitsType(TypePointer type) {
-	TypeInfo ti{type};
-	return (ti.isSigned ? "FITS " : "UFITS ") + toString(ti.numBits);
-}
-
 void FunctionCallCompiler::mathFunction(const MemberAccess &_node) {
-	auto pushArgs = [&]() {
-		for (const ASTPointer<const Expression> &e : m_arguments) {
-			acceptExpr(e.get());
-		}
-	};
-	auto ret = m_functionCall.annotation().type;
+	auto retTuple = to<TupleType>(m_retType);
 	if (_node.memberName() == "max") {
 		pushArgs();
 		for (int i = 0; i + 1 < static_cast<int>(m_arguments.size()); ++i)
@@ -1470,39 +1985,39 @@ void FunctionCallCompiler::mathFunction(const MemberAccess &_node) {
 		m_pusher.push(-2 + 2, "MINMAX");
 	} else if (isIn(_node.memberName(), "divr", "divc")) {
 		pushArgs();
-		m_pusher.push(-2 + 1, boost::to_upper_copy<std::string>(_node.memberName()));
+		if (m_retType->category() == Type::Category::FixedPoint) {
+			int power = to<FixedPointType>(m_retType)->fractionalDigits();
+			m_pusher.pushInt(StackPusherHelper::pow10(power)); // res 10^n
+			m_pusher.exchange(0, 1);
+			m_pusher.push(-3 + 1, "MUL" + boost::to_upper_copy<std::string>(_node.memberName()));
+		} else {
+			m_pusher.push(-2 + 1, boost::to_upper_copy<std::string>(_node.memberName()));
+		}
 	} else if (isIn(_node.memberName(), "muldiv", "muldivr", "muldivc")) {
 		pushArgs();
 		m_pusher.push(-3 + 1, boost::to_upper_copy<std::string>(_node.memberName()));
 		if (!m_pusher.ctx().ignoreIntegerOverflow()) {
-			m_pusher.push(0, checkValFitsType(ret));
+			m_pusher.checkFit(m_retType);
 		}
 	} else if (_node.memberName() == "divmod") {
 		pushArgs();
 		m_pusher.push(-2 + 2, "DIVMOD");
-		if (!m_pusher.ctx().ignoreIntegerOverflow()) {
-			auto retTuple = to<TupleType>(ret);
-			m_pusher.push(0, "SWAP");
-			m_pusher.push(0, checkValFitsType(retTuple->components()[0]));
-			m_pusher.push(0, "SWAP");
-		}
 	} else if (_node.memberName() == "muldivmod") {
 		pushArgs();
 		m_pusher.push(-3 + 2, "MULDIVMOD");
 		if (!m_pusher.ctx().ignoreIntegerOverflow()) {
-			auto retTuple = to<TupleType>(ret);
 			m_pusher.push(0, "SWAP");
-			m_pusher.push(0, checkValFitsType(retTuple->components()[0]));
+			m_pusher.checkFit(retTuple->components().at(0));
 			m_pusher.push(0, "SWAP");
 		}
 	} else if (_node.memberName() == "abs") {
 		pushArgs();
 		m_pusher.push(-1 + 1, "ABS");
 		if (!m_pusher.ctx().ignoreIntegerOverflow()) {
-			m_pusher.push(0, checkValFitsType(ret));
+			m_pusher.checkFit(m_retType);
 		}
 	} else if (_node.memberName() == "modpow2") {
-		acceptExpr(m_arguments[0].get());
+		pushExprAndConvert(m_arguments[0].get(), m_retType);
 		const Expression * expression = m_arguments[1].get();
 		const auto& [ok, value] = TVMExpressionCompiler::constValue(*expression);
 		if (ok) {
@@ -1521,11 +2036,12 @@ void FunctionCallCompiler::mathFunction(const MemberAccess &_node) {
 bool FunctionCallCompiler::checkBaseContractCall(MemberAccess const &_node, Type::Category category) {
 	if (category != Type::Category::TypeType)
 		return false;
-	if (auto identifier = to<Identifier>(&_node.expression())) {
-		const auto& iname = identifier->name();
+	if (to<Identifier>(&_node.expression())) {
 		if (auto functionType = to<FunctionType>(getType(&_node))) {
 			// calling base contract method
-			auto functionName = iname + "_" + _node.memberName();
+			pushArgs();
+			auto fd = to<FunctionDefinition>(&functionType->declaration());
+			const std::string functionName = m_pusher.ctx().getFunctionInternalName(fd);
 			m_pusher.pushCall(functionName, functionType);
 			return true;
 		}
@@ -1542,108 +2058,17 @@ bool FunctionCallCompiler::checkAddressThis() {
 	return false;
 }
 
-std::string convertToStr(bool hex = true, bool endc = true, bool leading_zeros = false, int digits_cnt = 64) {
-	std::string ret = R"(
-;; convert int to string
-DUP
-LESSINT 0
-SWAP
-ABS
-PUSHINT 1
-PUSHCONT {
-	PUSH S1
-	PUSHINT )" + to_string(hex ? 16 : 10) + R"(
-	GEQ
-}
-PUSHCONT {
-	INC
-	SWAP
-	PUSHINT )" + to_string(hex ? 16 : 10) + R"(
-	DIVMOD
-	XCHG S2
-}
-WHILE
-NEWC
-)";
-	if (leading_zeros) {
-		ret += "PUSHINT " + to_string(digits_cnt) + "\n";
-		ret += R"(
-PUSH S2
-SUB
-DUP
-ISNEG
-PUSHCONT {
-	DROP
-	ZERO
-}
-IF
-PUSHCONT {
-	PUSHINT 48
-	STUR 8
-}
-REPEAT
-)";
-	}
-	ret += string(R"(
-PUSHCONT {
-	PUSH S1
-	NEQINT 0
-}
-PUSHCONT {
-	SWAP
-	DEC
-	XCHG S2)")
-	+ (hex ? R"(
-	DUP
-	PUSHINT 10
-	GEQ
-	PUSHCONT {
-		ADDCONST 55
-	}
-	PUSHCONT {
-		ADDCONST 48
-	}
-	IFELSE)"
-	: R"(
-	ADDCONST 48)") + R"(
-	STUR 8
-}
-WHILE
-NIP
-SWAP
-PUSHCONT {
-	NEWC
-	STSLICECONST x2D
-	STB
-}
-IF
-)";
-	if (endc)
-		ret += "ENDC\n";
-	return ret;
-}
-
 void FunctionCallCompiler::typeConversion() {
-	auto printError = [&]() {
-		const std::string from = m_arguments[0]->annotation().type->toString(true);
-		const std::string to = m_functionCall.annotation().type->toString(true);
-		cast_error(m_functionCall, "Unsupported casting from " + from + " to " + to + ".");
-	};
-
 	Type::Category argCategory = m_arguments[0]->annotation().type->category();
 	Type const* argType = m_arguments[0]->annotation().type;
 	Type const* resultType = m_functionCall.annotation().type;
+	solAssert(m_arguments.size() == 1, "");
 
-	auto acceptArg = [this] () {
-		for (const auto &arg : m_arguments)
-			acceptExpr(arg.get());
-		solAssert(m_arguments.size() == 1, "");
-	};
 	auto conversionToAddress = [&](){
 		switch (argCategory) {
 			case Type::Category::Contract:
 			case Type::Category::Address:
-				acceptArg();
+				acceptExpr(m_arguments.at(0).get()); // it's correct
 				break;
 			case Type::Category::RationalNumber:
 			case Type::Category::Integer: {
@@ -1651,7 +2076,7 @@ void FunctionCallCompiler::typeConversion() {
 				if (literal) {
 					m_pusher.literalToSliceAddress(literal);
 				} else {
-					acceptArg();
+					acceptExpr(m_arguments.at(0).get()); // it's correct
 					m_pusher.push(+1, "NEWC");
 					m_pusher.push(-1 + 1, "STSLICECONST x801_"); // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 // 10 0  00000000 1 = 801
 					m_pusher.push(-1, "STU 256"); // address:bits256
@@ -1661,88 +2086,26 @@ void FunctionCallCompiler::typeConversion() {
 				break;
 			}
 			default:
-				printError();
+				solUnimplemented("");
 		}
 	};
 
 	if (auto etn = to<ElementaryTypeNameExpression>(&m_functionCall.expression())) {
-		auto defaultActionForCasting = [&acceptArg, &etn, this]() {
-			acceptArg();
-			acceptExpr(etn);
-		};
 		switch (etn->type().typeName().token()) {
-			case Token::BytesM: {
-				acceptArg();
-				int diff = 0;
-				if (argCategory == Type::Category::FixedBytes) {
-					auto fixedBytesType = to<FixedBytesType>(m_arguments[0]->annotation().type);
-					diff = 8 * static_cast<int>(etn->type().typeName().firstNumber()) -
-						   8 * static_cast<int>(fixedBytesType->storageBytes());
-				} else if (argCategory == Type::Category::Address) {
-					cast_error(m_functionCall, "Unsupported type conversion. Use address.wid or address.value.");
-				} else {
-					printError();
-				}
-
-				if (diff > 0) {
-					m_pusher.push(0, "LSHIFT " + std::to_string(diff));
-				} else if (diff < 0) {
-					m_pusher.push(0, "RSHIFT " + std::to_string(-diff));
-				}
-				break;
-			}
 			case Token::Address: {
 				conversionToAddress();
-				break;
-			}
-			case Token::IntM:
-			case Token::UIntM: {
-				auto a = to<IntegerType>(argType);
-				auto r = to<IntegerType>(resultType);
-				if (a && r && a->isSigned() == r->isSigned() && a->numBits() <= r->numBits()) {
-					// nothing to do here
-					acceptArg();
-				} else {
-					defaultActionForCasting();
-				}
-				break;
-			}
-			case Token::Int:
-			case Token::UInt: {
-				auto a = to<IntegerType>(argType);
-				auto r = to<IntegerType>(resultType);
-				if (a && r && a->isSigned() == r->isSigned() && a->numBits() <= r->numBits()) {
-					// nothing to do here
-					acceptArg();
-				} else if (argCategory == Type::Category::Contract || argCategory == Type::Category::Address) {
-					cast_error(m_functionCall, "Unsupported type conversion. Use address.wid or address.value.");
-				} else {
-					defaultActionForCasting();
-				}
-				break;
-			}
-			case Token::Bytes:
-			case Token::String: {
-				if (isStringOrStringLiteralOrBytes(argType)) {
-					acceptArg(); // nothing to do here
-				} else if ((argCategory == Type::Category::Integer) ||
-				(argCategory == Type::Category::RationalNumber)) {
-					acceptArg();
-					m_pusher.pushLines(convertToStr(false));
-				} else {
-					printError();
-				}
-				break;
+				return;
 			}
 			default:
-				defaultActionForCasting();
+				break;
 		}
 	} else if (auto identifier = to<Identifier>(&m_functionCall.expression())) {
 		if (to<ContractDefinition>(identifier->annotation().referencedDeclaration)) {
 			conversionToAddress();
+			return;
 		} else if (auto enumDef = to<EnumDefinition>(identifier->annotation().referencedDeclaration)) {
 
-			const auto& [ok, value] = TVMExpressionCompiler::constValue(*m_arguments[0]);
+			const auto&[ok, value] = TVMExpressionCompiler::constValue(*m_arguments[0]);
 			if (ok) {
 				if (value < 0 || value >= enumDef->members().size()) {
 					cast_error(m_functionCall, "The value must be in the range 1 - " +
@@ -1752,26 +2115,28 @@ void FunctionCallCompiler::typeConversion() {
 				return;
 			}
 
-			acceptExpr(m_arguments[0].get());
+			acceptExpr(m_arguments[0].get()); // it's correct
 			m_pusher.push(+1, "DUP");
 			m_pusher.pushInt(enumDef->members().size());
 			m_pusher.push(-1, "GEQ");
 
 			auto type = m_arguments[0].get()->annotation().type;
 			TypeInfo ti(type);
-			if (!ti.isNumeric || ti.isSigned)
-			{
+			if (!ti.isNumeric || ti.isSigned) {
 				m_pusher.push(+1, "OVER");
 				m_pusher.push(0, "ISNEG");
 				m_pusher.push(-1, "OR");
 			}
-			m_pusher.push(-1, "THROWIF 5");
-		} else {
-			cast_error(m_functionCall, "Unsupported type conversion");
+			m_pusher.push(-1, "THROWIF 5"); // TODO set normal error code
+			return;
 		}
-	} else {
-		cast_error(m_functionCall, "Unsupported type conversion");
 	}
+
+
+	solAssert(m_arguments.size() == 1, "");
+	acceptExpr(m_arguments.at(0).get()); // it's correct
+	m_pusher.push(0, ";; " + resultType->toString());
+	m_pusher.hardConvert(resultType, argType);
 }
 
 bool FunctionCallCompiler::checkLocalFunctionCall(const Identifier *identifier) {
@@ -1780,9 +2145,7 @@ bool FunctionCallCompiler::checkLocalFunctionCall(const Identifier *identifier) 
 	if (!functionDefinition)
 		return false;
 	auto functionType = to<FunctionType>(getType(identifier));
-	for (const auto& arg : m_arguments) {
-		acceptExpr(arg.get());
-	}
+	pushArgs();
 	if (isFunctionForInlining(functionDefinition)) {
 		auto codeLines = m_pusher.ctx().getInlinedFunction(functionName);
 		int nParams = functionType->parameterTypes().size();
@@ -1797,12 +2160,10 @@ bool FunctionCallCompiler::checkLocalFunctionCall(const Identifier *identifier) 
 }
 
 bool FunctionCallCompiler::checkSolidityUnits() {
-	auto identifier = to<Identifier>(&m_functionCall.expression());
-	if (identifier == nullptr) {
+	auto funcType = to<FunctionType>(m_functionCall.expression().annotation().type);
+	if (funcType == nullptr) {
 		return false;
 	}
-
-	const string& name = identifier->name();
 
 	auto checkAndParseExceptionCode = [](Expression const* e) -> std::pair<bool, bigint> {
 		const auto& [ok, val] = TVMExpressionCompiler::constValue(*e);
@@ -1819,385 +2180,270 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 		return {false, bigint{}};
 	};
 
-	if (name == "sha256") {
-		acceptExpr(m_arguments[0].get());
-		m_pusher.push(0, "SHA256U");
-	} else if (name == "selfdestruct") {
-		const std::map<int, std::string> constParams {
-				{TvmConst::int_msg_info::ihr_disabled, "1"},
-				{TvmConst::int_msg_info::tons, StackPusherHelper::tonsToBinaryString(u256(1'000))}, // TODO use 0?
-				{TvmConst::int_msg_info::bounce,  "0"},
-		};
-		m_pusher.sendIntMsg(
-				{{TvmConst::int_msg_info::dest, m_arguments[0].get()}},
-				constParams,
-				nullptr,
-				[&](){ m_pusher.push(+1, "PUSHINT " + toString(TvmConst::SENDRAWMSG::SelfDestruct)); });
-	} else if (name == "require") {
-		if (m_arguments.size() == 1) {
-			acceptExpr(m_arguments[0].get());
-			m_pusher.push(-1, "THROWIFNOT 100");
-		} else if (m_arguments.size() == 2 || m_arguments.size() == 3) {
-			if (m_arguments.size() == 3)
-				acceptExpr(m_arguments[2].get());
-			const auto &[ok, exceptionCode] = checkAndParseExceptionCode(m_arguments[1].get());
-			if (ok && exceptionCode <= 1) {
-				cast_error(*m_arguments[1].get(), "Error code must be at least two");
-			}
-			if (ok && exceptionCode < 2048) {
-				acceptExpr(m_arguments[0].get());
-				if (m_arguments.size() == 3)
-					m_pusher.push(-2, "THROWARGIFNOT " + toString(exceptionCode));
-				else
-					m_pusher.push(-1, "THROWIFNOT " + toString(exceptionCode));
-			} else {
-				acceptExpr(m_arguments[1].get());
-				if (!ok) {
-					m_pusher.pushLines(R"(
-DUP
-LESSINT 2
-PUSHCONT {
-	DROP
-	PUSHINT 100
-}
-IF
-)");
-				}
-				acceptExpr(m_arguments[0].get());
-				if (m_arguments.size() == 3)
-					m_pusher.push(-3, "THROWARGANYIFNOT");
-				else
-					m_pusher.push(-2, "THROWANYIFNOT");
-			}
-		} else {
-			cast_error(m_functionCall, R"("require" takes from one to three m_arguments.)");
+	switch (funcType->kind()) {
+		case FunctionType::Kind::GasToValue: {
+			pushArgs();
+			m_pusher.pushMacroCallInCallRef(-2 + 1, "__gasToTon_macro");
+			return true;
 		}
-	} else if (name == "revert") {
-		if (m_arguments.empty()) {
-			m_pusher.push(0, "THROW 100");
-		} else {
-			if (!isIn(static_cast<int>(m_arguments.size()), 1, 2)) {
-				cast_error(m_functionCall, R"("revert" takes up to two m_arguments.)");
-			}
-			const auto &[ok, exceptionCode] = checkAndParseExceptionCode(m_arguments[0].get());
-			bool withArg = m_arguments.size() == 2;
-			if (withArg) {
-				acceptExpr(m_arguments[1].get());
-			}
-			if (ok && exceptionCode <= 1) {
-				cast_error(*m_arguments[0].get(), "Error code must be at least two");
-			}
-			if (ok && exceptionCode < 2048) {
-				m_pusher.push(withArg? -1 : 0, (withArg? "THROWARG " : "THROW ") + toString(exceptionCode));
-			} else {
-				acceptExpr(m_arguments[0].get());
-				if (!ok) {
-					m_pusher.pushLines(R"(
-DUP
-LESSINT 2
-PUSHCONT {
-	DROP
-	PUSHINT 100
-}
-IF
-)");
-				}
-				m_pusher.push(withArg? -2 : -1, withArg? "THROWARGANY" : "THROWANY");
-			}
+		case FunctionType::Kind::ValueToGas: {
+			pushArgs();
+			m_pusher.pushMacroCallInCallRef(-2 + 1, "__tonToGas_macro");
+			return true;
 		}
-	} else 	if (name == "logtvm") {
-		auto logstr = m_arguments[0].get();
-		if (auto literal = to<Literal>(logstr)) {
-			if (literal->value().length() > 15)
-				cast_error(m_functionCall, "Parameter string should have length no more than 15 chars");
-			if (TVMContractCompiler::g_without_logstr) {
-				return true;
-			}
-			m_pusher.push(0, "PRINTSTR " + literal->value());
-		} else {
-			cast_error(m_functionCall, "Parameter should be a literal");
-		}
-	} else if (name == "format") {
-		auto literal = to<Literal>(m_arguments[0].get());
-		std::string formatStr = literal->value();
-		size_t pos = 0;
-		std::vector<std::pair<std::string, std::string> > substrings;
-		while (true) {
-			pos = formatStr.find('{', pos);
-			size_t close_pos = formatStr.find('}', pos);
-			if (pos == string::npos || close_pos == string::npos)
-				break;
-			if ((formatStr[pos + 1] != ':') && (close_pos != pos + 1)) {
-				pos++;
-				continue;
-			}
 
-			std::string format = formatStr.substr(pos + 1, close_pos - pos - 1);
-			if (format[0] == ':') format.erase(0, 1);
-			substrings.emplace_back(formatStr.substr(0, pos), format);
-			formatStr = formatStr.substr(close_pos + 1);
-			pos = 0;
+		case FunctionType::Kind::SHA256: { // "sha256"
+			pushArgAndConvert(0);
+			m_pusher.push(0, "SHA256U");
+			return true;
 		}
-		// create new BldrList struct
-		m_pusher.push(+1, "NEWC");
-		m_pusher.push(+1, "NULL");
-		m_pusher.push(-1, "TUPLE 2");
-		// create new builder to store data in it
-		m_pusher.push(+1, "NEWC");
-		for(size_t it = 0; it < substrings.size(); it++) {
-			// stack: BldrList builder
-			std::string constStr = substrings[it].first;
-			if (constStr.length()) {
-				size_t maxSlice = (TvmConst::MaxPushSliceLength >> 1);
-				if (constStr.length() <= maxSlice){
-					m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr));
+
+		case FunctionType::Kind::Selfdestruct: { // "selfdestruct"
+			const std::map<int, std::string> constParams{
+					{TvmConst::int_msg_info::ihr_disabled, "1"},
+					{TvmConst::int_msg_info::tons,         StackPusherHelper::tonsToBinaryString(
+							u256(1'000))}, // TODO use 0?
+					{TvmConst::int_msg_info::bounce,       "0"},
+			};
+			m_pusher.sendIntMsg(
+					{{TvmConst::int_msg_info::dest, m_arguments[0].get()}},
+					constParams,
+					nullptr,
+					[&]() { m_pusher.push(+1, "PUSHINT " + toString(TvmConst::SENDRAWMSG::SelfDestruct)); });
+			return true;
+		}
+
+		case FunctionType::Kind::Require: {
+			if (m_arguments.size() == 1) {
+				pushArgAndConvert(0);
+				m_pusher.push(-1, "THROWIFNOT 100");
+			} else if (m_arguments.size() == 2 || m_arguments.size() == 3) {
+				if (m_arguments.size() == 3)
+					pushArgAndConvert(2);
+				const auto &[ok, exceptionCode] = checkAndParseExceptionCode(m_arguments[1].get());
+				if (ok && exceptionCode <= 1) {
+					cast_error(*m_arguments[1].get(), "Error code must be at least two");
+				}
+				if (ok && exceptionCode < 2048) {
+					pushArgAndConvert(0);
+					if (m_arguments.size() == 3)
+						m_pusher.push(-2, "THROWARGIFNOT " + toString(exceptionCode));
+					else
+						m_pusher.push(-1, "THROWIFNOT " + toString(exceptionCode));
 				} else {
-					m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr.substr(0, maxSlice)));
+					pushArgAndConvert(1);
+					if (!ok) {
+						m_pusher.pushLines(R"(
+DUP
+LESSINT 2
+PUSHCONT {
+	DROP
+	PUSHINT 100
+}
+IF
+)");
+					}
+					pushArgAndConvert(0);
+					if (m_arguments.size() == 3)
+						m_pusher.push(-3, "THROWARGANYIFNOT");
+					else
+						m_pusher.push(-2, "THROWANYIFNOT");
+				}
+			} else {
+				cast_error(m_functionCall, R"("require" takes from one to three m_arguments.)");
+			}
+			return true;
+		}
+		case FunctionType::Kind::Revert: {
+			if (m_arguments.empty()) {
+				m_pusher.push(0, "THROW 100");
+			} else {
+				if (!isIn(static_cast<int>(m_arguments.size()), 1, 2)) {
+					cast_error(m_functionCall, R"("revert" takes up to two m_arguments.)");
+				}
+				const auto &[ok, exceptionCode] = checkAndParseExceptionCode(m_arguments[0].get());
+				bool withArg = m_arguments.size() == 2;
+				if (withArg) {
+					pushArgAndConvert(1);
+				}
+				if (ok && exceptionCode <= 1) {
+					cast_error(*m_arguments[0].get(), "Error code must be at least two");
+				}
+				if (ok && exceptionCode < 2048) {
+					m_pusher.push(withArg ? -1 : 0, (withArg ? "THROWARG " : "THROW ") + toString(exceptionCode));
+				} else {
+					pushArgAndConvert(0);
+					if (!ok) {
+						m_pusher.pushLines(R"(
+DUP
+LESSINT 2
+PUSHCONT {
+	DROP
+	PUSHINT 100
+}
+IF
+)");
+					}
+					m_pusher.push(withArg ? -2 : -1, withArg ? "THROWARGANY" : "THROWANY");
+				}
+
+			}
+			return true;
+		}
+		case FunctionType::Kind::LogTVM: {
+			// TODO see tvm.log, move to one function
+			auto logstr = m_arguments[0].get();
+			if (auto literal = to<Literal>(logstr)) {
+				if (literal->value().length() > 15)
+					cast_error(m_functionCall, "Parameter string should have length no more than 15 chars");
+				m_pusher.push(0, "PRINTSTR " + literal->value());
+			} else {
+				cast_error(m_functionCall, "Parameter should be a literal");
+			}
+			return true;
+		}
+		case FunctionType::Kind::Format: {
+			auto literal = to<Literal>(m_arguments[0].get());
+			std::string formatStr = literal->value();
+			size_t pos = 0;
+			std::vector<std::pair<std::string, std::string> > substrings;
+			while (true) {
+				pos = formatStr.find('{', pos);
+				size_t close_pos = formatStr.find('}', pos);
+				if (pos == string::npos || close_pos == string::npos)
+					break;
+				if ((formatStr[pos + 1] != ':') && (close_pos != pos + 1)) {
+					pos++;
+					continue;
+				}
+
+				std::string format = formatStr.substr(pos + 1, close_pos - pos - 1);
+				if (format[0] == ':') format.erase(0, 1);
+				substrings.emplace_back(formatStr.substr(0, pos), format);
+				formatStr = formatStr.substr(close_pos + 1);
+				pos = 0;
+			}
+			// create new BldrList struct
+			m_pusher.push(+1, "NEWC");
+			m_pusher.push(+1, "NULL");
+			m_pusher.push(-1, "TUPLE 2");
+			// create new builder to store data in it
+			m_pusher.push(+1, "NEWC");
+			for (size_t it = 0; it < substrings.size(); it++) {
+				// stack: BldrList builder
+				std::string constStr = substrings[it].first;
+				if (constStr.length()) {
+					size_t maxSlice = (TvmConst::MaxPushSliceLength >> 1);
+					if (constStr.length() <= maxSlice) {
+						m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr));
+					} else {
+						m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr.substr(0, maxSlice)));
+						// stack: BldrList builder Slice
+						m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders");
+						m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
+						// stack: BldrList builder
+						m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr.substr(maxSlice)));
+					}
 					// stack: BldrList builder Slice
 					m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders");
 					m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
 					// stack: BldrList builder
-					m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr.substr(maxSlice)));
 				}
-				// stack: BldrList builder Slice
-				m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders");
-				m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
-				// stack: BldrList builder
-			}
 
 
-			Type::Category cat = m_arguments[it + 1]->annotation().type->category();
-			Type const* argType = m_arguments[it + 1]->annotation().type;
-			if (cat == Type::Category::Integer || cat == Type::Category::RationalNumber) {
-				// stack: BldrList builder
-				std::string format = substrings[it].second;
-				bool leadingZeroes = format.size() ? (format[0] == '0') : false;
-				bool isHex = format.size() ? (format.back() == 'x') : false;
-				while (format.size() && (format.back() <'0' || format.back() > '9')) {
-					format.erase(format.size() - 1, 1);
-				}
-				int width = 0;
-				if (format.length() > 0)
-					width = std::stoi(format);
-				if (width < 0)
-					solUnimplemented("Width should be a positive integer.");
-				auto mt = m_arguments[it + 1]->annotation().type->mobileType();
-				auto isInt = dynamic_cast<IntegerType const*>(mt);
-				acceptExpr(m_arguments[it + 1].get());
-				if (isInt->isSigned())
-					m_pusher.push(0, "ABS");
-				m_pusher.pushInt(width);
-				m_pusher.push(+1, leadingZeroes ? "TRUE" : "FALSE");
-				if (isInt->isSigned()) {
+				Type::Category cat = m_arguments[it + 1]->annotation().type->category();
+				Type const *argType = m_arguments[it + 1]->annotation().type;
+				if (cat == Type::Category::Integer || cat == Type::Category::RationalNumber) {
+					// stack: BldrList builder
+					std::string format = substrings[it].second;
+					bool leadingZeroes = !format.empty() ? (format[0] == '0') : false;
+					bool isHex = !format.empty() ?
+								(format.back() == 'x' || format.back() == 'X') : false;
+					bool isLower = isHex ? (format.back() == 'x') : false;
+					while (!format.empty() && (format.back() < '0' || format.back() > '9')) {
+						format.erase(format.size() - 1, 1);
+					}
+					int width = 0;
+					if (format.length() > 0)
+						width = std::stoi(format);
+					if (width < 0)
+						solUnimplemented("Width should be a positive integer.");
+					auto mt = m_arguments[it + 1]->annotation().type->mobileType();
+					auto isInt = dynamic_cast<IntegerType const *>(mt);
 					acceptExpr(m_arguments[it + 1].get());
-					m_pusher.push(0, "ISNEG");
+					if (isInt->isSigned())
+						m_pusher.push(0, "ABS");
+					m_pusher.pushInt(width);
+					m_pusher.push(+1, leadingZeroes ? "TRUE" : "FALSE");
+					if (isHex) {
+						if (isLower)
+							m_pusher.push(+1, "TRUE");
+						else
+							m_pusher.push(+1, "FALSE");
+					}
+					if (isInt->isSigned()) {
+						acceptExpr(m_arguments[it + 1].get());
+						m_pusher.push(0, "ISNEG");
+					} else {
+						m_pusher.push(+1, "FALSE");
+					}
+					// stack: BldrList builder abs(number) width leadingZeroes addMinus
+					if (isHex) {
+						m_pusher.pushPrivateFunctionOrMacroCall(-3, "convertIntToHexStr");
+					} else {
+						m_pusher.pushPrivateFunctionOrMacroCall(-2, "convertIntToDecStr");
+					}
+					// stack: BldrList builder builder bool
+					m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
+					// stack: BldrList builder
+				} else if (cat == Type::Category::Address) {
+					// stack: BldrList builder
+					acceptExpr(m_arguments[it + 1].get());
+					// stack: BldrList builder address
+					m_pusher.pushPrivateFunctionOrMacroCall(-1, "convertAddressToHexString");
+					// stack: BldrList builder
+				} else if (isStringOrStringLiteralOrBytes(argType)) {
+					// stack: BldrList builder
+					acceptExpr(m_arguments[it + 1].get());
+					// stack: BldrList builder string(cell)
+					m_pusher.push(0, "CTOS");
+					// stack: BldrList builder string(slice)
+					m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders");
+					m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
+					// stack: BldrList builder
 				} else {
-					m_pusher.push(+1, "FALSE");
+					cast_error(*m_arguments[it + 1].get(), "Unsupported argument type");
 				}
-				// stack: BldrList builder abs(number) width leadingZeroes addMinus
-				if (isHex){
-					m_pusher.pushPrivateFunctionOrMacroCall(-2, "convertIntToHexStr");
-				} else {
-					m_pusher.pushPrivateFunctionOrMacroCall(-2, "convertIntToDecStr");
-				}
-				// stack: BldrList builder builder bool
-				m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
-				// stack: BldrList builder
-			} else if (cat == Type::Category::Address) {
-				// stack: BldrList builder
-				acceptExpr(m_arguments[it + 1].get());
-				// stack: BldrList builder address
-				m_pusher.pushPrivateFunctionOrMacroCall(-1, "convertAddressToHexString");
-				// stack: BldrList builder
-			} else if (isStringOrStringLiteralOrBytes(argType)) {
-				// stack: BldrList builder
-				acceptExpr(m_arguments[it + 1].get());
-				// stack: BldrList builder string(cell)
-				m_pusher.push(0, "CTOS");
-				// stack: BldrList builder string(slice)
-				m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders");
-				m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
-				// stack: BldrList builder
-			} else {
-				cast_error(*m_arguments[it + 1].get(), "Unsupported argument type");
 			}
-		}
-		if (formatStr.length()) {
-			size_t maxSlice = (TvmConst::MaxPushSliceLength >> 1);
-			if (formatStr.length() <= maxSlice){
-				m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(formatStr));
-			} else {
-				m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(formatStr.substr(0, maxSlice)));
+			if (formatStr.length()) {
+				size_t maxSlice = (TvmConst::MaxPushSliceLength >> 1);
+				if (formatStr.length() <= maxSlice) {
+					m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(formatStr));
+				} else {
+					m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(formatStr.substr(0, maxSlice)));
+					// stack: BldrList builder Slice
+					m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders");
+					m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
+					// stack: BldrList builder
+					m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(formatStr.substr(maxSlice)));
+				}
 				// stack: BldrList builder Slice
 				m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders");
 				m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
 				// stack: BldrList builder
-				m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(formatStr.substr(maxSlice)));
 			}
-			// stack: BldrList builder Slice
-			m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders");
-			m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList");
-			// stack: BldrList builder
+			m_pusher.pushPrivateFunctionOrMacroCall(-1, "assembleList");
+			return true;
 		}
-		m_pusher.pushPrivateFunctionOrMacroCall(-1, "assembleList");
-
-	} else if (name == "stoi") {
-		m_pusher.push(+1, "TRUE");
-		acceptExpr(m_arguments[0].get());
-		m_pusher.push(0, "CTOS");
-		m_pusher.pushS(0);
-		m_pusher.push(+1, "PLDU 8");
-
-		m_pusher.push(0, "EQINT 45");
-		m_pusher.pushS(0);
-		m_pusher.pushLines(
-				R"(
-PUSHCONT {
-	SWAP
-	PUSHINT 8
-	SDSKIPFIRST
-}
-PUSHCONT {
-	SWAP
-}
-IFELSE
-)");
-		m_pusher.pushS(0);
-		m_pusher.pushInt(16);
-		m_pusher.push(-2+1, "SCHKBITSQ");
-		m_pusher.pushLines(
-				R"(
-PUSHCONT {
-	DUP
-	PLDU 16
-	PUSHINT 12408
-	EQUAL
-}
-PUSHCONT {
-	FALSE
-}
-IFELSE
-PUSHINT 0
-ROTREV
-PUSHCONT {
-	PUSHINT 16
-	SDSKIPFIRST
-	PUSHCONT {
-		DUP
-		PUSHINT 8
-		SCHKBITSQ
+		case FunctionType::Kind::Stoi: {
+			pushArgAndConvert(0);
+			m_pusher.pushMacroCallInCallRef(+1, "__stoi_macro");
+			return true;
+		}
+		default:
+			break;
 	}
-	PUSHCONT {
-		LDU 8
-		SWAP
-		DUP
-		PUSHINT 65
-		GEQ
-		PUSHCONT {
-			DUP
-			PUSHINT 97
-			GEQ
-			PUSHCONT {
-				ADDCONST -87
-			}
-			PUSHCONT {
-				ADDCONST -55
-			}
-			IFELSE
-		}
-		PUSHCONT {
-			ADDCONST -48
-		}
-		IFELSE
-		DUP
-		GTINT 15
-		PUSH S1
-		ISNEG
-		OR
-		PUSHCONT {
-			BLKSWAP 1, 4
-			DROP
-			FALSE
-			BLKSWAP 4, 1
-		}
-		IF
-		BLKSWAP 1, 2
-		MULCONST 16
-		ADD
-		SWAP
-	}
-	WHILE
-}
-PUSHCONT {
-	PUSHCONT {
-		DUP
-		PUSHINT 8
-		SCHKBITSQ
-	}
-	PUSHCONT {
-		LDU 8
-		SWAP
-		ADDCONST -48
-		DUP
-		GTINT 9
-		PUSH S1
-		ISNEG
-		OR
-		PUSHCONT {
-			BLKSWAP 1, 4
-			DROP
-			FALSE
-			BLKSWAP 4, 1
-		}
-		IF
-		BLKSWAP 1, 2
-		MULCONST 10
-		ADD
-		SWAP
-	}
-	WHILE
-}
-IFELSE
-DROP
-SWAP
-PUSHCONT {
-	NEGATE
-}
-IF
-SWAP
-)");
-		m_pusher.push(-4, "");
-	} else if (name == "hexstring") {
-		Type::Category cat = m_arguments[0]->annotation().type->category();
-		if (cat == Type::Category::Integer || cat == Type::Category::RationalNumber) {
-			TypeInfo ti{m_arguments[0]->annotation().type};
-			acceptExpr(m_arguments[0].get());
-			m_pusher.pushLines(convertToStr(true, true, true, ti.numBits / 4));
-		} else if (cat == Type::Category::Address) {
-			acceptExpr(m_arguments[0].get());
-			m_pusher.pushLines(R"(
-LDU 3
-NIP
-LDI 8
-LDU 256
-DROP
-SWAP
-)");
-			m_pusher.pushLines(convertToStr(true, false));
-			m_pusher.pushLines(R"(
-STSLICECONST x3A
-SWAP
-)");
-			m_pusher.pushLines(convertToStr(true, false, true));
-			m_pusher.push(0, "STBR");
-			m_pusher.push(0, "ENDC");
-		} else {
-			cast_error(m_functionCall, "Parameter should be integer or address");
-		}
-	} else {
-		return false;
-	}
-	return true;
+	return false;
 }
 
 bool FunctionCallCompiler::checkLocalFunctionCallOrFuncVarCall() {
@@ -2217,9 +2463,8 @@ bool FunctionCallCompiler::checkLocalFunctionCallOrFuncVarCall() {
 			return false;
 		}
 
-		for (const auto& arg : m_arguments) {
-			acceptExpr(arg.get());
-		}
+		pushArgs();
+
 		// Local variable of functional type
 		acceptExpr(expr);
 		m_pusher.pushS(0);
@@ -2255,8 +2500,8 @@ bool FunctionCallCompiler::createNewContract() {
 		if (pkIndex == -1) {
 			m_pusher.pushInt(0);
 		} else {
-				auto functionOptions = to<FunctionCallOptions>(&m_functionCall.expression());
-				acceptExpr(functionOptions->options().at(pkIndex).get());
+			auto functionOptions = to<FunctionCallOptions>(&m_functionCall.expression());
+			acceptExpr(functionOptions->options().at(pkIndex).get());
 		}
 	};
 
@@ -2361,12 +2606,12 @@ bool FunctionCallCompiler::createNewContract() {
 }
 
 void FunctionCallCompiler::deployNewContract(
-	const std::function<void()> pushWid,
-	const std::function<void()> pushValue,
-	const std::function<void()> pushBounce,
-	const std::function<void()> pushCurrency,
-	const std::function<void(int builderSize)> appendBody,
-	const std::function<void()> pushSendrawmsgFlag
+	const std::function<void()>& pushWid,
+	const std::function<void()>& pushValue,
+	const std::function<void()>& pushBounce,
+	const std::function<void()>& pushCurrency,
+	const std::function<void(int builderSize)>& appendBody,
+	const std::function<void()>& pushSendrawmsgFlag
 ) {
 	std::map<int, std::function<void()>> exprs;
 
@@ -2458,7 +2703,7 @@ bool FunctionCallCompiler::checkNewExpression() {
 
 	m_pusher.push(0, ";; new " + resultType->toString(true));
 	m_pusher.push(+1, "NEWDICT"); // dict
-	acceptExpr(m_arguments[0].get()); // dict size
+	pushArgAndConvert(0); // dict size
 	m_pusher.push(+1, "DUP"); // dict size sizeIter
 
 
@@ -2545,4 +2790,66 @@ void FunctionCallCompiler::buildStateInit(std::map<StateInitMembers, std::functi
 	m_pusher.push(0, "ENDC");
 	// stack: stateInit
 	solAssert(ss + 1 == m_pusher.getStack().size(), "");
+}
+
+
+void FunctionCallCompiler::pushArgs(bool reversed) {
+	auto func = [&](const ASTPointer<const Expression> &e, int i) {
+		acceptExpr(e.get());
+		Type const* targetType{};
+		if (m_funcType->parameterTypes().empty()) {
+			targetType = m_functionCall.annotation().arguments->targetTypes.at(i);
+		} else {
+			targetType = m_funcType->parameterTypes().at(i);
+		}
+		m_pusher.hardConvert(targetType, e->annotation().type);
+	};
+
+	if (reversed) {
+		int i = m_funcType->parameterTypes().size() - 1;
+		for (const auto &e : m_arguments | boost::adaptors::reversed) {
+			func(e, i);
+			--i;
+		}
+	} else {
+		int i = 0;
+		for (const ASTPointer<const Expression> &e : m_arguments) {
+			func(e, i);
+			++i;
+		}
+	}
+}
+
+void FunctionCallCompiler::pushArgAndConvert(int index, const std::string& name) {
+	int typeIndex{};
+	if (!name.empty()) {
+		typeIndex = -1;
+		const vector<string>& names = m_funcType->parameterNames();
+		for (int i = 0; i < static_cast<int>(names.size()); ++i) {
+			if (names.at(i) == name) {
+				typeIndex = i;
+				break;
+			}
+		}
+	} else {
+		typeIndex = index;
+	}
+	const ASTPointer<Expression const> &arg = m_arguments.at(index);
+	acceptExpr(arg.get());
+	Type const* targetType{};
+	if (m_funcType->parameterTypes().empty()) {
+		targetType = m_functionCall.annotation().arguments->targetTypes.at(typeIndex);
+	} else {
+		targetType = m_funcType->parameterTypes().at(typeIndex);
+	}
+	m_pusher.hardConvert(targetType, arg->annotation().type);
+}
+
+void FunctionCallCompiler::pushExprAndConvert(const Expression *expr, Type const* targetType) {
+	acceptExpr(expr);
+	m_pusher.hardConvert(targetType, expr->annotation().type);
+}
+
+void FunctionCallCompiler::acceptExpr(const Expression *expr) {
+	m_exprCompiler->compileNewExpr(expr);
 }

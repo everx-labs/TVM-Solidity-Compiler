@@ -112,6 +112,10 @@ bool isString(const Type *type) {
 	return type->category() == Type::Category::StringLiteral || (arrayType && arrayType->isString());
 }
 
+bool isSlice(const Type * type) {
+	return to<TvmSliceType>(type) != nullptr;
+}
+
 int bitsForEnum(size_t val_count) {
 	int bytes = 0;
 	val_count--;
@@ -195,6 +199,22 @@ IntegerType getKeyTypeOfC4() {
 
 IntegerType getKeyTypeOfArray() {
 	return IntegerType(TvmConst::ArrayKeyLength);
+}
+
+std::tuple<Type const*, Type const*>
+dictKeyValue(Type const* type) {
+	Type const* keyType{};
+	Type const* valueType{};
+	if (auto mapType = to<MappingType>(type)) {
+		keyType = mapType->keyType();
+		valueType = mapType->valueType();
+	} else if (auto ccType = to<ExtraCurrencyCollectionType>(type)) {
+		keyType = ccType->keyType();
+		valueType = ccType->realValueType();
+	} else {
+		solUnimplemented("");
+	}
+	return {keyType, valueType};
 }
 
 string storeIntegralOrAddress(const Type *type, bool reverse) {
@@ -349,6 +369,8 @@ DictValueType toDictValueType(const Type::Category& category) {
 			return DictValueType::VarInteger;
 		case Type::Category::Function:
 			return DictValueType::Function;
+		case Type::Category::FixedPoint:
+			return DictValueType::FixedPoint;
 		default:
 			solUnimplemented("");
 	}

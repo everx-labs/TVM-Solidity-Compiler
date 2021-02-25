@@ -149,17 +149,13 @@ util::Result<TypePointers> transformParametersToExternal(TypePointers const& _pa
 }
 
 BoolResult Type::isImplicitlyConvertibleTo(Type const& _other) const {
-	if (auto opt = dynamic_cast<OptionalType const*>(&_other)) {
-		Type::Category valueCat = opt->valueType()->category();
-		if (
-			valueCat != Type::Category::Mapping &&
-			valueCat != Type::Category::Optional &&
-			this->isImplicitlyConvertibleTo(*opt->valueType())
-		) {
-			return true;
-		}
+	if (*this == _other) {
+		return true;
 	}
-	return *this == _other;
+	if (auto optOther = dynamic_cast<OptionalType const*>(&_other))
+		if (isImplicitlyConvertibleTo(*optOther->valueType()))
+			return true;
+	return false;
 }
 
 void Type::clearCache() const
@@ -518,10 +514,14 @@ bool isValidShiftAndAmountType(Token _operator, Type const& _shiftAmountType)
 IntegerType::IntegerType(unsigned _bits, IntegerType::Modifier _modifier):
 	m_bits(_bits), m_modifier(_modifier)
 {
-	solAssert(
-		m_bits > 0 && m_bits <= 256 && m_bits % 8 == 0,
-		"Invalid bit number for integer type: " + util::toString(m_bits)
-	);
+	if (_bits == 257 && _modifier == IntegerType::Modifier::Signed) {
+
+	} else {
+		solAssert(
+				m_bits > 0 && m_bits <= 256 && m_bits % 8 == 0,
+				"Invalid bit number for integer type: " + util::toString(m_bits)
+		);
+	}
 }
 
 string IntegerType::richIdentifier() const
@@ -1249,6 +1249,22 @@ u256 RationalNumberType::literalValue(Literal const*) const
 	return value;
 }
 
+bigint RationalNumberType::value() const {
+	if (!isFractional())
+		return m_value.numerator();
+
+	bigint shiftedValue;
+	auto fixed = fixedPointType();
+	solAssert(fixed, "Rational number cannot be represented as fixed point type.");
+	int fractionalDigits = fixed->fractionalDigits();
+	shiftedValue = m_value.numerator() * boost::multiprecision::pow(bigint(10), fractionalDigits) / m_value.denominator();
+
+	// we ignore the literal and hope that the type was correctly determined
+	solAssert(shiftedValue <= u256(-1), "Number constant too large.");
+	solAssert(shiftedValue >= -(bigint(1) << 255), "Number constant too small.");
+	return shiftedValue;
+}
+
 TypePointer RationalNumberType::mobileType() const
 {
 	if (!isFractional())
@@ -1830,12 +1846,22 @@ MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 		));
 	} else {
 		members.emplace_back("substr", TypeProvider::function(
-			TypePointers{TypeProvider::uint(8), TypeProvider::uint(8)},
+			TypePointers{TypeProvider::uint256()},
 			TypePointers{TypeProvider::stringMemory()},
-			strings{string("from"), string("count")},
+			strings{string("from")},
 			strings{string("substr")},
-			FunctionType::Kind::StringMethod,
-			false, StateMutability::Pure
+			FunctionType::Kind::StringSubstr,
+			false,
+			StateMutability::Pure
+		));
+		members.emplace_back("substr", TypeProvider::function(
+				TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
+				TypePointers{TypeProvider::stringMemory()},
+				strings{string("from"), "to"},
+				strings{string("substr")},
+				FunctionType::Kind::StringSubstr,
+				false,
+				StateMutability::Pure
 		));
 		members.emplace_back("byteLength", TypeProvider::function(
 			TypePointers{},
@@ -2546,10 +2572,17 @@ string TupleType::richIdentifier() const
 
 bool TupleType::operator==(Type const& _other) const
 {
-	if (auto tupleType = dynamic_cast<TupleType const*>(&_other))
-		return components() == tupleType->components();
-	else
-		return false;
+	if (auto tupleOther = dynamic_cast<TupleType const*>(&_other)) {
+		if (components().size() == tupleOther->components().size()) {
+			bool ok = true;
+			for (size_t i = 0; i < components().size(); ++i) {
+				if (tupleOther->components().at(i) != nullptr)
+					ok &= *components().at(i) == *tupleOther->components().at(i);
+			}
+			return ok;
+		}
+	}
+	return false;
 }
 
 string TupleType::toString(bool _short) const
@@ -2839,18 +2872,21 @@ string FunctionType::richIdentifier() const
 	case Kind::OptionalSet: id += "optionalmethod"; break;
 
 	case Kind::StringMethod: id += "stringmethod"; break;
+	case Kind::StringSubstr: id += "stringsubstr"; break;
 
 	case Kind::DecodeFunctionParams: id += "tvmslicedecodefunctionparams"; break;
 	case Kind::TVMSliceDataSize: id += "tvmslicedatasize"; break;
 	case Kind::TVMSliceDecode: id += "tvmslicedecode"; break;
 	case Kind::TVMSliceSize: id += "tvmslicesize"; break;
+	case Kind::TVMSliceSkip: id += "tvmsliceskip"; break;
+	case Kind::TVMSliceCompare: id += "tvmslicecompare"; break;
+	case Kind::TVMSliceHas: id += "tvmslicehasxxx"; break;
 
 	case Kind::TVMCellDepth: id += "tvmcelldepth"; break;
 	case Kind::TVMCellToSlice: id += "tvmcelltoslice"; break;
 	case Kind::TVMDataSize: id += "tvmdatasize"; break;
 	case Kind::TVMDataSizeQ: id += "tvmdatasizeq"; break;
 
-	case Kind::HexString: id += "hexstring"; break;
 	case Kind::Format: id += "format"; break;
 	case Kind::Stoi: id += "stoi"; break;
 	case Kind::LogTVM: id += "logtvm"; break;
@@ -2871,6 +2907,7 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMFunctionId: id += "tvmfunctionid"; break;
 	case Kind::TVMHash: id += "tvmhash"; break;
 	case Kind::TVMLoadRef: id += "tvmloadref"; break;
+	case Kind::TVMLoadSlice: id += "tvmloadslice"; break;
 	case Kind::TVMPubkey: id += "tvmpubkey"; break;
 	case Kind::TVMRawConfigParam: id += "tvmrawconfigparam"; break;
 	case Kind::TVMResetStorage: id += "tvmresetstorage"; break;
@@ -2892,7 +2929,8 @@ string FunctionType::richIdentifier() const
 	case Kind::MathAbs: id += "mathabs"; break;
 	case Kind::MathDivC: id += "divc"; break;
 	case Kind::MathDivR: id += "divr"; break;
-	case Kind::MathMinOrMax: id += "mathminormax"; break;
+	case Kind::MathMin: id += "mathmin"; break;
+	case Kind::MathMax: id += "mathmax"; break;
 	case Kind::MathMinMax: id += "mathminmax"; break;
 	case Kind::MathModpow2: id += "mathmodpow2"; break;
 	case Kind::MathMulDiv: id += "mathmuldiv"; break;
@@ -2940,6 +2978,8 @@ string FunctionType::richIdentifier() const
 	case Kind::BlockHash: id += "blockhash"; break;
 	case Kind::AddMod: id += "addmod"; break;
 	case Kind::MulMod: id += "mulmod"; break;
+	case Kind::ValueToGas: id += "valuetogas"; break;
+	case Kind::GasToValue: id += "gastovalue"; break;
 
 	case Kind::ArrayPush: id += "arraypush"; break;
 	case Kind::ArrayPop: id += "arraypop"; break;
@@ -3590,22 +3630,14 @@ BoolResult MappingType::isImplicitlyConvertibleTo(Type const& _other) const
 
 BoolResult OptionalType::isImplicitlyConvertibleTo(Type const& _other) const
 {
-	if (Type::isImplicitlyConvertibleTo(_other)) {
+	if (Type::isImplicitlyConvertibleTo(_other))
 		return true;
-	}
 
-	if (valueType()->isImplicitlyConvertibleTo(_other))
+	auto optOther = dynamic_cast<OptionalType const*>(&_other);
+	if (optOther != nullptr && isImplicitlyConvertibleTo(*optOther->valueType()))
 		return true;
-	if (_other.category() != category())
-		return false;
-	auto opt = dynamic_cast<OptionalType const*>(&_other);
-	if (
-		opt->valueType()->category() == Type::Category::Optional ||
-		opt->valueType()->category() == Type::Category::Mapping
-	) {
-		return false;
-	}
-	return valueType()->isImplicitlyConvertibleTo(*opt->valueType());
+	bool r = *this == _other;
+	return r;
 }
 
 string MappingType::richIdentifier() const
@@ -3896,7 +3928,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"accept", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMAccept, false, StateMutability::Pure)},
 			{"commit", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMCommit, false, StateMutability::NonPayable)},
 			{"resetStorage", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMResetStorage, false, StateMutability::NonPayable)},
-			{"log", TypeProvider::function(strings{"bytes32"}, strings{}, FunctionType::Kind::LogTVM, false, StateMutability::Pure)},
+			{"log", TypeProvider::function(strings{"string"}, strings{}, FunctionType::Kind::LogTVM, false, StateMutability::Pure)},
 			{"exit", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit, false, StateMutability::Pure)},
 			{"exit1", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit1, false, StateMutability::Pure)}
 		};
@@ -4107,7 +4139,11 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			},
 			{
 				"shuffle",
-				TypeProvider::function({}, {}, {}, {}, FunctionType::Kind::RndShuffle, true, StateMutability::Pure)
+				TypeProvider::function({}, {}, {}, {}, FunctionType::Kind::RndShuffle, false, StateMutability::Pure)
+			},
+			{
+				"shuffle",
+				TypeProvider::function({TypeProvider::uint256()}, {}, {{}}, {}, FunctionType::Kind::RndShuffle, false, StateMutability::Pure)
 			}
 		};
 		return members;
@@ -4132,7 +4168,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				TypePointers{},
 				strings{},
 				strings{},
-				FunctionType::Kind::MathMinOrMax,
+				FunctionType::Kind::MathMax,
 				true, StateMutability::Pure
 		));
 		members.emplace_back("min", TypeProvider::function(
@@ -4140,7 +4176,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				TypePointers{},
 				strings{},
 				strings{},
-				FunctionType::Kind::MathMinOrMax,
+				FunctionType::Kind::MathMin,
 				true, StateMutability::Pure
 		));
 		members.emplace_back("minmax", TypeProvider::function(
@@ -4187,9 +4223,9 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 		));
 		members.emplace_back("modpow2", TypeProvider::function(
 				TypePointers{},
-				TypePointers{TypeProvider::uint(256)},
+				TypePointers{},
 				strings{},
-				strings{string()},
+				strings{},
 				FunctionType::Kind::MathModpow2,
 				true, StateMutability::Pure
 		));
@@ -4441,6 +4477,36 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) co
 			StateMutability::Pure
 	));
 
+	members.emplace_back("hasNBits", TypeProvider::function(
+			TypePointers{TypeProvider::uint(16)},
+			TypePointers{TypeProvider::boolean()},
+			strings{string()},
+			strings{string()},
+			FunctionType::Kind::TVMSliceHas,
+			false,
+			StateMutability::Pure
+	));
+
+	members.emplace_back("hasNRefs", TypeProvider::function(
+			TypePointers{TypeProvider::uint(8)},
+			TypePointers{TypeProvider::boolean()},
+			strings{string()},
+			strings{string()},
+			FunctionType::Kind::TVMSliceHas,
+			false,
+			StateMutability::Pure
+	));
+
+	members.emplace_back("hasNBitsAndRefs", TypeProvider::function(
+			TypePointers{TypeProvider::uint(16), TypeProvider::uint(8)},
+			TypePointers{TypeProvider::boolean()},
+			strings{string(), string()},
+			strings{string()},
+			FunctionType::Kind::TVMSliceHas,
+			false,
+			StateMutability::Pure
+	));
+
 	members.emplace_back("loadTons", TypeProvider::function(
 			TypePointers{},
 			TypePointers{TypeProvider::uint(128)},
@@ -4452,11 +4518,37 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) co
 	));
 
 	members.emplace_back("loadSlice", TypeProvider::function(
-			TypePointers{TypeProvider::uint(16)},
-			TypePointers{TypeProvider::tvmslice()},
-			strings{string()},
-			strings{string()},
-			FunctionType::Kind::TVMLoadRef,
+			{TypeProvider::uint256()},
+			{TypeProvider::tvmslice()},
+			{{}},
+			{{}},
+			FunctionType::Kind::TVMLoadSlice,
+			false,
+			StateMutability::Pure
+	));
+
+	members.emplace_back("loadSlice", TypeProvider::function(
+			{TypeProvider::uint256(), TypeProvider::uint256()},
+			{TypeProvider::tvmslice()},
+			{{},{}},
+			{{}},
+			FunctionType::Kind::TVMLoadSlice,
+			false,
+			StateMutability::Pure
+	));
+
+	members.emplace_back("skip", TypeProvider::function(
+			strings{"uint"},
+			strings{},
+			FunctionType::Kind::TVMSliceSkip,
+			false,
+			StateMutability::Pure
+	));
+
+	members.emplace_back("skip", TypeProvider::function(
+			strings{"uint", "uint"},
+			strings{},
+			FunctionType::Kind::TVMSliceSkip,
 			false,
 			StateMutability::Pure
 	));
@@ -4512,6 +4604,15 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) co
 			strings{},
 			strings{string()},
 			FunctionType::Kind::TVMLoadRef,
+			false, StateMutability::Pure
+	));
+
+	members.emplace_back("compare", TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::integer(8, IntegerType::Modifier::Signed)},
+			strings{string()},
+			strings{string()},
+			FunctionType::Kind::TVMSliceCompare,
 			false, StateMutability::Pure
 	));
 

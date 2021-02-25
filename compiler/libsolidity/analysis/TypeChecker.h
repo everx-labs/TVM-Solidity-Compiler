@@ -120,6 +120,7 @@ private:
 
 	static FunctionDefinition const* getFunctionDefinition(Expression const* expr);
 	static std::pair<bool, FunctionDefinition const*> getConstructorDefinition(Expression const* expr);
+	FunctionDefinition const* checkPubFunctionAndGetDefinition(Expression const& arg, bool printError = false);
 	FunctionDefinition const* checkPubFunctionOrContractTypeAndGetDefinition(Expression const& arg);
 
 	void endVisit(InheritanceSpecifier const& _inheritance) override;

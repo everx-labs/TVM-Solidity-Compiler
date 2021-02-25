@@ -59,6 +59,8 @@ struct FuncCallArguments
 	std::vector<Type const*> types;
 	/// Names of the arguments if given, otherwise unset
 	std::vector<ASTPointer<ASTString>> names;
+	/// it's for functions that have variable count of parameters or some params are skipped
+	std::vector<Type const*> targetTypes;
 
 	size_t numArguments() const { return types.size(); }
 	size_t numNames() const { return names.size(); }

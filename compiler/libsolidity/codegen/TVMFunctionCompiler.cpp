@@ -181,11 +181,7 @@ SETGLOB 6   ; pubkey [timestamp]
 void TVMFunctionCompiler::generateC4ToC7(StackPusherHelper& pusher, ContractDefinition const *contract, bool withInitMemory) {
 	TVMFunctionCompiler funCompiler{pusher, contract};
     const std::string& name = withInitMemory? "c4_to_c7_with_init_storage": "c4_to_c7";
-    if (withInitMemory) {
-        pusher.generateMacro(name);
-    } else {
-		pusher.generateGlobl(name, false);
-    }
+	pusher.generateMacro(name);
 	pusher.pushLines(R"(
 PUSHROOT
 CTOS        ; c4
@@ -208,6 +204,7 @@ PUSHCONT {
 )");
 		pusher.addTabs();
 		int shift = 0;
+		// TODO stateVariablesIncludingInherited doesn't include private vars from base contract
 		for (VariableDeclaration const* v : pusher.ctx().getContract()->stateVariablesIncludingInherited()) {
 			if (v->isConstant()) {
 				continue;
@@ -275,7 +272,8 @@ void TVMFunctionCompiler::generateOnCodeUpgrade(StackPusherHelper& pusher, Funct
 
 	funCompiler.visitFunctionWithModifiers(true);
 
-	pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
+	pusher.pushMacroCallInCallRef(0, "c7_to_c4");
+
 	pusher.push(0, "COMMIT");
 	pusher.push(0, "THROW 0");
 	pusher.push(0, " ");
@@ -299,13 +297,13 @@ void TVMFunctionCompiler::generateOnTickTock(StackPusherHelper& pusher, Function
 		pusher.switchSelector();
 	}
 	if (!isPure) {
-		pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7");
+		pusher.pushMacroCallInCallRef(0, "c4_to_c7");
 	}
 
 	funCompiler.visitFunctionWithModifiers(false);
 
 	if (!isPure) {
-		pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
+		pusher.pushMacroCallInCallRef(0, "c7_to_c4");
 	}
 	pusher.push(0, " ");
 }
@@ -390,7 +388,7 @@ void
 TVMFunctionCompiler::generateGetter(StackPusherHelper &pusher, VariableDeclaration const* vd) {
 	TVMFunctionCompiler funCompiler{pusher, nullptr};
 	pusher.generateGlobl(vd->name(), true);
-	pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7");
+	pusher.pushMacroCallInCallRef(0, "c4_to_c7");
 
 	pusher.getGlob(vd);
 
@@ -424,9 +422,6 @@ void TVMFunctionCompiler::generatePrivateFunction(StackPusherHelper& pusher, Fun
 		name = _name.value();
 	} else {
 		name = pusher.ctx().getFunctionInternalName(function);
-		if (function != getContractFunctions(pusher.ctx().getContract(), function->name()).back()) {
-			name = function->annotation().contract->name() + "_" + function->name();
-		}
 	}
 	pusher.generateGlobl(name, false);
 	funCompiler.visitFunctionWithModifiers(true);
@@ -779,12 +774,25 @@ bool TVMFunctionCompiler::visit(VariableDeclarationStatement const &_variableDec
 		if (tupleExpression && !tupleExpression->isInlineArray()) {
 			ast_vec<Expression> const&  tuple = tupleExpression->components();
 			for (std::size_t i = 0; i < tuple.size(); ++i) {
-				if (decls[i] == nullptr || !m_pusher.tryImplicitConvert(decls[i]->type(), tuple[i]->annotation().type)) {
-					acceptExpr(tuple[i].get());
+				acceptExpr(tuple[i].get());
+				if (decls.at(i) != nullptr) {
+					m_pusher.hardConvert(decls.at(i)->type(), tuple.at(i)->annotation().type);
 				}
 			}
-		} else if (decls[0] == nullptr || !m_pusher.tryImplicitConvert(decls[0]->type(), init->annotation().type)) {
+		} else {
 			acceptExpr(init);
+			if (decls.size() == 1) {
+				m_pusher.hardConvert(decls.at(0)->type(), init->annotation().type);
+			} else {
+				auto tuple = to<TupleType>(init->annotation().type);
+				for (int i = decls.size() - 1; i >= 0; --i) {
+					if (decls.at(i) != nullptr) {
+						m_pusher.hardConvert(decls.at(i)->type(), tuple->components().at(i));
+					}
+					m_pusher.blockSwap(decls.size() - 1, 1);
+					// TODO add test
+				}
+			}
 		}
 	} else {
 		for (const auto& decl : decls) {
@@ -810,10 +818,12 @@ bool TVMFunctionCompiler::visit(Block const &) {
 	return true;
 }
 
-bool TVMFunctionCompiler::visit(ExpressionStatement const &_expressionStatement) {
-	auto savedStackSize = m_pusher.getStack().size();
-	acceptExpr(&_expressionStatement.expression(), false);
-	m_pusher.getStack().ensureSize(savedStackSize, _expressionStatement.location().text());
+bool TVMFunctionCompiler::visit(ExpressionStatement const &_statement) {
+	if (!_statement.expression().annotation().isPure) {
+		auto savedStackSize = m_pusher.getStack().size();
+		acceptExpr(&_statement.expression(), false);
+		m_pusher.getStack().ensureSize(savedStackSize, _statement.location().text());
+	}
 	return false;
 }
 
@@ -845,17 +855,7 @@ bool TVMFunctionCompiler::visit(IfStatement const &_ifStatement) {
 	m_pusher.push(-1, ""); // drop condition
 	bool reverseOpcode = false;
 	if (_ifStatement.falseStatement() == nullptr) {
-		while(true) {
-			if (std::regex_match(m_pusher.code().lines.back(), std::regex("(\t*)EQINT 0")) ||
-				std::regex_match(m_pusher.code().lines.back(), std::regex("(\t*)NOT"))) {
-				m_pusher.pollLastOpcode();
-				reverseOpcode ^= true;
-			} else if (std::regex_match(m_pusher.code().lines.back(), std::regex("(\t*)NEQINT 0"))) {
-				m_pusher.pollLastOpcode();
-			} else {
-				break;
-			}
-		}
+		reverseOpcode = m_pusher.optimizeIf();
 	}
 
 	// if
@@ -1685,7 +1685,7 @@ PUSHCONT {
 
 	if (m_pusher.ctx().pragmaHelper().havePubkey()) {
 		// External inbound message have not signature but have public key
-		std::string str = R"(
+		std::string str2 = R"(
 }
 PUSHCONT {
 	LDU 1      ; havePubkey msgSlice
@@ -1694,8 +1694,8 @@ PUSHCONT {
 }
 IFELSE
 )";
-		boost::replace_all(str, "MessageHasNoSignButHasPubkey", toString(TvmConst::RuntimeException::MessageHasNoSignButHasPubkey));
-		m_pusher.pushLines(str);
+		boost::replace_all(str2, "MessageHasNoSignButHasPubkey", toString(TvmConst::RuntimeException::MessageHasNoSignButHasPubkey));
+		m_pusher.pushLines(str2);
 	} else {
 		m_pusher.pushLines(R"(
 }
@@ -1904,10 +1904,9 @@ void TVMFunctionCompiler::pushC4ToC7IfNeed() {
 GETGLOB 1
 ISNULL
 )");
-		m_pusher.startContinuation();
+		m_pusher.startIfRef();
 		m_pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7");
 		m_pusher.endContinuation();
-		m_pusher.pushLines("IF");
 	}
 }
 
@@ -1915,13 +1914,12 @@ void TVMFunctionCompiler::pushC7ToC4IfNeed() {
 	// c7_to_c4 if need
 	solAssert(m_pusher.getStack().size() == 0, "");
 	if (m_function->stateMutability() == StateMutability::NonPayable) {
-		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
+		m_pusher.pushMacroCallInCallRef(0, "c7_to_c4");
 	} else {
 		// if it's external message than save values for replay protection
-		m_pusher.startContinuation();
+		m_pusher.startIfRef();
 		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
 		m_pusher.endContinuation();
-		m_pusher.push(0, "IF");
 	}
 }
 

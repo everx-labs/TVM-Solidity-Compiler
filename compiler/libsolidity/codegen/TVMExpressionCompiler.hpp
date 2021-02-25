@@ -36,21 +36,21 @@ public:
 		Type const* rightType{};
 	};
 
-private:
-	StackPusherHelper &m_pusher;
-	int m_expressionDepth;
-	bool m_isResultNeeded;
-	std::set<Expression const*> m_resultIsSlice;
-
-public:
 	explicit TVMExpressionCompiler(StackPusherHelper &pusher);
 	void compileNewExpr(const Expression* expr);
-	void acceptExpr(const Expression* expr, const bool _isResultNeeded);
+	void acceptExpr(const Expression* expr, bool _isResultNeeded);
 	static std::pair<bool, bigint> constValue(Expression const& _e);
 	static std::pair<bool, bool> constBool(Expression const& _e);
 	static int returnParamQty(Expression const& _e);
 
-
+	LValueInfo expandLValue(
+			Expression const* const _expr,
+			const bool withExpandLastValue,
+			bool willNoStackPermutationForLValue = false,
+			bool isLValue = true,
+			Type const* rightType = nullptr
+	);
+	void collectLValue(const LValueInfo &lValueInfo, bool haveValueOnStackTop, bool isValueBuilder);
 
 protected:
 	bool acceptExpr(const Expression* expr);
@@ -62,17 +62,24 @@ protected:
 	bool tryPushConstant(Identifier const& _identifier);
 	bool pushMemberOrLocalVarOrConstant(Identifier const& _identifier);
 
-protected:
 	void visit2(Identifier const& _identifier);
-	void compileUnaryOperation(UnaryOperation const& _node, const std::string& tvmUnaryOperation, const bool isPrefixOperation);
+	void compileUnaryOperation(UnaryOperation const& _node, const std::string& tvmUnaryOperation, bool isPrefixOperation);
 	void compileUnaryDelete(UnaryOperation const& node);
 	void visit2(UnaryOperation const& _node);
-	static bool argumentsIsGoodForFixedBytes(Type const* a, Type const* b);
 	void compareAddresses(Token op);
+	void compareStrings(Token op);
 	bool tryOptimizeBinaryOperation(BinaryOperation const& _node);
 	static std::vector<Expression const*> unroll(BinaryOperation const&  _node);
+	void visitBinaryOperationForString(BinaryOperation const &_binaryOperation);
+	void visitLogicalShortCircuiting(BinaryOperation const &_binaryOperation);
 	void visit2(BinaryOperation const& _node);
-	void checkBitFit(Type const* type, Type const* lType, Type const* rType, const std::string& opcode);
+	bool isCheckFitUseless(Type const* type, Token op);
+	void visitMathBinaryOperation(
+		Token op,
+		Type const* commonType,
+		const std::function<void()>& pushRight,
+		const std::optional<bigint>& rightValue
+	);
 	void visitMsgMagic(MemberAccess const& _node);
 	void visitMagic(MemberAccess const& _node);
 	void visit2(MemberAccess const& _node);
@@ -81,50 +88,24 @@ protected:
 	void visitMemberAccessFixedBytes(MemberAccess const& _node, FixedBytesType const* fbt);
 	static void indexTypeCheck(IndexAccess const& _node);
 	void visit2(IndexAccess const& indexAccess);
-
-protected:
-	std::string getDefaultMsgValue();
-	bool checkRemoteMethodCall(FunctionCall const& _functionCall);
-	void checkExtMsgSend(FunctionCall const& _functionCall);
-
-	const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
-	void mappingDelMinOrMax(FunctionCall const& _functionCall, bool isDelMin);
-	void mappingGetSet(FunctionCall const& _functionCall);
-	void mappingPrevNextMethods(FunctionCall const& _functionCall);
-	void mappingMinMaxMethod(FunctionCall const& _functionCall, bool isMin);
-	void mappingEmpty(FunctionCall const& _functionCall);
-	bool checkForMappingOrCurrenciesMethods(FunctionCall const& _functionCall);
 	bool visit2(FunctionCall const& _functionCall);
 	void visit2(Conditional const& _conditional);
-	void visit2(ElementaryTypeNameExpression const& _node);
 	bool fold_constants(const Expression *expr);
 	static bool isOptionalGet(Expression const* expr);
 
-public:
-	LValueInfo expandLValue(
-		Expression const* const _expr,
-		const bool withExpandLastValue,
-	    bool willNoStackPermutationForLValue = false,
-	    bool isLValue = true,
-		Type const* rightType = nullptr
-	);
-	void collectLValue(const LValueInfo &lValueInfo, const bool haveValueOnStackTop, bool isValueBuilder);
-	void generateExtInboundMsg(bool addSignature,
-								const Expression *  destination,
-								const Expression *pubkey,
-								const Expression *expire,
-								const Expression *time,
-								const Expression *callbackid,
-								const Expression *abiVer,
-								const Expression *onerrorid,
-								const Expression *stateInit,
-								const CallableDeclaration *functionDefinition,
-								const ast_vec<Expression const> arguments);
-protected:
 	bool tryAssignLValue(Assignment const& _assignment);
 	bool tryAssignTuple(Assignment const& _assignment);
 	void visit2(Assignment const& _assignment);
+	void pushIndexAndConvert(IndexAccess const& indexAccess);
+
+private:
+	StackPusherHelper &m_pusher;
+	int m_expressionDepth;
+	bool m_isResultNeeded;
+	std::set<Expression const*> m_resultIsSlice;
 };
+
+
 
 class DictMinMax : public DictOperation {
 public:

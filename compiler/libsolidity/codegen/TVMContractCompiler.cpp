@@ -120,7 +120,8 @@ void TVMConstructorCompiler::generateConstructors() {
 
 	solAssert(m_pusher.getStack().size() == 0, "");
 
-	m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
+	m_pusher.pushMacroCallInCallRef(0, "c7_to_c4");
+
 	m_pusher.push(0, "TRUE");
 	m_pusher.push(0, "SETGLOB 7");
 	m_pusher.push(0, " ");
@@ -133,10 +134,10 @@ void TVMConstructorCompiler::c4ToC7WithMemoryInitAndConstructorProtection() {
 GETGLOB 1
 ISNULL
 )");
-	m_pusher.startContinuation();
+
+	m_pusher.startIfRef();
 	m_pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7_with_init_storage");
 	m_pusher.endContinuation();
-	m_pusher.push(0, "IF");
 
 	// generate constructor protection
 	std::string str = R"(
@@ -152,105 +153,77 @@ SETGLOB 6
 
 }
 
-bool TVMContractCompiler::m_optionsEnabled = false;
-TvmOption TVMContractCompiler::m_tvmOption = TvmOption::Code;
-bool TVMContractCompiler::m_outputProduced = false;
-bool TVMContractCompiler::g_without_logstr = false;
-bool TVMContractCompiler::g_disable_optimizer = false;
 langutil::ErrorReporter* TVMContractCompiler::g_errorReporter{};
-std::string TVMContractCompiler::m_fileName;
-std::string TVMContractCompiler::m_outputFolder;
-bool TVMContractCompiler::m_outputToFile = false;
 
-void TVMContractCompiler::generateABI(ContractDefinition const *contract,
-												  std::vector<PragmaDirective const *> const &pragmaDirectives) {
-	m_outputProduced = true;
-
-	if (m_outputToFile) {
+void TVMContractCompiler::generateABI(
+	const std::string& fileName,
+	ContractDefinition const *contract,
+	std::vector<PragmaDirective const *> const &pragmaDirectives
+) {
+	if (!fileName.empty()) {
 		ofstream ofile;
-		ensurePathExists();
-		ofile.open(m_fileName + ".abi.json");
+		ofile.open(fileName);
 		if (!ofile)
-			fatal_error("Failed to open the output file: " + m_fileName + ".abi.json");
+			fatal_error("Failed to open the output file: " + fileName);
 		TVMABI::generateABI(contract, pragmaDirectives, &ofile);
 		ofile.close();
-		cout << "ABI was generated and saved to file " << m_fileName << ".abi.json" << endl;
+		cout << "ABI was generated and saved to file " << fileName << endl;
 	} else {
 		TVMABI::generateABI(contract, pragmaDirectives);
 	}
-
 }
 
-void TVMContractCompiler::printStorageScheme(int v, const std::vector<StructCompiler::Node> &nodes, const int tabs) {
-	for (int i = 0; i < tabs; ++i) {
-		std::cout << " ";
-	}
-	for (const StructCompiler::Field& field : nodes[v].getFields()) {
-		std::cout << " " << field.name;
-	}
-	std::cout << std::endl;
-
-	for (const int to : nodes[v].getChildren()) {
-		printStorageScheme(to, nodes, tabs + 1);
-	}
-}
-
-void
-TVMContractCompiler::proceedDumpStorage(ContractDefinition const *contract, PragmaDirectiveHelper const &pragmaHelper) {
-	m_outputProduced = true;
-
-	TVMCompilerContext ctx(contract, pragmaHelper);
+void TVMContractCompiler::proceedContract(
+	const std::string& fileName,
+	ContractDefinition const& contract,
+	PragmaDirectiveHelper const &pragmaHelper,
+	bool withOptimizations
+) {
 	CodeLines code;
-	StackPusherHelper pusher{&ctx};
-	const std::vector<StructCompiler::Node>& nodes = pusher.structCompiler().getNodes();
-	printStorageScheme(0, nodes);
-}
-
-void TVMContractCompiler::proceedContract(ContractDefinition const *contract, PragmaDirectiveHelper const &pragmaHelper) {
-	m_outputProduced = true;
-	CodeLines code;
-	if (getFunction(contract, "tvm_mode0")) {
-		code = proceedContractMode0(contract, pragmaHelper);
+	if (getFunction(&contract, "tvm_mode0")) {
+		code = proceedContractMode0(&contract, pragmaHelper, withOptimizations);
 	} else {
-		code = proceedContractMode1(contract, pragmaHelper);
+		code = proceedContractMode1(&contract, pragmaHelper, withOptimizations);
 	}
 
-	if (m_outputToFile) {
+	if (!fileName.empty()) {
 		ofstream ofile;
-		ensurePathExists();
-		ofile.open(m_fileName + ".code");
+		ofile.open(fileName);
 		if (!ofile)
-			fatal_error("Failed to open the output file: " + m_fileName + ".code");
+			fatal_error("Failed to open the output file: " + fileName);
 		ofile << code.str();
 		ofile.close();
-		cout << "Code was generated and saved to file " << m_fileName << ".code" << endl;
+		cout << "Code was generated and saved to file " << fileName << endl;
 	} else {
 		cout << code.str();
 	}
-
 }
 
-static void optimize_and_append_code(CodeLines& code, const StackPusherHelper& pusher, bool disable_optimizer) {
-	if (disable_optimizer)
-		code.append(pusher.code());
-	else
+static void optimize_and_append_code(CodeLines& code, const StackPusherHelper& pusher, bool withOptimizations) {
+	if (withOptimizations)
 		code.append(optimize_code(pusher.code()));
+	else
+		code.append(pusher.code());
 }
 
 CodeLines
-TVMContractCompiler::proceedContractMode0(ContractDefinition const *contract, PragmaDirectiveHelper const &pragmaHelper) {
+TVMContractCompiler::proceedContractMode0(ContractDefinition const *contract, PragmaDirectiveHelper const &pragmaHelper, bool disable_optimizer) {
 	CodeLines code;
 	for (FunctionDefinition const* _function : getContractFunctions(contract)) {
 		TVMCompilerContext ctx(contract, pragmaHelper);
 		StackPusherHelper pusher{&ctx};
 		TVMFunctionCompiler::generateFunctionWithModifiers(pusher, _function, true);
-		optimize_and_append_code(code, pusher, g_disable_optimizer);
+		optimize_and_append_code(code, pusher, disable_optimizer);
 	}
 	return code;
 }
 
 CodeLines
-TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, PragmaDirectiveHelper const &pragmaHelper) {
+TVMContractCompiler::proceedContractMode1(
+	ContractDefinition const *contract,
+	PragmaDirectiveHelper const &pragmaHelper,
+	bool withOptimizations
+) {
 	TVMCompilerContext ctx{contract, pragmaHelper};
 	CodeLines code;
 
@@ -261,7 +234,7 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 		StackPusherHelper pusher{&ctx};
 		TVMConstructorCompiler compiler(pusher);
 		compiler.generateConstructors();
-		optimize_and_append_code(code, pusher, g_disable_optimizer);
+		optimize_and_append_code(code, pusher, withOptimizations);
 	}
 
 	bool isFallBackGenerated = false;
@@ -280,36 +253,36 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 					if (!isEmptyFunction(_function)) {
 						StackPusherHelper pusher{&ctx};
 						TVMFunctionCompiler::generateFallback(pusher, _function);
-						optimize_and_append_code(code, pusher, g_disable_optimizer);
+						optimize_and_append_code(code, pusher, withOptimizations);
 					}
 				}
 			} else if (_function->isOnTickTock()) {
 				StackPusherHelper pusher{&ctx};
 				TVMFunctionCompiler::generateOnTickTock(pusher, _function);
-				optimize_and_append_code(code, pusher, g_disable_optimizer);
+				optimize_and_append_code(code, pusher, withOptimizations);
 			} else if (_function->visibility() == Visibility::TvmGetter) {
 				cast_error(*_function, "Not supported yet");
 			} else if (isMacro(_function->name())) {
 				StackPusherHelper pusher{&ctx};
 				TVMFunctionCompiler::generateMacro(pusher, _function);
-				optimize_and_append_code(code, pusher, g_disable_optimizer);
+				optimize_and_append_code(code, pusher, withOptimizations);
 			} else if (_function->name() == "onCodeUpgrade") {
 				StackPusherHelper pusher{&ctx};
 				TVMFunctionCompiler::generateOnCodeUpgrade(pusher, _function);
-				optimize_and_append_code(code, pusher, g_disable_optimizer);
+				optimize_and_append_code(code, pusher, withOptimizations);
 			} else {
 				if (_function->isPublic()) {
 					bool isBaseMethod = _function != getContractFunctions(contract, _function->name()).back();
 					if (!isBaseMethod) {
 						StackPusherHelper pusher{&ctx};
 						TVMFunctionCompiler::generatePublicFunction(pusher, _function);
-						optimize_and_append_code(code, pusher, g_disable_optimizer);
+						optimize_and_append_code(code, pusher, withOptimizations);
 					}
 				}
 				if (_function->visibility() <= Visibility::Public) {
 					StackPusherHelper pusher{&ctx};
 					TVMFunctionCompiler::generatePrivateFunction(pusher, _function);
-					optimize_and_append_code(code, pusher, g_disable_optimizer);
+					optimize_and_append_code(code, pusher, withOptimizations);
 				}
 			}
 		}
@@ -319,27 +292,27 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 		{
 			StackPusherHelper pusher{&ctx};
 			pusher.generateC7ToT4Macro();
-			optimize_and_append_code(code, pusher, g_disable_optimizer);
+			optimize_and_append_code(code, pusher, withOptimizations);
 		}
 		{
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler::generateC4ToC7(pusher, contract, false);
-			optimize_and_append_code(code, pusher, g_disable_optimizer);
+			optimize_and_append_code(code, pusher, withOptimizations);
 		}
 		{
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler::generateC4ToC7(pusher, contract, true);
-			optimize_and_append_code(code, pusher, g_disable_optimizer);
+			optimize_and_append_code(code, pusher, withOptimizations);
 		}
 		{
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler::generateMainInternal(pusher, contract);
-			optimize_and_append_code(code, pusher, g_disable_optimizer);
+			optimize_and_append_code(code, pusher, withOptimizations);
 		}
 		{
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler::generateMainExternal(pusher, contract);
-			optimize_and_append_code(code, pusher, g_disable_optimizer);
+			optimize_and_append_code(code, pusher, withOptimizations);
 		}
 	}
 
@@ -347,7 +320,7 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 		if (vd->isPublic()) {
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler::generateGetter(pusher, vd);
-			optimize_and_append_code(code, pusher, g_disable_optimizer);
+			optimize_and_append_code(code, pusher, withOptimizations);
 		}
 	}
 
@@ -360,12 +333,12 @@ TVMContractCompiler::proceedContractMode1(ContractDefinition const *contract, Pr
 		if (!func->parameters().empty()) {
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler::generateLibraryFunction(pusher, func);
-			optimize_and_append_code(code, pusher, g_disable_optimizer);
+			optimize_and_append_code(code, pusher, withOptimizations);
 		}
 		StackPusherHelper pusher{&ctx};
 		const std::string name = func->annotation().contract->name() + "_no_obj_" + func->name();
 		TVMFunctionCompiler::generatePrivateFunction(pusher, func, name);
-		optimize_and_append_code(code, pusher, g_disable_optimizer);
+		optimize_and_append_code(code, pusher, withOptimizations);
 	}
 
 	return code;
@@ -399,7 +372,7 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 			doSelectorSwitch = scanner.havePrivateFunctionCall;
 			if (function->stateMutability() >= StateMutability::View) {
 				doSelectorSwitch = true;
-				pusher.pushPrivateFunctionOrMacroCall(0, "c4_to_c7");
+				pusher.pushMacroCallInCallRef(0, "c4_to_c7");
 			}
 		}
 
@@ -408,7 +381,7 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 
 		if (!empty  && isSpecialFunction) {
 			if (function->stateMutability() >= StateMutability::NonPayable) {
-				pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
+				pusher.pushMacroCallInCallRef(0, "c7_to_c4");
 			}
 		}
 
@@ -429,13 +402,14 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 
 void TVMContractCompiler::ensurePathExists()
 {
-	if (m_outputFolder.empty())
-		return;
-
-	namespace fs = boost::filesystem;
-	// create directory if not existent
-	fs::path p(m_outputFolder);
-	// Do not try creating the directory if the first item is . or ..
-	if (p.filename() != "." && p.filename() != "..")
-		fs::create_directories(p);
+	// TODO
+//	if (m_outputFolder.empty())
+//		return;
+//
+//	namespace fs = boost::filesystem;
+//	// create directory if not existent
+//	fs::path p(m_outputFolder);
+//	// Do not try creating the directory if the first item is . or ..
+//	if (p.filename() != "." && p.filename() != "..")
+//		fs::create_directories(p);
 }

@@ -68,20 +68,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		}
 	};
 
-	if (iname == "tvm_logstr") {
-		auto logstr = arguments[0].get();
-		if (auto literal = to<Literal>(logstr)) {
-			if (literal->value().length() > 15)
-				cast_error(_functionCall, "tvm_logstr param should be no more than 15 chars");
-			if (TVMContractCompiler::g_without_logstr) {
-				return true;
-			}
-			m_pusher.push(0, "PRINTSTR " + literal->value());
-		} else {
-			cast_error(_functionCall, "tvm_logstr param should be literal");
-		}
-		return true;
-	}
 	if (iname == "tvm_ldu" || iname == "tvm_ldi")  {
 		auto slice = ensureParamIsIdentifier(0);
 		if (arguments.size() >= 3) {
@@ -564,13 +550,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		m_pusher.push(-1 + 1, opcode);
 		return true;
 	}
-	if (iname == "tvm_insert_pubkey") {
-		checkArgCount(2);
-		acceptExpr(arguments[0].get());
-		acceptExpr(arguments[1].get());
-		m_pusher.pushPrivateFunctionOrMacroCall(-2 + 1, "insert_pubkey_macro");
-		return true;
-	}
 	if (iname == "tvm_getparam") {
 		if (auto literal = to<Literal>(arguments[0].get())) {
 			m_pusher.push(+1, "GETPARAM " + literal->value());
@@ -856,12 +835,6 @@ IF
 		return true;
 	}
 
-	if (iname == "tvm_commit") {
-		checkArgCount(0);
-		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
-		m_pusher.push(0, opcode);
-		return true;
-	}
 	if (iname == "tvm_getglob") {
 		auto literal = to<Literal>(arguments[0].get());
 		if (!literal) {
