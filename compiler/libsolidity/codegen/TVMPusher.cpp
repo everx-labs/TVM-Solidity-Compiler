@@ -40,8 +40,10 @@ StackPusherHelper::StackPusherHelper(TVMCompilerContext *ctx, const int stackSiz
 	m_stack.change(stackSize);
 }
 
-void StackPusherHelper::pushLog(const std::string& str) {
-	push(0, "PRINTSTR " + str);
+void StackPusherHelper::pushLog() {
+	push(0, "CTOS");
+	push(0, "STRDUMP");
+	drop();
 }
 
 StructCompiler &StackPusherHelper::structCompiler() {
@@ -140,12 +142,7 @@ StackPusherHelper::prepareValueForDictOperations(Type const *keyType, Type const
 
 	switch (toDictValueType(valueType->category())) {
 		case DictValueType::TvmSlice: {
-			if (!isValueBuilder) {
-				push(0, "NEWC");
-				push(0, "STSLICE");
-			}
-			push(0, "ENDC");
-			return DataType::Cell;
+			return isValueBuilder ? DataType::Builder : DataType::Slice;
 		}
 
 		case DictValueType::Address:
@@ -222,8 +219,10 @@ StackPusherHelper::prepareValueForDictOperations(Type const *keyType, Type const
 bool StackPusherHelper::doesDictStoreValueInRef(Type const* keyType, Type const* valueType) {
 	switch (toDictValueType(valueType->category())) {
 		case DictValueType::TvmCell:
-		case DictValueType::TvmSlice:
 			return true;
+
+		case DictValueType::TvmSlice:
+			return false;
 
 		case DictValueType::Array: {
 			if (isByteArrayOrString(valueType)) {
@@ -1379,7 +1378,7 @@ void StackPusherHelper::hardConvert(Type const *leftType, Type const *rightType)
 				case Type::Category::Array:
 					break;
 				default:
-					solUnimplemented("");
+					solUnimplemented(leftType->toString());
 					break;
 			}
 			break;
@@ -1429,18 +1428,22 @@ void StackPusherHelper::push(const CodeLines &codeLines) {
 
 void StackPusherHelper::pushMacroCallInCallRef(int stackDelta, const string& fname) {
 	startCallRef();
-	pushPrivateFunctionOrMacroCall(stackDelta, fname);
+	push(stackDelta, "CALL $" + fname + "$");
 	endContinuation();
 }
 
 void StackPusherHelper::pushPrivateFunctionOrMacroCall(const int stackDelta, const string &fname) {
-	push(stackDelta, "CALL $" + fname + "$");
+	if (boost::ends_with(fname, "_macro")) {
+		pushMacroCallInCallRef(stackDelta, fname);
+	} else {
+		push(stackDelta, "CALL $" + fname + "$");
+	}
 }
 
 void StackPusherHelper::pushCall(const string &functionName, const FunctionType *ft) {
 	int params  = ft->parameterTypes().size();
 	int retVals = ft->returnParameterTypes().size();
-	push(-params + retVals, "CALL $" + functionName + "$");
+	pushPrivateFunctionOrMacroCall(-params + retVals, functionName);
 }
 
 void StackPusherHelper::drop(int cnt) {
@@ -2077,15 +2080,15 @@ void TVMCompilerContext::addLib(FunctionDefinition const* f) {
 	m_libFunctions.insert(f);
 }
 
-std::vector<std::pair<VariableDeclaration const*, int>> TVMCompilerContext::getStaticVaribles() const {
+std::vector<std::pair<VariableDeclaration const*, int>> TVMCompilerContext::getStaticVariables() const {
 	int shift = 0;
-	std::vector<std::pair<VariableDeclaration const*, int>> vect;
-	for (VariableDeclaration const* v : m_contract->stateVariables()) {
+	std::vector<std::pair<VariableDeclaration const*, int>> res;
+	for (VariableDeclaration const* v : notConstantStateVariables()) {
 		if (v->isStatic()) {
-			vect.emplace_back(v, TvmConst::C4::PersistenceMembersStartIndex + shift++);
+			res.emplace_back(v, TvmConst::C4::PersistenceMembersStartIndex + shift++);
 		}
 	}
-	return vect;
+	return res;
 }
 
 void TVMCompilerContext::addInlineFunction(const std::string& name, const CodeLines& code) {
@@ -2324,6 +2327,15 @@ void StackPusherHelper::getDict(
 void StackPusherHelper::switchSelector() {
 	push(0, "PUSHINT 1");
 	push(0, "CALL 1");
+}
+
+void StackPusherHelper::byteLengthOfCell()
+{
+	pushInt(0xFFFFFFFF);
+	push(-2 + 3, "CDATASIZE");
+	drop(1);
+	dropUnder(1, 1);
+	push(-1 + 1, "RSHIFT 3");
 }
 
 

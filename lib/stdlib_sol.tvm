@@ -495,18 +495,19 @@ FALSE
 ;; push identifier integer
 PUSH S4
 LESSINT 0
-CALL $convertIntToDecStr$
+CALLREF {
+	CALL $convertIntToDecStr_macro$
+}
 BLKDROP2 2, 3
 ; end function convertIntToDecStr_short
 
-.globl	convertIntToDecStr
-.type	convertIntToDecStr, @function
+.macro convertIntToDecStr_macro
 ;; param: builder
 ;; param: integer
 ;; param: width
 ;; param: leadingZeros
 ;; param: addMinus
-; function convertIntToDecStr
+; function convertIntToDecStr_macro
 ;; push identifier builder
 PUSH S4
 BREMBITS
@@ -1077,14 +1078,13 @@ IFELSE
 ;; push identifier addedNewBuilder
 BLKPUSH 3, 5
 BLKDROP2 12, 3
-; end function convertIntToDecStr
+; end function convertIntToDecStr_macro
 
-.globl	convertAddressToHexString
-.type	convertAddressToHexString, @function
+.macro convertAddressToHexString_macro
 ;; param: list
 ;; param: builder
 ;; param: addr
-; function convertAddressToHexString
+; function convertAddressToHexString_macro
 ;; address.unpack()
 ;; push identifier addr
 DUP
@@ -1125,7 +1125,9 @@ PUSH S7
 ;; push identifier second
 ;; push identifier flag
 BLKPUSH 3, 3
-CALL $appendToList$
+CALLREF {
+	CALL $appendToList_macro$
+}
 SWAP
 ; expValue
 ; end expValue
@@ -1172,7 +1174,9 @@ PUSHCONT {
 	;; push identifier nBuilder
 	PUSH S2
 	TRUE
-	CALL $appendToList$
+	CALLREF {
+		CALL $appendToList_macro$
+	}
 	SWAP
 	; expValue
 	; end expValue
@@ -1195,7 +1199,9 @@ PUSHINT 64
 TRUE
 TRUE
 FALSE
-CALL $convertIntToHexStr$
+CALLREF {
+	CALL $convertIntToHexStr_macro$
+}
 XCHG s2
 ; expValue
 ; end expValue
@@ -1219,9 +1225,198 @@ PUSH S8
 ;; push identifier second
 ;; push identifier flag
 BLKPUSH 3, 4
-CALL $appendToList$
+CALLREF {
+	CALL $appendToList_macro$
+}
 BLKDROP2 9, 2
-; end function convertAddressToHexString
+; end function convertAddressToHexString_macro
+
+.macro convertFixedPointToString_macro
+;; param: list
+;; param: builder
+;; param: value
+;; param: fractionalDigits
+; function convertFixedPointToString_macro
+;; push identifier value
+PUSH S1
+ABS
+;; uint256
+UFITS 256
+;; decl: absVal
+;; push identifier absVal
+DUP
+;; /
+PUSHINT 10
+;; **
+;; push identifier fractionalDigits
+PUSH S3
+DUP2
+OR
+THROWIFNOT 69
+CALLREF {
+	CALL $__exp_macro$
+}
+DIV
+;; decl: integer
+;; push identifier absVal
+PUSH S1
+;; %
+PUSHINT 10
+;; **
+;; push identifier fractionalDigits
+PUSH S4
+DUP2
+OR
+THROWIFNOT 69
+CALLREF {
+	CALL $__exp_macro$
+}
+MOD
+;; decl: fractional
+NEWC
+;; decl: first
+NEWC
+;; decl: second
+PUSHINT 0
+;; decl: flag
+;; push identifier builder
+;; push identifier integer
+PUSH2 S8, S4
+PUSHINT 0
+FALSE
+;; push identifier value
+PUSH S11
+SGN
+LESSINT 0
+CALLREF {
+	CALL $convertIntToDecStr_macro$
+}
+XCHG s2
+; expValue
+; end expValue
+; colValue
+POP S5
+; end colValue
+; expValue
+; end expValue
+; colValue
+POP S3
+; end colValue
+; expValue
+; end expValue
+; colValue
+NIP
+; end colValue
+;; push identifier list
+PUSH S9
+;; push identifier first
+;; push identifier second
+;; push identifier flag
+BLKPUSH 3, 3
+CALLREF {
+	CALL $appendToList_macro$
+}
+SWAP
+; expValue
+; end expValue
+; colValue
+POP S11
+; end colValue
+; expValue
+; end expValue
+; colValue
+POP S9
+; end colValue
+;; push identifier builder
+PUSH S8
+BREMBITS
+;; decl: remBits
+;; if
+;; push identifier remBits
+DUP
+GTINT 8
+PUSHCONT {
+	; expValue
+	PUSH S9
+	; end expValue
+	PUSHINT 46
+	STUR 8
+	; colValue
+	POP S10
+	; end colValue
+}
+PUSHCONT {
+	NEWC
+	;; decl: nBuilder
+	; expValue
+	DUP
+	; end expValue
+	PUSHINT 46
+	STUR 8
+	; colValue
+	NIP
+	; end colValue
+	;; push identifier list
+	;; push identifier builder
+	BLKPUSH 2, 11
+	;; push identifier nBuilder
+	PUSH S2
+	TRUE
+	CALLREF {
+		CALL $appendToList_macro$
+	}
+	SWAP
+	; expValue
+	; end expValue
+	; colValue
+	POP S13
+	; end colValue
+	; expValue
+	; end expValue
+	; colValue
+	POP S11
+	; end colValue
+	DROP
+}
+IFELSE
+;; end if
+;; push identifier builder
+;; push identifier fractional
+;; push identifier fractionalDigits
+PUSH3 S9, S4, S7
+TRUE
+FALSE
+CALLREF {
+	CALL $convertIntToDecStr_macro$
+}
+XCHG s2
+; expValue
+; end expValue
+; colValue
+POP S6
+; end colValue
+; expValue
+; end expValue
+; colValue
+POP S4
+; end colValue
+; expValue
+; end expValue
+; colValue
+POP S2
+; end colValue
+;; return
+;; push identifier list
+PUSH S10
+;; push identifier first
+;; push identifier second
+;; push identifier flag
+BLKPUSH 3, 4
+CALLREF {
+	CALL $appendToList_macro$
+}
+BLKDROP2 11, 2
+; end function convertFixedPointToString_macro
 
 .globl	convertIntToHexStr_short
 .type	convertIntToHexStr_short, @function
@@ -1241,19 +1436,20 @@ TRUE
 ;; push identifier integer
 PUSH S5
 LESSINT 0
-CALL $convertIntToHexStr$
+CALLREF {
+	CALL $convertIntToHexStr_macro$
+}
 BLKDROP2 2, 3
 ; end function convertIntToHexStr_short
 
-.globl	convertIntToHexStr
-.type	convertIntToHexStr, @function
+.macro convertIntToHexStr_macro
 ;; param: builder
 ;; param: integer
 ;; param: width
 ;; param: leadingZeros
 ;; param: isLow
 ;; param: addMinus
-; function convertIntToHexStr
+; function convertIntToHexStr_macro
 ;; push identifier builder
 PUSH S5
 BREMBITS
@@ -1923,13 +2119,12 @@ IFELSE
 ;; push identifier addedNewBuilder
 BLKPUSH 3, 5
 BLKDROP2 13, 3
-; end function convertIntToHexStr
+; end function convertIntToHexStr_macro
 
-.globl	storeStringInBuilders
-.type	storeStringInBuilders, @function
+.macro storeStringInBuilders_macro
 ;; param: first
 ;; param: second
-; function storeStringInBuilders
+; function storeStringInBuilders_macro
 ;; push identifier first
 PUSH S1
 BREMBITS
@@ -2018,58 +2213,59 @@ PUSH S6
 BLKPUSH 2, 2
 NOT
 BLKDROP2 7, 3
-; end function storeStringInBuilders
+; end function storeStringInBuilders_macro
 
-.globl	appendToList
-.type	appendToList, @function
+.macro appendToList_macro
 ;; param: list
 ;; param: first
 ;; param: second
 ;; param: secondIsValid
-; function appendToList
-;; if
-;; !
-;; push identifier secondIsValid
-DUP
+; function appendToList_macro
 PUSHCONT {
-	;; return
+	;; if
+	;; !
+	;; push identifier secondIsValid
+	DUP
+	PUSHCONT {
+		;; return
+		;; push identifier list
+		;; push identifier first
+		OVER2
+		BLKDROP2 4, 2
+	}
+	IFNOTJMP
+	;; end if
+	NEWC
+	NULL
+	TUPLE 2
+	;; decl: nList
+	; expValue
+	; end expValue
 	;; push identifier list
+	; colValue
+	PUSH S4
+	SETINDEX 1
+	; end colValue
+	; expValue
+	; end expValue
 	;; push identifier first
-	OVER2
-	BLKDROP2 4, 2
+	; colValue
+	PUSH S3
+	SETINDEX 0
+	; end colValue
+	;; return
+	;; push identifier nList
+	;; push identifier second
+	PUSH2 S0, S2
+	BLKDROP2 5, 2
 }
-IFNOTJMP
-;; end if
-NEWC
-NULL
-TUPLE 2
-;; decl: nList
-; expValue
-; end expValue
-;; push identifier list
-; colValue
-PUSH S4
-SETINDEX 1
-; end colValue
-; expValue
-; end expValue
-;; push identifier first
-; colValue
-PUSH S3
-SETINDEX 0
-; end colValue
-;; return
-;; push identifier nList
-;; push identifier second
-PUSH2 S0, S2
-BLKDROP2 5, 2
-; end function appendToList
+CALLX
+; end function appendToList_macro
 
-.globl	assembleList
-.type	assembleList, @function
+.macro assembleList_macro
 ;; param: list
 ;; param: builder
-; function assembleList
+; function assembleList_macro
 ;; push identifier builder
 DUP
 ;; decl: curBuilder
@@ -2124,7 +2320,7 @@ DUP
 ENDC
 XCHG s3
 BLKDROP 3
-; end function assembleList
+; end function assembleList_macro
 
 .macro __stoi_macro
 ;; param: str
@@ -2825,7 +3021,9 @@ WHILE
 ;; push identifier list
 ;; push identifier builder
 DUP2
-CALL $assembleList$
+CALLREF {
+	CALL $assembleList_macro$
+}
 XCHG s12
 BLKDROP 12
 ; end function __substr_macro
@@ -2961,11 +3159,10 @@ PUSHCONT {
 CALLX
 ; end function compareLongStrings_macro
 
-.globl	concatenateStrings
-.type	concatenateStrings, @function
+.macro concatenateStrings_macro
 ;; param: str
 ;; param: tail
-; function concatenateStrings
+; function concatenateStrings_macro
 ;; push identifier str
 PUSH S1
 CALL $strToList$
@@ -2982,7 +3179,9 @@ PUSHINT 0
 ;; push identifier builder
 ;; push identifier slice
 OVER2
-CALL $storeStringInBuilders$
+CALLREF {
+	CALL $storeStringInBuilders_macro$
+}
 XCHG s2
 ; expValue
 ; end expValue
@@ -3005,7 +3204,9 @@ BLKPUSH 2, 4
 ;; push identifier builder2
 ;; push identifier isValid
 OVER2
-CALL $appendToList$
+CALLREF {
+	CALL $appendToList_macro$
+}
 SWAP
 ; expValue
 ; end expValue
@@ -3041,7 +3242,9 @@ PUSHCONT {
 	;; push identifier builder
 	;; push identifier slice
 	OVER2
-	CALL $storeStringInBuilders$
+	CALLREF {
+		CALL $storeStringInBuilders_macro$
+	}
 	XCHG s2
 	; expValue
 	; end expValue
@@ -3064,7 +3267,9 @@ PUSHCONT {
 	;; push identifier builder2
 	;; push identifier isValid
 	OVER2
-	CALL $appendToList$
+	CALLREF {
+		CALL $appendToList_macro$
+	}
 	SWAP
 	; expValue
 	; end expValue
@@ -3083,8 +3288,10 @@ WHILE
 ;; push identifier list
 ;; push identifier builder
 BLKPUSH 2, 4
-CALL $assembleList$
+CALLREF {
+	CALL $assembleList_macro$
+}
 XCHG s7
 BLKDROP 7
-; end function concatenateStrings
+; end function concatenateStrings_macro
 

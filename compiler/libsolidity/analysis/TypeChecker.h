@@ -81,6 +81,14 @@ private:
 		bool _abiEncoderV2
 	);
 
+	void typeCheckTVMBuildStateInit(
+		FunctionCall const& _functionCall,
+		const std::function<bool(const std::string&)>& hasName,
+		const std::function<int(const std::string&)>& findName
+	);
+
+	void typeCheckCallBack(FunctionType const* remoteFunction, Expression const& option);
+
 	TypePointers typeCheckTVMSliceDecodeAndRetrieveReturnType(FunctionCall const& _functionCall);
 
 	TypePointers getReturnTypesForTVMConfig(FunctionCall const& _functionCall);
@@ -103,6 +111,7 @@ private:
 	void typeCheckConstructor(FunctionDefinition const& _function);
 	void typeCheckOnBounce(FunctionDefinition const& _function);
 	void typeCheckOnTickTock(FunctionDefinition const& _function);
+	void checkNeedCallback(FunctionType const * callee, ASTNode const& node);
 
 	/// Performs general number and type checks of arguments against function call and struct ctor FunctionCall node parameters.
 	void typeCheckFunctionGeneralChecks(
@@ -120,8 +129,10 @@ private:
 
 	static FunctionDefinition const* getFunctionDefinition(Expression const* expr);
 	static std::pair<bool, FunctionDefinition const*> getConstructorDefinition(Expression const* expr);
+	static ContractType const* getContractType(Expression const* expr);
 	FunctionDefinition const* checkPubFunctionAndGetDefinition(Expression const& arg, bool printError = false);
 	FunctionDefinition const* checkPubFunctionOrContractTypeAndGetDefinition(Expression const& arg);
+	void checkInitList(InitializerList const *list, ContractType const *ct);
 
 	void endVisit(InheritanceSpecifier const& _inheritance) override;
 	void endVisit(UsingForDirective const& _usingFor) override;

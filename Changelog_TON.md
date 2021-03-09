@@ -1,3 +1,22 @@
+### 0.38 (2021-03-09)
+
+Breaking changes:
+ * Default value of parameter `flag` is equal to `0`. The parameter is used for `tvm.transfer` and
+external function calls.
+ * Introduce keyword `responsible` used to mark functions that can call a callback function.
+ * Change behavior for command line option `-o [ --output-dir ] path/to/dir` and introduce option
+`-f [ --file ] prefixName`.
+
+Bugfixes:
+ * Fixed minor bugs in TypeChecker that cause fails of the compiler.
+
+Use another opcodes for working with `mapping(KeyType => TvmSlice) map;` So if you used it then be
+sure that sum of bit length of `KeyType` and bit length of `TvmSlice` is less than 1023 bit.
+
+Documentation:
+ * Write about parameter `flag` used for `tvm.transfer` and external function calls. Add sample of
+`flag` usage.
+
 ### 0.37 (2021-02-24)
 
 Compiler Features:

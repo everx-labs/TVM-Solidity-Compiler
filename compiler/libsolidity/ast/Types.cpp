@@ -2913,6 +2913,7 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMResetStorage: id += "tvmresetstorage"; break;
 	case Kind::TVMSendMsg: id += "tvmsendmsg"; break;
 	case Kind::TVMSetcode: id += "tvmsetcode"; break;
+	case Kind::TVMDump: id += "tvmxxxdump"; break;
 	case Kind::TVMTransfer: id += "tvmtransfer"; break;
 	case Kind::TXtimestamp: id += "txtimestamp"; break;
 
@@ -2936,6 +2937,7 @@ string FunctionType::richIdentifier() const
 	case Kind::MathMulDiv: id += "mathmuldiv"; break;
 	case Kind::MathMulDivMod: id += "mathmuldivmod"; break;
 	case Kind::MathDivMod: id += "mathdivmod"; break;
+	case Kind::MathSign: id += "mathsign"; break;
 
 	case Kind::MappingAt: id += "mappingat"; break;
 	case Kind::MappingGetMinMax: id += "mapgetminmax"; break;
@@ -3964,6 +3966,22 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				FunctionType::Kind::TVMSetcode,
 				false, StateMutability::Pure
 		));
+		members.emplace_back("bindump", TypeProvider::function(
+				TypePointers{TypeProvider::tvmcell()},
+				TypePointers{},
+				strings{string()},
+				strings{},
+				FunctionType::Kind::TVMDump,
+				false, StateMutability::Pure
+		));
+		members.emplace_back("hexdump", TypeProvider::function(
+				TypePointers{TypeProvider::tvmcell()},
+				TypePointers{},
+				strings{string()},
+				strings{},
+				FunctionType::Kind::TVMDump,
+				false, StateMutability::Pure
+		));
 		members.emplace_back("hash", TypeProvider::function(
 				TypePointers{TypeProvider::tvmcell()},
 				TypePointers{TypeProvider::uint256()},
@@ -4064,14 +4082,17 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 							 TypeProvider::uint(8),
 							 TypeProvider::initializerList(),
 							 TypeProvider::uint256(),
-							 TypeProvider::uint256()},
+							 //TypeProvider::contract(...) it's commented because we should set the concrete contract
+							 // but it can be any contract
+							 },
 				TypePointers{TypeProvider::tvmcell()},
 				strings{string("code"),	// mandatory
 						string("data"),	// conflicts with pubkey and varInit
 						string("splitDepth"),	// can be omitted
 						string("varInit"),	// conflicts with data
 						string("pubkey"),	// conflicts with data
-						string("contr")},
+						//string("contr")
+					},
 				strings{string()},
 				FunctionType::Kind::TVMBuildStateInit,
 				true, StateMutability::Pure
@@ -4228,6 +4249,14 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				strings{},
 				FunctionType::Kind::MathModpow2,
 				true, StateMutability::Pure
+		));
+		members.emplace_back("sign", TypeProvider::function(
+				TypePointers{TypeProvider::integer(256, IntegerType::Modifier::Signed)},
+				TypePointers{TypeProvider::integer(8, IntegerType::Modifier::Signed)},
+				strings{string("value")},
+				strings{string("sign")},
+				FunctionType::Kind::MathSign,
+				false, StateMutability::Pure
 		));
 		return members;
 	}

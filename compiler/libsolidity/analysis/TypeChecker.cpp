@@ -48,6 +48,17 @@ using namespace solidity::util;
 using namespace solidity::langutil;
 using namespace solidity::frontend;
 
+namespace {
+template<class T>
+SourceLocation getSmallestCovering(const T &vect) {
+	SourceLocation loc;
+	for (const auto &x : vect) {
+		loc = SourceLocation::smallestCovering(loc, x->location());
+	}
+	return loc;
+}
+}
+
 bool TypeChecker::typeSupportedByOldABIEncoder(Type const& _type, bool _isLibraryCall)
 {
 	if (_isLibraryCall)
@@ -238,6 +249,134 @@ TypePointers TypeChecker::typeCheckABIDecodeAndRetrieveReturnType(FunctionCall c
 		}
 	}
 	return components;
+}
+
+void TypeChecker::typeCheckTVMBuildStateInit(
+	FunctionCall const& _functionCall,
+	const std::function<bool(const std::string&)>& hasName,
+	const std::function<int(const std::string&)>& findName
+) {
+	bool hasNames = !_functionCall.names().empty();
+	const vector<ASTPointer<const Expression>> &args = _functionCall.arguments();
+	size_t argCnt = args.size();
+	if (!hasNames && argCnt != 3 && argCnt != 2)
+		m_errorReporter.typeError(
+				_functionCall.location(),
+				string("If parameters are set without names, only 2 or 3 arguments can be specified.")
+		);
+
+	if (hasNames) {
+		bool hasCode = hasName("code");
+		bool hasData = hasName("data");
+		bool hasVarInit = hasName("varInit");
+		bool hasPubkey = hasName("pubkey");
+		bool hasContr = hasName("contr");
+
+		if (!hasCode) {
+			m_errorReporter.typeError(
+					_functionCall.location(),
+					string("Parameter \"code\" must be set.")
+			);
+		}
+		if (hasData && (hasVarInit || hasPubkey)) {
+			m_errorReporter.typeError(
+					_functionCall.location(),
+					string(R"(Parameter "data" can't be specified with "pubkey" or "varInit".)")
+			);
+		}
+		if (hasVarInit != hasContr) {
+			m_errorReporter.typeError(
+					_functionCall.location(),
+					string(R"(Parameter "varInit" requires parameter "contr" and there is no need in "contr" without "varInit".)")
+			);
+		}
+
+		if (hasContr) {
+			int contrInd = findName("contr");
+			const ASTPointer<Expression const>& contrArg = args.at(contrInd);
+			ContractType const* ct = getContractType(contrArg.get());
+			if (ct == nullptr) {
+				m_errorReporter.typeError(
+						contrArg->location(),
+						"Expected contract type."
+				);
+				return;
+			}
+			int varInitInd = findName("varInit");
+			if (varInitInd == -1) {
+				return;
+			}
+			auto list = dynamic_cast<InitializerList const *>(args.at(varInitInd).get());
+			if (!list) {
+				// It's checked in typeCheckFunctionCall function
+				return;
+			}
+			checkInitList(list, ct);
+		}
+	}
+}
+
+void TypeChecker::typeCheckCallBack(FunctionType const* remoteFunction, Expression const& option) {
+	auto calleeDefinition = dynamic_cast<FunctionDefinition const*>(&remoteFunction->declaration());
+	if (calleeDefinition == nullptr) {
+		m_errorReporter.typeError(
+				option.location(),
+				R"("callback" option can be used only for function type.)"
+		);
+	} else if (remoteFunction->returnParameterTypes().empty() || !calleeDefinition->isResponsible()) {
+		m_errorReporter.typeError(
+				option.location(),
+				SecondarySourceLocation().append("Declaration of callee function", calleeDefinition->location()),
+				R"("callback" option can be used only for responsible functions.)"
+		);
+	} else {
+		FunctionDefinition const *callbackFunc = getFunctionDefinition(&option);
+		if (callbackFunc == nullptr) {
+			m_errorReporter.typeError(
+					option.location(),
+					"Expected function type but got " + option.annotation().type->toString() + "."
+			);
+		} else if (!callbackFunc->returnParameters().empty()) {
+			m_errorReporter.typeError(
+					option.location(),
+					SecondarySourceLocation()
+							.append("Declaration of the callback function:", callbackFunc->location()),
+					R"(Callback function must return nothing.)"
+			);
+		} else {
+			ContractDefinition const *funContract = callbackFunc->annotation().contract;
+			if (!m_scope->derivesFrom(*funContract)) {
+				m_errorReporter.typeError(
+						option.location(),
+						"Callback function should belong to this contract or any of base contracts."
+				);
+			} else {
+				const ParameterList &callbackParams = callbackFunc->parameterList();
+				const TypePointers& retTypes = remoteFunction->returnParameterTypes(); // check function without return
+				if (callbackParams.parameters().size() != retTypes.size()) {
+					m_errorReporter.typeError(
+								option.location(),
+							SecondarySourceLocation()
+									.append("Declaration of the callee function:", calleeDefinition->location())
+									.append("Declaration of the callback function:", callbackFunc->location()),
+							R"(Count of return parameters of the callee function isn't equal to count of input arguments of the callback function.)"
+					);
+				} else {
+					for (std::size_t p = 0; p < callbackParams.parameters().size(); ++p) {
+						if (*callbackParams.parameters().at(p)->type() != *retTypes.at(p)) {
+							m_errorReporter.typeError(
+									option.location(),
+									SecondarySourceLocation()
+											.append("Parameter of the callee function:", calleeDefinition->returnParameters().at(p)->location())
+											.append("Parameter of the callback function:", callbackFunc->parameters().at(p)->location()),
+									toString(p + 1) + R"(th parameters of callback and callee functions have different types.)"
+							);
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 TypePointers TypeChecker::typeCheckTVMSliceDecodeAndRetrieveReturnType(FunctionCall const& _functionCall)
@@ -493,6 +632,10 @@ bool TypeChecker::visit(FunctionDefinition const& _function)
 	m_currentFunction = &_function;
 	bool isLibraryFunction = _function.inContractKind() == ContractKind::Library;
 
+	if (_function.isResponsible() && _function.returnParameters().empty()) {
+		m_errorReporter.typeError(_function.location(), "responsible function must return at least one value.");
+	}
+
 	if (_function.markedVirtual())
 	{
 		if (_function.annotation().contract->isInterface())
@@ -672,7 +815,7 @@ bool TypeChecker::visit(VariableDeclaration const& _variable)
 	if (_variable.type()->category() == Type::Category::Function) {
 		auto ft = dynamic_cast<FunctionType const*>(_variable.type());
 		if (ft->kind() == FunctionType::Kind::External) {
-			m_errorReporter.typeError(
+			m_errorReporter.fatalTypeError(
 				_variable.location(),
 				"External functions are not supported yet.");
 		}
@@ -1022,10 +1165,11 @@ bool TypeChecker::visit(ForEachStatement const& _forStatement)
 
 void TypeChecker::endVisit(Return const& _return)
 {
-	if (!_return.names().empty() && !m_currentFunction->isPublic()) {
+	if (!_return.names().empty() && (!m_currentFunction->isPublic() ||  !m_currentFunction->isResponsible())) {
+		SourceLocation loc = getSmallestCovering(_return.options());
 		m_errorReporter.typeError(
-			_return.location(),
-			R"(Options in return statement can be used only in public/external functions.)"
+			loc,
+			R"(Options in return statement can be used only in responsible public/external functions.)"
 		);
 	} else {
 		for (size_t i = 0; i < _return.names().size(); ++i) {
@@ -1910,6 +2054,19 @@ void TypeChecker::typeCheckOnTickTock(const FunctionDefinition &_function) {
 		m_errorReporter.typeError(_function.parameterList().location(), "onTickTock function should take one parameter (bool isTock).");
 }
 
+void TypeChecker::checkNeedCallback(FunctionType const* callee, ASTNode const& node) {
+	if (callee->hasDeclaration()) {
+		auto funcDef = dynamic_cast<FunctionDefinition const *>(&callee->declaration());
+		if (funcDef && funcDef->isResponsible()) {
+			m_errorReporter.typeError(
+					node.location(),
+					SecondarySourceLocation().append("Declaration is here:", funcDef->location()),
+					R"("callback" option must be set because callee function is marked as responsible.)"
+			);
+		}
+	}
+}
+
 void TypeChecker::typeCheckTvmEncodeFunctions(FunctionCall const& _functionCall) {
 	vector<ASTPointer<Expression const>> const &arguments = _functionCall.arguments();
 	for (const auto & argument : arguments) {
@@ -2062,11 +2219,7 @@ TypeChecker::getFunctionDefinition(Expression const* expr) {
 
 std::pair<bool, FunctionDefinition const*>
 TypeChecker::getConstructorDefinition(Expression const* expr) {
-	if (expr->annotation().type->category() != Type::Category::TypeType) {
-		return {};
-	}
-	auto tt = dynamic_cast<const TypeType*>(expr->annotation().type);
-	auto contractType = dynamic_cast<const ContractType*>(tt->actualType());
+	auto contractType = getContractType(expr);
 	if (contractType == nullptr) {
 		return {};
 	}
@@ -2075,6 +2228,15 @@ TypeChecker::getConstructorDefinition(Expression const* expr) {
 		return {true, nullptr};
 	}
 	return {true, constr};
+}
+
+ContractType const* TypeChecker::getContractType(Expression const* expr) {
+	if (expr->annotation().type->category() != Type::Category::TypeType) {
+		return {};
+	}
+	auto tt = dynamic_cast<const TypeType*>(expr->annotation().type);
+	auto contractType = dynamic_cast<const ContractType*>(tt->actualType());
+	return contractType;
 }
 
 void TypeChecker::typeCheckFunctionGeneralChecks(
@@ -2223,7 +2385,6 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 
 		// map parameter names to argument names
 		if (isFunctionWithDefaultValues) {
-			bool not_all_mapped = false;
 			for (size_t i = 0; i < argumentNames.size(); i++) {
 				size_t j;
 				for (j = 0; j < parameterNames.size(); j++)
@@ -2236,16 +2397,19 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 				{
 					if (j < paramArgMap.size())
 						paramArgMap[j] = nullptr;
-					m_errorReporter.typeError(
+					if (_functionType->kind() == FunctionType::Kind::TVMBuildStateInit && *argumentNames.at(i) == "contr"){
+						// Do nothing.
+						// It's checked in TypeChecker::visit(FunctionCall const& _functionCall)
+					} else {
+						m_errorReporter.typeError(
 							_functionCall.location(),
 							"Named argument \"" +
 							*argumentNames[i] +
 							"\" does not match function declaration."
-					);
+						);
+					}
 				}
 			}
-			if (!not_all_mapped)
-				return;
 		} else {
 			bool not_all_mapped = false;
 
@@ -2368,9 +2532,47 @@ TypeChecker::checkPubFunctionOrContractTypeAndGetDefinition(Expression const& ar
 	return constructorDef;
 }
 
+void TypeChecker::checkInitList(InitializerList const *list, ContractType const *ct) {
+	vector<tuple<VariableDeclaration const*, u256, unsigned>> vars = ct->stateVariables();
+	for (size_t i = 0; i < list->names().size(); ++i) {
+		const std::string name = *list->names().at(i);
+		Type const* exprType = list->options().at(i)->annotation().type;
+		size_t j;
+		for (j = 0; j < vars.size(); ++j) {
+			VariableDeclaration const* v = std::get<0>(vars.at(j));
+			if (name == v->name()) {
+				if (!v->isStatic()) {
+					m_errorReporter.typeError(
+							list->options().at(i)->location(),
+							SecondarySourceLocation()
+									.append("Declaration is here:", v->location()),
+							"Initialization of a non-static variable."
+					);
+				} else if (!exprType->isImplicitlyConvertibleTo(*v->type())) {
+					m_errorReporter.typeError(
+						list->options().at(i)->location(),
+						"Expected " + v->type()->toString() + " type" +
+						" but got " + exprType->toString() + " type."
+					);
+				}
+				break;
+			}
+		}
+		if (j == vars.size()) {
+			m_errorReporter.typeError(
+				list->options().at(i)->location(),
+				SecondarySourceLocation()
+						.append("Contract is here:", ct->contractDefinition().location()),
+				"Unknown state variable \"" + name + "\"."
+			);
+		}
+	}
+}
+
 bool TypeChecker::visit(FunctionCall const& _functionCall)
 {
 	vector<ASTPointer<Expression const>> const& arguments = _functionCall.arguments();
+	vector<ASTPointer<ASTString>> const &argumentNames = _functionCall.names();
 	bool argumentsArePure = true;
 
 	// We need to check arguments' type first as they will be needed for overload resolution.
@@ -2503,12 +2705,11 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 	auto checkAllAreNotFractions = [&] (vector<ASTPointer<Expression const>> const& arguments) {
 		bool areAllConstants = true;
 		bool haveAnyFraction = false;
-		SourceLocation loc;
+		SourceLocation loc = getSmallestCovering(arguments);
 		for (const auto & arg : arguments) {
 			auto r = dynamic_cast<RationalNumberType const*>(arg->annotation().type);
 			areAllConstants &= r != nullptr;
 			haveAnyFraction |= r != nullptr && r->isFractional();
-			loc = SourceLocation::smallestCovering(loc, arg->location());
 		}
 		if (areAllConstants && haveAnyFraction) {
 			m_errorReporter.fatalTypeError(
@@ -2531,6 +2732,18 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			}
 		}
 		return result;
+	};
+
+	auto findName = [&](const ASTString& optName) {
+		auto it = std::find_if(argumentNames.begin(), argumentNames.end(),
+							   [&](const ASTPointer<ASTString> &name) {
+								   return *name == optName;
+							   });
+		return it == argumentNames.end()  ? -1 : it - argumentNames.begin();
+	};
+
+	auto hasName = [&](const ASTString& optName) {
+		return findName(optName) != -1;
 	};
 
 
@@ -2587,7 +2800,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				}
 				FunctionDefinition const* functionDeclaration = checkPubFunctionOrContractTypeAndGetDefinition(*arguments.front().get());
 				if (functionDeclaration != nullptr) { // if nullptr => default constructor
-					if (!functionDeclaration->returnParameters().empty()) {
+					if (functionDeclaration->isResponsible()) {
 						returnTypes.push_back(TypeProvider::uint(32)); // callback function
 					}
 					for (const ASTPointer<VariableDeclaration> &vd : functionDeclaration->parameters()) {
@@ -2788,7 +3001,6 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				break;
 			}
 			case FunctionType::Kind::TVMBuildExtMsg: {
-				vector<ASTPointer<ASTString>> const &argumentNames = _functionCall.names();
 				bool hasNames = !argumentNames.empty();
 				if (!hasNames)
 					m_errorReporter.fatalTypeError(
@@ -2796,13 +3008,6 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 							string("Function parameters should be specified with names.")
 					);
 
-				auto findName = [&](ASTString optName) {
-					auto it = std::find_if(argumentNames.begin(), argumentNames.end(),
-								  [&](const ASTPointer<ASTString> &name) {
-										return *name == optName;
-								});
-					return (it == argumentNames.end()) ? -1 : it - argumentNames.begin();
-				};
 				std::vector<std::string> names = {"dest", "call"};
 				std::vector<int> indexes;
 				for(const auto& name: names) {
@@ -2907,62 +3112,15 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				break;
 			}
 			case FunctionType::Kind::TVMBuildStateInit: {
-				vector<ASTPointer<ASTString>> const &argumentNames = _functionCall.names();
-				bool hasNames = !argumentNames.empty();
-				size_t argCnt = _functionCall.arguments().size();
-				if (!hasNames && (argCnt != 3) && (argCnt != 2))
-					m_errorReporter.fatalTypeError(
-							_functionCall.location(),
-							string("If parameters are set without names, only 2 or 3 arguments can be specified.")
-					);
-
-				bool hasCode = false;
-				bool hasData = false;
-				bool hasVarInit = false;
-				bool hasPubkey = false;
-				bool hasContr = false;
-
-				auto hasName = [&](ASTString optName) {
-					return std::any_of(argumentNames.begin(), argumentNames.end(),
-								  [&](const ASTPointer<ASTString> &name) {
-										return *name == optName;
-								});
-				};
-
-				if (hasNames) {
-					hasCode = hasName("code");
-					hasData = hasName("data");
-					hasVarInit = hasName("varInit");
-					hasPubkey = hasName("pubkey");
-					hasContr = hasName("contr");
-
-					if (!hasCode) {
-						m_errorReporter.fatalTypeError(
-								_functionCall.location(),
-								string("Parameter \"code\" must be set.")
-						);
-					}
-					if (hasData && (hasVarInit || hasPubkey)) {
-						m_errorReporter.fatalTypeError(
-								_functionCall.location(),
-								string(R"(Parameter "data" can't be specified with "pubkey" or "varInit".)")
-						);
-					}
-					if (hasVarInit != hasContr) {
-						m_errorReporter.fatalTypeError(
-								_functionCall.location(),
-								string(R"(Parameter "varInit" requires parameter "contr" and there is no need in "contr" without "varInit".)")
-						);
-					}
-				}
 				typeCheckFunctionCall(_functionCall, functionType);
 				returnTypes = m_evmVersion.supportsReturndata() ?
 							  functionType->returnParameterTypes() :
 							  functionType->returnParameterTypesWithoutDynamicTypes();
+
+				typeCheckTVMBuildStateInit(_functionCall, hasName, findName);
 				break;
 			}
 			case FunctionType::Kind::TVMTransfer: {
-				vector<ASTPointer<ASTString>> const &argumentNames = _functionCall.names();
 				bool hasValue = false;
 				if (!argumentNames.empty()) {
 					hasValue = std::any_of(argumentNames.begin(), argumentNames.end(),
@@ -3063,11 +3221,12 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				} else {
 					Type const *type = arguments.at(0)->annotation().type;
 					auto strLiteral = dynamic_cast<StringLiteralType const *>(type);
+					auto toArray = dynamic_cast<ArrayType const *>(type);
 					std::string errMsg;
 					if (strLiteral) {
-						if (strLiteral->value().size() >= 17)
-							errMsg = "String literal must not be longer than 16 characters.";
-					} else {
+						if (strLiteral->value().size() > 127)
+							errMsg = "String literal must not be longer than 127 characters.";
+					} else if (!toArray || !toArray->isString()) {
 						errMsg = "Expected a string literal, but got " + type->toString() + ".";
 					}
 					if (!errMsg.empty()) {
@@ -3132,12 +3291,20 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		break;
 	}
 
+	if (functionType != nullptr &&
+		dynamic_cast<FunctionCallOptions const*>(&_functionCall.expression()) == nullptr &&
+		functionType->kind() == FunctionType::Kind::External)
+	{
+		checkNeedCallback(functionType, _functionCall);
+	}
+
 	return false;
 }
 
 bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 {
-	solAssert(_functionCallOptions.options().size() == _functionCallOptions.names().size(), "Lengths of name & value arrays differ!");
+	const vector<ASTPointer<const Expression>> &options = _functionCallOptions.options();
+	solAssert(options.size() == _functionCallOptions.names().size(), "Lengths of name & value arrays differ!");
 
 	_functionCallOptions.expression().accept(*this);
 
@@ -3148,22 +3315,23 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		return false;
 	}
 
-	bool setBounce = false;
-	bool setCurrencies = false;
-	bool setFlag = false;
-	bool setPubkey = false;
-	bool setSplitDepth = false;
-	bool setStateInit = false;
-	bool setValue = false;
-	bool setVarInit = false;
-	bool setWid = false;
-	bool setCallback = false;
-	bool setSign = false;
-	bool setExtMsg = false;
-	bool setExpire = false;
-	bool setTime = false;
-	bool setAbi = false;
-	bool setOnError = false;
+	int setBounce = -1;
+	int setCurrencies = -1;
+	int setFlag = -1;
+	int setPubkey = -1;
+	int setSplitDepth = -1;
+	int setStateInit = -1;
+	int setCode = -1;
+	int setValue = -1;
+	int setVarInit = -1;
+	int setWid = -1;
+	int setCallback = -1;
+	int setSign = -1;
+	int setExtMsg = -1;
+	int setExpire = -1;
+	int setTime = -1;
+	int setAbi = -1;
+	int setOnError = -1;
 
 	FunctionType::Kind kind = expressionFunctionType->kind();
 	if (
@@ -3182,17 +3350,15 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		return false;
 	}
 
-	auto setCheckOption = [&](bool& _option, string const&& _name, bool _alreadySet = false)
+	auto setCheckOption = [&](int& _option, string const&& _name, int index)
 	{
-		if (_option || _alreadySet)
+		if (_option != -1)
 			m_errorReporter.typeError(
 				_functionCallOptions.location(),
-				_alreadySet ?
-				"Option \"" + std::move(_name) + "\" has already been set." :
 				"Duplicate option \"" + std::move(_name) + "\"."
 			);
 
-		_option = true;
+		_option = index;
 	};
 
 	const bool isNewExpression = dynamic_cast<const NewExpression *>(&_functionCallOptions.expression()) != nullptr;
@@ -3203,232 +3369,150 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	const bool isExternalInboundMessage = extMsg != names.end();
 	if (isExternalInboundMessage) {
 		size_t index = extMsg - names.begin();
-		_functionCallOptions.options()[index]->accept(*this);
-		auto lit = dynamic_cast<const Literal *>(_functionCallOptions.options()[index].get());
+		options[index]->accept(*this);
+		auto lit = dynamic_cast<const Literal *>(options[index].get());
 		if (lit == nullptr || lit->token() != Token::TrueLiteral)
 			m_errorReporter.typeError(
 				_functionCallOptions.location(),
 				R"(Option "extMsg" can be specified only with constant true bool value.)");
 	}
-	for (size_t i = 0; i < names.size(); ++i)
-	{
-		_functionCallOptions.options()[i]->accept(*this);
+	for (size_t i = 0; i < names.size(); ++i) {
+		options[i]->accept(*this);
+		string const &name = *(names[i]);
 
-		string const& name = *(names[i]);
+		std::vector<std::string> arr;
+		auto fold = [&](){
+			std::string s;
+			for (size_t i = 0; i < arr.size(); ++i) {
+				if (i + 1 == arr.size())
+					s += " and ";
+				else if (i > 0)
+					s += ", ";
+				s += arr[i];
+			}
+			return s;
+		};
+
 		if (isExternalInboundMessage) {
-			if (name == "extMsg") {
-				setCheckOption(setExtMsg, "extMsg", false);
-			} else if (name == "sign") {
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::boolean());
-				setCheckOption(setSign, "sign", false);
-				if (!_functionCallOptions.options()[i]->annotation().isPure)
-					m_errorReporter.typeError(
+			arr = {"extMsg", "dest", "time", "expire", "call", "sign",  "pubkey", "abiVer", "callbackId", "onErrorId", "stateInit"};
+		} else if (isNewExpression) {
+			arr = {"stateInit", "code", "data", "pubkey", "varInit", "splitDepth", "wid", "value", "currencies", "bounce", "flag"};
+		} else {
+			arr = {"value", "currencies", "bounce", "flag", "callback"};
+		}
+
+		// check option is appropriate
+		if (std::find(arr.begin(), arr.end(), name) == arr.end()) {
+			m_errorReporter.typeError(
+					_functionCallOptions.location(),
+					"Unknown option \"" + name + "\". " +
+					 "Valid options are " + fold() + "."
+			);
+		// check type of option
+		} else if (name == "extMsg") {
+			expectType(*options[i], *TypeProvider::boolean());
+			setCheckOption(setExtMsg, "extMsg", i);
+		} else if (name == "sign") {
+			expectType(*options[i], *TypeProvider::boolean());
+			setCheckOption(setSign, "sign", i);
+			if (!options[i]->annotation().isPure)
+				m_errorReporter.typeError(
 						_functionCallOptions.location(),
 						R"(Option "sign" can be specified only with constant bool value.)");
-			} else if (name == "pubkey") {
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::optional(TypeProvider::uint256()));
-				setCheckOption(setPubkey, "pubkey", false);
-			} else if (name == "abiVer") {
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::optional(TypeProvider::uint(8)));
-				setCheckOption(setAbi, "abiVer", false);
-			} else if (name == "stateInit") {
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::optional(TypeProvider::tvmcell()));
-				setCheckOption(setStateInit, "stateInit", false);
-			} else if (name == "callbackId") {
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::optional(TypeProvider::uint(32)));
-				setCheckOption(setCallback, "callbackId", false);
-			} else if (name == "onErrorId") {
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::optional(TypeProvider::uint(32)));
-				setCheckOption(setOnError, "onErrorId", false);
-			} else if (name == "expire") {
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::optional(TypeProvider::uint(32)));
-				setCheckOption(setExpire, "expire", false);
-			} else if (name == "time") {
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::optional(TypeProvider::uint(64)));
-				setCheckOption(setTime, "time", false);
-			} else {
-				m_errorReporter.typeError(
-					_functionCallOptions.location(),
-					"Unknown external call option \"" +
-					name +
-					R"(". Valid options are "extMsg", "abiVer", "callbackId", "onErrorId", "sign", "pubkey", "expire" and "time".)"
-				);
-			}
-		} else {
-			if (name == "bounce")
-			{
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::boolean());
-				setCheckOption(setBounce, "bounce", false);
-			}
-			else if (name == "flag")
-			{
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::uint(16));
-				setCheckOption(setFlag, "flag", false);
-			}
-			else if (name == "currencies")
-			{
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::extraCurrencyCollection());
-				setCheckOption(setCurrencies, "currencies", false);
-			}
-			else if (name == "wid")
-			{
-				if (!isNewExpression)
-					m_errorReporter.typeError(
-							_functionCallOptions.location(),
-							R"(Option "wid" can be set only for "new" expression.)");
-
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::integer(8, IntegerType::Modifier::Signed));
-				setCheckOption(setWid, "wid", false);
-			}
-			else if (name == "stateInit")
-			{
-				if (!isNewExpression)
-					m_errorReporter.typeError(
-						_functionCallOptions.location(),
-						R"(Option "stateInit" can be set only for "new" expression.)");
-
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::tvmcell());
-				setCheckOption(setStateInit, "stateInit", false);
-			}
-			else if (name == "code")
-			{
-				if (!isNewExpression)
-					m_errorReporter.typeError(
-							_functionCallOptions.location(),
-							R"(Option "code" can be set only for "new" expression.)");
-
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::tvmcell());
-				setCheckOption(setStateInit, "code", false);
-			}
-			else if (name == "varInit")
-			{
-				if (!isNewExpression)
-					m_errorReporter.typeError(
-							_functionCallOptions.location(),
-							R"(Option "varInit" can be set only for "new" expression.)");
-
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::initializerList());
-				setCheckOption(setVarInit, "varInit", false);
-			}
-			else if (name == "value")
-			{
-				if (kind == FunctionType::Kind::BareDelegateCall)
-					m_errorReporter.typeError(
-						_functionCallOptions.location(),
-						"Cannot set option \"value\" for delegatecall."
-					);
-				else if (kind == FunctionType::Kind::BareStaticCall)
-					m_errorReporter.typeError(
-						_functionCallOptions.location(),
-						"Cannot set option \"value\" for staticcall."
-					);
-				else
-				{
-					expectType(*_functionCallOptions.options()[i], *TypeProvider::uint(128));
-					setCheckOption(setValue, "value", expressionFunctionType->valueSet());
-				}
-			}
-			else if (name == "pubkey")
-			{
-				if (!isNewExpression)
-					m_errorReporter.typeError(
-							_functionCallOptions.location(),
-							R"(Option "pubkey" can be set only for "new" expression.)");
-
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::uint256());
-				setCheckOption(setPubkey, "pubkey", false);
-			}
-			else if (name == "splitDepth")
-			{
-				if (!isNewExpression)
-					m_errorReporter.typeError(
-							_functionCallOptions.location(),
-							R"(Option "splitDepth" can be set only for "new" expression.)");
-
-				expectType(*_functionCallOptions.options()[i], *TypeProvider::uint(8));
-				setCheckOption(setSplitDepth, "splitDepth", false);
-			}
-			else if (name == "callback")
-			{
-				if (expressionFunctionType->returnParameterTypes().empty()) {
-
-					m_errorReporter.typeError(
-						_functionCallOptions.options().at(i)->location(),
-						SecondarySourceLocation().append("Declaration of callee function", expressionFunctionType->declaration().location()),
-						R"("callback" option can be used only if callee function returns at least one value.)"
-					);
-				} else {
-					FunctionDefinition const *callbackFunc = getFunctionDefinition(_functionCallOptions.options()[i].get());
-					if (callbackFunc == nullptr) {
-						m_errorReporter.typeError(
-								_functionCallOptions.options().at(i)->location(),
-								"Function type is expected."
-						);
-					} else if (!callbackFunc->returnParameters().empty()) {
-						m_errorReporter.typeError(
-							_functionCallOptions.options().at(i)->location(),
-							SecondarySourceLocation()
-									.append("Declaration of the callback function:", callbackFunc->location()),
-							R"(Callback function must return nothing.)"
-						);
-					} else {
-						ContractDefinition const *funContract = callbackFunc->annotation().contract;
-						if (!m_scope->derivesFrom(*funContract)) {
-							m_errorReporter.typeError(
-								_functionCallOptions.options().at(i)->location(),
-								"Callback function should belong to this contract or any of base contracts."
-							);
-						} else {
-							const ParameterList &callbackParams = callbackFunc->parameterList();
-							const TypePointers& retTypes = expressionFunctionType->returnParameterTypes(); // check function without return
-							if (callbackParams.parameters().size() != retTypes.size()) {
-								m_errorReporter.typeError(
-										_functionCallOptions.options().at(i)->location(),
-										SecondarySourceLocation()
-											.append("Declaration of the callee function:", expressionFunctionType->declaration().location())
-											.append("Declaration of the callback function:", callbackFunc->location()),
-										R"(Count of return parameters of the callee function isn't equal to count of input arguments of the callback function.)"
-								);
-							} else {
-								for (std::size_t p = 0; p < callbackParams.parameters().size(); ++p) {
-									auto calleeFunction = dynamic_cast<FunctionDefinition const*>(&expressionFunctionType->declaration());
-									if (*callbackParams.parameters().at(p)->type() != *retTypes.at(p)) {
-										m_errorReporter.typeError(
-												_functionCallOptions.options().at(i)->location(),
-												SecondarySourceLocation()
-														.append("Parameter of the callee function:", calleeFunction->returnParameters().at(p)->location())
-														.append("Parameter of the callback function:", callbackFunc->parameters().at(p)->location()),
-												toString(p + 1) + R"(th parameters of callback and callee functions have different types.)"
-										);
-									}
-								}
-							}
-						}
-					}
-				}
-				setCheckOption(setCallback, "callback", false);
-			}
+		} else if (name == "pubkey") {
+			if (isExternalInboundMessage)
+				expectType(*options[i], *TypeProvider::optional(TypeProvider::uint256()));
 			else
-				m_errorReporter.typeError(
-					_functionCallOptions.location(),
-					"Unknown call option \"" +
-					name +
-					R"(". Valid options are "stateInit", "code", "pubkey", "varInit", "splitDepth", "value", "wid" and "flag".)"
-				);
+				expectType(*options[i], *TypeProvider::uint256());
+			setCheckOption(setPubkey, "pubkey", i);
+		} else if (name == "abiVer") {
+			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(8)));
+			setCheckOption(setAbi, "abiVer", i);
+		} else if (name == "stateInit") {
+			expectType(*options[i], *TypeProvider::optional(TypeProvider::tvmcell()));
+			setCheckOption(setStateInit, "stateInit", i);
+		} else if (name == "callbackId") {
+			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(32)));
+			setCheckOption(setCallback, "callbackId", i);
+		} else if (name == "onErrorId") {
+			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(32)));
+			setCheckOption(setOnError, "onErrorId", i);
+		} else if (name == "expire") {
+			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(32)));
+			setCheckOption(setExpire, "expire", i);
+		} else if (name == "time") {
+			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(64)));
+			setCheckOption(setTime, "time", i);
+		} else if (name == "bounce") {
+			expectType(*options[i], *TypeProvider::boolean());
+			setCheckOption(setBounce, "bounce", i);
+		} else if (name == "flag") {
+			expectType(*options[i], *TypeProvider::uint(16));
+			setCheckOption(setFlag, "flag", i);
+		} else if (name == "currencies") {
+			expectType(*options[i], *TypeProvider::extraCurrencyCollection());
+			setCheckOption(setCurrencies, "currencies", i);
+		} else if (name == "wid") {
+			expectType(*options[i], *TypeProvider::integer(8, IntegerType::Modifier::Signed));
+			setCheckOption(setWid, "wid", i);
+		} else if (name == "code") {
+			expectType(*options[i], *TypeProvider::tvmcell());
+			setCheckOption(setCode, "code", i);
+		} else if (name == "varInit") {
+			expectType(*options[i], *TypeProvider::initializerList());
+			setCheckOption(setVarInit, "varInit", i);
+		} else if (name == "value") {
+			expectType(*options[i], *TypeProvider::uint(128));
+			setCheckOption(setValue, "value", i);
+		} else if (name == "splitDepth") {
+			expectType(*options[i], *TypeProvider::uint(8));
+			setCheckOption(setSplitDepth, "splitDepth", i);
+		} else if (name == "callback") {
+			typeCheckCallBack(expressionFunctionType, *options.at(i).get());
+			setCheckOption(setCallback, "callback", i);
+		} else {
+			solUnimplemented("");
 		}
 	}
 
-	if (isExternalInboundMessage && (!setCallback || !setAbi || !setOnError)) {
+	if (isExternalInboundMessage && (setCallback == -1 || setAbi == -1 || setOnError == -1)) {
 		m_errorReporter.typeError(
 			_functionCallOptions.location(),
 			R"("callbackId", "onErrorId" and "abiVer" options must be set.)"
 		);
 	}
-	if (!isExternalInboundMessage && !setCallback && !isNewExpression && !expressionFunctionType->returnParameterTypes().empty()) {
-		m_errorReporter.typeError(
-			_functionCallOptions.location(),
-			R"("callback" option must be set because callee function returns some values.)"
-		);
+	if (!isExternalInboundMessage && setCallback == -1 && !isNewExpression && !expressionFunctionType->returnParameterTypes().empty()) {
+		checkNeedCallback(expressionFunctionType, _functionCallOptions);
+	}
+
+	if (isNewExpression) {
+		if (setStateInit == -1 && setCode == -1) {
+			m_errorReporter.typeError(_functionCallOptions.location(), R"(Either option "stateInit" or option "code" must be set.)");
+		}
+		if (setStateInit != -1 && setPubkey != -1) {
+			m_errorReporter.declarationError(
+					options.at(setPubkey)->location(),
+					SecondarySourceLocation().append(R"(Option "stateInit" is set here: )", options.at(setStateInit)->location()),
+					R"(Option "pubkey" is not compatible with option "stateInit". Only with option "code".)"
+			);
+		}
+		if (setStateInit != -1 && setVarInit != -1) {
+			m_errorReporter.declarationError(
+				options.at(setVarInit)->location(),
+				SecondarySourceLocation().append(R"(Option "stateInit" is set here: )", options.at(setStateInit)->location()),
+				R"(Option "varInit" is not compatible with option "stateInit". Only with option "code".)"
+			);
+		}
+		if (setValue == -1) {
+			m_errorReporter.typeError(_functionCallOptions.location(), R"(Option "value" must be set.)");
+		}
+		if (setVarInit != -1) {
+			auto newExpr = to<NewExpression>(&_functionCallOptions.expression());
+			const TypePointer type = newExpr->typeName().annotation().type;
+			auto ct = to<ContractType>(type);
+			auto list = dynamic_cast<InitializerList const*>(options.at(setVarInit).get());
+			checkInitList(list, ct);
+		}
 	}
 
 	_functionCallOptions.annotation().type = expressionFunctionType->copyAndSetCallOptions(setValue);

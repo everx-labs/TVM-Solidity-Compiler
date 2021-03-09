@@ -221,15 +221,15 @@ bool ContactsUsageScanner::visit(const MemberAccess &_node) {
 	if (_node.expression().annotation().type->category() == Type::Category::Magic) {
 		auto identifier = to<Identifier>(&_node.expression());
 		if (identifier && identifier->name() == "msg" && _node.memberName() == "sender") {
-			haveMsgSenderOrCallbackFunction = true;
+			haveMsgSender = true;
 		}
 	}
 	return true;
 }
 
 bool ContactsUsageScanner::visit(const FunctionDefinition &fd) {
-	if (fd.isPublic() && !fd.parameters().empty())
-		haveMsgSenderOrCallbackFunction = true;
+	if (fd.isResponsible())
+		haveResponsibleFunction = true;
 	return true;
 }
 

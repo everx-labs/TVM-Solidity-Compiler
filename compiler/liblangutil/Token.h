@@ -191,6 +191,7 @@ namespace solidity::langutil
 	K(Struct, "struct", 0)                                             \
 	K(Throw, "throw", 0)                                               \
 	K(TvmGetter, "tvm_getter", 0)                                      \
+	K(Responsible, "responsible", 0)                                      \
 	K(Type, "type", 0)                                                 \
 	K(Using, "using", 0)                                               \
 	K(Var, "var", 0)                                                   \

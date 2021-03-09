@@ -38,7 +38,7 @@ namespace TvmConst {
 		constexpr int FirstIndexForVariables = 10;
 	}
 	namespace SENDRAWMSG {
-		const int DefaultFlag = 1;
+		const int DefaultFlag = 0;
 		const int DestroyAccount = 32;
 		const int CarryAllMoney = 128;
 		const int SelfDestruct = CarryAllMoney | DestroyAccount;

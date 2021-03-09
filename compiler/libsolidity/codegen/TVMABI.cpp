@@ -16,6 +16,7 @@
  */
 
 #include "libsolutil/picosha2.h"
+#include <libsolidity/ast/TypeProvider.h>
 
 #include "TVMABI.hpp"
 #include "TVMPusher.hpp"
@@ -80,7 +81,7 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 		}
 
 		// add public state variables to functions
-		for (VariableDeclaration const* vd : contract->stateVariablesIncludingInherited()) {
+		for (VariableDeclaration const* vd : ctx.notConstantStateVariables()) {
 			if (vd->isPublic()) {
 				auto v = ast_vec<VariableDeclaration>();
 				functions.append(processFunction(vd->name(), convertArray(v), {vd}));
@@ -114,8 +115,8 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 	// data
 	{
 		Json::Value data(Json::arrayValue);
-		for (const auto &[v, index] : ctx.getStaticVaribles()) {
-			Json::Value cur = setupType(v->name(), v->type(), *v);
+		for (const auto &[v, index] : ctx.getStaticVariables()) {
+			Json::Value cur = setupType(v->name(), v->type());
 			cur["key"] = index;
 			data.append(cur);
 		}
@@ -228,7 +229,13 @@ Json::Value TVMABI::processFunction(
 	FunctionDefinition const* funcDef
 ) {
 	Json::Value function;
-	Json::Value inputs  = encodeParams(params);
+	Json::Value inputs = encodeParams(params);
+	if (funcDef != nullptr && funcDef->isResponsible()) {
+		Json::Value json(Json::objectValue);
+		json["name"] = "_answer_id";
+		json["type"] = "uint32";
+		inputs.insert(0, json);
+	}
 	Json::Value outputs = encodeParams(retParams);
 	function["name"] = fname;
 	if (funcDef && funcDef->functionID().has_value()) {
@@ -247,14 +254,14 @@ Json::Value TVMABI::encodeParams(const std::vector<VariableDeclaration const*> &
 	for (const auto& variable: params) {
 		string name = variable->name();
 		if (name.empty()) name = "value" + toString(idx);
-		Json::Value json = setupType(name, getType(variable), *variable);
+		Json::Value json = setupType(name, getType(variable));
 		result.append(json);
 		idx++;
 	}
 	return result;
 }
 
-string TVMABI::getParamTypeString(Type const *type, ASTNode const &node) {
+string TVMABI::getParamTypeString(Type const *type) {
 	const Type::Category category = type->category();
 	TypeInfo ti(type);
 	if (category == Type::Category::Address || category == Type::Category::Contract) {
@@ -276,34 +283,33 @@ string TVMABI::getParamTypeString(Type const *type, ASTNode const &node) {
 		if (isIntegralType(arrayBaseType) || isAddressOrContractType(arrayBaseType) ||
 			to<StructType>(arrayBaseType) || to<ArrayType>(arrayBaseType)) {
 
-			return getParamTypeString(arrayBaseType, node) + "[]";
+			return getParamTypeString(arrayBaseType) + "[]";
 		}
-		cast_error(node, "Unsupported param type " + type->toString(true));
 	} else if (to<StructType>(type)) {
 		return "tuple";
 	} else if (category == Type::Category::TvmCell) {
 		return "cell";
 	} else if (category == Type::Category::Mapping) {
 		auto mapping = to<MappingType>(type);
-		return "map(" + getParamTypeString(mapping->keyType(), node) + "," +
-			   getParamTypeString(mapping->valueType(), node) + ")";
+		return "map(" + getParamTypeString(mapping->keyType()) + "," +
+			   getParamTypeString(mapping->valueType()) + ")";
 	}
-	cast_error(node, "Unsupported param type " + type->toString(true));
+	solUnimplemented("Unsupported param type " + type->toString(true));
 }
 
-Json::Value TVMABI::setupComponents(Json::Value json, const Type *type, ASTNode const &node) {
+Json::Value TVMABI::setupComponents(Json::Value json, const Type *type) {
 	switch (type->category()) {
 		case Type::Category::Struct:
-			json["components"] = setupStructComponents(to<StructType>(type), node);
+			json["components"] = setupStructComponents(to<StructType>(type));
 			break;
 		case Type::Category::Array: {
 			auto arrayType = to<ArrayType>(type);
-			json = setupComponents(json, arrayType->baseType(), node);
+			json = setupComponents(json, arrayType->baseType());
 			break;
 		}
 		case Type::Category::Mapping: {
 			auto mappingType = to<MappingType>(type);
-			json = setupComponents(json, mappingType->valueType(), node);
+			json = setupComponents(json, mappingType->valueType());
 			break;
 		}
 		default:
@@ -312,21 +318,21 @@ Json::Value TVMABI::setupComponents(Json::Value json, const Type *type, ASTNode 
 	return json;
 }
 
-Json::Value TVMABI::setupType(const string &name, const Type *type, ASTNode const &node) {
+Json::Value TVMABI::setupType(const string &name, const Type *type) {
 	Json::Value json(Json::objectValue);
 	json["name"] = name;
-	json["type"] = getParamTypeString(type, node);
+	json["type"] = getParamTypeString(type);
 
-	json = setupComponents(json, type, node);
+	json = setupComponents(json, type);
 	return json;
 }
 
-Json::Value TVMABI::setupStructComponents(const StructType *type, ASTNode const &node) {
+Json::Value TVMABI::setupStructComponents(const StructType *type) {
 	Json::Value components(Json::arrayValue);
 	const StructDefinition& structDefinition = type->structDefinition();
 	const auto& members = structDefinition.members();
 	for (const auto & member : members) {
-		components.append(setupType(member->name(), getType(member.get()), node));
+		components.append(setupType(member->name(), getType(member.get())));
 	}
 	return components;
 }
@@ -482,22 +488,22 @@ DecodeFunctionParams::DecodeFunctionParams(StackPusherHelper *pusher) :
 
 }
 
-int DecodeFunctionParams::maxBits(bool hasCallback) {
+int DecodeFunctionParams::maxBits(bool isResponsible) {
 	// external inbound message
 	int maxUsed = 1 + 512 + // signature
 				  (pusher->ctx().pragmaHelper().havePubkey()? 1 + 256 : 0) +
 				  (pusher->ctx().haveTimeInAbiHeader()? 64 : 0) +
 				  (pusher->ctx().pragmaHelper().haveExpire()? 32 : 0) +
 				  32 + // functionID
-				  (hasCallback ? 32 : 0); // callback function
+				  (isResponsible ? 32 : 0); // callback function
 	return maxUsed;
 }
 
-int DecodeFunctionParams::minBits(bool hasCallback) {
-	return 32 + (hasCallback ? 32 : 0);
+int DecodeFunctionParams::minBits(bool isResponsible) {
+	return 32 + (isResponsible ? 32 : 0);
 }
 
-void DecodeFunctionParams::decodeParameters(const ast_vec<VariableDeclaration> &params, bool hasCallback) {
+void DecodeFunctionParams::decodeParameters(const ast_vec<VariableDeclaration> &params, bool isResponsible) {
 	// slice are on stack
 	solAssert(pusher->getStack().size() >= 1, "");
 
@@ -507,7 +513,7 @@ void DecodeFunctionParams::decodeParameters(const ast_vec<VariableDeclaration> &
 			position = std::make_unique<DecodePositionAbiV1>();
 			break;
 		case 2: {
-			position = std::make_unique<DecodePositionAbiV2>(minBits(hasCallback), maxBits(hasCallback), params);
+			position = std::make_unique<DecodePositionAbiV2>(minBits(isResponsible), maxBits(isResponsible), params);
 			break;
 		}
 		default:
@@ -752,10 +758,46 @@ void EncodeFunctionParams::createDefaultConstructorMessage2()
 	pusher->push(0, "STSLICECONST " + ss.str());
 }
 
+uint32_t EncodeFunctionParams::calculateConstructorFunctionID() {
+	std::vector<VariableDeclaration const*> vect;
+	return calculateFunctionID("constructor", {}, &vect);
+}
+
+std::pair<uint32_t, bool> EncodeFunctionParams::calculateFunctionID(const CallableDeclaration *declaration) {
+	auto functionDefinition = to<FunctionDefinition>(declaration);
+	if (functionDefinition != nullptr && functionDefinition->functionID().has_value()) {
+		return {functionDefinition->functionID().value(), true};
+	}
+
+	std::string name;
+	if (functionDefinition != nullptr && functionDefinition->isConstructor())
+		name = "constructor";
+	else
+		name = declaration->name();
+
+	std::vector<VariableDeclaration const*> tmpRet;
+	std::vector<VariableDeclaration const*>* ret = nullptr;
+	if (declaration->returnParameterList()) {
+		tmpRet = convertArray(declaration->returnParameters());
+		ret = &tmpRet;
+	}
+
+	std::vector<Type const*> inputTypes = getTypesFromVarDecls(declaration->parameters());
+	if (functionDefinition->isResponsible()) {
+		inputTypes.insert(inputTypes.begin(), TypeProvider::uint(32));
+	}
+	uint32_t id = calculateFunctionID(
+			name,
+			inputTypes,
+			ret
+	);
+	return {id, false};
+}
+
 uint32_t EncodeFunctionParams::calculateFunctionID(
-	const std::string& name,
-	const std::vector<ASTPointer<VariableDeclaration>>& inputs,
-	const std::vector<VariableDeclaration const*> * outputs
+		const std::string& name,
+		const std::vector<Type const*>& inputs,
+		const std::vector<VariableDeclaration const*> * outputs
 ) {
 	std::stringstream ss;
 	ss << name << "(";
@@ -764,8 +806,8 @@ uint32_t EncodeFunctionParams::calculateFunctionID(
 		ss << "time";
 		comma = true;
 	}
-	for (const auto& input : inputs) {
-		std::string typestr = getTypeString(input->type(), *input);
+	for (const auto& type : inputs) {
+		std::string typestr = getTypeString(type);
 		solAssert(!typestr.empty(), "Wrong type in remote function params.");
 		if (comma)
 			ss << ",";
@@ -777,7 +819,7 @@ uint32_t EncodeFunctionParams::calculateFunctionID(
 	if (outputs) {
 		ss << "(";
 		for (const auto& output : *outputs) {
-			std::string typestr = getTypeString(output->type(), *output);
+			std::string typestr = getTypeString(output->type());
 			solAssert(!typestr.empty(), "Wrong type in remote function params.");
 			if (comma)
 				ss << ",";
@@ -805,35 +847,57 @@ uint32_t EncodeFunctionParams::calculateFunctionID(
 	return funcID;
 }
 
-uint32_t EncodeFunctionParams::calculateConstructorFunctionID() {
-	std::vector<VariableDeclaration const*> vect;
-	return calculateFunctionID("constructor", {}, &vect);
+uint32_t EncodeFunctionParams::calculateFunctionIDWithReason(
+		const CallableDeclaration *funcDef,
+		const ReasonOfOutboundMessage &reason
+) {
+	std::vector<VariableDeclaration const*> outputs;
+	std::vector<VariableDeclaration const*>* retParams = nullptr;
+	if (funcDef->returnParameterList()) {
+		outputs = convertArray(funcDef->returnParameters());
+		retParams = &outputs;
+	}
+	std::optional<uint32_t> functionId;
+	std::string name = funcDef->name();
+	if (auto f = to<FunctionDefinition>(funcDef)) {
+		functionId = f->functionID();
+		if (f->isConstructor()) {
+			name = "constructor";
+		}
+	}
+
+	bool isResponsible{};
+	if (auto fd = to<FunctionDefinition>(funcDef))
+		isResponsible = fd->isResponsible();
+
+	return calculateFunctionIDWithReason(name, getTypesFromVarDecls(funcDef->parameters()), retParams, reason, functionId, isResponsible);
 }
 
-std::pair<uint32_t, bool> EncodeFunctionParams::calculateFunctionID(const CallableDeclaration *declaration) {
-	auto functionDefinition = to<FunctionDefinition>(declaration);
-	if (functionDefinition != nullptr && functionDefinition->functionID().has_value()) {
-		return {functionDefinition->functionID().value(), true};
+uint32_t EncodeFunctionParams::calculateFunctionIDWithReason(
+		const std::string& name,
+		std::vector<Type const*> inputs,
+		const std::vector<VariableDeclaration const*> *outputs,
+		const ReasonOfOutboundMessage &reason,
+		std::optional<uint32_t> functionId,
+		const bool isResponsible
+) {
+	if (isResponsible) {
+		inputs.insert(inputs.begin(), TypeProvider::uint(32));
 	}
-
-	std::string name;
-	if (functionDefinition != nullptr && functionDefinition->isConstructor())
-		name = "constructor";
-	else
-		name = declaration->name();
-
-	std::vector<VariableDeclaration const*> tmpRet;
-	std::vector<VariableDeclaration const*>* ret = nullptr;
-	if (declaration->returnParameterList()) {
-		tmpRet = convertArray(declaration->returnParameters());
-		ret = &tmpRet;
+	bool isManuallyOverridden = functionId.has_value();
+	uint32_t funcID = isManuallyOverridden? functionId.value() : calculateFunctionID(name, inputs, outputs);
+	switch (reason) {
+		case ReasonOfOutboundMessage::FunctionReturnExternal:
+			funcID |= 0x80000000;
+			break;
+		case ReasonOfOutboundMessage::EmitEventExternal:
+		case ReasonOfOutboundMessage::RemoteCallInternal:
+			if (!isManuallyOverridden) {
+				funcID &= 0x7FFFFFFFu;
+			}
+			break;
 	}
-	uint32_t id = calculateFunctionID(
-		name,
-		declaration->parameters(),
-	 	ret
-	);
-	return {id, false};
+	return funcID;
 }
 
 void EncodeFunctionParams::createMsgBodyAndAppendToBuilder(
@@ -911,69 +975,24 @@ EncodeFunctionParams::encodeParameters(const std::vector<Type const *> &types, c
 	}
 }
 
-uint32_t EncodeFunctionParams::calculateFunctionIDWithReason(
-	const CallableDeclaration *funcDef,
-	const ReasonOfOutboundMessage &reason
-) {
-	std::vector<VariableDeclaration const*> outputs;
-	std::vector<VariableDeclaration const*>* retParams = nullptr;
-	if (funcDef->returnParameterList()) {
-		outputs = convertArray(funcDef->returnParameters());
-		retParams = &outputs;
-	}
-	std::optional<uint32_t> functionId;
-	std::string name = funcDef->name();
-	if (auto f = to<FunctionDefinition>(funcDef)) {
-		functionId = f->functionID();
-		if (f->isConstructor()) {
-			name = "constructor";
-		}
-	}
-
-	return calculateFunctionIDWithReason(name, funcDef->parameters(), retParams, reason, functionId);
-}
-
-uint32_t EncodeFunctionParams::calculateFunctionIDWithReason(
-	const std::string& name,
-	const std::vector<ASTPointer<VariableDeclaration> >& inputs,
-	const std::vector<VariableDeclaration const*> *outputs,
-	const ReasonOfOutboundMessage &reason,
-	std::optional<uint32_t> functionId
-) {
-	bool isManuallyOverridden = functionId.has_value();
-	uint32_t funcID = isManuallyOverridden? functionId.value() : calculateFunctionID(name, inputs, outputs);
-	switch (reason) {
-		case ReasonOfOutboundMessage::FunctionReturnExternal:
-			funcID |= 0x80000000;
-			break;
-		case ReasonOfOutboundMessage::EmitEventExternal:
-		case ReasonOfOutboundMessage::RemoteCallInternal:
-			if (!isManuallyOverridden) {
-				funcID &= 0x7FFFFFFFu;
-			}
-			break;
-	}
-	return funcID;
-}
-
-std::string EncodeFunctionParams::getTypeString(Type const * type, const ASTNode &node) {
+std::string EncodeFunctionParams::getTypeString(Type const * type) {
 	if (auto structType = to<StructType>(type)) {
 		std::string ret = "(";
 		for (size_t i = 0; i < structType->structDefinition().members().size(); i++) {
 			if (i != 0) ret += ",";
-			ret += getTypeString(structType->structDefinition().members()[i]->type(), node);
+			ret += getTypeString(structType->structDefinition().members()[i]->type());
 		}
 		ret += ")";
 		return ret;
 	} else if (auto arrayType = to<ArrayType>(type)) {
 		if (!arrayType->isByteArray())
-			return getTypeString(arrayType->baseType(), node) + "[]";
+			return getTypeString(arrayType->baseType()) + "[]";
 	} else if (auto mapping = to<MappingType>(type)) {
-		return "map(" + getTypeString(mapping->keyType(), node) + "," +
-			   getTypeString(mapping->valueType(), node) + ")";
+		return "map(" + getTypeString(mapping->keyType()) + "," +
+			   getTypeString(mapping->valueType()) + ")";
 	}
 
-	return TVMABI::getParamTypeString(type, node);
+	return TVMABI::getParamTypeString(type);
 }
 
 void EncodeFunctionParams::encodeParameter(Type const *type, EncodePosition &position,

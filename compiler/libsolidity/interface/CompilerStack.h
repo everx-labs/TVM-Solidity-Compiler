@@ -191,6 +191,14 @@ public:
 		m_folder = folder;
 	}
 
+	void setFileNamePrefix(const std::string& file_prefix) {
+		m_file_prefix = file_prefix;
+	}
+
+	void setInputFile(const std::string& inputFile) {
+		m_inputFile = inputFile;
+	}
+
 	/// Enable experimental generation of Yul IR code.
 	void enableIRGeneration(bool _enable = true) { m_generateIR = _enable; }
 
@@ -232,7 +240,7 @@ public:
 
 	/// Compiles the source units that were previously added and parsed.
 	/// @returns false on error.
-	std::pair<bool, bool> compile(const std::string& mainPath);
+	std::pair<bool, bool> compile();
 
 	/// @returns the list of sources (paths) used
 	std::vector<std::string> sourceNames() const;
@@ -471,6 +479,8 @@ private:
 	bool m_withOptimizations{};
 	bool m_doPrintInConsole{};
 	std::string m_folder;
+	std::string m_file_prefix;
+	std::string m_inputFile;
 };
 
 }

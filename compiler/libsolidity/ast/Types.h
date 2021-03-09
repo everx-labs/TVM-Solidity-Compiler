@@ -706,7 +706,7 @@ public:
 	Category category() const override { return Category::InitializerList; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_initializerlisttype"; }
-	std::string toString(bool) const override { return "initializerlisttype"; }
+	std::string toString(bool) const override { return "initializerListType"; }
 
 	TypePointer encodingType() const override { return this; }
 	TypeResult interfaceType(bool) const override { return this; }
@@ -1196,6 +1196,7 @@ public:
 		MathMulDiv, ///< math.muldiv()
 		MathMulDivMod, ///< math.muldivmod()
 		MathDivMod, ///< math.divmod()
+		MathSign, ///< math.sign()
 
 		TVMAccept, ///< tvm.accept()
 		TVMBuildExtMsg, ///< tvm.buildExtMsg()
@@ -1214,6 +1215,7 @@ public:
 		TVMResetStorage, ///< tvm.resetStorage()
 		TVMSendMsg, ///< tvm.sendMsg()
 		TVMSetcode, ///< tvm.setcode()
+		TVMDump, ///< tvm.xxxdump()
 		TVMTransfer, ///< address.transfer()
 		TXtimestamp, ///< tx.timestamp
 
