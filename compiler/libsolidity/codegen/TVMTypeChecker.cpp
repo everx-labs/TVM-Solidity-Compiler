@@ -66,18 +66,25 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 			if (!annotation.baseFunctions.empty()) {
 				overridedFunctions.insert(f);
 				for (CallableDeclaration const *base : annotation.baseFunctions) {
-					auto fBase = to<FunctionDefinition>(base);
+					auto baseFunction = to<FunctionDefinition>(base);
 					overridedFunctions.insert(base);
-					if ((!f->functionID().has_value() && fBase->functionID()) || (f->functionID().has_value() && !fBase->functionID())) {
+					if ((!f->functionID().has_value() && baseFunction->functionID()) || (f->functionID().has_value() && !baseFunction->functionID())) {
 						m_errorReporter.typeError(
 								f->location(),
-								SecondarySourceLocation().append("Declaration of the base function: ", fBase->location()),
+								SecondarySourceLocation().append("Declaration of the base function: ", baseFunction->location()),
 								"Both override and base functions should have functionID if it is defined for one of them.");
-					} else if (f->functionID().has_value() && f->functionID() != fBase->functionID()) {
+					} else if (f->functionID().has_value() && f->functionID() != baseFunction->functionID()) {
 						m_errorReporter.typeError(
 							f->location(),
-							SecondarySourceLocation().append("Declaration of the base function: ", fBase->location()),
-							"Override function should have functionID = " + toString(fBase->functionID().value()) + ".");
+							SecondarySourceLocation().append("Declaration of the base function: ", baseFunction->location()),
+							"Override function should have functionID = " + toString(baseFunction->functionID().value()) + ".");
+					}
+
+					if (baseFunction->isResponsible() != f->isResponsible()) {
+						m_errorReporter.typeError(
+								f->location(),
+								SecondarySourceLocation().append("Declaration of the base function: ", baseFunction->location()),
+								"Both override and base functions should be marked as responsible or not");
 					}
 				}
 			}
@@ -201,93 +208,6 @@ bool TVMTypeChecker::visit(const Mapping &_mapping) {
         }
     }
     return true;
-}
-
-bool TVMTypeChecker::visit(FunctionCall const& functionCall) {
-	if (auto functionOptions = to<FunctionCallOptions>(&functionCall.expression())) {
-		if (auto newExpr = to<NewExpression>(&functionOptions->expression())) {
-			std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
-
-			// check that option set is valid
-			auto stateInit = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "stateInit"; });
-			auto code = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "code"; });
-
-			auto pubkey = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "pubkey"; });
-			auto varInit = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "varInit"; });
-
-			auto value = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "value"; });
-
-			auto have = [&](auto it){ return it != optionNames.end(); };
-			auto getLocation = [&](auto it) {
-				int index = it - optionNames.begin();
-				return functionOptions->options().at(index)->location();
-			};
-
-			if (!have(stateInit) && !have(code)) {
-				m_errorReporter.typeError(functionOptions->location(), R"(Either option "stateInit" or option "code" must be set.)");
-			}
-
-			if (have(stateInit) && have(pubkey)) {
-				m_errorReporter.declarationError(
-					getLocation(pubkey),
-					SecondarySourceLocation().append(R"(Option "stateInit" is set here: )", getLocation(stateInit)),
-					R"(Option "pubkey" is not compatible with option "stateInit". Only with option "code".)"
-				);
-			}
-
-			if (have(stateInit) && have(varInit)) {
-				m_errorReporter.declarationError(
-					getLocation(varInit),
-					SecondarySourceLocation().append(R"(Option "stateInit" is set here: )", getLocation(stateInit)),
-					R"(Option "varInit" is not compatible with option "stateInit". Only with option "code".)"
-				);
-			}
-
-			if (!have(value)) {
-				m_errorReporter.typeError(functionOptions->location(), R"(Option "value" must be set.)");
-			}
-
-			if (have(varInit)) {
-				size_t initVarsIndex = varInit - optionNames.begin();
-				auto initVars =  to<InitializerList>(functionOptions->options().at(initVarsIndex).get());
-				const TypePointer type = newExpr->typeName().annotation().type;
-				for (size_t i = 0; i < initVars->names().size(); ++i) {
-					const ASTPointer<ASTString> & name = initVars->names().at(i);
-					auto ct = to<ContractType>(type);
-
-					bool find = false;
-					for (const auto& [v, _a, _b] : ct->stateVariables()) {
-						(void)_a;
-						(void)_b;
-						if (v->isStatic() && v->name() == *name) {
-							find = true;
-							TypePointer valueType = initVars->options().at(i)->annotation().type;
-							TypePointer varType = v->type();
-							if (!valueType->isImplicitlyConvertibleTo(*varType)) {
-								m_errorReporter.declarationError(
-									initVars->options().at(i)->location(),
-									SecondarySourceLocation().append(R"(Variable is defined here: )", v->location()),
-									"Type " + valueType->toString(true) +
-									" is not implicitly convertible to expected type " +
-									varType->toString(true) +
-									"."
-								);
-							}
-							break;
-						}
-					}
-					if (!find) {
-						m_errorReporter.declarationError(
-							initVars->options().at(i)->location(),
-							SecondarySourceLocation().append(R"(Contract is defined here: )", ct->contractDefinition().location()),
-							"In contract there is no \"" + *name + "\" static state variable."
-						);
-					}
-				}
-			}
-		}
-	}
-	return true;
 }
 
 bool TVMTypeChecker::visit(const FunctionDefinition &f) {

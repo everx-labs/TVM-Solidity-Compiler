@@ -33,14 +33,13 @@ private:
 	void check_onCodeUpgrade(FunctionDefinition const& f);
 
     bool visit(Mapping const& _mapping) override;
-    bool visit(FunctionCall const& fc) override;
     bool visit(FunctionDefinition const& fc) override;
     bool visit(ContractDefinition const& ) override;
     void endVisit(ContractDefinition const& ) override;
 
 private:
 	langutil::ErrorReporter& m_errorReporter;
-	ContractDefinition const* contractDefinition;
+	ContractDefinition const* contractDefinition{};
 	std::vector<PragmaDirective const *> const& pragmaDirectives;
 };
 

@@ -748,7 +748,8 @@ public:
 		ASTPointer<ParameterList> const& _returnParameters,
 		ASTPointer<Block> const& _body,
 		std::optional<uint32_t> _functionID = {},
-		bool _isInline = false
+		bool _isInline = false,
+		bool _responsible = false
 	):
 		CallableDeclaration(_id, _location, _name, _visibility, _parameters, _isVirtual, _overrides, _returnParameters),
 		StructurallyDocumented(_documentation),
@@ -758,7 +759,8 @@ public:
 		m_functionModifiers(_modifiers),
 		m_body(_body),
 		m_functionID(_functionID),
-		m_isInline(_isInline)
+		m_isInline(_isInline),
+		m_responsible{_responsible}
 	{
 		solAssert(_kind == Token::Constructor || _kind == Token::Function ||
 					_kind == Token::Fallback || _kind == Token::Receive || _kind == Token::onBounce ||
@@ -817,6 +819,7 @@ public:
 
 	std::optional<uint32_t> functionID() const { return m_functionID; }
 	bool isInline() const { return m_isInline; }
+	bool isResponsible() const { return m_responsible; }
 
 private:
 	StateMutability m_stateMutability;
@@ -825,6 +828,7 @@ private:
 	ASTPointer<Block> m_body;
 	std::optional<uint32_t> m_functionID;
 	bool m_isInline;
+	bool m_responsible{};
 };
 
 /**

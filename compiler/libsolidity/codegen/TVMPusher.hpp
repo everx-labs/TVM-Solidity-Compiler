@@ -101,7 +101,7 @@ public:
 	bool storeTimestampInC4() const;
 	void addLib(FunctionDefinition const* f);
 	const std::set<FunctionDefinition const*>& getLibFunctions() const { return m_libFunctions; }
-	std::vector<std::pair<VariableDeclaration const*, int>> getStaticVaribles() const;
+	std::vector<std::pair<VariableDeclaration const*, int>> getStaticVariables() const;
 	void setCurrentFunction(FunctionDefinition const* f) { m_currentFunction = f; }
 	FunctionDefinition const* getCurrentFunction() { return m_currentFunction; }
 	void addInlineFunction(const std::string& name, const CodeLines& code);
@@ -158,7 +158,7 @@ public:
 
 	StructCompiler& structCompiler();
 	TVMStack& getStack();
-	void pushLog(const std::string& str);
+	void pushLog();
 	void pushLines(const std::string& lines);
 	void untuple(int n);
 	void index(int index);
@@ -297,6 +297,7 @@ public:
 				 MsgType messageType = MsgType::Internal);
 
 	void switchSelector();
+	void byteLengthOfCell();
 };
 
 

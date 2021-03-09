@@ -320,6 +320,14 @@ convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr) {
 	return ret;
 }
 
+std::vector<Type const*>
+getTypesFromVarDecls(std::vector<ASTPointer<VariableDeclaration>> const& arr) {
+	std::vector<Type const*>  ret;
+	for (const auto& v : arr)
+		ret.emplace_back(v->type());
+	return ret;
+}
+
 std::pair<
 	std::vector<Type const*>,
 	std::vector<std::string>

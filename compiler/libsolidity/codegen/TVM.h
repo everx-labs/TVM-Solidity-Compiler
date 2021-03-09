@@ -32,5 +32,6 @@ void TVMCompilerProceedContract(
 	bool withOptimizations,
 	bool doPrintInConsole,
 	const std::string& solFileName,
-	const std::string& outputFolder
+	const std::string& outputFolder,
+	const std::string& filePrefix
 );

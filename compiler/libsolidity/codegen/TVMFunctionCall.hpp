@@ -118,7 +118,7 @@ protected:
 	void pushArgAndConvert(int index, const std::string& name = "");
 	void pushExprAndConvert(const Expression* expr, Type const* targetType);
 	void acceptExpr(const Expression* expr);
-
+	void compileLog();
 private:
 	StackPusherHelper& m_pusher;
 	TVMExpressionCompiler* const m_exprCompiler{};

@@ -748,7 +748,7 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 	try
 	{
 		if (binariesRequested)
-			compilerStack.compile("");
+			compilerStack.compile();
 		else
 			compilerStack.parseAndAnalyze();
 

@@ -77,6 +77,7 @@ private:
 		std::vector<ASTPointer<ModifierInvocation>> modifiers;
 		std::optional<uint32_t> functionID{};
 		bool isInline = false;
+		bool responsible = false;
 	};
 
 	///@{

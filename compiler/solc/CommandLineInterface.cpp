@@ -104,6 +104,7 @@ static string const g_strLicense = "license";
 static string const g_strNatspecDev = "devdoc";
 static string const g_strNatspecUser = "userdoc";
 static string const g_strOutputDir = "output-dir";
+static string const g_strFile = "file";
 
 static string const g_strVersion = "version";
 static string const g_argAstCompactJson = g_strAstCompactJson;
@@ -113,6 +114,7 @@ static string const g_argInputFile = g_strInputFile;
 static string const g_argNatspecDev = g_strNatspecDev;
 static string const g_argNatspecUser = g_strNatspecUser;
 static string const g_argOutputDir = g_strOutputDir;
+static string const g_argFile = g_strFile;
 static string const g_argVersion = g_strVersion;
 
 static string const g_argTvm = "tvm";
@@ -121,6 +123,7 @@ static string const g_argTvmOptimize = "tvm-optimize";
 static string const g_argTvmUnsavedStructs = "tvm-unsaved-structs";
 static string const g_argTvmPeephole = "tvm-peephole";
 static string const g_argSetContract = "contract";
+
 
 static void version()
 {
@@ -190,8 +193,8 @@ void CommandLineInterface::handleNatspec(bool _natspecDev, string const& _contra
 
 bool CommandLineInterface::readInputFilesAndConfigureRemappings()
 {
-	if (m_args.count(g_argInputFile))
-		for (string path: m_args[g_argInputFile].as<vector<string>>())
+	if (m_args.count(g_argInputFile)) {
+		string path = m_args[g_argInputFile].as<string>();
 		{
 			auto eq = find(path.begin(), path.end(), '=');
 			if (eq != path.end())
@@ -231,6 +234,7 @@ bool CommandLineInterface::readInputFilesAndConfigureRemappings()
 			}
 			m_allowedDirectories.push_back(boost::filesystem::path(path).remove_filename());
 		}
+	}
 	if (m_sourceCodes.size() == 0)
 	{
 		serr() << "No input files given. If you wish to use the standard input please specify \"-\" explicitly." << endl;
@@ -251,7 +255,7 @@ This program comes with ABSOLUTELY NO WARRANTY. This is free software, and you
 are welcome to redistribute it under certain conditions. See 'solc --license'
 for details.
 
-Usage: solc [options] [input_file...]
+Usage: solc [options] input-file
 
 Example:
 solc contract.sol
@@ -266,15 +270,20 @@ Allowed options)",
 		(g_strLicense.c_str(), "Show licensing information and exit.")
 		(
 			(g_argOutputDir + ",o").c_str(),
-			po::value<string>()->value_name("path"),
-			"If given, creates one file per component and contract/file at the specified directory."
+			po::value<string>()->value_name("path/to/dir"),
+			"Set absolute or relative path for directory for output files."
 		)
 		(
 			(g_argSetContract + ",c").c_str(),
-			po::value<string>()->value_name("contract"),
-			"Sets the name of contract from the source file to be compiled."
+			po::value<string>()->value_name("contractName"),
+			"Sets contract name from the source file to be compiled."
 		)
-			;
+		(
+			(g_argFile + ",f").c_str(),
+			po::value<string>()->value_name("prefixName"),
+			"Set prefix of names of output files (*.code and *abi.json)."
+		)
+		;
 	po::options_description outputComponents("Output Components");
 	outputComponents.add_options()
 		(g_argAstJson.c_str(), "AST of all source files in JSON format.")
@@ -289,7 +298,7 @@ Allowed options)",
 	desc.add(outputComponents);
 
 	po::options_description allOptions = desc;
-	allOptions.add_options()(g_argInputFile.c_str(), po::value<vector<string>>(), "input file");
+	allOptions.add_options()(g_argInputFile.c_str(), po::value<string>(), "input file");
 
 	// All positional options should be interpreted as input files
 	po::positional_options_description filesPositions;
@@ -411,6 +420,9 @@ bool CommandLineInterface::processInput()
 		if (m_args.count(g_argOutputDir))
 			m_compiler->setOutputFolder(m_args[g_argOutputDir].as<string>());
 
+		if (m_args.count(g_argFile))
+			m_compiler->setFileNamePrefix(m_args[g_argFile].as<string>());
+
 		if (m_args.count(g_argTvmABI))
 			m_compiler->generateAbi();
 		if (m_args.count(g_argTvm))
@@ -426,17 +438,12 @@ bool CommandLineInterface::processInput()
 			m_compiler->doPrintInConsole();
 		}
 
-		string mainPath;
-		for (const string& path : m_args[g_argInputFile].as<vector<string>>()) {
-			if (!mainPath.empty()) {
-				solUnimplemented("In command line there are more than 2 files.");
-			}
-			mainPath = path;
-		}
+		string fileName = m_args[g_argInputFile].as<string>();
+		m_compiler->setInputFile(fileName);
 
 		bool successful{};
 		bool didCompileSomething{};
-		std::tie(successful, didCompileSomething) = m_compiler->compile(mainPath);
+		std::tie(successful, didCompileSomething) = m_compiler->compile();
 		g_hasOutput |= didCompileSomething;
 
 		for (auto const& error: m_compiler->errors())

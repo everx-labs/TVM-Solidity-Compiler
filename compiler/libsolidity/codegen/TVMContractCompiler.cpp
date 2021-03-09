@@ -316,7 +316,7 @@ TVMContractCompiler::proceedContractMode1(
 		}
 	}
 
-	for (VariableDeclaration const* vd : contract->stateVariablesIncludingInherited()) {
+	for (VariableDeclaration const* vd : ctx.notConstantStateVariables()) {
 		if (vd->isPublic()) {
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler::generateGetter(pusher, vd);
@@ -400,16 +400,3 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 	}
 }
 
-void TVMContractCompiler::ensurePathExists()
-{
-	// TODO
-//	if (m_outputFolder.empty())
-//		return;
-//
-//	namespace fs = boost::filesystem;
-//	// create directory if not existent
-//	fs::path p(m_outputFolder);
-//	// Do not try creating the directory if the first item is . or ..
-//	if (p.filename() != "." && p.filename() != "..")
-//		fs::create_directories(p);
-}

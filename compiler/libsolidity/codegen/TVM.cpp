@@ -31,33 +31,37 @@ void TVMCompilerProceedContract(
 	bool withOptimizations,
 	bool doPrintInConsole,
 	const std::string& solFileName,
-	const std::string& outputFolder
+	const std::string& outputFolder,
+	const std::string& filePrefix
 ) {
 	TVMContractCompiler::g_errorReporter = errorReporter;
 
-	string baseFileName;
-	if (!outputFolder.empty()) {
-		solUnimplemented("");
-//		fileName = _contract.name()
-//		TVMContractCompiler::m_outputToFile = true;
-//		namespace fs = boost::filesystem;
-//		fileName = (fs::path(outputFolder) / _contract.name()).string();
-//	ensurePathExists();
-//	boost::filesystem::path(fileName).stem().string()
-    } else {
-		if (boost::algorithm::ends_with(solFileName, ".sol")) {
-			baseFileName = solFileName.substr(0, solFileName.size() - 4);
-		} else {
-			baseFileName = solFileName;
-		}
+	string pathToFiles;
+
+	if (filePrefix.empty()) {
+		pathToFiles = boost::filesystem::path{solFileName}.stem().string();
+	} else {
+		pathToFiles = filePrefix;
 	}
+
+	if (!outputFolder.empty()) {
+		namespace fs = boost::filesystem;
+		boost::system::error_code ec;
+		fs::path dir = fs::weakly_canonical(outputFolder);
+		fs::create_directories(dir, ec);
+		if (ec) {
+			errorReporter->fatalTypeError(_contract.location(), "Problem with directory \"" + outputFolder + "\": " + ec.message());
+			return;
+		}
+		pathToFiles = (fs::path(dir) / pathToFiles).string();
+    }
 
 	PragmaDirectiveHelper pragmaHelper{*pragmaDirectives};
 	if (generateCode) {
-		TVMContractCompiler::proceedContract(doPrintInConsole ? "" : baseFileName + ".code", _contract, pragmaHelper, withOptimizations);
+		TVMContractCompiler::proceedContract(doPrintInConsole ? "" : pathToFiles + ".code", _contract, pragmaHelper, withOptimizations);
 	}
 	if (generateAbi) {
-		TVMContractCompiler::generateABI(doPrintInConsole ? "" : baseFileName + ".abi.json", &_contract, *pragmaDirectives);
+		TVMContractCompiler::generateABI(doPrintInConsole ? "" : pathToFiles + ".abi.json", &_contract, *pragmaDirectives);
 	}
 
 }

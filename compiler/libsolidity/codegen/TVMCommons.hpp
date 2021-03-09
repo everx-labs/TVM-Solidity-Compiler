@@ -353,6 +353,9 @@ bool isEmptyFunction(FunctionDefinition const* f);
 std::vector<VariableDeclaration const*>
 convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr);
 
+std::vector<Type const*>
+getTypesFromVarDecls(std::vector<ASTPointer<VariableDeclaration>> const& arr);
+
 std::pair<
 	std::vector<Type const*>,
 	std::vector<std::string>

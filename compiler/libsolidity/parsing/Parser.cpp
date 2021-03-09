@@ -601,6 +601,11 @@ Parser::FunctionHeaderParserResult Parser::parseFunctionHeader(bool _isStateVari
 			result.isInline = true;
 			m_scanner->next();
 		}
+		else if (token == Token::Responsible)
+		{
+			result.responsible = true;
+			m_scanner->next();
+		}
 		else
 			break;
 	}
@@ -692,7 +697,8 @@ ASTPointer<ASTNode> Parser::parseFunctionDefinition()
 		header.returnParameters,
 		block,
 		header.functionID,
-		header.isInline
+		header.isInline,
+		header.responsible
 	);
 }
 

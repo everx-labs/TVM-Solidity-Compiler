@@ -469,7 +469,7 @@ bool CompilerStack::isRequestedContract(ContractDefinition const& _contract) con
 	return false;
 }
 
-std::pair<bool, bool> CompilerStack::compile(const std::string& mainPath)
+std::pair<bool, bool> CompilerStack::compile()
 {
 	bool didCompileSomething{};
 	if (m_stackState < AnalysisPerformed)
@@ -484,7 +484,7 @@ std::pair<bool, bool> CompilerStack::compile(const std::string& mainPath)
 
 	for (Source const* source: m_sourceOrder) {
 
-		if (source->ast->annotation().path != mainPath) {
+		if (source->ast->annotation().path != m_inputFile) {
 			continue;
 		}
 
@@ -572,8 +572,9 @@ std::pair<bool, bool> CompilerStack::compile(const std::string& mainPath)
 				m_generateCode,
 				m_withOptimizations,
 				m_doPrintInConsole,
-				mainPath,
-				m_folder
+				m_inputFile,
+				m_folder,
+				m_file_prefix
 			);
 			didCompileSomething = true;
 		} catch (FatalError const &) {
@@ -873,6 +874,13 @@ StringMap CompilerStack::loadMissingSources(SourceUnit const& _ast, std::string 
 		{
 			solAssert(!import->path().empty(), "Import path cannot be empty.");
 
+			if (!boost::filesystem::exists(import->path())) {
+				m_errorReporter.parserError(
+					import->location(),
+					string("Source \"" + import->path() + "\" doesn't exist.")
+				);
+				continue;
+			}
 			string importPath = boost::filesystem::canonical(import->path(),
 				boost::filesystem::path(_sourcePath).remove_filename()).string();
 

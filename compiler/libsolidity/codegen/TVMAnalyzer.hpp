@@ -71,7 +71,8 @@ public:
 	bool visit(FunctionDefinition const& fd) override;
 
 	bool haveMsgPubkey{};
-	bool haveMsgSenderOrCallbackFunction{};
+	bool haveMsgSender{};
+	bool haveResponsibleFunction{};
 };
 
 class FunctionUsageScanner: public ASTConstVisitor

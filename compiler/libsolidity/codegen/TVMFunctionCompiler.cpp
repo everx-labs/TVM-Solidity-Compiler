@@ -204,11 +204,7 @@ PUSHCONT {
 )");
 		pusher.addTabs();
 		int shift = 0;
-		// TODO stateVariablesIncludingInherited doesn't include private vars from base contract
-		for (VariableDeclaration const* v : pusher.ctx().getContract()->stateVariablesIncludingInherited()) {
-			if (v->isConstant()) {
-				continue;
-			}
+		for (VariableDeclaration const* v : pusher.ctx().notConstantStateVariables()) {
 			pusher.push(0, "; init " + v->name());
 			if (v->isStatic()) {
 				pusher.pushInt(TvmConst::C4::PersistenceMembersStartIndex + shift++); // index
@@ -308,11 +304,11 @@ void TVMFunctionCompiler::generateOnTickTock(StackPusherHelper& pusher, Function
 	pusher.push(0, " ");
 }
 
-void TVMFunctionCompiler::decodeFunctionParamsAndLocateVars(bool hasCallback) {
+void TVMFunctionCompiler::decodeFunctionParamsAndLocateVars(bool isResponsible) {
 	// decode function params
 	// stack: transaction_id arguments-in-slice
 	m_pusher.push(+1, ""); // arguments-in-slice
-	DecodeFunctionParams{&m_pusher}.decodeParameters(m_function->parameters(), hasCallback);
+	DecodeFunctionParams{&m_pusher}.decodeParameters(m_function->parameters(), isResponsible);
 	// stack: transaction_id arguments...
 	m_pusher.getStack().change(-static_cast<int>(m_function->parameters().size()));
 	for (const ASTPointer<VariableDeclaration>& variable: m_function->parameters()) {
@@ -341,26 +337,18 @@ void TVMFunctionCompiler::generatePublicFunction(StackPusherHelper& pusher, Func
 	pusher.generateGlobl(function->name(), function->isPublic());
 	funCompiler.pushC4ToC7IfNeed();
 
-	const bool hasCallback = !function->returnParameterList()->parameters().empty();
-	if (hasCallback) {
+	const bool isResponsible = function->isResponsible();
+	if (isResponsible) {
 		const int saveStakeSize = pusher.getStack().size();
-		// stack: -1/0/+1   bodySlice
-		pusher.pushS(1);
-		pusher.push(-1, "");
-
-		pusher.startContinuation();
 		pusher.push(+1, "LDU 32"); // callbackId slice
 		pusher.getGlob(TvmConst::C7::ReturnParams); // callbackId slice c7[4]
 		pusher.blockSwap(1, 2); // slice c7[4] callbackId
 		pusher.setIndexQ(TvmConst::C7::ReturnParam::CallbackFunctionId); // slice c7[4]
 		pusher.setGlob(TvmConst::C7::ReturnParams); // slice
-
-		pusher.endContinuation();
-		pusher.push(0, "IFNOT");
 		solAssert(saveStakeSize == pusher.getStack().size(), "");
 	}
 
-	funCompiler.decodeFunctionParamsAndLocateVars(hasCallback);
+	funCompiler.decodeFunctionParamsAndLocateVars(isResponsible);
 	funCompiler.visitFunctionWithModifiers(false);
     pusher.getStack().ensureSize(0, "");
 	funCompiler.pushC7ToC4IfNeed();
@@ -402,7 +390,7 @@ TVMFunctionCompiler::generateGetter(StackPusherHelper &pusher, VariableDeclarati
 					pusher.pushS(pos);
 				},
 				{vd},
-				EncodeFunctionParams{&pusher}.calculateFunctionIDWithReason(vd->name(), {}, &outputs, ReasonOfOutboundMessage::FunctionReturnExternal, {}),
+				EncodeFunctionParams{&pusher}.calculateFunctionIDWithReason(vd->name(), {}, &outputs, ReasonOfOutboundMessage::FunctionReturnExternal, {}, false),
 				{},
 				builderSize
 		);
@@ -1531,7 +1519,7 @@ void TVMFunctionCompiler::generateMainExternal(StackPusherHelper& pusher, Contra
 
 void TVMFunctionCompiler::setGlobSenderAddressIfNeed() {
 	ContactsUsageScanner sc{*m_pusher.ctx().getContract()};
-	if (sc.haveMsgSenderOrCallbackFunction) {
+	if (sc.haveMsgSender) {
 		m_pusher.pushLines(R"(
 PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_
 SETGLOB 9
@@ -1791,7 +1779,7 @@ CTOS
 )";
 
 	ContactsUsageScanner sc{*pusher.ctx().getContract()};
-	if (sc.haveMsgSenderOrCallbackFunction) {
+	if (sc.haveMsgSender || sc.haveResponsibleFunction) {
 		s += R"(
 LDU 4       ; bounced tail
 LDMSGADDR   ; bounced src tail
@@ -1799,18 +1787,26 @@ DROP
 SETGLOB 9
 MODPOW2 1
 )";
-		StackPusherHelper p{&pusher.ctx()};
-		p.getGlob(TvmConst::C7::ReturnParams);
-		p.push(+1, "TRUE"); // bounce
-		p.setIndexQ(TvmConst::C7::ReturnParam::Bounce);
-		p.pushInt(TvmConst::Message::DefaultMsgValue); // tons
-		p.setIndexQ(TvmConst::C7::ReturnParam::Value);
-		p.pushNull(); // currency
-		p.setIndexQ(TvmConst::C7::ReturnParam::Currencies);
-		p.pushInt(TvmConst::SENDRAWMSG::DefaultFlag); // flag
-		p.setIndexQ(TvmConst::C7::ReturnParam::Flag);
-		p.setGlob(TvmConst::C7::ReturnParams);
-		s += p.code().str();
+		if (sc.haveResponsibleFunction) {
+			StackPusherHelper p{&pusher.ctx()};
+			p.push(0, "; beg set default params for responsible func");
+			p.getGlob(TvmConst::C7::ReturnParams);
+			p.push(0, "; bounce");
+			p.push(+1, "TRUE"); // bounce
+			p.setIndexQ(TvmConst::C7::ReturnParam::Bounce);
+			p.push(0, "; tons");
+			p.pushInt(TvmConst::Message::DefaultMsgValue); // tons
+			p.setIndexQ(TvmConst::C7::ReturnParam::Value);
+			p.push(0, "; currency");
+			p.pushNull(); // currency
+			p.setIndexQ(TvmConst::C7::ReturnParam::Currencies);
+			p.push(0, "; flag");
+			p.pushInt(TvmConst::SENDRAWMSG::DefaultFlag); // flag
+			p.setIndexQ(TvmConst::C7::ReturnParam::Flag);
+			p.setGlob(TvmConst::C7::ReturnParams);
+			p.push(0, "; end set default params for responsible func");
+			s += p.code().str();
+		}
 	} else {
 		s += R"(
 PLDU 4
