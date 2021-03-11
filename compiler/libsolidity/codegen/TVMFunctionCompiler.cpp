@@ -449,8 +449,9 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 	m_pusher.pushS(m_pusher.getStack().size());
 	m_pusher.push(-1 + 1, "EQINT -1"); // is it ext msg?
 	m_pusher.push(-1, ""); // fix stack
+	bool isResponsible = m_pusher.ctx().getCurrentFunction()->isResponsible();
 
-	// emit for inter
+	// emit for ext
 	{
 		m_pusher.startContinuation();
 
@@ -484,7 +485,7 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 	}
 
 
-	{
+	if (isResponsible) {
 		m_pusher.startContinuation();
 
 		auto pushFunction = [&](){
@@ -541,7 +542,11 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 		m_pusher.endContinuation();
 	}
 
-	m_pusher.push(0, "IFELSE");
+	if (isResponsible) {
+		m_pusher.push(0, "IFELSE");
+	} else {
+		m_pusher.push(0, "IF");
+	}
 }
 
 void TVMFunctionCompiler::visitModifierOrFunctionBlock(Block const &body, bool isFunc) {

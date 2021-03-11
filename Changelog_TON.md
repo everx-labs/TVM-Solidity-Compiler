@@ -1,3 +1,8 @@
+### 0.38.1 (2021-03-11)
+
+Bugfixes:
+ * Fix contract execution fail on internal message if the function returns some value.
+
 ### 0.38 (2021-03-09)
 
 Breaking changes:
