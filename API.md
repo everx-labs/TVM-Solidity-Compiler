@@ -1822,7 +1822,7 @@ external message which has destination address set to the source address of the 
 message. All options in the return statement are ignored.  
 If public/external function is called by internal message and the function is marked as responsible
 then an internal message is generated.  
-And if public/external function is called by internal message and the function isn't marked as  
+And if public/external function is called by internal message and the function isn't marked as
 responsible then return statement has no effect.  
 `value`, `bounce`, `flag` and `currencies` options are used to create the message. Some options can
 be omitted. See [\<address\>.transfer()](#addresstransfer) where this options are described and
