@@ -3168,7 +3168,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 							checkPubFunctionOrContractTypeAndGetDefinition(*arguments.front().get());
 
 					if (functionDeclaration != nullptr) {
-						bool needCallback = !functionDeclaration->returnParameters().empty();
+						bool needCallback = functionDeclaration->isResponsible();
 						int shift = needCallback ? 1 : 0;
 						std::vector<ASTPointer<VariableDeclaration>> const &calleeParams = functionDeclaration->parameters();
 						if (1 + shift + calleeParams.size() != arguments.size()) {

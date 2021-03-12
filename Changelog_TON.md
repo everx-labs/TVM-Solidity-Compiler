@@ -1,3 +1,8 @@
+### 0.38.2 (2021-03-12)
+
+Bugfixes:
+ * Fixed minor bugs in TypeChecker.
+
 ### 0.38.1 (2021-03-11)
 
 Bugfixes:
