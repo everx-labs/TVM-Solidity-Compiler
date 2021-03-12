@@ -1924,7 +1924,8 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		if (callDef == nullptr) { // if no constructor (default constructor)
 			EncodeFunctionParams{&m_pusher}.createDefaultConstructorMessage2();
 		} else {
-			const bool needCallback = !callDef->returnParameters().empty();
+			auto funcDef = to<FunctionDefinition>(callDef);
+			const bool needCallback = funcDef->isResponsible();
 			const int shift = needCallback ? 1 : 0;
 			std::optional<uint32_t> callbackFunctionId;
 			if (needCallback) {
