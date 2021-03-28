@@ -3268,6 +3268,21 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				checkArgConversion();
 				break;
 			}
+			case FunctionType::Kind::TVMDump: {
+				if (arguments.size() != 1) {
+					m_errorReporter.typeError(_functionCall.location(), "Expected one argument.");
+				}
+				auto type = arguments[0]->annotation().type->mobileType();
+				auto cat = type->category();
+				if (cat != Type::Category::Integer && cat !=Type::Category::TvmCell) {
+					m_errorReporter.fatalTypeError(
+							arguments[0]->location(),
+							"Argument must have a TvmCell or integer type."
+					);
+				}
+				paramTypes.push_back(type);
+				break;
+			}
 			default:
 			{
 				typeCheckFunctionCall(_functionCall, functionType);

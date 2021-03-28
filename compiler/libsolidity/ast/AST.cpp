@@ -277,7 +277,6 @@ FunctionTypePointer FunctionDefinition::functionType(bool _internal) const
 		case Visibility::Private:
 		case Visibility::Internal:
 		case Visibility::Public:
-		case Visibility::TvmGetter:
 			return TypeProvider::function(*this, FunctionType::Kind::Internal);
 		case Visibility::External:
 			return {};
@@ -294,7 +293,6 @@ FunctionTypePointer FunctionDefinition::functionType(bool _internal) const
 			return {};
 		case Visibility::Public:
 		case Visibility::External:
-		case Visibility::TvmGetter:
 			return TypeProvider::function(*this, FunctionType::Kind::External);
 		}
 	}
@@ -539,7 +537,6 @@ FunctionTypePointer VariableDeclaration::functionType(bool _internal) const
 		return nullptr;
 	case Visibility::Public:
 	case Visibility::External:
-	case Visibility::TvmGetter:
 		return TypeProvider::function(*this);
 	}
 

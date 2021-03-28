@@ -72,23 +72,6 @@ getSuperContract(const ContractDefinition *currentContract, const ContractDefini
 	return prev;
 }
 
-vector<FunctionDefinition const *> getContractFunctions(ContractDefinition const *contract) {
-	vector<FunctionDefinition const*> result;
-	for (auto &[functionDefinition, contractDefinition] : getContractFunctionPairs(contract)) {
-		(void)contractDefinition;	// suppress unused variable error
-		if (functionDefinition->isConstructor())
-			continue;
-		const std::string funName = functionName(functionDefinition); // for fallback and receive name is empty
-		if (isTvmIntrinsic(funName))
-			continue;
-		// TODO: not needed check?
-		if (functionDefinition != getContractFunctions(contract, funName).back())
-			continue;
-		result.push_back(functionDefinition);
-	}
-	return result;
-}
-
 const Type *getType(const VariableDeclaration *var) {
 	return var->annotation().type;
 }
@@ -130,11 +113,7 @@ int bitsForEnum(size_t val_count) {
 }
 
 bool isTvmIntrinsic(const string &name) {
-	return 0 == name.find("tvm_");
-}
-
-bool isFunctionForInlining(FunctionDefinition const *f) {
-	return ends_with(f->name(), "_inline") || f->isInline() || f->isReceive() || f->isOnBounce();
+	return boost::starts_with(name, "tvm_");
 }
 
 const Type *getType(const Expression *expr) {
@@ -184,9 +163,9 @@ int lengthOfDictKey(Type const *key) {
         int bitLength = 0;
         StructDefinition const &structDefinition = structType->structDefinition();
         for (const auto &member : structDefinition.members()) {
-            TypeInfo ti{member->type()};
-            solAssert(ti.isNumeric, "");
-            bitLength += ti.numBits;
+            TypeInfo ti2{member->type()};
+            solAssert(ti2.isNumeric, "");
+            bitLength += ti2.numBits;
         }
         return bitLength;
     }
@@ -312,6 +291,9 @@ bool isEmptyFunction(FunctionDefinition const* f) {
 	return f == nullptr || (f->modifiers().empty() && f->body().statements().empty());
 }
 
+
+
+
 std::vector<VariableDeclaration const*>
 convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr) {
 	std::vector<VariableDeclaration const*>  ret;
@@ -386,16 +368,16 @@ DictValueType toDictValueType(const Type::Category& category) {
 
 int integerLog2(int x) {
 	return (x != 0)
-		   ? std::ceil(std::log(x) / std::log(2) + 1e-7)
+		   ? static_cast<int>(std::ceil(std::log(x) / std::log(2) + 1e-7))
 		   : 1;
 }
 
-std::string stringToBytes(std::string str) {
+std::string stringToBytes(const std::string& str) {
 	std::string slice;
-	for (size_t index = 0; index < str.length(); ++index) {
+	for (char index : str) {
 		std::stringstream ss;
 		ss << std::hex << std::setfill('0') << std::setw(2)
-			<< (static_cast<unsigned>(str.at(index)) & 0xFF);
+			<< (static_cast<unsigned>(index) & 0xFFu);
 		slice += ss.str();
 	}
 	return slice;

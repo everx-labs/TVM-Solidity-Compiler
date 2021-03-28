@@ -50,12 +50,12 @@ protected:
 	const Type::Category valueCategory{};
 };
 
-class TVMStack {
-	int m_size{};
-	// map parameters or local variables to their absolute stack position
-	std::map<Declaration const*, int> m_params;
+class TVMStack : public boost::noncopyable {
+    int m_size{};
+	std::vector<Declaration const*> m_stackSize;
 
 public:
+	TVMStack() = default;
 	int size() const;
 	void change(int diff);
 	bool isParam(Declaration const* name) const;
@@ -75,6 +75,7 @@ struct CodeLines {
 	void subTabs(int qty = 1);
 	void startContinuation();
 	void startIfRef();
+	void startIfJmpRef();
 	void startIfNotRef();
 	void startCallRef();
 	void endContinuation();
@@ -106,6 +107,17 @@ public:
 	FunctionDefinition const* getCurrentFunction() { return m_currentFunction; }
 	void addInlineFunction(const std::string& name, const CodeLines& code);
 	CodeLines getInlinedFunction(const std::string& name);
+	void addPublicFunction(uint32_t functoinId, const std::string& functionName);
+	const std::vector<std::pair<uint32_t, std::string>>& getPublicFunctions();
+
+	bool addAndDoesHaveLoop(FunctionDefinition const* _v, FunctionDefinition const* _to);
+	bool dfs(FunctionDefinition const* v);
+	bool isFallBackGenerated() const { return m_isFallBackGenerated; }
+	void setIsFallBackGenerated() { m_isFallBackGenerated = true; }
+	bool isReceiveGenerated() const { return m_isReceiveGenerated; }
+	void setIsReceiveGenerated() { m_isReceiveGenerated = true; }
+	bool isOnBounceGenerated() const { return m_isOnBounceGenerated; }
+	void setIsOnBounce() { m_isOnBounceGenerated = true; }
 
 private:
 	ContractDefinition const* m_contract{};
@@ -115,6 +127,15 @@ private:
 	std::set<FunctionDefinition const*> m_libFunctions;
 	FunctionDefinition const* m_currentFunction{};
 	std::map<std::string, CodeLines> m_inlinedFunctions;
+	std::map<FunctionDefinition const*, std::set<FunctionDefinition const*>> graph;
+	enum class Color {
+		White, Red, Black
+	};
+	std::map<FunctionDefinition const*, Color> color;
+	std::vector<std::pair<uint32_t, std::string>> m_publicFunctoins;
+	bool m_isFallBackGenerated{};
+	bool m_isReceiveGenerated{};
+	bool m_isOnBounceGenerated{};
 };
 
 class StackPusherHelper {
@@ -140,8 +161,8 @@ public:
 	void append(const CodeLines& oth);
 	void addTabs(const int qty = 1);
 	void subTabs(const int qty = 1);
-	void pushCont(const CodeLines& cont, const string& comment = "");
-	void generateGlobl(const string& fname, const bool isPublic);
+	void pushCont(const CodeLines& cont, const string& comment = {});
+	void generateGlobl(const string& fname);
 	void generateInternal(const string& fname, const int id);
 	void generateMacro(const string& functionName);
 	CodeLines code() const;
@@ -152,6 +173,7 @@ public:
 
 	void startContinuation(int deltaStack = 0);
 	void startIfRef(int deltaStack = 0);
+	void startIfJmpRef(int deltaStack = 0);
 	void startIfNotRef(int deltaStack = 0);
 	void startCallRef(int deltaStack = 0);
 	void endContinuation(int deltaStack = 0);
@@ -184,11 +206,7 @@ public:
 	enum Preload { ReturnStructAsSlice = 1, UseCurrentSlice = 2, IsAddressInEnd = 4 };
 	void preload(const Type *type, uint32_t mask);
 
-	void store(
-		const Type *type,
-		bool reverse,
-		uint32_t mask
-	);
+	void store(const Type *type, bool reverse, uint32_t mask);
 	void pushZeroAddress();
 	void generateC7ToT4Macro();
 
@@ -203,9 +221,10 @@ public:
 	void hardConvert(Type const *leftType, Type const *rightType);
 	void checkFit(Type const *type);
 	void push(const CodeLines& codeLines);
+	void pushParameter(std::vector<ASTPointer<VariableDeclaration>> const& params);
 	void pushMacroCallInCallRef(int stackDelta, const string& fname);
-	void pushPrivateFunctionOrMacroCall(int stackDelta, const string& fname);
-	void pushCall(const string& functionName, const FunctionType* ft);
+	void pushCallOrCallRef(const string& functionName, FunctionType const* ft, const std::optional<int>& deltaStack = nullopt);
+	void pushCall(int delta, const std::string& functionName);
 	void drop(int cnt = 1);
 	void blockSwap(int m, int n);
 	void reverse(int i, int j);

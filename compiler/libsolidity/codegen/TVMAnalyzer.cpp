@@ -248,3 +248,36 @@ bool FunctionUsageScanner::visit(const FunctionCall &_functionCall) {
 
 	return true;
 }
+
+bool isFunctionOfFirstType(const FunctionDefinition *f) {
+	LocationReturn locationReturn = ::notNeedsPushContWhenInlining(f->body());
+	if (!f->returnParameters().empty() && isIn(locationReturn, LocationReturn::noReturn, LocationReturn::Anywhere)) {
+		return true;
+	}
+
+	for (const ASTPointer<VariableDeclaration> &retArg : f->returnParameters()) {
+		if (!retArg->name().empty()) {
+			return true;
+		}
+	}
+	return !f->modifiers().empty();
+}
+
+LocationReturn notNeedsPushContWhenInlining(const Block &_block) {
+
+	ast_vec<Statement> statements = _block.statements();
+
+	LoopScanner bodyScanner{_block};
+	if (!bodyScanner.m_info.canReturn) {
+		return LocationReturn::noReturn;
+	}
+
+	for (std::vector<int>::size_type i = 0; i + 1 < statements.size(); ++i) {
+		LoopScanner scanner{*statements[i].get()};
+		if (scanner.m_info.canReturn) {
+			return LocationReturn::Anywhere;
+		}
+	}
+	bool isLastStatementReturn = to<Return>(statements.back().get()) != nullptr;
+	return isLastStatementReturn ? LocationReturn::Last : LocationReturn::Anywhere;
+}

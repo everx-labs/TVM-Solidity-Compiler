@@ -107,6 +107,7 @@ inline vector<shared_ptr<MagicVariableDeclaration const>> constructMagicVariable
 		magicVarDecl("ripemd160", TypeProvider::function(strings{"bytes memory"}, strings{"bytes20"}, FunctionType::Kind::RIPEMD160, false, StateMutability::Pure)),
 		magicVarDecl("selfdestruct", TypeProvider::function(strings{"address payable"}, strings{}, FunctionType::Kind::Selfdestruct)),
 		magicVarDecl("sha256", TypeProvider::function({"TvmSlice"}, {"uint256"}, FunctionType::Kind::SHA256, false, StateMutability::Pure)),
+		magicVarDecl("sha256", TypeProvider::function({"bytes"}, {"uint256"}, FunctionType::Kind::SHA256, false, StateMutability::Pure)),
 		magicVarDecl("sha3", TypeProvider::function(strings{"bytes memory"}, strings{"bytes32"}, FunctionType::Kind::KECCAK256, false, StateMutability::Pure)),
 		magicVarDecl("stoi", TypeProvider::function(strings{"string"}, strings{"uint256", "bool"}, FunctionType::Kind::Stoi, false, StateMutability::Pure)),
 		magicVarDecl("suicide", TypeProvider::function(strings{"address payable"}, strings{}, FunctionType::Kind::Selfdestruct)),

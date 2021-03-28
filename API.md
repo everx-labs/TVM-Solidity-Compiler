@@ -151,7 +151,6 @@ contract development.
       * [tvm.log()](#tvmlog)
       * [tvm.hexdump() and tvm.bindump()](#tvmhexdump-and-tvmbindump)
       * [tvm.setcode()](#tvmsetcode)
-      * [tvm.transLT()](#tvmtranslt)
       * [tvm.configParam()](#tvmconfigparam)
       * [tvm.rawConfigParam()](#tvmrawconfigparam)
       * [tvm.rawReserve()](#tvmrawreserve)
@@ -196,6 +195,7 @@ contract development.
   * [gasToValue](#gastovalue)
   * [valueToGas](#valuetogas)
 * [Solidity runtime errors](#solidity-runtime-errors)
+* [Division and rounding](#division-and-rounding)
 
 ## Detailed description
 
@@ -814,7 +814,7 @@ TON Solidity compiler expands **string** type with the following functions:
 ##### \<string\>.byteLength()
 
 ```TVMSolidity
-<string>.byteLength() returns (uint8);
+<string>.byteLength() returns (uint);
 ```
 
 Returns byte length of the string data.
@@ -2080,14 +2080,39 @@ Note: For long strings dumps only the first 127 symbols.
 ##### tvm.hexdump() and tvm.bindump()
 
 ```TVMSolidity
+tvm.hexdump(T a);
+tvm.bindump(T a);
+```
+
+Dumps cell data or integer. Note that for cells this function dumps data only
+from the first cell. `T` must be an integer type or TvmCell.
+
+Example:
+
+```TVMSolidity
 TvmBuilder b;
 b.storeUnsigned(0x9876543210, 40);
 TvmCell c = b.toCell();
 tvm.hexdump(c);
 tvm.bindump(c);
+uint a = 123;
+tvm.hexdump(a);
+tvm.bindump(a);
+int b = -333;
+tvm.hexdump(b);
+tvm.bindump(b);
 ```
 
-Dumps cell data. Note that this function dump data only from the first cell.
+Expected output for the example:
+
+```TVMLog
+CS<9876543210>(0..40)
+CS<10011000011101100101010000110010000100001>(0..40)
+7B
+1111011
+-14D
+-101001101
+```
 
 ##### tvm.setcode()
 
@@ -2103,15 +2128,6 @@ See example of how to use this function:
 
 * [old contract](https://github.com/tonlabs/samples/blob/master/solidity/12_BadContract.sol)
 * [new contract](https://github.com/tonlabs/samples/blob/master/solidity/12_NewVersion.sol)
-
-##### tvm.transLT()
-
-```TVMSolidity
-tvm.transLT() returns (uint64);
-```
-
-Executes TVM instruction "LTIME" ([TVM][1] - A.11.4. - F825).
-This command returns the logical time of the current transaction.
 
 ##### tvm.configParam()
 
@@ -2600,6 +2616,7 @@ tvm.buildExtMsg({
 returns (TvmCell);
 ```
 
+Function should be used only offchain and intended to be used only in debot contracts.
 Allows to create an external inbound message, that calls the **func** function of the
 contract on address **destination** with specified function arguments.
 Mandatory parameters that are used to form a src address field that is used for debots:
@@ -2672,7 +2689,8 @@ contract Test {
 
 Also external inbound message can be built and sent with construction similar to remote contract
 call. It requires call option "extMsg" to be specified with constant true value and other options
-similar to `buildExtMsg` function call.
+similar to `buildExtMsg` function call.  
+Note: this type of call should be used only offchain in debot contracts.
 
 ```TVMSolidity
 interface Foo {
@@ -2760,10 +2778,11 @@ math.divc(T a, T b) returns (T);
 math.divr(T a, T b) returns (T);
 ```
 
-Returns result of the division of two integers. `T` should be an integer or fixed point type  
-The return value is rounded.  
-Round mode "nearest integer" is used for `divr`.  
-Round mode "ceiling" is used for `divc`.
+Returns result of the division of two integers. `T` should be an integer or fixed point type.  
+The return value is rounded. **ceiling** and **nearest** modes are used for `divc` and `divr`
+respectively.  
+See also: [Division and rounding](#division-and-rounding).
+
 
 Example:
 
@@ -2785,11 +2804,9 @@ math.muldivc(T a, T b, T c) returns (T);
 ```
 
 Multiplies two values and then divides the result by a third value. `T` is integer type.  
-The return value is rounded.  
-Round mode "floor" is used for `muldiv`.  
-Round mode "nearest integer" is used for `muldivr`.  
-Round mode "ceiling" is used for `muldivc`.  
-See also ([TVM][1] - cf. 1.5.6) about the round modes.
+The return value is rounded. **floor**, **ceiling** and **nearest** modes are used for `muldiv`,
+`muldivc` and `muldivr` respectively.  
+See also: [Division and rounding](#division-and-rounding).
 
 Example:
 
@@ -2973,14 +2990,22 @@ See example of how to use **selfdestruct** function:
 #### sha256
 
 ```TVMSolidity
+// (1)
 sha256(TvmSlice slice) returns (uint256)
+// (2) 
+sha256(bytes b) returns (uint256)
+// (3)
+sha256(string str) returns (uint256)
 ```
 
-Compute the SHA-256 hash of the `slice`. If the bit length of s is not divisible by eight, throws a cell underflow
-exception.  
-**Note**: slice's references are not used to compute the hash. Only data bits located in the root cell of `slice` are used.
+1. Compute the SHA-256 hash. If the bit length of `slice` is not divisible by eight, throws a cell
+underflow exception. References of `slice` are not used to compute the hash. Only data bits located
+in the root cell of `slice` are used.
+2. Compute the SHA-256 hash only for the first 127 bytes. If `bytes.length > 127` than `b[128],
+b[129], b[130] ...` elements are ignored.
+3. Same as for `bytes`: only the first 127 bytes are taken into account.
 
-Also see [tvm.hash()](#tvmhash) to count representation hash of tree of cells.
+Also see [tvm.hash()](#tvmhash) to compute representation hash of the whole tree of cells.
 
 #### gasToValue
 
@@ -3024,6 +3049,45 @@ Solidity runtime error codes:
 * 67 - See [gasToValue](#gastovalue) and [valueToGas](#valuetogas).
 * 68 - There is no config parameter 20 or 21.
 * 69 - Calculating zero to the power of zero (`0**0` in solidity style or `0^0`).
+* 70 - `string` method `substr` was called with substr longer than the whole string.
+
+### Division and rounding
+
+Let consider we have `x` and `y` and we want to divide `x` by `y`. Compute the quotient `q` and the
+remainder `r` of the division of `x` by `y`: `x = y*q + r` where `|r| < |y|`.
+
+In TVM there are 3 variants of rounding:
+
+* **floor** - quotient `q` is rounded to −∞. `q = ⌊x/y⌋`, `r` has the same sign as `y`. This
+rounding variant is used for operator `/`.  
+Example:
+
+```TVMSolidity
+require(int(-2) / 3 == -1);
+require(int(-5) / 10 == -1);
+require(int(5) / 10 == 0);
+require(int(15) / 10 == 1);
+```
+
+* **ceiling** - quotient `q` is rounded to +∞. `q = ⌈x/y⌉`, `r` and `y` have opposite signs.  
+Example:
+
+```TVMSolidity
+require(math.divc(-2, 3) == 0);
+require(math.divc(-5, 10) == 0);
+require(math.divc(5, 10) == 1);
+require(math.divc(15, 10) == 2);
+```
+
+* **nearest** - quotient `q` is rounded to the nearest number. `q = ⌊x/y + 1/2⌋` and `|r| ≤ |y|/2`.
+Example:
+
+```TVMSolidity
+require(math.divr(-2, 3) == -1);
+require(math.divr(-5, 10) == 0);
+require(math.divr(5, 10) == 1);
+require(math.divr(15, 10) == 2);
+```
 
 [1]: https://ton.org/tvm.pdf        "TVM"
 [2]: https://ton.org/tblkch.pdf     "TBLKCH"

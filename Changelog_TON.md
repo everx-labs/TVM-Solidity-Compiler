@@ -1,3 +1,11 @@
+### 0.39.0 (2021-??-??)
+
+Compiler Features:
+ * Gas consumption optimizations
+ * Support `sha256` for `string` and `bytes` types
+ * Support applying twice the modifier with parameter(s) for the function.
+ * Delete restriction about function id of public functions.
+
 ### 0.38.2 (2021-03-12)
 
 Bugfixes:

@@ -60,7 +60,7 @@ protected:
 	void visit2(Literal const& _node);
 	void visit2(TupleExpression const& _tupleExpression);
 	bool tryPushConstant(Identifier const& _identifier);
-	bool pushMemberOrLocalVarOrConstant(Identifier const& _identifier);
+	bool pushLocalOrStateVariable(Identifier const& _identifier);
 
 	void visit2(Identifier const& _identifier);
 	void compileUnaryOperation(UnaryOperation const& _node, const std::string& tvmUnaryOperation, bool isPrefixOperation);

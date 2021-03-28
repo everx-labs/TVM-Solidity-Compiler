@@ -25,7 +25,7 @@ using namespace solidity::frontend;
 bool TVMInlineFunctionChecker::visit(Identifier const &_identifier) {
 	auto functionType = to<FunctionType>(_identifier.annotation().type);
 	auto funDef = to<FunctionDefinition>(_identifier.annotation().referencedDeclaration);
-	if (functionType && funDef && isFunctionForInlining(funDef)) {
+	if (functionType && funDef && funDef->isInline()) {
 		graph[currentFunctionDefinition].insert(funDef);
 	}
 	return false;
@@ -34,7 +34,7 @@ bool TVMInlineFunctionChecker::visit(Identifier const &_identifier) {
 bool TVMInlineFunctionChecker::visit(FunctionDefinition const &_node) {
 	currentFunctionDefinition = &_node;
 	graph[currentFunctionDefinition];
-	solAssert(isFunctionForInlining(currentFunctionDefinition), "");
+	solAssert(currentFunctionDefinition->isInline(), "");
 	return ASTConstVisitor::visit(_node);
 }
 

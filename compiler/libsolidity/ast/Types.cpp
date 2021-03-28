@@ -444,10 +444,6 @@ MemberList::MemberMap AddressType::nativeMembers(ContractDefinition const*) cons
 		{"currencies", TypeProvider::extraCurrencyCollection()},
 		{"wid", TypeProvider::integer(8, IntegerType::Modifier::Signed)},
 		{"value", TypeProvider::uint256()},
-		{"call", TypeProvider::function(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareCall, false, StateMutability::NonPayable)},
-		{"callcode", TypeProvider::function(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareCallCode, false, StateMutability::NonPayable)},
-		{"delegatecall", TypeProvider::function(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareDelegateCall, false, StateMutability::NonPayable)},
-		{"staticcall", TypeProvider::function(strings{"bytes memory"}, strings{"bool", "bytes memory"}, FunctionType::Kind::BareStaticCall, false, StateMutability::View)},
 		{"isStdZero", TypeProvider::function(strings(), strings{"bool"}, FunctionType::Kind::AddressIsZero, false, StateMutability::Pure)},
 		{"isNone", TypeProvider::function(strings(), strings{"bool"}, FunctionType::Kind::AddressIsZero, false, StateMutability::Pure)},
 		{"isExternZero", TypeProvider::function(strings(), strings{"bool"}, FunctionType::Kind::AddressIsZero, false, StateMutability::Pure)}
@@ -1865,7 +1861,7 @@ MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 		));
 		members.emplace_back("byteLength", TypeProvider::function(
 			TypePointers{},
-			TypePointers{TypeProvider::uint(8)},
+			TypePointers{TypeProvider::uint256()},
 			strings{},
 			strings{string("byteLength")},
 			FunctionType::Kind::StringMethod,
@@ -3967,20 +3963,20 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				false, StateMutability::Pure
 		));
 		members.emplace_back("bindump", TypeProvider::function(
-				TypePointers{TypeProvider::tvmcell()},
 				TypePointers{},
-				strings{string()},
+				TypePointers{},
+				strings{},
 				strings{},
 				FunctionType::Kind::TVMDump,
-				false, StateMutability::Pure
+				true, StateMutability::Pure
 		));
 		members.emplace_back("hexdump", TypeProvider::function(
-				TypePointers{TypeProvider::tvmcell()},
 				TypePointers{},
-				strings{string()},
+				TypePointers{},
+				strings{},
 				strings{},
 				FunctionType::Kind::TVMDump,
-				false, StateMutability::Pure
+				true, StateMutability::Pure
 		));
 		members.emplace_back("hash", TypeProvider::function(
 				TypePointers{TypeProvider::tvmcell()},

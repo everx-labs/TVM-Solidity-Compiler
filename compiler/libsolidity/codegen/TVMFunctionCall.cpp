@@ -310,12 +310,12 @@ void FunctionCallCompiler::superFunctionCall(MemberAccess const &_node) {
 	string fname = _node.memberName();
 	auto super = getSuperContract(m_pusher.ctx().getCurrentFunction()->annotation().contract,
 								  m_pusher.ctx().getContract(), fname);
-	solAssert(super, "#1000");
+	solAssert(super, "");
 	if (getFunction(super, fname)) {
 		auto functionName = super->name() + "_" + fname;
 		m_pusher.push( 0, ";; Super call " + functionName);
 		if (auto ft = to<FunctionType>(getType(&_node))) {
-			m_pusher.pushCall(functionName, ft);
+			m_pusher.pushCallOrCallRef(functionName, ft);
 			return;
 		}
 	}
@@ -379,11 +379,11 @@ bool FunctionCallCompiler::libraryCall(MemberAccess const& ma) {
 			auto t = getType(&ma.expression());
 			const int argQty = static_cast<int>(m_arguments.size());
 			const int retQty = static_cast<int>(libFunction->returnParameters().size());
+			FunctionType const* funType = libFunction->functionType(!libFunction->isPublic());
 			if (t->category() == Type::Category::TypeType) {
 				// uint z = MyLib.sum(a, b);
 				pushArgs();
-				m_pusher.pushPrivateFunctionOrMacroCall(-argQty + retQty,
-														da.contract->name() + "_no_obj_" + libFunction->name());
+				m_pusher.pushCallOrCallRef(da.contract->name() + "_no_obj_" + libFunction->name(), funType);
 			} else {
 				// using MathLib for uint;
 				// a.add(b);
@@ -394,8 +394,11 @@ bool FunctionCallCompiler::libraryCall(MemberAccess const& ma) {
 				const int lValueQty = stakeSize1 - stakeSize0;
 
 				pushArgs();
-				m_pusher.pushPrivateFunctionOrMacroCall((-1 - argQty) + (+1 + retQty),
-														da.contract->name() + "_with_obj_" + libFunction->name());
+				m_pusher.pushCallOrCallRef(
+					da.contract->name() + "_with_obj_" + libFunction->name(),
+					funType,
+					(-1 - argQty) + (+1 + retQty)
+				);
 
 				m_pusher.blockSwap(lValueQty, retQty);
 
@@ -859,11 +862,9 @@ void FunctionCallCompiler::generateExtInboundMsg(
 		if (functionDefinition != nullptr)
 			functionId = encoder.calculateFunctionIDWithReason(functionDefinition, ReasonOfOutboundMessage::RemoteCallInternal);
 		else
-			functionId = (encoder.calculateConstructorFunctionID() & 0x7FFFFFFFu);
-
+			functionId = encoder.calculateConstructorFunctionID();
 
 		EncodeFunctionParams{&m_pusher}.createMsgBody(pushParam, params, functionId, {}, *position);
-
 		if (addSignature)
 			m_pusher.push(-1, "STBREFR");
 	};
@@ -1092,7 +1093,7 @@ DICTUSETB
 
 	if (_node.memberName() == "insertPubkey") {
 		pushArgs();
-		m_pusher.pushPrivateFunctionOrMacroCall(-2 + 1, "insert_pubkey_macro");
+		m_pusher.pushMacroCallInCallRef(-2 + 1, "insert_pubkey_macro");
 		return true;
 	}
 
@@ -1274,7 +1275,7 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 		} else if (_node.memberName() == "store") {
 			for (const auto& argument: m_arguments) {
 				acceptExpr(argument.get());
-				m_pusher.store(argument->annotation().type, true, StackPusherHelper::StoreFlag::StoreStructInRef | StackPusherHelper::StoreFlag::StoreStructInOneCell);
+				m_pusher.store(argument->annotation().type->mobileType(), true, StackPusherHelper::StoreFlag::StoreStructInRef | StackPusherHelper::StoreFlag::StoreStructInOneCell);
 			}
 		} else if (_node.memberName() == "storeSigned" || _node.memberName() == "storeUnsigned") {
 			std::string cmd = "ST";
@@ -1366,7 +1367,7 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 		if (m_arguments.size() == 1) {
 			m_pusher.pushInt(-1);
 		}
-		m_pusher.pushPrivateFunctionOrMacroCall(-3 +1, "__substr_macro");
+		m_pusher.pushMacroCallInCallRef(-3 +1, "__substr_macro");
 	} else if (_node.memberName() == "byteLength") {
 		acceptExpr(&_node.expression());
 		m_pusher.byteLengthOfCell();
@@ -1433,7 +1434,7 @@ IFELSE
 	} else if (_node.memberName() == "append") {
 		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
 		pushArgAndConvert(0);
-		m_pusher.pushPrivateFunctionOrMacroCall(-2 +1, "concatenateStrings_macro");
+		m_pusher.pushMacroCallInCallRef(-2 +1, "concatenateStrings_macro");
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
 	} else {
 		solUnimplemented("");
@@ -1618,7 +1619,7 @@ void FunctionCallCompiler::addressMethod() {
 	} else if (_node->memberName() == "unpack") {
 		m_pusher.push(0, ";; address.unpack()");
 		acceptExpr(&_node->expression());
-		m_pusher.pushPrivateFunctionOrMacroCall(-1 + 2, "unpack_address_macro");
+		m_pusher.pushMacroCallInCallRef(-1 + 2, "unpack_address_macro");
 	} else if (_node->memberName() == "getType") {
 		m_pusher.push(0, ";; address.getType()");
 		acceptExpr(&_node->expression());
@@ -1884,11 +1885,13 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		m_pusher.push(-1, "SETCODE");
 	} else if (_node.memberName() == "bindump") { // tvm.bindump
 		pushArgs();
-		m_pusher.push(-1+1, "CTOS");
+		if (getType(m_arguments[0].get())->category() == Type::Category::TvmCell)
+			m_pusher.push(-1+1, "CTOS");
 		m_pusher.push(0, "BINDUMP");
 		m_pusher.drop(1);
 	} else if (_node.memberName() == "hexdump") { // tvm.hexdump
 		pushArgs();
+		if (getType(m_arguments[0].get())->category() == Type::Category::TvmCell)
 		m_pusher.push(-1+1, "CTOS");
 		m_pusher.push(0, "HEXDUMP");
 		m_pusher.drop(1);
@@ -1908,14 +1911,14 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		auto callDef = getFunctionDeclarationOrConstructor(m_arguments.at(0).get());
 		EncodeFunctionParams encoder(&m_pusher);
 		uint32_t funcID;
-		bool isManuallyOverridden{};
 		if (callDef == nullptr) {
 			funcID = encoder.calculateConstructorFunctionID();
 		} else {
+			bool isManuallyOverridden{};
 			std::tie(funcID, isManuallyOverridden) = encoder.calculateFunctionID(callDef);
-		}
-		if (!isManuallyOverridden) {
-			funcID &= 0x7FFFFFFFu;
+			if (!isManuallyOverridden) {
+				funcID &= 0x7FFFFFFFu;
+			}
 		}
 		m_pusher.pushInt(funcID);
 	} else if (_node.memberName() == "encodeBody") { // tvm.encodeBody
@@ -1958,7 +1961,7 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		m_pusher.push(-1, ""); // fix stack
 
 		m_pusher.startIfNotRef();
-		m_pusher.pushPrivateFunctionOrMacroCall(0, "c7_to_c4");
+		m_pusher.pushMacroCallInCallRef(0, "c7_to_c4");
 		m_pusher.endContinuation();
 
 		if (_node.memberName() == "exit")
@@ -2046,7 +2049,7 @@ bool FunctionCallCompiler::checkBaseContractCall(MemberAccess const &_node, Type
 			pushArgs();
 			auto fd = to<FunctionDefinition>(&functionType->declaration());
 			const std::string functionName = m_pusher.ctx().getFunctionInternalName(fd);
-			m_pusher.pushCall(functionName, functionType);
+			m_pusher.pushCallOrCallRef(functionName, functionType);
 			return true;
 		}
 	}
@@ -2150,7 +2153,7 @@ bool FunctionCallCompiler::checkLocalFunctionCall(const Identifier *identifier) 
 		return false;
 	auto functionType = to<FunctionType>(getType(identifier));
 	pushArgs();
-	if (isFunctionForInlining(functionDefinition)) {
+	if (functionDefinition->isInline()) {
 		auto codeLines = m_pusher.ctx().getInlinedFunction(functionName);
 		int nParams = functionType->parameterTypes().size();
 		int nRetVals = functionType->returnParameterTypes().size();
@@ -2158,7 +2161,7 @@ bool FunctionCallCompiler::checkLocalFunctionCall(const Identifier *identifier) 
 		m_pusher.push(codeLines);
 		m_pusher.push(-nParams + nRetVals, "");
 	} else {
-		m_pusher.pushCall(m_pusher.ctx().getFunctionInternalName(functionDefinition), functionType);
+		m_pusher.pushCallOrCallRef(m_pusher.ctx().getFunctionInternalName(functionDefinition), functionType);
 	}
 	return true;
 }
@@ -2187,17 +2190,22 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 	switch (funcType->kind()) {
 		case FunctionType::Kind::GasToValue: {
 			pushArgs();
-			m_pusher.pushPrivateFunctionOrMacroCall(-2 + 1, "__gasToTon_macro");
+			m_pusher.pushMacroCallInCallRef(-2 + 1, "__gasToTon_macro");
 			return true;
 		}
 		case FunctionType::Kind::ValueToGas: {
 			pushArgs();
-			m_pusher.pushPrivateFunctionOrMacroCall(-2 + 1, "__tonToGas_macro");
+			m_pusher.pushMacroCallInCallRef(-2 + 1, "__tonToGas_macro");
 			return true;
 		}
 
 		case FunctionType::Kind::SHA256: { // "sha256"
 			pushArgAndConvert(0);
+            Type const* arg = m_funcType->parameterTypes().at(0);
+            auto arrType = to<ArrayType>(arg);
+			if (arrType && arrType->isByteArray()) {
+                m_pusher.push(0, "CTOS");
+			}
 			m_pusher.push(0, "SHA256U");
 			return true;
 		}
@@ -2335,14 +2343,14 @@ IF
 					} else {
 						m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr.substr(0, maxSlice)));
 						// stack: BldrList builder Slice
-						m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders_macro");
-						m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList_macro");
+						m_pusher.pushMacroCallInCallRef(+1, "storeStringInBuilders_macro");
+						m_pusher.pushMacroCallInCallRef(-2, "appendToList_macro");
 						// stack: BldrList builder
 						m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr.substr(maxSlice)));
 					}
 					// stack: BldrList builder Slice
-					m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders_macro");
-					m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList_macro");
+					m_pusher.pushMacroCallInCallRef(+1, "storeStringInBuilders_macro");
+					m_pusher.pushMacroCallInCallRef(-2, "appendToList_macro");
 					// stack: BldrList builder
 				}
 
@@ -2387,23 +2395,23 @@ IF
 						}
 						// stack: BldrList builder abs(number) width leadingZeroes addMinus
 						if (isHex) {
-							m_pusher.pushPrivateFunctionOrMacroCall(-3, "convertIntToHexStr_macro");
+							m_pusher.pushMacroCallInCallRef(-3, "convertIntToHexStr_macro");
 						} else {
-							m_pusher.pushPrivateFunctionOrMacroCall(-2, "convertIntToDecStr_macro");
+							m_pusher.pushMacroCallInCallRef(-2, "convertIntToDecStr_macro");
 						}
 						// stack: BldrList builder builder bool
-						m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList_macro");
+						m_pusher.pushMacroCallInCallRef(-2, "appendToList_macro");
 						// stack: BldrList builder
 					} else {
 						acceptExpr(m_arguments[it + 1].get());
 						m_pusher.pushInt(9);
-						m_pusher.pushPrivateFunctionOrMacroCall(-2, "convertFixedPointToString_macro");
+						m_pusher.pushMacroCallInCallRef(-2, "convertFixedPointToString_macro");
 					}
 				} else if (cat == Type::Category::Address) {
 					// stack: BldrList builder
 					acceptExpr(m_arguments[it + 1].get());
 					// stack: BldrList builder address
-					m_pusher.pushPrivateFunctionOrMacroCall(-1, "convertAddressToHexString_macro");
+					m_pusher.pushMacroCallInCallRef(-1, "convertAddressToHexString_macro");
 					// stack: BldrList builder
 				} else if (isStringOrStringLiteralOrBytes(argType)) {
 					// stack: BldrList builder
@@ -2411,14 +2419,14 @@ IF
 					// stack: BldrList builder string(cell)
 					m_pusher.push(0, "CTOS");
 					// stack: BldrList builder string(slice)
-					m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders_macro");
-					m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList_macro");
+					m_pusher.pushMacroCallInCallRef(+1, "storeStringInBuilders_macro");
+					m_pusher.pushMacroCallInCallRef(-2, "appendToList_macro");
 					// stack: BldrList builder
 				} else if (cat == Type::Category::FixedPoint) {
 					int power = to<FixedPointType>(argType)->fractionalDigits();
 					acceptExpr(m_arguments[it + 1].get());
 					m_pusher.pushInt(power);
-					m_pusher.pushPrivateFunctionOrMacroCall(-2, "convertFixedPointToString_macro");
+					m_pusher.pushMacroCallInCallRef(-2, "convertFixedPointToString_macro");
 				} else {
 					cast_error(*m_arguments[it + 1].get(), "Unsupported argument type");
 				}
@@ -2430,22 +2438,22 @@ IF
 				} else {
 					m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(formatStr.substr(0, maxSlice)));
 					// stack: BldrList builder Slice
-					m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders_macro");
-					m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList_macro");
+					m_pusher.pushMacroCallInCallRef(+1, "storeStringInBuilders_macro");
+					m_pusher.pushMacroCallInCallRef(-2, "appendToList_macro");
 					// stack: BldrList builder
 					m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(formatStr.substr(maxSlice)));
 				}
 				// stack: BldrList builder Slice
-				m_pusher.pushPrivateFunctionOrMacroCall(+1, "storeStringInBuilders_macro");
-				m_pusher.pushPrivateFunctionOrMacroCall(-2, "appendToList_macro");
+				m_pusher.pushMacroCallInCallRef(+1, "storeStringInBuilders_macro");
+				m_pusher.pushMacroCallInCallRef(-2, "appendToList_macro");
 				// stack: BldrList builder
 			}
-			m_pusher.pushPrivateFunctionOrMacroCall(-1, "assembleList_macro");
+			m_pusher.pushMacroCallInCallRef(-1, "assembleList_macro");
 			return true;
 		}
 		case FunctionType::Kind::Stoi: {
 			pushArgAndConvert(0);
-			m_pusher.pushPrivateFunctionOrMacroCall(+1, "__stoi_macro");
+			m_pusher.pushMacroCallInCallRef(+1, "__stoi_macro");
 			return true;
 		}
 		default:
@@ -2866,9 +2874,10 @@ void FunctionCallCompiler::compileLog()
 {
 	auto logstr = m_arguments[0].get();
 	auto literal = to<Literal>(logstr);
-	if (literal && literal->value().size() < 16)
-		m_pusher.push(0, "PRINTSTR " + literal->value());
-	else {
+	if (literal && literal->value().size() < 16) {
+        std::string hexStr = stringToBytes(literal->value());
+        m_pusher.push(0, "PRINTSTR x" + hexStr);
+    } else {
 		pushArgs();
 		m_pusher.pushLog();
 	}

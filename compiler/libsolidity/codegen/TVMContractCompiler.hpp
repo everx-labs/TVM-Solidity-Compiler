@@ -53,7 +53,6 @@ public:
 		PragmaDirectiveHelper const &pragmaHelper,
 		bool withOptimizations
 	);
-	static CodeLines proceedContractMode0(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper, bool disable_optimizer);
 	static CodeLines proceedContractMode1(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper, bool disable_optimizer);
 	static void fillInlineFunctions(TVMCompilerContext& ctx, ContractDefinition const* contract);
 };
