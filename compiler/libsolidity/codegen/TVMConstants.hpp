@@ -75,15 +75,14 @@ namespace TvmConst {
 		const int GetOptionalException = 63;
 		const int MsgWithKeyButNoSign = 64;
 		const int BadFunctionIdOfFuncCall = 65;
-		const int Exception66 = 66;
+		const int FormatWrongWidth = 66;
 		const int WrongWid = 67;
 		const int NoConfigParam20Or21 = 68;
 		const int Exponent00 = 69;
+		const int TooLongSubstr = 70;
 	}
 
 	namespace FunctionId {
-		const int First = 3;
-		const int64_t Last = 0xFFFFFFFD;
 		const uint32_t DefaultValueForFunctionType = 0xFFFFFFFF;
 	}
 

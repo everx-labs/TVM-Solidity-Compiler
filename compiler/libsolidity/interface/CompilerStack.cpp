@@ -874,7 +874,10 @@ StringMap CompilerStack::loadMissingSources(SourceUnit const& _ast, std::string 
 		{
 			solAssert(!import->path().empty(), "Import path cannot be empty.");
 
-			if (!boost::filesystem::exists(import->path())) {
+			boost::filesystem::path p(import->path());
+			p = boost::filesystem::path(_sourcePath).remove_filename() / p;
+
+			if (!boost::filesystem::exists(p)) {
 				m_errorReporter.parserError(
 					import->location(),
 					string("Source \"" + import->path() + "\" doesn't exist.")

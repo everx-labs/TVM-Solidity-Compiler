@@ -20,6 +20,8 @@
 
 #include <libsolidity/ast/ASTVisitor.h>
 
+#include <libsolidity/codegen/TVMCommons.hpp>
+
 namespace solidity::langutil
 {
 class ErrorReporter;
@@ -83,4 +85,57 @@ public:
 	bool havePrivateFunctionCall{};
 };
 
+
+class LoopScanner: public ASTConstVisitor
+{
+public:
+	explicit LoopScanner(const ASTNode& node) {
+		node.accept(*this);
+		solAssert(m_loopDepth == 0, "");
+	}
+
+protected:
+	bool visit(WhileStatement const&) override {
+		m_loopDepth++;
+		return true;
+	}
+
+	void endVisit(WhileStatement const&) override {
+		m_loopDepth--;
+	}
+
+	bool visit(ForStatement const&) override {
+		m_loopDepth++;
+		return true;
+	}
+
+	void endVisit(ForStatement const&) override {
+		m_loopDepth--;
+	}
+
+	void endVisit(Return const&) override {
+		m_info.canReturn = true;
+	}
+
+	void endVisit(Break const&) override {
+		if (m_loopDepth == 0)
+			m_info.canBreak = true;
+	}
+
+	void endVisit(Continue const&) override {
+		if (m_loopDepth == 0)
+			m_info.canContinue = true;
+	}
+
+private:
+	int m_loopDepth = 0;
+
+public:
+	ContInfo m_info;
+};
+
 }
+
+LocationReturn notNeedsPushContWhenInlining(Block const &_block);
+
+bool isFunctionOfFirstType(FunctionDefinition const* f);

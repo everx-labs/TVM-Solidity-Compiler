@@ -734,7 +734,6 @@ int EncodePosition::countOfCreatedBuilders() const {
 void EncodeFunctionParams::createDefaultConstructorMsgBodyAndAppendToBuilder(const int bitSizeBuilder)
 {
 	uint32_t funcID = calculateConstructorFunctionID();
-	funcID &= 0x7FFFFFFFu;
 	std::stringstream ss;
 	ss << "x" << std::hex << std::setfill('0') << std::setw(8) << funcID;
 
@@ -752,7 +751,6 @@ void EncodeFunctionParams::createDefaultConstructorMsgBodyAndAppendToBuilder(con
 void EncodeFunctionParams::createDefaultConstructorMessage2()
 {
 	uint32_t funcID = calculateConstructorFunctionID();
-	funcID &= 0x7FFFFFFFu;
 	std::stringstream ss;
 	ss << "x" << std::hex << std::setfill('0') << std::setw(8) << funcID;
 	pusher->push(0, "STSLICECONST " + ss.str());
@@ -760,7 +758,7 @@ void EncodeFunctionParams::createDefaultConstructorMessage2()
 
 uint32_t EncodeFunctionParams::calculateConstructorFunctionID() {
 	std::vector<VariableDeclaration const*> vect;
-	return calculateFunctionID("constructor", {}, &vect);
+	return calculateFunctionID("constructor", {}, &vect) & 0x7FFFFFFFu;
 }
 
 std::pair<uint32_t, bool> EncodeFunctionParams::calculateFunctionID(const CallableDeclaration *declaration) {
@@ -885,18 +883,21 @@ uint32_t EncodeFunctionParams::calculateFunctionIDWithReason(
 		inputs.insert(inputs.begin(), TypeProvider::uint(32));
 	}
 	bool isManuallyOverridden = functionId.has_value();
-	uint32_t funcID = isManuallyOverridden? functionId.value() : calculateFunctionID(name, inputs, outputs);
-	switch (reason) {
-		case ReasonOfOutboundMessage::FunctionReturnExternal:
-			funcID |= 0x80000000;
-			break;
-		case ReasonOfOutboundMessage::EmitEventExternal:
-		case ReasonOfOutboundMessage::RemoteCallInternal:
-			if (!isManuallyOverridden) {
-				funcID &= 0x7FFFFFFFu;
-			}
-			break;
-	}
+	uint32_t funcID{};
+    if (isManuallyOverridden) {
+        funcID = functionId.value();
+    } else {
+        funcID = calculateFunctionID(name, inputs, outputs);
+        switch (reason) {
+            case ReasonOfOutboundMessage::FunctionReturnExternal:
+                funcID |= 0x80000000;
+                break;
+            case ReasonOfOutboundMessage::EmitEventExternal:
+            case ReasonOfOutboundMessage::RemoteCallInternal:
+                funcID &= 0x7FFFFFFFu;
+                break;
+        }
+    }
 	return funcID;
 }
 

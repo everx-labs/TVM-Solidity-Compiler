@@ -815,6 +815,51 @@ struct TVMOptimizer {
 			return Result(true, 5, {});
 		}
 
+		if (cmd1.is("XCHG") && cmd1.rest().find(',') == string::npos &&
+			cmd2.is("BLKDROP") &&
+			cmd3.is("NIP")
+		) {
+			int x = cmd1.get_index();
+			if (cmd2.get_drop_index() == x) {
+				return Result(true, 3, {"XCHG s" + to_string(x + 1), "BLKDROP " + to_string(x + 1)});
+			}
+		}
+
+		if (cmd1.is("BLKDROP2") &&
+			cmd2.is("BLKDROP2")
+		) {
+			int f1 = cmd1.fetch_first_int();
+			int f2 = cmd2.fetch_first_int();
+			int s1 = cmd1.fetch_second_int();
+			int s2 = cmd2.fetch_second_int();
+			if (s1 == s2) {
+				return Result(true, 2, {"BLKDROP2 " + to_string(f1 + f2) + ", " + to_string(s2) });
+			}
+		}
+
+		if (cmd1.is("BLKSWAP") &&
+			cmd2.is("BLKDROP")
+		) {
+			int a1 = cmd1.fetch_first_int();
+			int b1 = cmd1.fetch_second_int();
+			int a2 = cmd2.fetch_int();
+			if (a1 == a2) {
+				return Result(true, 2, {"BLKDROP2 " + to_string(a1) + ", " + to_string(b1) });
+			}
+		}
+
+		if (cmd1.is("BLKDROP2") &&
+			cmd2.is("BLKDROP2")
+		) {
+			int i1 = cmd1.fetch_first_int();
+			int j1 = cmd1.fetch_second_int();
+			int i2 = cmd2.fetch_first_int();
+			int j2 = cmd2.fetch_second_int();
+			if (j1 == i2 + j2) {
+				return Result(true, 2, {"BLKDROP2 " + to_string(i1 + i2) + ", " + to_string(j2) });
+			}
+		}
+
 		return Result(false);
 	}
 

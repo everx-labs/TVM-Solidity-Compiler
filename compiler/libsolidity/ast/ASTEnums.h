@@ -33,7 +33,7 @@ namespace solidity::frontend
 enum class StateMutability { Pure, View, NonPayable };
 
 /// Visibility ordered from restricted to unrestricted.
-enum class Visibility { Default, Private, Internal, Public, TvmGetter, External };
+enum class Visibility { Default, Private, Internal, Public, External };
 
 inline std::string stateMutabilityToString(StateMutability const& _stateMutability)
 {

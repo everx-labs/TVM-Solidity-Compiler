@@ -432,9 +432,6 @@ Visibility Parser::parseVisibilitySpecifier()
 		case Token::Private:
 			visibility = Visibility::Private;
 			break;
-		case Token::TvmGetter:
-			visibility = Visibility::TvmGetter;
-			break;
 		case Token::External:
 			visibility = Visibility::External;
 			break;
@@ -578,22 +575,24 @@ Parser::FunctionHeaderParserResult Parser::parseFunctionHeader(bool _isStateVari
 			m_scanner->next();
 			ASTPointer<ASTString> literal = getLiteralAndAdvance();
 
-			std::stringstream errText;
-			errText << "functionID argument should be >= " << TvmConst::FunctionId::First << " and =< 0x"
-				<< std::hex << TvmConst::FunctionId::Last << ".";
-			try {
-				size_t pos = 0;
-				unsigned long id = stoul(*literal, &pos, 0);
-				if (pos != literal->size() || id > TvmConst::FunctionId::Last || id < TvmConst::FunctionId::First) {
-					parserError(errText.str());
-				}
-				result.functionID = static_cast<unsigned int>(id);
-			} catch (...) {
-				parserError(errText.str());
-			}
+            std::stringstream errText;
+            errText << "Expected 32-bit integer number.";
+            try {
+                size_t pos = 0;
+                unsigned long id = stoul(*literal, &pos, 0);
+                if (pos != literal->size() || id > std::numeric_limits<std::uint32_t>::max()) {
+                    fatalParserError(errText.str());
+                } else {
+                    result.functionID = static_cast<std::uint32_t>(id);
+                }
+            } catch (const std::invalid_argument&) {
+                fatalParserError(errText.str());
+            } catch (const std::out_of_range&) {
+                fatalParserError(errText.str());
+            }
 
 			if (m_scanner->currentToken() != Token::RParen)
-				parserError("functionID modifier should be specified as: functionID(ID).");
+                fatalParserError("functionID modifier should be specified as: functionID(ID).");
 			m_scanner->next();
 		}
 		else if (token == Token::Inline)

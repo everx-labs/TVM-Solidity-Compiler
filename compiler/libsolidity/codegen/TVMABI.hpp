@@ -141,7 +141,7 @@ public:
 class EncodeFunctionParams : private boost::noncopyable {
 public:
 	explicit EncodeFunctionParams(StackPusherHelper *pusher) : pusher{pusher} {}
-	void createDefaultConstructorMsgBodyAndAppendToBuilder(const int bitSizeBuilder);
+	void createDefaultConstructorMsgBodyAndAppendToBuilder(int bitSizeBuilder);
 	void createDefaultConstructorMessage2();
 
 	// returns pair (functionID, is_manually_overridden)

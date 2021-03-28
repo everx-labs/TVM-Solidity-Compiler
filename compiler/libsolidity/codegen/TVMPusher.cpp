@@ -20,6 +20,8 @@
 #include "TVMContractCompiler.hpp"
 #include "TVMExpressionCompiler.hpp"
 
+#include <boost/range/adaptor/map.hpp>
+
 using namespace solidity::frontend;
 
 DictOperation::DictOperation(StackPusherHelper& pusher, Type const& keyType, Type const& valueType) :
@@ -457,6 +459,7 @@ void StackPusherHelper::setDict(Type const &keyType, Type const &valueType, cons
 	d.dictSet();
 }
 
+
 void StackPusherHelper::tryPollLastRetOpcode() {
 	if (m_code.lines.empty()) {
 		return;
@@ -541,17 +544,14 @@ void StackPusherHelper::pushCont(const CodeLines &cont, const string &comment) {
 	push(+1, "}"); // adjust stack // TODO delete +1. For ifelse it's a problem
 }
 
-void StackPusherHelper::generateGlobl(const string &fname, const bool isPublic) {
+void StackPusherHelper::generateGlobl(const string &fname) {
 	push(0, ".globl\t" + fname);
-	if (isPublic) {
-		push(0, ".public\t" + fname);
-	}
 	push(0, ".type\t"  + fname + ", @function");
 }
 
 void StackPusherHelper::generateInternal(const string &fname, const int id) {
-	push(0, ".internal-alias :" + fname + ",        " + toString(id));
-	push(0, ".internal\t:" + fname);
+	push(0, ".internal-alias :" + fname + ", " + toString(id));
+	push(0, ".internal :" + fname);
 }
 
 void StackPusherHelper::generateMacro(const string &functionName) {
@@ -578,6 +578,11 @@ void StackPusherHelper::startContinuation(int deltaStack) {
 
 void StackPusherHelper::startIfRef(int deltaStack) {
 	m_code.startIfRef();
+	m_stack.change(deltaStack);
+}
+
+void StackPusherHelper::startIfJmpRef(int deltaStack) {
+	m_code.startIfJmpRef();
 	m_stack.change(deltaStack);
 }
 
@@ -1426,24 +1431,50 @@ void StackPusherHelper::push(const CodeLines &codeLines) {
 	}
 }
 
-void StackPusherHelper::pushMacroCallInCallRef(int stackDelta, const string& fname) {
-	startCallRef();
-	push(stackDelta, "CALL $" + fname + "$");
-	endContinuation();
-}
-
-void StackPusherHelper::pushPrivateFunctionOrMacroCall(const int stackDelta, const string &fname) {
-	if (boost::ends_with(fname, "_macro")) {
-		pushMacroCallInCallRef(stackDelta, fname);
-	} else {
-		push(stackDelta, "CALL $" + fname + "$");
+void StackPusherHelper::pushParameter(std::vector<ASTPointer<VariableDeclaration>> const& params) {
+	for (const ASTPointer<VariableDeclaration>& variable: params) {
+		push(0, string(";; param: ") + variable->name());
+		getStack().add(variable.get(), true);
 	}
 }
 
-void StackPusherHelper::pushCall(const string &functionName, const FunctionType *ft) {
-	int params  = ft->parameterTypes().size();
-	int retVals = ft->returnParameterTypes().size();
-	pushPrivateFunctionOrMacroCall(-params + retVals, functionName);
+void StackPusherHelper::pushMacroCallInCallRef(int stackDelta, const string& functionName) {
+	startCallRef();
+	pushCall(stackDelta, functionName);
+	endContinuation();
+}
+
+void StackPusherHelper::pushCallOrCallRef(
+	const string &functionName,
+	const FunctionType *ft,
+	const std::optional<int>& deltaStack
+) {
+	int delta{};
+	if (deltaStack.has_value()) {
+		delta = deltaStack.value();
+	} else {
+		int params = ft->parameterTypes().size();
+		int retVals = ft->returnParameterTypes().size();
+		delta = -params + retVals;
+	}
+
+	if (boost::ends_with(functionName, "_macro") || functionName == ":onCodeUpgrade") {
+		pushMacroCallInCallRef(delta, functionName);
+		return;
+	}
+
+	auto _to = to<FunctionDefinition>(&ft->declaration());
+	FunctionDefinition const* v = m_ctx->getCurrentFunction();
+	bool hasLoop = m_ctx->addAndDoesHaveLoop(v, _to);
+	if (hasLoop) {
+		pushCall(delta, functionName);
+	} else {
+		pushMacroCallInCallRef(delta, functionName + "_macro");
+	}
+}
+
+void StackPusherHelper::pushCall(int delta, const std::string& functionName) {
+	push(delta, "CALL $" + functionName + "$");
 }
 
 void StackPusherHelper::drop(int cnt) {
@@ -1524,26 +1555,10 @@ void StackPusherHelper::dropUnder(int leftCount, int droppedCount) {
 		// nothing do
 	} else if (leftCount == 0) {
 		drop(droppedCount);
-	} else if (droppedCount == 1) {
-		if (leftCount == 1) {
-			push(-1, "NIP");
-		} else {
-			f();
-		}
-	} else if (droppedCount == 2) {
-		if (leftCount == 1) {
-			push(-1, "NIP");
-			push(-1, "NIP");
-		} else {
-			f();
-		}
+	} else if (droppedCount == 1 && leftCount == 1) {
+		push(-1, "NIP");
 	} else {
-		if (leftCount == 1) {
-			exchange(0, droppedCount);
-			drop(droppedCount);
-		} else {
-			f();
-		}
+		f();
 	}
 }
 
@@ -1855,31 +1870,44 @@ int TVMStack::size() const {
 }
 
 void TVMStack::change(int diff) {
-	m_size += diff;
-	solAssert(m_size >= 0, "");
+    if (diff != 0) {
+        m_size += diff;
+        solAssert(m_size >= 0, "");
+    }
 }
 
 bool TVMStack::isParam(Declaration const *name) const {
-	return m_params.count(name) > 0;
+	return getStackSize(name) != -1;
 }
 
 void TVMStack::add(Declaration const *name, bool doAllocation) {
 	solAssert(name != nullptr, "");
-	solAssert(m_params.count(name) == 0, "");
-	m_params[name] = doAllocation? m_size++ : m_size - 1;
+    if (doAllocation) {
+        ++m_size;
+    }
+	if (static_cast<int>(m_stackSize.size()) < m_size) {
+        m_stackSize.resize(m_size);
+	}
+    m_stackSize.at(m_size - 1) = name;
 }
 
 int TVMStack::getOffset(Declaration const *name) const {
 	solAssert(isParam(name), "");
-	return getOffset(m_params.at(name));
+	int stackSize = getStackSize(name);
+	return getOffset(stackSize);
 }
 
-int TVMStack::getOffset(int stackPos) const {
-	return m_size - 1 - stackPos;
+int TVMStack::getOffset(int stackSize) const {
+	return m_size - 1 - stackSize;
 }
 
 int TVMStack::getStackSize(Declaration const *name) const {
-	return m_params.at(name);
+    for (int i = m_size - 1; i >= 0; --i) {
+        if (i < static_cast<int>(m_stackSize.size()) && m_stackSize.at(i) == name) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 void TVMStack::ensureSize(int savedStackSize, const string &location, const ASTNode* node) const {
@@ -1914,6 +1942,11 @@ void CodeLines::startContinuation() {
 
 void CodeLines::startIfRef() {
 	push("IFREF {");
+	++tabQty;
+}
+
+void CodeLines::startIfJmpRef() {
+	push("IFJMPREF {");
 	++tabQty;
 }
 
@@ -2037,7 +2070,9 @@ string TVMCompilerContext::getFunctionInternalName(FunctionDefinition const* _fu
 	}
 
 	string name = _function->name() + "_internal";
-	if (_function != getContractFunctions(getContract(), _function->name()).back()) {
+	vector<FunctionDefinition const *>  functions = getContractFunctions(getContract(), _function->name());
+	solAssert(!functions.empty(), "");
+	if (_function != functions.back()) {
 		name = _function->annotation().contract->name() + "_" + _function->name();
 	}
 	return name;
@@ -2098,6 +2133,52 @@ void TVMCompilerContext::addInlineFunction(const std::string& name, const CodeLi
 
 CodeLines TVMCompilerContext::getInlinedFunction(const std::string& name) {
 	return m_inlinedFunctions.at(name);
+}
+
+void TVMCompilerContext::addPublicFunction(uint32_t functoinId, const std::string& functionName) {
+	m_publicFunctoins.emplace_back(functoinId, functionName);
+}
+
+const std::vector<std::pair<uint32_t, std::string>>& TVMCompilerContext::getPublicFunctions() {
+	std::sort(m_publicFunctoins.begin(), m_publicFunctoins.end());
+	return m_publicFunctoins;
+}
+
+bool TVMCompilerContext::addAndDoesHaveLoop(FunctionDefinition const* _v, FunctionDefinition const* _to) {
+//	cerr << _v->name() << " -> " << _to->name() << "\n";
+	graph[_v].insert(_to);
+	graph[_to]; // creates default value if there is no such key
+	for (const auto& k : graph | boost::adaptors::map_keys) {
+		color[k] = Color::White;
+	}
+	bool hasLoop{};
+	for (const auto& k : graph | boost::adaptors::map_keys) {
+		if (dfs(k)) {
+			hasLoop = true;
+			graph[_v].erase(_to);
+			break;
+		}
+	}
+//	cerr << "hasLoop: " << hasLoop << "\n";
+	return hasLoop;
+}
+
+bool TVMCompilerContext::dfs(FunctionDefinition const* v) {
+	if (color.at(v) == Color::Black) {
+		return false;
+	}
+	if (color.at(v) == Color::Red) {
+		return true;
+	}
+	// It's white
+	color.at(v) = Color::Red;
+	for (FunctionDefinition const* _to : graph.at(v)) {
+		if (dfs(_to)) {
+			return true;
+		}
+	}
+	color.at(v) = Color::Black;
+	return false;
 }
 
 void StackPusherHelper::pushNull() {
@@ -2337,5 +2418,3 @@ void StackPusherHelper::byteLengthOfCell()
 	dropUnder(1, 1);
 	push(-1 + 1, "RSHIFT 3");
 }
-
-

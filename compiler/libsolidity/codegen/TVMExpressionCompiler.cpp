@@ -265,7 +265,7 @@ bool TVMExpressionCompiler::tryPushConstant(Identifier const &_identifier) {
 	return true;
 }
 
-bool TVMExpressionCompiler::pushMemberOrLocalVarOrConstant(Identifier const &_identifier) {
+bool TVMExpressionCompiler::pushLocalOrStateVariable(Identifier const &_identifier) {
 	auto& stack = m_pusher.getStack();
 	if (stack.isParam(_identifier.annotation().referencedDeclaration)) {
 		// push(0, string(";; ") + m_stack.dumpParams());
@@ -285,7 +285,7 @@ bool TVMExpressionCompiler::pushMemberOrLocalVarOrConstant(Identifier const &_id
 void TVMExpressionCompiler::visit2(Identifier const &_identifier) {
 	const string& name = _identifier.name();
 	m_pusher.push(0, string(";; push identifier ") + name);
-	if (pushMemberOrLocalVarOrConstant(_identifier)) {
+	if (pushLocalOrStateVariable(_identifier)) {
 	} else if (name == "now") {
 		// Getting value of `now` variable
 		m_pusher.push(+1, "NOW");
@@ -441,7 +441,7 @@ void TVMExpressionCompiler::compareAddresses(Token op) {
 }
 
 void TVMExpressionCompiler::compareStrings(Token op) {
-	m_pusher.pushPrivateFunctionOrMacroCall(-2 +1, "compareLongStrings_macro");
+	m_pusher.pushMacroCallInCallRef(-2 +1, "compareLongStrings_macro");
 	switch(op) {
 		case Token::GreaterThan:
 			m_pusher.push(0, "ISPOS");
@@ -526,7 +526,7 @@ void TVMExpressionCompiler::visitBinaryOperationForString(BinaryOperation const 
 	if (op == Token::Add) {
 		compileNewExpr(&lexp);
 		compileNewExpr(&rexp);
-		m_pusher.pushPrivateFunctionOrMacroCall(-2 +1, "concatenateStrings_macro");
+		m_pusher.pushMacroCallInCallRef(-2 +1, "concatenateStrings_macro");
 	} else if (op == Token::Equal || op == Token::NotEqual) {
 		compileNewExpr(&lexp);
 		m_pusher.push(+1-1,"HASHCU");
@@ -674,7 +674,7 @@ void TVMExpressionCompiler::visitMathBinaryOperation(
 			m_pusher.push(+2, "DUP2");
 			m_pusher.push(-2 + 1, "OR");
 			m_pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::Exponent00));
-			m_pusher.pushPrivateFunctionOrMacroCall(-2 + 1, "__exp_macro");
+			m_pusher.pushMacroCallInCallRef(-2 + 1, "__exp_macro");
 		}
 		checkOverflow = true;
 	} else {
@@ -749,7 +749,7 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 	if (_node.memberName() == "sender") { // msg.sender
 		m_pusher.getGlob(9);
 	} else if (_node.memberName() == "value") { // msg.value
-		m_pusher.pushPrivateFunctionOrMacroCall(+1, "message_balance_macro");
+		m_pusher.pushMacroCallInCallRef(+1, "message_balance_macro");
 	} else  if (_node.memberName() == "createdAt") { // msg.createdAt
 		m_pusher.pushLines(R"(
 DEPTH
@@ -1092,7 +1092,7 @@ TVMExpressionCompiler::expandLValue(
 				if (isLast && !withExpandLastValue)
 					break;
 				if (!willNoStackPermutationForLValue || stack.getOffset(variable->annotation().referencedDeclaration) != 0) {
-					pushMemberOrLocalVarOrConstant(*variable);
+                    pushLocalOrStateVariable(*variable);
 				}
 			} else {
 				if (isLast && !withExpandLastValue)
@@ -1344,7 +1344,7 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 		if (op == Token::AssignAdd) {
 			const LValueInfo lValueInfo = expandLValue(&lhs, false);
 			compileNewExpr(&rhs);
-			m_pusher.pushPrivateFunctionOrMacroCall(-2 +1, "concatenateStrings_macro");
+			m_pusher.pushMacroCallInCallRef(-2 +1, "concatenateStrings_macro");
 			collectLValue(lValueInfo, true, false);
 		} else {
 			cast_error(_assignment, "Unsupported operation.");

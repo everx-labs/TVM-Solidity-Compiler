@@ -162,8 +162,6 @@ struct TypeInfo {
 
 bool isTvmIntrinsic(const string& name);
 
-bool isFunctionForInlining(FunctionDefinition const* f);
-
 const Type* getType(const Expression* expr);
 
 const Type* getType(const VariableDeclaration* var);
@@ -202,9 +200,6 @@ bool isAddressThis(const FunctionCall* funCall);
 
 // List of all function but constructors with a given name
 vector<FunctionDefinition const*> getContractFunctions(ContractDefinition const* contract, const string& funcName);
-
-// List of all contract but constructor and  TvmIntrinsic functions including derived
-vector<FunctionDefinition const*> getContractFunctions(ContractDefinition const* contract);
 
 const ContractDefinition* getSuperContract(const ContractDefinition* currentContract,
 										   const ContractDefinition* mainContract,
@@ -350,6 +345,41 @@ CallableDeclaration const * getFunctionDeclarationOrConstructor(Expression const
 
 bool isEmptyFunction(FunctionDefinition const* f);
 
+enum class LocationReturn {
+	noReturn,
+	Last,
+	Anywhere
+};
+
+struct ControlFlowInfo {
+	int stackSize {-1};
+	bool isLoop {false};
+	bool useJmp {false};
+};
+
+struct ContInfo {
+	static constexpr int CONTINUE_FLAG = 1;
+	static constexpr int BREAK_FLAG = 2;
+	static constexpr int RETURN_FLAG = 4;
+
+	bool canReturn{};
+	bool canBreak{};
+	bool canContinue{};
+	bool alwaysReturns{};
+	bool alwaysBreak{};
+	bool alwaysContinue{};
+
+	bool doThatAlways() const {
+		return alwaysReturns || alwaysBreak || alwaysContinue;
+	}
+
+	bool mayDoThat() const {
+		return canReturn || canBreak || canContinue;
+	}
+};
+
+LocationReturn notNeedsPushContWhenInlining(Block const& _block);
+
 std::vector<VariableDeclaration const*>
 convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr);
 
@@ -391,6 +421,6 @@ DictValueType toDictValueType(const Type::Category& category);
 
 int integerLog2(int value);
 
-std::string stringToBytes(std::string str);
+std::string stringToBytes(const std::string& str);
 
 } // end solidity::frontend

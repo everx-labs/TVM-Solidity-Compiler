@@ -287,10 +287,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		m_pusher.push( 0, "ENDC");
 		return true;
 	}
-	if (iname == "tvm_my_public_key") {
-		m_pusher.pushPrivateFunctionOrMacroCall(+1, "my_pubkey_macro");
-		return true;
-	}
 	if (iname == "tvm_c4_key_length") {
 		m_pusher.push(+1,   "PUSHINT " + toString(TvmConst::C4::KeyLength));
 		return true;
@@ -313,10 +309,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 	}
 	if (iname == "tvm_now") {
 		m_pusher.push(+1, "NOW");
-		return true;
-	}
-	if (iname == "tvm_balance") {
-		m_pusher.pushPrivateFunctionOrMacroCall(+1, "get_balance");
 		return true;
 	}
 	if (iname == "tvm_newdict") {
@@ -476,13 +468,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 			cast_error(*arguments[1].get(), "Should be literal");
 		u256 value = arguments[1]->annotation().type->literalValue(literal);
 		m_pusher.push(-1 + 1, "PLDSLICE " + toString(value));
-		return true;
-	}
-	if (iname == "tvm_selector_call") {
-		checkArgCount(2);
-		acceptExpr(arguments[0].get());
-		acceptExpr(arguments[1].get());
-		m_pusher.push(-2, "JMP 1");
 		return true;
 	}
 	if (iname == "tvm_sempty") {
