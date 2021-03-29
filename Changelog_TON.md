@@ -1,4 +1,4 @@
-### 0.39.0 (2021-??-??)
+### 0.39.0 (2021-03-28)
 
 Compiler Features:
  * Gas consumption optimizations
