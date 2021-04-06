@@ -45,7 +45,7 @@ public:
 	static void generateMainInternal(StackPusherHelper& pusher, ContractDefinition const *contract);
 	static void generateOnCodeUpgrade(StackPusherHelper& pusher, FunctionDefinition const* function);
 	static void generateOnTickTock(StackPusherHelper& pusher, FunctionDefinition const* function);
-	static void generatePrivateFunction(StackPusherHelper& pusher, FunctionDefinition const* function, const std::optional<std::string>& name = nullopt);
+	static void generatePrivateFunction(StackPusherHelper& pusher, const std::string& name);
 	static void generateLibraryFunction(StackPusherHelper& pusher, FunctionDefinition const* function, const std::string& name);
 	static void generateLibraryFunctionMacro(StackPusherHelper& pusher, FunctionDefinition const* function, const std::string& name);
 	static void generateReceive(StackPusherHelper& pusher, FunctionDefinition const* function);
@@ -112,13 +112,13 @@ private:
 	void defaultReplayProtection();
 	void expire();
 	void callPublicFunctionOrFallback();
-	static std::string callSelector();
 	void fillInlineFunctionsAndConstants(std::string& pattern);
 	void pushC4ToC7IfNeed();
 	void pushC7ToC4IfNeed();
 	std::string pushReceive();
 
 	void buildPublicFunctionSelector(const std::vector<std::pair<uint32_t, std::string>>& functions, int left, int right);
+    void pushLocation(const ASTNode& node, bool reset = false);
 
 private:
 	StackPusherHelper& m_pusher;

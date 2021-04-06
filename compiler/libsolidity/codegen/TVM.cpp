@@ -22,21 +22,27 @@
 
 using namespace solidity::frontend;
 
+solidity::langutil::ErrorReporter* GlobalParams::g_errorReporter{};
+bool GlobalParams::g_withOptimizations{};
+bool GlobalParams::g_withDebugInfo{};
+
 void TVMCompilerProceedContract(
-	langutil::ErrorReporter* errorReporter,
+    solidity::langutil::ErrorReporter* errorReporter,
 	ContractDefinition const& _contract,
 	std::vector<PragmaDirective const *> const* pragmaDirectives,
 	bool generateAbi,
 	bool generateCode,
 	bool withOptimizations,
-	bool doPrintInConsole,
+	bool withDebugInfo,
 	const std::string& solFileName,
 	const std::string& outputFolder,
 	const std::string& filePrefix
 ) {
-	TVMContractCompiler::g_errorReporter = errorReporter;
+    GlobalParams::g_errorReporter = errorReporter;
+    GlobalParams::g_withDebugInfo = withDebugInfo;
+    GlobalParams::g_withOptimizations = withOptimizations;
 
-	string pathToFiles;
+	std::string pathToFiles;
 
 	if (filePrefix.empty()) {
 		pathToFiles = boost::filesystem::path{solFileName}.stem().string();
@@ -58,10 +64,10 @@ void TVMCompilerProceedContract(
 
 	PragmaDirectiveHelper pragmaHelper{*pragmaDirectives};
 	if (generateCode) {
-		TVMContractCompiler::proceedContract(doPrintInConsole ? "" : pathToFiles + ".code", _contract, pragmaHelper, withOptimizations);
+		TVMContractCompiler::proceedContract(pathToFiles + ".code", _contract, pragmaHelper);
 	}
 	if (generateAbi) {
-		TVMContractCompiler::generateABI(doPrintInConsole ? "" : pathToFiles + ".abi.json", &_contract, *pragmaDirectives);
+		TVMContractCompiler::generateABI(pathToFiles + ".abi.json", &_contract, *pragmaDirectives);
 	}
 
 }

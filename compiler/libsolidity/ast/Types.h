@@ -1205,6 +1205,7 @@ public:
 		TVMCommit, ///< tvm.commit()
 		TVMConfigParam, ///< tvm.configParam()
 		TVMDeploy, ///< functions to deploy contract from contract
+		TVMDump, ///< tvm.xxxdump()
 		TVMEncodeBody, ///< tvm.encodeBody()
 		TVMExit, ///< tvm.exit()
 		TVMExit1, ///< tvm.exit1()
@@ -1215,8 +1216,9 @@ public:
 		TVMResetStorage, ///< tvm.resetStorage()
 		TVMSendMsg, ///< tvm.sendMsg()
 		TVMSetcode, ///< tvm.setcode()
-		TVMDump, ///< tvm.xxxdump()
+		TVMSetPubkey, ///< tvm.setPubkey()
 		TVMTransfer, ///< address.transfer()
+
 		TXtimestamp, ///< tx.timestamp
 
 		ArrayPush, ///< .push() to a dynamically sized array in storage

@@ -18,12 +18,14 @@
 
 #include <boost/algorithm/string/replace.hpp>
 
+#include <liblangutil/SourceReferenceExtractor.h>
+
+#include "TVM.h"
 #include "TVMABI.hpp"
 #include "TVMAnalyzer.hpp"
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCompiler.hpp"
 #include "TVMStructCompiler.hpp"
-#include "TVMAnalyzer.hpp"
 
 using namespace solidity::frontend;
 
@@ -203,7 +205,9 @@ void TVMFunctionCompiler::generateMacro(
 ) {
 	pusher.generateMacro(forceName.has_value() ? forceName.value() : function->name());
 	TVMFunctionCompiler funCompiler{pusher, 0, function, false, true, 0};
+    funCompiler.pushLocation(*function);
 	funCompiler.visitFunctionWithModifiers();
+    funCompiler.pushLocation(*function, true);
 	pusher.push(0, " ");
 }
 
@@ -224,7 +228,6 @@ void TVMFunctionCompiler::generateOnCodeUpgrade(StackPusherHelper& pusher, Funct
 
 void TVMFunctionCompiler::generateOnTickTock(StackPusherHelper& pusher, FunctionDefinition const* function) {
 	pusher.generateInternal("onTickTock", -2);
-	pusher.push(0, "PUSHINT -2");
 	pusher.push(0, "PUSHINT -2");
 	solAssert(function->parameters().size() == 1, "");
 	for (const ASTPointer<VariableDeclaration>& variable: function->parameters()) {
@@ -274,6 +277,7 @@ void TVMFunctionCompiler::generatePublicFunction(StackPusherHelper& pusher, Func
 	pusher.drop(); // drop function id
 	funCompiler.pushC4ToC7IfNeed();
 
+    funCompiler.pushLocation(*function);
 	const bool isResponsible = function->isResponsible();
 	if (isResponsible) {
 		const int saveStakeSize = pusher.getStack().size();
@@ -285,6 +289,7 @@ void TVMFunctionCompiler::generatePublicFunction(StackPusherHelper& pusher, Func
 		solAssert(saveStakeSize == pusher.getStack().size(), "");
 	}
 	funCompiler.decodeFunctionParamsAndLocateVars(isResponsible);
+    funCompiler.pushLocation(*function, true);
 
 	int paramQty = function->parameters().size();
 	int retQty = function->returnParameters().size();
@@ -357,13 +362,7 @@ void TVMFunctionCompiler::generatePublicFunctionSelector(StackPusherHelper& push
 	compiler.buildPublicFunctionSelector(functions, 0, functions.size());
 }
 
-void TVMFunctionCompiler::generatePrivateFunction(StackPusherHelper& pusher, FunctionDefinition const* function, const std::optional<std::string>& _name) {
-	std::string name;
-	if (_name.has_value()) {
-		name = _name.value();
-	} else {
-		name = pusher.ctx().getFunctionInternalName(function);
-	}
+void TVMFunctionCompiler::generatePrivateFunction(StackPusherHelper& pusher, const std::string& name) {
 	pusher.generateGlobl(name);
 
 	const std::string macroName = name + "_macro";
@@ -538,16 +537,19 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 void TVMFunctionCompiler::visitModifierOrFunctionBlock(Block const &body, bool isFunc) {
 	LocationReturn locationReturn = ::notNeedsPushContWhenInlining(body);
 
-	// TODO move this shit to TVMFunctionCompiler::visit(Block const & _block)?
 	bool doPushContinuation = locationReturn == LocationReturn::Anywhere;
 	if (doPushContinuation) {
 		m_pusher.startContinuation();
 	}
 	body.accept(*this);
-	m_pusher.tryPollLastRetOpcode();
+	if (locationReturn == LocationReturn::Last) {
+        m_pusher.pollLastRetOpcode();
+    }
 	if (doPushContinuation) {
 		m_pusher.endContinuation();
+		pushLocation(*m_function);
 		m_pusher.push(0, "CALLX");
+        pushLocation(*m_function, true);
 	}
 
 	if (isFunc) {
@@ -717,6 +719,7 @@ bool TVMFunctionCompiler::visit(VariableDeclarationStatement const &_variableDec
 bool TVMFunctionCompiler::visit(Block const & _block) {
 	const int startStackSize = m_pusher.getStack().size();
 	for (const ASTPointer<Statement>& s : _block.statements()) {
+        pushLocation(*s.get());
 		s->accept(*this);
 	}
 
@@ -727,14 +730,17 @@ bool TVMFunctionCompiler::visit(Block const & _block) {
 	} else {
 		m_pusher.push(-delta, ""); // fix stack
 	}
+    pushLocation(_block, true);
 	return false;
 }
 
 bool TVMFunctionCompiler::visit(ExpressionStatement const &_statement) {
 	if (!_statement.expression().annotation().isPure) {
+	    pushLocation(_statement);
 		auto savedStackSize = m_pusher.getStack().size();
 		acceptExpr(&_statement.expression(), false);
 		m_pusher.getStack().ensureSize(savedStackSize, _statement.location().text());
+        pushLocation(_statement, true);
 	}
 	return false;
 }
@@ -791,11 +797,13 @@ bool TVMFunctionCompiler::visit(IfStatement const &_ifStatement) {
 			m_pusher.push(0, "IFELSE");
 		}
 	} else {
+	    pushLocation(_ifStatement);
 		if (canUseJmp) {
 			m_pusher.push(0, reverseOpcode ? "IFNOTJMP" : "IFJMP");
 		} else {
 			m_pusher.push(0, reverseOpcode ? "IFNOT" : "IF");
 		}
+        pushLocation(_ifStatement, true);
 	}
 
 	m_controlFlowInfo.pop_back();
@@ -1463,7 +1471,6 @@ SETGLOB 9
 void TVMFunctionCompiler::generateMainExternalForAbiV1() {
 	m_pusher.generateInternal("main_external", -1);
 	// contract_balance msg_balance msg_cell origin_msg_body_slice
-	m_pusher.push(0, "PUSHINT -1 ; main_external trans id");
 
 	setGlobSenderAddressIfNeed();
 
@@ -1507,7 +1514,6 @@ SWAP                           ; msgSlice functionId
 
 void TVMFunctionCompiler::generateMainExternalForAbiV2() {
 	m_pusher.generateInternal("main_external", -1);
-	m_pusher.push(0, "PUSHINT -1 ; main_external trans id");
 //		stack:
 //		contract_balance
 //		msg_balance is always zero
@@ -1668,21 +1674,6 @@ void TVMFunctionCompiler::callPublicFunctionOrFallback() {
 	}
 }
 
-std::string TVMFunctionCompiler::callSelector() {
-	std::string s = R"(
-SWAP    ; body funcId
-CALL 1
-GETGLOB 7
-ISNULL
-PUSHCONT {
-	DROP
-	INSERT_FALLBACK_FUNCTION
-}
-IF
-)";
-	return s;
-}
-
 void TVMFunctionCompiler::generateMainInternal(StackPusherHelper& pusher, ContractDefinition const *contract) {
 	// int_msg_info$0  ihr_disabled:Bool  bounce:Bool(#1)  bounced:Bool
 	//                 src:MsgAddress  dest:MsgAddressInt(#4)
@@ -1700,7 +1691,7 @@ void TVMFunctionCompiler::generateMainInternal(StackPusherHelper& pusher, Contra
 ;; param: msg_balance
 ;; param: int_msg_info
 ;; param: msg_body_slice
-PUSHINT 0  ; main_external trans id
+;; param: transaction_type
 PUSH S2
 CTOS
 )";
@@ -1880,4 +1871,14 @@ void TVMFunctionCompiler::buildPublicFunctionSelector(
 			}
 		}
 	}
+}
+
+void TVMFunctionCompiler::pushLocation(const ASTNode& node, bool reset) {
+    if (!GlobalParams::g_withDebugInfo)
+        return;
+
+    SourceLocation const &loc = node.location();
+    SourceReference sr = SourceReferenceExtractor::extract(&loc);
+    const int line = reset ? 0 : sr.position.line + 1;
+    m_pusher.push(0, ".loc " + sr.sourceName + ", " + toString(line));
 }

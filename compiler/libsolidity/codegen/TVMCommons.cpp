@@ -16,10 +16,9 @@
  * Common TVM codegen routines, in particular, types, data structures, scope, stack manipulations, etc.
  */
 
+#include "TVM.h"
 #include "TVMCommons.hpp"
 #include "TVMPusher.hpp"
-#include "TVMContractCompiler.hpp"
-
 
 namespace solidity::frontend {
 
@@ -47,16 +46,16 @@ bool ends_with(const string &str, const string &suffix) {
 }
 
 void cast_error(const ASTNode &node, const string &error_message) {
-	TVMContractCompiler::g_errorReporter->fatalParserError(node.location(), error_message);
+	GlobalParams::g_errorReporter->fatalParserError(node.location(), error_message);
 	BOOST_THROW_EXCEPTION(FatalError()); // never throw, just for [[noreturn]]
 }
 
 void cast_warning(const ASTNode &node, const string &error_message) {
-	TVMContractCompiler::g_errorReporter->warning(node.location(), error_message);
+	GlobalParams::g_errorReporter->warning(node.location(), error_message);
 }
 
 void fatal_error(const string &error_message) {
-	TVMContractCompiler::g_errorReporter->error(Error::Type::TypeError, SourceLocation(), error_message);
+	GlobalParams::g_errorReporter->error(Error::Type::TypeError, SourceLocation(), error_message);
 	BOOST_THROW_EXCEPTION(FatalError()); // never throw, just for [[noreturn]]
 }
 
