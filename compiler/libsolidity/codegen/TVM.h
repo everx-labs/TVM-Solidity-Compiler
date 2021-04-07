@@ -22,6 +22,12 @@
 #include <liblangutil/ErrorReporter.h>
 #include <libsolidity/ast/ASTForward.h>
 
+class GlobalParams {
+public:
+    static solidity::langutil::ErrorReporter* g_errorReporter;
+    static bool g_withOptimizations;
+    static bool g_withDebugInfo;
+};
 
 void TVMCompilerProceedContract(
 	solidity::langutil::ErrorReporter* errorReporter,
@@ -30,7 +36,7 @@ void TVMCompilerProceedContract(
 	bool generateAbi,
 	bool generateCode,
 	bool withOptimizations,
-	bool doPrintInConsole,
+	bool withDebugInfo,
 	const std::string& solFileName,
 	const std::string& outputFolder,
 	const std::string& filePrefix

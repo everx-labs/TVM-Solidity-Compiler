@@ -20,7 +20,6 @@
 #include <boost/range/adaptor/map.hpp>
 
 #include "TVMABI.hpp"
-#include "TVMAnalyzer.hpp"
 #include "TVMContractCompiler.hpp"
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCompiler.hpp"
@@ -165,8 +164,6 @@ SETGLOB 6
 
 }
 
-langutil::ErrorReporter* TVMContractCompiler::g_errorReporter{};
-
 void TVMContractCompiler::generateABI(
 	const std::string& fileName,
 	ContractDefinition const *contract,
@@ -188,26 +185,21 @@ void TVMContractCompiler::generateABI(
 void TVMContractCompiler::proceedContract(
 	const std::string& fileName,
 	ContractDefinition const& contract,
-	PragmaDirectiveHelper const &pragmaHelper,
-	bool withOptimizations
+	PragmaDirectiveHelper const &pragmaHelper
 ) {
-	CodeLines code = proceedContractMode1(&contract, pragmaHelper, withOptimizations);
+	CodeLines code = proceedContractMode1(&contract, pragmaHelper);
 
-	if (!fileName.empty()) {
-		ofstream ofile;
-		ofile.open(fileName);
-		if (!ofile)
-			fatal_error("Failed to open the output file: " + fileName);
-		ofile << code.str();
-		ofile.close();
-		cout << "Code was generated and saved to file " << fileName << endl;
-	} else {
-		cout << code.str();
-	}
+    ofstream ofile;
+    ofile.open(fileName);
+    if (!ofile)
+        fatal_error("Failed to open the output file: " + fileName);
+    ofile << code.str();
+    ofile.close();
+    cout << "Code was generated and saved to file " << fileName << endl;
 }
 
-static void optimize_and_append_code(CodeLines& code, const StackPusherHelper& pusher, bool withOptimizations) {
-	if (withOptimizations)
+static void optimize_and_append_code(CodeLines& code, const StackPusherHelper& pusher) {
+	if (GlobalParams::g_withOptimizations)
 		code.append(optimize_code(pusher.code()));
 	else
 		code.append(pusher.code());
@@ -217,8 +209,7 @@ static void optimize_and_append_code(CodeLines& code, const StackPusherHelper& p
 CodeLines
 TVMContractCompiler::proceedContractMode1(
 	ContractDefinition const *contract,
-	PragmaDirectiveHelper const &pragmaHelper,
-	bool withOptimizations
+	PragmaDirectiveHelper const &pragmaHelper
 ) {
 	TVMCompilerContext ctx{contract, pragmaHelper};
 	CodeLines code;
@@ -230,7 +221,7 @@ TVMContractCompiler::proceedContractMode1(
 		StackPusherHelper pusher{&ctx};
 		TVMConstructorCompiler compiler(pusher);
 		compiler.generateConstructors();
-		optimize_and_append_code(code, pusher, withOptimizations);
+		optimize_and_append_code(code, pusher);
 	}
 
 	for (ContractDefinition const* c : contract->annotation().linearizedBaseContracts) {
@@ -248,41 +239,41 @@ TVMContractCompiler::proceedContractMode1(
 					ctx.setIsOnBounce();
 					StackPusherHelper pusher{&ctx};
 					TVMFunctionCompiler::generateOnBounce(pusher, _function);
-					optimize_and_append_code(code, pusher, withOptimizations);
+					optimize_and_append_code(code, pusher);
 				}
 			} else if (_function->isReceive()) {
 				if (!ctx.isReceiveGenerated()) {
 					ctx.setIsReceiveGenerated();
 					StackPusherHelper pusher{&ctx};
 					TVMFunctionCompiler::generateReceive(pusher, _function);
-					optimize_and_append_code(code, pusher, withOptimizations);
+					optimize_and_append_code(code, pusher);
 				}
 			} else if (_function->isFallback()) {
 				if (!ctx.isFallBackGenerated()) {
 					ctx.setIsFallBackGenerated();
 					StackPusherHelper pusher{&ctx};
 					TVMFunctionCompiler::generateFallback(pusher, _function);
-					optimize_and_append_code(code, pusher, withOptimizations);
+					optimize_and_append_code(code, pusher);
 				}
 			} else if (_function->isOnTickTock()) {
 				StackPusherHelper pusher{&ctx};
 				TVMFunctionCompiler::generateOnTickTock(pusher, _function);
-				optimize_and_append_code(code, pusher, withOptimizations);
+				optimize_and_append_code(code, pusher);
 			} else if (isMacro(_function->name())) {
 				StackPusherHelper pusher{&ctx};
 				TVMFunctionCompiler::generateMacro(pusher, _function);
-				optimize_and_append_code(code, pusher, withOptimizations);
+				optimize_and_append_code(code, pusher);
 			} else if (_function->name() == "onCodeUpgrade") {
 				StackPusherHelper pusher{&ctx};
 				TVMFunctionCompiler::generateOnCodeUpgrade(pusher, _function);
-				optimize_and_append_code(code, pusher, withOptimizations);
+				optimize_and_append_code(code, pusher);
 			} else {
 				if (_function->isPublic()) {
 					bool isBaseMethod = _function != getContractFunctions(contract, _function->name()).back();
 					if (!isBaseMethod) {
 						StackPusherHelper pusher{&ctx};
 						TVMFunctionCompiler::generatePublicFunction(pusher, _function);
-						optimize_and_append_code(code, pusher, withOptimizations);
+						optimize_and_append_code(code, pusher);
 
 						EncodeFunctionParams encoder{&pusher};
 						uint32_t functionId = encoder.calculateFunctionIDWithReason(_function,
@@ -291,16 +282,17 @@ TVMContractCompiler::proceedContractMode1(
 					}
 				}
 				if (_function->visibility() <= Visibility::Public) {
+				    std::string functionName = ctx.getFunctionInternalName(_function);
 					{
 						StackPusherHelper pusher{&ctx};
-						TVMFunctionCompiler::generatePrivateFunction(pusher, _function);
-						optimize_and_append_code(code, pusher, withOptimizations);
+						TVMFunctionCompiler::generatePrivateFunction(pusher, functionName);
+						optimize_and_append_code(code, pusher);
 					}
 					{
-						const std::string macroName = ctx.getFunctionInternalName(_function) + "_macro";
+						const std::string macroName = functionName + "_macro";
 						StackPusherHelper pusher{&ctx};
 						TVMFunctionCompiler::generateMacro(pusher, _function, macroName);
-						optimize_and_append_code(code, pusher, withOptimizations);
+						optimize_and_append_code(code, pusher);
 					}
 				}
 			}
@@ -311,27 +303,27 @@ TVMContractCompiler::proceedContractMode1(
 		{
 			StackPusherHelper pusher{&ctx};
 			pusher.generateC7ToT4Macro();
-			optimize_and_append_code(code, pusher, withOptimizations);
+			optimize_and_append_code(code, pusher);
 		}
 		{
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler::generateC4ToC7(pusher, contract, false);
-			optimize_and_append_code(code, pusher, withOptimizations);
+			optimize_and_append_code(code, pusher);
 		}
 		{
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler::generateC4ToC7(pusher, contract, true);
-			optimize_and_append_code(code, pusher, withOptimizations);
+			optimize_and_append_code(code, pusher);
 		}
 		{
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler::generateMainInternal(pusher, contract);
-			optimize_and_append_code(code, pusher, withOptimizations);
+			optimize_and_append_code(code, pusher);
 		}
 		{
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler::generateMainExternal(pusher, contract);
-			optimize_and_append_code(code, pusher, withOptimizations);
+			optimize_and_append_code(code, pusher);
 		}
 	}
 
@@ -339,7 +331,7 @@ TVMContractCompiler::proceedContractMode1(
 		if (vd->isPublic()) {
 			StackPusherHelper pusher{&ctx};
 			TVMFunctionCompiler::generateGetter(pusher, vd);
-			optimize_and_append_code(code, pusher, withOptimizations);
+			optimize_and_append_code(code, pusher);
 
 			EncodeFunctionParams encoder{&pusher};
 			std::vector<VariableDeclaration const*> outputs = {vd};
@@ -366,26 +358,26 @@ TVMContractCompiler::proceedContractMode1(
 				StackPusherHelper pusher{&ctx};
 				const std::string name = function->annotation().contract->name() + "_with_obj_" + function->name();
 				TVMFunctionCompiler::generateLibraryFunction(pusher, function, name);
-				optimize_and_append_code(code, pusher, withOptimizations);
+				optimize_and_append_code(code, pusher);
 			}
 			{
 				StackPusherHelper pusher{&ctx};
 				const std::string name = function->annotation().contract->name() + "_with_obj_" + function->name() + "_macro";
 				TVMFunctionCompiler::generateLibraryFunctionMacro(pusher, function, name);
-				optimize_and_append_code(code, pusher, withOptimizations);
+				optimize_and_append_code(code, pusher);
 			}
 		}
 		StackPusherHelper pusher{&ctx};
 		const std::string name = function->annotation().contract->name() + "_no_obj_" + function->name();
-		TVMFunctionCompiler::generatePrivateFunction(pusher, function, name);
+		TVMFunctionCompiler::generatePrivateFunction(pusher, name);
 		TVMFunctionCompiler::generateMacro(pusher, function, name + "_macro");
-		optimize_and_append_code(code, pusher, withOptimizations);
+		optimize_and_append_code(code, pusher);
 	}
 
 	if (!ctx.isStdlib()) {
 		StackPusherHelper pusher{&ctx};
 		TVMFunctionCompiler::generatePublicFunctionSelector(pusher, contract);
-		optimize_and_append_code(code, pusher, withOptimizations);
+		optimize_and_append_code(code, pusher);
 	}
 
 	return code;

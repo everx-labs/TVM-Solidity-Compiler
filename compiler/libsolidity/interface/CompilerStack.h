@@ -183,8 +183,9 @@ public:
 		m_withOptimizations = true;
 	}
 
-	void doPrintInConsole() {
-		m_doPrintInConsole = true;
+
+	void withDebugInfo() {
+		m_withDebugInfo = true;
 	}
 
 	void setOutputFolder(const std::string& folder) {
@@ -477,7 +478,7 @@ private:
 	bool m_generateAbi{};
 	bool m_generateCode{};
 	bool m_withOptimizations{};
-	bool m_doPrintInConsole{};
+	bool m_withDebugInfo{};
 	std::string m_folder;
 	std::string m_file_prefix;
 	std::string m_inputFile;

@@ -860,6 +860,15 @@ struct TVMOptimizer {
 			}
 		}
 
+        if (cmd1.is("MUL") && cmd2.is("RSHIFT")) {
+            // RSHIFT can have parameter or can omit it
+            return Result(true, 2, {"MULRSHIFT " + cmd2.rest_});
+        }
+
+        if (cmd1.is("NEWC") && cmd2.is("ENDC")) {
+            return Result(true, 2, {"PUSHREF {", "}"});
+        }
+
 		return Result(false);
 	}
 

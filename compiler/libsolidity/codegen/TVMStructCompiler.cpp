@@ -355,17 +355,30 @@ void StructCompiler::structConstructor(
 }
 
 void StructCompiler::tupleToBuilder() {
-	// stack: value
-	const int argumentStackSize = pusher->getStack().size() - 1;
-	pusher->untuple(memberNames.size());
-	std::map<std::string, int> argStackSize{};
-	int shift = 0;
-	for (const std::string& name : memberNames) {
-		argStackSize[name] = argumentStackSize + shift;
-		++shift;
-	}
-	createStructDfs(0, argStackSize);
-	pusher->dropUnder(1, memberNames.size());
+    // stack: tuple
+
+	// if whole struct fits in one cell
+	if (nodes[0].getChildren().empty()) {
+        const int n = memberNames.size();
+        pusher->untuple(n); // stack: a, b, c, d...
+        if (n > 1)
+            pusher->reverse(n, 0); // stack: ..., d, c, b, a
+        pusher->push(+1, "NEWC"); // stack: ..., d, c, b, a, builder
+        for (const Field &f : nodes[0].getFields()) {
+            pusher->store(f.type, false, StackPusherHelper::StoreFlag::StoreStructInRef);
+        }
+	} else {
+        const int argumentStackSize = pusher->getStack().size() - 1;
+        pusher->untuple(memberNames.size());
+        std::map<std::string, int> argStackSize{};
+        int shift = 0;
+        for (const std::string &name : memberNames) {
+            argStackSize[name] = argumentStackSize + shift;
+            ++shift;
+        }
+        createStructDfs(0, argStackSize);
+        pusher->dropUnder(1, memberNames.size());
+    }
 	// stack: builder
 }
 

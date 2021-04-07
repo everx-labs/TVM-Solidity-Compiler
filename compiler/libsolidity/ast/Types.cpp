@@ -552,8 +552,6 @@ BoolResult IntegerType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 
 BoolResult IntegerType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 {
-	 if (auto arrayType = dynamic_cast<ArrayType const*>(&_convertTo))
-		 return arrayType->isString();
 	return _convertTo.category() == category() ||
 		_convertTo.category() == Category::Address ||
 		_convertTo.category() == Category::Contract ||
@@ -2897,6 +2895,7 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMCommit: id += "tvmcommit"; break;
 	case Kind::TVMConfigParam: id += "tvmconfigparam"; break;
 	case Kind::TVMDeploy: id += "tvmdeploy"; break;
+	case Kind::TVMDump: id += "tvmxxxdump"; break;
 	case Kind::TVMEncodeBody: id += "tvmencodebody"; break;
 	case Kind::TVMExit1: id += "tvmexit1"; break;
 	case Kind::TVMExit: id += "tvmexit"; break;
@@ -2909,8 +2908,9 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMResetStorage: id += "tvmresetstorage"; break;
 	case Kind::TVMSendMsg: id += "tvmsendmsg"; break;
 	case Kind::TVMSetcode: id += "tvmsetcode"; break;
-	case Kind::TVMDump: id += "tvmxxxdump"; break;
+	case Kind::TVMSetPubkey: id += "tvmsetpubkey"; break;
 	case Kind::TVMTransfer: id += "tvmtransfer"; break;
+
 	case Kind::TXtimestamp: id += "txtimestamp"; break;
 
 	case Kind::ExtraCurrencyCollectionMethods: id += "extracurrencycollectionmethods"; break;
@@ -3923,6 +3923,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 	case Kind::TVM: {
 		MemberList::MemberMap members = {
 			{"pubkey", TypeProvider::function(strings(), strings{"uint"}, FunctionType::Kind::TVMPubkey, false, StateMutability::Pure)},
+			{"setPubkey", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetPubkey, false, StateMutability::NonPayable)},
 			{"accept", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMAccept, false, StateMutability::Pure)},
 			{"commit", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMCommit, false, StateMutability::NonPayable)},
 			{"resetStorage", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMResetStorage, false, StateMutability::NonPayable)},

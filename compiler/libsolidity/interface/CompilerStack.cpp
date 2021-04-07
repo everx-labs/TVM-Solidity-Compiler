@@ -571,7 +571,7 @@ std::pair<bool, bool> CompilerStack::compile()
 				m_generateAbi,
 				m_generateCode,
 				m_withOptimizations,
-				m_doPrintInConsole,
+                m_withDebugInfo,
 				m_inputFile,
 				m_folder,
 				m_file_prefix

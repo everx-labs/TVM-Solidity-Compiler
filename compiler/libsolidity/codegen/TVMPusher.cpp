@@ -42,6 +42,40 @@ StackPusherHelper::StackPusherHelper(TVMCompilerContext *ctx, const int stackSiz
 	m_stack.change(stackSize);
 }
 
+void StackPusherHelper::pushString(const std::string& str, bool toSlice) {
+    if (str.length() <= TvmConst::MaxPushSliceLength && toSlice) {
+        // TODO uncomment. Is it faster?
+        //push(+1, "PUSHSLICE " + stringToBytes(str));
+        //return ;
+    }
+
+    const int stringLiteralLength = str.size();
+    const int saveStackSize = getStack().size();
+    const int bytesInCell = TvmConst::CellBitLength / 8; // 127
+    push(+1, "PUSHREF {");
+    addTabs();
+    int builderQty = 0;
+    int start = 0;
+    do {
+        std::string slice = stringToBytes(str.substr(start, std::min(bytesInCell, stringLiteralLength - start)));
+        if (start > 0) {
+            startCell();
+        }
+        push(0, ".blob x" + slice);
+        start += bytesInCell;
+        ++builderQty;
+    } while (start < stringLiteralLength);
+    for (int i = 0; i < builderQty; ++i) {
+        endContinuation();
+    }
+
+    if (toSlice) {
+        push(0, "CTOS");
+    }
+
+    getStack().ensureSize(saveStackSize + 1, "");
+}
+
 void StackPusherHelper::pushLog() {
 	push(0, "CTOS");
 	push(0, "STRDUMP");
@@ -460,13 +494,14 @@ void StackPusherHelper::setDict(Type const &keyType, Type const &valueType, cons
 }
 
 
-void StackPusherHelper::tryPollLastRetOpcode() {
-	if (m_code.lines.empty()) {
-		return;
-	}
-	if (cmpLastCmd("RET")) {
-		m_code.lines.pop_back();
-	}
+void StackPusherHelper::pollLastRetOpcode() {
+	int offset = 0;
+	int size = m_code.lines.size();
+	while (offset < size && cmpLastCmd("\\.loc .*", offset))
+	    ++offset;
+	solAssert(cmpLastCmd("RET", offset), "");
+	int begPos = size - 1 - offset;
+    m_code.lines.erase(m_code.lines.begin() + begPos);
 }
 
 bool StackPusherHelper::tryPollConvertBuilderToSlice() {
@@ -499,7 +534,7 @@ bool StackPusherHelper::tryPollEmptyPushCont() {
 bool StackPusherHelper::cmpLastCmd(const std::string& cmd, int offset) {
 	int n = m_code.lines.size() - 1 - offset;
 	return n >= 0 &&
-		std::regex_match(m_code.lines[n], std::regex("(\t*)" + cmd));
+		std::regex_match(m_code.lines.at(n), std::regex("(\t*)" + cmd));
 }
 
 void StackPusherHelper::pollLastOpcode() {
@@ -594,6 +629,11 @@ void StackPusherHelper::startIfNotRef(int deltaStack) {
 void StackPusherHelper::startCallRef(int deltaStack) {
 	m_code.startCallRef();
 	m_stack.change(deltaStack);
+}
+
+void StackPusherHelper::startCell() {
+    m_code.push(".cell {");
+    m_code.addTabs();
 }
 
 void StackPusherHelper::endContinuation(int deltaStack) {
@@ -1449,6 +1489,7 @@ void StackPusherHelper::pushCallOrCallRef(
 	const FunctionType *ft,
 	const std::optional<int>& deltaStack
 ) {
+    // TODO simplify
 	int delta{};
 	if (deltaStack.has_value()) {
 		delta = deltaStack.value();
@@ -1990,13 +2031,14 @@ void TVMCompilerContext::initMembers(ContractDefinition const *contract) {
 	solAssert(!m_contract, "");
 	m_contract = contract;
 
-	for (ContractDefinition const* base : contract->annotation().linearizedBaseContracts) {
-		for (FunctionDefinition const* f : base->definedFunctions()) {
-			ignoreIntOverflow |= f->name() == "tvm_ignore_integer_overflow";
-		}
-	}
+    for (ContractDefinition const* c : contract->annotation().linearizedBaseContracts) {
+        for (FunctionDefinition const *_function : c->definedFunctions()) {
+            const std::set<CallableDeclaration const*>& b = _function->annotation().baseFunctions;
+            m_baseFunctions.insert(b.begin(), b.end());
+        }
+    }
 
-	ignoreIntOverflow |= m_pragmaHelper.haveIgnoreIntOverflow();
+	ignoreIntOverflow = m_pragmaHelper.haveIgnoreIntOverflow();
 	for (VariableDeclaration const *variable: notConstantStateVariables()) {
 		m_stateVarIndex[variable] = TvmConst::C7::FirstIndexForVariables + m_stateVarIndex.size();
 	}
@@ -2058,7 +2100,7 @@ bool TVMCompilerContext::isStdlib() const {
 	return m_contract->name() == "stdlib";
 }
 
-string TVMCompilerContext::getFunctionInternalName(FunctionDefinition const* _function) const {
+string TVMCompilerContext::getFunctionInternalName(FunctionDefinition const* _function, bool calledByPoint) const {
 	if (isStdlib()) {
 		return _function->name();
 	}
@@ -2069,13 +2111,14 @@ string TVMCompilerContext::getFunctionInternalName(FunctionDefinition const* _fu
 		return "fallback";
 	}
 
-	string name = _function->name() + "_internal";
-	vector<FunctionDefinition const *>  functions = getContractFunctions(getContract(), _function->name());
-	solAssert(!functions.empty(), "");
-	if (_function != functions.back()) {
-		name = _function->annotation().contract->name() + "_" + _function->name();
-	}
-	return name;
+    std::string functionName;
+    if (calledByPoint && isBaseFunction(_function)) {
+        functionName = _function->annotation().contract->name() + "_" + _function->name();
+    } else {
+        functionName = _function->name() + "_internal";
+    }
+
+	return functionName;
 }
 
 string TVMCompilerContext::getFunctionExternalName(FunctionDefinition const *_function) {
@@ -2163,6 +2206,10 @@ bool TVMCompilerContext::addAndDoesHaveLoop(FunctionDefinition const* _v, Functi
 	return hasLoop;
 }
 
+bool TVMCompilerContext::isBaseFunction(CallableDeclaration const* d) const {
+    return m_baseFunctions.count(d) != 0;
+}
+
 bool TVMCompilerContext::dfs(FunctionDefinition const* v) {
 	if (color.at(v) == Color::Black) {
 		return false;
@@ -2208,11 +2255,14 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 			}
 			break;
 		case Type::Category::Array:
-			if (to<ArrayType>(type)->isByteArray()) {
-				push(+1, "NEWC");
-				if (!isResultBuilder) {
-					push(0, "ENDC");
-				}
+        case Type::Category::TvmCell:
+			if (cat == Type::Category::TvmCell || to<ArrayType>(type)->isByteArray()) {
+                if (isResultBuilder) {
+                    push(+1, "NEWC");
+                } else {
+                    push(+1, "PUSHREF {");
+                    push(0, "}");
+                }
 				break;
 			}
 			if (!isResultBuilder) {
@@ -2249,12 +2299,6 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 			break;
 		case Type::Category::TvmBuilder:
 			push(+1, "NEWC");
-			break;
-		case Type::Category::TvmCell:
-			push(+1, "NEWC");
-			if (!isResultBuilder) {
-				push(0, "ENDC");
-			}
 			break;
 		case Type::Category::Function: {
 			pushInt(TvmConst::FunctionId::DefaultValueForFunctionType);
@@ -2406,8 +2450,6 @@ void StackPusherHelper::getDict(
 
 
 void StackPusherHelper::switchSelector() {
-	push(0, "PUSHINT 1");
-	push(0, "CALL 1");
 }
 
 void StackPusherHelper::byteLengthOfCell()

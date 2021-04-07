@@ -632,8 +632,11 @@ bool TypeChecker::visit(FunctionDefinition const& _function)
 	m_currentFunction = &_function;
 	bool isLibraryFunction = _function.inContractKind() == ContractKind::Library;
 
-	if (_function.isResponsible() && _function.returnParameters().empty()) {
-		m_errorReporter.typeError(_function.location(), "responsible function must return at least one value.");
+	if (_function.isResponsible()) {
+		if (_function.returnParameters().empty())
+			m_errorReporter.typeError(_function.location(), "Responsible function must return at least one value.");
+		if (!_function.isPublic())
+			m_errorReporter.typeError(_function.location(), "Responsible function must have public or external visibility.");
 	}
 
 	if (_function.markedVirtual())
@@ -2764,7 +2767,8 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		auto checkArgConversion = [&]() {
 			for (size_t i = 0; i < paramTypes.size(); ++i) {
 				if (!arguments.at(i)->annotation().type->isImplicitlyConvertibleTo(*paramTypes.at(i))) {
-					m_errorReporter.typeError(_functionCall.location(), "Expected at least one argument.");
+					m_errorReporter.typeError(_functionCall.location(),
+                    "Expected argument of type " + paramTypes.at(i)->canonicalName());
 				}
 			}
 		};

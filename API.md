@@ -165,6 +165,7 @@ contract development.
       * [Deploy via new](#deploy-via-new)
     * [Misc functions from `tvm`](#misc-functions-from-tvm)
       * [tvm.pubkey()](#tvmpubkey)
+      * [tvm.setPubkey()](#tvmsetpubkey)
       * [tvm.setCurrentCode()](#tvmsetcurrentcode)
       * [tvm.resetStorage()](#tvmresetstorage)
       * [tvm.functionId()](#tvmfunctionid)
@@ -2468,6 +2469,14 @@ tvm.pubkey() returns (uint256);
 ```
 
 Returns contract's public key, stored in contract data. If key is not set function returns 0.
+
+##### tvm.setPubkey()
+
+```TVMSolidity
+tvm.setPubkey(uint256 newPubkey);
+```
+
+Set new contract's public key. Contract's public key can be obtained from `tvm.pubkey`.
 
 ##### tvm.setCurrentCode()
 

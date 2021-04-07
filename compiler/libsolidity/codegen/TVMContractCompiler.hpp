@@ -43,17 +43,16 @@ private:
 
 class TVMContractCompiler: private boost::noncopyable {
 public:
-	static langutil::ErrorReporter* g_errorReporter;
-
-public:
 	static void generateABI(const std::string& fileName, ContractDefinition const* contract, std::vector<PragmaDirective const *> const& pragmaDirectives);
 	static void proceedContract(
 		const std::string& fileName,
 		ContractDefinition const& contract,
-		PragmaDirectiveHelper const &pragmaHelper,
-		bool withOptimizations
+		PragmaDirectiveHelper const &pragmaHelper
 	);
-	static CodeLines proceedContractMode1(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper, bool disable_optimizer);
+	static CodeLines proceedContractMode1(
+        ContractDefinition const* contract,
+        PragmaDirectiveHelper const& pragmaHelper
+    );
 	static void fillInlineFunctions(TVMCompilerContext& ctx, ContractDefinition const* contract);
 };
 

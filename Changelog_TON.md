@@ -1,3 +1,11 @@
+### 0.40.0 (2021-04-06)
+
+Compiler features:
+ * Support `tvm.setPubkey(...);`
+ * Support command line option `--debug` for generating debug info.
+
+Some gas optimizations and bugfixes.
+
 ### 0.39.0 (2021-03-28)
 
 Compiler Features:

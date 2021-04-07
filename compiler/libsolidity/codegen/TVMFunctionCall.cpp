@@ -744,7 +744,7 @@ std::string FunctionCallCompiler::getDefaultMsgValue() {
 	if (!expr) {
 		return StackPusherHelper::tonsToBinaryString(u256{TvmConst::Message::DefaultMsgValue});
 	}
-	const auto& [ok, val] = m_exprCompiler->constValue(*expr);
+	const auto& [ok, val] = TVMExpressionCompiler::constValue(*expr);
 	if (!ok) {
 		cast_error(*expr, "Default value should be compile time expression of number type");
 	}
@@ -1854,6 +1854,9 @@ void FunctionCallCompiler::rndFunction(MemberAccess const &_node) {
 bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 	if (_node.memberName() == "pubkey") { // tvm.pubkey
 		m_pusher.push(+1, "GETGLOB 2");
+	} else if (_node.memberName() == "setPubkey") { // tvm.setPubkey
+		pushArgs();
+		m_pusher.push(-1, "SETGLOB 2");
 	} else if (_node.memberName() == "accept") { // tvm.accept
 		m_pusher.push(0, "ACCEPT");
 	} else if (_node.memberName() == "hash") { // tvm.hash
@@ -1898,6 +1901,8 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 	} else if (_node.memberName() == "setCurrentCode") { // tvm.setCurrentCode
 		pushArgs();
 		m_pusher.push(-1+1, "CTOS");
+		m_pusher.push(0, "PLDREF");
+		m_pusher.push(0, "CTOS");
 		m_pusher.push(0, "BLESS");
 		m_pusher.push(-1, "POP c3");
 	} else if (_node.memberName() == "commit") { // tvm.commit
@@ -2161,7 +2166,7 @@ bool FunctionCallCompiler::checkLocalFunctionCall(const Identifier *identifier) 
 		m_pusher.push(codeLines);
 		m_pusher.push(-nParams + nRetVals, "");
 	} else {
-		m_pusher.pushCallOrCallRef(m_pusher.ctx().getFunctionInternalName(functionDefinition), functionType);
+		m_pusher.pushCallOrCallRef(m_pusher.ctx().getFunctionInternalName(functionDefinition, false), functionType);
 	}
 	return true;
 }
@@ -2201,10 +2206,10 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 
 		case FunctionType::Kind::SHA256: { // "sha256"
 			pushArgAndConvert(0);
-            Type const* arg = m_funcType->parameterTypes().at(0);
-            auto arrType = to<ArrayType>(arg);
+			Type const* arg = m_funcType->parameterTypes().at(0);
+			auto arrType = to<ArrayType>(arg);
 			if (arrType && arrType->isByteArray()) {
-                m_pusher.push(0, "CTOS");
+				m_pusher.push(0, "CTOS");
 			}
 			m_pusher.push(0, "SHA256U");
 			return true;
@@ -2337,17 +2342,23 @@ IF
 				// stack: BldrList builder
 				std::string constStr = substrings[it].first;
 				if (constStr.length()) {
-					size_t maxSlice = (TvmConst::MaxPushSliceLength >> 1);
-					if (constStr.length() <= maxSlice) {
-						m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr));
-					} else {
-						m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr.substr(0, maxSlice)));
-						// stack: BldrList builder Slice
-						m_pusher.pushMacroCallInCallRef(+1, "storeStringInBuilders_macro");
-						m_pusher.pushMacroCallInCallRef(-2, "appendToList_macro");
-						// stack: BldrList builder
-						m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr.substr(maxSlice)));
-					}
+				    // TODO use this and delete code below
+//                    m_pusher.pushString(constStr, true);
+
+                    // TODO delete
+                    size_t maxSlice = (TvmConst::MaxPushSliceLength >> 1);
+                    if (constStr.length() <= maxSlice) {
+                        m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr));
+                    } else {
+                        m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr.substr(0, maxSlice)));
+                        // stack: BldrList builder Slice
+                        m_pusher.pushMacroCallInCallRef(+1, "storeStringInBuilders_macro");
+                        m_pusher.pushMacroCallInCallRef(-2, "appendToList_macro");
+                        // stack: BldrList builder
+                        m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr.substr(maxSlice)));
+                    }
+
+
 					// stack: BldrList builder Slice
 					m_pusher.pushMacroCallInCallRef(+1, "storeStringInBuilders_macro");
 					m_pusher.pushMacroCallInCallRef(-2, "appendToList_macro");
@@ -2360,11 +2371,10 @@ IF
 				if (cat == Type::Category::Integer || cat == Type::Category::RationalNumber) {
 					// stack: BldrList builder
 					std::string format = substrings[it].second;
-					bool leadingZeroes = !format.empty() ? (format[0] == '0') : false;
-					bool isHex = !format.empty() ?
-								(format.back() == 'x' || format.back() == 'X') : false;
-					bool isLower = isHex ? (format.back() == 'x') : false;
-					bool isTon = !format.empty() ? format.back() == 't' : false;
+					bool leadingZeroes = !format.empty() && (format[0] == '0');
+					bool isHex = !format.empty() && (format.back() == 'x' || format.back() == 'X');
+					bool isLower = isHex && (format.back() == 'x');
+					bool isTon = !format.empty() && format.back() == 't';
 					if (!isTon) {
 						while (!format.empty() && (format.back() < '0' || format.back() > '9')) {
 							format.erase(format.size() - 1, 1);
@@ -2433,6 +2443,7 @@ IF
 			}
 			if (formatStr.length()) {
 				size_t maxSlice = (TvmConst::MaxPushSliceLength >> 1);
+				// TODO it's copy-pasta
 				if (formatStr.length() <= maxSlice) {
 					m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(formatStr));
 				} else {
@@ -2875,9 +2886,9 @@ void FunctionCallCompiler::compileLog()
 	auto logstr = m_arguments[0].get();
 	auto literal = to<Literal>(logstr);
 	if (literal && literal->value().size() < 16) {
-        std::string hexStr = stringToBytes(literal->value());
-        m_pusher.push(0, "PRINTSTR x" + hexStr);
-    } else {
+		std::string hexStr = stringToBytes(literal->value());
+		m_pusher.push(0, "PRINTSTR x" + hexStr);
+	} else {
 		pushArgs();
 		m_pusher.pushLog();
 	}

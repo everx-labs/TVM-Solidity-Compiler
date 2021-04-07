@@ -1,13 +1,5 @@
 .internal-alias :general_purpose,    1
 
-.selector
-DICTPUSHCONST 32 ; -2 dict 32
-PUSHREFCONT      ; -2 dict 32 selectorII
-POPCTR c3        ; -2 dict 32
-DICTIGETJMP
-
-
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; THE CODE BELOW IS GENERATED. DO NOT CHANGE IT!
 
@@ -2701,8 +2693,8 @@ CALL $__substr_macro$
 ;; param: from
 ;; param: count
 ;; ret param: substr
-NEWC
-ENDC
+PUSHREF {
+}
 ; function __substr
 ;; push identifier str
 PUSH S3

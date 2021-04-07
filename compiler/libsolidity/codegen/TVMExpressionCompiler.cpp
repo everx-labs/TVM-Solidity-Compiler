@@ -153,7 +153,7 @@ void TVMExpressionCompiler::visitStringLiteralAbiV1(Literal const &_node) {
 		int cntBlock = (size + step - 1) / step;
 		for (int start = size - cntBlock * step; start < size; start += step, ++builderQty) {
 			std::string slice = stringToBytes(str.substr(max(0, start), step));
-			if (slice.size() > 124) { // there is bug in linker or in spec.
+			if (slice.size() > 124) {
 				m_pusher.push(+1, "NEWC");
 				m_pusher.push(+1, "PUSHSLICE x" + slice.substr(0, 2 * (127 - 124)));
 				m_pusher.push(-1, "STSLICER");
@@ -176,35 +176,7 @@ void TVMExpressionCompiler::visitStringLiteralAbiV1(Literal const &_node) {
 
 void TVMExpressionCompiler::visitStringLiteralAbiV2(Literal const &_node) {
 	const std::string &str = _node.value();
-	const int stringLiteralLength = str.size();
-	const int saveStackSize = m_pusher.getStack().size();
-	if (stringLiteralLength == 0) {
-		m_pusher.push(+1, "NEWC");
-		m_pusher.push(-1 + 1, "ENDC");
-	} else {
-		const int bytesInCell = TvmConst::CellBitLength / 8; // 127
-		int builderQty = 0;
-		for (int start = 0; start < stringLiteralLength; start += bytesInCell, ++builderQty) {
-			std::string slice = stringToBytes(str.substr(start, std::min(bytesInCell, stringLiteralLength - start)));
-			if (slice.size() > TvmConst::MaxPushSliceLength) {
-				m_pusher.push(+1, "PUSHSLICE x" + slice.substr(TvmConst::MaxPushSliceLength));
-				m_pusher.push(+1, "PUSHSLICE x" + slice.substr(0, TvmConst::MaxPushSliceLength));
-				m_pusher.push(+1, "NEWC");
-				m_pusher.push(-1, "STSLICE");
-				m_pusher.push(-1, "STSLICE");
-			} else {
-				m_pusher.push(+1, "PUSHSLICE x" + slice);
-				m_pusher.push(+1, "NEWC");
-				m_pusher.push(-1, "STSLICE");
-			}
-		}
-		--builderQty;
-		while (builderQty --> 0) {
-			m_pusher.push(-1, "STBREFR");
-		}
-		m_pusher.push(0, "ENDC");
-	}
-	m_pusher.getStack().ensureSize(saveStackSize + 1, "");
+    m_pusher.pushString(str, false);
 }
 
 void TVMExpressionCompiler::visit2(Literal const &_node) {

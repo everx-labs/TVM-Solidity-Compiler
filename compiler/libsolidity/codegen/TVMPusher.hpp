@@ -94,7 +94,7 @@ public:
 	PragmaDirectiveHelper const& pragmaHelper() const;
 	bool haveTimeInAbiHeader() const;
 	bool isStdlib() const;
-	string getFunctionInternalName(FunctionDefinition const* _function) const;
+	string getFunctionInternalName(FunctionDefinition const* _function, bool calledByPoint = true) const;
 	static string getFunctionExternalName(FunctionDefinition const* _function);
 	const ContractDefinition* getContract() const;
 	bool ignoreIntegerOverflow() const;
@@ -118,6 +118,7 @@ public:
 	void setIsReceiveGenerated() { m_isReceiveGenerated = true; }
 	bool isOnBounceGenerated() const { return m_isOnBounceGenerated; }
 	void setIsOnBounce() { m_isOnBounceGenerated = true; }
+	bool isBaseFunction(CallableDeclaration const* d) const;
 
 private:
 	ContractDefinition const* m_contract{};
@@ -136,6 +137,7 @@ private:
 	bool m_isFallBackGenerated{};
 	bool m_isReceiveGenerated{};
 	bool m_isOnBounceGenerated{};
+    std::set<CallableDeclaration const*> m_baseFunctions;
 };
 
 class StackPusherHelper {
@@ -151,7 +153,7 @@ public:
 public:
 	explicit StackPusherHelper(TVMCompilerContext* ctx, const int stackSize = 0);
 
-	void tryPollLastRetOpcode();
+	void pollLastRetOpcode();
 	bool tryPollConvertBuilderToSlice();
 	bool tryPollEmptyPushCont();
 	bool cmpLastCmd(const std::string& cmd, int offset = 0);
@@ -176,10 +178,12 @@ public:
 	void startIfJmpRef(int deltaStack = 0);
 	void startIfNotRef(int deltaStack = 0);
 	void startCallRef(int deltaStack = 0);
+	void startCell();
 	void endContinuation(int deltaStack = 0);
 
 	StructCompiler& structCompiler();
 	TVMStack& getStack();
+    void pushString(const std::string& str, bool toSlice);
 	void pushLog();
 	void pushLines(const std::string& lines);
 	void untuple(int n);
