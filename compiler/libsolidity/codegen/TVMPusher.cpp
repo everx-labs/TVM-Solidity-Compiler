@@ -15,7 +15,7 @@
  * @date 2019
  */
 
-#include "TVMCommons.hpp"
+#include "DictOperations.hpp"
 #include "TVMPusher.hpp"
 #include "TVMContractCompiler.hpp"
 #include "TVMExpressionCompiler.hpp"
@@ -23,14 +23,6 @@
 #include <boost/range/adaptor/map.hpp>
 
 using namespace solidity::frontend;
-
-DictOperation::DictOperation(StackPusherHelper& pusher, Type const& keyType, Type const& valueType) :
-		pusher{pusher},
-		keyType{keyType},
-		keyLength{lengthOfDictKey(&keyType)},
-		valueType{valueType},
-		valueCategory{valueType.category()} {
-}
 
 StackPusherHelper::StackPusherHelper(TVMCompilerContext *ctx, const int stackSize) :
 		m_ctx(ctx),
@@ -42,29 +34,29 @@ StackPusherHelper::StackPusherHelper(TVMCompilerContext *ctx, const int stackSiz
 	m_stack.change(stackSize);
 }
 
-void StackPusherHelper::pushString(const std::string& str, bool toSlice) {
-    if (str.length() <= TvmConst::MaxPushSliceLength && toSlice) {
-        // TODO uncomment. Is it faster?
-        //push(+1, "PUSHSLICE " + stringToBytes(str));
-        //return ;
+void StackPusherHelper::pushString(const std::string& _str, bool toSlice) {
+	std::string hexStr = stringToBytes(_str); // 2 * len(_str) == len(hexStr). One symbol to 2 hex digits
+    if (4 * hexStr.length() <= TvmConst::MaxPushSliceBitLength && toSlice) {
+        push(+1, "PUSHSLICE x" + hexStr);
+        return ;
     }
 
-    const int stringLiteralLength = str.size();
     const int saveStackSize = getStack().size();
-    const int bytesInCell = TvmConst::CellBitLength / 8; // 127
+    const int length = hexStr.size();
+    const int symbolQty = ((TvmConst::CellBitLength / 8) * 8) / 4; // one symbol in string == 8 bit. Letter can't be divided by 2 cells
     push(+1, "PUSHREF {");
     addTabs();
     int builderQty = 0;
     int start = 0;
     do {
-        std::string slice = stringToBytes(str.substr(start, std::min(bytesInCell, stringLiteralLength - start)));
+        std::string slice = hexStr.substr(start, std::min(symbolQty, length - start));
         if (start > 0) {
             startCell();
         }
         push(0, ".blob x" + slice);
-        start += bytesInCell;
+        start += symbolQty;
         ++builderQty;
-    } while (start < stringLiteralLength);
+    } while (start < length);
     for (int i = 0; i < builderQty; ++i) {
         endContinuation();
     }
@@ -294,20 +286,29 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 	bool haveKey,
 	bool didUseOpcodeWithRef,
 	const DecodeType& decodeType,
-	bool resultAsSliceForStruct
+	bool resultAsSliceForStruct,
+	bool saveOrigKeyAndNoTuple
 )
 {
 	// stack: value [key]
 	auto preloadValue = [&]() {
 		if (haveKey) {
+			// stack: value key
+			if (saveOrigKeyAndNoTuple) {
+				pushS(0); // stack: value key key
+			}
 			if (keyType->category() == Type::Category::Struct) {
 				StructCompiler sc{this, to<StructType>(keyType)};
 				sc.convertSliceToTuple();
+				// stack: value slice Tuple
 			}
-			exchange(0, 1);
-			// stack: key value
+			if (saveOrigKeyAndNoTuple)
+				push(0, "ROT");
+			else
+				exchange(0, 1);
+			// stack: slice key value
 		}
-		// stack: [key] value
+		// stack: [slice, key] value
 
 		switch (toDictValueType(valueType->category())) {
 			case DictValueType::Address:
@@ -398,18 +399,35 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 			break;
 		}
 		case DecodeType::DecodeValueOrPushNull: {
-			push(0, "NULLSWAPIFNOT");
+			if (!saveOrigKeyAndNoTuple) {
+				push(0, "NULLSWAPIFNOT");
+			}
 
 			startContinuation();
 			preloadValue();
 			if (haveKey) {
-				tuple(2);
+				if (saveOrigKeyAndNoTuple) {
+					//
+				} else {
+					tuple(2);
+				}
 			} else {
 				checkOnMappingOrOptional();
 			}
 			endContinuation();
 
-			push(0, "IF");
+			if (saveOrigKeyAndNoTuple) {
+				startContinuation();
+				push(0, "NULL");
+				push(0, "NULL");
+				push(0, "NULL");
+				endContinuation();
+
+				push(0, "IFELSE");
+			} else {
+				push(0, "IF");
+			}
+
 			break;
 		}
 		case DecodeType::PushNullOrDecodeValue: {
@@ -425,68 +443,6 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 		}
 	}
 }
-
-class DictSet : public DictOperation {
-public:
-	DictSet(
-		StackPusherHelper& pusher,
-		Type const &keyType,
-		Type const &valueType,
-		const DataType& dataType,
-		StackPusherHelper::SetDictOperation operation
-	) :
-		DictOperation{pusher, keyType, valueType},
-		dataType{dataType},
-		operation{operation}
-	{
-
-	}
-
-	void dictSet() {
-		// stack: value key dict
-		int keyLength = lengthOfDictKey(&keyType);
-		pusher.pushInt(keyLength);
-		// stack: value index dict keyBitLength
-		opcode = "DICT" + typeToDictChar(&keyType);
-		switch (operation) {
-			case StackPusherHelper::SetDictOperation::Set:
-				opcode += "SET";
-				break;
-			case StackPusherHelper::SetDictOperation::Replace:
-				opcode += "REPLACE";
-				break;
-			case StackPusherHelper::SetDictOperation::Add:
-				opcode += "ADD";
-				break;
-		}
-
-		switch (dataType) {
-			case DataType::Builder:
-				opcode += "B";
-				break;
-			case DataType::Cell:
-				opcode += "REF";
-				break;
-			case DataType::Slice:
-				break;
-		}
-
-		switch (operation) {
-			case StackPusherHelper::SetDictOperation::Set:
-				pusher.push(-4 + 1, opcode);
-				break;
-			case StackPusherHelper::SetDictOperation::Replace:
-			case StackPusherHelper::SetDictOperation::Add:
-				pusher.push(-4 + 2, opcode);
-				break;
-		}
-	}
-
-private:
-	const DataType& dataType;
-	StackPusherHelper::SetDictOperation operation;
-	std::string opcode;
-};
 
 void StackPusherHelper::setDict(Type const &keyType, Type const &valueType, const DataType& dataType, SetDictOperation operation) {
 	DictSet d{*this, keyType, valueType, dataType, operation};
@@ -1676,7 +1632,6 @@ void StackPusherHelper::prepareKeyForDictOperations(Type const *key, bool doIgno
 		sc.tupleToBuilder();
 		push(0, "ENDC");
 		push(0, "CTOS");
-	} else {
 	}
 }
 
@@ -2121,6 +2076,13 @@ string TVMCompilerContext::getFunctionInternalName(FunctionDefinition const* _fu
 	return functionName;
 }
 
+string TVMCompilerContext::getLibFunctionName(FunctionDefinition const* _function, bool withObject) {
+	std::string name = _function->annotation().contract->name() +
+			(withObject ? "_with_obj_" : "_no_obj_") +
+			_function->name();
+	return name;
+}
+
 string TVMCompilerContext::getFunctionExternalName(FunctionDefinition const *_function) {
 	const string& fname = _function->name();
 	solAssert(_function->isPublic(), "Internal error: expected public function: " + fname);
@@ -2320,122 +2282,7 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 	}
 }
 
-class GetFromDict : public DictOperation {
-public:
-	GetFromDict(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, const StackPusherHelper::GetDictOperation op,
-				const bool resultAsSliceForStruct, const DataType& dataType) :
-		DictOperation{pusher, keyType, valueType},
-		op{op},
-		resultAsSliceForStruct{resultAsSliceForStruct},
-		dataType{dataType}
-	{
 
-	}
-
-	void getDict() {
-		pusher.pushInt(keyLength); // push keyLength on stack
-		// if op == GetSetFromMapping than stack: value key dict keyLength
-		// else                            stack: key dict keyLength
-
-		const int saveStake = pusher.getStack().size();
-		std::string opcode = "DICT" + typeToDictChar(&keyType);
-		int stackDelta{};
-		switch (op) {
-			case StackPusherHelper::GetDictOperation::GetSetFromMapping:
-			case StackPusherHelper::GetDictOperation::GetAddFromMapping:
-			case StackPusherHelper::GetDictOperation::GetReplaceFromMapping: {
-				stackDelta = -4 + 2;
-				if (op == StackPusherHelper::GetDictOperation::GetSetFromMapping)
-					opcode += "SETGET";
-				else if (op == StackPusherHelper::GetDictOperation::GetAddFromMapping)
-					opcode += "ADDGET";
-				else if (op == StackPusherHelper::GetDictOperation::GetReplaceFromMapping)
-					opcode += "REPLACEGET";
-				else
-					solUnimplemented("");
-
-				bool didUseOpcodeWithRef = false;
-				switch (dataType) {
-					case DataType::Builder:
-						opcode += "B";
-						break;
-					case DataType::Cell:
-						didUseOpcodeWithRef = true;
-						opcode += "REF";
-						break;
-					case DataType::Slice:
-						break;
-				}
-				pusher.push(stackDelta, opcode);
-
-				StackPusherHelper::DecodeType decodeType{};
-				if (op == StackPusherHelper::GetDictOperation::GetAddFromMapping)
-					decodeType = StackPusherHelper::DecodeType::PushNullOrDecodeValue;
-				else if (
-					op == StackPusherHelper::GetDictOperation::GetSetFromMapping ||
-					op == StackPusherHelper::GetDictOperation::GetReplaceFromMapping
-				)
-					decodeType = StackPusherHelper::DecodeType::DecodeValueOrPushNull;
-				else
-					solUnimplemented("");
-				int ss = pusher.getStack().size();
-				pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, didUseOpcodeWithRef, decodeType, resultAsSliceForStruct);
-				solAssert(ss == pusher.getStack().size(), "");
-				break;
-			}
-
-			case StackPusherHelper::GetDictOperation::Exist: {
-				stackDelta = -3 + 1;
-				opcode += "GET";
-				pusher.push(stackDelta, opcode);
-				checkExist();
-				break;
-			}
-			case StackPusherHelper::GetDictOperation::Fetch:
-			case StackPusherHelper::GetDictOperation::GetFromArray:
-			case StackPusherHelper::GetDictOperation::GetFromMapping: {
-				stackDelta = -3 + 1;
-				opcode += "GET";
-				bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
-				if (isInRef) {
-					opcode += "REF";
-				}
-				pusher.push(stackDelta, opcode);
-				if (op == StackPusherHelper::GetDictOperation::GetFromArray) {
-					pusher.push(0, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-				}
-				StackPusherHelper::DecodeType decodeType{};
-				if (op == StackPusherHelper::GetDictOperation::Fetch) {
-					decodeType = StackPusherHelper::DecodeType::DecodeValueOrPushNull;
-				} else if (op == StackPusherHelper::GetDictOperation::GetFromArray) {
-					decodeType = StackPusherHelper::DecodeType::DecodeValue;
-				} else if (op == StackPusherHelper::GetDictOperation::GetFromMapping) {
-					decodeType = StackPusherHelper::DecodeType::DecodeValueOrPushDefault;
-				} else {
-					solUnimplemented("");
-				}
-				pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, isInRef, decodeType, resultAsSliceForStruct);
-				break;
-			}
-		}
-
-		pusher.getStack().ensureSize(saveStake + stackDelta);
-	}
-
-private:
-	void checkExist() {
-		pusher.push(0, "DUP");
-		pusher.startContinuation();
-		pusher.push(0, "NIP");
-		pusher.endContinuation();
-		pusher.push(0, "IF");
-	}
-
-protected:
-	const StackPusherHelper::GetDictOperation op{};
-	const bool resultAsSliceForStruct{};
-	const DataType dataType{};
-};
 
 void StackPusherHelper::getDict(
 	Type const& keyType,
@@ -2446,10 +2293,6 @@ void StackPusherHelper::getDict(
 ) {
 	GetFromDict d(*this, keyType, valueType, op, resultAsSliceForStruct, dataType);
 	d.getDict();
-}
-
-
-void StackPusherHelper::switchSelector() {
 }
 
 void StackPusherHelper::byteLengthOfCell()

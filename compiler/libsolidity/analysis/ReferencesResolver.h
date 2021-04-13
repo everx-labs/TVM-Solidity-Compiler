@@ -67,7 +67,9 @@ private:
 	bool visit(Block const& _block) override;
 	void endVisit(Block const& _block) override;
 	bool visit(ForStatement const& _for) override;
+	bool visit(ForEachStatement const& _for) override;
 	void endVisit(ForStatement const& _for) override;
+	void endVisit(ForEachStatement const& _for) override;
 	void endVisit(VariableDeclarationStatement const& _varDeclStatement) override;
 	bool visit(Identifier const& _identifier) override;
 	bool visit(ElementaryTypeName const& _typeName) override;

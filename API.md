@@ -58,18 +58,18 @@ contract development.
 * [Changes and extensions in solidity types](#changes-and-extensions-in-solidity-types)
   * [struct](#struct)
     * [\<struct\>.unpack()](#structunpack)
-  * [string](#string)
-    * [\<string\>.byteLength()](#stringbytelength)
-    * [\<string\>.substr()](#stringsubstr)
-    * [\<string\>.append()](#stringappend)
-    * [format()](#format)
-    * [stoi()](#stoi)
   * [bytes](#bytes)
     * [\<bytes\>.operator[]](#bytesoperator)
     * [\<bytes\>.length](#byteslength)
     * [\<bytes\>.toSlice](#bytestoslice)
     * [\<bytes\>.dataSize()](#bytesdatasize)
     * [\<bytes\>.dataSizeQ()](#bytesdatasizeq)
+  * [string](#string)
+    * [\<string\>.byteLength()](#stringbytelength)
+    * [\<string\>.substr()](#stringsubstr)
+    * [\<string\>.append()](#stringappend)
+    * [format()](#format)
+    * [stoi()](#stoi)
   * [address](#address)
     * [Object creating](#object-creating)
       * [constructor()](#constructor)
@@ -163,6 +163,10 @@ contract development.
       * [tvm.buildEmptyData()](#tvmbuildemptydata)
       * [tvm.deploy()](#tvmdeploy)
       * [Deploy via new](#deploy-via-new)
+        * [`stateInit` option usage](#stateinit-option-usage)
+        * [`code` option usage](#code-option-usage)
+      * [Another deploy options](#another-deploy-options)
+      * [New contract address problem](#new-contract-address-problem)
     * [Misc functions from `tvm`](#misc-functions-from-tvm)
       * [tvm.pubkey()](#tvmpubkey)
       * [tvm.setPubkey()](#tvmsetpubkey)
@@ -662,7 +666,8 @@ Deletes contents of the optional.
 
 ### Range-based for loop
 
-Executes a for loop over a range. Used as a more readable equivalent to the traditional for loop operating over a range of values, such as all elements in a array or mapping.
+Executes a for loop over a range. Used as a more readable equivalent to the traditional for loop
+operating over a range of values, such as all elements in a array or mapping.
 
 ```TVMSolidity
 for ( range_declaration : range_expression ) loop_statement
@@ -677,6 +682,11 @@ for (uint val : arr) { // iteration over array
     sum += val;
 }
 
+
+bytes byteArray = "Hello!";
+for (byte b : byteArray) {
+    
+}
 
 mapping(uint32 => uint) map = ...;
 uint keySum = 0;
@@ -756,6 +766,17 @@ function f() pure public {
 ```
 
 #### bytes
+
+`bytes` is array of `byte`. It is similar to `byte[]`. But they are encoded by different ways.
+
+Example of `bytes` initialization:
+
+```TVMSolidity
+// initialised with string
+bytes a = "abzABZ0129";
+// initialised with hex data
+bytes b = hex"01239abf";
+```
 
 ##### \<bytes\>.operator[]
 
@@ -2620,7 +2641,8 @@ tvm.buildExtMsg({
     abiVer: uint8,
     callbackId: uint32.
     onErrorId: uint32,
-    stateInit: TvmCell
+    stateInit: TvmCell,
+    signBoxHandle: optional(uint32)
 })
 returns (TvmCell);
 ```
@@ -2633,6 +2655,7 @@ Mandatory parameters that are used to form a src address field that is used for 
 * `abiVer` - ABI version.
 * `callbackId` - identifier of the callback function.
 * `onErrorId` - identifier of the function that is called in case of error.
+* `signBoxHandle` - handle of the sign box entity, that engine will use to sign the message.
 
 This parameters are stored in addr_extern and placed to the src field of the message.
 Message is of type [ext_in_msg_info](https://github.com/ton-blockchain/ton/blob/24dc184a2ea67f9c47042b4104bbb4d82289fac1/crypto/block/block.tlb#L127)  
@@ -2643,6 +2666,7 @@ but stores special data:
 * on error id - 32 bits;
 * abi version - 8 bits;
 * header mask - 3 bits in such order: time, expire, pubkey.
+* optional value signBoxHandle - 1 bit (whether value presents) + [32 bits] 
 
 Other function parameters define fields of the message:
 
@@ -2690,7 +2714,9 @@ contract Test {
         optional(uint) pubkey;
         pubkey.set(0x95c06aa743d1f9000dd64b75498f106af4b7e7444234d7de67ea26988f6181df);
         address addr = address.makeAddrStd(0, 0x0123456789012345678901234567890123456789012345678901234567890123);
-        m_cell = tvm.buildExtMsg({abiVer: 1, callbackId: 0, onErrorId: 0, dest: addr, time: 0x1771c58ef9a, expire: 0x600741e4, call: {Foo.bar, 111, 88}, pubkey: pubkey, sign: true});
+        optional(uint32) signBox;
+        signBox.set(0x12333112);
+        m_cell = tvm.buildExtMsg({abiVer: 1, callbackId: 0, onErrorId: 0, dest: addr, time: 0x1771c58ef9a, expire: 0x600741e4, call: {Foo.bar, 111, 88}, pubkey: pubkey, sign: true, signBoxHandle: signBox});
     }
 
 }
@@ -2712,11 +2738,12 @@ contract Test {
         address addr = address.makeAddrStd(0, 0x0123456789012345678901234567890123456789012345678901234567890123);
         Foo(addr).bar{extMsg: true, expire: 0x12345, time: 0x123}(123, 45);
         optional(uint) pubkey;
+        optional(uint32) signBox;
         Foo(addr).bar{extMsg: true, expire: 0x12345, time: 0x123, pubkey: pubkey}(123, 45);
         Foo(addr).bar{extMsg: true, expire: 0x12345, time: 0x123, pubkey: pubkey, sign: true}(123, 45);
         pubkey.set(0x95c06aa743d1f9000dd64b75498f106af4b7e7444234d7de67ea26988f6181df);
         Foo(addr).bar{extMsg: true, expire: 0x12345, time: 0x123, pubkey: pubkey, sign: true}(123, 45);
-        Foo(addr).bar{extMsg: true, expire: 0x12345, time: 0x123, sign: true}(123, 45);
+        Foo(addr).bar{extMsg: true, expire: 0x12345, time: 0x123, sign: true, signBoxHandle: signBox}(123, 45);
     }
 }
 ```

@@ -356,19 +356,19 @@ TVMContractCompiler::proceedContractMode1(
 		if (!function->parameters().empty()) {
 			{
 				StackPusherHelper pusher{&ctx};
-				const std::string name = function->annotation().contract->name() + "_with_obj_" + function->name();
+				const std::string name = ctx.getLibFunctionName(function, true);
 				TVMFunctionCompiler::generateLibraryFunction(pusher, function, name);
 				optimize_and_append_code(code, pusher);
 			}
 			{
 				StackPusherHelper pusher{&ctx};
-				const std::string name = function->annotation().contract->name() + "_with_obj_" + function->name() + "_macro";
+				const std::string name = ctx.getLibFunctionName(function, true) + "_macro";
 				TVMFunctionCompiler::generateLibraryFunctionMacro(pusher, function, name);
 				optimize_and_append_code(code, pusher);
 			}
 		}
 		StackPusherHelper pusher{&ctx};
-		const std::string name = function->annotation().contract->name() + "_no_obj_" + function->name();
+		const std::string name = ctx.getLibFunctionName(function, false);
 		TVMFunctionCompiler::generatePrivateFunction(pusher, name);
 		TVMFunctionCompiler::generateMacro(pusher, function, name + "_macro");
 		optimize_and_append_code(code, pusher);

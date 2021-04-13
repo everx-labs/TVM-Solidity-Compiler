@@ -65,9 +65,9 @@ protected:
 	bool checkBaseContractCall(MemberAccess const& _node, Type::Category category);
 	bool checkAddressThis();
 	void typeConversion();
-	bool checkLocalFunctionCall(const Identifier* identifier);
+	bool checkLocalFunctionOrLibCall(const Identifier* identifier);
 	bool checkSolidityUnits();
-	bool checkLocalFunctionCallOrFuncVarCall();
+	bool checkLocalFunctionOrLibCallOrFuncVarCall();
 	bool checkNewExpression();
 	bool createNewContract();
 	void deployNewContract(
@@ -109,6 +109,7 @@ protected:
 		const Expression *abiVer,
 		const Expression *onerrorid,
 		const Expression *stateInit,
+        const Expression *signBoxHandle,
 		const CallableDeclaration *functionDefinition,
 		const ast_vec<Expression const> arguments
 	);

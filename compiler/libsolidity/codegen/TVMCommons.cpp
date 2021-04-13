@@ -382,4 +382,14 @@ std::string stringToBytes(const std::string& str) {
 	return slice;
 }
 
+std::set<CallableDeclaration const*> getAllBaseFunctions(CallableDeclaration const* f) {
+	std::set<CallableDeclaration const*> res;
+	for (CallableDeclaration const* base : f->annotation().baseFunctions) {
+		res.insert(base);
+		std::set<CallableDeclaration const*> cur = getAllBaseFunctions(base);
+		res.insert(cur.begin(), cur.end());
+	}
+	return res;
+}
+
 } // end namespace solidity::frontend

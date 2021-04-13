@@ -24,18 +24,6 @@ namespace solidity::frontend {
 
 class TVMExpressionCompiler {
 public:
-	struct LValueInfo {
-		explicit LValueInfo() {}
-		explicit LValueInfo(Type const* rightType) :
-			rightType{rightType} {
-		}
-		std::vector<Expression const*> expressions;
-		std::vector<bool> isResultBuilder;
-		bool isValueBuilder{};
-		bool doesntNeedToCollect = false;
-		Type const* rightType{};
-	};
-
 	explicit TVMExpressionCompiler(StackPusherHelper &pusher);
 	void compileNewExpr(const Expression* expr);
 	void acceptExpr(const Expression* expr, bool _isResultNeeded);
@@ -103,36 +91,6 @@ private:
 	int m_expressionDepth;
 	bool m_isResultNeeded;
 	std::set<Expression const*> m_resultIsSlice;
-};
-
-
-
-class DictMinMax : public DictOperation {
-public:
-	DictMinMax(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, bool isMin) :
-			DictOperation{pusher, keyType, valueType}, isMin{isMin} {
-
-	}
-
-	void minOrMax();
-
-private:
-	const bool isMin{};
-	std::string dictOpcode;
-};
-
-class DictPrevNext : public DictOperation {
-public:
-	DictPrevNext(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, const std::string& oper) :
-			DictOperation{pusher, keyType, valueType},
-			oper{oper}
-	{
-	}
-
-	void prevNext();
-
-private:
-	const std::string oper;
 };
 
 }	// end solidity::frontend

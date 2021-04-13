@@ -20,8 +20,6 @@
 #include "TVMPusher.hpp"
 #include "TVMStructCompiler.hpp"
 
-#include <utility>
-
 using namespace solidity::frontend;
 
 StructCompiler::FieldSizeInfo::FieldSizeInfo(bool isBitFixed, bool isRefFixed, int maxBitLength, int maxRefLength)

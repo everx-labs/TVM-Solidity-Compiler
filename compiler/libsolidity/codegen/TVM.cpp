@@ -47,6 +47,7 @@ void TVMCompilerProceedContract(
 	if (filePrefix.empty()) {
 		pathToFiles = boost::filesystem::path{solFileName}.stem().string();
 	} else {
+		// TODO check that filePrefix is not path. It doesn't contain / or \ or ..
 		pathToFiles = filePrefix;
 	}
 

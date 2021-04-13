@@ -16,56 +16,18 @@
  * Function call compiler for TVM
  */
 
+#include "DictOperations.hpp"
 #include "TVMFunctionCall.hpp"
 #include "TVMExpressionCompiler.hpp"
 #include "TVMIntrinsics.hpp"
 #include "TVMStructCompiler.hpp"
-#include "TVMABI.hpp"
 
 #include <boost/algorithm/string.hpp>
 #include <libsolidity/ast/TypeProvider.h>
 
 using namespace solidity::frontend;
 
-
-class DelMinOrMax : public DictOperation {
-public:
-	DelMinOrMax(StackPusherHelper& pusher, Type const &keyType, Type const &valueType, bool isDelMin, MemberAccess const* memberAccess)  :
-			DictOperation{pusher, keyType, valueType},
-			isDelMin{isDelMin},
-			memberAccess{memberAccess},
-			ec{pusher}
-	{
-
-	}
-
-	void delMinOrMax() {
-		bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
-		opcode = "DICT" + typeToDictChar(&keyType) + "REM" + (isDelMin? "MIN" : "MAX") + (isInRef? "REF" : "");
-		stackSize = pusher.getStack().size();
-
-		lValueInfo = ec.expandLValue(&memberAccess->expression(), true, false); // lValue... map
-		pusher.pushInt(keyLength); // dict nbits
-		pusher.push(-2 + 3, opcode); //  D value key -1
-
-		pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, true, isInRef, StackPusherHelper::DecodeType::DecodeValueOrPushNull, false);
-
-		// mapLValue... D optPair
-		const int cntOfValuesOnStack = pusher.getStack().size() - stackSize;
-		pusher.blockSwap(cntOfValuesOnStack - 1, 1); // optPair mapLValue... map
-		ec.collectLValue(lValueInfo, true, false); // value key
-	}
-
-private:
-	const bool isDelMin{};
-	MemberAccess const* memberAccess{};
-	TVMExpressionCompiler::LValueInfo lValueInfo{};
-	TVMExpressionCompiler ec;
-	int stackSize{};
-	std::string opcode;
-};
-
-	FunctionCallCompiler::FunctionCallCompiler(StackPusherHelper &m_pusher, TVMExpressionCompiler *exprCompiler,
+FunctionCallCompiler::FunctionCallCompiler(StackPusherHelper &m_pusher, TVMExpressionCompiler *exprCompiler,
 											FunctionCall const& _functionCall, bool isCurrentResultNeeded) :
 		m_pusher{m_pusher},
 		m_exprCompiler{exprCompiler},
@@ -106,7 +68,7 @@ bool FunctionCallCompiler::compile() {
 		checkTvmIntrinsic() ||
 		checkAddressThis() ||
 		checkSolidityUnits() ||
-		checkLocalFunctionCallOrFuncVarCall()) {
+		checkLocalFunctionOrLibCallOrFuncVarCall()) {
 		// do nothing
 	} else if (ma != nullptr && getType(&ma->expression())->category() == Type::Category::Struct) {
 		if (!structMethodCall()) {
@@ -216,18 +178,18 @@ void FunctionCallCompiler::mappingGetSet() {
 		m_pusher.prepareKeyForDictOperations(keyType, false);
 		acceptExpr(&memberAccess->expression()); // index dict
 		if (memberName == "fetch")
-			m_pusher.getDict(*keyType, *valueType, StackPusherHelper::GetDictOperation::Fetch, false);
+			m_pusher.getDict(*keyType, *valueType, GetDictOperation::Fetch, false);
 		else
-			m_pusher.getDict(*keyType, *valueType, StackPusherHelper::GetDictOperation::GetFromArray, false);
+			m_pusher.getDict(*keyType, *valueType, GetDictOperation::GetFromArray, false);
 	} else if (memberName == "exists") {
 		pushArgs(); // index
 		m_pusher.prepareKeyForDictOperations(keyType, false);
 		acceptExpr(&memberAccess->expression()); // index dict
-		m_pusher.getDict(*keyType, *valueType, StackPusherHelper::GetDictOperation::Exist, false);
+		m_pusher.getDict(*keyType, *valueType, GetDictOperation::Exist, false);
 	} else if (isIn(memberName, "replace", "add", "getSet", "getAdd", "getReplace")) {
 		const int stackSize = m_pusher.getStack().size();
 		auto ma = to<MemberAccess>(&m_functionCall.expression());
-		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&ma->expression(), true); // lValue... map
+		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&ma->expression(), true); // lValue... map
 		pushArgAndConvert(1); // lValue... map value
 		const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueType, false); // lValue... map value'
 		pushArgAndConvert(0); // mapLValue... map value key
@@ -235,23 +197,23 @@ void FunctionCallCompiler::mappingGetSet() {
 		m_pusher.push(0, "ROT"); // mapLValue... value key map
 
 		if (isIn(memberName, "replace", "add")) {
-			StackPusherHelper::SetDictOperation op;
+			SetDictOperation op;
 			if (memberName == "replace") {
-				op = StackPusherHelper::SetDictOperation::Replace;
+				op = SetDictOperation::Replace;
 			} else if (memberName == "add") {
-				op = StackPusherHelper::SetDictOperation::Add;
+				op = SetDictOperation::Add;
 			} else {
 				solUnimplemented("");
 			}
 			m_pusher.setDict(*keyType, *valueType, dataType, op); // mapLValue... map {0, -1}
 		} else {
-			StackPusherHelper::GetDictOperation op;
+			GetDictOperation op;
 			if (memberName == "getSet") {
-				op = StackPusherHelper::GetDictOperation::GetSetFromMapping;
+				op = GetDictOperation::GetSetFromMapping;
 			} else if (memberName == "getAdd") {
-				op = StackPusherHelper::GetDictOperation::GetAddFromMapping;
+				op = GetDictOperation::GetAddFromMapping;
 			} else if (memberName == "getReplace") {
-				op = StackPusherHelper::GetDictOperation::GetReplaceFromMapping;
+				op = GetDictOperation::GetReplaceFromMapping;
 			} else {
 				solUnimplemented("");
 			}
@@ -383,19 +345,19 @@ bool FunctionCallCompiler::libraryCall(MemberAccess const& ma) {
 			if (t->category() == Type::Category::TypeType) {
 				// uint z = MyLib.sum(a, b);
 				pushArgs();
-				m_pusher.pushCallOrCallRef(da.contract->name() + "_no_obj_" + libFunction->name(), funType);
+				m_pusher.pushCallOrCallRef(m_pusher.ctx().getLibFunctionName(libFunction, false), funType);
 			} else {
 				// using MathLib for uint;
 				// a.add(b);
 				const int stakeSize0 = m_pusher.getStack().size();
-				const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&ma.expression(),
+				const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&ma.expression(),
 																								  true);
 				const int stakeSize1 = m_pusher.getStack().size();
 				const int lValueQty = stakeSize1 - stakeSize0;
 
 				pushArgs();
 				m_pusher.pushCallOrCallRef(
-					da.contract->name() + "_with_obj_" + libFunction->name(),
+					m_pusher.ctx().getLibFunctionName(libFunction, true),
 					funType,
 					(-1 - argQty) + (+1 + retQty)
 				);
@@ -699,6 +661,7 @@ void FunctionCallCompiler::checkExtMsgSend(FunctionCall const& _functionCall) {
 	ASTPointer<Expression const> abiVer = nullptr;
 	ASTPointer<Expression const> onerrorid = nullptr;
 	const Expression * stateInit= nullptr;
+    const Expression * signBoxHandle = nullptr;
 
 	const int pubkeyIndex = getIndex("pubkey");
 	if (pubkeyIndex != -1) {
@@ -733,8 +696,14 @@ void FunctionCallCompiler::checkExtMsgSend(FunctionCall const& _functionCall) {
 	FunctionDefinition const* functionDefinition = getRemoteFunctionDefinition(memberAccess);
 
 	const Expression * destination = &memberAccess->expression();
+
+    const int signBoxIndex = getIndex("signBoxHandle");
+    if (signBoxIndex != -1) {
+        signBoxHandle = functionOptions->options()[signBoxIndex].get();
+    }
+
 	generateExtInboundMsg(addSignature, destination, pubkey, expire.get(), time.get(), callbackid.get(),
-						  abiVer.get(), onerrorid.get(), stateInit, functionDefinition, arguments);
+						  abiVer.get(), onerrorid.get(), stateInit, signBoxHandle, functionDefinition, arguments);
 	m_pusher.pushInt(TvmConst::SENDRAWMSG::DefaultFlag);
 	m_pusher.sendrawmsg();
 }
@@ -778,17 +747,18 @@ void FunctionCallCompiler::generateExtInboundMsg(
 	const Expression *abiVer,
 	const Expression *onerrorid,
 	const Expression *stateInit,
+    const Expression *signBoxHandle,
 	const CallableDeclaration *functionDefinition,
 	const ast_vec<Expression const> arguments
 ) {
 	auto appendBody = [&](int builderSize) {
 		/* builder size:
 		2 header
-		86 src abi + callbackid
+		119 src abi + callbackid
 		267 dest addr_std
 		4 import_fee:Grams
 		1 stateInit
-		= 360
+		= 393
 		*/
 
 		if (addSignature) {
@@ -816,16 +786,18 @@ void FunctionCallCompiler::generateExtInboundMsg(
 			builderSize += addSignature ? 257 : 1;
 			// pubkey is optional, check whether it presents
 			acceptExpr(pubkey);
+			m_pusher.pushS(0);
 			m_pusher.push(-1, "ISNULL");
 			m_pusher.startContinuation();
+			m_pusher.drop(1);
 			m_pusher.stzeroes(1);
 			m_pusher.endContinuation();
 			m_pusher.startContinuation();
 			if (!addSignature)
 				m_pusher.push(0, "THROW " + toString(TvmConst::RuntimeException::MsgWithKeyButNoSign));
+			m_pusher.blockSwap(1, 1);
 			m_pusher.stones(1);
-			acceptExpr(pubkey);
-			m_pusher.push(-1, "STUR 256");
+			m_pusher.push(0, "STU 256");
 			m_pusher.endContinuation();
 			m_pusher.push(0, "IFELSE");
 		}
@@ -868,19 +840,37 @@ void FunctionCallCompiler::generateExtInboundMsg(
 		if (addSignature)
 			m_pusher.push(-1, "STBREFR");
 	};
+
 	// store dest address
 	acceptExpr(destination);
 
-	// generate payload to store it as a src address with addr_extern type
-	m_pusher.push(+1, "NEWC");
-	m_pusher.push(0, "STSLICECONST x497_"); // header 01 + const length 75
-	acceptExpr(callbackid);
-	m_pusher.push(-1, "STUR 32");
-	acceptExpr(onerrorid);
-	m_pusher.push(-1, "STUR 32");
-	acceptExpr(abiVer);
-	m_pusher.push(-1, "STUR 8");
 
+	// generate payload to store it as a src address with addr_extern type
+	if (signBoxHandle != nullptr)
+		acceptExpr(signBoxHandle);
+	acceptExpr(abiVer);
+	acceptExpr(onerrorid);
+	acceptExpr(callbackid);
+	m_pusher.push(+1, "NEWC");
+	// stack: [signBoxHandle] abiVer onerrorid callbackid builder
+    m_pusher.push(0, "STSLICECONST x6_"); // header 01
+    if (signBoxHandle == nullptr)
+        m_pusher.push(0, "STSLICECONST x264_"); // const length 76
+    else {
+        m_pusher.pushS(4);
+        m_pusher.push(0, "ISNULL");
+        m_pusher.startContinuation();
+        m_pusher.push(0, "STSLICECONST x264_"); // const length 76
+        m_pusher.endContinuation();
+        m_pusher.startContinuation();
+        m_pusher.push(0, "STSLICECONST x364_"); // const length 108
+        m_pusher.endContinuation();
+        m_pusher.push(-1, "IFELSE");
+    }
+	// stack: [signBoxHandle] abiVer onerrorid callbackid builder
+	m_pusher.push(-1, "STU 32"); // stack: [signBoxHandle] abiVer onerrorid builder
+	m_pusher.push(-1, "STU 32"); // stack: [signBoxHandle] abiVer builder
+	m_pusher.push(-1, "STU 8");  // stack: [signBoxHandle] builder
 	if (time != nullptr)
 		m_pusher.push(0, "STONE");
 	else
@@ -893,6 +883,22 @@ void FunctionCallCompiler::generateExtInboundMsg(
 		m_pusher.push(0, "STONE");
 	else
 		m_pusher.push(0, "STZERO");
+	if (signBoxHandle == nullptr)
+        m_pusher.push(0, "STZERO");
+	else {
+		// stack: [signBoxHandle] builder
+        m_pusher.pushS(1);
+        m_pusher.push(0, "ISNULL");
+        m_pusher.startContinuation();
+        m_pusher.dropUnder(1, 1);
+        m_pusher.stzeroes(1);
+        m_pusher.endContinuation();
+        m_pusher.startContinuation();
+        m_pusher.stones(1);
+        m_pusher.push(0, "STU 32");
+        m_pusher.endContinuation();
+        m_pusher.push(-1, "IFELSE");
+	}
 
 
 	std::function<void()> appendStateInit = nullptr;
@@ -924,6 +930,7 @@ bool FunctionCallCompiler::checkForTvmBuildMsgMethods(MemberAccess const &_node,
 		int callbackArg = -1;
 		int onerrorArg = -1;
 		int stateArg = -1;
+        int signHandlerArg = -1;
 		if (!m_functionCall.names().empty()) {
 			const std::vector<ASTPointer<ASTString>>& names = m_functionCall.names();
 			for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
@@ -958,6 +965,9 @@ bool FunctionCallCompiler::checkForTvmBuildMsgMethods(MemberAccess const &_node,
 					case str2int("stateInit"):
 						stateArg = arg;
 						break;
+                    case str2int("signBoxHandle"):
+                        signHandlerArg = arg;
+                        break;
 				}
 			}
 		}
@@ -979,6 +989,7 @@ bool FunctionCallCompiler::checkForTvmBuildMsgMethods(MemberAccess const &_node,
 											  m_arguments[abiArg].get(),
 											  m_arguments[onerrorArg].get(),
 											  (stateArg != -1) ? m_arguments[stateArg].get() : nullptr,
+											  (signHandlerArg != -1) ? m_arguments[signHandlerArg].get() : nullptr,
 											  functionDefinition, funcCall->arguments());
 		return true;
 	}
@@ -1169,7 +1180,7 @@ IFELSE
 		acceptExpr(&_node.expression());
 		m_pusher.push(-1 + 1, "SDEPTH");
 	} else if (_node.memberName() == "decode") {
-		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, false, _node.expression().annotation().isLValue);
+		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, false, _node.expression().annotation().isLValue);
 		TypePointers targetTypes;
 		if (auto const* targetTupleType = dynamic_cast<TupleType const*>(m_retType))
 			targetTypes = targetTupleType->components();
@@ -1183,7 +1194,7 @@ IFELSE
 	} else if (_node.memberName() == "decodeFunctionParams") {
 		const int saveStackSize = m_pusher.getStack().size();
 		CallableDeclaration const* functionDefinition = getFunctionDeclarationOrConstructor(m_arguments.at(0).get());
-		const TVMExpressionCompiler::LValueInfo lValueInfo =
+		const LValueInfo lValueInfo =
 				m_exprCompiler->expandLValue(&_node.expression(),true, false, _node.expression().annotation().isLValue);
 		// lvalue.. slice
 		if (functionDefinition) {
@@ -1204,7 +1215,7 @@ IFELSE
 		}
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
 	} else if (boost::starts_with(_node.memberName(), "load")) {
-		const TVMExpressionCompiler::LValueInfo lValueInfo =
+		const LValueInfo lValueInfo =
 				m_exprCompiler->expandLValue(&_node.expression(), true, false, _node.expression().annotation().isLValue);
 		if (_node.memberName() == "loadRefAsSlice") {
 			m_pusher.push(-1 + 2, "LDREFRTOS");
@@ -1246,7 +1257,7 @@ IFELSE
 
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
 	} else if (_node.memberName() == "skip") {
-		const TVMExpressionCompiler::LValueInfo lValueInfo =
+		const LValueInfo lValueInfo =
 				m_exprCompiler->expandLValue(&_node.expression(), true, false, _node.expression().annotation().isLValue);
 		if (m_arguments.size() == 1) {
 			pushArgAndConvert(0);
@@ -1267,7 +1278,7 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 		return false;
 
 	if (boost::starts_with(_node.memberName(), "store")) {
-		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
+		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
 
 		if (_node.memberName() == "storeRef") {
 			pushArgAndConvert(0);
@@ -1393,7 +1404,7 @@ IFELSE
 )");
 		m_pusher.push(-2 + 1, ""); // fix stake
 	} else if (_node.memberName() == "push") {
-		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
+		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
 		auto arrayBaseType = to<ArrayType>(getType(&_node.expression()))->baseType();
 		const IntegerType key = getKeyTypeOfArray();
 		bool isValueBuilder{};
@@ -1417,7 +1428,7 @@ IFELSE
 		m_pusher.push(-2 + 1, "PAIR");  // arr
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
 	} else if (_node.memberName() == "pop") {
-		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
+		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
 		// arr
 		m_pusher.push(-1 + 2, "UNPAIR"); // size dict
 		m_pusher.push(+1, "PUSH s1"); // size dict size
@@ -1432,7 +1443,7 @@ IFELSE
 		m_pusher.push(-2 + 1, "PAIR");  // arr
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
 	} else if (_node.memberName() == "append") {
-		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
+		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
 		pushArgAndConvert(0);
 		m_pusher.pushMacroCallInCallRef(-2 +1, "concatenateStrings_macro");
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
@@ -1467,7 +1478,7 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 	}
 
 	if (_node.memberName() == "set") {
-		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), false);
+		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), false);
 		pushArgs();
 		Type::Category val0Cat = m_arguments.at(0)->annotation().type->category();
 		if (m_arguments.size() >= 2) {
@@ -1480,7 +1491,7 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 	}
 
 	if (_node.memberName() == "reset") {
-		const TVMExpressionCompiler::LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), false);
+		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), false);
 		m_pusher.pushDefaultValue(optional);
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
 		return true;
@@ -2151,7 +2162,7 @@ void FunctionCallCompiler::typeConversion() {
 	m_pusher.hardConvert(resultType, argType);
 }
 
-bool FunctionCallCompiler::checkLocalFunctionCall(const Identifier *identifier) {
+bool FunctionCallCompiler::checkLocalFunctionOrLibCall(const Identifier *identifier) {
 	const string& functionName = identifier->name();
 	auto functionDefinition = to<FunctionDefinition>(identifier->annotation().referencedDeclaration);
 	if (!functionDefinition)
@@ -2166,7 +2177,18 @@ bool FunctionCallCompiler::checkLocalFunctionCall(const Identifier *identifier) 
 		m_pusher.push(codeLines);
 		m_pusher.push(-nParams + nRetVals, "");
 	} else {
-		m_pusher.pushCallOrCallRef(m_pusher.ctx().getFunctionInternalName(functionDefinition, false), functionType);
+		Declaration const& funDecl = m_funcType->declaration();
+		ContractDefinition const* contractDecl= funDecl.annotation().contract;
+		bool isLib = contractDecl->isLibrary();
+		std::string name;
+		if (isLib) {
+			auto fd = to<FunctionDefinition>(&funDecl);
+			name = m_pusher.ctx().getLibFunctionName(fd, false);
+			m_pusher.ctx().addLib(fd);
+		} else {
+			name = m_pusher.ctx().getFunctionInternalName(functionDefinition, false);
+		}
+		m_pusher.pushCallOrCallRef(name, functionType);
 	}
 	return true;
 }
@@ -2338,33 +2360,22 @@ IF
 			m_pusher.push(-1, "TUPLE 2");
 			// create new builder to store data in it
 			m_pusher.push(+1, "NEWC");
-			for (size_t it = 0; it < substrings.size(); it++) {
-				// stack: BldrList builder
-				std::string constStr = substrings[it].first;
-				if (constStr.length()) {
-				    // TODO use this and delete code below
-//                    m_pusher.pushString(constStr, true);
 
-                    // TODO delete
-                    size_t maxSlice = (TvmConst::MaxPushSliceLength >> 1);
-                    if (constStr.length() <= maxSlice) {
-                        m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr));
-                    } else {
-                        m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr.substr(0, maxSlice)));
+			auto pushConstStr = [&](const string& constStr) {
+                if (!constStr.empty()) {
+                    size_t maxSlice = TvmConst::CellBitLength / 8;
+                    for(size_t i = 0; i  < constStr.length(); i += maxSlice) {
+                        m_pusher.pushString(constStr.substr(i, min(maxSlice, constStr.length() - i)), true);
                         // stack: BldrList builder Slice
                         m_pusher.pushMacroCallInCallRef(+1, "storeStringInBuilders_macro");
                         m_pusher.pushMacroCallInCallRef(-2, "appendToList_macro");
-                        // stack: BldrList builder
-                        m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(constStr.substr(maxSlice)));
                     }
-
-
-					// stack: BldrList builder Slice
-					m_pusher.pushMacroCallInCallRef(+1, "storeStringInBuilders_macro");
-					m_pusher.pushMacroCallInCallRef(-2, "appendToList_macro");
-					// stack: BldrList builder
-				}
-
+                    // stack: BldrList builder
+                }
+			};
+			for (size_t it = 0; it < substrings.size(); it++) {
+				// stack: BldrList builder
+				pushConstStr(substrings[it].first);
 
 				Type::Category cat = m_arguments[it + 1]->annotation().type->category();
 				Type const *argType = m_arguments[it + 1]->annotation().type;
@@ -2441,24 +2452,8 @@ IF
 					cast_error(*m_arguments[it + 1].get(), "Unsupported argument type");
 				}
 			}
-			if (formatStr.length()) {
-				size_t maxSlice = (TvmConst::MaxPushSliceLength >> 1);
-				// TODO it's copy-pasta
-				if (formatStr.length() <= maxSlice) {
-					m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(formatStr));
-				} else {
-					m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(formatStr.substr(0, maxSlice)));
-					// stack: BldrList builder Slice
-					m_pusher.pushMacroCallInCallRef(+1, "storeStringInBuilders_macro");
-					m_pusher.pushMacroCallInCallRef(-2, "appendToList_macro");
-					// stack: BldrList builder
-					m_pusher.push(+1, "PUSHSLICE x" + stringToBytes(formatStr.substr(maxSlice)));
-				}
-				// stack: BldrList builder Slice
-				m_pusher.pushMacroCallInCallRef(+1, "storeStringInBuilders_macro");
-				m_pusher.pushMacroCallInCallRef(-2, "appendToList_macro");
-				// stack: BldrList builder
-			}
+            pushConstStr(formatStr);
+
 			m_pusher.pushMacroCallInCallRef(-1, "assembleList_macro");
 			return true;
 		}
@@ -2473,9 +2468,9 @@ IF
 	return false;
 }
 
-bool FunctionCallCompiler::checkLocalFunctionCallOrFuncVarCall() {
+bool FunctionCallCompiler::checkLocalFunctionOrLibCallOrFuncVarCall() {
 	auto expr = &m_functionCall.expression();
-	if (auto identifier = to<Identifier>(expr); identifier && checkLocalFunctionCall(identifier)) {
+	if (auto identifier = to<Identifier>(expr); identifier && checkLocalFunctionOrLibCall(identifier)) {
 	} else if (expr->annotation().type->category() == Type::Category::Function) {
 		if (auto ma = to<MemberAccess>(expr)) {
 			auto category = getType(&ma->expression())->category();

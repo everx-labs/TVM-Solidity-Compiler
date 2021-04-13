@@ -17,10 +17,8 @@
  */
 
 #include "TVMOptimizations.hpp"
-#include "TVMPusher.hpp"
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/format.hpp>
-#include <boost/lexical_cast.hpp>
 
 namespace solidity::frontend {
 
@@ -869,6 +867,23 @@ struct TVMOptimizer {
             return Result(true, 2, {"PUSHREF {", "}"});
         }
 
+		if (cmd1.is("POP") &&
+			cmd2.is("POP") &&
+			cmd3.is("POP") &&
+			cmd1.get_pop_index() == 3 &&
+			cmd2.get_pop_index() == 3 &&
+			cmd3.get_pop_index() == 3
+		) {
+			return Result(true, 3, {"BLKDROP2 3, 3"});
+		}
+
+		if (cmd1.is("ISNULL") &&
+			cmd2.is("NOT") &&
+			cmd3.is("NOT")
+		) {
+			return Result(true, 3, {"ISNULL"});
+		}
+
 		return Result(false);
 	}
 
@@ -914,8 +929,8 @@ struct TVMOptimizer {
 	static std::vector<std::string> unitBitString(const std::string& bitStringA, const std::string& bitStringB) {
 		const std::string& bitString = bitStringA + bitStringB;
 		std::vector<std::string> opcodes;
-		for (int i = 0; i < static_cast<int>(bitString.length()); i += 4 * TvmConst::MaxPushSliceLength) {
-			opcodes.push_back(bitString.substr(i, std::min(4 * TvmConst::MaxPushSliceLength, static_cast<int>(bitString.length()) - i)));
+		for (int i = 0; i < static_cast<int>(bitString.length()); i += 4 * TvmConst::MaxPushSliceBitLength) {
+			opcodes.push_back(bitString.substr(i, std::min(4 * TvmConst::MaxPushSliceBitLength, static_cast<int>(bitString.length()) - i)));
 		}
 		for (std::string& opcode : opcodes) {
 			opcode = "x" + StackPusherHelper::binaryStringToSlice(opcode);

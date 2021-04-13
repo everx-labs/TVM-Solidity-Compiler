@@ -3069,26 +3069,35 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 					}
 				}
 
-				int KeyIndex = findName("pubkey");
-				if (KeyIndex != -1){
-					auto cat = arguments[KeyIndex]->annotation().type->category();
-					if (cat !=Type::Category::Optional) {
-						m_errorReporter.fatalTypeError(
-								arguments[KeyIndex]->location(),
-								"\"pubkey\" parameter must have an optional uint256 type."
-						);
-					} else {
-						auto opt = dynamic_cast<const OptionalType *>(arguments[KeyIndex]->annotation().type);
-						auto valType = opt->valueType()->mobileType();
-						auto isInt = dynamic_cast<IntegerType const *>(valType);
-						if (isInt == nullptr || isInt->isSigned()) {
-							m_errorReporter.fatalTypeError(
-									arguments[KeyIndex]->location(),
-									"\"pubkey\" parameter must have an optional uint256 type."
-							);
-						}
-					}
-				}
+                std::vector<std::string> optParams= {"pubkey", "signBoxHandle"};
+                std::vector<unsigned>optBits = {256, 32};
+                for(size_t i = 0; i < optParams.size(); i++) {
+                    int index = findName(optParams[i]);
+                    if (index != -1) {
+                        auto cat = arguments[index]->annotation().type->category();
+                        if (cat != Type::Category::Optional) {
+                            m_errorReporter.fatalTypeError(
+                                    arguments[index]->location(),
+                                    string("\"") + optParams[i] + "\" parameter must have an optional uint" + to_string(optBits[i]) + " type."
+                            );
+                        } else {
+                            auto opt = dynamic_cast<const OptionalType *>(arguments[index]->annotation().type);
+                            auto valType = opt->valueType()->mobileType();
+                            auto isInt = dynamic_cast<IntegerType const *>(valType);
+                            if (isInt == nullptr || isInt->isSigned()) {
+                                m_errorReporter.fatalTypeError(
+                                        arguments[index]->location(),
+                                        string("\"") + optParams[i] + "\" parameter must have an optional uint" + to_string(optBits[i]) + " type."
+                                );
+                            }
+                            if (isInt->numBits() != optBits[i])
+                                m_errorReporter.fatalTypeError(
+                                        arguments[index]->location(),
+                                        string("\"") + optParams[i] + "\" parameter must have an optional uint" + to_string(optBits[i]) + " type."
+                                );
+                        }
+                    }
+                }
 				int stateIndex = findName("stateInit");
 				if (stateIndex != -1){
 					auto cat = arguments[stateIndex]->annotation().type->category();
@@ -3351,6 +3360,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	int setTime = -1;
 	int setAbi = -1;
 	int setOnError = -1;
+    int setSignHandler = -1;
 
 	FunctionType::Kind kind = expressionFunctionType->kind();
 	if (
@@ -3413,7 +3423,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		};
 
 		if (isExternalInboundMessage) {
-			arr = {"extMsg", "dest", "time", "expire", "call", "sign",  "pubkey", "abiVer", "callbackId", "onErrorId", "stateInit"};
+			arr = {"extMsg", "dest", "time", "expire", "call", "sign",  "pubkey", "abiVer", "callbackId", "onErrorId", "stateInit", "signBoxHandle"};
 		} else if (isNewExpression) {
 			arr = {"stateInit", "code", "data", "pubkey", "varInit", "splitDepth", "wid", "value", "currencies", "bounce", "flag"};
 		} else {
@@ -3439,11 +3449,14 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 						_functionCallOptions.location(),
 						R"(Option "sign" can be specified only with constant bool value.)");
 		} else if (name == "pubkey") {
-			if (isExternalInboundMessage)
-				expectType(*options[i], *TypeProvider::optional(TypeProvider::uint256()));
-			else
-				expectType(*options[i], *TypeProvider::uint256());
-			setCheckOption(setPubkey, "pubkey", i);
+            if (isExternalInboundMessage)
+                expectType(*options[i], *TypeProvider::optional(TypeProvider::uint256()));
+            else
+                expectType(*options[i], *TypeProvider::uint256());
+            setCheckOption(setPubkey, "pubkey", i);
+        } else if (name == "signBoxHandle") {
+            expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(32)));
+            setCheckOption(setSignHandler, "signBoxHandle", i);
 		} else if (name == "abiVer") {
 			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(8)));
 			setCheckOption(setAbi, "abiVer", i);

@@ -750,7 +750,7 @@ void DeclarationRegistrationHelper::registerDeclaration(Declaration& _declaratio
 
 	// Register declaration as inactive if we are in block scope.
 	bool inactive =
-		(dynamic_cast<Block const*>(m_currentScope) || dynamic_cast<ForStatement const*>(m_currentScope));
+		(dynamic_cast<Block const*>(m_currentScope) || dynamic_cast<ForStatement const*>(m_currentScope) || dynamic_cast<ForEachStatement const*>(m_currentScope));
 
 	registerDeclaration(*m_scopes[m_currentScope], _declaration, nullptr, nullptr, warnAboutShadowing, inactive, m_errorReporter);
 

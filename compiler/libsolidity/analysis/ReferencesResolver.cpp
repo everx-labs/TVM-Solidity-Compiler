@@ -70,7 +70,22 @@ bool ReferencesResolver::visit(ForStatement const& _for)
 	return true;
 }
 
+bool ReferencesResolver::visit(ForEachStatement const& _for)
+{
+	if (!m_resolveInsideCode)
+		return false;
+	m_resolver.setScope(&_for);
+	return true;
+}
+
 void ReferencesResolver::endVisit(ForStatement const& _for)
+{
+	if (!m_resolveInsideCode)
+		return;
+	m_resolver.setScope(_for.scope());
+}
+
+void ReferencesResolver::endVisit(ForEachStatement const& _for)
 {
 	if (!m_resolveInsideCode)
 		return;

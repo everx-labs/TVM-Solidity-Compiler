@@ -294,7 +294,7 @@ Allowed options)",
 		(g_argTvm.c_str(), "Produce TVM assembly (deprecated).")
 		(g_argTvmABI.c_str(), "Produce JSON ABI for contract.")
 		(g_argTvmPeephole.c_str(), "Run peephole optimization pass")
-		(g_argTvmOptimize.c_str(), "Optimize produced TVM assembly code")
+		(g_argTvmOptimize.c_str(), "Optimize produced TVM assembly code (deprecated)")
 		(g_argTvmUnsavedStructs.c_str(), "Enable struct usage analyzer")
         (g_argDebug.c_str(), "Generate debug info");
 	desc.add(outputComponents);
@@ -432,9 +432,10 @@ bool CommandLineInterface::processInput()
 		if (m_args.count(g_argTvm) == 0 && m_args.count(g_argTvmABI) == 0) {
 			m_compiler->generateCode();
 			m_compiler->generateAbi();
-		}
-		if (m_args.count(g_argTvmOptimize))
-			m_compiler->withOptimizations();
+        }
+        m_compiler->withOptimizations();
+        if (m_args.count(g_argTvmOptimize))
+            serr() << "Flag '--tvm-optimize' is deprecated. Code is optimized by default." << endl;
         if (m_args.count(g_argDebug))
             m_compiler->withDebugInfo();
 
