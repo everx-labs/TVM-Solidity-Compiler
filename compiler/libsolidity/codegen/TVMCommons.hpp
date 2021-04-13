@@ -417,10 +417,36 @@ enum class DictValueType {
 	VarInteger
 };
 
+enum class GetDictOperation {
+	GetFromMapping,
+	GetSetFromMapping,
+	GetAddFromMapping,
+	GetReplaceFromMapping,
+	GetFromArray,
+	Fetch,
+	Exist
+};
+
+enum class SetDictOperation { Set, Replace, Add };
+
+struct LValueInfo {
+	explicit LValueInfo() {}
+	explicit LValueInfo(Type const* rightType) :
+			rightType{rightType} {
+	}
+	std::vector<Expression const*> expressions;
+	std::vector<bool> isResultBuilder;
+	bool isValueBuilder{};
+	bool doesntNeedToCollect = false;
+	Type const* rightType{};
+};
+
 DictValueType toDictValueType(const Type::Category& category);
 
 int integerLog2(int value);
 
 std::string stringToBytes(const std::string& str);
+
+std::set<CallableDeclaration const*> getAllBaseFunctions(CallableDeclaration const* f);
 
 } // end solidity::frontend

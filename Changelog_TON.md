@@ -1,3 +1,17 @@
+### 0.41.0 (2021-04-12)
+
+Compiler features:
+ * Support indices > 127 for `bytes`.
+ * Support iteration over `bytes` using `for` loop. For example: `for (byte b : byteArray) { ... }`.
+
+Bugfixes:
+ * Fixed minor bugs in TypeChecker.
+ * Fixed segmentation fault on using library functions.
+
+Improvements:
+ * '--tvm-optimize' option is now enabled by default.
+ * Debot feature `signBoxHandle` is supported in `tvm.buildExtMsg()` and `extMsg` call.
+
 ### 0.40.0 (2021-04-06)
 
 Compiler features:

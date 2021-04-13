@@ -68,6 +68,9 @@ set(sources
 	parsing/Parser.h
 	parsing/Token.h
 
+
+	codegen/DictOperations.cpp
+	codegen/DictOperations.hpp
 	codegen/TVM.cpp
 	codegen/TVM.h
 	codegen/TVMABI.cpp

@@ -1,8 +1,3 @@
-.internal-alias :general_purpose,    1
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; THE CODE BELOW IS GENERATED. DO NOT CHANGE IT!
-
 .globl	insert_pubkey
 .type	insert_pubkey, @function
 CALL $insert_pubkey_macro$

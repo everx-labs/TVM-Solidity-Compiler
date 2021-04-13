@@ -17,8 +17,6 @@
  */
 
 #include "TVMAnalyzer.hpp"
-#include "TVMCommons.hpp"
-
 #include <liblangutil/ErrorReporter.h>
 #include <libsolidity/codegen/TVMConstants.hpp>
 

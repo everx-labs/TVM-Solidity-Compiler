@@ -87,6 +87,7 @@ private:
 	bool visit(ForEachStatement const& _forStatement) override;
 	void visitBodyOfForLoop(
 		const ContInfo& ci,
+		const std::function<void()>& pushStartBody,
 		Statement const& body,
 		const std::function<void()>& loopExpression
 	);
@@ -112,7 +113,6 @@ private:
 	void defaultReplayProtection();
 	void expire();
 	void callPublicFunctionOrFallback();
-	void fillInlineFunctionsAndConstants(std::string& pattern);
 	void pushC4ToC7IfNeed();
 	void pushC7ToC4IfNeed();
 	std::string pushReceive();

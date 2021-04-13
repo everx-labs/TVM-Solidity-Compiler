@@ -39,16 +39,6 @@ namespace solidity::frontend {
 
 class StructCompiler;
 
-class DictOperation {
-public:
-	DictOperation(StackPusherHelper& pusher, Type const& keyType, Type const& valueType);
-protected:
-	StackPusherHelper& pusher;
-	Type const& keyType;
-	const int keyLength{};
-	Type const& valueType;
-	const Type::Category valueCategory{};
-};
 
 class TVMStack : public boost::noncopyable {
     int m_size{};
@@ -95,6 +85,7 @@ public:
 	bool haveTimeInAbiHeader() const;
 	bool isStdlib() const;
 	string getFunctionInternalName(FunctionDefinition const* _function, bool calledByPoint = true) const;
+	static string getLibFunctionName(FunctionDefinition const* _function, bool withObject) ;
 	static string getFunctionExternalName(FunctionDefinition const* _function);
 	const ContractDefinition* getContract() const;
 	bool ignoreIntegerOverflow() const;
@@ -261,12 +252,12 @@ public:
 		bool haveKey,
 		bool didUseOpcodeWithRef,
 		const DecodeType& decodeType,
-		bool resultAsSliceForStruct
+		bool resultAsSliceForStruct,
+		bool saveOrigKeyAndNoTuple = false
 	);
 	static TypePointer parseIndexType(Type const* type);
 	static TypePointer parseValueType(IndexAccess const& indexAccess);
 
-	enum class SetDictOperation { Set, Replace, Add };
 	void setDict(
 		Type const &keyType,
 		Type const &valueType,
@@ -276,15 +267,6 @@ public:
 
 	bool tryAssignParam(Declaration const* name);
 
-	enum class GetDictOperation {
-		GetFromMapping,
-		GetSetFromMapping,
-		GetAddFromMapping,
-		GetReplaceFromMapping,
-		GetFromArray,
-		Fetch,
-		Exist
-	};
 	void getDict(
 		const Type& keyType,
 		const Type& valueType,
@@ -319,7 +301,6 @@ public:
 				 const std::function<void()> &appendStateInit,
 				 MsgType messageType = MsgType::Internal);
 
-	void switchSelector();
 	void byteLengthOfCell();
 };
 

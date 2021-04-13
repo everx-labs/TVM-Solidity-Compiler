@@ -4052,6 +4052,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 							 TypeProvider::uint(32),
 							 TypeProvider::uint(8),
 							 TypeProvider::uint(32),
+							 TypeProvider::optional(TypeProvider::uint(32)),
 							 TypeProvider::uint(64),
 							 TypeProvider::uint(32),
 							 TypeProvider::optional(TypeProvider::uint256()),
@@ -4062,7 +4063,8 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 						string("call"),			// mandatory
 						string("callbackId"),	// mandatory
 						string("abiVer"),		// mandatory
-						string("onErrorId"),	// mandatory
+						string("onErrorId"),	    // mandatory
+                        string("signBoxHandle"),	// can be omitted
 						string("time"),			// can be omitted
 						string("expire"),		// can be omitted
 						string("pubkey"),		// can be omitted

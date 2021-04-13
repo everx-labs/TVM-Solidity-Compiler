@@ -55,10 +55,28 @@ void TVMTypeChecker::checkPragma() {
 void TVMTypeChecker::checkOverrideAndOverload() {
 	std::set<CallableDeclaration const*> overridedFunctions;
 	std::set<CallableDeclaration const*> functions;
+	std::map<uint32_t, CallableDeclaration const*> funcId2Decl;
 	for (ContractDefinition const* cd : contractDefinition->annotation().linearizedBaseContracts | boost::adaptors::reversed) {
 		for (FunctionDefinition const *f : cd->definedFunctions()) {
-			if (f->isConstructor() || f->isReceive() || f->isFallback() || f->isFallback() ||
-				f->isOnTickTock() || isTvmIntrinsic(f->name())) {
+
+			if (f->functionID().has_value()) {
+				uint32_t id = f->functionID().value();
+				if (funcId2Decl.count(id) != 0) {
+					CallableDeclaration const *f2 = funcId2Decl.at(id);
+					std::set<CallableDeclaration const*> bf = getAllBaseFunctions(f);
+					std::set<CallableDeclaration const*> bf2 = getAllBaseFunctions(f2);
+					if (bf.count(f2) == 0 && bf2.count(f) == 0) {
+						m_errorReporter.typeError(
+							f->location(),
+							SecondarySourceLocation().append("Declaration of the function with the same function ID: ", funcId2Decl.at(id)->location()),
+							"Two functions have have the same functionID.");
+					}
+				} else {
+					funcId2Decl[id] = f;
+				}
+			}
+
+			if (f->isConstructor() || f->isReceive() || f->isFallback() || f->isOnTickTock() || isTvmIntrinsic(f->name())) {
 				continue;
 			}
 
@@ -211,6 +229,13 @@ bool TVMTypeChecker::visit(const Mapping &_mapping) {
 }
 
 bool TVMTypeChecker::visit(const FunctionDefinition &f) {
+	if (f.functionID().has_value() && !f.isPublic()) {
+		m_errorReporter.typeError(f.location(), "Only public/external functions can have functionID.");
+	}
+	if (f.functionID().has_value() && (f.isReceive() || f.isFallback() || f.isOnTickTock())) {
+		m_errorReporter.typeError(f.location(), "functionID isn't supported for receive, fallback and onTickTock functions.");
+	}
+
 	if (f.isInline() && f.isPublic()) {
 		m_errorReporter.typeError(f.location(), "Inline function should have private or internal visibility");
 	}

@@ -20,6 +20,7 @@
 
 #include <liblangutil/SourceReferenceExtractor.h>
 
+#include "DictOperations.hpp"
 #include "TVM.h"
 #include "TVMABI.hpp"
 #include "TVMAnalyzer.hpp"
@@ -153,7 +154,7 @@ PUSHCONT {
 			if (v->isStatic()) {
 				pusher.pushInt(TvmConst::C4::PersistenceMembersStartIndex + shift++); // index
 				pusher.pushS(1); // index dict
-				pusher.getDict(getKeyTypeOfC4(), *v->type(), StackPusherHelper::GetDictOperation::GetFromMapping, false);
+				pusher.getDict(getKeyTypeOfC4(), *v->type(), GetDictOperation::GetFromMapping, false);
 			} else {
 				pusher.pushDefaultValue(v->type());
 			}
@@ -212,9 +213,7 @@ void TVMFunctionCompiler::generateMacro(
 }
 
 void TVMFunctionCompiler::generateOnCodeUpgrade(StackPusherHelper& pusher, FunctionDefinition const* function) {
-
 	pusher.generateInternal("onCodeUpgrade", 2);
-	pusher.switchSelector();
 
 	TVMFunctionCompiler funCompiler{pusher, 0, function, false, true, 0};
 	funCompiler.visitFunctionWithModifiers();
@@ -1016,6 +1015,11 @@ bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
 }
 
 bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
+	// For bytes:
+	//
+	// cell
+	// [return flag] - optional. If have return/break/continue.
+
 	// For array:
 	//
 	// dict
@@ -1043,34 +1047,29 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 	if (arrayType) {
 		solAssert(vds->declarations().size() == 1, "");
 		auto iterVar = vds->declarations().at(0).get();
-		m_pusher.index(1); // stack: {length, dict} -> dict
-		m_pusher.pushInt(0); // stack: dict 0
-		m_pusher.pushNull(); // stack: dict 0 value
-		m_pusher.push(0, string(";; decl: ") + iterVar->name());
+		if (arrayType->isByteArray()) {
+			m_pusher.push(0, "CTOS");
+			m_pusher.pushNull(); // stack: dict value
+			loopVarQty = 2;
+		} else {
+			m_pusher.index(1); // stack: {length, dict} -> dict
+			m_pusher.pushInt(0); // stack: dict 0
+			m_pusher.pushNull(); // stack: dict 0 value
+			m_pusher.push(0, string(";; decl: ") + iterVar->name());
+			loopVarQty = 3;
+		}
 		m_pusher.getStack().add(iterVar, false);
 		// stack: dict 0 value
-		loopVarQty = 3;
 	} else if (mappingType) {
-		auto iterKey = vds->declarations().at(0).get();
-		auto iterVal = vds->declarations().at(1).get();
-
 		// stack: dict
 		m_pusher.pushS(0); // stack: dict dict
 		DictMinMax dictMinMax{m_pusher, *mappingType->keyType(), *mappingType->valueType(), true};
-		dictMinMax.minOrMax(); // stack: dict (minKey, value)
+		dictMinMax.minOrMax(true);
+		// stack: dict minKey(private) minKey(pub) value
 
-		m_pusher.pushS(0);
-		m_pusher.push(0, "ISNULL");
-		m_pusher.push(-1, "");
-
-		m_pusher.startContinuation();
-		m_pusher.pushNull();
-		m_pusher.pushNull();
-		m_pusher.endContinuation(-2);
-
-		m_pusher.startContinuation();
-		m_pusher.untuple(2);
-		m_pusher.push(-2, "");
+		m_pusher.push(-2, ""); // fix stack
+		auto iterKey = vds->declarations().at(0).get();
+		auto iterVal = vds->declarations().at(1).get();
 		if (iterKey == nullptr)
 			m_pusher.push(+1, "");
 		else
@@ -1079,10 +1078,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 			m_pusher.push(+1, "");
 		else
 			m_pusher.getStack().add(iterVal, true);
-		m_pusher.pushS(1);
-		m_pusher.endContinuation();
 
-		m_pusher.push(0, "IFELSE");
 		// stack: dict minKey(pub) value minKey(private)
 		loopVarQty = 4;
 	} else {
@@ -1098,19 +1094,28 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 	// condition
 	std::function<void()> pushCondition = [&]() {
 		if (arrayType) {
-			// stack: dict index value [flag]
-			m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 2); // stack: dict index value [flag] index
-			m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 1); // stack: dict index value [flag] index dict
-			m_pusher.getDict(getKeyTypeOfArray(), *arrayType->baseType(), StackPusherHelper::GetDictOperation::Fetch,
-							 false);
-			// stack: dict index value [flag] newValue
-			m_pusher.pushS(0); // stack: dict index value [flag] newValue newValue
-			m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 3); // stack: dict index newValue [flag] newValue
-			m_pusher.push(-1 + 1, "ISNULL");
-			m_pusher.push(-1 + 1, "NOT");
+			if (arrayType->isByteArray()) {
+				// stack: cell value [flag]
+				m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 1); // stack: cell value [flag] cell
+				m_pusher.push(-1 + 1, "SEMPTY");
+				m_pusher.push(-1 + 1, "NOT");
+			} else {
+				// stack: dict index value [flag]
+				m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 2); // stack: dict index value [flag] index
+				m_pusher.pushS(
+						m_pusher.getStack().size() - saveStackSize - 1); // stack: dict index value [flag] index dict
+				m_pusher.getDict(getKeyTypeOfArray(), *arrayType->baseType(), GetDictOperation::Fetch,
+								 false);
+				// stack: dict index value [flag] newValue
+				m_pusher.pushS(0); // stack: dict index value [flag] newValue newValue
+				m_pusher.popS(
+						m_pusher.getStack().size() - saveStackSize - 3); // stack: dict index newValue [flag] newValue
+				m_pusher.push(-1 + 1, "ISNULL");
+				m_pusher.push(-1 + 1, "NOT");
+			}
 		} else if (mappingType) {
-			// stack: dict minKey(pub) value minKey(private)  [flag]
-			m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 4);
+			// stack: dict minKey(private) minKey(pub) value  [flag]
+			m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 2);
 			m_pusher.push(-1 + 1, "ISNULL");
 			m_pusher.push(-1 + 1, "NOT");
 		} else {
@@ -1121,43 +1126,63 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 
 
 	// body
+	std::function<void()> pushStartBody = [&]() {
+		if (arrayType) {
+			if (arrayType->isByteArray()) {
+				const int ss = m_pusher.getStack().size();
+				// stack: cell value [flag]
+				m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 1);
+				// stack: cell value [flag] cell
+				m_pusher.push(-1, "LDUQ 8");
+
+				m_pusher.startContinuation(+1);
+				// stack: cell value [flag] slice
+				m_pusher.push(-1 + 1, "PLDREF");
+				m_pusher.push(-1 + 1, "CTOS");
+				m_pusher.push(-1 + 2, "LDU 8");
+				m_pusher.endContinuation(-2);
+				m_pusher.push(0, "IFNOT");
+
+				// stack: cell value [flag] value cell
+				m_pusher.push(+2, ""); // fix stack
+				m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 1);
+				// stack: cell value [flag] value
+				m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 2);
+
+				solAssert(ss == m_pusher.getStack().size(), "");
+			}
+		}
+	};
 	std::function<void()> pushLoopExpression = [&]() {
 		if (arrayType) {
-			// stack: dict 0 value [flag]
-			m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 2); // stack: dict index value [flag] index
-			m_pusher.push(0, "INC"); // stack: dict index value [flag] newIndex
-			m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 2); // stack: dict newIndex [flag] value
+			if (arrayType->isByteArray()) {
+				// do nothing
+			} else {
+				// stack: dict 0 value [flag]
+				m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 2); // stack: dict index value [flag] index
+				m_pusher.push(0, "INC"); // stack: dict index value [flag] newIndex
+				m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 2); // stack: dict newIndex [flag] value
+			}
 		} else if (mappingType) {
-			// stack: dict minKey(pub) value minKey(private) [flag]
-			m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 4); // stack: dict minKey(pub) value minKey(private) [flag] minKey
-			m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 1); // stack: dict minKey(pub) value minKey(private) [flag] minKey dict
-			m_pusher.pushInt(lengthOfDictKey(mappingType->keyType())); // stack: dict minKey(pub) value minKey(private) [flag] minKey dict nbits
+			const int sss = m_pusher.getStack().size();
+			// stack: dict minKey(private) minKey(pub) value [flag]
+			m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 2); // stack: dict minKey(private) minKey(pub) value [flag] minKey
+			m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 1); // stack: dict minKey(private) minKey(pub) value [flag] minKey dict
+			m_pusher.pushInt(lengthOfDictKey(mappingType->keyType()));      // stack: dict minKey(private) minKey(pub) value [flag] minKey dict nbits
+
 			DictPrevNext dictPrevNext{m_pusher, *mappingType->keyType(), *mappingType->valueType(), "next"};
-			dictPrevNext.prevNext();
-			// stack: dict minKey(pub) value minKey(private) [flag] (key, value)
-			m_pusher.pushS(0);
-			m_pusher.push(0, "ISNULL");
-			m_pusher.push(-1, "");
+			dictPrevNext.prevNext(true);
 
-			m_pusher.startContinuation();
+			// stack: dict minKey(private) minKey(pub) value [flag] minKey(private) minKey(pub) value
 			m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 4);
-			m_pusher.endContinuation(+1);
-
-			m_pusher.startContinuation();
-			m_pusher.untuple(2); // stack: dict minKey(pub) value minKey(private) [flag] newKey newValue
-			m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 3); // stack: dict minKey(pub) value minKey(private) [flag] newKey
-			m_pusher.pushS(0); // stack: dict minKey(pub) value minKey(private) [flag] newKey newKey
+			m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 3);
 			m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 2);
-			m_pusher.popS(m_pusher.getStack().size() - saveStackSize - 4);
-			// stack: dict minKey(pub) value minKey(private)
-			m_pusher.endContinuation();
-
-			m_pusher.push(0, "IFELSE");
+			solAssert(sss == m_pusher.getStack().size(), "");
 		} else {
 			solUnimplemented("");
 		}
 	};
-	visitBodyOfForLoop(ci, _forStatement.body(), pushLoopExpression);
+	visitBodyOfForLoop(ci, pushStartBody, _forStatement.body(), pushLoopExpression);
 
 	// bottom
 	afterLoopCheck(ci, loopVarQty);
@@ -1169,11 +1194,15 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 
 void TVMFunctionCompiler::visitBodyOfForLoop(
 	const ContInfo& ci,
+	const std::function<void()>& pushStartBody,
 	Statement const& body,
 	const std::function<void()>& loopExpression
 ) {
 	// body and loopExpression
 	m_pusher.startContinuation();
+	if (pushStartBody) {
+		pushStartBody();
+	}
 	if (ci.canReturn || ci.canBreak || ci.canContinue) { // TODO and have loopExpression
 		int ss = m_pusher.getStack().size();
 		m_pusher.startContinuation();
@@ -1262,7 +1291,7 @@ bool TVMFunctionCompiler::visit(ForStatement const &_forStatement) {
 			_forStatement.loopExpression()->accept(*this);
 		};
 	}
-	visitBodyOfForLoop(ci, _forStatement.body(), pushLoopExpression);
+	visitBodyOfForLoop(ci, {}, _forStatement.body(), pushLoopExpression);
 
 	// bottom
 	afterLoopCheck(ci, haveDeclLoopVar);

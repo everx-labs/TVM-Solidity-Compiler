@@ -18,6 +18,7 @@
 
 #include  <boost/core/ignore_unused.hpp>
 
+#include "DictOperations.hpp"
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCall.hpp"
 #include "TVMIntrinsics.hpp"
@@ -947,9 +948,21 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 			acceptExpr(&indexAccess.baseExpression()); // bytes
 			m_pusher.push(-1 + 1, "CTOS");
 			compileNewExpr(indexAccess.indexExpression()); // slice index
+			m_pusher.startCallRef();
+			m_pusher.pushInt(127);
+			m_pusher.push(-2 + 2, "DIVMOD"); // slice cntRef rest
+			m_pusher.push(0, "ROTREV"); // rest slice cntRef
+			m_pusher.startContinuation();
+			m_pusher.push(0, "PLDREF");
+			m_pusher.push(0, "CTOS");
+			m_pusher.endContinuation();
+			m_pusher.push(-1, "REPEAT");
+			// rest slice
+			m_pusher.exchange(0, 1); // slice rest
 			m_pusher.push(-1 + 1, "MULCONST 8");
 			m_pusher.push(-2 + 1, "SDSKIPFIRST");
 			m_pusher.push(-1 + 1, "PLDU 8");
+			m_pusher.endContinuation();
 			return ;
 		} else {
 			compileNewExpr(indexAccess.indexExpression()); // index
@@ -967,8 +980,8 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 	                 *StackPusherHelper::parseValueType(indexAccess),
 	                 baseType->category() == Type::Category::Mapping ||
 	                 baseType->category() == Type::Category::ExtraCurrencyCollection ?
-	                 StackPusherHelper::GetDictOperation::GetFromMapping :
-	                 StackPusherHelper::GetDictOperation::GetFromArray,
+	                 GetDictOperation::GetFromMapping :
+	                 GetDictOperation::GetFromArray,
 	                 returnStructAsSlice);
 	if (returnStructAsSlice) {
 		m_resultIsSlice.insert(&indexAccess);
@@ -1007,7 +1020,7 @@ bool TVMExpressionCompiler::isOptionalGet(Expression const* expr) {
 	return ma && ma->expression().annotation().type->category() == Type::Category::Optional;
 }
 
-TVMExpressionCompiler::LValueInfo
+LValueInfo
 TVMExpressionCompiler::expandLValue(
 	Expression const *const _expr,
 	const bool withExpandLastValue,
@@ -1087,7 +1100,7 @@ TVMExpressionCompiler::expandLValue(
 
 				m_pusher.getDict(*StackPusherHelper::parseIndexType(index->baseExpression().annotation().type),
 				                 *StackPusherHelper::parseValueType(*index),
-				                 StackPusherHelper::GetDictOperation::GetFromMapping, true);
+				                 GetDictOperation::GetFromMapping, true);
 				// index dict1 dict2
 			} else if (index->baseExpression().annotation().type->category() == Type::Category::Array) {
 				// array
@@ -1102,7 +1115,7 @@ TVMExpressionCompiler::expandLValue(
 				}
 				m_pusher.push(+2, "PUSH2 S1, S0"); // size index dict index dict
 				m_pusher.getDict(*StackPusherHelper::parseIndexType(index->baseExpression().annotation().type),
-				                 *index->annotation().type, StackPusherHelper::GetDictOperation::GetFromArray,
+				                 *index->annotation().type, GetDictOperation::GetFromArray,
 				                 true);
 				// size index dict value
 			} else {
@@ -1415,51 +1428,4 @@ void TVMExpressionCompiler::pushIndexAndConvert(IndexAccess const& indexAccess) 
 
 
 
-void DictMinMax::minOrMax() {
-	// stack: dict
-	pusher.pushInt(lengthOfDictKey(&keyType)); // dict nbits
 
-	const bool haveKey = true;
-	bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
-	dictOpcode = "DICT" + typeToDictChar(&keyType) + (isMin? "MIN" : "MAX") + (isInRef? "REF" : "");
-
-	pusher.push(-2 + 2, dictOpcode); // (value, key, -1) or 0
-	pusher.recoverKeyAndValueAfterDictOperation(
-			&keyType,
-			&valueType,
-			haveKey,
-			isInRef,
-			StackPusherHelper::DecodeType::DecodeValueOrPushNull,
-			false
-	);
-}
-
-void DictPrevNext::prevNext() {
-	// stack: index dict nbits
-	std::string dictOpcode = std::string{"DICT"} + typeToDictChar(&keyType) + "GET";
-	if (oper == "next"){
-		dictOpcode += "NEXT";
-	} else if (oper == "prev") {
-		dictOpcode += "PREV";
-	} else if (oper == "nextOrEq") {
-		dictOpcode += "NEXTEQ";
-	} else if (oper == "prevOrEq") {
-		dictOpcode += "PREVEQ";
-	} else {
-		solUnimplemented("");
-	}
-
-	int ss = pusher.getStack().size();
-	pusher.push(-3 + 2, dictOpcode); // value key -1 or 0
-
-	pusher.recoverKeyAndValueAfterDictOperation(
-			&keyType,
-			&valueType,
-			true,
-			false,
-			StackPusherHelper::DecodeType::DecodeValueOrPushNull,
-			false
-	);
-
-	pusher.getStack().ensureSize(ss - 3 + 2 - 2 + 1);
-}
