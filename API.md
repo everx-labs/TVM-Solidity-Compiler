@@ -13,6 +13,7 @@ contract development.
     * [\<TvmCell\>.dataSizeQ()](#tvmcelldatasizeq)
     * [\<TvmCell\>.toSlice()](#tvmcelltoslice)
   * [TvmSlice](#tvmslice)
+    * [\<TvmSlice\>.empty()](#tvmsliceempty)
     * [\<TvmSlice\>.size()](#tvmslicesize)
     * [\<TvmSlice\>.dataSize()](#tvmslicedatasize)
     * [\<TvmSlice\>.dataSizeQ()](#tvmslicedatasizeq)
@@ -277,6 +278,14 @@ Converts the cell to a slice.
 #### TvmSlice
 
 TvmSlice represents TVM type Slice. TON Solidity compiler defines the following functions to work with this type:
+
+##### \<TvmSlice\>.empty()
+
+```TVMSolidity
+<TvmSlice>.empty() returns (bool);
+```
+
+Checks whether a `Slice` is empty (i.e., contains no bits of data and no cell references).
 
 ##### \<TvmSlice\>.size()
 
@@ -567,10 +576,14 @@ Stores an unsigned integer **value** with given **bitSize** in the builder.
 ##### \<TvmBuilder\>.storeRef()
 
 ```TVMSolidity
-<TvmBuilder>.storeRef(TvmBuilder refBuilder);
+// (1)
+<TvmBuilder>.storeRef(TvmBuilder b);
+// (2)
+<TvmBuilder>.storeRef(TvmCell c);
 ```
 
-Converts the argument **refBuilder** into a cell and stores it in a reference of the builder.
+1. Stores `b` in a reference of the builder.
+2. Stores `c` in a reference of the builder.
 
 ##### \<TvmBuilder\>.storeTons()
 
@@ -1513,6 +1526,31 @@ contract MyContract {
 
 ```
 
+### Import
+
+TON Solidity compiler allows user to import remote files using link starting with `http`.
+If import file name starts with `http`, then compiler tries to download the file using this
+link and saves it to the folder `.solc_imports`. If compiler fails to create this folder of
+to download the file, then an error is emitted.
+
+**Note**: to import file from Github, one should use link to the raw version of the file.
+
+Example:
+
+```TVMSolidity
+pragma ton-solidity >=0.35.0;
+pragma AbiHeader expire;
+pragma AbiHeader time;
+pragma AbiHeader pubkey;
+
+import "https://github.com/tonlabs/debots/raw/9c6ca72b648fa51962224ec0d7ce91df2a0068c1/Debot.sol";
+import "https://github.com/tonlabs/debots/raw/9c6ca72b648fa51962224ec0d7ce91df2a0068c1/Terminal.sol";
+
+contract HelloDebot is Debot {
+  ...
+}
+```
+
 ### Pragmas
 
 `pragma` keyword is used to enable certain compiler features or checks.
@@ -1639,33 +1677,108 @@ contract C {
 
 #### receive
 
-On plain value transfer **receive** function is called. See [\<address\>.transfer()](#addresstransfer).  
-If there is no **receive** function in contract then the contract has an implicit empty **receive**  
+**receive** function is called in 2 cases:
+1. [msg.data](#msgdata) (or message body) is empty.
+2. [msg.data](#msgdata) starts with 32-bit zero. Then message body may contain data,
+for example [string](#string) with comment.
+
+If in the contract there is no `receive` function then the contract has an implicit empty `receive`
 function.
 
-Example:
-
 ```TVMSolidity
+// file sink.sol
 contract Sink {
-    uint counter = 0;
+    uint public counter = 0;
+    uint public msgWithPayload = 0;
     receive() external {
         ++counter;
+        // if the inbound internal message has payload then we can get it using `msg.data`
+        TvmSlice s = msg.data;
+        if (!s.empty()) {
+            ++msgWithPayload;
+        }
+    }
+}
+
+// file bomber.sol
+contract Bomber {
+    // This function send 3 times tons to Sink contract. Sink's function receive will handle 
+    // that messages.
+    function f(address addr) pure public {
+        tvm.accept();
+        addr.transfer({value: 1 ton}); // message's body is empty
+
+        TvmBuilder b;
+        addr.transfer({value: 1 ton, body: b.toCell()}); // message's body is empty, too
+
+        b.store(uint32(0), "Thank you for the coffee!");
+        // body of message contains 32-bit number zero and string
+        addr.transfer({value: 20 ton, body: b.toCell()});
     }
 }
 ```
 
 ##### fallback
 
-**fallback** function is called when a body of an inbound internal/external message contains invalid
-function id. If in the contract there is no fallback function then exception is thrown.
+**fallback** function is called when a body of an inbound internal/external message in such cases:
+1. The message contains a function id than the contract doesn't contain.
+2. Bit length of message between 1 to 31 (including).
+3. Bit length of message equals to zero but the message contains reference(s).
+
+**Note**: if the message has correct function id but invalid encoded function's parameters then
+the transaction fail with some exception (e.g. cell underflow exception).
+
+If in the contract there is no fallback function then contract has implicit fallback function
+that throws exception.
 
 Example:
 
 ```TVMSolidity
-contract Contr {
-    uint counter = 0;
+// file ContractA.sol
+contract ContractA {
+    uint public counter = 0;
+
+    function f(uint a, uint b) public pure { /*...*/ }
+
     fallback() external {
         ++counter;
+    }
+
+}
+
+// file ContractB.sol
+import "ContractA.sol";
+import "ContractAnother.sol";
+
+contract ContractB {
+    // Let's `addr` is ContractA's address. 4 messages are send.  ContractA's fallback function will handle
+    // that messages except the last one.
+    function g(address addr) public pure {
+        tvm.accept();
+        // The message contains a function id than the contract doesn't contain.
+        // There is wrong casting to ContractAnother. `addr` is ContractA's address.
+        ContractAnother(addr).sum{value: 1 ton}(2, 2);
+
+        {
+            TvmBuilder b;
+            b.storeUnsigned(1, 1);
+            // Bit length of message equal to 20 bits.
+            addr.transfer({value: 2 ton, body: b.toCell()});
+        }
+
+        {
+            TvmBuilder b;
+            b.storeRef(b);
+            // Bit length of message equals to zero but the message contains one reference.
+            addr.transfer({value: 1 ton, body: b.toCell()});
+        }
+
+        TvmBuilder b;
+        uint32 id = tvm.functionId(ContractA.f);
+        b.store(id, uint(2));
+        // ContractA's fallback function won't be called because message body doesn't contain
+        // the second ContractA.f's parameter. It will cause cell underflow exception in ContractA.
+        addr.transfer({value: 1 ton, body: b.toCell()});
     }
 }
 ```
@@ -2261,7 +2374,7 @@ bool signatureIsValid = tvm.checkSign(hash, signature, pubkey);  // 3 variant
 tvm.insertPubkey(TvmCell stateInit, uint256 pubkey) returns (TvmCell);
 ```
 
-Inserts a public key into stateInit data field. If `stateInit` has no `data` field then throws exception.
+Inserts a public key into stateInit data field. If `stateInit` has wrong format then throws exception.
 
 ##### tvm.buildStateInit()
 
@@ -2665,8 +2778,8 @@ but stores special data:
 * callback id - 32 bits;
 * on error id - 32 bits;
 * abi version - 8 bits;
-* header mask - 3 bits in such order: time, expire, pubkey.
-* optional value signBoxHandle - 1 bit (whether value presents) + [32 bits] 
+* header mask - 3 bits in such order: time, expire, pubkey;
+* optional value signBoxHandle - 1 bit (whether value presents) + \[32 bits\].
 
 Other function parameters define fields of the message:
 

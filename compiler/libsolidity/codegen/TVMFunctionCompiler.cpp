@@ -1777,7 +1777,7 @@ IFJMP
 	}
 
 
-	s += funCompiler.pushReceive();
+	s += funCompiler.pushReceiveOrFallback();
 	pusher.pushLines(s);
 
 	pusher.exchange(0, 1);
@@ -1820,7 +1820,7 @@ void TVMFunctionCompiler::pushC7ToC4IfNeed() {
 	}
 }
 
-std::string TVMFunctionCompiler::pushReceive() {
+std::string TVMFunctionCompiler::pushReceiveOrFallback() {
 	std::string code;
 	if (!isEmptyFunction(m_contract->receiveFunction())) {
 		code = R"(
@@ -1830,7 +1830,24 @@ DUP        ; isEmpty isEmpty
 PUSHCONT {
 	DROP    ;
 	PUSH S1 ; body
-	LDU 32  ; funcId body'
+	LDUQ 32  ; [funcId] body' ok
+)";
+		if (m_pusher.ctx().isFallBackGenerated()) {
+			code += R"(
+	PUSHCONT {
+		; body'
+		DROP
+		CALLREF {
+			CALL $fallback_macro$
+		}
+		THROW 0
+	}
+	IFNOT
+)";
+		} else {
+			code += "\tTHROWIFNOT " + toString(TvmConst::RuntimeException::NoFallback);
+		}
+			code += R"(
 	PUSH S1 ; funcId body' funcId
 	EQINT 0 ; funcId body' isZero
 	DUP     ; funcId body' isZero isZero
@@ -1842,10 +1859,9 @@ PUSHCONT {
 }
 IFNOT
 ; [funcId body'] doReceive
-PUSHCONT {
+IFJMPREF {
 	CALL $receive_macro$
 }
-IFJMP
 )";
 	} else {
 		code = R"(
@@ -1853,7 +1869,24 @@ PUSH S1    ; body
 SEMPTY     ; isEmpty
 IFRET
 PUSH S1 ; body
-LDU 32  ; funcId body'
+LDUQ 32  ; [funcId] body' ok
+)";
+		if (!isEmptyFunction(m_contract->fallbackFunction())) {
+			code += R"(
+PUSHCONT {
+	; body'
+	DROP
+	CALLREF {
+		CALL $fallback_macro$
+	}
+	THROW 0
+}
+IFNOT
+)";
+		} else {
+			code += "THROWIFNOT 60 ; funcId body'";
+		}
+		code += R"(
 PUSH S1 ; funcId body' funcId
 IFNOTRET
 )";

@@ -354,7 +354,7 @@ void StructCompiler::structConstructor(
 
 void StructCompiler::tupleToBuilder() {
     // stack: tuple
-
+	pusher->startCallRef();
 	// if whole struct fits in one cell
 	if (nodes[0].getChildren().empty()) {
         const int n = memberNames.size();
@@ -377,6 +377,7 @@ void StructCompiler::tupleToBuilder() {
         createStructDfs(0, argStackSize);
         pusher->dropUnder(1, memberNames.size());
     }
+	pusher->endContinuation();
 	// stack: builder
 }
 

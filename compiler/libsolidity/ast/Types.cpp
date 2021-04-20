@@ -2869,6 +2869,7 @@ string FunctionType::richIdentifier() const
 	case Kind::StringSubstr: id += "stringsubstr"; break;
 
 	case Kind::DecodeFunctionParams: id += "tvmslicedecodefunctionparams"; break;
+	case Kind::TVMSliceEmpty: id += "tvmsliceempty"; break;
 	case Kind::TVMSliceDataSize: id += "tvmslicedatasize"; break;
 	case Kind::TVMSliceDecode: id += "tvmslicedecode"; break;
 	case Kind::TVMSliceSize: id += "tvmslicesize"; break;
@@ -4590,6 +4591,15 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) co
 			false, StateMutability::Pure
 	));
 
+	members.emplace_back("empty", TypeProvider::function(
+			{},
+			{TypeProvider::boolean()},
+			{},
+			{{}},
+			FunctionType::Kind::TVMSliceEmpty,
+			false, StateMutability::Pure
+	));
+
 	members.emplace_back("bits", TypeProvider::function(
 			TypePointers{},
 			TypePointers{TypeProvider::uint(16)},
@@ -4793,6 +4803,15 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ContractDefinition *) 
 			TypePointers{},
 			strings{string()},
 			strings{},
+			FunctionType::Kind::TVMBuilderMethods,
+			false, StateMutability::Pure
+	));
+
+	members.emplace_back("storeRef", TypeProvider::function(
+			{TypeProvider::tvmcell()},
+			{},
+			{{}},
+			{},
 			FunctionType::Kind::TVMBuilderMethods,
 			false, StateMutability::Pure
 	));

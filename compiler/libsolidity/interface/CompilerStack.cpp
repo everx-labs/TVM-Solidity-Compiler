@@ -70,6 +70,7 @@ using solidity::util::h256;
 
 static int g_compilerStackCounts = 0;
 
+#include <stdlib.h>
 
 CompilerStack::CompilerStack(ReadCallback::Callback const& _readFile):
 	m_readFile{_readFile},
@@ -212,7 +213,6 @@ bool CompilerStack::parse()
 	m_errorReporter.clear();
 
 	Parser parser{m_errorReporter, m_evmVersion, m_parserErrorRecovery};
-
 	vector<string> sourcesToParse;
 	for (auto const& s: m_sources)
 		sourcesToParse.push_back(s.first);
@@ -571,7 +571,7 @@ std::pair<bool, bool> CompilerStack::compile()
 				m_generateAbi,
 				m_generateCode,
 				m_withOptimizations,
-                m_withDebugInfo,
+				m_withDebugInfo,
 				m_inputFile,
 				m_folder,
 				m_file_prefix
@@ -872,19 +872,48 @@ StringMap CompilerStack::loadMissingSources(SourceUnit const& _ast, std::string 
 	for (auto const& node: _ast.nodes())
 		if (ImportDirective const* import = dynamic_cast<ImportDirective*>(node.get()))
 		{
-			solAssert(!import->path().empty(), "Import path cannot be empty.");
+			string import_path = import->path();
+			solAssert(!import_path.empty(), "Import path cannot be empty.");
+			auto src_dir = boost::filesystem::path(_sourcePath).remove_filename();
+			boost::filesystem::path imp_path(import_path);
 
-			boost::filesystem::path p(import->path());
-			p = boost::filesystem::path(_sourcePath).remove_filename() / p;
+			if (import_path.find("http") != string::npos) {
+				boost::filesystem::path imp = src_dir / ".solc_imports";
+				if (!boost::filesystem::exists(imp)) {
+					bool res = boost::filesystem::create_directory(imp);
+					if (!res) {
+						m_errorReporter.parserError(
+								import->location(),
+								string("Failed to create directory .solc_imports to save imported remote files")
+						);
+						continue;
+					}
+				}
+				imp_path = imp / imp_path.filename();
+				if (!boost::filesystem::exists(imp_path) || m_forceUpdate) {
+					int ec = system((string("curl -f -L ") + import_path + " -o " + imp_path.string()).c_str());
+					if (ec != 0) {
+						boost::filesystem::remove(imp_path);
+						m_errorReporter.parserError(
+								import->location(),
+								string("Failed to fetch import file: \"" + import_path)
+						);
+						continue;
+					}
+				}
+				import_path = imp_path.string();
+			} else {
+				imp_path = boost::filesystem::path(_sourcePath).remove_filename() / imp_path;
+			}
 
-			if (!boost::filesystem::exists(p)) {
+			if (!boost::filesystem::exists(imp_path)) {
 				m_errorReporter.parserError(
 					import->location(),
-					string("Source \"" + import->path() + "\" doesn't exist.")
+					string("Source \"" + import_path + "\" doesn't exist.")
 				);
 				continue;
 			}
-			string importPath = boost::filesystem::canonical(import->path(),
+			string importPath = boost::filesystem::canonical(import_path,
 				boost::filesystem::path(_sourcePath).remove_filename()).string();
 
 			// The current value of `path` is the absolute path as seen from this source file.

@@ -120,7 +120,7 @@ private:
 	void dfs(int v, std::vector<int> &nodePath, std::vector<int> &refPath);
 	void createDefaultStructDfs(int v);
 	void createStructDfs(int v, const std::map<std::string, int>& argStackSize);
-	void stateVarsToBuilderDfs(const int v);
+	void stateVarsToBuilderDfs(int v);
 	void sliceToStateVarsToC7Dfs(int v);
 	void skip(int bits, int refs);
 	void skip(const FieldSizeInfo& si);

@@ -167,6 +167,10 @@ public:
 		m_structWarning = _structWarning;
 	}
 
+	void setForceUpdate(bool _forceUpdate) {
+		m_forceUpdate = _forceUpdate;
+	}
+
 	void setMainContract(std::string mainContract) {
 		m_mainContract = mainContract;
 	}
@@ -482,6 +486,7 @@ private:
 	std::string m_folder;
 	std::string m_file_prefix;
 	std::string m_inputFile;
+	bool m_forceUpdate = false;
 };
 
 }

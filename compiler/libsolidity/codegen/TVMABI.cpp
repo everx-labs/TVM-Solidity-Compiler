@@ -612,7 +612,7 @@ void DecodeFunctionParams::loadq(const DecodePosition::Algo algo, const std::str
 		pusher->push(+1, opcode);
 	} else {
 		pusher->push(+1, opcodeq);
-		pusher->startContinuation();
+		pusher->startContinuationFromRef();
 		loadNextSlice();
 		pusher->push(0, opcode);
 		pusher->endContinuation();

@@ -157,7 +157,6 @@ void TVMTypeChecker::checkTvmIntrinsic(FunctionDefinition const *f) {
 	deprecatedFunctionsReplacement["tvm_config_param15"] = "tvm.configParam()";
 	deprecatedFunctionsReplacement["tvm_config_param17"] = "tvm.configParam()";
 	deprecatedFunctionsReplacement["tvm_config_param34"] = "tvm.configParam()";
-	deprecatedFunctionsReplacement["tvm_insert_pubkey"] = "tvm.insertPubkey()";
 	deprecatedFunctionsReplacement["tvm_build_state_init"] = "tvm.buildStateInit()";
 	deprecatedFunctionsReplacement["tvm_ignore_integer_overflow"] = "pragma ignoreIntOverflow";
 

@@ -1149,6 +1149,7 @@ public:
 		DecodeFunctionParams, ///< slice.decodeFunctionParams(function_name)
 		TVMLoadRef, ///< slice.loadRef()
 		TVMLoadSlice, ///< slice.loadSlice()
+		TVMSliceEmpty, ///< slice.empty()
 		TVMSliceDataSize, ///< slice.dataSize()
 		TVMSliceDecode, ///< slice.decode(types)
 		TVMSliceSize, ///< slice.size()

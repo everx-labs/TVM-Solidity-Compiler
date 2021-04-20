@@ -64,6 +64,7 @@ struct CodeLines {
 	void addTabs(int qty = 1);
 	void subTabs(int qty = 1);
 	void startContinuation();
+	void startContinuationFromRef();
 	void startIfRef();
 	void startIfJmpRef();
 	void startIfNotRef();
@@ -165,6 +166,7 @@ public:
 	void push(int stackDiff, const string& cmd);
 
 	void startContinuation(int deltaStack = 0);
+	void startContinuationFromRef();
 	void startIfRef(int deltaStack = 0);
 	void startIfJmpRef(int deltaStack = 0);
 	void startIfNotRef(int deltaStack = 0);
@@ -205,7 +207,7 @@ public:
 	void pushZeroAddress();
 	void generateC7ToT4Macro();
 
-	static void addBinaryNumberToString(std::string &s, u256 value, int bitlen = 256);
+	static void addBinaryNumberToString(std::string &s, bigint value, int bitlen = 256);
 	static std::string binaryStringToSlice(const std::string & s);
 	static std::string tonsToBinaryString(Literal const* literal);
 	static std::string tonsToBinaryString(const u256& value);
