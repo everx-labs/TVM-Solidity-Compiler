@@ -108,6 +108,7 @@ case $(uname -s) in
         brew update
         brew install boost
         brew install cmake
+        brew install curl
         if [ "$CI" = true ]; then
             brew upgrade cmake
         else
@@ -185,8 +186,8 @@ case $(uname -s) in
                     gcc \
                     git \
                     libboost-all-dev \
-                    unzip
-
+                    unzip \
+                    curl
 
                 ;;
 
@@ -209,7 +210,8 @@ case $(uname -s) in
                     gcc \
                     gcc-c++ \
                     git \
-                    libtool
+                    libtool \
+                    curl
 
                 ;;
 
@@ -240,7 +242,8 @@ case $(uname -s) in
                     build-essential \
                     cmake \
                     git \
-                    libboost-all-dev
+                    libboost-all-dev \
+                    curl
                 ;;
 
 #------------------------------------------------------------------------------
@@ -275,6 +278,7 @@ case $(uname -s) in
                     sudo yum -y remove boost-devel
                     sudo wget https://bintray.com/vicendominguez/CentOS6/rpm -O /etc/yum.repos.d/bintray-vicendominguez-CentOS6.repo
                     sudo yum install boost-devel
+                    sudo yum install curl
                 else
                     echo "Aborted CentOS Solidity Dependency Installation";
                     exit 1

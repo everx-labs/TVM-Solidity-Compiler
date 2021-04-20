@@ -1132,7 +1132,10 @@ DICTUSETB
 }
 
 void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
-	if (_node.memberName() == "dataSize") {
+	if (_node.memberName() == "empty") {
+		acceptExpr(&_node.expression());
+		m_pusher.push(-1 + 1, "SEMPTY");
+	} else if (_node.memberName() == "dataSize") {
 		acceptExpr(&_node.expression());
 		pushArgAndConvert(0);
 		m_pusher.push(-2 + 3, "SDATASIZE");
@@ -1282,7 +1285,17 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 
 		if (_node.memberName() == "storeRef") {
 			pushArgAndConvert(0);
-			m_pusher.push(-1, "STBREFR");
+			Type::Category cat = m_arguments.at(0)->annotation().type->category();
+			switch (cat) {
+				case Type::Category::TvmBuilder:
+					m_pusher.push(-1, "STBREFR");
+					break;
+				case Type::Category::TvmCell:
+					m_pusher.push(-1, "STREFR");
+					break;
+				default:
+					solUnimplemented("");
+			}
 		} else if (_node.memberName() == "store") {
 			for (const auto& argument: m_arguments) {
 				acceptExpr(argument.get());

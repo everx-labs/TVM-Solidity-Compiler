@@ -1,3 +1,13 @@
+### 0.42.0 (2021-04-19)
+
+Breaking change:
+ * Calling a fallback function (instead of throwing error) in cases:
+   1. Bit size of the internal input message is between 1 and 31.
+   2. The message has zero bit size and not zero count of references.
+
+Compiler features:
+ * Added ability to import files via net link.
+
 ### 0.41.0 (2021-04-12)
 
 Compiler features:

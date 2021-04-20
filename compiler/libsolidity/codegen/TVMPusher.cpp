@@ -370,18 +370,19 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 		}
 	};
 
+	const bool isValueStruct = valueType->category() == Type::Category::Struct;
+
 	switch (decodeType) {
 		case DecodeType::DecodeValue:
 			preloadValue();
 			break;
 		case DecodeType::DecodeValueOrPushDefault: {
-			startContinuation();
+			isValueStruct ? startContinuationFromRef() : startContinuation();
 			preloadValue();
 			endContinuation();
 
 			bool hasEmptyPushCont = tryPollEmptyPushCont();
-
-			startContinuation();
+			isValueStruct ? startContinuationFromRef() : startContinuation();
 			bool isStructAndBuilder =
 				valueType->category() == Type::Category::Struct &&
 				resultAsSliceForStruct;
@@ -477,7 +478,7 @@ bool StackPusherHelper::tryPollConvertBuilderToSlice() {
 bool StackPusherHelper::tryPollEmptyPushCont() {
 	int n = m_code.lines.size();
 	if (n >= 2 &&
-		cmpLastCmd("PUSHCONT \\{", 1) &&
+		(cmpLastCmd("PUSHCONT \\{", 1) || cmpLastCmd("PUSHREFCONT \\{", 1)) &&
 		cmpLastCmd("\\}")
 	) {
 		m_code.lines.pop_back();
@@ -565,6 +566,10 @@ void StackPusherHelper::push(int stackDiff, const string &cmd) {
 void StackPusherHelper::startContinuation(int deltaStack) {
 	m_code.startContinuation();
 	m_stack.change(deltaStack);
+}
+
+void StackPusherHelper::startContinuationFromRef() {
+	m_code.startContinuationFromRef();
 }
 
 void StackPusherHelper::startIfRef(int deltaStack) {
@@ -1093,7 +1098,8 @@ void StackPusherHelper::pushZeroAddress() {
 	push(+1, "PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_");
 }
 
-void StackPusherHelper::addBinaryNumberToString(std::string &s, u256 value, int bitlen) {
+void StackPusherHelper::addBinaryNumberToString(std::string &s, bigint value, int bitlen) {
+	solAssert(value >= 0, "");
 	for (int i = 0; i < bitlen; ++i) {
 		s += value % 2 == 0? "0" : "1";
 		value /= 2;
@@ -1933,6 +1939,11 @@ void CodeLines::subTabs(const int qty) {
 
 void CodeLines::startContinuation() {
 	push("PUSHCONT {");
+	++tabQty;
+}
+
+void CodeLines::startContinuationFromRef() {
+	push("PUSHREFCONT {");
 	++tabQty;
 }
 

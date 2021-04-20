@@ -884,6 +884,144 @@ struct TVMOptimizer {
 			return Result(true, 3, {"ISNULL"});
 		}
 
+		if (cmd1.is_PUSHINT() && cmd1.is("PUSHINT") && cmd1.fetch_bigint() == 0 &&
+			cmd2.is("STUR") &&
+			cmd3.is_PUSHINT() && cmd3.is("PUSHINT") && cmd3.fetch_bigint() == 0 &&
+			cmd4.is("STUR")
+		) {
+			int bitSize = cmd2.fetch_int() + cmd4.fetch_int();
+			if (bitSize <= 256)
+				return Result(true, 4, {"PUSHINT 0", "STUR " + toString(bitSize)});
+		}
+
+		if ((cmd1.is("UFITS") && cmd2.is("UFITS"))  || (cmd1.is("FITS") && cmd2.is("FITS"))) {
+			int bitSize = std::min(cmd1.fetch_int(), cmd2.fetch_int());
+			return Result(true, 2, {cmd1.cmd_ + " " + toString(bitSize)});
+		}
+
+		if (cmd1.is_PUSHINT() &&
+			cmd2.is("NEWC") &&
+			cmd3.is("STSLICECONST") &&
+			cmd4.is("STU")) {
+			std::string bitStr = toBitString(cmd3.rest());
+			StackPusherHelper::addBinaryNumberToString(bitStr, cmd1.fetch_bigint(), cmd4.fetch_int());
+			std::vector<std::string> slices = unitBitString(bitStr, "");
+			if (slices.size() == 1) {
+				return Result(true, 4, {
+					"PUSHSLICE " + slices.at(0),
+					"NEWC",
+					"STSLICE"
+				});
+			}
+		}
+
+		if (cmd1.is_PUSHINT() &&
+			cmd2.is("PUSHSLICE") &&
+			cmd3.is("NEWC") &&
+			cmd4.is("STSLICE") &&
+			cmd5.is("STU")
+		) {
+			std::string bitStr = toBitString(cmd2.rest());
+			StackPusherHelper::addBinaryNumberToString(bitStr, cmd1.fetch_bigint(), cmd5.fetch_int());
+			std::vector<std::string> slices = unitBitString(bitStr, "");
+			if (slices.size() == 1) {
+				return Result(true, 5, {
+						"PUSHSLICE " + slices.at(0),
+						"NEWC",
+						"STSLICE"
+				});
+			}
+		}
+
+		if (cmd1.is("PUSHSLICE") &&
+			cmd2.is("NEWC") &&
+			cmd3.is("STSLICE") &&
+			(cmd4.is("STONE") || cmd4.is("STZERO"))
+		) {
+			std::string bitStr = toBitString(cmd1.rest());
+			bitStr += cmd4.is("STONE") ? "1" : "0";
+			std::vector<std::string> slices = unitBitString(bitStr, "");
+			if (slices.size() == 1) {
+				return Result(true, 4, {
+						"PUSHSLICE " + slices.at(0),
+						"NEWC",
+						"STSLICE"
+				});
+			}
+		}
+
+		if (cmd1.is_PUSHINT() &&
+			cmd2.is("STZEROES") &&
+			cmd3.is_PUSHINT() &&
+			cmd4.is("STZEROES")
+		) {
+			int bitQty = cmd1.fetch_int() + cmd3.fetch_int();
+			return Result(true, 4, {
+					"PUSHINT " + toString(bitQty),
+					"STZEROES"
+			});
+		}
+
+		if (cmd1.is_PUSHINT() &&
+			cmd2.is("STUR") &&
+			cmd3.is_PUSHINT() &&
+			cmd4.is("STUR")
+		) {
+			bigint a = cmd1.fetch_bigint();
+			int lenA = cmd2.fetch_int();
+			bigint b = cmd3.fetch_bigint();
+			int lenB = cmd4.fetch_int();
+			if (lenA + lenB <= 256) {
+				bigint c = (a << lenB) + b;
+				return Result(true, 4, {
+						"PUSHINT " + toString(c),
+						"STUR " + toString(lenA + lenB)
+				});
+			}
+		}
+
+		if (cmd1.is_PUSHINT() &&
+			cmd2.is("STZEROES") &&
+			cmd3.is("STSLICECONST") && cmd3.rest() == "1"
+		) {
+			int lenA = cmd1.fetch_int();
+			if (lenA <= 256) {
+				return Result(true, 3, {
+						"PUSHINT 1",
+						"STUR " + toString(lenA + 1)
+				});
+			}
+		}
+
+		if ((cmd1.is("TRUE") || cmd1.is("FALSE")) &&
+			cmd2.is("STIR") && cmd2.fetch_int() == 1
+		) {
+			if (cmd1.is("FALSE"))
+				return Result(true, 2, {"STZERO"});
+			return Result(true, 2, {"STONE"});
+		}
+
+		if ((cmd1.is("STONE") || cmd1.is("STZERO"))) {
+			int qty = 0;
+			int i = idx1;
+			std::string bits;
+			while (
+				i != -1 &&
+				qty < TvmConst::MaxSTSLICECONST &&
+				(cmd(i).is("STONE") || cmd(i).is("STZERO"))
+			) {
+				bits += cmd(i).is("STONE") ? "1" : "0";
+				++qty;
+				i = next_command_line(i);
+			}
+			if (qty >= 2) {
+				std::vector<std::string> slices = unitBitString(bits, "");
+				solAssert(slices.size() == 1, "");
+				return Result(true, qty, {"STSLICECONST " + slices.at(0)});
+			}
+
+		}
+
 		return Result(false);
 	}
 

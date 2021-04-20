@@ -3,144 +3,219 @@
 CALL $insert_pubkey_macro$
 
 .macro insert_pubkey_macro
-;; param: my_contract
+;; param: stateInit
 ;; param: pubkey
 ; function insert_pubkey
-;; push identifier my_contract
+;; push identifier stateInit
 PUSH S1
 CTOS
 ;; decl: slice
 NEWC
 ;; decl: builder
 ;; if
-;; push identifier slice
+; expValue
 PUSH S1
-LDU 1
+; end expValue
+LDI 1
+; colValue
 POP S3
-ISZERO
+; end colValue
 PUSHCONT {
-	PUSHINT 1
-	STZEROES
-}
-PUSHCONT {
-	PUSHINT 1
-	STONES
-	;; push identifier slice
+	; expValue
+	DUP
+	; end expValue
+	STONE
+	; colValue
+	NIP
+	; end colValue
+	; expValue
 	PUSH S1
+	; end expValue
 	LDU 32
+	; colValue
 	POP S3
+	; end colValue
+	;; decl: split_depth
+	; expValue
+	PUSH S1
+	; end expValue
+	STONE
+	;; push identifier split_depth
+	PUSH S1
 	STUR 32
+	; colValue
+	POP S2
+	; end colValue
+	DROP
+}
+PUSHCONT {
+	; expValue
+	DUP
+	; end expValue
+	STZERO
+	; colValue
+	NIP
+	; end colValue
 }
 IFELSE
 ;; end if
 ;; if
-;; push identifier slice
+; expValue
 PUSH S1
-LDU 1
+; end expValue
+LDI 1
+; colValue
 POP S3
-ISZERO
+; end colValue
 PUSHCONT {
-	PUSHINT 1
-	STZEROES
-}
-PUSHCONT {
-	PUSHINT 1
-	STONES
-	;; push identifier slice
+	; expValue
+	DUP
+	; end expValue
+	STONE
+	; colValue
+	NIP
+	; end colValue
+	; expValue
 	PUSH S1
-	LDU 2
-	POP S3
-	STUR 2
-}
-IFELSE
-;; end if
-;; if
-;; push identifier slice
-PUSH S1
-LDU 1
-POP S3
-ISZERO
-PUSHCONT {
-	PUSHINT 1
-	STZEROES
-}
-PUSHCONT {
-	PUSHINT 1
-	STONES
-	;; push identifier slice
+	; end expValue
+	LDI 1
+	LDI 1
+	; colValue
+	POP S4
+	; end colValue
+	;; decl: tick
+	;; decl: tock
+	; expValue
+	; end expValue
+	;; push identifier tick
+	BLKPUSH 2, 2
+	STIR 1
+	;; push identifier tock
 	PUSH S1
-	LDREF
+	STIR 1
+	; colValue
 	POP S3
-	STREFR
+	; end colValue
+	DROP2
+}
+PUSHCONT {
+	; expValue
+	DUP
+	; end expValue
+	STZERO
+	; colValue
+	NIP
+	; end colValue
 }
 IFELSE
 ;; end if
-;; if
-;; push identifier slice
-PUSH S1
-LDU 1
-POP S3
-NEQINT 1
-THROWIF 55
-;; end if
-PUSHINT 1
-STONES
-NEWC
-;; decl: key_builder
-;; push identifier pubkey
-PUSH S3
-STUR 256
-;; push identifier slice
-PUSH S2
-LDREF
-POP S4
-CTOS
-;; decl: data
+; expValue
+; end expValue
+; expValue
+PUSH2 S0, S1
+; end expValue
 LDDICT
+; colValue
+POP S4
+; end colValue
 SWAP
-;; decl: dict
-;; push identifier key_builder
+STDICT
+; colValue
+NIP
+; end colValue
+NEWDICT
+;; decl: data
+;; if
+; expValue
 PUSH S2
+; end expValue
+LDI 1
+; colValue
+POP S4
+; end colValue
+PUSHCONT {
+	; expValue
+	PUSH S2
+	; end expValue
+	LDREFRTOS
+	SWAP
+	; colValue
+	POP S4
+	; end colValue
+	;; decl: tmp
+	; expValue
+	DUP
+	; end expValue
+	LDDICT
+	; colValue
+	POP S2
+	; end colValue
+	; expValue
+	; end expValue
+	; colValue
+	POP S2
+	; end colValue
+	DROP
+}
+IF
+;; end if
+; expValue
 PUSHINT 0
-;; push identifier dict
-PUSH S2
+; end expValue
+;; push identifier pubkey
+PUSH2 S1, S4
+; colValue
+NEWC
+STU 256
+ROTREV
 PUSHINT 64
 DICTUSETB
 NIP
-;; decl: dict_builder
-;; push identifier dict
-DUP
+; end colValue
 NEWC
+;; decl: builderData
+; expValue
+; end expValue
+;; push identifier data
+DUP2
 STDICT
-;; push identifier dict_builder
-DUP
-ENDC
-;; push identifier builder
-PUSH S5
-STREF
-POP S5
-BLKDROP 4
-;; if
+; colValue
+NIP
+; end colValue
+; expValue
+PUSH S2
+; end expValue
+STONE
+; colValue
+POP S3
+; end colValue
+; expValue
+; end expValue
+;; push identifier builderData
+PUSH2 S2, S0
+STBREFR
+; colValue
+POP S3
+; end colValue
+DROP2
+; expValue
+; end expValue
+; expValue
+PUSH2 S0, S1
+; end expValue
+LDDICT
+; colValue
+POP S4
+; end colValue
+SWAP
+STDICT
+; colValue
+NIP
+; end colValue
 ;; push identifier slice
 PUSH S1
-LDU 1
-POP S3
-ISZERO
-PUSHCONT {
-	PUSHINT 1
-	STZEROES
-}
-PUSHCONT {
-	PUSHINT 1
-	STONES
-	;; push identifier slice
-	PUSH S1
-	LDREF
-	POP S3
-	STREFR
-}
-IFELSE
-;; end if
+SEMPTY
+THROWIFNOT 55
 ;; return
 ;; push identifier builder
 DUP
@@ -447,37 +522,13 @@ PUSHCONT {
 	;; push identifier integer
 	PUSH S3
 	PUSHCONT {
-		PUSHINT 0
-		NULL
-		TUPLE 2
-		;; decl: digit
-		; expValue
-		; end expValue
-		; colValue
-		PUSHINT 0
-		SETINDEX 0
-		; end colValue
-		; expValue
-		; end expValue
-		;; push identifier digits
-		; colValue
-		PUSH S1
-		SETINDEX 1
-		; end colValue
-		; expValue
-		; end expValue
-		;; push identifier digit
-		DUP
-		; colValue
-		POP S2
-		; end colValue
 		;; return
 		PUSHINT 1
+		PUSHINT 0
 		;; push identifier digits
 		PUSH S2
-		BLKDROP2 2, 3
-		ROT
-		DROP
+		TUPLE 2
+		BLKDROP2 2, 2
 	}
 	IFNOTJMP
 	;; end if
@@ -2105,24 +2156,11 @@ PUSHCONT {
 	}
 	IFNOTJMP
 	;; end if
-	NEWC
-	NULL
+	;; push identifier first
+	;; push identifier list
+	PUSH2 S4, S5
 	TUPLE 2
 	;; decl: nList
-	; expValue
-	; end expValue
-	;; push identifier list
-	; colValue
-	PUSH S6
-	SETINDEX 1
-	; end colValue
-	; expValue
-	; end expValue
-	;; push identifier first
-	; colValue
-	PUSH S5
-	SETINDEX 0
-	; end colValue
 	;; return
 	;; push identifier nList
 	;; push identifier second
@@ -2740,15 +2778,9 @@ IF
 ;; end if
 ;; push identifier from
 PUSH S5
-;; /
 PUSHINT 127
-DIV
+DIVMOD
 ;; decl: skipCnt
-;; push identifier from
-PUSH S6
-;; %
-PUSHINT 127
-MOD
 ;; decl: skipBytes
 ;; push identifier str
 PUSH S8
@@ -2868,24 +2900,11 @@ PUSHCONT {
 		BREMBITS
 		LESSINT 8
 		PUSHCONT {
-			NEWC
-			NULL
+			;; push identifier builder
+			;; push identifier list
+			PUSH2 S1, S2
 			TUPLE 2
 			;; decl: nList
-			; expValue
-			; end expValue
-			;; push identifier builder
-			; colValue
-			PUSH S2
-			SETINDEX 0
-			; end colValue
-			; expValue
-			; end expValue
-			;; push identifier list
-			; colValue
-			PUSH S3
-			SETINDEX 1
-			; end colValue
 			; expValue
 			; end expValue
 			;; push identifier nList

@@ -2022,7 +2022,7 @@ void TypeChecker::typeCheckConstructor(FunctionDefinition const& _function)
 	if (_function.stateMutability() != StateMutability::NonPayable)
 		m_errorReporter.typeError(
 			_function.location(),
-			"Constructor must be payable or non-payable, but is \"" +
+			"Constructor must have default mutability, but it is \"" +
 			stateMutabilityToString(_function.stateMutability()) +
 			"\"."
 		);

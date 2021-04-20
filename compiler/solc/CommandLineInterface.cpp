@@ -123,6 +123,7 @@ static string const g_argTvm = "tvm";
 static string const g_argTvmABI = "tvm-abi";
 static string const g_argTvmOptimize = "tvm-optimize";
 static string const g_argTvmPeephole = "tvm-peephole";
+static string const g_argRefreshRemote = "tvm-refresh-remote";
 static string const g_argTvmUnsavedStructs = "tvm-unsaved-structs";
 
 
@@ -296,7 +297,8 @@ Allowed options)",
 		(g_argTvmPeephole.c_str(), "Run peephole optimization pass")
 		(g_argTvmOptimize.c_str(), "Optimize produced TVM assembly code (deprecated)")
 		(g_argTvmUnsavedStructs.c_str(), "Enable struct usage analyzer")
-        (g_argDebug.c_str(), "Generate debug info");
+		(g_argDebug.c_str(), "Generate debug info")
+		(g_argRefreshRemote.c_str(), "Force download and rewrite remote import files");
 	desc.add(outputComponents);
 
 	po::options_description allOptions = desc;
@@ -415,6 +417,9 @@ bool CommandLineInterface::processInput()
 
 		if (m_args.count(g_argTvmUnsavedStructs))
 			m_compiler->setStructWarning(true);
+
+		if (m_args.count(g_argRefreshRemote))
+		    m_compiler->setForceUpdate(true);
 
 		if (m_args.count(g_argSetContract))
 			m_compiler->setMainContract(m_args[g_argSetContract].as<string>());

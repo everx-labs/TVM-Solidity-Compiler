@@ -115,7 +115,7 @@ private:
 	void callPublicFunctionOrFallback();
 	void pushC4ToC7IfNeed();
 	void pushC7ToC4IfNeed();
-	std::string pushReceive();
+	std::string pushReceiveOrFallback();
 
 	void buildPublicFunctionSelector(const std::vector<std::pair<uint32_t, std::string>>& functions, int left, int right);
     void pushLocation(const ASTNode& node, bool reset = false);
