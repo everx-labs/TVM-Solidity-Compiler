@@ -559,7 +559,7 @@ For example, `uint8(100), int16(-3), bytes2(0xaabb)` stored as `0x64fffdaabb`.
  * `bool` - stored as a binary zero for `false` or a binary one for `true`. For example,
 `true, false, true` stored as `0xb_`.
  * `ufixedMxN`/`fixedMxN` - stored as an M-bit string.
- * `address`/`contract` - stored according to the [TL-B scheme][3] of `MsgAddress.
+ * `address`/`contract` - stored according to the [TL-B scheme][3] of `MsgAddress`.
  * `TvmCell`/`bytes`/`string` - stored as a cell in reference.
  * `TvmSlice`/`TvmBuilder` - all data bits and references of the `TvmSlice` or the `TvmBuilder`
 are appended to the builder. Not in a reference as `TvmCell`. To store `TvmSlice`/`TvmBuilder` in
