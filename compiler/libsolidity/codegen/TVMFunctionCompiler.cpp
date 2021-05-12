@@ -110,11 +110,14 @@ LDU 1       ; pubkey [timestamp] constructor_flag memory
 	} else {
 		pusherHelper.push(0, "ENDS");
 	}
+
+	pusherHelper.push(+1, "TRUE");
+	pusherHelper.setGlob(TvmConst::C7::IsInit);
+	pusherHelper.push(0, "; pubkey [timestamp] constructor_flag");
 	pusherHelper.pushLines(R"(
-TRUE
-SETGLOB 1   ; pubkey [timestamp] constructor_flag
 SETGLOB 6   ; pubkey [timestamp]
 )");
+
 	if (m_pusher.ctx().storeTimestampInC4()) {
 		pusherHelper.pushLines(R"(SETGLOB 3   ; D)");
 	}
@@ -154,7 +157,7 @@ PUSHCONT {
 			if (v->isStatic()) {
 				pusher.pushInt(TvmConst::C4::PersistenceMembersStartIndex + shift++); // index
 				pusher.pushS(1); // index dict
-				pusher.getDict(getKeyTypeOfC4(), *v->type(), GetDictOperation::GetFromMapping, false);
+				pusher.getDict(getKeyTypeOfC4(), *v->type(), GetDictOperation::GetFromMapping);
 			} else {
 				pusher.pushDefaultValue(v->type());
 			}
@@ -178,10 +181,9 @@ PUSHCONT {
 )";
 		boost::replace_all(str, "NoPubkeyInC4", toString(TvmConst::RuntimeException::NoPubkeyInC4));
 		pusher.pushLines(str);
-		pusher.pushLines(R"(
-	TRUE
-	SETGLOB 1
-)");
+		pusher.push(+1, "TRUE");
+		pusher.setGlob(TvmConst::C7::IsInit);
+
 		pusher.addTabs();
 		for (VariableDeclaration const *variable: pusher.ctx().notConstantStateVariables()) {
 			if (auto value = variable->value().get()) {
@@ -253,7 +255,8 @@ void TVMFunctionCompiler::decodeFunctionParamsAndLocateVars(bool isResponsible) 
 	// decode function params
 	// stack: transaction_id arguments-in-slice
 	m_pusher.push(+1, ""); // arguments-in-slice
-	DecodeFunctionParams{&m_pusher}.decodeParameters(m_function->parameters(), isResponsible);
+	vector<Type const*> types = getParams(m_function->parameters()).first;
+	ChainDataDecoder{&m_pusher}.decodePublicFunctionParameters(types, isResponsible);
 	// stack: transaction_id arguments...
 	m_pusher.getStack().change(-static_cast<int>(m_function->parameters().size()));
 	for (const ASTPointer<VariableDeclaration>& variable: m_function->parameters()) {
@@ -334,14 +337,14 @@ TVMFunctionCompiler::generateGetter(StackPusherHelper &pusher, VariableDeclarati
 	const int prevStackSize = pusher.getStack().size();
 	const std::vector<VariableDeclaration const*> outputs = {vd};
 	auto appendBody = [&](int builderSize) {
-		return EncodeFunctionParams{&pusher}.createMsgBodyAndAppendToBuilder(
+		return ChainDataEncoder{&pusher}.createMsgBodyAndAppendToBuilder(
 				[&](size_t idx) {
 					int pos = (pusher.getStack().size() - prevStackSize) +
 							  (static_cast<int>(1) - static_cast<int>(idx) - 1);
 					pusher.pushS(pos);
 				},
 				{vd},
-				EncodeFunctionParams{&pusher}.calculateFunctionIDWithReason(vd->name(), {}, &outputs, ReasonOfOutboundMessage::FunctionReturnExternal, {}, false),
+				ChainDataEncoder{&pusher}.calculateFunctionIDWithReason(vd->name(), {}, &outputs, ReasonOfOutboundMessage::FunctionReturnExternal, {}, false),
 				{},
 				builderSize
 		);
@@ -441,15 +444,15 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 
 		const int prevStackSize = m_pusher.getStack().size();
 		auto appendBody = [&](int builderSize) {
-			return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder(
+			return ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
 					[&](size_t idx) {
 						int pos = (m_pusher.getStack().size() - prevStackSize) +
 								  (static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
 						m_pusher.pushS(pos);
 					},
 					ret,
-					EncodeFunctionParams{&m_pusher}.calculateFunctionIDWithReason(m_function,
-																				  ReasonOfOutboundMessage::FunctionReturnExternal),
+					ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(m_function,
+																			  ReasonOfOutboundMessage::FunctionReturnExternal),
 					{},
 					builderSize
 			);
@@ -479,7 +482,7 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 
 		const int prevStackSize = m_pusher.getStack().size();
 		auto appendBody = [&](int builderSize) {
-			return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder(
+			return ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
 				[&](size_t idx) {
 					int pos = (m_pusher.getStack().size() - prevStackSize) +
 							  (static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
@@ -1104,8 +1107,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 				m_pusher.pushS(m_pusher.getStack().size() - saveStackSize - 2); // stack: dict index value [flag] index
 				m_pusher.pushS(
 						m_pusher.getStack().size() - saveStackSize - 1); // stack: dict index value [flag] index dict
-				m_pusher.getDict(getKeyTypeOfArray(), *arrayType->baseType(), GetDictOperation::Fetch,
-								 false);
+				m_pusher.getDict(getKeyTypeOfArray(), *arrayType->baseType(), GetDictOperation::Fetch);
 				// stack: dict index value [flag] newValue
 				m_pusher.pushS(0); // stack: dict index value [flag] newValue newValue
 				m_pusher.popS(
@@ -1409,13 +1411,13 @@ bool TVMFunctionCompiler::visit(EmitStatement const &_emit) {
 	solAssert(eventDef, "Event Declaration was not found");
 	m_pusher.push(0, ";; emit " + eventDef->name());
 	auto appendBody = [&](int builderSize) {
-		return EncodeFunctionParams{&m_pusher}.createMsgBodyAndAppendToBuilder(
+		return ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
 				[&](size_t idx) {
 					m_pusher.push(0, ";; " + eventDef->parameters()[idx]->name());
 					TVMExpressionCompiler{m_pusher}.compileNewExpr(eventCall->arguments()[idx].get());
 				},
 				convertArray(eventDef->parameters()),
-				EncodeFunctionParams{&m_pusher}.calculateFunctionIDWithReason(eventDef, ReasonOfOutboundMessage::EmitEventExternal),
+				ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(eventDef, ReasonOfOutboundMessage::EmitEventExternal),
 				{},
 				builderSize);
 	};
@@ -1797,10 +1799,9 @@ bool TVMFunctionCompiler::visit(PlaceholderStatement const &) {
 void TVMFunctionCompiler::pushC4ToC7IfNeed() {
 	// c4_to_c7 if need
 	if (m_function->stateMutability() != StateMutability::Pure) {
-		m_pusher.pushLines(R"(
-GETGLOB 1
-ISNULL
-)");
+		m_pusher.getGlob(TvmConst::C7::IsInit);
+		m_pusher.push(-1, ""); // fix stack
+		m_pusher.push(0, "ISNULL");
 		m_pusher.startIfRef();
 		m_pusher.pushCall(0, "c4_to_c7");
 		m_pusher.endContinuation();

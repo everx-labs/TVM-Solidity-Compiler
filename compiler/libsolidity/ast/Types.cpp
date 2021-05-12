@@ -2893,6 +2893,7 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMBuilderStore: id += "tvmbuilderstore"; break;
 
 	case Kind::TVMChecksign: id += "tvmchecksign"; break;
+	case Kind::TVMCode: id += "tvmcode"; break;
 	case Kind::TVMCommit: id += "tvmcommit"; break;
 	case Kind::TVMConfigParam: id += "tvmconfigparam"; break;
 	case Kind::TVMDeploy: id += "tvmdeploy"; break;
@@ -3923,6 +3924,9 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 		});
 	case Kind::TVM: {
 		MemberList::MemberMap members = {
+			{"code", TypeProvider::function({}, {TypeProvider::tvmcell()}, {}, {{}}, FunctionType::Kind::TVMCode, false, StateMutability::Pure)},
+			{"codeSalt", TypeProvider::function({TypeProvider::tvmcell()}, {TypeProvider::optional(TypeProvider::tvmcell())}, {{}}, {{}}, FunctionType::Kind::TVMCode, false, StateMutability::Pure)},
+			{"setCodeSalt", TypeProvider::function({TypeProvider::tvmcell(), TypeProvider::tvmcell()}, {TypeProvider::tvmcell()}, {{}, {}}, {{}}, FunctionType::Kind::TVMCode, false, StateMutability::Pure)},
 			{"pubkey", TypeProvider::function(strings(), strings{"uint"}, FunctionType::Kind::TVMPubkey, false, StateMutability::Pure)},
 			{"setPubkey", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetPubkey, false, StateMutability::NonPayable)},
 			{"accept", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMAccept, false, StateMutability::Pure)},
@@ -4809,6 +4813,15 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ContractDefinition *) 
 
 	members.emplace_back("storeRef", TypeProvider::function(
 			{TypeProvider::tvmcell()},
+			{},
+			{{}},
+			{},
+			FunctionType::Kind::TVMBuilderMethods,
+			false, StateMutability::Pure
+	));
+
+	members.emplace_back("storeRef", TypeProvider::function(
+			{TypeProvider::tvmslice()},
 			{},
 			{{}},
 			{},

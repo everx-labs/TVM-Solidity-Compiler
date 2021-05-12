@@ -19,6 +19,7 @@
 #include "TVMPusher.hpp"
 #include "TVMContractCompiler.hpp"
 #include "TVMExpressionCompiler.hpp"
+#include "TVMStructCompiler.hpp"
 
 #include <boost/range/adaptor/map.hpp>
 
@@ -28,9 +29,8 @@ StackPusherHelper::StackPusherHelper(TVMCompilerContext *ctx, const int stackSiz
 		m_ctx(ctx),
 		m_structCompiler{new StructCompiler{this,
 											ctx->notConstantStateVariableTypes(),
-											ctx->notConstantStateVariableNames(),
-											256 + (m_ctx->storeTimestampInC4()? 64 : 0) + 1, // pubkey + timestamp + constructor_flag
-											true}} {
+											ctx->notConstantStateVariableNames()
+											}} {
 	m_stack.change(stackSize);
 }
 
@@ -44,7 +44,11 @@ void StackPusherHelper::pushString(const std::string& _str, bool toSlice) {
     const int saveStackSize = getStack().size();
     const int length = hexStr.size();
     const int symbolQty = ((TvmConst::CellBitLength / 8) * 8) / 4; // one symbol in string == 8 bit. Letter can't be divided by 2 cells
-    push(+1, "PUSHREF {");
+    if (toSlice) {
+		push(+1, "PUSHREFSLICE {");
+    } else {
+		push(+1, "PUSHREF {");
+	}
     addTabs();
     int builderQty = 0;
     int start = 0;
@@ -59,10 +63,6 @@ void StackPusherHelper::pushString(const std::string& _str, bool toSlice) {
     } while (start < length);
     for (int i = 0; i < builderQty; ++i) {
         endContinuation();
-    }
-
-    if (toSlice) {
-        push(0, "CTOS");
     }
 
     getStack().ensureSize(saveStackSize + 1, "");
@@ -81,23 +81,20 @@ StructCompiler &StackPusherHelper::structCompiler() {
 void StackPusherHelper::generateC7ToT4Macro() {
 	push(+1, ""); // fix stack, allocate builder
 	generateMacro("c7_to_c4");
-	pushLines(R"(
-GETGLOB 2
-NEWC
-STU 256
-)");
+	push(0, "GETGLOB 6");
 	if (ctx().storeTimestampInC4()) {
-		pushLines(R"(
-GETGLOB 3
-STUR 64
-)");
+		push(0, "GETGLOB 3");
 	}
-	pushLines(R"(
-GETGLOB 6
-STUR 1
-)");
+	push(0, "GETGLOB 2");
+	push(0, "NEWC");
+	push(0, "STU 256");
+	if (ctx().storeTimestampInC4()) {
+		push(0, "STU 64");
+	}
+	push(0, "STU 1");
+
 	if (!ctx().notConstantStateVariables().empty()) {
-		structCompiler().stateVarsToBuilder();
+		structCompiler().stateVarsToBuilderForC4();
 	}
 	pushLines(R"(
 ENDC
@@ -109,8 +106,7 @@ POP C4
 bool StackPusherHelper::doesFitInOneCellAndHaveNoStruct(Type const* key, Type const* value) {
 	int keyLength = lengthOfDictKey(key);
 	return
-		2 + // hml_long$10
-		integerLog2(keyLength) +
+		TvmConst::MAX_HASH_MAP_INFO_ABOUT_KEY +
 		keyLength +
 		maxBitLengthOfDictValue(value)
 		<
@@ -134,7 +130,7 @@ int StackPusherHelper::maxBitLengthOfDictValue(Type const* type) {
 
 		case DictValueType::Array: {
 			if (isStringOrStringLiteralOrBytes(type))
-				solUnimplemented("");
+				return 0;
 			return 32 + 1;
 		}
 
@@ -149,11 +145,19 @@ int StackPusherHelper::maxBitLengthOfDictValue(Type const* type) {
 		}
 
 		case DictValueType::TvmCell:
+			return 0;
+
 		case DictValueType::TvmSlice:
 			solUnimplemented("");
 
 		case DictValueType::Struct: {
-			return StructCompiler::maxBitLength(to<StructType>(type));
+			auto st = to<StructType>(type);
+			int sum = 0;
+			for (const ASTPointer<VariableDeclaration>& m : st->structDefinition().members()) {
+				int cur = maxBitLengthOfDictValue(m->type());
+				sum += cur;
+			}
+			return sum;
 		}
 
 		case DictValueType::Function: {
@@ -208,7 +212,7 @@ StackPusherHelper::prepareValueForDictOperations(Type const *keyType, Type const
 		{
 			if (!isValueBuilder) {
 				push(0, "NEWC");
-				store(valueType, false, 0);
+				store(valueType, false);
 				push(+1, "");
 			}
 			if (!doesFitInOneCellAndHaveNoStruct(keyType, valueType)) {
@@ -286,10 +290,15 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 	bool haveKey,
 	bool didUseOpcodeWithRef,
 	const DecodeType& decodeType,
-	bool resultAsSliceForStruct,
 	bool saveOrigKeyAndNoTuple
 )
 {
+	const bool isValueStruct = valueType->category() == Type::Category::Struct;
+	const bool pushRefCont =
+		isValueStruct &&
+		!didUseOpcodeWithRef &&
+		!doesDictStoreValueInRef(keyType, valueType);
+
 	// stack: value [key]
 	auto preloadValue = [&]() {
 		if (haveKey) {
@@ -343,15 +352,23 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 			case DictValueType::VarInteger:
 			case DictValueType::Function:
 			{
+				bool pushCallRef = false;
 				if (didUseOpcodeWithRef) {
 					push(0, "CTOS");
+					pushCallRef = true;
 				} else if (doesDictStoreValueInRef(keyType, valueType)) {
 					push(0, "PLDREF");
 					push(0, "CTOS");
+					pushCallRef = true;
 				}
-				uint32_t msk = Preload::UseCurrentSlice;
-				if (resultAsSliceForStruct) msk |= Preload::ReturnStructAsSlice;
-				preload(valueType, msk);
+				pushCallRef &= isValueStruct;
+				if (pushCallRef) {
+					startCallRef();
+				}
+				preload(valueType);
+				if (pushCallRef) {
+					endContinuation();
+				}
 				break;
 			}
 			case DictValueType::TvmCell:
@@ -370,27 +387,24 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 		}
 	};
 
-	const bool isValueStruct = valueType->category() == Type::Category::Struct;
-
 	switch (decodeType) {
 		case DecodeType::DecodeValue:
+			if (pushRefCont) {
+				startCallRef();
+			}
 			preloadValue();
+			if (pushRefCont) {
+				endContinuation();
+			}
 			break;
 		case DecodeType::DecodeValueOrPushDefault: {
-			isValueStruct ? startContinuationFromRef() : startContinuation();
+			pushRefCont ? startContinuationFromRef() : startContinuation();
 			preloadValue();
 			endContinuation();
 
 			bool hasEmptyPushCont = tryPollEmptyPushCont();
-			isValueStruct ? startContinuationFromRef() : startContinuation();
-			bool isStructAndBuilder =
-				valueType->category() == Type::Category::Struct &&
-				resultAsSliceForStruct;
-			pushDefaultValue(valueType, isStructAndBuilder);
-			if (isStructAndBuilder) {
-				push(0, "ENDC");
-				push(0, "CTOS");
-			}
+			pushRefCont ? startContinuationFromRef() : startContinuation();
+			pushDefaultValue(valueType, false);
 			endContinuation(-1);
 
 			if (hasEmptyPushCont)
@@ -404,12 +418,10 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 				push(0, "NULLSWAPIFNOT");
 			}
 
-			startContinuation();
+			isValueStruct ? startContinuationFromRef() : startContinuation();
 			preloadValue();
 			if (haveKey) {
-				if (saveOrigKeyAndNoTuple) {
-					//
-				} else {
+				if (!saveOrigKeyAndNoTuple) {
 					tuple(2);
 				}
 			} else {
@@ -745,7 +757,7 @@ bool StackPusherHelper::fastLoad(const Type* type) {
 			// slice value
 			push(0, "CTOS"); // slice sliceValue
 			// TODO add test
-			preload(opt->valueType(), UseCurrentSlice); // slice value
+			preload(opt->valueType()); // slice value
 			if (isIn(opt->valueType()->category(), Type::Category::Mapping, Type::Category::Optional)) {
 				tuple(1);
 			}
@@ -760,7 +772,7 @@ bool StackPusherHelper::fastLoad(const Type* type) {
 			push(-1 + 2, "LDREF");
 			return true;
 		case Type::Category::Struct: {
-			push(+1, "LDREFRTOS");
+			solUnimplemented("???");
 			// slice structAsSlice
 			auto st = to<StructType>(type);
 			StructCompiler sc{this, st};
@@ -816,7 +828,7 @@ void StackPusherHelper::load(const Type *type, bool reverseOrder) {
 	// reverseOrder? slice member : member slice
 }
 
-void StackPusherHelper::preload(const Type *type, uint32_t mask) {
+void StackPusherHelper::preload(const Type *type) {
 	const int stackSize = getStack().size();
 	// on stack there is slice
 	switch (type->category()) {
@@ -834,7 +846,7 @@ void StackPusherHelper::preload(const Type *type, uint32_t mask) {
 			// stack: slice
 			push(-1 + 1, "PLDREF");
 			push(-1 + 1, "CTOS");
-			preload(opt->valueType(),UseCurrentSlice);
+			preload(opt->valueType());
 			if (isIn(opt->valueType()->category(), Type::Category::Mapping, Type::Category::Optional)) {
 				tuple(1);
 			}
@@ -856,25 +868,18 @@ void StackPusherHelper::preload(const Type *type, uint32_t mask) {
 		}
 		case Type::Category::Address:
 		case Type::Category::Contract:
-			if (!(mask & IsAddressInEnd)) {
-				push(-1 + 2, "LDMSGADDR");
-				drop(1);
-			}
+			push(-1 + 2, "LDMSGADDR");
+			drop(1);
 			break;
 		case Type::Category::TvmCell:
 			push(0, "PLDREF");
 			break;
-		case Type::Category::Struct:
-			if (!(mask & UseCurrentSlice)){
-				push(-1 + 2, "LDREFRTOS");
-				push(-1, "NIP");
-			}
-			if (!(mask & ReturnStructAsSlice)) {
-				auto structType = to<StructType>(type);
-				StructCompiler sc{this, structType};
-				sc.convertSliceToTuple();
-			}
+		case Type::Category::Struct: {
+			auto structType = to<StructType>(type);
+			StructCompiler sc{this, structType};
+			sc.convertSliceToTuple();
 			break;
+		}
 		case Type::Category::Integer:
 		case Type::Category::Enum:
 		case Type::Category::Bool:
@@ -912,7 +917,7 @@ void StackPusherHelper::preload(const Type *type, uint32_t mask) {
 			break;
 		case Type::Category::Tuple: {
 			const auto[types, names] = getTupleTypes(to<TupleType>(type));
-			StructCompiler sc{this, types, names, 0, false};
+			StructCompiler sc{this, types, names};
 			sc.convertSliceToTuple();
 			break;
 		}
@@ -924,8 +929,7 @@ void StackPusherHelper::preload(const Type *type, uint32_t mask) {
 
 void StackPusherHelper::store(
 	const Type *type,
-	bool reverse,
-	uint32_t mask
+	bool reverse
 ) {
 	// value   builder  -> reverse = false
 	// builder value    -> reverse = true
@@ -949,8 +953,15 @@ void StackPusherHelper::store(
 			if (isIn(optType->valueType()->category(), Type::Category::Optional, Type::Category::Mapping)) {
 				untuple(1);
 			}
-			push(+1, "NEWC"); // builder value builder
-			store(optType->valueType(), false, 0); // builder builderWithValue
+			// builder value
+			if (optType->valueType()->category() == Type::Category::Struct) {
+				auto st = to<StructType>(optType->valueType());
+				StructCompiler sc{this, st};
+				sc.tupleToBuilder(); // builder builderWithValue
+			} else {
+				push(+1, "NEWC"); // builder value builder
+				store(optType->valueType(), false); // builder builderWithValue
+			}
 			exchange(0, 1); // builderWithValue builder
 			stones(1);
 			push(-1, "STBREF");	// builder
@@ -975,34 +986,14 @@ void StackPusherHelper::store(
 			break;
 		case Type::Category::Struct: {
 			auto structType = to<StructType>(type);
-			if (mask & StoreFlag::StoreStructInOneCell) {
-				if (!reverse)
-					push(0, "SWAP");
-				auto members = structType->structDefinition().members();
-				untuple(members.size());
-				this->reverse(members.size(), 0);
-				blockSwap(1, members.size());
-				for (const auto& member : members)
-					store(member->type(), false, StackPusherHelper::StoreFlag::StoreStructInRef | StackPusherHelper::StoreFlag::StoreStructInOneCell);
-			} else if (mask & StoreFlag::ValueIsBuilder) {
-				if (mask & StoreFlag::StoreStructInRef)
-					push(-1, reverse? "STBREFR" : "STBREF"); // builder
-				else
-					solUnimplemented("TODO");
-			} else {
-				if (!reverse) {
-					push(0, "SWAP"); // builder struct
-				}
-				// builder struct
-				StructCompiler sc{this, structType};
-				sc.tupleToBuilder();
-				if (mask & StoreFlag::StoreStructInRef)
-					push(-1, "STBREFR"); // builder
-				else {
-					push(-1, "STBR"); // builder
-					// TODO opt this: don't create builder in `tupleToBuilder` and don't append this.
-				}
-			}
+			if (!reverse)
+				push(0, "SWAP");
+			auto members = structType->structDefinition().members();
+			untuple(members.size());
+			this->reverse(members.size(), 0);
+			blockSwap(1, members.size());
+			for (const auto& member : members)
+				store(member->type(), false);
 			break;
 		}
 		case Type::Category::Address:
@@ -1015,19 +1006,10 @@ void StackPusherHelper::store(
 		case Type::Category::Bool:
 		case Type::Category::FixedBytes:
 		case Type::Category::FixedPoint:
-			if (mask & StoreFlag::ValueIsBuilder) {
-				push(-1, reverse ? "STBR" : "STB");
-			} else {
-				push(-1, storeIntegralOrAddress(type, reverse));
-			}
+			push(-1, storeIntegralOrAddress(type, reverse));
 			break;
 		case Type::Category::Function: {
-			if (mask & StoreFlag::ValueIsBuilder) {
-				push(-1, reverse ? "STBR" : "STB");
-				solUnimplemented("");
-			} else {
-				push(-1, reverse ? "STUR 32" : "STU 32");
-			}
+			push(-1, reverse ? "STUR 32" : "STU 32");
 			break;
 		}
 		case Type::Category::Mapping:
@@ -1043,26 +1025,13 @@ void StackPusherHelper::store(
 			if (arrayType->isByteArray()) {
 				push(-1, reverse? "STREFR" : "STREF"); // builder
 			} else {
-				if (mask & StoreFlag::ValueIsBuilder) {
-					solAssert(!(mask & StoreFlag::ArrayIsUntupled), "");
-					push(-1, reverse ? "STBR" : "STB");
-				} else {
-					if (mask & StoreFlag::ArrayIsUntupled) {
-						deltaStack = 2;
-						solAssert(!reverse, "");
-						// dict size builder
-						push(-1, "STU 32");
-						push(-1, "STDICT");
-					} else {
-						if (!reverse) {
-							push(0, "SWAP"); // builder arr
-						}
-						push(-1 + 2, "UNPAIR"); // builder size dict
-						push(0, "ROTREV"); // dict builder size
-						push(-1, "STUR 32"); // dict builder'
-						push(-1, "STDICT"); // builder''
-					}
+				if (!reverse) {
+					push(0, "SWAP"); // builder arr
 				}
+				push(-1 + 2, "UNPAIR"); // builder size dict
+				push(0, "ROTREV"); // dict builder size
+				push(-1, "STUR 32"); // dict builder'
+				push(-1, "STDICT"); // builder''
 			}
 			break;
 		}
@@ -1074,7 +1043,7 @@ void StackPusherHelper::store(
 				exchange(0, 1);	// builder value
 
 			const auto[types, names] = getTupleTypes(to<TupleType>(type));
-			StructCompiler sc{this, types, names, 0, false};
+			StructCompiler sc{this, types, names};
 			sc.tupleToBuilder();
 			push(-2 + 1, "STBR");
 			break;
@@ -2127,6 +2096,13 @@ bool TVMCompilerContext::storeTimestampInC4() const {
 	return haveTimeInAbiHeader() && afterSignatureCheck() == nullptr;
 }
 
+int TVMCompilerContext::getOffsetC4() const {
+	return
+		256 + // pubkey
+		(storeTimestampInC4() ? 64 : 0) +
+		1; // constructor_flag
+}
+
 void TVMCompilerContext::addLib(FunctionDefinition const* f) {
 	m_libFunctions.insert(f);
 }
@@ -2151,13 +2127,13 @@ CodeLines TVMCompilerContext::getInlinedFunction(const std::string& name) {
 	return m_inlinedFunctions.at(name);
 }
 
-void TVMCompilerContext::addPublicFunction(uint32_t functoinId, const std::string& functionName) {
-	m_publicFunctoins.emplace_back(functoinId, functionName);
+void TVMCompilerContext::addPublicFunction(uint32_t functionId, const std::string& functionName) {
+	m_publicFunctions.emplace_back(functionId, functionName);
 }
 
 const std::vector<std::pair<uint32_t, std::string>>& TVMCompilerContext::getPublicFunctions() {
-	std::sort(m_publicFunctoins.begin(), m_publicFunctoins.end());
-	return m_publicFunctoins;
+	std::sort(m_publicFunctions.begin(), m_publicFunctions.end());
+	return m_publicFunctions;
 }
 
 bool TVMCompilerContext::addAndDoesHaveLoop(FunctionDefinition const* _v, FunctionDefinition const* _to) {
@@ -2181,6 +2157,14 @@ bool TVMCompilerContext::addAndDoesHaveLoop(FunctionDefinition const* _v, Functi
 
 bool TVMCompilerContext::isBaseFunction(CallableDeclaration const* d) const {
     return m_baseFunctions.count(d) != 0;
+}
+
+void TVMCompilerContext::setSaveMyCodeSelector() {
+	saveMyCodeSelector = true;
+}
+
+bool TVMCompilerContext::getSaveMyCodeSelector() {
+	return saveMyCodeSelector;
 }
 
 bool TVMCompilerContext::dfs(FunctionDefinition const* v) {
@@ -2299,18 +2283,21 @@ void StackPusherHelper::getDict(
 	Type const& keyType,
 	Type const& valueType,
 	const GetDictOperation op,
-	const bool resultAsSliceForStruct,
 	const DataType& dataType
 ) {
-	GetFromDict d(*this, keyType, valueType, op, resultAsSliceForStruct, dataType);
+	GetFromDict d(*this, keyType, valueType, op, dataType);
 	d.getDict();
 }
 
-void StackPusherHelper::byteLengthOfCell()
-{
+void StackPusherHelper::byteLengthOfCell() {
 	pushInt(0xFFFFFFFF);
 	push(-2 + 3, "CDATASIZE");
 	drop(1);
 	dropUnder(1, 1);
 	push(-1 + 1, "RSHIFT 3");
+}
+
+void StackPusherHelper::was_c4_to_c7_called() {
+	getGlob(TvmConst::C7::IsInit);
+	push(-1 + 1, "ISNULL");
 }

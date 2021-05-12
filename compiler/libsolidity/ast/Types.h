@@ -1203,6 +1203,7 @@ public:
 		TVMBuildExtMsg, ///< tvm.buildExtMsg()
 		TVMBuildStateInit, ///< tvm.buildStateInit()
 		TVMChecksign, ///< tvm.checkSign()
+		TVMCode, ///< tvm.code()
 		TVMCommit, ///< tvm.commit()
 		TVMConfigParam, ///< tvm.configParam()
 		TVMDeploy, ///< functions to deploy contract from contract

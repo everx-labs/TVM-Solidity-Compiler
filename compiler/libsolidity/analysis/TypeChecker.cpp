@@ -533,7 +533,6 @@ bool TypeChecker::visit(StructDefinition const& _struct)
 bool TypeChecker::checkAbiType(
 	VariableDeclaration const* origVar,
 	Type const* curType,
-	int keyLength,
 	VariableDeclaration const* curVar,
 	std::set<StructDefinition const*>& usedStructs
 ) {
@@ -555,19 +554,13 @@ bool TypeChecker::checkAbiType(
 			auto mappingType = to<MappingType>(curType);
 			auto intKey = to<IntegerType>(mappingType->keyType());
 			auto addrKey = to<AddressType>(mappingType->keyType());
-			int mapKeyLength;
-			if (intKey) {
-				mapKeyLength = static_cast<int>(intKey->numBits());
-			} else if (addrKey) {
-				mapKeyLength = AddressInfo::stdAddrLength();
-			} else {
+			if (intKey == nullptr && addrKey == nullptr) {
 				printError(
-					"ABI doesn't support the mapping. "
-					"Key type must be any of int<M>/uint<M> types with M from 8 to 256 or std address."
-				);
+					"Key type of the mapping must be "
+			   		"any of int<M>/uint<M> types with M from 8 to 256 or std address.");
 				return true;
 			}
-			if (checkAbiType(origVar, mappingType->valueType(), mapKeyLength, curVar, usedStructs)) {
+			if (checkAbiType(origVar, mappingType->valueType(), curVar, usedStructs)) {
 				return true;
 			}
 			break;
@@ -575,7 +568,7 @@ bool TypeChecker::checkAbiType(
 		case Type::Category::Array: {
 			auto arrayType = to<ArrayType>(curType);
 			if (!arrayType->isByteArray()) {
-				checkAbiType(origVar, arrayType->baseType(), TvmConst::ArrayKeyLength, curVar, usedStructs);
+				checkAbiType(origVar, arrayType->baseType(), curVar, usedStructs);
 			}
 			break;
 		}
@@ -591,19 +584,8 @@ bool TypeChecker::checkAbiType(
 				return true;
 			}
 			usedStructs.insert(&structDefinition);
-			if (keyLength > 0) {
-				if (!StructCompiler::doesFitInOneCellAndHaveNoStruct(keyLength, valueStruct)) {
-					m_errorReporter.typeError(
-						origVar->location(),
-						SecondarySourceLocation().append("Another declaration is here:", structDefinition.location()),
-						"ABI doesn't support container with such struct. "
-						"Struct must have no nested structs and all members of the struct must fit in one cell."
-					);
-					return true;
-				}
-			}
 			for (const ASTPointer<VariableDeclaration>& member : structDefinition.members()) {
-				if (checkAbiType(origVar, member->type(), 0, member.get(), usedStructs))
+				if (checkAbiType(origVar, member->type(), member.get(), usedStructs))
 					return true;
 			}
 			usedStructs.erase(&structDefinition);
@@ -652,7 +634,7 @@ bool TypeChecker::visit(FunctionDefinition const& _function)
 		for (const auto& params : {_function.parameters(), _function.returnParameters()}) {
 			for (ASTPointer<VariableDeclaration> const &var : params) {
 				std::set<StructDefinition const *> usedStructs;
-				checkAbiType(var.get(), var->type(), 0, var.get(), usedStructs);
+				checkAbiType(var.get(), var->type(), var.get(), usedStructs);
 				var->accept(*this);
 			}
 		}
@@ -774,7 +756,7 @@ bool TypeChecker::visit(VariableDeclaration const& _variable)
 				);
 		}
 		std::set<StructDefinition const*> usedStructs;
-		checkAbiType(&_variable, _variable.type(), 0, &_variable, usedStructs);
+		checkAbiType(&_variable, _variable.type(), &_variable, usedStructs);
 	}
 
 	switch (varType->category())
@@ -2070,47 +2052,48 @@ void TypeChecker::checkNeedCallback(FunctionType const* callee, ASTNode const& n
 	}
 }
 
+void TypeChecker::typeCheckTvmEncodeArg(Type const* type, Expression const& node) {
+	switch (type->category()) {
+		case Type::Category::RationalNumber:
+			m_errorReporter.typeError(
+					node.location(),
+					"Cannot perform encoding for a literal."
+					" Please convert it to an explicit type first."
+			);
+			break;
+		case Type::Category::Address:
+		case Type::Category::Array:
+		case Type::Category::Bool:
+		case Type::Category::Contract:
+		case Type::Category::ExtraCurrencyCollection:
+		case Type::Category::FixedBytes:
+		case Type::Category::Integer:
+		case Type::Category::Mapping:
+		case Type::Category::StringLiteral:
+		case Type::Category::Struct:
+		case Type::Category::TvmBuilder:
+		case Type::Category::TvmCell:
+		case Type::Category::TvmSlice:
+			break;
+		case Type::Category::Optional:
+		{
+			Type const *valueType = dynamic_cast<OptionalType const*>(type)->valueType();
+			typeCheckTvmEncodeArg(valueType, node);
+			break;
+		}
+		default:
+			m_errorReporter.typeError(
+					node.location(),
+					"Encoding for a " + node.annotation().type->toString(true) + " isn't supported."
+			);
+	}
+}
+
 void TypeChecker::typeCheckTvmEncodeFunctions(FunctionCall const& _functionCall) {
 	vector<ASTPointer<Expression const>> const &arguments = _functionCall.arguments();
 	for (const auto & argument : arguments) {
 		auto const &argType = type(*argument);
-
-		switch (argType->category()) {
-			case Type::Category::Enum:
-				m_errorReporter.typeError(
-					argument->location(),
-					"Cannot perform encoding for a " + argType->toString(true) + "." +
-					" Please convert it to an explicit type first."
-				);
-				break;
-			case Type::Category::RationalNumber:
-				m_errorReporter.typeError(
-					argument->location(),
-					"Cannot perform encoding for a literal."
-					" Please convert it to an explicit type first."
-				);
-				break;
-			case Type::Category::Address:
-			case Type::Category::Array:
-			case Type::Category::Bool:
-			case Type::Category::Contract:
-			case Type::Category::ExtraCurrencyCollection:
-			case Type::Category::FixedBytes:
-			case Type::Category::Integer:
-			case Type::Category::Mapping:
-			case Type::Category::Optional:
-			case Type::Category::StringLiteral:
-			case Type::Category::Struct:
-			case Type::Category::TvmBuilder:
-			case Type::Category::TvmCell:
-			case Type::Category::TvmSlice:
-				break;
-			default:
-				m_errorReporter.typeError(
-					argument->location(),
-					"Encoding for a " + argType->toString(true) + " isn't supported."
-				);
-		}
+		typeCheckTvmEncodeArg(argType, *argument);
 	}
 }
 

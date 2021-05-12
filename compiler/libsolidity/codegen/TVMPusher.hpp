@@ -92,14 +92,15 @@ public:
 	bool ignoreIntegerOverflow() const;
 	FunctionDefinition const* afterSignatureCheck() const;
 	bool storeTimestampInC4() const;
+	int getOffsetC4() const;
 	void addLib(FunctionDefinition const* f);
-	const std::set<FunctionDefinition const*>& getLibFunctions() const { return m_libFunctions; }
+	std::set<FunctionDefinition const*>& getLibFunctions() { return m_libFunctions; }
 	std::vector<std::pair<VariableDeclaration const*, int>> getStaticVariables() const;
 	void setCurrentFunction(FunctionDefinition const* f) { m_currentFunction = f; }
 	FunctionDefinition const* getCurrentFunction() { return m_currentFunction; }
 	void addInlineFunction(const std::string& name, const CodeLines& code);
 	CodeLines getInlinedFunction(const std::string& name);
-	void addPublicFunction(uint32_t functoinId, const std::string& functionName);
+	void addPublicFunction(uint32_t functionId, const std::string& functionName);
 	const std::vector<std::pair<uint32_t, std::string>>& getPublicFunctions();
 
 	bool addAndDoesHaveLoop(FunctionDefinition const* _v, FunctionDefinition const* _to);
@@ -111,6 +112,8 @@ public:
 	bool isOnBounceGenerated() const { return m_isOnBounceGenerated; }
 	void setIsOnBounce() { m_isOnBounceGenerated = true; }
 	bool isBaseFunction(CallableDeclaration const* d) const;
+	void setSaveMyCodeSelector();
+	bool getSaveMyCodeSelector();
 
 private:
 	ContractDefinition const* m_contract{};
@@ -125,11 +128,12 @@ private:
 		White, Red, Black
 	};
 	std::map<FunctionDefinition const*, Color> color;
-	std::vector<std::pair<uint32_t, std::string>> m_publicFunctoins;
+	std::vector<std::pair<uint32_t, std::string>> m_publicFunctions;
 	bool m_isFallBackGenerated{};
 	bool m_isReceiveGenerated{};
 	bool m_isOnBounceGenerated{};
     std::set<CallableDeclaration const*> m_baseFunctions;
+    bool saveMyCodeSelector{};
 };
 
 class StackPusherHelper {
@@ -138,9 +142,6 @@ protected:
 	CodeLines m_code;
 	TVMCompilerContext* m_ctx;
 	std::unique_ptr<StructCompiler> m_structCompiler;
-
-public:
-	enum StoreFlag {ValueIsBuilder = 1, ArrayIsUntupled = 2, StoreStructInRef = 4, StoreStructInOneCell = 8};
 
 public:
 	explicit StackPusherHelper(TVMCompilerContext* ctx, const int stackSize = 0);
@@ -200,10 +201,9 @@ public:
 	bool fastLoad(const Type* type);
 	void load(const Type* type, bool reverseOrder);
 
-	enum Preload { ReturnStructAsSlice = 1, UseCurrentSlice = 2, IsAddressInEnd = 4 };
-	void preload(const Type *type, uint32_t mask);
+	void preload(const Type *type);
 
-	void store(const Type *type, bool reverse, uint32_t mask);
+	void store(const Type *type, bool reverse);
 	void pushZeroAddress();
 	void generateC7ToT4Macro();
 
@@ -254,7 +254,6 @@ public:
 		bool haveKey,
 		bool didUseOpcodeWithRef,
 		const DecodeType& decodeType,
-		bool resultAsSliceForStruct,
 		bool saveOrigKeyAndNoTuple = false
 	);
 	static TypePointer parseIndexType(Type const* type);
@@ -273,7 +272,6 @@ public:
 		const Type& keyType,
 		const Type& valueType,
 		const GetDictOperation op,
-		const bool resultAsSliceForStruct,
   		const DataType& dataType = DataType::Slice
 	);
 
@@ -304,6 +302,8 @@ public:
 				 MsgType messageType = MsgType::Internal);
 
 	void byteLengthOfCell();
+
+	void was_c4_to_c7_called();
 };
 
 

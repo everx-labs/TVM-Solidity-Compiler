@@ -26,6 +26,8 @@ namespace TvmConst {
 		const int PersistenceMembersStartIndex = 1;
 	}
 	namespace C7 {
+		const int MyCode = 1;
+		const int IsInit = 8;
 		const int ReturnParams = 4;
 		namespace ReturnParam {
 			const int Bounce = 1;
@@ -34,7 +36,6 @@ namespace TvmConst {
 			const int Flag = 4;
 			const int CallbackFunctionId = 5;
 		}
-		const int TempFunctionReturnBuffer = 8;
 		constexpr int FirstIndexForVariables = 10;
 	}
 	namespace SENDRAWMSG {
@@ -58,6 +59,7 @@ namespace TvmConst {
 	const int ExtInboundSrcLength = 72 + 9 + 2 + 3 + 33; // src field of external inbound message. Contains addr_extern with
 													// abi version (8 bit), callback id (32 bit), on error id (32 bit),
 													// header mask (3 bit), optional signBoxHandle (33 bit).
+	const int MAX_HASH_MAP_INFO_ABOUT_KEY = 2 + 10; // hml_long$10 + log2(1023)
 
 	namespace RuntimeException {
 		const int BadSignature = 40;
@@ -100,6 +102,15 @@ namespace TvmConst {
 	}
 
 	namespace Attributes {
-		const std::string MuteStructWarning{"maybe_unsaved"};
+		inline std::string MuteStructWarning() {
+			return "maybe_unsaved";
+		}
 	}
+
+	namespace Selector {
+		inline std::string RootCodeCell() { return "8adb35"; }
+		inline std::string PrivateOpcode0() { return "F4A4_"; } // DICTPUSHCONST
+		inline std::string PrivateOpcode1() { return "F4A1"; } // DICTUGETJMP
+	}
+
 }

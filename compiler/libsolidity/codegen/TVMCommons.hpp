@@ -109,7 +109,7 @@ bool isSlice(const Type* type);
 
 struct AddressInfo {
 
-	static int stdAddrLength() {
+	static int stdAddrWithoutAnyCastLength() {
 		// addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt
 		return 2 + 1 + 8 + 256;
 	}
@@ -120,9 +120,18 @@ struct AddressInfo {
 	}
 
 	static int maxBitLength() {
-		// addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt
-		// anycast_info$_ depth:(#<= 30) { depth >= 1 } rewrite_pfx:(bits depth) = Anycast;
-		return 2 + 1 + (5 + 30) + 8 + 256;
+		// anycast_info$_ depth:(#<= 30) { depth >= 1 }
+		// rewrite_pfx:(bits depth) = Anycast;
+
+		// addr_var$11 anycast:(Maybe Anycast) addr_len:(## 9)
+		// workchain_id:int32 address:(bits addr_len) = MsgAddressInt;
+
+		// 2 +  // 11
+		// 1 + 5 + 30 + // anycast
+		// 9 + // addr_len
+		// 32 + // workchain_id:int32
+		// 512 // address
+		return 591;
 	}
 };
 
@@ -272,7 +281,7 @@ struct ABITypeSize {
 	int minRefs = -1;
 	int maxRefs = -1;
 
-	explicit ABITypeSize(Type const* type, ASTNode const* node = nullptr) {
+	explicit ABITypeSize(Type const* type) {
 		if (isAddressOrContractType(type)){
 			minBits = AddressInfo::minBitLength();
 			maxBits = AddressInfo::maxBitLength();
@@ -302,17 +311,21 @@ struct ABITypeSize {
 			maxBits = 0;
 			minRefs = 1;
 			maxRefs = 1;
-		} else if (to<MappingType>(type)) {
+		} else if (
+			to<MappingType>(type) ||
+			to<OptionalType>(type)
+		) {
 			minBits = 1;
 			maxBits = 1;
 			minRefs = 0;
 			maxRefs = 1;
+		} else if (to<FunctionType>(type)) {
+			minBits = 32;
+			maxBits = 32;
+			minRefs = 0;
+			maxRefs = 0;
 		} else {
-			if (node)
-				cast_error(*node, "Undefined type");
-			else {
-				solUnimplemented("Undefined type");
-			}
+			solUnimplemented("Undefined type: " + type->toString());
 		}
 	}
 };
@@ -435,8 +448,6 @@ struct LValueInfo {
 			rightType{rightType} {
 	}
 	std::vector<Expression const*> expressions;
-	std::vector<bool> isResultBuilder;
-	bool isValueBuilder{};
 	bool doesntNeedToCollect = false;
 	Type const* rightType{};
 };

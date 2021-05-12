@@ -26,6 +26,7 @@
 #include "TVMContractCompiler.hpp"
 #include "TVMExpressionCompiler.hpp"
 #include "TVMIntrinsics.hpp"
+#include "TVMStructCompiler.hpp"
 
 
 namespace solidity::frontend {
@@ -428,23 +429,6 @@ bool IntrinsicsCompiler::checkTvmIntrinsic(FunctionCall const &_functionCall) {
 		m_pusher.push(0, "SDEMPTY");
 		return true;
 	}
-	if (iname == "tvm_ldrefrtos") {
-		checkArgCount(1);
-		auto builder = ensureParamIsIdentifier(0);
-		if (m_pusher.getStack().getOffset(builder->annotation().referencedDeclaration) == 0) {
-			m_pusher.push(+1, "LDREFRTOS");
-		} else {
-			cast_error(_functionCall, R"(Use "tvm_ldrefrtos" only if)" + builder->name() + " is on stack top");
-		}
-		return true;
-	}
-	if (iname == "tvm_pldref_and_to_slice") {
-		checkArgCount(1);
-		acceptExpr(arguments[0].get());
-		m_pusher.push(+1, "LDREFRTOS");
-		m_pusher.push(-1, "NIP");
-		return true;
-	}
 	if (iname == "tvm_hashsu") {
 		checkArgCount(1);
 		acceptExpr(arguments[0].get());
@@ -748,42 +732,6 @@ SDEQ
 	if (iname == "tvm_unpackfirst4") {
 		acceptExpr(arguments[0].get());
 		m_pusher.push(-1 + 4, "UNPACKFIRST 4");
-		return true;
-	}
-	if (iname == "tvm_tree_cell_size") {
-		acceptExpr(arguments[0].get());
-		m_pusher.pushLines(R"(NULL
-SWAP
-PUSHINT 0
-PUSHINT 1 ; null s b r
-PUSHCONT {
-    ; null s... b r
-	PUSH S2 ; null s... b r s
-	SREFS   ; null s... b r cntRef
-	PUSHCONT {
-		; null s... b r
-		ROT         ; null s... b r s
-		LDREFRTOS   ; null s... b r s' new_s
-		SWAP2       ; null s... s' new_s b r
-		INC
-	}
-	PUSHCONT {
-		; null s... b r
-		XCHG S2 ; null s... r b s
-		SBITS   ; null s... r b bs
-		ADD     ; null s... r b
-		SWAP    ; null s... b r
-	}
-	IFELSE
-	PUSH S2
-	ISNULL
-}
-UNTIL
-; null b r
-ROT  ; b r null
-DROP ; b r
-)");
-		m_pusher.push(-1 + 2, ""); // fix stack
 		return true;
 	}
 	if (iname == "tvm_reset_storage") {

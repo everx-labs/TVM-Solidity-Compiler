@@ -145,7 +145,7 @@ std::string typeToDictChar(Type const *keyType) {
 
 int lengthOfDictKey(Type const *key) {
 	if (isIn(key->category(), Type::Category::Address, Type::Category::Contract)) {
-		return AddressInfo::stdAddrLength();
+		return AddressInfo::stdAddrWithoutAnyCastLength();
 	}
 
 	TypeInfo ti{key};

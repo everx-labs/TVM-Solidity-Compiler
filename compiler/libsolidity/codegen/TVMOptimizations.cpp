@@ -128,7 +128,7 @@ struct TVMOptimizer {
 			solUnimplemented("");
 		}
 
-		int get_index() const {
+		int fetchStackIndex() const {
 			if (cmd_ == "DUP") {
 				return 0;
 			}
@@ -141,7 +141,7 @@ struct TVMOptimizer {
 		int get_push_index() const {
 			solAssert(is_PUSH(), "");
 			if (is_DUP()) return 0;
-			return get_index();
+			return fetchStackIndex();
 		}
 
 		std::pair<int, int> get_push2_indexes() const {
@@ -232,24 +232,69 @@ struct TVMOptimizer {
 
 		void analyze() {
 			static const set<string> s01 {
-				"PUSHINT", "GETGLOB", "PUSHSLICE", "TRUE", "FALSE", "ZERO", "NOW",
-				"NEWC", "NEWDICT"
+				"GETGLOB",
+				"NEWC",
+				"NEWDICT",
+				"NOW",
+				"PUSHINT",
+				"PUSHSLICE",
+				"TRUE",
+				"FALSE",
+				"ZERO",
 			};
 			static const set<string> s10 {
-				"DROP", "SETGLOB", "ENDS", "THROWIF", "THROWIFNOT", "THROWANY"
+				"DROP",
+				"ENDS",
+				"SETGLOB",
+				"THROWANY",
+				"THROWIF",
+				"THROWIFNOT",
 			};
 			static const set<string> s11 {
-				"FITS", "UFITS", "INC", "DEC", "EQINT", "NOT",
-				"SHA256U", "HASHCU", "HASHSU", "CTOS", "INDEX",
-				"FIRST", "SECOND", "THIRD", "PARSEMSGADDR", "SBITS", "ENDC"
+				"CTOS",
+				"DEC",
+				"ENDC",
+				"EQINT",
+				"FIRST",
+				"FITS",
+				"HASHCU",
+				"HASHSU",
+				"INC",
+				"INDEX",
+				"NOT",
+				"PARSEMSGADDR",
+				"SBITS",
+				"SECOND",
+				"SHA256U",
+				"STSLICECONST",
+				"THIRD",
+				"UFITS",
 			};
 			static const set<string> s21 {
-				"ADD", "MUL", "SUB", "SUBR", "DIV", "MOD",
-				"OR", "AND", "EQ", "LESS", "NEQ", "GREATER",
-				"SETINDEX", "PAIR", "PLDUX", "INDEXVAR", "STSLICE"
+				"ADD",
+				"AND",
+				"EQ",
+				"GREATER",
+				"INDEXVAR",
+				"LESS",
+				"MUL",
+				"NEQ",
+				"OR",
+				"PAIR",
+				"PLDUX",
+				"SETINDEX",
+				"STI",
+				"STSLICE",
+				"STU",
+				"SUB",
+		   		"DIV",
+		   		"MOD",
+		   		"SUBR",
 			};
 			static const set<string> s32 {
-				"DICTUDEL", "DICTIDEL", "DICTDEL"
+				"DICTDEL",
+				"DICTIDEL",
+				"DICTUDEL",
 			};
 
 			if (try_simple_command(s01, 0, 1)) return;
@@ -339,11 +384,13 @@ struct TVMOptimizer {
 		int idx3 = next_command_line(idx2);
 		int idx4 = next_command_line(idx3);
 		int idx5 = next_command_line(idx4);
+		int idx6 = next_command_line(idx5);
 		Cmd cmd1 = cmd(idx1);
 		Cmd cmd2 = cmd(idx2);
 		Cmd cmd3 = cmd(idx3);
 		Cmd cmd4 = cmd(idx4);
 		Cmd cmd5 = cmd(idx5);
+		Cmd cmd6 = cmd(idx6);
 		// TODO: INC + UFITS256...
 		if (cmd1.is_SWAP()) {
 			if (cmd2.is_SUB())		return Result::Replace(2, "SUBR");
@@ -593,9 +640,9 @@ struct TVMOptimizer {
 			// PUSH Sx
 			// XCHG n
 			// BLKDROP n
-			int pushIndex = cmd1.get_index();
+			int pushIndex = cmd1.fetchStackIndex();
 			if (cmd2.is("XCHG")) {
-				int xghIndex = cmd2.get_index();
+				int xghIndex = cmd2.fetchStackIndex();
 				if (cmd3.is_drop_kind()) {
 					int dropedQty = cmd3.get_drop_index();
 					if (xghIndex == dropedQty && dropedQty <= 15) {
@@ -694,7 +741,7 @@ struct TVMOptimizer {
 			return Result(true, 2, {});
 		}
 		if (cmd1.is("ROT") &&
-			(cmd2.is("SETGLOB") || (cmd2.is("POP") && cmd2.get_index() >= 3)) &&
+			(cmd2.is("SETGLOB") || (cmd2.is("POP") && cmd2.fetchStackIndex() >= 3)) &&
 			cmd3.is("SWAP")) {
 			return Result(true, 3, {"XCHG s2", cmd2.without_prefix()});
 		}
@@ -817,7 +864,7 @@ struct TVMOptimizer {
 			cmd2.is("BLKDROP") &&
 			cmd3.is("NIP")
 		) {
-			int x = cmd1.get_index();
+			int x = cmd1.fetchStackIndex();
 			if (cmd2.get_drop_index() == x) {
 				return Result(true, 3, {"XCHG s" + to_string(x + 1), "BLKDROP " + to_string(x + 1)});
 			}
@@ -884,9 +931,9 @@ struct TVMOptimizer {
 			return Result(true, 3, {"ISNULL"});
 		}
 
-		if (cmd1.is_PUSHINT() && cmd1.is("PUSHINT") && cmd1.fetch_bigint() == 0 &&
+		if (cmd1.is_PUSHINT() && cmd1.is_PUSHINT() && cmd1.fetch_bigint() == 0 &&
 			cmd2.is("STUR") &&
-			cmd3.is_PUSHINT() && cmd3.is("PUSHINT") && cmd3.fetch_bigint() == 0 &&
+			cmd3.is_PUSHINT() && cmd3.is_PUSHINT() && cmd3.fetch_bigint() == 0 &&
 			cmd4.is("STUR")
 		) {
 			int bitSize = cmd2.fetch_int() + cmd4.fetch_int();
@@ -1020,6 +1067,77 @@ struct TVMOptimizer {
 				return Result(true, qty, {"STSLICECONST " + slices.at(0)});
 			}
 
+		}
+
+		if (
+			cmd1.is("PUSHSLICE") &&
+			cmd2.is("NEWC") &&
+			cmd3.is("STSLICE") &&
+			cmd4.is("NEWC") &&
+			cmd5.is("STSLICECONST") &&
+			cmd6.is("STB")
+		) {
+			std::string str1 = toBitString(cmd1.rest());
+			std::string str5 = toBitString(cmd5.rest());
+			std::vector<std::string> slices = unitBitString(str5, str1);
+			if (slices.size() == 1) {
+				return Result(true, 6, {
+					"PUSHSLICE " + slices.at(0),
+					"NEWC",
+					"STSLICE"
+				});
+			}
+		}
+
+		if (
+			cmd1.is("STSLICECONST") && cmd1.rest_ == "0" &&
+			cmd2.is_PUSHINT() && cmd2.fetch_bigint() == 0 &&
+			cmd3.is("STUR")
+		) {
+			int bitQty = cmd3.fetch_int();
+			return Result(true, 3, {
+				"PUSHINT 0",
+				"STUR " + toString(bitQty + 1)
+			});
+		}
+
+		if (
+			cmd1.is_PUSHINT() &&
+			cmd2.is("STZEROES") &&
+			cmd3.is_PUSHINT() &&
+			cmd4.is("STUR")
+		) {
+			bigint bitQty = cmd1.fetch_bigint() + cmd4.fetch_bigint();
+			if (bitQty <= 256) {
+				return Result(true, 4, {
+					"PUSHINT " + cmd3.rest_,
+					"STUR " + toString(bitQty)
+				});
+			}
+		}
+
+		if (
+			cmd1.is_PUSHINT() && cmd1.fetch_bigint() == 0 &&
+			cmd2.is("STUR")
+		) {
+			return Result(true, 2, {
+				"PUSHINT " + cmd2.rest_,
+				"STZEROES"
+			});
+		}
+
+		if (
+			cmd1.is("ABS") &&
+			cmd2.is("UFITS") && cmd2.fetch_int() == 256
+		) {
+			return Result(true, 2, {"ABS"});
+		}
+
+		if (
+			cmd1.is_PUSHINT() && cmd1.fetch_bigint() == 1 &&
+			cmd2.is("STZEROES")
+		) {
+			return Result(true, 2, {"STZERO"});
 		}
 
 		return Result(false);
