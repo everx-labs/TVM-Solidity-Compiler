@@ -19,7 +19,6 @@
 #pragma once
 
 #include "TVM.h"
-#include "TVMStructCompiler.hpp"
 #include "TVMPusher.hpp"
 
 namespace solidity::frontend {

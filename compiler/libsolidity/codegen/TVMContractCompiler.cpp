@@ -25,6 +25,7 @@
 #include "TVMFunctionCompiler.hpp"
 #include "TVMInlineFunctionChecker.hpp"
 #include "TVMOptimizations.hpp"
+#include "TVMStructCompiler.hpp"
 
 using namespace solidity::frontend;
 
@@ -63,7 +64,7 @@ void TVMConstructorCompiler::dfs(ContractDefinition const *c) {
 
 void TVMConstructorCompiler::generateConstructors() {
 	{
-		EncodeFunctionParams encode{&m_pusher};
+		ChainDataEncoder encode{&m_pusher};
 		uint32_t functionId{};
 		if (FunctionDefinition const* c = m_pusher.ctx().getContract()->constructor()) {
 			functionId = encode.calculateFunctionIDWithReason(c, ReasonOfOutboundMessage::RemoteCallInternal);
@@ -88,7 +89,8 @@ void TVMConstructorCompiler::generateConstructors() {
 	if (linearizedBaseContracts[0]->constructor() == nullptr) {
 		m_pusher.push(-1, "ENDS");
 	} else {
-		DecodeFunctionParams{&m_pusher}.decodeParameters(linearizedBaseContracts[0]->constructor()->parameters(), false);
+		vector<Type const*> types = getParams(linearizedBaseContracts[0]->constructor()->parameters()).first;
+		ChainDataDecoder{&m_pusher}.decodePublicFunctionParameters(types, false);
 		m_pusher.getStack().change(-static_cast<int>(linearizedBaseContracts[0]->constructor()->parameters().size()));
 		for (const ASTPointer<VariableDeclaration>& variable: linearizedBaseContracts[0]->constructor()->parameters()) {
 			auto name = variable->name();
@@ -141,10 +143,9 @@ void TVMConstructorCompiler::generateConstructors() {
 
 void TVMConstructorCompiler::c4ToC7WithMemoryInitAndConstructorProtection() {
 	// copy c4 to c7
-	m_pusher.pushLines(R"(
-GETGLOB 1
-ISNULL
-)");
+	m_pusher.getGlob(TvmConst::C7::IsInit);
+	m_pusher.push(-1, ""); // fix stack
+	m_pusher.push(0, "ISNULL");
 
 	m_pusher.startIfRef();
 	m_pusher.pushCall(0, "c4_to_c7_with_init_storage");
@@ -275,7 +276,7 @@ TVMContractCompiler::proceedContractMode1(
 						TVMFunctionCompiler::generatePublicFunction(pusher, _function);
 						optimize_and_append_code(code, pusher);
 
-						EncodeFunctionParams encoder{&pusher};
+						ChainDataEncoder encoder{&pusher};
 						uint32_t functionId = encoder.calculateFunctionIDWithReason(_function,
 																					ReasonOfOutboundMessage::RemoteCallInternal);
 						ctx.addPublicFunction(functionId, _function->name());
@@ -333,7 +334,7 @@ TVMContractCompiler::proceedContractMode1(
 			TVMFunctionCompiler::generateGetter(pusher, vd);
 			optimize_and_append_code(code, pusher);
 
-			EncodeFunctionParams encoder{&pusher};
+			ChainDataEncoder encoder{&pusher};
 			std::vector<VariableDeclaration const*> outputs = {vd};
 			uint32_t functionId = encoder.calculateFunctionIDWithReason(
 				vd->name(),
@@ -347,7 +348,15 @@ TVMContractCompiler::proceedContractMode1(
 		}
 	}
 
-	for (FunctionDefinition const *function : ctx.getLibFunctions()) {
+	map<FunctionDefinition const *, bool> usedFunctions;
+	while (!ctx.getLibFunctions().empty()) {
+		FunctionDefinition const *function = *ctx.getLibFunctions().begin();
+		ctx.getLibFunctions().erase(ctx.getLibFunctions().begin());
+		if (usedFunctions[function]) {
+			continue;
+		}
+		usedFunctions[function] = true;
+
 		if (!function->modifiers().empty()) {
 			cast_error(*function->modifiers().at(0).get(),
 					   "Modifiers for library functions are not supported yet.");
@@ -356,19 +365,19 @@ TVMContractCompiler::proceedContractMode1(
 		if (!function->parameters().empty()) {
 			{
 				StackPusherHelper pusher{&ctx};
-				const std::string name = ctx.getLibFunctionName(function, true);
+				const std::string name = TVMCompilerContext::getLibFunctionName(function, true);
 				TVMFunctionCompiler::generateLibraryFunction(pusher, function, name);
 				optimize_and_append_code(code, pusher);
 			}
 			{
 				StackPusherHelper pusher{&ctx};
-				const std::string name = ctx.getLibFunctionName(function, true) + "_macro";
+				const std::string name = TVMCompilerContext::getLibFunctionName(function, true) + "_macro";
 				TVMFunctionCompiler::generateLibraryFunctionMacro(pusher, function, name);
 				optimize_and_append_code(code, pusher);
 			}
 		}
 		StackPusherHelper pusher{&ctx};
-		const std::string name = ctx.getLibFunctionName(function, false);
+		const std::string name = TVMCompilerContext::getLibFunctionName(function, false);
 		TVMFunctionCompiler::generatePrivateFunction(pusher, name);
 		TVMFunctionCompiler::generateMacro(pusher, function, name + "_macro");
 		optimize_and_append_code(code, pusher);
@@ -378,6 +387,11 @@ TVMContractCompiler::proceedContractMode1(
 		StackPusherHelper pusher{&ctx};
 		TVMFunctionCompiler::generatePublicFunctionSelector(pusher, contract);
 		optimize_and_append_code(code, pusher);
+	}
+
+	if (ctx.getSaveMyCodeSelector()) {
+		code.push(" ");
+		code.push(".pragma selector-save-my-code");
 	}
 
 	return code;

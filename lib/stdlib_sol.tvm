@@ -22,11 +22,9 @@ POP S3
 ; end colValue
 PUSHCONT {
 	; expValue
-	DUP
 	; end expValue
-	STONE
 	; colValue
-	NIP
+	STSLICECONST 1
 	; end colValue
 	; expValue
 	PUSH S1
@@ -37,24 +35,19 @@ PUSHCONT {
 	; end colValue
 	;; decl: split_depth
 	; expValue
-	PUSH S1
 	; end expValue
-	STONE
 	;; push identifier split_depth
-	PUSH S1
-	STUR 32
 	; colValue
-	POP S2
 	; end colValue
-	DROP
+	SWAP
+	STSLICECONST 1
+	STU 32
 }
 PUSHCONT {
 	; expValue
-	DUP
 	; end expValue
-	STZERO
 	; colValue
-	NIP
+	STSLICECONST 0
 	; end colValue
 }
 IFELSE
@@ -69,11 +62,9 @@ POP S3
 ; end colValue
 PUSHCONT {
 	; expValue
-	DUP
 	; end expValue
-	STONE
 	; colValue
-	NIP
+	STSLICECONST 1
 	; end colValue
 	; expValue
 	PUSH S1
@@ -86,25 +77,25 @@ PUSHCONT {
 	;; decl: tick
 	;; decl: tock
 	; expValue
+	PUSH S2
 	; end expValue
-	;; push identifier tick
-	BLKPUSH 2, 2
-	STIR 1
 	;; push identifier tock
-	PUSH S1
-	STIR 1
+	;; push identifier tick
 	; colValue
-	POP S3
 	; end colValue
-	DROP2
+	SWAP
+	PUSH S2
+	ROT
+	STI 1
+	STI 1
+	POP S2
+	DROP
 }
 PUSHCONT {
 	; expValue
-	DUP
 	; end expValue
-	STZERO
 	; colValue
-	NIP
+	STSLICECONST 0
 	; end colValue
 }
 IFELSE
@@ -185,7 +176,7 @@ NIP
 ; expValue
 PUSH S2
 ; end expValue
-STONE
+STSLICECONST 1
 ; colValue
 POP S3
 ; end colValue
@@ -613,9 +604,8 @@ CALL $convertIntToDecStr_short_macro$
 ;; push identifier builder
 ;; push identifier integer
 DUP2
-ABS
 ;; uint256
-UFITS 256
+ABS
 PUSHINT 0
 FALSE
 ;; push identifier integer
@@ -1259,13 +1249,11 @@ CALL $convertFixedPointToString_macro$
 ; function convertFixedPointToString
 ;; push identifier value
 PUSH S1
-ABS
 ;; uint256
-UFITS 256
+ABS
 ;; decl: absVal
 ;; push identifier absVal
 DUP
-;; /
 PUSHINT 10
 ;; **
 ;; push identifier fractionalDigits
@@ -1276,22 +1264,8 @@ THROWIFNOT 69
 CALLREF {
 	CALL $__exp_macro$
 }
-DIV
+DIVMOD
 ;; decl: integer
-;; push identifier absVal
-PUSH S1
-;; %
-PUSHINT 10
-;; **
-;; push identifier fractionalDigits
-PUSH S4
-DUP2
-OR
-THROWIFNOT 69
-CALLREF {
-	CALL $__exp_macro$
-}
-MOD
 ;; decl: fractional
 NEWC
 ;; decl: first
@@ -1450,9 +1424,8 @@ CALL $convertIntToHexStr_short_macro$
 ;; push identifier builder
 ;; push identifier integer
 DUP2
-ABS
 ;; uint256
-UFITS 256
+ABS
 PUSHINT 0
 FALSE
 TRUE
@@ -2079,8 +2052,8 @@ PUSHCONT {
 	; expValue
 	; end expValue
 	;; push identifier second
-	BLKPUSH 2, 6
-	STSLICER
+	PUSH2 S5, S6
+	STSLICE
 	; colValue
 	POP S7
 	; end colValue
@@ -2098,20 +2071,19 @@ PUSHCONT {
 	; expValue
 	; end expValue
 	;; push identifier start
-	PUSH2 S7, S0
-	STSLICER
 	; colValue
-	POP S8
 	; end colValue
 	; expValue
 	; end expValue
 	;; push identifier second
-	PUSH2 S2, S6
-	STSLICER
 	; colValue
-	POP S3
 	; end colValue
-	DROP
+	PUSH S7
+	STSLICE
+	POP S7
+	PUSH2 S5, S1
+	STSLICE
+	POP S2
 }
 IFELSE
 ;; end if
@@ -2673,7 +2645,8 @@ PUSHCONT {
 	; end expValue
 	;; push identifier slice
 	PUSH S4
-	STSLICER
+	SWAP
+	STSLICE
 	; colValue
 	SETINDEX 0
 	NIP
@@ -2705,8 +2678,8 @@ NEWC
 ; expValue
 ; end expValue
 ;; push identifier slice
-PUSH2 S0, S1
-STSLICER
+DUP2
+STSLICE
 ; colValue
 NIP
 ; end colValue
@@ -2857,7 +2830,8 @@ PUSHCONT {
 	; colValue
 	POP S6
 	; end colValue
-	STSLICER
+	SWAP
+	STSLICE
 	; colValue
 	POP S2
 	; end colValue

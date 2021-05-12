@@ -188,7 +188,7 @@ void TVMAnalyzer::endVisit(FunctionDefinition const&) {
 	if (m_currentFunction && !m_currentFunction->body().statements().empty())
 		if (m_structWarning)
 			for (auto const& var: m_changedStructs)
-				if (!var.first.second->attribute() || *var.first.second->attribute() != TvmConst::Attributes::MuteStructWarning)
+				if (!var.first.second->attribute() || *var.first.second->attribute() != TvmConst::Attributes::MuteStructWarning())
 					if (find(m_declaredReturns.begin(), m_declaredReturns.end(), var.first) == m_declaredReturns.end())
 						m_errorReporter.warning(var.second->location(), "Struct variable was modified but was not used or saved.\nUse attribute [[maybe_unsaved]] to suspend this warning.");
 

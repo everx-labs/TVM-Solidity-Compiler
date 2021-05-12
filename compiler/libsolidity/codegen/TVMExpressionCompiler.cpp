@@ -21,7 +21,6 @@
 #include "DictOperations.hpp"
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCall.hpp"
-#include "TVMIntrinsics.hpp"
 #include "TVMStructCompiler.hpp"
 
 using namespace solidity::frontend;
@@ -121,12 +120,12 @@ std::pair<bool, bigint> TVMExpressionCompiler::constValue(const Expression &_e) 
 	return {false, 0};
 }
 
-std::pair<bool, bool> TVMExpressionCompiler::constBool(Expression const& _e) {
+std::optional<bool> TVMExpressionCompiler::constBool(Expression const& _e) {
 	auto l = to<Literal>(&_e);
 	if (l != nullptr && isIn(l->token(), Token::TrueLiteral, Token::FalseLiteral)) {
-		return {true, l->token() == Token::TrueLiteral};
+		return l->token() == Token::TrueLiteral;
 	}
-	return {false, false};
+	return {};
 }
 
 int TVMExpressionCompiler::returnParamQty(Expression const& _e) {
@@ -315,21 +314,21 @@ void TVMExpressionCompiler::compileUnaryDelete(UnaryOperation const &node) {
 	Expression const* lastExpr = lValueInfo.expressions.back();
 	Type const* exprType = node.subExpression().annotation().type;
 	if (to<Identifier>(lastExpr)) {
-		m_pusher.pushDefaultValue(exprType, lValueInfo.isValueBuilder);
-		collectLValue(lValueInfo, true, lValueInfo.isValueBuilder);
+		m_pusher.pushDefaultValue(exprType);
+		collectLValue(lValueInfo, true, false);
 	} else if (auto memberAccess = to<MemberAccess>(lastExpr)) {
 		MemberAccessAnnotation& a = memberAccess->annotation();
 		auto decl = to<VariableDeclaration>(a.referencedDeclaration);
-		m_pusher.pushDefaultValue(decl->type(), lValueInfo.isValueBuilder);
-		collectLValue(lValueInfo, true, lValueInfo.isValueBuilder);
+		m_pusher.pushDefaultValue(decl->type());
+		collectLValue(lValueInfo, true, false);
 	} else if (auto indexAccess = to<IndexAccess>(lastExpr)) {
 		// ... index dict
 		Type const* baseExprType = indexAccess->baseExpression().annotation().type;
 		auto arrayType = to<ArrayType>(baseExprType);
 		if (arrayType) {
 			Type const* valueType = arrayType->baseType();
-			m_pusher.pushDefaultValue(valueType, lValueInfo.isValueBuilder); // index dict value
-			collectLValue(lValueInfo, true, lValueInfo.isValueBuilder);
+			m_pusher.pushDefaultValue(valueType); // index dict value
+			collectLValue(lValueInfo, true, false);
 		} else { // mapping
 			m_pusher.push(+1, "PUSH S1");                            // ... index dict index
             TypePointer const dictKey = StackPusherHelper::parseIndexType(indexAccess->baseExpression().annotation().type);
@@ -337,7 +336,7 @@ void TVMExpressionCompiler::compileUnaryDelete(UnaryOperation const &node) {
 			m_pusher.pushInt(lengthOfDictKey(dictKey)); // ..index index dict nbits
 			m_pusher.push(-3 + 2, "DICT" + typeToDictChar(dictKey) + "DEL");  // ... index dict' {-1,0}
 			m_pusher.push(-1, "DROP");                               // ... index dict'
-			collectLValue(lValueInfo, false, lValueInfo.isValueBuilder); // lValueInfo.isValueBuilder is ignored
+			collectLValue(lValueInfo, false, false); // lValueInfo.isValueBuilder is ignored
 		}
 	} else {
 		solUnimplemented("");
@@ -832,16 +831,11 @@ void TVMExpressionCompiler::visit2(MemberAccess const &_node) {
 	if (category == Type::Category::Struct) {
 		Expression const* expression = &_node.expression();
 		acceptExpr(expression);
-		bool isExpressionSlice = m_resultIsSlice.count(expression);
-		bool returnStructAsSlice = isExpressionSlice && m_expressionDepth != 0;
 
 		auto structType = to<StructType>(_node.expression().annotation().type);
 		StructCompiler structCompiler{&m_pusher, structType};
-		structCompiler.pushMember(memberName, !isExpressionSlice, returnStructAsSlice);
+		structCompiler.pushMember(memberName);
 
-		if (returnStructAsSlice) {
-			m_resultIsSlice.insert(&_node);
-		}
 		return;
 	}
 
@@ -975,17 +969,12 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 		acceptExpr(&indexAccess.baseExpression()); // index dict
 	}
 
-	bool returnStructAsSlice = m_expressionDepth != 0;
 	m_pusher.getDict(*StackPusherHelper::parseIndexType(baseType),
 	                 *StackPusherHelper::parseValueType(indexAccess),
 	                 baseType->category() == Type::Category::Mapping ||
 	                 baseType->category() == Type::Category::ExtraCurrencyCollection ?
 	                 GetDictOperation::GetFromMapping :
-	                 GetDictOperation::GetFromArray,
-	                 returnStructAsSlice);
-	if (returnStructAsSlice) {
-		m_resultIsSlice.insert(&indexAccess);
-	}
+	                 GetDictOperation::GetFromArray);
 }
 
 bool TVMExpressionCompiler::visit2(FunctionCall const &_functionCall) {
@@ -1058,14 +1047,6 @@ TVMExpressionCompiler::expandLValue(
 		}
 	}
 	std::reverse(lValueInfo.expressions.begin(), lValueInfo.expressions.end());
-	bool haveIndexAccess = false;
-	for (int i = 0; i < static_cast<int>(lValueInfo.expressions.size()); ++i) {
-		lValueInfo.isResultBuilder.push_back(haveIndexAccess);
-		if (to<IndexAccess>(lValueInfo.expressions[i])) {
-			haveIndexAccess = true;
-		}
-	}
-	lValueInfo.isValueBuilder = haveIndexAccess;
 
 	m_pusher.push(0, "; expValue");
 	for (int i = 0; i < static_cast<int>(lValueInfo.expressions.size()); i++) {
@@ -1100,7 +1081,7 @@ TVMExpressionCompiler::expandLValue(
 
 				m_pusher.getDict(*StackPusherHelper::parseIndexType(index->baseExpression().annotation().type),
 				                 *StackPusherHelper::parseValueType(*index),
-				                 GetDictOperation::GetFromMapping, true);
+				                 GetDictOperation::GetFromMapping);
 				// index dict1 dict2
 			} else if (index->baseExpression().annotation().type->category() == Type::Category::Array) {
 				// array
@@ -1115,8 +1096,7 @@ TVMExpressionCompiler::expandLValue(
 				}
 				m_pusher.push(+2, "PUSH2 S1, S0"); // size index dict index dict
 				m_pusher.getDict(*StackPusherHelper::parseIndexType(index->baseExpression().annotation().type),
-				                 *index->annotation().type, GetDictOperation::GetFromArray,
-				                 true);
+				                 *index->annotation().type, GetDictOperation::GetFromArray);
 				// size index dict value
 			} else {
 				solUnimplemented("");
@@ -1125,15 +1105,11 @@ TVMExpressionCompiler::expandLValue(
 			auto structType = to<StructType>(memberAccess->expression().annotation().type);
 			StructCompiler structCompiler{&m_pusher, structType};
 			const string &memberName = memberAccess->memberName();
-			if (lValueInfo.isResultBuilder[i]) {
-				structCompiler.expandStruct(memberName, !isLast || withExpandLastValue);
-			} else {
-				if (isLast && !withExpandLastValue) {
-					break;
-				}
-				m_pusher.push(+1, "DUP");
-				structCompiler.pushMember(memberName, true, false);
+			if (isLast && !withExpandLastValue) {
+				break;
 			}
+			m_pusher.push(+1, "DUP");
+			structCompiler.pushMember(memberName);
 		} else if (isOptionalGet(lValueInfo.expressions[i])) {
 			if (!isLast || withExpandLastValue) {
 				m_pusher.pushS(0);
@@ -1151,7 +1127,7 @@ void
 TVMExpressionCompiler::collectLValue(
 	const LValueInfo &lValueInfo,
 	const bool haveValueOnStackTop,
-	bool isValueBuilder
+	bool /*isValueBuilder*/
 )
 {
 	// variable [arrayIndex | mapIndex | structMember | <optional>.get()]...
@@ -1173,14 +1149,9 @@ TVMExpressionCompiler::collectLValue(
 
 	for (int i = n - 1; i >= 0; i--) {
 		const bool isLast = (i + 1) == static_cast<int>(lValueInfo.expressions.size());
-		const bool isCurrentValueBuilder = (isLast && isValueBuilder) || (!isLast && lValueInfo.isResultBuilder[i + 1]);
 
 		if (auto variable = to<Identifier>(lValueInfo.expressions[i])) {
 //				pushLog("colVar");
-			if (isCurrentValueBuilder) {
-				m_pusher.push(0, "ENDC");
-				m_pusher.push(0, "CTOS"); // TODO add test with TvmCell
-			}
 			auto& stack = m_pusher.getStack();
 			if (stack.isParam(variable->annotation().referencedDeclaration)) {
 				solAssert((haveValueOnStackTop && n == 1) || n > 1, "");
@@ -1200,13 +1171,9 @@ TVMExpressionCompiler::collectLValue(
 					// index dict value
 					TypePointer const keyType = StackPusherHelper::parseIndexType(indexAccess->baseExpression().annotation().type);
 					TypePointer const valueDictType = StackPusherHelper::parseValueType(*indexAccess);
-					const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueDictType, isCurrentValueBuilder);
+					const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueDictType, false);
 					m_pusher.push(0, "ROTREV"); // value index dict
 					m_pusher.setDict(*keyType, *valueDictType, dataType); // dict'
-				}
-				if (lValueInfo.isResultBuilder[i]) {
-					m_pusher.push(+1, "NEWC");
-					m_pusher.push(-1, "STDICT");
 				}
 			} else if (indexAccess->baseExpression().annotation().type->category() == Type::Category::Array) {
 				//					pushLog("colArrIndex");
@@ -1217,20 +1184,12 @@ TVMExpressionCompiler::collectLValue(
 					// size index dict value
 					TypePointer const keyType = StackPusherHelper::parseIndexType(indexAccess->baseExpression().annotation().type);
 					auto valueDictType = getType(indexAccess);
-					const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueDictType, isCurrentValueBuilder);
+					const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueDictType, false);
 					m_pusher.push(0, "ROTREV"); // size value index dict
 					m_pusher.setDict(*keyType, *valueDictType, dataType); // size dict'
 				}
 
-				if (lValueInfo.isResultBuilder[i]) {
-					// size dict'
-					m_pusher.push(0, "SWAP"); // dict size
-					m_pusher.push(+1, "NEWC"); // dict size builder
-					m_pusher.push(-1, "STU 32"); // dict builder
-					m_pusher.push(-1, "STDICT"); // builder
-				} else {
-					m_pusher.push(-2 + 1, "PAIR");
-				}
+				m_pusher.push(-2 + 1, "PAIR");
 			} else {
 				solUnimplemented("");
 			}
@@ -1239,11 +1198,7 @@ TVMExpressionCompiler::collectLValue(
 			auto structType = to<StructType>(memberAccess->expression().annotation().type);
 			StructCompiler structCompiler{&m_pusher, structType};
 			const string &memberName = memberAccess->memberName();
-			if (lValueInfo.isResultBuilder[i]) {
-				structCompiler.collectStruct(memberName, isCurrentValueBuilder);
-			} else {
-				structCompiler.setMemberForTuple(memberName);
-			}
+			structCompiler.setMemberForTuple(memberName);
 		} else if (isOptionalGet(lValueInfo.expressions[i])) {
 			// do nothing
 		} else {
@@ -1304,8 +1259,9 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 		auto push_rhs = [&] () {
 			compileNewExpr(&rhs);
 			m_pusher.hardConvert(getType(&lhs), getType(&rhs));
-			bool valueIsBuilder = m_pusher.tryPollConvertBuilderToSlice();
-			return valueIsBuilder;
+//			bool valueIsBuilder = m_pusher.tryPollConvertBuilderToSlice();
+//			return valueIsBuilder;
+			return false;
 		};
 		bool hasNoSideEffects =
 			!TVMExpressionAnalyzer(lhs).hasSideEffects() &&
@@ -1325,16 +1281,6 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 			}
 			collectLValue(lValueInfo, true, valueIsBuilder);
 		}
-	} else if (isString(getType(&lhs)) && isString(getType(&rhs))) {
-		if (op == Token::AssignAdd) {
-			const LValueInfo lValueInfo = expandLValue(&lhs, false);
-			compileNewExpr(&rhs);
-			m_pusher.pushMacroCallInCallRef(-2 +1, "concatenateStrings_macro");
-			collectLValue(lValueInfo, true, false);
-		} else {
-			cast_error(_assignment, "Unsupported operation.");
-		}
-		return true;
 	} else {
 		TypePointer const& commonType = lhs.annotation().type;
 		compileNewExpr(&rhs); // r
@@ -1344,7 +1290,12 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 		m_pusher.hardConvert(commonType, lhs.annotation().type);
 		const int expandedLValueSize = m_pusher.getStack().size() - saveStackSize - 1;
 		m_pusher.blockSwap(1, expandedLValueSize + 1); // expanded... l r
-		visitMathBinaryOperation(binOp, commonType, nullptr, nullopt);
+
+		if (isString(getType(&lhs)) && isString(getType(&rhs))) {
+			m_pusher.pushMacroCallInCallRef(-2 + 1, "concatenateStrings_macro");
+		} else {
+			visitMathBinaryOperation(binOp, commonType, nullptr, nullopt);
+		}
 
 		if (isCurrentResultNeeded()) {
 			m_pusher.push(+1, "DUP"); // expanded... res res

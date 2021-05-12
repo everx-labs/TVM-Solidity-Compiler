@@ -59,6 +59,7 @@ class DecodePositionAbiV1 : public DecodePosition {
 	int maxRestSliceBits;
 	int minUsedRef;
 	int maxUsedRef;
+
 public:
 	DecodePositionAbiV1();
 	Algo updateStateAndGetLoadAlgo(Type const* type) override;
@@ -77,37 +78,49 @@ private:
 	int usedRefs{};
 };
 
+
 class DecodePositionAbiV2 : public DecodePosition {
+public:
+	DecodePositionAbiV2(int minBits, int maxBits, const vector<Type const *>& types, bool fastDecode);
+	Algo updateStateAndGetLoadAlgo(Type const* type) override;
+
+private:
+	void initTypes(Type const* type);
+
+private:
 	Position minPos;
 	Position maxPos;
 	std::vector<Type const*> types;
 	int curTypeIndex = -1;
 	int lastRefType = -1;
-public:
-	explicit DecodePositionAbiV2(int minBits, int maxBits,
-	                             const ast_vec<VariableDeclaration>& params);
-	void initTypes(VariableDeclaration const* variable);
-	Algo updateStateAndGetLoadAlgo(Type const* type) override;
+	bool fastDecode{};
 };
 
-class DecodeFunctionParams : private boost::noncopyable {
+class ChainDataDecoder : private boost::noncopyable {
 public:
-	explicit DecodeFunctionParams(StackPusherHelper *pusher);
+	explicit ChainDataDecoder(StackPusherHelper *pusher);
 private:
 	int maxBits(bool hasCallback);
 	static int minBits(bool hasCallback);
 public:
-	void decodeParameters(const ast_vec<VariableDeclaration>& params, bool hasCallback);
+	void decodePublicFunctionParameters(const std::vector<Type const*>& types, bool isResponsible);
+	void decodeData(const std::vector<Type const*>& types, int offset, bool _fastLoad);
+private:
+	void decodeParameters(
+		const std::vector<Type const*>& types,
+		std::unique_ptr<DecodePosition> position
+	);
 private:
 	void loadNextSlice();
 	void checkBitsAndLoadNextSlice();
 	void checkRefsAndLoadNextSlice();
 	void checkBitsAndRefsAndLoadNextSlice();
-	void loadNextSliceIfNeed(const DecodePosition::Algo algo, VariableDeclaration const* variable, bool isRefType);
+	void loadNextSliceIfNeed(const DecodePosition::Algo algo, bool isRefType);
 	void loadq(const DecodePosition::Algo algo, const std::string& opcodeq, const std::string& opcode);
-	void decodeParameter(VariableDeclaration const* variable, DecodePosition* position);
+	void decodeParameter(Type const* type, DecodePosition* position);
 private:
 	StackPusherHelper *pusher{};
+	bool fastLoad;
 };
 
 
@@ -138,9 +151,9 @@ public:
 	int countOfCreatedBuilders() const;
 };
 
-class EncodeFunctionParams : private boost::noncopyable {
+class ChainDataEncoder : private boost::noncopyable {
 public:
-	explicit EncodeFunctionParams(StackPusherHelper *pusher) : pusher{pusher} {}
+	explicit ChainDataEncoder(StackPusherHelper *pusher) : pusher{pusher} {}
 	void createDefaultConstructorMsgBodyAndAppendToBuilder(int bitSizeBuilder);
 	void createDefaultConstructorMessage2();
 
@@ -178,15 +191,16 @@ public:
 		EncodePosition &position
 	);
 
-	void encodeParameters(const std::vector<Type const*>& types,
-	                      const std::vector<ASTNode const*>& nodes,
-	                      const std::function<void(size_t)>& pushParam,
-	                      EncodePosition& position);
+	void encodeParameters(
+		const std::vector<Type const*>& types,
+	    const std::function<void(size_t)>& pushParam,
+	    EncodePosition& position
+	);
 
 private:
 	std::string getTypeString(Type const * type);
-	void encodeParameter(Type const* type, EncodePosition& position, const std::function<void()>& pushParam, ASTNode const* node);
-	void encodeStruct(const StructType* structType, ASTNode const* node, EncodePosition& position);
+	void encodeParameter(Type const* type, EncodePosition& position, const std::function<void()>& pushParam);
+	void encodeStruct(const StructType* structType, EncodePosition& position);
 
 private:
 	StackPusherHelper *pusher{};

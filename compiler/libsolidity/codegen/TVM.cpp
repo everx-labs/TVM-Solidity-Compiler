@@ -47,8 +47,12 @@ void TVMCompilerProceedContract(
 	if (filePrefix.empty()) {
 		pathToFiles = boost::filesystem::path{solFileName}.stem().string();
 	} else {
-		// TODO check that filePrefix is not path. It doesn't contain / or \ or ..
 		pathToFiles = filePrefix;
+		boost::filesystem::path p(filePrefix);
+		if (filePrefix != p.filename()) {
+			fatal_error(string{} + "Option -f takes basename of output file(s).\n" +
+				"\"" + filePrefix + "\" looks like a path. Use option -o to set an output directory.");
+		}
 	}
 
 	if (!outputFolder.empty()) {

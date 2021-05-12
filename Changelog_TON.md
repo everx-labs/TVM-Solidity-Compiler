@@ -1,3 +1,15 @@
+### 0.43.0 (2021-05-12)
+
+Compiler features:
+ * Support mappings/arrays containing big structs (or another structs) as input/output parameters
+of public/external functions.
+ * Support `tvm.code()`, `tvm.codeSalt()` and `tvm.setCodeSalt`.
+
+Some gas optimizations.
+
+Changes:
+ * `selfdestruct` appends 0 tons to the internal message (instead of 1000 nanotons).
+
 ### 0.42.0 (2021-04-19)
 
 Breaking change:

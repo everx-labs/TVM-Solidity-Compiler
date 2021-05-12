@@ -28,7 +28,7 @@ public:
 	void compileNewExpr(const Expression* expr);
 	void acceptExpr(const Expression* expr, bool _isResultNeeded);
 	static std::pair<bool, bigint> constValue(Expression const& _e);
-	static std::pair<bool, bool> constBool(Expression const& _e);
+	static std::optional<bool> constBool(Expression const& _e);
 	static int returnParamQty(Expression const& _e);
 
 	LValueInfo expandLValue(
@@ -88,9 +88,8 @@ protected:
 
 private:
 	StackPusherHelper &m_pusher;
-	int m_expressionDepth;
-	bool m_isResultNeeded;
-	std::set<Expression const*> m_resultIsSlice;
+	int m_expressionDepth{};
+	bool m_isResultNeeded{};
 };
 
 }	// end solidity::frontend

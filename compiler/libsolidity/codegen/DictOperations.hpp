@@ -80,7 +80,7 @@ private:
 class GetFromDict : public DictOperation {
 public:
 	GetFromDict(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, const GetDictOperation op,
-				const bool resultAsSliceForStruct, const DataType& dataType);
+				const DataType& dataType);
 
 	void getDict();
 
@@ -89,7 +89,6 @@ private:
 
 protected:
 	const GetDictOperation op{};
-	const bool resultAsSliceForStruct{};
 	const DataType dataType{};
 };
 

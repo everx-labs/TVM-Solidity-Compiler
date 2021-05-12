@@ -125,6 +125,7 @@ private:
 		FunctionTypePointer _functionType
 	);
 
+	void typeCheckTvmEncodeArg(Type const* type, Expression const& node);
 	void typeCheckTvmEncodeFunctions(FunctionCall const& _functionCall);
 
 	static FunctionDefinition const* getFunctionDefinition(Expression const* expr);
@@ -140,7 +141,6 @@ private:
 	bool checkAbiType(
 		VariableDeclaration const* origVar,
 		Type const* curType,
-		int keyLength,
 		VariableDeclaration const* curVar,
 		std::set<StructDefinition const*>& usedStructs
 	);

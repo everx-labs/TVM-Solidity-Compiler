@@ -43,7 +43,6 @@ void DictMinMax::minOrMax(bool saveOrigKeyAndNoTuple) {
 			haveKey,
 			isInRef,
 			StackPusherHelper::DecodeType::DecodeValueOrPushNull,
-			false,
 			saveOrigKeyAndNoTuple
 	);
 }
@@ -72,7 +71,6 @@ void DictPrevNext::prevNext(bool saveOrigKeyAndNoTuple) {
 			true,
 			false,
 			StackPusherHelper::DecodeType::DecodeValueOrPushNull,
-			false,
 			saveOrigKeyAndNoTuple
 	);
 
@@ -84,11 +82,10 @@ void DictPrevNext::prevNext(bool saveOrigKeyAndNoTuple) {
 }
 
 GetFromDict::GetFromDict(StackPusherHelper &pusher, const Type &keyType, const Type &valueType,
-						 const GetDictOperation op, const bool resultAsSliceForStruct,
+						 const GetDictOperation op,
 						 const DataType &dataType) :
 		DictOperation{pusher, keyType, valueType},
 		op{op},
-		resultAsSliceForStruct{resultAsSliceForStruct},
 		dataType{dataType}
 {
 
@@ -136,12 +133,12 @@ void GetFromDict::getDict() {
 			else if (
 					op == GetDictOperation::GetSetFromMapping ||
 					op == GetDictOperation::GetReplaceFromMapping
-					)
+			)
 				decodeType = StackPusherHelper::DecodeType::DecodeValueOrPushNull;
 			else
 				solUnimplemented("");
 			int ss = pusher.getStack().size();
-			pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, didUseOpcodeWithRef, decodeType, resultAsSliceForStruct);
+			pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, didUseOpcodeWithRef, decodeType);
 			solAssert(ss == pusher.getStack().size(), "");
 			break;
 		}
@@ -176,7 +173,7 @@ void GetFromDict::getDict() {
 			} else {
 				solUnimplemented("");
 			}
-			pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, isInRef, decodeType, resultAsSliceForStruct);
+			pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, isInRef, decodeType);
 			break;
 		}
 	}
@@ -260,7 +257,7 @@ void DelMinOrMax::delMinOrMax() {
 	pusher.pushInt(keyLength); // dict nbits
 	pusher.push(-2 + 3, opcode); //  D value key -1
 
-	pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, true, isInRef, StackPusherHelper::DecodeType::DecodeValueOrPushNull, false);
+	pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, true, isInRef, StackPusherHelper::DecodeType::DecodeValueOrPushNull);
 
 	// mapLValue... D optPair
 	const int cntOfValuesOnStack = pusher.getStack().size() - stackSize;
