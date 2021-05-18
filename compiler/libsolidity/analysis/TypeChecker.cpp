@@ -1097,7 +1097,7 @@ bool TypeChecker::visit(ForEachStatement const& _forStatement)
 		auto arrayType = dynamic_cast<ArrayType const *>(_forStatement.rangeExpression()->annotation().type);
 
 		auto checkVarDeclaration = [&](VariableDeclaration const *vd, Type const *type) {
-			if (vd == nullptr) { // for((uint key, ) : map) {  }
+			if (vd == nullptr) { // for ((uint key, ) : map) {  }
 				return;
 			}
 			BoolResult result = type->isImplicitlyConvertibleTo(*vd->type());
@@ -2253,7 +2253,9 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 			isFunctionWithDefaultValues = true;
 		}
 		if (ma && dynamic_cast<MagicType const *>(ma->expression().annotation().type)) {
-			if (ma->memberName() == "buildStateInit" || ma->memberName() == "buildExtMsg")
+			if (ma->memberName() == "buildStateInit" ||
+				ma->memberName() == "buildExtMsg" ||
+				ma->memberName() == "buildIntMsg")
 			isFunctionWithDefaultValues = true;
 		}
 	}
@@ -2555,6 +2557,64 @@ void TypeChecker::checkInitList(InitializerList const *list, ContractType const 
 	}
 }
 
+void TypeChecker::checkCallList(
+	vector<ASTPointer<Expression const>> const& arguments,
+	FunctionCall const& _functionCall,
+	bool ignoreCallBack // for ext msg we set callbackFunctionId==0
+) {
+	if (arguments.empty()) {
+		m_errorReporter.typeError(
+				_functionCall.location(),
+				"At least one argument of function or contract type is expected."
+		);
+		return;
+
+	}
+	FunctionDefinition const *functionDeclaration =
+			checkPubFunctionOrContractTypeAndGetDefinition(*arguments.front().get());
+
+	if (functionDeclaration != nullptr) {
+		bool needCallback = !ignoreCallBack && functionDeclaration->isResponsible();
+		int shift = needCallback ? 1 : 0;
+		std::vector<ASTPointer<VariableDeclaration>> const &calleeParams = functionDeclaration->parameters();
+		if (1 + shift + calleeParams.size() != arguments.size()) {
+			m_errorReporter.typeError(
+					_functionCall.location(),
+					SecondarySourceLocation()
+							.append("Declaration is here:", functionDeclaration->location()),
+					"Wrong arguments count: " +
+					toString(arguments.size()) +
+					" arguments given but expected " +
+					toString(1 + shift + calleeParams.size()) +
+					" arguments: function/contract identifier" +
+					(needCallback ? ", callback function identifier" : "") + " and " +
+					toString(calleeParams.size()) + " function argument(s)."
+			);
+		} else {
+			if (needCallback) {
+				checkPubFunctionAndGetDefinition(*arguments.at(1).get(), true);
+			}
+			for (size_t i = 0; i < calleeParams.size(); i++)
+				expectType(*arguments[1 + shift + i], *calleeParams[i]->annotation().type);
+		}
+	} else {
+		if (arguments.size() >= 2) {
+			// check default constructor
+			auto tt = dynamic_cast<const TypeType *>(arguments.front()->annotation().type);
+			auto contractType = dynamic_cast<const ContractType *>(tt->actualType());
+			const auto &contractDefinition = contractType->contractDefinition();
+			m_errorReporter.fatalTypeError(
+					_functionCall.location(),
+					SecondarySourceLocation().append("Declaration is here:",
+													 contractDefinition.location()),
+					"Wrong arguments count: " +
+					toString(arguments.size()) +
+					" arguments given but 0 expected. Default constructor has no parameters."
+			);
+		}
+	}
+}
+
 bool TypeChecker::visit(FunctionCall const& _functionCall)
 {
 	vector<ASTPointer<Expression const>> const& arguments = _functionCall.arguments();
@@ -2730,6 +2790,14 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 
 	auto hasName = [&](const ASTString& optName) {
 		return findName(optName) != -1;
+	};
+
+	auto checkHaveNamedParams = [&]() {
+		if (argumentNames.empty())
+			m_errorReporter.fatalTypeError(
+					_functionCall.location(),
+					string("Function parameters should be specified with names.")
+			);
 	};
 
 
@@ -2970,7 +3038,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				auto lit = dynamic_cast<const Literal *>(arguments[0].get());
 				std::string format = lit->value();
 				size_t placeholdersCnt = 0;
-				for(size_t i = 0; i < format.size() - 1; i++) {
+				for (size_t i = 0; i < format.size() - 1; i++) {
 					if (format[i] == '{') {
 						auto c = format[i+1];
 						if (c == '}' || c == ':')
@@ -2987,124 +3055,83 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				returnTypes = functionType->returnParameterTypes();
 				break;
 			}
-			case FunctionType::Kind::TVMBuildExtMsg: {
-				bool hasNames = !argumentNames.empty();
-				if (!hasNames)
-					m_errorReporter.fatalTypeError(
-							_functionCall.location(),
-							string("Function parameters should be specified with names.")
-					);
+			case FunctionType::Kind::TVMBuildIntMsg: {
+				checkHaveNamedParams();
 
-				std::vector<std::string> names = {"dest", "call"};
-				std::vector<int> indexes;
-				for(const auto& name: names) {
+				for (const std::string& name : {"dest", "call", "value"}) {
 					int index = findName(name);
-					indexes.push_back(index);
-					if (index == -1){
-						m_errorReporter.fatalTypeError(
+					if (index == -1) {
+						m_errorReporter.typeError(
 								_functionCall.location(),
 								string("Parameter \"" + name + "\" must be set.")
 						);
 					}
 				}
-				for(size_t i = 0; i < indexes.size(); i++) {
-					auto cat = arguments[indexes[i]]->annotation().type->category();
-					if (i == 0) {
-						if (cat != Type::Category::Address) {
-							m_errorReporter.fatalTypeError(
-									arguments[indexes[i]]->location(),
-									"Expected address type."
-							);
+
+				if (
+					int index = findName("call");
+					index != -1
+				) {
+					auto callList = dynamic_cast<CallList const*>(arguments.at(index).get());
+					if (callList) {
+						// now, we ignore constructor call, because in this case we must set stateInit
+						checkPubFunctionAndGetDefinition(*callList->function().get(), true);
+
+						std::vector<ASTPointer<Expression const>> params;
+						params.push_back(callList->function());
+						for (const ASTPointer<Expression const>& p : callList->arguments()) {
+							params.push_back(p);
 						}
-					} else if (i == 1) {
-						if (cat != Type::Category::CallList) {
-							m_errorReporter.fatalTypeError(
-									arguments[indexes[i]]->location(),
-									"Expected CallList type."
-							);
-						}
+						checkCallList(params, _functionCall, false);
 					}
 				}
-				std::vector<std::string> intParams= {"time", "expire", "callbackId", "abiVer", "onErrorId"};
-				std::vector<unsigned>intBits = {64, 32, 32, 8, 32};
-				std::vector<bool> isMandatory = {false, false, true, true, true};
-				for (size_t i = 0; i < intParams.size(); i++) {
-					int nameIndex = findName(intParams[i]);
-					if (nameIndex != -1){
-						Type const* mt = arguments[nameIndex]->annotation().type->mobileType();
-						auto isInt = dynamic_cast<IntegerType const*>(mt);
-						if (isInt == nullptr || isInt->isSigned()) {
-							m_errorReporter.fatalTypeError(
-									arguments[nameIndex]->location(),
-									string("\"") + intParams[i] + "\" parameter must have an unsigned integer type."
-							);
-						}
-						if (isInt->numBits() > intBits[i])
-							m_errorReporter.fatalTypeError(
-									arguments[nameIndex]->location(),
-									string("\"") + intParams[i] + "\" parameter must fit in uint" + to_string(intBits[i]) + " type."
-							);
-					} else if (isMandatory[i]) {
+
+				typeCheckFunctionCall(_functionCall, functionType);
+				returnTypes = functionType->returnParameterTypes();
+				break;
+			}
+			case FunctionType::Kind::TVMBuildExtMsg: {
+				checkHaveNamedParams();
+				for (const std::string& name: {"dest", "call", "callbackId", "abiVer", "onErrorId"}) {
+					int index = findName(name);
+					if (index == -1){
 						m_errorReporter.fatalTypeError(
 								_functionCall.location(),
-								string("\"") + intParams[i] + "\" parameter must be set."
+								"Parameter \"" + name + "\" must be set."
 						);
 					}
 				}
 
-                std::vector<std::string> optParams= {"pubkey", "signBoxHandle"};
-                std::vector<unsigned>optBits = {256, 32};
-                for(size_t i = 0; i < optParams.size(); i++) {
-                    int index = findName(optParams[i]);
-                    if (index != -1) {
-                        auto cat = arguments[index]->annotation().type->category();
-                        if (cat != Type::Category::Optional) {
-                            m_errorReporter.fatalTypeError(
-                                    arguments[index]->location(),
-                                    string("\"") + optParams[i] + "\" parameter must have an optional uint" + to_string(optBits[i]) + " type."
-                            );
-                        } else {
-                            auto opt = dynamic_cast<const OptionalType *>(arguments[index]->annotation().type);
-                            auto valType = opt->valueType()->mobileType();
-                            auto isInt = dynamic_cast<IntegerType const *>(valType);
-                            if (isInt == nullptr || isInt->isSigned()) {
-                                m_errorReporter.fatalTypeError(
-                                        arguments[index]->location(),
-                                        string("\"") + optParams[i] + "\" parameter must have an optional uint" + to_string(optBits[i]) + " type."
-                                );
-                            }
-                            if (isInt->numBits() != optBits[i])
-                                m_errorReporter.fatalTypeError(
-                                        arguments[index]->location(),
-                                        string("\"") + optParams[i] + "\" parameter must have an optional uint" + to_string(optBits[i]) + " type."
-                                );
-                        }
-                    }
-                }
-				int stateIndex = findName("stateInit");
-				if (stateIndex != -1){
-					auto cat = arguments[stateIndex]->annotation().type->category();
-					if (cat !=Type::Category::TvmCell) {
-						m_errorReporter.fatalTypeError(
-								arguments[stateIndex]->location(),
-								"\"stateInit\" parameter must have a TvmCell type."
-						);
-					}
-				}
-				int SignIndex = findName("sign");
-				if (SignIndex != -1){
+				if (
+					int SignIndex = findName("sign");
+					SignIndex != -1
+				){
 					auto ann = arguments[SignIndex]->annotation();
 					if (ann.type->category() != Type::Category::Bool || !ann.isPure) {
-						m_errorReporter.fatalTypeError(
+						m_errorReporter.typeError(
 								arguments[SignIndex]->location(),
 								"\"sign\" parameter must have a constant boolean type."
 						);
 					}
 				}
+
+				if (
+					int index = findName("call");
+					index != -1
+				) {
+					auto callList = dynamic_cast<CallList const*>(arguments.at(index).get());
+					if (callList) {
+						std::vector<ASTPointer<Expression const>> params;
+						params.push_back(callList->function());
+						for (const ASTPointer<Expression const>& p : callList->arguments()) {
+							params.push_back(p);
+						}
+						checkCallList(params, _functionCall, true);
+					}
+				}
+
 				typeCheckFunctionCall(_functionCall, functionType);
-				returnTypes = m_evmVersion.supportsReturndata() ?
-							  functionType->returnParameterTypes() :
-							  functionType->returnParameterTypesWithoutDynamicTypes();
+				returnTypes = functionType->returnParameterTypes();
 				break;
 			}
 			case FunctionType::Kind::TVMBuildStateInit: {
@@ -3153,59 +3180,10 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			}
 			case FunctionType::Kind::TVMEncodeBody:
 			{
-				if (arguments.empty()) {
-					m_errorReporter.typeError(
-						_functionCall.location(),
-					"At least one argument of function or contract type is expected."
-					);
-				} else {
+				checkCallList(arguments, _functionCall, false);
 
-					FunctionDefinition const *functionDeclaration =
-							checkPubFunctionOrContractTypeAndGetDefinition(*arguments.front().get());
-
-					if (functionDeclaration != nullptr) {
-						bool needCallback = functionDeclaration->isResponsible();
-						int shift = needCallback ? 1 : 0;
-						std::vector<ASTPointer<VariableDeclaration>> const &calleeParams = functionDeclaration->parameters();
-						if (1 + shift + calleeParams.size() != arguments.size()) {
-							m_errorReporter.typeError(
-									_functionCall.location(),
-									SecondarySourceLocation()
-											.append("Declaration is here:", functionDeclaration->location()),
-									"Wrong arguments count: " +
-									toString(arguments.size()) +
-									" arguments given but expected " +
-									toString(1 + shift + calleeParams.size()) +
-									" arguments: function/contract identifier" +
-									(needCallback ? ", callback function identifier" : "") + " and " +
-									toString(calleeParams.size()) + " function argument(s)."
-							);
-						} else {
-							if (needCallback) {
-								checkPubFunctionAndGetDefinition(*arguments.at(1).get(), true);
-							}
-							for (size_t i = 0; i < calleeParams.size(); i++)
-								expectType(*arguments[1 + shift + i], *calleeParams[i]->annotation().type);
-						}
-					} else {
-						if (arguments.size() >= 2) {
-							// check default constructor
-							auto tt = dynamic_cast<const TypeType *>(arguments.front()->annotation().type);
-							auto contractType = dynamic_cast<const ContractType *>(tt->actualType());
-							const auto &contractDefinition = contractType->contractDefinition();
-							m_errorReporter.fatalTypeError(
-									_functionCall.location(),
-									SecondarySourceLocation().append("Declaration is here:",
-																	 contractDefinition.location()),
-									"Wrong arguments count: " +
-									toString(arguments.size()) +
-									" arguments given but 0 expected. Default constructor has no parameters."
-							);
-						}
-					}
-					typeCheckFunctionCall(_functionCall, functionType);
-					returnTypes = functionType->returnParameterTypes();
-				}
+				typeCheckFunctionCall(_functionCall, functionType);
+				returnTypes = functionType->returnParameterTypes();
 				break;
 			}
 			case FunctionType::Kind::LogTVM: {
@@ -3406,7 +3384,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		};
 
 		if (isExternalInboundMessage) {
-			arr = {"extMsg", "dest", "time", "expire", "call", "sign",  "pubkey", "abiVer", "callbackId", "onErrorId", "stateInit", "signBoxHandle"};
+			arr = {"extMsg", "time", "expire", "call", "sign",  "pubkey", "abiVer", "callbackId", "onErrorId", "stateInit", "signBoxHandle"};
 		} else if (isNewExpression) {
 			arr = {"stateInit", "code", "data", "pubkey", "varInit", "splitDepth", "wid", "value", "currencies", "bounce", "flag"};
 		} else {
@@ -3558,11 +3536,6 @@ void TypeChecker::endVisit(NewExpression const& _newExpression)
 			!contract->annotation().linearizedBaseContracts.empty(),
 			"Linearized base contracts not yet available."
 		);
-		if (contractDependenciesAreCyclic(*m_scope))
-			m_errorReporter.typeError(
-				_newExpression.location(),
-				"Circular reference for contract creation (cannot create instance of derived or same contract)."
-			);
 
 		_newExpression.annotation().type = FunctionType::newExpressionType(*contract);
 	}

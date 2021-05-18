@@ -36,6 +36,7 @@ namespace TvmConst {
 			const int Flag = 4;
 			const int CallbackFunctionId = 5;
 		}
+		constexpr int SenderAddress = 9;
 		constexpr int FirstIndexForVariables = 10;
 	}
 	namespace SENDRAWMSG {

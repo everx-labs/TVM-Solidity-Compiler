@@ -20,8 +20,57 @@
 
 #include "TVMABI.hpp"
 #include "TVMPusher.hpp"
+#include "TVMStructCompiler.hpp"
 
 using namespace solidity::frontend;
+
+void TVMABI::printFunctionIds(
+	ContractDefinition const& contract,
+	PragmaDirectiveHelper const& pragmaHelper
+) {
+	TVMCompilerContext ctx{&contract, pragmaHelper};
+	StackPusherHelper pusher{&ctx};
+	ChainDataEncoder encoder{&pusher};
+	std::vector<const FunctionDefinition *> publicFunctions = TVMABI::publicFunctions(contract);
+	std::map<std::string, uint32_t> map;
+	for (FunctionDefinition const* func : publicFunctions) {
+		uint32_t functionID = encoder.calculateFunctionIDWithReason(
+			func,
+			ReasonOfOutboundMessage::RemoteCallInternal
+		);
+		const std::string name = TVMCompilerContext::getFunctionExternalName(func);
+		map[name] = functionID;
+	}
+	if (map.count("constructor") == 0) {
+		map["constructor"] = encoder.calculateConstructorFunctionID();
+	}
+	for (VariableDeclaration const* vd : ctx.notConstantStateVariables()) {
+		if (vd->isPublic()) {
+			std::vector<VariableDeclaration const*> outputs = {vd};
+			uint32_t functionId = encoder.calculateFunctionIDWithReason(
+					vd->name(),
+					{},
+					&outputs,
+					ReasonOfOutboundMessage::RemoteCallInternal,
+					nullopt,
+					false
+			);
+			map[vd->name()] = functionId;
+		}
+	}
+
+	std::string lastName = map.rbegin()->first;
+	cout << "{" << endl;
+	for (const auto&[func, functionID] : map) {
+		cout
+			<< "\t"
+			<< "\"" << func << "\": "
+			<< "\"0x" << std::hex << std::setfill('0') << std::setw(8) << functionID << "\""
+			<< (lastName == func ? "" : ",")
+			<< endl;
+	}
+	cout << "}";
+}
 
 void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaDirective const *> const &pragmaDirectives,
 						ostream *out) {
@@ -29,19 +78,8 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 	PragmaDirectiveHelper pdh{pragmaDirectives};
 	TVMCompilerContext ctx(contract, pdh);
 
-	std::vector<const FunctionDefinition *> publicFunctions {};
+	const std::vector<const FunctionDefinition *> publicFunctions = TVMABI::publicFunctions(*contract);
 	std::vector<const EventDefinition *> events {};
-
-	if (auto main_constr = contract->constructor(); main_constr != nullptr)
-		publicFunctions.push_back(contract->constructor());
-
-	for (auto c : contract->annotation().linearizedBaseContracts) {
-		for (const auto &_function : c->definedFunctions()) {
-			if (_function->isPublic() && !isTvmIntrinsic(_function->name()) && !_function->isConstructor() &&
-				!_function->isReceive() && !_function->isFallback() && !_function->isOnBounce() && !_function->isOnTickTock())
-				publicFunctions.push_back(_function);
-		}
-	}
 
 	for (const auto &_event : contract->interfaceEvents())
 		events.push_back(_event);
@@ -153,6 +191,21 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 	*out << "\t" << "]\n";
 
 	*out << "}" << endl;
+}
+
+std::vector<const FunctionDefinition *> TVMABI::publicFunctions(ContractDefinition const& contract) {
+	std::vector<const FunctionDefinition *> publicFunctions;
+	if (auto main_constr = contract.constructor(); main_constr != nullptr)
+		publicFunctions.push_back(contract.constructor());
+
+	for (auto c : contract.annotation().linearizedBaseContracts) {
+		for (const auto &_function : c->definedFunctions()) {
+			if (_function->isPublic() && !isTvmIntrinsic(_function->name()) && !_function->isConstructor() &&
+				!_function->isReceive() && !_function->isFallback() && !_function->isOnBounce() && !_function->isOnTickTock())
+				publicFunctions.push_back(_function);
+		}
+	}
+	return publicFunctions;
 }
 
 void TVMABI::printData(const Json::Value &json, std::ostream* out) {
@@ -451,13 +504,14 @@ DecodePosition::Algo DecodePositionAbiV2::updateStateAndGetLoadAlgo(Type const *
 			return JustLoad;
 		} else {
 			int prevMinCellNumber = minPos.cellNumber();
+			int prevMaxCellNumber = maxPos.cellNumber();
 			minPos.loadRef();
 			maxPos.loadRef();
+			if (fastDecode) {
+				return prevMaxCellNumber == maxPos.cellNumber() ? JustLoad : LoadNextCell;
+			}
 			if (prevMinCellNumber == minPos.cellNumber() && minPos.cellNumber() == maxPos.cellNumber()) {
 				return JustLoad;
-			}
-			if (fastDecode) {
-				return LoadNextCell;
 			}
 			return CheckBitsAndRefs;
 		}

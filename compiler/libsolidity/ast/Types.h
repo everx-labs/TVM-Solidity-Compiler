@@ -722,7 +722,7 @@ public:
 	Category category() const override { return Category::CallList; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_calllisttype"; }
-	std::string toString(bool) const override { return "calllisttype"; }
+	std::string toString(bool) const override { return "CallListType"; }
 
 	TypePointer encodingType() const override { return this; }
 	TypeResult interfaceType(bool) const override { return this; }
@@ -1201,6 +1201,7 @@ public:
 
 		TVMAccept, ///< tvm.accept()
 		TVMBuildExtMsg, ///< tvm.buildExtMsg()
+		TVMBuildIntMsg, ///< tvm.buildIntMsg()
 		TVMBuildStateInit, ///< tvm.buildStateInit()
 		TVMChecksign, ///< tvm.checkSign()
 		TVMCode, ///< tvm.code()
@@ -1223,6 +1224,7 @@ public:
 
 		TXtimestamp, ///< tx.timestamp
 
+		ArrayEmpty, ///< .empty()
 		ArrayPush, ///< .push() to a dynamically sized array in storage
 		ArrayPop, ///< .pop() from a dynamically sized array in storage
 		ByteArrayPush, ///< .push() to a dynamically sized byte array in storage

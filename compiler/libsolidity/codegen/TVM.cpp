@@ -36,7 +36,8 @@ void TVMCompilerProceedContract(
 	bool withDebugInfo,
 	const std::string& solFileName,
 	const std::string& outputFolder,
-	const std::string& filePrefix
+	const std::string& filePrefix,
+	bool doPrintFunctionIds
 ) {
     GlobalParams::g_errorReporter = errorReporter;
     GlobalParams::g_withDebugInfo = withDebugInfo;
@@ -68,11 +69,15 @@ void TVMCompilerProceedContract(
     }
 
 	PragmaDirectiveHelper pragmaHelper{*pragmaDirectives};
-	if (generateCode) {
-		TVMContractCompiler::proceedContract(pathToFiles + ".code", _contract, pragmaHelper);
-	}
-	if (generateAbi) {
-		TVMContractCompiler::generateABI(pathToFiles + ".abi.json", &_contract, *pragmaDirectives);
+	if (doPrintFunctionIds) {
+		TVMContractCompiler::printFunctionIds(_contract, pragmaHelper);
+	} else {
+		if (generateCode) {
+			TVMContractCompiler::proceedContract(pathToFiles + ".code", _contract, pragmaHelper);
+		}
+		if (generateAbi) {
+			TVMContractCompiler::generateABI(pathToFiles + ".abi.json", &_contract, *pragmaDirectives);
+		}
 	}
 
 }

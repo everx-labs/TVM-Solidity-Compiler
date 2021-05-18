@@ -92,11 +92,17 @@ bool FunctionCallCompiler::compile() {
 			{
 				// nothing
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "tvm") {
-				if (checkForTvmSendFunction(*ma) ||
+				if (m_funcType->kind() == FunctionType::Kind::TVMBuildIntMsg) {
+					tvmBuildIntMsg();
+				} else if (m_funcType->kind() == FunctionType::Kind::TVMBuildExtMsg) {
+					tvmBuildMsgMethod();
+				} else if (
+					checkForTvmSendFunction(*ma) ||
 					checkForTvmConfigParamFunction(*ma) ||
 					checkForTvmFunction(*ma) ||
-					checkForTvmDeployMethods(*ma, category) ||
-					checkForTvmBuildMsgMethods(*ma, category)) {
+					checkForTvmDeployMethods(*ma, category)
+				) {
+					// do nothing
 				} else {
 					reportError();
 				}
@@ -515,7 +521,7 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 		// Search for bounce option
 		const int extIndex = getIndex("extMsg");
 		if (extIndex != -1) {
-			checkExtMsgSend(_functionCall);
+			checkExtMsgSend();
 			return true;
 		}
 
@@ -619,7 +625,7 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 	}
 
 	appendBody = [&](int builderSize) {
-		return ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
+		ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
 				[&](size_t idx) {
 					m_pusher.push(0, ";; " + functionDefinition->parameters()[idx]->name());
 					pushArgAndConvert(idx);
@@ -638,12 +644,12 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 	return true;
 }
 
-void FunctionCallCompiler::checkExtMsgSend(FunctionCall const& _functionCall) {
-	const ast_vec<Expression const> arguments = _functionCall.arguments();
-	auto functionOptions = to<FunctionCallOptions>(&_functionCall.expression());
+void FunctionCallCompiler::checkExtMsgSend() {
+	auto functionOptions = to<FunctionCallOptions>(&m_functionCall.expression());
 
 	std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
 	auto getIndex = [&](const std::string& name) -> int {
+		// TODO move to function
 		auto it = std::find_if(optionNames.begin(), optionNames.end(), [&](auto el) { return *el == name;});
 		if (it == optionNames.end()) {
 			return -1;
@@ -710,7 +716,7 @@ void FunctionCallCompiler::checkExtMsgSend(FunctionCall const& _functionCall) {
     }
 
 	generateExtInboundMsg(addSignature, destination, pubkey, expire.get(), time.get(), callbackid.get(),
-						  abiVer.get(), onerrorid.get(), stateInit, signBoxHandle, functionDefinition, arguments);
+						  abiVer.get(), onerrorid.get(), stateInit, signBoxHandle, functionDefinition, m_arguments);
 	m_pusher.pushInt(TvmConst::SENDRAWMSG::DefaultFlag);
 	m_pusher.sendrawmsg();
 }
@@ -845,13 +851,20 @@ void FunctionCallCompiler::generateExtInboundMsg(
 		builderSize += 32;
 		std::unique_ptr<EncodePosition> position = std::make_unique<EncodePosition>(builderSize, types);
 		uint32_t functionId;
+		std::optional<uint32_t> callbackFunctionId;
 		ChainDataEncoder encoder{&m_pusher};
-		if (functionDefinition != nullptr)
+		if (functionDefinition != nullptr) {
 			functionId = encoder.calculateFunctionIDWithReason(functionDefinition, ReasonOfOutboundMessage::RemoteCallInternal);
-		else
+			auto fd = to<FunctionDefinition>(functionDefinition);
+			solAssert(fd, "");
+			if (fd->isResponsible()) {
+				callbackFunctionId = 0; // set to 0, because it's ext msg and it does matter
+			}
+		} else {
 			functionId = encoder.calculateConstructorFunctionID();
+		}
 
-		ChainDataEncoder{&m_pusher}.createMsgBody(pushParam, params, functionId, {}, *position);
+		ChainDataEncoder{&m_pusher}.createMsgBody(pushParam, params, functionId, callbackFunctionId, *position);
 		if (addSignature)
 			m_pusher.push(-1, "STBREFR");
 	};
@@ -928,88 +941,166 @@ void FunctionCallCompiler::generateExtInboundMsg(
 
 }
 
-bool FunctionCallCompiler::checkForTvmBuildMsgMethods(MemberAccess const &_node, Type::Category category) {
+void FunctionCallCompiler::tvmBuildIntMsg() {
+	const int stackSize = m_pusher.getStack().size();
 
-	auto functionType = dynamic_cast<FunctionType const*>(m_functionCall.expression().annotation().type);
-	if (category != Type::Category::Magic || (functionType->kind() != FunctionType::Kind::TVMBuildExtMsg))
-		return false;
-
-	if (_node.memberName() == "buildExtMsg") {
-		int destArg = -1;
-		int callArg = -1;
-		int timeArg = -1;
-		int expireArg = -1;
-		int pubkeyArg = -1;
-		int signArg = -1;
-		int abiArg = -1;
-		int callbackArg = -1;
-		int onerrorArg = -1;
-		int stateArg = -1;
-        int signHandlerArg = -1;
-		if (!m_functionCall.names().empty()) {
-			const std::vector<ASTPointer<ASTString>>& names = m_functionCall.names();
-			for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
-				switch (str2int(names[arg]->c_str())) {
-					case str2int("dest"):
-						destArg = arg;
-						break;
-					case str2int("call"):
-						callArg = arg;
-						break;
-					case str2int("time"):
-						timeArg = arg;
-						break;
-					case str2int("expire"):
-						expireArg = arg;
-						break;
-					case str2int("pubkey"):
-						pubkeyArg = arg;
-						break;
-					case str2int("sign"):
-						signArg = arg;
-						break;
-					case str2int("abiVer"):
-						abiArg = arg;
-						break;
-					case str2int("callbackId"):
-						callbackArg = arg;
-						break;
-					case str2int("onErrorId"):
-						onerrorArg = arg;
-						break;
-					case str2int("stateInit"):
-						stateArg = arg;
-						break;
-                    case str2int("signBoxHandle"):
-                        signHandlerArg = arg;
-                        break;
-				}
-			}
+	int destArg = -1;
+	int valueArg = -1;
+	int currenciesArg = -1;
+	int bounceArg = -1;
+	int callArg = -1;
+	const std::vector<ASTPointer<ASTString>>& names = m_functionCall.names();
+	for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
+		switch (str2int(names[arg]->c_str())) {
+			case str2int("dest"):
+				destArg = arg;
+				break;
+			case str2int("value"):
+				valueArg = arg;
+				break;
+			case str2int("currencies"):
+				currenciesArg = arg;
+				break;
+			case str2int("bounce"):
+				bounceArg = arg;
+				break;
+			case str2int("call"):
+				callArg = arg;
+				break;
+			default:
+				solUnimplemented("");
 		}
-		auto funcCall = to<CallList>(m_arguments[callArg].get());
-		auto functionDefinition = getFunctionDeclarationOrConstructor(funcCall->function().get());
-		bool addSignature = false;
-		if (signArg != -1) {
-			const std::optional<bool> value = TVMExpressionCompiler::constBool(*m_arguments[signArg]);
-			if (value.has_value()) {
-				addSignature = *value;
-			}
-		}
-
-		generateExtInboundMsg(addSignature, m_arguments[destArg].get(),
-											  (pubkeyArg != -1) ? m_arguments[pubkeyArg].get() : nullptr,
-											  (expireArg != -1) ? m_arguments[expireArg].get() : nullptr,
-											  (timeArg != -1) ? m_arguments[timeArg].get() : nullptr,
-											  m_arguments[callbackArg].get(),
-											  m_arguments[abiArg].get(),
-											  m_arguments[onerrorArg].get(),
-											  (stateArg != -1) ? m_arguments[stateArg].get() : nullptr,
-											  (signHandlerArg != -1) ? m_arguments[signHandlerArg].get() : nullptr,
-											  functionDefinition, funcCall->arguments());
-		return true;
 	}
 
-	return false;
+
+	std::set<int> isParamOnStack;
+	std::map<int, std::string> constParams = {{TvmConst::int_msg_info::ihr_disabled, "1"}};
+	std::function<void(int)> appendBody = [&](int msgInfoSize){
+		auto funcCall = to<CallList>(m_arguments[callArg].get());
+		std::vector<ASTPointer<Expression const>> args = funcCall->arguments();
+		auto functionDefinition = to<FunctionDefinition>(getFunctionDeclarationOrConstructor(funcCall->function().get()));
+		const bool needCallback = functionDefinition->isResponsible();
+		const int shift = needCallback ? 1 : 0;
+		std::optional<uint32_t> callbackFunctionId;
+		if (needCallback) {
+			CallableDeclaration const* callback = getFunctionDeclarationOrConstructor(args.at(0).get());
+			callbackFunctionId = ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(callback, ReasonOfOutboundMessage::RemoteCallInternal);
+		}
+		std::vector<VariableDeclaration const *> params = convertArray(functionDefinition->parameters());
+		ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
+			[&](size_t idx) {
+				Expression const *expr = args.at(shift + idx).get();
+				acceptExpr(expr);
+				m_pusher.hardConvert(functionDefinition->parameters().at(idx)->type(), getType(expr));
+			},
+			params,
+			ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(functionDefinition, ReasonOfOutboundMessage::RemoteCallInternal),
+			callbackFunctionId,
+			msgInfoSize
+		);
+	};
+	if (currenciesArg != -1) {
+		pushArgAndConvert(currenciesArg, "currencies");
+		isParamOnStack.insert(TvmConst::int_msg_info::currency);
+	}
+	if (valueArg != -1) {
+		pushArgAndConvert(valueArg, "value");
+		isParamOnStack.insert(TvmConst::int_msg_info::tons);
+	}
+	if (destArg != -1) {
+		pushArgAndConvert(destArg, "dest");
+		isParamOnStack.insert(TvmConst::int_msg_info::dest);
+	}
+	if (bounceArg != -1) {
+		pushArgAndConvert(bounceArg, "bounce");
+		isParamOnStack.insert(TvmConst::int_msg_info::bounce);
+	}
+
+	m_pusher.prepareMsg(
+		isParamOnStack,
+		constParams,
+		appendBody,
+		nullptr,
+		StackPusherHelper::MsgType::Internal
+	);
+
+	solAssert(m_pusher.getStack().size() == stackSize + 1, "");
+}
+
+void FunctionCallCompiler::tvmBuildMsgMethod() {
+	int destArg = -1;
+	int callArg = -1;
+	int timeArg = -1;
+	int expireArg = -1;
+	int pubkeyArg = -1;
+	int signArg = -1;
+	int abiArg = -1;
+	int callbackArg = -1;
+	int onerrorArg = -1;
+	int stateArg = -1;
+	int signHandlerArg = -1;
+	if (!m_functionCall.names().empty()) {
+		const std::vector<ASTPointer<ASTString>>& names = m_functionCall.names();
+		for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
+			switch (str2int(names[arg]->c_str())) {
+				case str2int("dest"):
+					destArg = arg;
+					break;
+				case str2int("call"):
+					callArg = arg;
+					break;
+				case str2int("time"):
+					timeArg = arg;
+					break;
+				case str2int("expire"):
+					expireArg = arg;
+					break;
+				case str2int("pubkey"):
+					pubkeyArg = arg;
+					break;
+				case str2int("sign"):
+					signArg = arg;
+					break;
+				case str2int("abiVer"):
+					abiArg = arg;
+					break;
+				case str2int("callbackId"):
+					callbackArg = arg;
+					break;
+				case str2int("onErrorId"):
+					onerrorArg = arg;
+					break;
+				case str2int("stateInit"):
+					stateArg = arg;
+					break;
+				case str2int("signBoxHandle"):
+					signHandlerArg = arg;
+					break;
+				default:
+					solUnimplemented("");
+			}
+		}
+	}
+	auto funcCall = to<CallList>(m_arguments[callArg].get());
+	auto functionDefinition = getFunctionDeclarationOrConstructor(funcCall->function().get());
+	bool addSignature = false;
+	if (signArg != -1) {
+		const std::optional<bool> value = TVMExpressionCompiler::constBool(*m_arguments[signArg]);
+		if (value.has_value()) {
+			addSignature = *value;
+		}
+	}
+
+	generateExtInboundMsg(addSignature, m_arguments[destArg].get(),
+										  (pubkeyArg != -1) ? m_arguments[pubkeyArg].get() : nullptr,
+										  (expireArg != -1) ? m_arguments[expireArg].get() : nullptr,
+										  (timeArg != -1) ? m_arguments[timeArg].get() : nullptr,
+										  m_arguments[callbackArg].get(),
+										  m_arguments[abiArg].get(),
+										  m_arguments[onerrorArg].get(),
+										  (stateArg != -1) ? m_arguments[stateArg].get() : nullptr,
+										  (signHandlerArg != -1) ? m_arguments[signHandlerArg].get() : nullptr,
+										  functionDefinition, funcCall->arguments());
 }
 
 bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, Type::Category category) {
@@ -1423,7 +1514,17 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 }
 
 void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
-	if (_node.memberName() == "substr") {
+	Type const *type = _node.expression().annotation().type;
+	if (_node.memberName() == "empty") {
+		acceptExpr(&_node.expression());
+		if (isUsualArray(type)) {
+			m_pusher.index(0);
+			m_pusher.push(-1 + 1, "EQINT 0");
+		} else {
+			m_pusher.push(-1 + 1, "CTOS");
+			m_pusher.push(-1 + 1, "SEMPTY");
+		}
+	} else if (_node.memberName() == "substr") {
 		acceptExpr(&_node.expression());
 		pushArgs();
 		if (m_arguments.size() == 1) {
@@ -2020,9 +2121,9 @@ POP c3
 			const ast_vec<VariableDeclaration> &parameters = callDef->parameters();
 			ChainDataEncoder{&m_pusher}.createMsgBody(
 					[&](size_t idx) {
-					m_pusher.push(0, ";; " + parameters[idx]->name());
-					TVMExpressionCompiler{m_pusher}.compileNewExpr(m_arguments[1 + shift + idx].get());
-				},
+						m_pusher.push(0, ";; " + parameters[idx]->name());
+						TVMExpressionCompiler{m_pusher}.compileNewExpr(m_arguments[1 + shift + idx].get());
+					},
 					convertArray(callDef->parameters()),
 					ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(callDef, ReasonOfOutboundMessage::RemoteCallInternal),
 					callbackFunctionId,
@@ -2816,7 +2917,7 @@ bool FunctionCallCompiler::createNewContract() {
 	const std::function<void(int builderSize)> pushBody = [&](int builderSize){
 		auto constructor = (to<ContractType>(type))->contractDefinition().constructor();
 		if (constructor)
-			return ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
+			ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
 					[&](size_t idx) {
 					m_pusher.push(0, ";; " + constructor->parameters()[idx]->name());
 					TVMExpressionCompiler{m_pusher}.compileNewExpr(m_arguments[idx].get());
@@ -2827,7 +2928,7 @@ bool FunctionCallCompiler::createNewContract() {
 					builderSize
 			);
 		else
-			return ChainDataEncoder{&m_pusher}.createDefaultConstructorMsgBodyAndAppendToBuilder(builderSize);
+			ChainDataEncoder{&m_pusher}.createDefaultConstructorMsgBodyAndAppendToBuilder(builderSize);
 	};
 
 	std::function<void()> pushSendrawmsgFlag;
@@ -3058,27 +3159,25 @@ void FunctionCallCompiler::pushArgs(bool reversed) {
 }
 
 void FunctionCallCompiler::pushArgAndConvert(int index, const std::string& name) {
-	int typeIndex{};
+	const ASTPointer<Expression const> &arg = m_arguments.at(index);
+	acceptExpr(arg.get());
+
+	Type const* targetType{};
 	if (!name.empty()) {
-		typeIndex = -1;
+		bool find = false;
 		const vector<string>& names = m_funcType->parameterNames();
 		for (int i = 0; i < static_cast<int>(names.size()); ++i) {
 			if (names.at(i) == name) {
-				typeIndex = i;
+				targetType = m_funcType->parameterTypes().at(i);
+				find = true;
 				break;
 			}
 		}
+		solAssert(find, "");
 	} else {
-		typeIndex = index;
+		targetType = m_functionCall.annotation().arguments->targetTypes.at(index);
 	}
-	const ASTPointer<Expression const> &arg = m_arguments.at(index);
-	acceptExpr(arg.get());
-	Type const* targetType{};
-	if (m_funcType->parameterTypes().empty()) {
-		targetType = m_functionCall.annotation().arguments->targetTypes.at(typeIndex);
-	} else {
-		targetType = m_funcType->parameterTypes().at(typeIndex);
-	}
+
 	m_pusher.hardConvert(targetType, arg->annotation().type);
 }
 

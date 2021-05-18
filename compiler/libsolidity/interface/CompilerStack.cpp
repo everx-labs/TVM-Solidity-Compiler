@@ -505,8 +505,12 @@ std::pair<bool, bool> CompilerStack::compile()
 		}
 
 
-		if (!m_mainContract.empty()) {
-			for (ContractDefinition const *contract : contracts) {
+		for (ContractDefinition const *contract : contracts) {
+			if (contract->isLibrary()) {
+				continue ;
+			}
+
+			if (!m_mainContract.empty()) {
 				if (contract->name() == m_mainContract) {
 					if (m_generateCode && !contract->canBeDeployed()) {
 						m_errorReporter.typeError(
@@ -518,32 +522,21 @@ std::pair<bool, bool> CompilerStack::compile()
 					targetContract = contract;
 					targetPragmaDirectives = pragmaDirectives;
 				}
-			}
-			if (targetContract == nullptr) {
-				m_errorReporter.typeError(
-						SourceLocation(),
-						"Source file doesn't contain the desired contract \"" + m_mainContract + "\"."
-				);
-				return {false, didCompileSomething};
-			}
-		} else {
-			for (ContractDefinition const *contract : contracts) {
+			} else {
 				if (m_generateAbi && !m_generateCode) {
-					if (!contract->isLibrary()) {
-						if (targetContract != nullptr) {
-							m_errorReporter.typeError(
-									targetContract->location(),
-									SecondarySourceLocation().append("Previous contract:",
-																	 contract->location()),
-									"Source file contains at least two contracts/interfaces."
-									" Consider adding the option --contract in compiler command line to select the desired contract/interface."
-							);
-							return {false, didCompileSomething};
-						}
-						targetContract = contract;
-						targetPragmaDirectives = pragmaDirectives;
+					if (targetContract != nullptr) {
+						m_errorReporter.typeError(
+								targetContract->location(),
+								SecondarySourceLocation().append("Previous contract:",
+																 contract->location()),
+								"Source file contains at least two contracts/interfaces."
+								" Consider adding the option --contract in compiler command line to select the desired contract/interface."
+						);
+						return {false, didCompileSomething};
 					}
-				} else if (contract->canBeDeployed() && !contract->isLibrary()) {
+					targetContract = contract;
+					targetPragmaDirectives = pragmaDirectives;
+				} else if (contract->canBeDeployed()) {
 					if (targetContract != nullptr) {
 						m_errorReporter.typeError(
 								targetContract->location(),
@@ -561,6 +554,13 @@ std::pair<bool, bool> CompilerStack::compile()
 		}
 	}
 
+	if (!m_mainContract.empty() && targetContract == nullptr) {
+		m_errorReporter.typeError(
+				SourceLocation(),
+				"Source file doesn't contain the desired contract \"" + m_mainContract + "\"."
+		);
+		return {false, didCompileSomething};
+	}
 
 	if (targetContract != nullptr) {
 		try {
@@ -574,7 +574,8 @@ std::pair<bool, bool> CompilerStack::compile()
 				m_withDebugInfo,
 				m_inputFile,
 				m_folder,
-				m_file_prefix
+				m_file_prefix,
+				m_doPrintFunctionIds
 			);
 			didCompileSomething = true;
 		} catch (FatalError const &) {

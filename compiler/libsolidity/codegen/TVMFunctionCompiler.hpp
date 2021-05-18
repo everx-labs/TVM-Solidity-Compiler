@@ -85,6 +85,7 @@ private:
 	bool visit(IfStatement const& _ifStatement) override;
 	bool visit(WhileStatement const& _whileStatement) override;
 	bool visit(ForEachStatement const& _forStatement) override;
+	std::pair<ContInfo, ControlFlowInfo> pushControlFlowFlag(Statement const& body);
 	void visitBodyOfForLoop(
 		const ContInfo& ci,
 		const std::function<void()>& pushStartBody,

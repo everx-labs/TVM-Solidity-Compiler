@@ -1919,7 +1919,7 @@ private:
 
 
 /**
- * Function call defenition. Contains function and arguments.
+ * Function call definition. Contains function and arguments.
  */
 class CallList: public Expression {
 public:

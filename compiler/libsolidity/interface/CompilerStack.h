@@ -204,6 +204,10 @@ public:
 		m_inputFile = inputFile;
 	}
 
+	void printFunctionIds() {
+		m_doPrintFunctionIds = true;
+	}
+
 	/// Enable experimental generation of Yul IR code.
 	void enableIRGeneration(bool _enable = true) { m_generateIR = _enable; }
 
@@ -487,6 +491,7 @@ private:
 	std::string m_file_prefix;
 	std::string m_inputFile;
 	bool m_forceUpdate = false;
+	bool m_doPrintFunctionIds = false;
 };
 
 }
