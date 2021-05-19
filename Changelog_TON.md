@@ -1,3 +1,20 @@
+### 0.44.0 (2021-05-18)
+
+Compiler features:
+ * Support `<array>.empty()`, `<bytes>.empty()` and `<string>.empty()`.
+ * Support self deploying of a contract (see sample #21).
+ * Support `tvm.buildIntMsg()` to generate cell, that contains an internal message.
+ * Support `tvm.sendrawmsg()` to send internal/external messages.
+ * Support command line option `--function-ids` for printing function ids.
+
+Bugfixes:
+ * Public functions (that return public state variables) emited an external message (which is paid by
+the contract). Now these functions emit external messages only on external messages.
+ * Fix problem with generating inbound external messages (for debots) and responsible functions.
+In message body there wasn't `_answer_id`. Now it's added.
+ * TypeChecker checks `call` parameter of `tvm.buildExtMsg()`.
+ * Fix problem (what caused underflow exception) with encoding/decoding of state variables.
+
 ### 0.43.0 (2021-05-12)
 
 Compiler features:
@@ -14,7 +31,7 @@ Changes:
 
 Breaking change:
  * Calling a fallback function (instead of throwing error) in cases:
-   1. Bit size of the internal input message is between 1 and 31.
+   1. Bit length of the internal input message is between 1 and 31.
    2. The message has zero bit size and not zero count of references.
 
 Compiler features:

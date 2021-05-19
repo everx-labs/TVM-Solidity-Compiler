@@ -332,12 +332,21 @@ void
 TVMFunctionCompiler::generateGetter(StackPusherHelper &pusher, VariableDeclaration const* vd) {
 	TVMFunctionCompiler funCompiler{pusher, nullptr};
 	pusher.generateMacro(vd->name());
+	pusher.push(+2, "");
+	pusher.drop(); // drop function id
+	pusher.push(-1, "ENDS");
 	pusher.pushMacroCallInCallRef(0, "c4_to_c7");
 	pusher.getGlob(vd);
+
+	// check ext msg
+	pusher.pushS(1);
+	pusher.startContinuation();
+	pusher.push(-1, ""); // fix stack
+
 	const int prevStackSize = pusher.getStack().size();
 	const std::vector<VariableDeclaration const*> outputs = {vd};
 	auto appendBody = [&](int builderSize) {
-		return ChainDataEncoder{&pusher}.createMsgBodyAndAppendToBuilder(
+		ChainDataEncoder{&pusher}.createMsgBodyAndAppendToBuilder(
 				[&](size_t idx) {
 					int pos = (pusher.getStack().size() - prevStackSize) +
 							  (static_cast<int>(1) - static_cast<int>(idx) - 1);
@@ -349,8 +358,11 @@ TVMFunctionCompiler::generateGetter(StackPusherHelper &pusher, VariableDeclarati
 				builderSize
 		);
 	};
-
 	pusher.sendMsg({}, {}, appendBody, nullptr, nullptr, StackPusherHelper::MsgType::ExternalOut);
+
+	// check ext msg
+	pusher.endContinuation();
+	pusher.push(0, "IF");
 
 	pusher.push(0, "TRUE");
 	pusher.push(0, "SETGLOB 7");
@@ -444,7 +456,7 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 
 		const int prevStackSize = m_pusher.getStack().size();
 		auto appendBody = [&](int builderSize) {
-			return ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
+			ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
 					[&](size_t idx) {
 						int pos = (m_pusher.getStack().size() - prevStackSize) +
 								  (static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
@@ -482,7 +494,7 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 
 		const int prevStackSize = m_pusher.getStack().size();
 		auto appendBody = [&](int builderSize) {
-			return ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
+			ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
 				[&](size_t idx) {
 					int pos = (m_pusher.getStack().size() - prevStackSize) +
 							  (static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
@@ -504,7 +516,7 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 		m_pusher.getGlob(TvmConst::C7::ReturnParams);
 		for (int i = 0; i < 3; ++i) {
 			if (i == 2) {
-				m_pusher.getGlob(9); // dest // TODO set constant
+				m_pusher.getGlob(TvmConst::C7::SenderAddress); // dest
 				m_pusher.blockSwap(1, 3);
 			} else {
 				m_pusher.pushS(i);
@@ -854,9 +866,9 @@ void TVMFunctionCompiler::doWhile(WhileStatement const &_whileStatement) {
 
 	// header
 	m_pusher.push(0, "; do-while");
-	ContInfo ci = getInfo(_whileStatement.body());
-	ControlFlowInfo info = pushControlFlowFlagAndReturnControlFlowInfo(ci, true);
-	m_controlFlowInfo.push_back(info);
+	ContInfo ci;
+	ControlFlowInfo info;
+	std::tie(ci, info) = pushControlFlowFlag(_whileStatement.body());
 
 	// body
 	m_pusher.startContinuation();
@@ -932,6 +944,9 @@ TVMFunctionCompiler::visitForOrWhileCondition(
 		if (pushCondition) {
 			pushCondition();
 			m_pusher.push(-1, ""); // fix stack
+		} else {
+			m_pusher.push(+1, "TRUE");
+			m_pusher.push(-1, ""); // fix stack
 		}
 	}
 	m_pusher.endContinuation();
@@ -973,9 +988,9 @@ bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
 
 	// header
 	m_pusher.push(0, "; while");
-	ContInfo ci = getInfo(_whileStatement.body());
-	ControlFlowInfo info = pushControlFlowFlagAndReturnControlFlowInfo(ci, true);
-	m_controlFlowInfo.push_back(info);
+	ContInfo ci;
+	ControlFlowInfo info;
+	std::tie(ci, info) = pushControlFlowFlag(_whileStatement.body());
 
 	int saveStackSize = m_pusher.getStack().size();
 
@@ -1089,10 +1104,10 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 	}
 	m_pusher.getStack().ensureSize(saveStackSize + loopVarQty, "for");
 
-	// header            TODO common function
-	ContInfo ci = getInfo(_forStatement.body());
-	ControlFlowInfo info = pushControlFlowFlagAndReturnControlFlowInfo(ci, true);
-	m_controlFlowInfo.push_back(info);
+	// header
+	ContInfo ci;
+	ControlFlowInfo info;
+	std::tie(ci, info) = pushControlFlowFlag(_forStatement.body());
 
 	// condition
 	std::function<void()> pushCondition = [&]() {
@@ -1194,6 +1209,13 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 	return false;
 }
 
+std::pair<ContInfo, ControlFlowInfo> TVMFunctionCompiler::pushControlFlowFlag(Statement const& body) {
+	ContInfo ci = getInfo(body);
+	ControlFlowInfo info = pushControlFlowFlagAndReturnControlFlowInfo(ci, true);
+	m_controlFlowInfo.push_back(info);
+	return {ci, info};
+}
+
 void TVMFunctionCompiler::visitBodyOfForLoop(
 	const ContInfo& ci,
 	const std::function<void()>& pushStartBody,
@@ -1272,10 +1294,10 @@ bool TVMFunctionCompiler::visit(ForStatement const &_forStatement) {
 		haveDeclLoopVar = m_pusher.getStack().size() != saveStack;
 	}
 
-	// header // TODO
-	ContInfo ci = getInfo(_forStatement.body());
-	ControlFlowInfo info = pushControlFlowFlagAndReturnControlFlowInfo(ci, true);
-	m_controlFlowInfo.push_back(info);
+	// header
+	ContInfo ci;
+	ControlFlowInfo info;
+	std::tie(ci, info) = pushControlFlowFlag(_forStatement.body());
 
 	// condition
 	std::function<void()> pushCondition;
@@ -1411,7 +1433,7 @@ bool TVMFunctionCompiler::visit(EmitStatement const &_emit) {
 	solAssert(eventDef, "Event Declaration was not found");
 	m_pusher.push(0, ";; emit " + eventDef->name());
 	auto appendBody = [&](int builderSize) {
-		return ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
+		ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
 				[&](size_t idx) {
 					m_pusher.push(0, ";; " + eventDef->parameters()[idx]->name());
 					TVMExpressionCompiler{m_pusher}.compileNewExpr(eventCall->arguments()[idx].get());
@@ -1492,10 +1514,8 @@ void TVMFunctionCompiler::generateMainExternal(StackPusherHelper& pusher, Contra
 void TVMFunctionCompiler::setGlobSenderAddressIfNeed() {
 	ContactsUsageScanner sc{*m_pusher.ctx().getContract()};
 	if (sc.haveMsgSender) {
-		m_pusher.pushLines(R"(
-PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_
-SETGLOB 9
-)");
+		m_pusher.push(+1, "PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_");
+		m_pusher.setGlob(TvmConst::C7::SenderAddress);
 	}
 }
 
@@ -1713,7 +1733,7 @@ void TVMFunctionCompiler::generateMainInternal(StackPusherHelper& pusher, Contra
 	//                 = CommonMsgInfoRelaxed;
 
 	TVMFunctionCompiler funCompiler{pusher, contract};
-	std::string s = R"(
+	std::string mainIntCode = R"(
 .internal-alias :main_internal, 0
 .internal :main_internal
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1729,13 +1749,15 @@ CTOS
 
 	ContactsUsageScanner sc{*pusher.ctx().getContract()};
 	if (sc.haveMsgSender || sc.haveResponsibleFunction) {
-		s += R"(
+		std::string s = R"(
 LDU 4       ; bounced tail
 LDMSGADDR   ; bounced src tail
 DROP
-SETGLOB 9
+SETGLOB TvmConst::C7::SenderAddress
 MODPOW2 1
 )";
+		boost::replace_all(s, "TvmConst::C7::SenderAddress", toString(TvmConst::C7::SenderAddress));
+		mainIntCode += s;
 		if (sc.haveResponsibleFunction) {
 			StackPusherHelper p{&pusher.ctx()};
 			p.push(0, "; beg set default params for responsible func");
@@ -1754,10 +1776,10 @@ MODPOW2 1
 			p.setIndexQ(TvmConst::C7::ReturnParam::Flag);
 			p.setGlob(TvmConst::C7::ReturnParams);
 			p.push(0, "; end set default params for responsible func");
-			s += p.code().str();
+			mainIntCode += p.code().str();
 		}
 	} else {
-		s += R"(
+		mainIntCode += R"(
 PLDU 4
 MODPOW2 1
 )";
@@ -1765,7 +1787,7 @@ MODPOW2 1
 
 	// bounced
 	if (!isEmptyFunction(contract->onBounceFunction())) {
-		s += R"(
+		mainIntCode += R"(
 PUSHCONT {
 	PUSH S1
 	LDSLICE 32
@@ -1775,12 +1797,12 @@ PUSHCONT {
 IFJMP
 )";
 	} else {
-		s += "IFRET\n";
+		mainIntCode += "IFRET\n";
 	}
 
 
-	s += funCompiler.pushReceiveOrFallback();
-	pusher.pushLines(s);
+	mainIntCode += funCompiler.pushReceiveOrFallback();
+	pusher.pushLines(mainIntCode);
 
 	pusher.exchange(0, 1);
 	funCompiler.callPublicFunctionOrFallback();

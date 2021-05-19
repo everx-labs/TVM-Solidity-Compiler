@@ -719,7 +719,7 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 
 
 	if (_node.memberName() == "sender") { // msg.sender
-		m_pusher.getGlob(9);
+		m_pusher.getGlob(TvmConst::C7::SenderAddress);
 	} else if (_node.memberName() == "value") { // msg.value
 		m_pusher.pushMacroCallInCallRef(+1, "message_balance_macro");
 	} else  if (_node.memberName() == "createdAt") { // msg.createdAt

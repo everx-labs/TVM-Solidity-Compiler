@@ -49,7 +49,8 @@ protected:
 	// TODO unite with decodeParameter
 	void loadTypeFromSlice(MemberAccess const& _node, TypePointer type);
 	bool checkForTvmDeployMethods(MemberAccess const& _node, Type::Category category);
-	bool checkForTvmBuildMsgMethods(MemberAccess const& _node, Type::Category category);
+	void tvmBuildIntMsg();
+	void tvmBuildMsgMethod();
 	void sliceMethods(MemberAccess const& _node);
 	void arrayMethods(MemberAccess const& _node);
 	bool checkForOptionalMethods(MemberAccess const& _node);
@@ -96,7 +97,7 @@ protected:
 		const ASTPointer<const Expression>& contr
 	);
 	bool checkRemoteMethodCall(FunctionCall const &_functionCall);
-	void checkExtMsgSend(FunctionCall const& _functionCall);
+	void checkExtMsgSend();
 	std::string getDefaultMsgValue();
 	const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
 	void generateExtInboundMsg(

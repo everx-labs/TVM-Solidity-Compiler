@@ -39,5 +39,6 @@ void TVMCompilerProceedContract(
 	bool withDebugInfo,
 	const std::string& solFileName,
 	const std::string& outputFolder,
-	const std::string& filePrefix
+	const std::string& filePrefix,
+	bool doPrintFunctionIds
 );

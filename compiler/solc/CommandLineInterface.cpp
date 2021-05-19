@@ -125,6 +125,7 @@ static string const g_argTvmOptimize = "tvm-optimize";
 static string const g_argTvmPeephole = "tvm-peephole";
 static string const g_argRefreshRemote = "tvm-refresh-remote";
 static string const g_argTvmUnsavedStructs = "tvm-unsaved-structs";
+static string const g_argFunctionIds = "function-ids";
 
 
 static void version()
@@ -294,6 +295,7 @@ Allowed options)",
 		(g_argNatspecDev.c_str(), "Natspec developer documentation of all contracts.")
 		(g_argTvm.c_str(), "Produce TVM assembly (deprecated).")
 		(g_argTvmABI.c_str(), "Produce JSON ABI for contract.")
+		(g_argFunctionIds.c_str(), "Print name and id for each public function.")
 		(g_argTvmPeephole.c_str(), "Run peephole optimization pass")
 		(g_argTvmOptimize.c_str(), "Optimize produced TVM assembly code (deprecated)")
 		(g_argTvmUnsavedStructs.c_str(), "Enable struct usage analyzer")
@@ -443,6 +445,9 @@ bool CommandLineInterface::processInput()
             serr() << "Flag '--tvm-optimize' is deprecated. Code is optimized by default." << endl;
         if (m_args.count(g_argDebug))
             m_compiler->withDebugInfo();
+
+		if (m_args.count(g_argFunctionIds))
+			m_compiler->printFunctionIds();
 
 		string fileName = m_args[g_argInputFile].as<string>();
 		m_compiler->setInputFile(fileName);

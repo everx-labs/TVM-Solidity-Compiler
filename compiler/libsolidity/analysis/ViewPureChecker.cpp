@@ -297,6 +297,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::TVM, "accept"},
 			{MagicType::Kind::TVM, "bindump"},
 			{MagicType::Kind::TVM, "buildExtMsg"},
+			{MagicType::Kind::TVM, "buildIntMsg"},
 			{MagicType::Kind::TVM, "buildStateInit"},
 			{MagicType::Kind::TVM, "checkSign"},
 			{MagicType::Kind::TVM, "code"},

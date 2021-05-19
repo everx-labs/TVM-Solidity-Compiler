@@ -28,10 +28,15 @@ class StackPusherHelper;
 
 class TVMABI {
 public:
+	static void printFunctionIds(
+		ContractDefinition const& contract,
+		PragmaDirectiveHelper const& pragmaHelper
+	 );
 	static void generateABI(ContractDefinition const* contract,
 							std::vector<PragmaDirective const *> const& pragmaDirectives, std::ostream* out = &cout);
 	static string getParamTypeString(Type const* type);
 private:
+	static std::vector<const FunctionDefinition *> publicFunctions(ContractDefinition const& contract);
 	static void printData(const Json::Value& json, std::ostream* out);
 	static void print(const Json::Value& json, std::ostream* out);
 	static Json::Value processFunction(

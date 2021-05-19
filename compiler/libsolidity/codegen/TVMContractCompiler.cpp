@@ -165,6 +165,13 @@ SETGLOB 6
 
 }
 
+void TVMContractCompiler::printFunctionIds(
+	ContractDefinition const& contract,
+	PragmaDirectiveHelper const& pragmaHelper
+) {
+	TVMABI::printFunctionIds(contract, pragmaHelper);
+}
+
 void TVMContractCompiler::generateABI(
 	const std::string& fileName,
 	ContractDefinition const *contract,
@@ -205,7 +212,6 @@ static void optimize_and_append_code(CodeLines& code, const StackPusherHelper& p
 	else
 		code.append(pusher.code());
 }
-
 
 CodeLines
 TVMContractCompiler::proceedContractMode1(

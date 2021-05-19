@@ -134,6 +134,11 @@ private:
 	FunctionDefinition const* checkPubFunctionAndGetDefinition(Expression const& arg, bool printError = false);
 	FunctionDefinition const* checkPubFunctionOrContractTypeAndGetDefinition(Expression const& arg);
 	void checkInitList(InitializerList const *list, ContractType const *ct);
+	void checkCallList(
+		std::vector<ASTPointer<Expression const>> const& arguments,
+		FunctionCall const& _functionCall,
+		bool ignoreCallBack
+	);
 
 	void endVisit(InheritanceSpecifier const& _inheritance) override;
 	void endVisit(UsingForDirective const& _usingFor) override;
