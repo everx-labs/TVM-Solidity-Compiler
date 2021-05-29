@@ -87,12 +87,12 @@ bool TVMExpressionCompiler::acceptExpr(const Expression *expr) {
 	return doDropResultIfNeeded;
 }
 
-std::pair<bool, bigint> TVMExpressionCompiler::constValue(const Expression &_e) {
-	auto f = [](VariableDeclaration const*  vd) -> std::pair<bool, bigint> {
+std::optional<bigint> TVMExpressionCompiler::constValue(const Expression &_e) {
+	auto f = [](VariableDeclaration const*  vd) -> std::optional<bigint> {
 		if (vd != nullptr && vd->isConstant() && vd->value() != nullptr) {
 			return constValue(*vd->value());
 		}
-		return {false, 0};
+		return {};
 	};
 
 	if (_e.annotation().isPure) {
@@ -104,7 +104,7 @@ std::pair<bool, bigint> TVMExpressionCompiler::constValue(const Expression &_e) 
 			auto number = dynamic_cast<RationalNumberType const *>(_e.annotation().type);
 			solAssert(number, "");
 			bigint val = number->value();
-			return {true, val};
+			return val;
 		}
 	} else {
 		// MyLibName.const_variable
@@ -117,7 +117,7 @@ std::pair<bool, bigint> TVMExpressionCompiler::constValue(const Expression &_e) 
 			}
 		}
 	}
-	return {false, 0};
+	return {};
 }
 
 std::optional<bool> TVMExpressionCompiler::constBool(Expression const& _e) {
@@ -381,7 +381,7 @@ void TVMExpressionCompiler::visit2(UnaryOperation const &_node) {
 	}
 }
 
-void TVMExpressionCompiler::compareAddresses(Token op) {
+void TVMExpressionCompiler::compareSlices(Token op) {
 	switch(op) {
 		case Token::GreaterThan:
 			m_pusher.push(0, "SDLEXCMP");
@@ -443,25 +443,25 @@ bool TVMExpressionCompiler::tryOptimizeBinaryOperation(BinaryOperation const &_n
 	// TODO do this for fixed point
 	Token op = _node.getOperator();
 	Expression const* r = &_node.rightExpression();
-	const auto& [ok, val] = TVMExpressionCompiler::constValue(*r);
+	const auto& val = TVMExpressionCompiler::constValue(*r);
 	if (_node.annotation().commonType->mobileType()->category() == Type::Category::Integer &&
-		ok &&
-		-128 <= val && val < 128 &&
+		val.has_value() &&
+		-128 <= val.value() && val.value() < 128 &&
 		isIn(op, Token::NotEqual, Token::Equal, Token::GreaterThan, Token::LessThan)
 	) {
 		compileNewExpr(&_node.leftExpression());
 		switch (op) {
 			case Token::NotEqual:
-				m_pusher.push(-1 + 1, "NEQINT " + val.str());
+				m_pusher.push(-1 + 1, "NEQINT " + val.value().str());
 				break;
 			case Token::Equal:
-				m_pusher.push(-1 + 1, "EQINT " + val.str());
+				m_pusher.push(-1 + 1, "EQINT " + val.value().str());
 				break;
 			case Token::GreaterThan:
-				m_pusher.push(-1 + 1, "GTINT " + val.str());
+				m_pusher.push(-1 + 1, "GTINT " + val.value().str());
 				break;
 			case Token::LessThan:
-				m_pusher.push(-1 + 1, "LESSINT " + val.str());
+				m_pusher.push(-1 + 1, "LESSINT " + val.value().str());
 				break;
 			default:
 				solUnimplemented("");
@@ -490,30 +490,42 @@ std::vector<Expression const *> TVMExpressionCompiler::unroll(BinaryOperation co
 	return result;
 }
 
-void TVMExpressionCompiler::visitBinaryOperationForString(BinaryOperation const &_binaryOperation) {
-	const Token op = _binaryOperation.getOperator();
-	const auto& lexp = _binaryOperation.leftExpression();
-	const auto& rexp = _binaryOperation.rightExpression();
-
+void TVMExpressionCompiler::visitBinaryOperationForString(
+	const std::function<void()>& pushLeft,
+	const std::function<void()>& pushRight,
+	const Token op
+) {
 	if (op == Token::Add) {
-		compileNewExpr(&lexp);
-		compileNewExpr(&rexp);
+		pushLeft();
+		pushRight();
 		m_pusher.pushMacroCallInCallRef(-2 +1, "concatenateStrings_macro");
 	} else if (op == Token::Equal || op == Token::NotEqual) {
-		compileNewExpr(&lexp);
-		m_pusher.push(+1-1,"HASHCU");
-		compileNewExpr(&rexp);
-		m_pusher.push(+1-1,"HASHCU");
+		visitBinaryOperationForTvmCell(pushLeft, pushRight, op);
+	} else if (TokenTraits::isCompareOp(op)){
+		pushLeft();
+		pushRight();
+		compareStrings(op);
+	} else {
+		solUnimplemented("Unsupported binary operation");
+	}
+}
+
+void TVMExpressionCompiler::visitBinaryOperationForTvmCell(
+	const std::function<void()>& pushLeft,
+	const std::function<void()>& pushRight,
+	const Token op
+) {
+	if (op == Token::Equal || op == Token::NotEqual) {
+		pushLeft();
+		m_pusher.push(-1 + 1, "HASHCU");
+		pushRight();
+		m_pusher.push(-1 + 1, "HASHCU");
 		if (op == Token::Equal)
 			m_pusher.push(-2 + 1, "EQUAL");
 		else
 			m_pusher.push(-2 + 1, "NEQ");
-	} else if (TokenTraits::isCompareOp(op)){
-		compileNewExpr(&lexp);
-		compileNewExpr(&rexp);
-		compareStrings(op);
 	} else {
-		cast_error(_binaryOperation, "Unsupported binary operation");
+		solUnimplemented("Unsupported binary operation");
 	}
 }
 
@@ -575,15 +587,22 @@ void TVMExpressionCompiler::visit2(BinaryOperation const &_binaryOperation) {
 		m_pusher.hardConvert(rightTargetType, rt);
 	};
 
+	if (lt->category() == Type::Category::TvmCell &&
+		rt->category() == Type::Category::TvmCell
+	) {
+		visitBinaryOperationForTvmCell(acceptLeft, acceptRight, op);
+		return;
+	}
+
 	if (isString(lt) && isString(rt)) {
-		visitBinaryOperationForString(_binaryOperation);
+		visitBinaryOperationForString(acceptLeft, acceptRight, op);
 		return;
 	}
 
 	if (isAddressOrContractType(lt) || isAddressOrContractType(rt) || (isSlice(lt) && isSlice(rt))) {
 		acceptLeft();
 		acceptRight();
-		compareAddresses(op);
+		compareSlices(op);
 		return;
 	}
 
@@ -597,9 +616,9 @@ void TVMExpressionCompiler::visit2(BinaryOperation const &_binaryOperation) {
 	if (op == Token::SHR) cast_error(_binaryOperation, "Unsupported operation >>>");
 	if (op == Token::Comma) cast_error(_binaryOperation, "Unsupported operation ,");
 
-	const auto& [ok, val] = constValue(_binaryOperation.rightExpression());
+	const auto& val = constValue(_binaryOperation.rightExpression());
 	std::optional<bigint> rightValue;
-	if (ok)
+	if (val.has_value())
 		rightValue = val;
 	visitMathBinaryOperation(op, commonType, acceptRight, rightValue);
 }
@@ -928,8 +947,8 @@ void TVMExpressionCompiler::visitMemberAccessFixedBytes(MemberAccess const &_nod
 void TVMExpressionCompiler::indexTypeCheck(IndexAccess const &_node) {
 	Type const* baseExprType = _node.baseExpression().annotation().type;
 	Type::Category baseExprCategory = _node.baseExpression().annotation().type->category();
-	if (!isIn(baseExprCategory, Type::Category::Mapping, Type::Category::ExtraCurrencyCollection) && !isUsualArray(baseExprType)) {
-		cast_error(_node, "Index access is supported only for dynamic arrays and mappings");
+	if (!isIn(baseExprCategory, Type::Category::Mapping, Type::Category::ExtraCurrencyCollection, Type::Category::TvmTuple) && !isUsualArray(baseExprType)) {
+		cast_error(_node, "Index access is supported only for dynamic arrays, tuples and mappings");
 	}
 }
 
@@ -957,12 +976,22 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 			m_pusher.push(-2 + 1, "SDSKIPFIRST");
 			m_pusher.push(-1 + 1, "PLDU 8");
 			m_pusher.endContinuation();
-			return ;
+			return;
 		} else {
 			compileNewExpr(indexAccess.indexExpression()); // index
 			acceptExpr(&indexAccess.baseExpression()); // index array
 			m_pusher.index(1); // index dict
 		}
+	} else if (baseType->category() == Type::Category::TvmTuple) {
+		acceptExpr(&indexAccess.baseExpression()); // tuple
+		const auto& val = constValue(*indexAccess.indexExpression());
+		if (val.has_value() && val <= 15)
+			m_pusher.push(-1 + 1, "INDEX " + val.value().str());
+		else {
+			acceptExpr(indexAccess.indexExpression()); // tuple index
+			m_pusher.push(-2 + 1, "INDEXVAR");
+		}
+		return;
 	} else {
 		pushIndexAndConvert(indexAccess); // index
 		m_pusher.prepareKeyForDictOperations(indexAccess.indexExpression()->annotation().type, false);
@@ -1359,9 +1388,9 @@ void TVMExpressionCompiler::visit2(Assignment const &_assignment) {
 
 
 bool TVMExpressionCompiler::fold_constants(const Expression *expr) {
-	const auto& [ok, val] = constValue(*expr);
-	if (ok) {
-		m_pusher.push(+1, "PUSHINT " + val.str());
+	const auto& val = constValue(*expr);
+	if (val.has_value()) {
+		m_pusher.push(+1, "PUSHINT " + val.value().str());
 		return true;
 	}
 

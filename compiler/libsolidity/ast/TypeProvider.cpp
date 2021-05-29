@@ -29,6 +29,7 @@ BoolType const TypeProvider::m_boolean{};
 TvmCellType const TypeProvider::m_tvmcell{};
 TvmSliceType const TypeProvider::m_tvmslice{};
 TvmBuilderType const TypeProvider::m_tvmbuilder{};
+
 InaccessibleDynamicType const TypeProvider::m_inaccessibleDynamic{};
 
 /// The string and bytes unique_ptrs are initialized when they are first used because
@@ -553,4 +554,9 @@ ExtraCurrencyCollectionType const *TypeProvider::extraCurrencyCollection()
 OptionalType const* TypeProvider::optional(Type const* _type)
 {
 	return createAndGet<OptionalType>(_type);
+}
+
+TvmTupleType const* TypeProvider::tvmtuple(Type const* _type)
+{
+	return createAndGet<TvmTupleType>(_type);
 }

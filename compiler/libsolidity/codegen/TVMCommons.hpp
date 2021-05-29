@@ -135,6 +135,14 @@ struct AddressInfo {
 	}
 };
 
+struct VarUIntegerInfo {
+	static int maxTonBitLength() {
+		return 4 + 15 * 8;
+		// var_uint$_ {n:#} len:(#< n) value:(uint (len * 8)) = VarUInteger n;
+		// nanograms$_ amount:(VarUInteger 16) = Grams;
+	}
+};
+
 int bitsForEnum(size_t val_count);
 
 struct TypeInfo {

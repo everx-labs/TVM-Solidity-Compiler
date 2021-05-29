@@ -101,6 +101,13 @@ private:
 	bool fastDecode{};
 };
 
+class DecodePositionFromOneSlice : public DecodePosition {
+public:
+	Algo updateStateAndGetLoadAlgo(Type const* /*type*/) override {
+		return Algo::JustLoad;
+	}
+};
+
 class ChainDataDecoder : private boost::noncopyable {
 public:
 	explicit ChainDataDecoder(StackPusherHelper *pusher);
@@ -110,10 +117,10 @@ private:
 public:
 	void decodePublicFunctionParameters(const std::vector<Type const*>& types, bool isResponsible);
 	void decodeData(const std::vector<Type const*>& types, int offset, bool _fastLoad);
-private:
 	void decodeParameters(
 		const std::vector<Type const*>& types,
-		std::unique_ptr<DecodePosition> position
+		DecodePosition& position,
+		const bool doDropSlice
 	);
 private:
 	void loadNextSlice();
@@ -181,15 +188,14 @@ public:
 	);
 
 	void createMsgBodyAndAppendToBuilder(
-		const std::function<void(size_t)>& pushParam,
 		const std::vector<VariableDeclaration const*> &params,
 		const std::variant<uint32_t, std::function<void()>>& functionId,
 		const std::optional<uint32_t>& callbackFunctionId,
-		const int bitSizeBuilder
+		int bitSizeBuilder,
+		bool reversedArgs = false
 	);
 
 	void createMsgBody(
-		const std::function<void(size_t)>& pushParam,
 		const std::vector<VariableDeclaration const*> &params,
 		const std::variant<uint32_t, std::function<void()>>& functionId,
 		const std::optional<uint32_t>& callbackFunctionId,
@@ -198,14 +204,11 @@ public:
 
 	void encodeParameters(
 		const std::vector<Type const*>& types,
-	    const std::function<void(size_t)>& pushParam,
-	    EncodePosition& position
+		EncodePosition& position
 	);
 
 private:
 	std::string getTypeString(Type const * type);
-	void encodeParameter(Type const* type, EncodePosition& position, const std::function<void()>& pushParam);
-	void encodeStruct(const StructType* structType, EncodePosition& position);
 
 private:
 	StackPusherHelper *pusher{};

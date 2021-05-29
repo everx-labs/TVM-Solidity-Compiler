@@ -397,8 +397,7 @@ BoolResult AddressType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 		return true;
 	else if (dynamic_cast<ContractType const*>(&_convertTo))
 		return true;
-	return isImplicitlyConvertibleTo(_convertTo) ||
-		_convertTo.category() == Category::Integer;
+	return isImplicitlyConvertibleTo(_convertTo);
 }
 
 string AddressType::toString(bool) const
@@ -1403,7 +1402,6 @@ BoolResult FixedBytesType::isImplicitlyConvertibleTo(Type const& _convertTo) con
 BoolResult FixedBytesType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 {
 	return (_convertTo.category() == Category::Integer && numBytes() * 8 == dynamic_cast<IntegerType const&>(_convertTo).numBits()) ||
-		(_convertTo.category() == Category::Address && numBytes() == 20) ||
 		_convertTo.category() == Category::FixedPoint ||
 		_convertTo.category() == category();
 }
@@ -1898,7 +1896,7 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 	));
 
 
-	for (const std::string& name : {"min", "max"}) {
+	for (const std::string name : {"min", "max"}) {
 		members.emplace_back(name, TypeProvider::function(
 				TypePointers{},
 				TypePointers{},
@@ -1908,7 +1906,7 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 				false, StateMutability::Pure
 		));
 	}
-	for (const std::string& name : {"delMin", "delMax"}) {
+	for (const std::string name : {"delMin", "delMax"}) {
 		members.emplace_back(name, TypeProvider::function(
 				TypePointers{},
 				TypePointers{},
@@ -1918,7 +1916,7 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 				false, StateMutability::Pure
 		));
 	}
-	for (const std::string& name : {"next", "prev", "nextOrEq", "prevOrEq"}) {
+	for (const std::string name : {"next", "prev", "nextOrEq", "prevOrEq"}) {
 		members.emplace_back(name, TypeProvider::function(
 				TypePointers{},
 				TypePointers{},
@@ -1952,7 +1950,7 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 			FunctionType::Kind::MappingEmpty,
 			false, StateMutability::Pure
 	));
-	for (const std::string& name : {"replace", "add"}) {
+	for (const std::string name : {"replace", "add"}) {
 		members.emplace_back(name, TypeProvider::function(
 				TypePointers{keyType, valueType},
 				TypePointers{TypeProvider::boolean()},
@@ -1962,7 +1960,7 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 				false, StateMutability::Pure
 		));
 	}
-	for (const std::string& name : {"getSet", "getAdd", "getReplace"}) {
+	for (const std::string name : {"getSet", "getAdd", "getReplace"}) {
 		members.emplace_back(name, TypeProvider::function(
 				TypePointers{keyType, valueType},
 				TypePointers{TypeProvider::optional(valueType)},
@@ -2903,6 +2901,11 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMBuilderMethods: id += "tvmbuildermethods"; break;
 	case Kind::TVMBuilderStore: id += "tvmbuilderstore"; break;
 
+	case Kind::TVMTuplePush: id += "tvmtuplepush"; break;
+	case Kind::TVMTuplePop: id += "tvmtuplepop"; break;
+	case Kind::TVMTupleLength: id += "tvmtuplelength"; break;
+	case Kind::TVMTupleEmpty: id += "tvmtupleempty"; break;
+
 	case Kind::TVMChecksign: id += "tvmchecksign"; break;
 	case Kind::TVMCode: id += "tvmcode"; break;
 	case Kind::TVMCommit: id += "tvmcommit"; break;
@@ -3636,8 +3639,7 @@ BoolResult MappingType::isImplicitlyConvertibleTo(Type const& _other) const
 	if (_other.category() != category())
 		return false;
 	auto map = dynamic_cast<MappingType const*>(&_other);
-	return keyType()->isImplicitlyConvertibleTo(*map->keyType()) &&
-	       valueType()->isImplicitlyConvertibleTo(*map->valueType());
+	return *keyType() == *map->keyType() && *valueType() == *map->valueType();
 }
 
 BoolResult OptionalType::isImplicitlyConvertibleTo(Type const& _other) const
@@ -3943,6 +3945,8 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"setPubkey", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetPubkey, false, StateMutability::NonPayable)},
 			{"accept", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMAccept, false, StateMutability::Pure)},
 			{"commit", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMCommit, false, StateMutability::NonPayable)},
+			{"rawCommit", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMCommit, false, StateMutability::NonPayable)},
+			{"setData", TypeProvider::function({TypeProvider::tvmcell()}, {}, {{}}, {}, FunctionType::Kind::TVMCommit, false, StateMutability::NonPayable)},
 			{"resetStorage", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMResetStorage, false, StateMutability::NonPayable)},
 			{"log", TypeProvider::function(strings{"string"}, strings{}, FunctionType::Kind::LogTVM, false, StateMutability::Pure)},
 			{"exit", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit, false, StateMutability::Pure)},
@@ -4246,7 +4250,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				FunctionType::Kind::MathMinMax,
 				true, StateMutability::Pure
 		));
-		for(const std::string& code : {"muldiv", "muldivr", "muldivc"}) {
+		for(const std::string code : {"muldiv", "muldivr", "muldivc"}) {
 			members.emplace_back(code, TypeProvider::function(
 					TypePointers{},
 					TypePointers{},
@@ -4705,14 +4709,14 @@ MemberList::MemberMap TvmCellType::nativeMembers(const ContractDefinition *) con
 {
 	MemberList::MemberMap members;
 
-    members.emplace_back("depth", TypeProvider::function(
-            TypePointers{},
-            TypePointers{TypeProvider::uint(64)},
-            strings{},
-            strings{string()},
-            FunctionType::Kind::TVMCellDepth,
-            false, StateMutability::Pure
-    ));
+	members.emplace_back("depth", TypeProvider::function(
+		TypePointers{},
+		TypePointers{TypeProvider::uint(64)},
+		strings{},
+		strings{string()},
+		FunctionType::Kind::TVMCellDepth,
+		false, StateMutability::Pure
+	));
 
 	members.emplace_back("toSlice", TypeProvider::function(
 			TypePointers{},
@@ -4745,10 +4749,66 @@ MemberList::MemberMap TvmCellType::nativeMembers(const ContractDefinition *) con
 	return members;
 }
 
+TypeResult TvmTupleType::unaryOperatorResult(Token _operator) const {
+	if (_operator == Token::Delete)
+		return TypeProvider::emptyTuple();
+	return nullptr;
+}
+
+MemberList::MemberMap TvmTupleType::nativeMembers(const ContractDefinition *) const
+{
+	MemberList::MemberMap members;
+
+	members.emplace_back("push", TypeProvider::function(
+			TypePointers{valueType()},
+			TypePointers{},
+			strings{string()},
+			strings{},
+			FunctionType::Kind::TVMTuplePush,
+			false, StateMutability::Pure
+	));
+
+	members.emplace_back("length", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::uint(8)},
+			strings{},
+			strings{string("length")},
+			FunctionType::Kind::TVMTupleLength,
+			false, StateMutability::Pure
+	));
+
+	members.emplace_back("pop", TypeProvider::function(
+			TypePointers{},
+			TypePointers{valueType()},
+			strings{},
+			strings{string("last")},
+			FunctionType::Kind::TVMTuplePop,
+			false, StateMutability::Pure
+	));
+
+	members.emplace_back("empty", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::boolean()},
+			strings{},
+			strings{string("is_empty")},
+			FunctionType::Kind::TVMTupleLength,
+			false, StateMutability::Pure
+	));
+
+	return members;
+}
+
 TypeResult TvmBuilderType::unaryOperatorResult(Token _operator) const {
 	if (_operator == Token::Delete)
 		return TypeProvider::emptyTuple();
 	return nullptr;
+}
+
+TypeResult TvmCellType::binaryOperatorResult(Token _operator, const Type *_other) const {
+	if (_other->category() != category() ||
+		(_operator != Token::Equal && _operator != Token::NotEqual))
+		return nullptr;
+	return _other;
 }
 
 MemberList::MemberMap TvmBuilderType::nativeMembers(const ContractDefinition *) const

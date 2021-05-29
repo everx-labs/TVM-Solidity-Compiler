@@ -63,6 +63,7 @@ public:
 	virtual bool visit(FunctionTypeName& _node) { return visitNode(_node); }
 	virtual bool visit(Mapping& _node) { return visitNode(_node); }
 	virtual bool visit(Optional& _node) { return visitNode(_node); }
+	virtual bool visit(TvmTuple& _node) { return visitNode(_node); }
 	virtual bool visit(ArrayTypeName& _node) { return visitNode(_node); }
 	virtual bool visit(InlineAssembly& _node) { return visitNode(_node); }
 	virtual bool visit(Block& _node) { return visitNode(_node); }
@@ -121,6 +122,7 @@ public:
 	virtual void endVisit(FunctionTypeName& _node) { endVisitNode(_node); }
 	virtual void endVisit(Mapping& _node) { endVisitNode(_node); }
 	virtual void endVisit(Optional& _node) { endVisitNode(_node); }
+	virtual void endVisit(TvmTuple& _node) { endVisitNode(_node); }
 	virtual void endVisit(ArrayTypeName& _node) { endVisitNode(_node); }
 	virtual void endVisit(InlineAssembly& _node) { endVisitNode(_node); }
 	virtual void endVisit(Block& _node) { endVisitNode(_node); }
@@ -192,6 +194,7 @@ public:
 	virtual bool visit(FunctionTypeName const& _node) { return visitNode(_node); }
 	virtual bool visit(Mapping const& _node) { return visitNode(_node); }
 	virtual bool visit(Optional const& _node) { return visitNode(_node); }
+	virtual bool visit(TvmTuple const& _node) { return visitNode(_node); }
 	virtual bool visit(ArrayTypeName const& _node) { return visitNode(_node); }
 	virtual bool visit(Block const& _node) { return visitNode(_node); }
 	virtual bool visit(PlaceholderStatement const& _node) { return visitNode(_node); }
@@ -250,6 +253,7 @@ public:
 	virtual void endVisit(FunctionTypeName const& _node) { endVisitNode(_node); }
 	virtual void endVisit(Mapping const& _node) { endVisitNode(_node); }
 	virtual void endVisit(Optional const& _node) { endVisitNode(_node); }
+	virtual void endVisit(TvmTuple const& _node) { endVisitNode(_node); }
 	virtual void endVisit(ArrayTypeName const& _node) { endVisitNode(_node); }
 	virtual void endVisit(Block const& _node) { endVisitNode(_node); }
 	virtual void endVisit(PlaceholderStatement const& _node) { endVisitNode(_node); }

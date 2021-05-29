@@ -46,8 +46,6 @@ protected:
 	void superFunctionCall(MemberAccess const& _node);
 	void typeTypeMethods(MemberAccess const& _node);
 	bool libraryCall(MemberAccess const& ma);
-	// TODO unite with decodeParameter
-	void loadTypeFromSlice(MemberAccess const& _node, TypePointer type);
 	bool checkForTvmDeployMethods(MemberAccess const& _node, Type::Category category);
 	void tvmBuildIntMsg();
 	void tvmBuildMsgMethod();
@@ -55,6 +53,7 @@ protected:
 	void arrayMethods(MemberAccess const& _node);
 	bool checkForOptionalMethods(MemberAccess const& _node);
 	bool checkForTvmBuilderMethods(MemberAccess const& _node, Type::Category category);
+	bool checkForTvmTupleMethods(MemberAccess const& _node, Type::Category category);
 	void cellMethods(MemberAccess const& _node);
 	void addressMethod();
 	bool checkForTvmConfigParamFunction(MemberAccess const& _node);
@@ -77,7 +76,8 @@ protected:
 		const std::function<void()>& pushBounce,
 		const std::function<void()>& pushCurrency,
 		const std::function<void(int builderSize)>& appendBody,
-		const std::function<void()>& pushSendrawmsgFlag
+		const std::function<void()>& pushSendrawmsgFlag,
+		const int argQty
 	);
 	bool checkTvmIntrinsic();
 

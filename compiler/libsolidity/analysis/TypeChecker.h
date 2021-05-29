@@ -88,11 +88,8 @@ private:
 	);
 
 	void typeCheckCallBack(FunctionType const* remoteFunction, Expression const& option);
-
-	TypePointers typeCheckTVMSliceDecodeAndRetrieveReturnType(FunctionCall const& _functionCall);
-
+	TypePointers checkSliceDecode(FunctionCall const& _functionCall);
 	TypePointers getReturnTypesForTVMConfig(FunctionCall const& _functionCall);
-
 	TypePointers typeCheckMetaTypeFunctionAndRetrieveReturnType(FunctionCall const& _functionCall);
 
 	/// Performs type checks and determines result types for type conversion FunctionCall nodes.
@@ -124,10 +121,8 @@ private:
 		FunctionCall const& _functionCall,
 		FunctionTypePointer _functionType
 	);
-
 	void typeCheckTvmEncodeArg(Type const* type, Expression const& node);
 	void typeCheckTvmEncodeFunctions(FunctionCall const& _functionCall);
-
 	static FunctionDefinition const* getFunctionDefinition(Expression const* expr);
 	static std::pair<bool, FunctionDefinition const*> getConstructorDefinition(Expression const* expr);
 	static ContractType const* getContractType(Expression const* expr);
@@ -139,6 +134,7 @@ private:
 		FunctionCall const& _functionCall,
 		bool ignoreCallBack
 	);
+
 
 	void endVisit(InheritanceSpecifier const& _inheritance) override;
 	void endVisit(UsingForDirective const& _usingFor) override;

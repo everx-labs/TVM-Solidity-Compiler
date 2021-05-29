@@ -303,11 +303,7 @@ void TVMFunctionCompiler::generatePublicFunction(StackPusherHelper& pusher, Func
 	}
 
 	// emit
-	bool emitReturn = getFunction(pusher.ctx().getContract(), "tvm_dont_emit_events_on_return") == nullptr;
-	if (emitReturn) {
-		funCompiler.emitOnPublicFunctionReturn();
-	}
-	pusher.drop(retQty); // can delete?
+	funCompiler.emitOnPublicFunctionReturn();
 
 	pusher.getStack().ensureSize(0, "");
 
@@ -318,7 +314,11 @@ void TVMFunctionCompiler::generatePublicFunction(StackPusherHelper& pusher, Func
 	pusher.push(0, " ");
 }
 
-void TVMFunctionCompiler::generateFunctionWithModifiers(StackPusherHelper& pusher, FunctionDefinition const* function, bool pushArgs) {
+void TVMFunctionCompiler::generateFunctionWithModifiers(
+	StackPusherHelper& pusher,
+	FunctionDefinition const* function,
+	bool pushArgs
+) {
 	// TODO it can return: inline or constructor
 	int ss = pusher.getStack().size();
 	if (!pushArgs) {
@@ -343,15 +343,9 @@ TVMFunctionCompiler::generateGetter(StackPusherHelper &pusher, VariableDeclarati
 	pusher.startContinuation();
 	pusher.push(-1, ""); // fix stack
 
-	const int prevStackSize = pusher.getStack().size();
 	const std::vector<VariableDeclaration const*> outputs = {vd};
 	auto appendBody = [&](int builderSize) {
 		ChainDataEncoder{&pusher}.createMsgBodyAndAppendToBuilder(
-				[&](size_t idx) {
-					int pos = (pusher.getStack().size() - prevStackSize) +
-							  (static_cast<int>(1) - static_cast<int>(idx) - 1);
-					pusher.pushS(pos);
-				},
 				{vd},
 				ChainDataEncoder{&pusher}.calculateFunctionIDWithReason(vd->name(), {}, &outputs, ReasonOfOutboundMessage::FunctionReturnExternal, {}, false),
 				{},
@@ -433,7 +427,10 @@ void TVMFunctionCompiler::generateReceiveOrFallback(
 	pusher.push(0, " ");
 }
 
+// pop params.size() elements from stack top
 void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
+	const int stackSize = m_pusher.getStack().size();
+
 	const std::vector<ASTPointer<VariableDeclaration>>& params = m_function->returnParameters();
 	if (params.empty()) {
 		return;
@@ -446,67 +443,63 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 
 	m_pusher.push( 0, ";; emitting " + toString(params.size()) + " value(s)");
 	m_pusher.pushS(m_pusher.getStack().size());
-	m_pusher.push(-1 + 1, "EQINT -1"); // is it ext msg?
 	m_pusher.push(-1, ""); // fix stack
 	bool isResponsible = m_pusher.ctx().getCurrentFunction()->isResponsible();
 
 	// emit for ext
+	m_pusher.startContinuation();
 	{
-		m_pusher.startContinuation();
-
-		const int prevStackSize = m_pusher.getStack().size();
 		auto appendBody = [&](int builderSize) {
 			ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
-					[&](size_t idx) {
-						int pos = (m_pusher.getStack().size() - prevStackSize) +
-								  (static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
-						m_pusher.pushS(pos);
-					},
-					ret,
-					ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(m_function,
-																			  ReasonOfOutboundMessage::FunctionReturnExternal),
-					{},
-					builderSize
+				ret,
+				ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(m_function,
+																		  ReasonOfOutboundMessage::FunctionReturnExternal),
+				{},
+				builderSize
 			);
 		};
 
 		//	ext_in_msg_info$10 src:MsgAddressExt dest:MsgAddressInt
 		//	import_fee:Grams = CommonMsgInfo;
-		m_pusher.pushS(m_pusher.getStack().size() + 2); // get external address of sender
+
+		// get external address of sender
+		m_pusher.pushS(m_pusher.getStack().size() + 2);
 		m_pusher.push(0, "CTOS");
 		m_pusher.push(+1, "LDU 2");
 		m_pusher.push(+1, "LDMSGADDR");
 		m_pusher.push(-1, "DROP");
 		m_pusher.push(-1, "NIP");
-		m_pusher.sendMsg({TvmConst::ext_msg_info::dest}, {}, appendBody, nullptr, nullptr, StackPusherHelper::MsgType::ExternalOut);
 
-		m_pusher.endContinuation();
+		m_pusher.sendMsg(
+			{TvmConst::ext_msg_info::dest},
+			{},
+			appendBody,
+			nullptr,
+			nullptr,
+			StackPusherHelper::MsgType::ExternalOut
+		);
+		m_pusher.push(params.size(), ""); // fix stack
 	}
+	m_pusher.endContinuation();
 
 
-	if (isResponsible) {
-		m_pusher.startContinuation();
-
+	m_pusher.startContinuation();
+	if (!isResponsible) {
+		m_pusher.drop(params.size());
+	} else {
 		auto pushFunction = [&](){
 			m_pusher.getGlob(TvmConst::C7::ReturnParams);
 			m_pusher.index(TvmConst::C7::ReturnParam::CallbackFunctionId);
 		};
 
-		const int prevStackSize = m_pusher.getStack().size();
 		auto appendBody = [&](int builderSize) {
 			ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
-				[&](size_t idx) {
-					int pos = (m_pusher.getStack().size() - prevStackSize) +
-							  (static_cast<int>(params.size()) - static_cast<int>(idx) - 1);
-					m_pusher.pushS(pos);
-				},
 				ret,
 				pushFunction,
 				{},
 				builderSize
 			);
 		};
-
 
 		std::function<void()> pushSendrawmsgFlag = [&]() {
 			m_pusher.getGlob(TvmConst::C7::ReturnParams);
@@ -524,7 +517,6 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 			m_pusher.index(3 - i);
 		}
 		// stack: currencies tons dest bounce
-
 		m_pusher.sendMsg(
 			{
 				TvmConst::int_msg_info::bounce,
@@ -538,14 +530,13 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 			pushSendrawmsgFlag,
 			StackPusherHelper::MsgType::Internal
 		);
-		m_pusher.endContinuation();
+		m_pusher.drop(m_pusher.getStack().size());
 	}
+	m_pusher.endContinuation();
 
-	if (isResponsible) {
-		m_pusher.push(0, "IFELSE");
-	} else {
-		m_pusher.push(0, "IF");
-	}
+	m_pusher.push(0, "IFELSE");
+
+	solAssert(stackSize == int(m_pusher.getStack().size()) + int(params.size()), "");
 }
 
 void TVMFunctionCompiler::visitModifierOrFunctionBlock(Block const &body, bool isFunc) {
@@ -1431,17 +1422,21 @@ bool TVMFunctionCompiler::visit(EmitStatement const &_emit) {
 	solAssert(eventCall, "");
 	CallableDeclaration const * eventDef = getFunctionDeclarationOrConstructor(&eventCall->expression());
 	solAssert(eventDef, "Event Declaration was not found");
+
+	std::vector<ASTPointer<Expression const>> args = eventCall->arguments();
+	for (ASTPointer<Expression const> const& arg : args | boost::adaptors::reversed) {
+		TVMExpressionCompiler{m_pusher}.compileNewExpr(arg.get());
+	}
+
 	m_pusher.push(0, ";; emit " + eventDef->name());
 	auto appendBody = [&](int builderSize) {
 		ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
-				[&](size_t idx) {
-					m_pusher.push(0, ";; " + eventDef->parameters()[idx]->name());
-					TVMExpressionCompiler{m_pusher}.compileNewExpr(eventCall->arguments()[idx].get());
-				},
-				convertArray(eventDef->parameters()),
-				ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(eventDef, ReasonOfOutboundMessage::EmitEventExternal),
-				{},
-				builderSize);
+			convertArray(eventDef->parameters()),
+			ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(eventDef, ReasonOfOutboundMessage::EmitEventExternal),
+			{},
+			builderSize,
+			true
+		);
 	};
 
 	if (auto externalAddress = _emit.externalAddress()) {
@@ -1922,6 +1917,13 @@ void TVMFunctionCompiler::buildPublicFunctionSelector(
 	int left,
 	int right
 ) {
+	int qty = right - left;
+	int blockSize = 1;
+	while (4 * blockSize < qty) {
+		blockSize *= 4;
+	}
+	solAssert(4 * blockSize >= qty, "");
+
 	auto pushOne = [&](uint32_t functionId, const std::string& name) {
 		m_pusher.pushS(0);
 		m_pusher.pushInt(functionId);
@@ -1939,7 +1941,6 @@ void TVMFunctionCompiler::buildPublicFunctionSelector(
 			pushOne(functionId, name);
 		}
 	} else {
-		int blockSize = (right - left + 4 - 1) / 4;
 		for (int i = left; i < right; i += blockSize) {
 			int j = std::min(i + blockSize, right);
 			const auto& [functionId, name] = functions.at(j - 1);
@@ -1949,10 +1950,9 @@ void TVMFunctionCompiler::buildPublicFunctionSelector(
 				m_pusher.pushS(0);
 				m_pusher.pushInt(functionId);
 				m_pusher.push(-2 + 1, "LEQ");
-				m_pusher.startContinuation();
+				m_pusher.startIfJmpRef();
 				buildPublicFunctionSelector(functions, i, j);
 				m_pusher.endContinuation();
-				m_pusher.push(0, "IFJMP");
 			}
 		}
 	}

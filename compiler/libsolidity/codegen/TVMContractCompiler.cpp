@@ -16,6 +16,8 @@
  * AST to TVM bytecode contract compiler
  */
 
+#include <solidity/BuildInfo.h>
+
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/range/adaptor/map.hpp>
 
@@ -195,7 +197,7 @@ void TVMContractCompiler::proceedContract(
 	ContractDefinition const& contract,
 	PragmaDirectiveHelper const &pragmaHelper
 ) {
-	CodeLines code = proceedContractMode1(&contract, pragmaHelper);
+	CodeLines code = generateContractCode(&contract, pragmaHelper);
 
     ofstream ofile;
     ofile.open(fileName);
@@ -214,12 +216,17 @@ static void optimize_and_append_code(CodeLines& code, const StackPusherHelper& p
 }
 
 CodeLines
-TVMContractCompiler::proceedContractMode1(
+TVMContractCompiler::generateContractCode(
 	ContractDefinition const *contract,
 	PragmaDirectiveHelper const &pragmaHelper
 ) {
 	TVMCompilerContext ctx{contract, pragmaHelper};
 	CodeLines code;
+
+	if (!ctx.isStdlib()) {
+		code.push(string{} + ".version sol " + ETH_PROJECT_VERSION);
+		code.push(" ");
+	}
 
 	fillInlineFunctions(ctx, contract);
 
@@ -396,8 +403,11 @@ TVMContractCompiler::proceedContractMode1(
 	}
 
 	if (ctx.getSaveMyCodeSelector()) {
-		code.push(" ");
-		code.push(".pragma selector-save-my-code");
+		CodeLines tmp;
+		tmp.push(".pragma selector-save-my-code");
+		tmp.push(" ");
+		tmp.append(code);
+		code = tmp;
 	}
 
 	return code;

@@ -1,3 +1,17 @@
+### 0.45.0 (2021-05-30)
+
+Compiler features:
+ * Compiler version is added in the contract's code.
+ * Decoding struct type from `TvmSlice`.
+ * Added new container type `vector`.
+
+Bugfixes:
+ * Fixed segmentation fault when using format function
+ * Fixed problem with comparisons `==` and  `!=` for `TvmCell` types.
+ * Fixed bugs in TypeChecker.
+
+Gas optimizations: encoding parameters to builders.
+
 ### 0.44.0 (2021-05-18)
 
 Compiler features:

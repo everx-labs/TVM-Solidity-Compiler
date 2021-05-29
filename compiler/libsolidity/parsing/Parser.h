@@ -114,6 +114,7 @@ private:
 	ASTPointer<FunctionTypeName> parseFunctionType();
 	ASTPointer<Mapping> parseMapping();
 	ASTPointer<Optional> parseOptional();
+	ASTPointer<TvmTuple> parseTvmTuple();
 	ASTPointer<ParameterList> parseParameterList(
 		VarDeclParserOptions const& _options = {},
 		bool _allowEmpty = true

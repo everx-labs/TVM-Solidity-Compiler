@@ -160,7 +160,7 @@ public:
 		Address, Integer, RationalNumber, StringLiteral, Bool, FixedPoint, Array, ArraySlice,
 		FixedBytes, Contract, Struct, Function, Enum, Tuple,
 		Mapping, TypeType, Modifier, Magic, Module,
-		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection,
+		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection, TvmTuple,
 		VarInteger, InitializerList, CallList, // <-- variables of that types can't be declarated in solidity contract
 		Optional
 	};
@@ -633,12 +633,39 @@ public:
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_tvmcell"; }
 	TypeResult unaryOperatorResult(Token _operator) const override;
+	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
 	std::string toString(bool) const override { return "TvmCell"; }
 
 	TypePointer encodingType() const override { return this; }
 	TypeResult interfaceType(bool) const override { return this; }
 
 	MemberList::MemberMap nativeMembers(ContractDefinition const* _currentScope) const override;
+};
+
+/**
+ * The TVM Tuple type.
+ */
+class TvmTupleType: public Type
+{
+public:
+	TvmTupleType(Type const* _type):
+		m_type(_type) {}
+
+	Category category() const override { return Category::TvmTuple; }
+	bool isValueType() const override { return true; }
+	std::string richIdentifier() const override { return "t_tvmtuple"; }
+	TypeResult unaryOperatorResult(Token _operator) const override;
+	std::string toString(bool) const override { return "TvmTuple"; }
+
+	TypePointer encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
+
+	MemberList::MemberMap nativeMembers(ContractDefinition const* _currentScope) const override;
+
+	Type const* valueType() const { return m_type; }
+
+private:
+	TypePointer m_type;
 };
 
 /**
@@ -669,6 +696,7 @@ public:
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_tvmbuilder"; }
 	TypeResult unaryOperatorResult(Token _operator) const override;
+	TypeResult binaryOperatorResult(Token /*_operator*/, Type const* /*_other*/) const override { return nullptr; }
 	std::string toString(bool) const override { return "TvmBuilder"; }
 
 	TypePointer encodingType() const override { return this; }
@@ -687,6 +715,7 @@ public:
 	Category category() const override { return Category::VarInteger; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_varinteger"; }
+	TypeResult binaryOperatorResult(Token /*_operator*/, Type const* /*_other*/) const override { return nullptr; }
 	std::string toString(bool) const override { return "VarInteger"; }
 
 	TypePointer encodingType() const override { return this; }
@@ -706,6 +735,7 @@ public:
 	Category category() const override { return Category::InitializerList; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_initializerlisttype"; }
+	TypeResult binaryOperatorResult(Token /*_operator*/, Type const* /*_other*/) const override { return nullptr; }
 	std::string toString(bool) const override { return "initializerListType"; }
 
 	TypePointer encodingType() const override { return this; }
@@ -722,6 +752,7 @@ public:
 	Category category() const override { return Category::CallList; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_calllisttype"; }
+	TypeResult binaryOperatorResult(Token /*_operator*/, Type const* /*_other*/) const override { return nullptr; }
 	std::string toString(bool) const override { return "CallListType"; }
 
 	TypePointer encodingType() const override { return this; }
@@ -738,6 +769,7 @@ public:
 	Category category() const override { return Category::ExtraCurrencyCollection; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_extracurrencycollection"; }
+	TypeResult binaryOperatorResult(Token, Type const*) const override { return nullptr; }
 	std::string toString(bool) const override { return "ExtraCurrencyCollection"; }
 
 	TypePointer encodingType() const override { return this; }
@@ -1159,6 +1191,11 @@ public:
 
 		TVMBuilderMethods, ///< builder.*()
 		TVMBuilderStore, ///< builder.store(...)
+
+		TVMTuplePush, ///< tuple.push(...)
+		TVMTuplePop, ///< tuple.pop()
+		TVMTupleLength, ///< tuple.length()
+		TVMTupleEmpty, ///< tuple.empty()
 
 		ExtraCurrencyCollectionMethods, ///< extraCurrencyCollection.*()
 		KECCAK256, ///< KECCAK256
