@@ -231,6 +231,12 @@ void ReferencesResolver::endVisit(Optional const& _typeName)
 	}
 }
 
+void ReferencesResolver::endVisit(TvmTuple const& _typeName)
+{
+	ASTPointer<TypeName> const& type = _typeName.maybeType();
+	_typeName.annotation().type = TypeProvider::tvmtuple(type->annotation().type);
+}
+
 void ReferencesResolver::endVisit(const ElementaryTypeName &_typeName) {
 	if (_typeName.typeName().token() == Token::ExtraCurrencyCollection) {
 		_typeName.annotation().type = TypeProvider::extraCurrencyCollection();

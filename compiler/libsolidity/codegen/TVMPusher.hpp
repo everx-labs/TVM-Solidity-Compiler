@@ -224,7 +224,7 @@ public:
 	void pushCall(int delta, const std::string& functionName);
 	void drop(int cnt = 1);
 	void blockSwap(int m, int n);
-	void reverse(int i, int j);
+	void reverse(int qty, int startIndex);
 	void dropUnder(int leftCount, int droppedCount);
 	void exchange(int i, int j);
 	void prepareKeyForDictOperations(Type const* key, bool doIgnoreBytes);

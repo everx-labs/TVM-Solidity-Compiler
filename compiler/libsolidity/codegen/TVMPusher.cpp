@@ -81,6 +81,12 @@ StructCompiler &StackPusherHelper::structCompiler() {
 void StackPusherHelper::generateC7ToT4Macro() {
 	push(+1, ""); // fix stack, allocate builder
 	generateMacro("c7_to_c4");
+	const std::vector<Type const *>& memberTypes = m_ctx->notConstantStateVariableTypes();
+	if (!memberTypes.empty()) {
+		for (int i = memberTypes.size() - 1; i >= 0; --i) {
+			getGlob(TvmConst::C7::FirstIndexForVariables + i);
+		}
+	}
 	push(0, "GETGLOB 6");
 	if (ctx().storeTimestampInC4()) {
 		push(0, "GETGLOB 3");
@@ -92,9 +98,10 @@ void StackPusherHelper::generateC7ToT4Macro() {
 		push(0, "STU 64");
 	}
 	push(0, "STU 1");
-
-	if (!ctx().notConstantStateVariables().empty()) {
-		structCompiler().stateVarsToBuilderForC4();
+	if (!memberTypes.empty()) {
+		ChainDataEncoder encoder{this};
+		EncodePosition position{m_ctx->getOffsetC4(), memberTypes};
+		encoder.encodeParameters(memberTypes, position);
 	}
 	pushLines(R"(
 ENDC
@@ -943,10 +950,16 @@ void StackPusherHelper::store(
 				exchange(0, 1);	// builder value
 			pushS(0);	// builder value value
 			push(-1 + 1, "ISNULL");	// builder value isnull
-			push(-1 + 1, "NOT");	// builder value !isnull
 
 			push(-1, ""); // fix stack
 			getStack().ensureSize(stackSize);
+
+			startContinuation();
+			// builder value
+			drop(1); // builder
+			stzeroes(1);
+			endContinuation();
+			push(+1, ""); // fix stack
 
 			startContinuation();
 			// builder value
@@ -968,13 +981,6 @@ void StackPusherHelper::store(
 			endContinuation();
 			push(+1, ""); // fix stack
 			getStack().ensureSize(stackSize);
-
-			startContinuation();
-			// builder value
-			drop(1); // builder
-			stzeroes(1);
-			endContinuation();
-			push(+1, ""); // fix stack
 
 			push(0, "IFELSE");
 			push(-1, ""); // fix stack
@@ -1029,8 +1035,8 @@ void StackPusherHelper::store(
 					push(0, "SWAP"); // builder arr
 				}
 				push(-1 + 2, "UNPAIR"); // builder size dict
-				push(0, "ROTREV"); // dict builder size
-				push(-1, "STUR 32"); // dict builder'
+				exchange(0, 2);// dict size builder
+				push(-1, "STU 32"); // dict builder'
 				push(-1, "STDICT"); // builder''
 			}
 			break;
@@ -1299,9 +1305,28 @@ void StackPusherHelper::hardConvert(Type const *leftType, Type const *rightType)
 		case Type::Category::FixedBytes: {
 			auto r = to<FixedBytesType>(rightType);
 			switch (leftType->category()) {
-				case Type::Category::FixedBytes:
+				case Type::Category::FixedBytes: {
 					fixedBytesFromFixedBytes(to<FixedBytesType>(leftType), r);
 					break;
+				}
+				case Type::Category::Integer: {
+					auto intType = to<IntegerType>(leftType);
+					if (intType && !intType->isSigned() &&
+						(intType->numBits() >= r->numBytes() * 8))
+						break;
+					solUnimplemented("");
+					break;
+				}
+				case Type::Category::FixedPoint: {
+					auto fixType = to<FixedPointType>(leftType);
+					if (fixType && fixType->isSigned() &&
+						(fixType->numBits() >= r->numBytes() * 8)) {
+						fromInteger(to<IntegerType>(rightType));
+						break;
+					}
+					solUnimplemented("");
+					break;
+				}
 				default:
 					solUnimplemented("");
 					break;
@@ -1334,6 +1359,7 @@ void StackPusherHelper::hardConvert(Type const *leftType, Type const *rightType)
 		case Type::Category::Function:
 		case Type::Category::Mapping:
 		case Type::Category::Optional: // !!!
+		case Type::Category::TvmTuple:
 		case Type::Category::Struct:
 		case Type::Category::TvmBuilder:
 		case Type::Category::TvmCell:
@@ -1619,7 +1645,7 @@ int StackPusherHelper::int_msg_info(const std::set<int> &isParamOnStack, const s
 
 	// currencies$_ grams:Grams other:ExtraCurrencyCollection = CurrencyCollection;
 
-	const std::vector<int> zeroes {1, 1, 1,
+	static const std::vector<int> zeroes {1, 1, 1,
 									2, 2,
 									4, 1, 4, 4,
 									64, 32};
@@ -1631,11 +1657,12 @@ int StackPusherHelper::int_msg_info(const std::set<int> &isParamOnStack, const s
 
 		if (constParams.count(param) != 0) {
 			bitString += constParams.at(param);
+			maxBitStringSize += constParams.at(param).length();
 		} else if (isParamOnStack.count(param) == 0) {
-			bitString += std::string(zeroes[param], '0');
+			bitString += std::string(zeroes.at(param), '0');
+			maxBitStringSize += zeroes.at(param);
 			solAssert(param != TvmConst::int_msg_info::dest, "");
 		} else {
-			maxBitStringSize += bitString.size();
 			appendToBuilder(bitString);
 			bitString = "";
 			switch (param) {
@@ -1650,9 +1677,7 @@ int StackPusherHelper::int_msg_info(const std::set<int> &isParamOnStack, const s
 				case TvmConst::int_msg_info::tons:
 					exchange(0, 1);
 					push(-1, "STGRAMS");
-					maxBitStringSize += 4 + 16 * 8;
-					// var_uint$_ {n:#} len:(#< n) value:(uint (len * 8)) = VarUInteger n;
-					// nanograms$_ amount:(VarUInteger 16) = Grams;
+					maxBitStringSize += VarUIntegerInfo::maxTonBitLength();
 					break;
 				case TvmConst::int_msg_info::currency:
 					push(-1, "STDICT");
@@ -1663,7 +1688,6 @@ int StackPusherHelper::int_msg_info(const std::set<int> &isParamOnStack, const s
 			}
 		}
 	}
-	maxBitStringSize += bitString.size();
 	appendToBuilder(bitString);
 	bitString = "";
 	return maxBitStringSize;
@@ -2271,6 +2295,9 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
 			break;
 		case Type::Category::FixedPoint:
 			pushInt(0);
+			break;
+		case Type::Category::TvmTuple:
+			tuple(0);
 			break;
 		default:
 			solUnimplemented("");

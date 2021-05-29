@@ -118,36 +118,21 @@ void StructCompiler::tupleToBuilder() {
 
 	pusher->startCallRef();
 
-	const int argumentStackSize = pusher->getStack().size();
 	const int n = memberNames.size();
 	pusher->untuple(n);
+	if (n >= 2) {
+		pusher->reverse(n, 0);
+	}
 	pusher->push(+1, "NEWC");
 
 	ChainDataEncoder encoder{pusher};
 	EncodePosition position{0, memberTypes};
-	encoder.encodeParameters(memberTypes, [&](size_t index){
-		int stackIndex = (pusher->getStack().size() - argumentStackSize) - index;
-		pusher->pushS(stackIndex);
-	}, position);
-	pusher->dropUnder(1, memberNames.size());
+	encoder.encodeParameters(memberTypes, position);
 	pusher->endContinuation();
 	// stack: builder
 	const int curSize = pusher->getStack().size();
 
 	solAssert(ss == curSize, "");
-}
-
-void StructCompiler::stateVarsToBuilderForC4() {
-	// builder on top stack
-	const int ss = pusher->getStack().size();
-
-	ChainDataEncoder encoder{pusher};
-	EncodePosition position{pusher->ctx().getOffsetC4(), memberTypes};
-	encoder.encodeParameters(memberTypes, [&](size_t index){
-		pusher->getGlob(TvmConst::C7::FirstIndexForVariables + index);
-	}, position);
-
-	solAssert(ss == pusher->getStack().size(), "");
 }
 
 void StructCompiler::convertSliceToTuple() {

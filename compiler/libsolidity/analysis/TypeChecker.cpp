@@ -379,7 +379,7 @@ void TypeChecker::typeCheckCallBack(FunctionType const* remoteFunction, Expressi
 	}
 }
 
-TypePointers TypeChecker::typeCheckTVMSliceDecodeAndRetrieveReturnType(FunctionCall const& _functionCall)
+TypePointers TypeChecker::checkSliceDecode(FunctionCall const& _functionCall)
 {
 	vector<ASTPointer<Expression const>> arguments = _functionCall.arguments();
 	if (arguments.empty())
@@ -394,12 +394,26 @@ TypePointers TypeChecker::typeCheckTVMSliceDecodeAndRetrieveReturnType(FunctionC
 		if (auto const* argTypeType = dynamic_cast<TypeType const*>(type(*typeArgument))) {
 			TypePointer actualType = argTypeType->actualType();
 			solAssert(actualType, "");
-			// We force memory because the parser currently cannot handle
-			// data locations. Furthermore, storage can be a little dangerous and
-			// calldata is not really implemented anyway.
-			actualType = TypeProvider::withLocationIfReference(actualType);
-			// We force address payable for address types.
 			components.push_back(actualType);
+
+			switch (actualType->category()) {
+				case Type::Category::Integer:
+				case Type::Category::FixedBytes:
+				case Type::Category::Bool:
+				case Type::Category::FixedPoint:
+				case Type::Category::Address:
+				case Type::Category::Contract:
+				case Type::Category::TvmCell:
+				case Type::Category::Array:
+				case Type::Category::Mapping:
+				case Type::Category::ExtraCurrencyCollection:
+				case Type::Category::Optional:
+				case Type::Category::Struct:
+					break;
+
+				default:
+					m_errorReporter.typeError(typeArgument->location(), "Unsupported type for decoding.");
+			}
 		} else {
 			m_errorReporter.typeError(typeArgument->location(), "Argument has to be a type name.");
 			components.push_back(TypeProvider::emptyTuple());
@@ -2842,7 +2856,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			}
 			case FunctionType::Kind::TVMSliceDecode:
 			{
-				returnTypes = typeCheckTVMSliceDecodeAndRetrieveReturnType(_functionCall);
+				returnTypes = checkSliceDecode(_functionCall);
 				break;
 			}
 			case FunctionType::Kind::DecodeFunctionParams:
@@ -3038,7 +3052,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				auto lit = dynamic_cast<const Literal *>(arguments[0].get());
 				std::string format = lit->value();
 				size_t placeholdersCnt = 0;
-				for (size_t i = 0; i < format.size() - 1; i++) {
+				for (int i = 0; i < static_cast<int>(format.size()) - 1; i++) {
 					if (format[i] == '{') {
 						auto c = format[i+1];
 						if (c == '}' || c == ':')
@@ -3058,7 +3072,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			case FunctionType::Kind::TVMBuildIntMsg: {
 				checkHaveNamedParams();
 
-				for (const std::string& name : {"dest", "call", "value"}) {
+				for (const std::string name : {"dest", "call", "value"}) {
 					int index = findName(name);
 					if (index == -1) {
 						m_errorReporter.typeError(
@@ -3092,7 +3106,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			}
 			case FunctionType::Kind::TVMBuildExtMsg: {
 				checkHaveNamedParams();
-				for (const std::string& name: {"dest", "call", "callbackId", "abiVer", "onErrorId"}) {
+				for (const std::string name: {"dest", "call", "callbackId", "abiVer", "onErrorId"}) {
 					int index = findName(name);
 					if (index == -1){
 						m_errorReporter.fatalTypeError(
@@ -3826,6 +3840,19 @@ bool TypeChecker::visit(IndexAccess const& _access)
 		isLValue = false; // @todo this heavily depends on how it is embedded
 		break;
 	}
+	case Type::Category::TvmTuple:
+	{
+		TvmTupleType const& actualType = dynamic_cast<TvmTupleType const&>(*baseType);
+		if (!index)
+			m_errorReporter.typeError(_access.location(), "Index expression cannot be omitted.");
+		else
+		{
+			expectType(*index, *TypeProvider::uint256());
+		}
+		resultType = actualType.valueType();
+		isLValue = false;
+		break;
+	}
 	default:
 		m_errorReporter.fatalTypeError(
 			_access.baseExpression().location(),
@@ -4002,9 +4029,7 @@ void TypeChecker::endVisit(MappingNameExpression const& _expr)
 
 void TypeChecker::endVisit(OptionalNameExpression const& _expr)
 {
-	_expr.annotation().type = TypeProvider::typeType(TypeProvider::optional(
-			_expr.type().annotation().type
-			));
+	_expr.annotation().type = TypeProvider::typeType(_expr.type().annotation().type);
 	_expr.annotation().isPure = true;
 }
 

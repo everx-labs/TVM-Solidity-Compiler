@@ -92,7 +92,7 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 	// header
 	if (ctx.pragmaHelper().abiVersion() == 2) {
 		Json::Value header(Json::arrayValue);
-		for (const std::string &h : {"pubkey", "time", "expire"}) {
+		for (const std::string h : {"pubkey", "time", "expire"}) {
 			if (std::get<0>(pdh.haveHeader(h)) || (h == "time" && ctx.haveTimeInAbiHeader())) {
 				header.append(h);
 			}
@@ -578,29 +578,32 @@ void ChainDataDecoder::decodePublicFunctionParameters(const std::vector<Type con
 		default:
 			solUnimplemented("");
 	}
-	decodeParameters(types, std::move(position));
+	decodeParameters(types, *position, true);
 }
 
 void ChainDataDecoder::decodeData(const std::vector<Type const*>& types, int offset, bool _fastLoad) {
 	fastLoad = _fastLoad;
 	std::unique_ptr<DecodePosition> position;
 	position = std::make_unique<DecodePositionAbiV2>(offset, offset, types, fastLoad);
-	decodeParameters(types, std::move(position));
+	decodeParameters(types, *position, true);
 }
 
 void ChainDataDecoder::decodeParameters(
 	const std::vector<Type const*>& types,
-	std::unique_ptr<DecodePosition> position
+	DecodePosition& position,
+	const bool doDropSlice
 ) {
 	// slice are on stack
 	solAssert(pusher->getStack().size() >= 1, "");
 
 	for (const auto & type : types) {
 		auto savedStackSize = pusher->getStack().size();
-		decodeParameter(type, position.get());
+		decodeParameter(type, &position);
 		pusher->getStack().ensureSize(savedStackSize + 1, "decodeParameter-2");
 	}
-	pusher->push(-1, "ENDS"); // only ENDS
+	if (doDropSlice) {
+		pusher->push(-1, "ENDS"); // only ENDS
+	}
 
 	solAssert(static_cast<int>(types.size()) <= pusher->getStack().size(), "");
 }
@@ -697,7 +700,7 @@ void ChainDataDecoder::loadq(const DecodePosition::Algo algo, const std::string 
 	}
 }
 
-void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition *position) {
+void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition* position) {
 	const Type::Category category = type->category();
 	if (to<TvmCellType>(type)) {
 		pusher->push(0, ";; decode TvmCell");
@@ -982,43 +985,51 @@ uint32_t ChainDataEncoder::calculateFunctionIDWithReason(
 	return funcID;
 }
 
+// reversedArgs==False ? arg[0], arg[1], ..., arg[n-1], msgBuilder
+// reversedArgs==True  ? arg[n-1], ..., arg[1], arg[0], msgBuilder
+// Target: create and append to msgBuilder the message body
 void ChainDataEncoder::createMsgBodyAndAppendToBuilder(
-	const std::function<void(size_t)>& pushParam,
-	const std::vector<VariableDeclaration const*> &params,
-	const std::variant<uint32_t, std::function<void()>>& functionId,
-	const std::optional<uint32_t>& callbackFunctionId,
-	const int bitSizeBuilder
+		const std::vector<VariableDeclaration const*> &params,
+		const std::variant<uint32_t, std::function<void()>>& functionId,
+		const std::optional<uint32_t>& callbackFunctionId,
+		const int bitSizeBuilder,
+		const bool reversedArgs
 ) {
+
 	const int saveStackSize = pusher->getStack().size();
 
 	std::vector<Type const*> types = getParams(params).first;
-
-	const int callbackLenght = callbackFunctionId.has_value() ? 32 : 0;
-	std::unique_ptr<EncodePosition> position = std::make_unique<EncodePosition>(bitSizeBuilder + 32 + callbackLenght, types);
+	const int callbackLength = callbackFunctionId.has_value() ? 32 : 0;
+	std::unique_ptr<EncodePosition> position = std::make_unique<EncodePosition>(bitSizeBuilder + 32 + callbackLength, types);
 	const bool doAppend = position->countOfCreatedBuilders() == 0;
-	if (doAppend) {
-		pusher->stzeroes(1);
-	} else {
-		pusher->stones(1);
-		position = std::make_unique<EncodePosition>(32 + callbackLenght, types);
-		pusher->push(+1, "NEWC");
+	doAppend ? pusher->stzeroes(1) : pusher->stones(1);
+	if (params.size() >= 2 && !reversedArgs) {
+		pusher->reverse(params.size(), 1);
+	}
+	if (!doAppend) {
+		position = std::make_unique<EncodePosition>(32 + callbackLength, types);
+		pusher->blockSwap(params.size(), 1); // msgBuilder, arg[n-1], ..., arg[1], arg[0]
+		pusher->push(+1, "NEWC"); // msgBuilder, arg[n-1], ..., arg[1], arg[0], builder
 	}
 
-	createMsgBody(pushParam, params, functionId, callbackFunctionId, *position);
+	// arg[n-1], ..., arg[1], arg[0], msgBuilder
+	createMsgBody(params, functionId, callbackFunctionId, *position);
 
 	if (!doAppend) {
+		// msgBuilder, builder
 		pusher->push(-1, "STBREFR");
 	}
 
-	solAssert(saveStackSize == pusher->getStack().size(), "");
+	solAssert(saveStackSize == int(pusher->getStack().size() + params.size()), "");
+
 }
 
+// arg[n-1], ..., arg[1], arg[0], msgBuilder
 void ChainDataEncoder::createMsgBody(
-	const std::function<void (size_t)> &pushParam,
-	const std::vector<VariableDeclaration const*> &params,
-	const std::variant<uint32_t, std::function<void()>>& functionId,
-	const std::optional<uint32_t>& callbackFunctionId,
-	EncodePosition &position
+		const std::vector<VariableDeclaration const*> &params,
+		const std::variant<uint32_t, std::function<void()>>& functionId,
+		const std::optional<uint32_t>& callbackFunctionId,
+		EncodePosition &position
 ) {
 	std::vector<Type const*> types;
 	std::vector<ASTNode const*> nodes;
@@ -1039,19 +1050,38 @@ void ChainDataEncoder::createMsgBody(
 		pusher->push(0, "STSLICECONST " + ss.str());
 	}
 
-	encodeParameters(types, pushParam, position);
+	encodeParameters(types, position);
 }
 
-void
-ChainDataEncoder::encodeParameters(
-	const std::vector<Type const *> &types,
-	const std::function<void(size_t)> &pushParam,
+// arg[n-1], ..., arg[1], arg[0], builder
+// Target: create and append to msgBuilder the message body
+void ChainDataEncoder::encodeParameters(
+	const std::vector<Type const *> & _types,
 	EncodePosition &position
 ) {
 	// builder must be situated on top stack
-	for (size_t idx = 0; idx < types.size(); idx++) {
-		auto type = types[idx];
-		encodeParameter(type, position, [&](){pushParam(idx);});
+	std::vector<Type const *> typesOnStack{_types.rbegin(), _types.rend()};
+	while (!typesOnStack.empty()) {
+		const int argQty = typesOnStack.size();
+		Type const* type = typesOnStack.back();
+		typesOnStack.pop_back();
+		if (auto structType = to<StructType>(type)) {
+			std::vector<ASTPointer<VariableDeclaration>> const& members = structType->structDefinition().members();
+			// struct builder
+			pusher->exchange(0, 1); // builder struct
+			pusher->untuple(members.size()); // builder, m0, m1, ..., m[len(n)-1]
+			pusher->reverse(members.size() + 1, 0); // m[len(n)-1], ..., m1, m0, builder
+			for (const ASTPointer<VariableDeclaration>& m : members | boost::adaptors::reversed) {
+				typesOnStack.push_back(m->type());
+			}
+		}  else {
+			if (position.needNewCell(type)) {
+				// arg[n-1], ..., arg[1], arg[0], builder
+				pusher->blockSwap(argQty, 1);
+				pusher->push(+1, "NEWC");
+			}
+			pusher->store(type, false);
+		}
 	}
 	for (int idx = 0; idx < position.countOfCreatedBuilders(); idx++) {
 		pusher->push(-1, "STBREFR");
@@ -1076,68 +1106,4 @@ std::string ChainDataEncoder::getTypeString(Type const * type) {
 	}
 
 	return TVMABI::getParamTypeString(type);
-}
-
-void ChainDataEncoder::encodeParameter(
-	Type const *type,
-	EncodePosition &position,
-	const std::function<void()> &pushParam
-) {
-	// stack: builder...
-	if (auto structType = to<StructType>(type)) {
-		pushParam(); // builder... struct
-		encodeStruct(structType, position); // stack: builder...
-	} else {
-		if (position.needNewCell(type)) {
-			pusher->push(+1, "NEWC");
-		}
-
-		if (isIntegralType(type) || isAddressOrContractType(type)) {
-			pushParam();
-			pusher->push(-1, storeIntegralOrAddress(type, true));
-		} else if (auto arrayType = to<ArrayType>(type)) {
-			if (arrayType->isByteArray()) {
-				pushParam();
-				pusher->push(-1, "STREFR");
-			} else {
-				pushParam();
-				// builder array
-				pusher->push(-1 + 2, "UNPAIR"); // builder size dict
-				pusher->exchange(0, 2); // dict size builder
-				pusher->push(-1, "STU 32"); // dict builder
-				pusher->push(-1, "STDICT"); // builder
-			}
-		} else if (to<TvmCellType>(type)) {
-			pushParam();
-			pusher->push(-1, "STREFR");
-		} else if (to<MappingType>(type)) {
-			pushParam();
-			pusher->push(0, "SWAP");
-			pusher->push(-1, "STDICT");
-		} else if (to<OptionalType>(type) || to<FunctionType>(type)) {
-			pushParam();
-			pusher->store(type, true);
-		} else {
-			solUnimplemented("Unsupported type for encoding: " + type->toString());
-		}
-	}
-}
-
-void ChainDataEncoder::encodeStruct(const StructType* structType, EncodePosition& position) {
-	// builder... builder struct
-	const int saveStackSize0 = pusher->getStack().size() - 2;
-	ast_vec<VariableDeclaration> const& members = structType->structDefinition().members();
-	const int memberQty = members.size();
-	pusher->untuple(memberQty); // builder... builder values...
-	pusher->blockSwap(1, memberQty); // builder... values... builder
-	for (int i = 0; i < memberQty; ++i) {
-		encodeParameter(members[i]->type(), position, [&]() {
-			const int index = pusher->getStack().size() - saveStackSize0 - 1 - i;
-			pusher->pushS(index);
-		});
-	}
-
-	// builder... values... builder...
-	const int builderQty = pusher->getStack().size() - saveStackSize0 - memberQty;
-	pusher->dropUnder(builderQty, memberQty);
 }

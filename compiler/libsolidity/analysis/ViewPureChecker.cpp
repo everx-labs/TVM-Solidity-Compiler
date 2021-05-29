@@ -185,21 +185,25 @@ void ViewPureChecker::endVisit(FunctionCall const& _functionCall) {
 	if ((ma == nullptr) && opt) {
 		ma = dynamic_cast<MemberAccess const *>(&opt->expression());
 	}
-	if (ma && ma->expression().annotation().type->category() == Type::Category::Contract) {
-		mutability = StateMutability::Pure; // call function of another contract
+	if (opt && dynamic_cast<NewExpression const *>(&opt->expression())) {
+		mutability = StateMutability::Pure; // deploy via new
 	} else {
-		bool isLibCall{};
-		if (ma) {
-			if (auto libFunction = dynamic_cast<FunctionDefinition const*>(ma->annotation().referencedDeclaration)) {
-				DeclarationAnnotation const &da = libFunction->annotation();
-				if (da.contract->contractKind() == ContractKind::Library) {
-					isLibCall = true;
-					mutability = StateMutability::NonPayable; // TODO: check mutability more detail
+		if (ma && ma->expression().annotation().type->category() == Type::Category::Contract) {
+			mutability = StateMutability::Pure; // call function of another contract
+		} else {
+			bool isLibCall{};
+			if (ma) {
+				if (auto libFunction = dynamic_cast<FunctionDefinition const *>(ma->annotation().referencedDeclaration)) {
+					DeclarationAnnotation const &da = libFunction->annotation();
+					if (da.contract->contractKind() == ContractKind::Library) {
+						isLibCall = true;
+						mutability = StateMutability::NonPayable; // TODO: check mutability more detail
+					}
 				}
 			}
-		}
-		if (!isLibCall) {
-			mutability = dynamic_cast<FunctionType const &>(*_functionCall.expression().annotation().type).stateMutability();
+			if (!isLibCall) {
+				mutability = dynamic_cast<FunctionType const &>(*_functionCall.expression().annotation().type).stateMutability();
+			}
 		}
 	}
 	reportMutability(mutability, _functionCall.location());
@@ -319,6 +323,8 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 		};
 		set<MagicMember> static const nonpayableMembers{
 			{MagicType::Kind::TVM, "commit"},
+			{MagicType::Kind::TVM, "rawCommit"},
+			{MagicType::Kind::TVM, "setData"},
 			{MagicType::Kind::TVM, "resetStorage"}
 		};
 

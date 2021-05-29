@@ -41,7 +41,7 @@ void TVMTypeChecker::checkPragma() {
 	PragmaDirectiveHelper pragmaHelper{pragmaDirectives};
 
 	if (pragmaHelper.abiVersion() == 1) {
-		for (const std::string& s : {"expire", "time", "pubkey"}) {
+		for (const std::string s : {"expire", "time", "pubkey"}) {
 			auto [have, astNode] = pragmaHelper.haveHeader(s);
 			if (have) {
 				m_errorReporter.fatalDeclarationError(

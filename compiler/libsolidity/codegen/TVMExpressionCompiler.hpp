@@ -27,7 +27,7 @@ public:
 	explicit TVMExpressionCompiler(StackPusherHelper &pusher);
 	void compileNewExpr(const Expression* expr);
 	void acceptExpr(const Expression* expr, bool _isResultNeeded);
-	static std::pair<bool, bigint> constValue(Expression const& _e);
+	static std::optional<bigint> constValue(Expression const& _e);
 	static std::optional<bool> constBool(Expression const& _e);
 	static int returnParamQty(Expression const& _e);
 
@@ -54,11 +54,20 @@ protected:
 	void compileUnaryOperation(UnaryOperation const& _node, const std::string& tvmUnaryOperation, bool isPrefixOperation);
 	void compileUnaryDelete(UnaryOperation const& node);
 	void visit2(UnaryOperation const& _node);
-	void compareAddresses(Token op);
+	void compareSlices(Token op);
 	void compareStrings(Token op);
 	bool tryOptimizeBinaryOperation(BinaryOperation const& _node);
 	static std::vector<Expression const*> unroll(BinaryOperation const&  _node);
-	void visitBinaryOperationForString(BinaryOperation const &_binaryOperation);
+	void visitBinaryOperationForTvmCell(
+		const std::function<void()>& pushLeft,
+		const std::function<void()>& pushRight,
+		Token op
+	);
+	void visitBinaryOperationForString(
+		const std::function<void()>& pushLeft,
+		const std::function<void()>& pushRight,
+		const Token op
+	);
 	void visitLogicalShortCircuiting(BinaryOperation const &_binaryOperation);
 	void visit2(BinaryOperation const& _node);
 	bool isCheckFitUseless(Type const* type, Token op);

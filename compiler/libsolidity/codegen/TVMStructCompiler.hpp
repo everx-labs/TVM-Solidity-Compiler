@@ -40,7 +40,6 @@ public:
 	void setMemberForTuple(const std::string &memberName);
 	void structConstructor(ast_vec<ASTString> const& names, const std::function<void(int, Type const*)>& pushParam);
 	void tupleToBuilder();
-	void stateVarsToBuilderForC4();
 	void convertSliceToTuple();
 	void sliceToStateVarsToC7();
 

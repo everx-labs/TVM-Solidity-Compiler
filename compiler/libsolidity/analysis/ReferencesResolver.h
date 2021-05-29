@@ -81,6 +81,7 @@ private:
 	void endVisit(FunctionTypeName const& _typeName) override;
 	void endVisit(Mapping const& _typeName) override;
 	void endVisit(Optional const& _typeName) override;
+	void endVisit(TvmTuple const& _typeName) override;
 	void endVisit(ElementaryTypeName const& _typeName) override;
 	void endVisit(ArrayTypeName const& _typeName) override;
 	bool visit(InlineAssembly const& _inlineAssembly) override;

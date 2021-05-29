@@ -176,6 +176,7 @@ namespace solidity::langutil
 	K(Modifier, "modifier", 0)                                         \
 	K(New, "new", 0)                                                   \
 	K(Optional, "optional", 0)                                         \
+	K(TvmTuple, "vector", 0)                                           \
 	K(Override, "override", 0)                                         \
 	K(Payable, "payable", 0)                                           \
 	K(Public, "public", 0)                                             \

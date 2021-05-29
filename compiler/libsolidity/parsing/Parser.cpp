@@ -353,6 +353,7 @@ ASTPointer<ContractDefinition> Parser::parseContractDefinition()
 				currentTokenValue == Token::Identifier ||
 				currentTokenValue == Token::Mapping ||
 				currentTokenValue == Token::Optional ||
+				currentTokenValue == Token::TvmTuple ||
 				currentTokenValue == Token::LBrack ||
 				TokenTraits::isElementaryTypeName(currentTokenValue) ||
 				(currentTokenValue == Token::Function && m_scanner->peekNextToken() == Token::LParen)
@@ -780,6 +781,11 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 			nodeFactory.setEndPositionFromNode(type);
 	}
 
+	if (_options.isStateVariable && dynamic_cast<TvmTuple*>(type.get()))
+		fatalParserError(string(
+				"TvmTuple type can't be used for state variables."
+		));
+
 	if (dynamic_cast<FunctionTypeName*>(type.get()) && _options.isStateVariable && m_scanner->currentToken() == Token::LBrace)
 		fatalParserError(
 			"Expected a state variable declaration. If you intended this as a fallback function "
@@ -1091,6 +1097,8 @@ ASTPointer<TypeName> Parser::parseTypeName(bool _allowVar)
 		type = parseMapping();
 	else if (token == Token::Optional)
 		type = parseOptional();
+	else if (token == Token::TvmTuple)
+		type = parseTvmTuple();
 	else if (token == Token::Identifier)
 		type = parseUserDefinedTypeName();
 	else
@@ -1168,6 +1176,18 @@ ASTPointer<Optional> Parser::parseOptional()
 	return nodeFactory.createNode<Optional>(components);
 }
 
+ASTPointer<TvmTuple> Parser::parseTvmTuple()
+{
+	RecursionGuard recursionGuard(*this);
+	ASTNodeFactory nodeFactory(*this);
+	expectToken(Token::TvmTuple);
+	expectToken(Token::LParen);
+	bool const allowVar = false;
+	ASTPointer<TypeName> type = parseTypeName(allowVar);
+	expectToken(Token::RParen);
+	nodeFactory.markEndPosition();
+	return nodeFactory.createNode<TvmTuple>(type);
+}
 
 ASTPointer<ParameterList> Parser::parseParameterList(
 	VarDeclParserOptions const& _options,
@@ -2178,7 +2198,7 @@ Parser::LookAheadInfo Parser::peekStatementType() const
 	Token token(m_scanner->currentToken());
 	bool mightBeTypeName = (TokenTraits::isElementaryTypeName(token) || token == Token::Identifier);
 
-	if (token == Token::Mapping || token == Token::Optional || token == Token::Function || token == Token::Var || token == Token::LBrack)
+	if (token == Token::Mapping || token == Token::Optional || token == Token::TvmTuple || token == Token::Function || token == Token::Var || token == Token::LBrack)
 		return LookAheadInfo::VariableDeclaration;
 	if (mightBeTypeName)
 	{

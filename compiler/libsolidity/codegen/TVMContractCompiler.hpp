@@ -53,7 +53,7 @@ public:
 		ContractDefinition const& contract,
 		PragmaDirectiveHelper const &pragmaHelper
 	);
-	static CodeLines proceedContractMode1(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
+	static CodeLines generateContractCode(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
 private:
 	static void fillInlineFunctions(TVMCompilerContext& ctx, ContractDefinition const* contract);
 };

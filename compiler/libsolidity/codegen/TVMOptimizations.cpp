@@ -1126,6 +1126,16 @@ struct TVMOptimizer {
 			});
 		}
 
+//		if (
+//			cmd1.is_PUSHINT() &&
+//			cmd2.is("STUR") && cmd2.fetch_int() <= 8
+//		) {
+//			std::string s;
+//			StackPusherHelper::addBinaryNumberToString(s, cmd1.fetch_bigint(), cmd2.fetch_int());
+//			s = StackPusherHelper::binaryStringToSlice(s);
+//			return Result(true, 2, {"STSLICECONST x" + s});
+//		}
+
 		if (
 			cmd1.is("ABS") &&
 			cmd2.is("UFITS") && cmd2.fetch_int() == 256
@@ -1138,6 +1148,25 @@ struct TVMOptimizer {
 			cmd2.is("STZEROES")
 		) {
 			return Result(true, 2, {"STZERO"});
+		}
+
+		if (
+			cmd1.is("REVERSE") && cmd1.fetch_first_int() == 2 && cmd1.fetch_second_int() == 1 &&
+			cmd2.is("ROTREV")
+		) {
+			return Result(true, 2, {"XCHG S2"});
+		}
+
+		// REVERSE M, 0
+		// BLKSWAP 1, M
+		// =>
+		// REVERSE M+1, 0
+		if (
+			cmd1.is("REVERSE") && cmd1.fetch_second_int() == 0 &&
+			cmd2.is("BLKSWAP") && cmd2.fetch_first_int() == 1 &&
+			cmd1.fetch_first_int() == cmd2.fetch_second_int()
+		) {
+			return Result(true, 2, {"REVERSE " + toString(cmd1.fetch_first_int() + 1) + ", 0"});
 		}
 
 		return Result(false);
@@ -1165,7 +1194,8 @@ struct TVMOptimizer {
 					break;
 				}
 				size_t pos{};
-				int value = std::stoi(slice.substr(i, 1), &pos, 16);
+				auto sss = slice.substr(i, 1);
+				int value = std::stoi(sss, &pos, 16);
 				solAssert(pos == 1, "");
 				StackPusherHelper::addBinaryNumberToString(bitString, value, 4);
 			}
@@ -1463,3 +1493,25 @@ void run_peephole_pass(const string& filename) {
 }
 
 } // end solidity::frontend
+
+
+// SWAP
+// NEWC
+// SWAP
+// => NEWC ROTREV
+
+//SWAP
+// ROT
+//SWAP
+
+// SWAP
+// ROT
+
+// ROT
+// SWAP
+
+// XCHG s2
+// SWAP
+
+// XCHG s2
+// ROTREV

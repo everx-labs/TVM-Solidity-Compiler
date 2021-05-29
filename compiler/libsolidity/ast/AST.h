@@ -1188,7 +1188,7 @@ private:
 };
 
 /**
- * An optional type. Its source form is "optional(Type)"
+ * An optional type. Its source form is "optional(Type0, ...)"
  */
 class Optional: public TypeName
 {
@@ -1206,6 +1206,27 @@ public:
 
 private:
 	std::vector<ASTPointer<TypeName>> m_types;
+};
+
+/**
+ * A TVM tuple type. Its source form is "TvmTuple(Type)"
+ */
+class TvmTuple: public TypeName
+{
+public:
+	TvmTuple(
+			int64_t _id,
+			SourceLocation const& _location,
+			ASTPointer<TypeName> const& _type
+	):
+			TypeName(_id, _location), m_type(_type) {}
+	void accept(ASTVisitor& _visitor) override;
+	void accept(ASTConstVisitor& _visitor) const override;
+
+	ASTPointer<TypeName> const& maybeType() const { return m_type; }
+
+private:
+	ASTPointer<TypeName> m_type;
 };
 
 /**
