@@ -1415,7 +1415,7 @@ this function returns an empty optional.
 ```
 
 Computes the minimal (maximal) key in the mapping that is lexicographically
-greater (less) than **key** and returns an optional value containing that
+greater (less) then **key** and returns an optional value containing that
 key and the associated value. Returns an empty optional if there is no such key.
 If KeyType is an integer type, argument for this functions can not possibly fit KeyType.
 
@@ -1934,7 +1934,7 @@ contract Bomber {
 ##### fallback
 
 **fallback** function is called when a body of an inbound internal/external message in such cases:
-1. The message contains a function id than the contract doesn't contain.
+1. The message contains a function id that the contract doesn't contain.
 2. Bit length of message between 1 and 31 (including).
 3. Bit length of message equals to zero, but the message contains reference(s).
 
@@ -1968,7 +1968,7 @@ contract ContractB {
     // that messages except the last one.
     function g(address addr) public pure {
         tvm.accept();
-        // The message contains a function id than the contract doesn't contain.
+        // The message contains a function id that the contract doesn't contain.
         // There is wrong casting to ContractAnother. `addr` is ContractA's address.
         ContractAnother(addr).sum{value: 1 ton}(2, 2);
 
@@ -2151,7 +2151,7 @@ function functionName() public pure functionID(123) {
 Keyword `internalMsg` and `externalMsg` specify which transactions the function can handle.
 If the function marked by keyword `internalMsg` is called by external message, the function throws
 an exception with code 71.
-If the function marked by keyword `external` is called by internal message, the function throws an
+If the function marked by keyword `externalMsg` is called by internal message, the function throws an
 exception with code 71.
 
 Example:
@@ -2414,7 +2414,8 @@ does not contain `pubkey` then `msg.pubkey()` is equal to `tvm.pubkey()`.
 
 ##### msg.isInternal, msg.isExternal and msg.isTickTock
 
-Returns whether the contract is called by internal or external messages or by tick/tock transactions.
+Returns whether the contract is called by internal or external messages or by outbound messages of
+tick/tock transactions.
 
 ##### msg.createdAt
 
@@ -2626,11 +2627,11 @@ Let's consider how much nanotons (`reserve`) are reserved in all cases of `flag`
 All other values of `flag` are invalid.
 
 To make it clear, let's consider the order of `reserve` calculation:
-1. if `flag` has bit `+8` than `value = -value`.
-2. if `flag` has bit `+4` than `value += original_balance`.
+1. if `flag` has bit `+8` then `value = -value`.
+2. if `flag` has bit `+4` then `value += original_balance`.
 3. Check `value >= 0`.
-4. if `flag` has bit `+2` than `value = min(value, remaining_balance)`.
-5. if `flag` has bit `+1` than `value = remaining_balance - value`.
+4. if `flag` has bit `+2` then `value = min(value, remaining_balance)`.
+5. if `flag` has bit `+1` then `value = remaining_balance - value`.
 6. `reserve = value`.
 7. Check `0 <= reserve <= remaining_balance`.
 
@@ -3464,7 +3465,7 @@ Generates a new pseudo-random number.
 1) Returns `uint256` number.
 2) If the first argument `limit > 0` then function returns the value in the
 range `0..limit-1`. Else if `limit < 0` then the returned value lies in range
-`limit..-1`. Else if `limit == 0` than it returns `0`.
+`limit..-1`. Else if `limit == 0` then it returns `0`.
 
 Example:
 
@@ -3562,7 +3563,7 @@ sha256(string str) returns (uint256)
 1. Compute the SHA-256 hash. If the bit length of `slice` is not divisible by eight, throws a cell
 underflow exception. References of `slice` are not used to compute the hash. Only data bits located
 in the root cell of `slice` are used.
-2. Compute the SHA-256 hash only for the first 127 bytes. If `bytes.length > 127` than `b[128],
+2. Compute the SHA-256 hash only for the first 127 bytes. If `bytes.length > 127` then `b[128],
 b[129], b[130] ...` elements are ignored.
 3. Same as for `bytes`: only the first 127 bytes are taken into account.
 
