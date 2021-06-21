@@ -749,18 +749,22 @@ public:
 		ASTPointer<Block> const& _body,
 		std::optional<uint32_t> _functionID = {},
 		bool _isInline = false,
-		bool _responsible = false
+		bool _responsible = false,
+		bool _externalMsg = false,
+		bool _internalMsg = false
 	):
-		CallableDeclaration(_id, _location, _name, _visibility, _parameters, _isVirtual, _overrides, _returnParameters),
-		StructurallyDocumented(_documentation),
-		ImplementationOptional(_body != nullptr),
-		m_stateMutability(_stateMutability),
-		m_kind(_kind),
-		m_functionModifiers(_modifiers),
-		m_body(_body),
-		m_functionID(_functionID),
-		m_isInline(_isInline),
-		m_responsible{_responsible}
+			CallableDeclaration(_id, _location, _name, _visibility, _parameters, _isVirtual, _overrides, _returnParameters),
+			StructurallyDocumented(_documentation),
+			ImplementationOptional(_body != nullptr),
+			m_stateMutability(_stateMutability),
+			m_kind(_kind),
+			m_functionModifiers(_modifiers),
+			m_body(_body),
+			m_functionID(_functionID),
+			m_isInline(_isInline),
+			m_responsible{_responsible},
+			m_externalMsg{_externalMsg},
+			m_internalMsg{_internalMsg}
 	{
 		solAssert(_kind == Token::Constructor || _kind == Token::Function ||
 					_kind == Token::Fallback || _kind == Token::Receive || _kind == Token::onBounce ||
@@ -820,6 +824,8 @@ public:
 	std::optional<uint32_t> functionID() const { return m_functionID; }
 	bool isInline() const { return m_isInline; }
 	bool isResponsible() const { return m_responsible; }
+	bool externalMsg() const { return m_externalMsg; }
+	bool internalMsg() const { return m_internalMsg; }
 
 private:
 	StateMutability m_stateMutability;
@@ -829,6 +835,8 @@ private:
 	std::optional<uint32_t> m_functionID;
 	bool m_isInline;
 	bool m_responsible{};
+	bool m_externalMsg{};
+	bool m_internalMsg{};
 };
 
 /**
@@ -1636,17 +1644,23 @@ public:
 		SourceLocation const& _location,
 		ASTPointer<ASTString> const& _docString,
 		ASTPointer<FunctionCall> const& _functionCall,
-		ASTPointer<Expression> const& _extAddress = nullptr
+		std::vector<ASTPointer<Expression>> const& _options,
+		std::vector<ASTPointer<ASTString>> const& _names
 	):
-		Statement(_id, _location, _docString), m_eventCall(_functionCall), m_extAddress(_extAddress) {}
+		Statement(_id, _location, _docString), m_eventCall(_functionCall), m_options{_options}, m_names{_names} {
+		solAssert(_options.size() == _names.size(), "");
+	}
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 
 	FunctionCall const& eventCall() const { return *m_eventCall; }
-	ASTPointer<Expression> const externalAddress() const { return m_extAddress; }
+	const std::vector<ASTPointer<Expression>>& options() const { return m_options; }
+	const std::vector<ASTPointer<ASTString>>& names() const { return m_names; }
+
 private:
 	ASTPointer<FunctionCall> m_eventCall;
-	ASTPointer<Expression> m_extAddress;
+	std::vector<ASTPointer<Expression>> m_options;
+	std::vector<ASTPointer<ASTString>> m_names;
 };
 
 /**

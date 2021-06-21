@@ -596,13 +596,35 @@ Parser::FunctionHeaderParserResult Parser::parseFunctionHeader(bool _isStateVari
                 fatalParserError("functionID modifier should be specified as: functionID(ID).");
 			m_scanner->next();
 		}
+		else if (token == Token::ExternalMsg)
+		{
+			if (result.externalMsg)
+				parserError("externalMsg already specified.");
+
+			result.externalMsg = true;
+			m_scanner->next();
+		}
+		else if (token == Token::InternalMsg)
+		{
+			if (result.internalMsg)
+				parserError("internalMsg already specified.");
+
+			result.internalMsg = true;
+			m_scanner->next();
+		}
 		else if (token == Token::Inline)
 		{
+			if (result.isInline)
+				parserError("inline already specified.");
+
 			result.isInline = true;
 			m_scanner->next();
 		}
 		else if (token == Token::Responsible)
 		{
+			if (result.responsible)
+				parserError("responsible already specified.");
+
 			result.responsible = true;
 			m_scanner->next();
 		}
@@ -698,7 +720,9 @@ ASTPointer<ASTNode> Parser::parseFunctionDefinition()
 		block,
 		header.functionID,
 		header.isInline,
-		header.responsible
+		header.responsible,
+		header.externalMsg,
+		header.internalMsg
 	);
 }
 
@@ -1524,7 +1548,6 @@ ASTPointer<EmitStatement> Parser::parseEmitStatement(ASTPointer<ASTString> const
 	ASTNodeFactory nodeFactory(*this);
 	m_scanner->next();
 	ASTNodeFactory eventCallNodeFactory(*this);
-	ASTPointer<Expression> argument = nullptr;
 
 	if (m_scanner->currentToken() != Token::Identifier)
 		fatalParserError("Expected event name or path.");
@@ -1539,6 +1562,12 @@ ASTPointer<EmitStatement> Parser::parseEmitStatement(ASTPointer<ASTString> const
 	}
 
 	auto eventName = expressionFromIndexAccessStructure(iap);
+	pair<vector<ASTPointer<Expression>>, vector<ASTPointer<ASTString>>> optionList;
+	if (m_scanner->currentToken() == Token::LBrace) {
+		expectToken(Token::LBrace);
+		optionList = parseNamedArguments();
+		expectToken(Token::RBrace);
+	}
 	expectToken(Token::LParen);
 
 	vector<ASTPointer<Expression>> arguments;
@@ -1547,31 +1576,8 @@ ASTPointer<EmitStatement> Parser::parseEmitStatement(ASTPointer<ASTString> const
 	eventCallNodeFactory.markEndPosition();
 	nodeFactory.markEndPosition();
 	expectToken(Token::RParen);
-
-	if (m_scanner->currentToken() == Token::Period) {
-		m_scanner->next();
-		if (m_scanner->currentLiteral() == "extAddr") {
-			m_scanner->next();
-			expectToken(Token::LParen);
-
-			vector<ASTPointer<Expression>> addrArguments;
-			vector<ASTPointer<ASTString>> addrNames;
-			std::tie(addrArguments, addrNames) = parseFunctionCallArguments();
-			eventCallNodeFactory.markEndPosition();
-			nodeFactory.markEndPosition();
-			expectToken(Token::RParen);
-
-			if (addrArguments.size() != 1)
-				fatalParserError("extAddr takes only one argument.");
-			argument = addrArguments[0];
-
-		} else {
-			fatalParserError("The only available suffix is \"extAddr\".");
-		}
-	}
-
 	auto eventCall = eventCallNodeFactory.createNode<FunctionCall>(eventName, arguments, names);
-	auto statement = nodeFactory.createNode<EmitStatement>(_docString, eventCall, argument);
+	auto statement = nodeFactory.createNode<EmitStatement>(_docString, eventCall, optionList.first, optionList.second);
 	return statement;
 }
 

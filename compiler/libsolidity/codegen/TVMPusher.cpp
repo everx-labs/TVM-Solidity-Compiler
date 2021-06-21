@@ -91,13 +91,13 @@ void StackPusherHelper::generateC7ToT4Macro() {
 	if (ctx().storeTimestampInC4()) {
 		push(0, "GETGLOB 3");
 	}
-	push(0, "GETGLOB 2");
+	getGlob(TvmConst::C7::TvmPubkey);
 	push(0, "NEWC");
 	push(0, "STU 256");
 	if (ctx().storeTimestampInC4()) {
 		push(0, "STU 64");
 	}
-	push(0, "STU 1");
+	push(0, "STI 1");
 	if (!memberTypes.empty()) {
 		ChainDataEncoder encoder{this};
 		EncodePosition position{m_ctx->getOffsetC4(), memberTypes};
@@ -2161,7 +2161,6 @@ const std::vector<std::pair<uint32_t, std::string>>& TVMCompilerContext::getPubl
 }
 
 bool TVMCompilerContext::addAndDoesHaveLoop(FunctionDefinition const* _v, FunctionDefinition const* _to) {
-//	cerr << _v->name() << " -> " << _to->name() << "\n";
 	graph[_v].insert(_to);
 	graph[_to]; // creates default value if there is no such key
 	for (const auto& k : graph | boost::adaptors::map_keys) {
@@ -2175,7 +2174,6 @@ bool TVMCompilerContext::addAndDoesHaveLoop(FunctionDefinition const* _v, Functi
 			break;
 		}
 	}
-//	cerr << "hasLoop: " << hasLoop << "\n";
 	return hasLoop;
 }
 
@@ -2325,6 +2323,6 @@ void StackPusherHelper::byteLengthOfCell() {
 }
 
 void StackPusherHelper::was_c4_to_c7_called() {
-	getGlob(TvmConst::C7::IsInit);
+	getGlob(TvmConst::C7::TvmPubkey);
 	push(-1 + 1, "ISNULL");
 }

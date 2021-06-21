@@ -643,6 +643,18 @@ bool TypeChecker::visit(FunctionDefinition const& _function)
 			m_errorReporter.typeError(_function.location(), "\"virtual\" and \"private\" cannot be used together.");
 	}
 
+	if (_function.externalMsg() || _function.internalMsg()) {
+		if (_function.externalMsg() && _function.internalMsg()) {
+			m_errorReporter.typeError(_function.location(), R"("internalMsg" and "externalMsg" cannot be used together.)");
+		}
+		if (!_function.isPublic()) {
+			m_errorReporter.typeError(_function.location(), R"(Private/internal function can't be marked as internalMsg/externalMsg.)");
+		}
+		if (_function.isReceive() || _function.isFallback() || _function.isOnBounce() || _function.isOnTickTock()) {
+			m_errorReporter.typeError(_function.location(), R"(receiver, fallback, onBounce and onTickTock functions can't be marked as internalMsg/externalMsg.)");
+		}
+	}
+
 	if (_function.isPublic() && !_function.isOnBounce())
 	{
 		for (const auto& params : {_function.parameters(), _function.returnParameters()}) {
@@ -1253,6 +1265,18 @@ void TypeChecker::endVisit(EmitStatement const& _emit)
 		dynamic_cast<FunctionType const&>(*type(_emit.eventCall().expression())).kind() != FunctionType::Kind::Event
 	)
 		m_errorReporter.typeError(_emit.eventCall().expression().location(), "Expression has to be an event invocation.");
+
+	const std::vector<ASTPointer<Expression>>& options = _emit.options();
+	const std::vector<ASTPointer<ASTString>>& names = _emit.names();
+	for (std::size_t i = 0; i < options.size(); ++i) {
+		const std::string name = *names.at(i);
+		Expression const* opt = options.at(i).get();
+		if (name == "dest") {
+			expectType(*opt, *TypeProvider::address());
+		} else {
+			m_errorReporter.typeError(_emit.location(), "Unknown option " + name + ". Only option \"dest\" is supported.");
+		}
+	}
 }
 
 namespace
@@ -3157,7 +3181,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				typeCheckTVMBuildStateInit(_functionCall, hasName, findName);
 				break;
 			}
-			case FunctionType::Kind::TVMTransfer: {
+			case FunctionType::Kind::AddressTransfer: {
 				bool hasValue = false;
 				if (!argumentNames.empty()) {
 					hasValue = std::any_of(argumentNames.begin(), argumentNames.end(),

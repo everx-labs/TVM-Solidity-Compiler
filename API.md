@@ -44,6 +44,8 @@ contract development.
     * [\<TvmBuilder\>.remBitsAndRefs()](#tvmbuilderrembitsandrefs)
     * [\<TvmBuilder\>.depth()](#tvmbuilderdepth)
     * [\<TvmBuilder\>.store()](#tvmbuilderstore)
+    * [\<TvmBuilder\>.storeOnes()](#tvmbuilderstoreones)
+    * [\<TvmBuilder\>.storeZeroes()](#tvmbuilderstorezeroes)
     * [\<TvmBuilder\>.storeSigned()](#tvmbuilderstoresigned)
     * [\<TvmBuilder\>.storeUnsigned()](#tvmbuilderstoreunsigned)
     * [\<TvmBuilder\>.storeRef()](#tvmbuilderstoreref)
@@ -139,8 +141,9 @@ contract development.
   * [Function mutability: pure, view and default](#function-mutability-pure-view-and-default)
   * [Keyword inline](#keyword-inline)
   * [functionID()](#functionid)
+  * [internalMsg and externalMsg](#internalmsg-and-externalmsg)
 * [Events and return](#events-and-return)
-  * [extAddr](#extaddr)
+  * [emit](#emit)
   * [return](#return)
 * [External function calls](#external-function-calls)
 * [Delete variables](#delete-variables)
@@ -149,6 +152,7 @@ contract development.
     * [msg.value](#msgvalue)
     * [msg.currencies](#msgcurrencies)
     * [msg.pubkey()](#msgpubkey)
+    * [msg.isInternal, msg.isExternal and msg.isTickTock](#msgpubkey)
     * [msg.createdAt](#msgcreatedat)
     * [msg.data](#msgdata)
   * [**tvm** namespace](#tvm-namespace)
@@ -623,6 +627,22 @@ builder.store(a, b, uint(33));
 
 See also: [\<TvmSlice\>.decode()](#tvmslicedecode).
 
+##### \<TvmBuilder\>.storeOnes()
+
+```TVMSolidity
+<TvmBuilder>.storeOnes(uint n);
+```
+
+Stores `n` binary ones into `Builder`.
+
+##### \<TvmBuilder\>.storeZeroes()
+
+```TVMSolidity
+<TvmBuilder>.storeZeroes(uint n);
+```
+
+Stores `n` binary zeroes into `Builder`.
+
 ##### \<TvmBuilder\>.storeSigned()
 
 ```TVMSolidity
@@ -893,7 +913,7 @@ This expression must have an unsigned integer type.
 <struct>.unpack() returns (TypeA /*a*/, TypeB /*b*/, ...);
 ```
 
-Unpacks all values stored in the struct.
+Unpacks all members stored in the struct.
 
 Example:
 
@@ -1023,12 +1043,18 @@ Returns byte length of the string data.
 ##### \<string\>.substr()
 
 ```TVMSolidity
-<string>.substr(uint from, int count) returns (string);
+<string>.substr(uint from[, uint count]) returns (string);
 ```
 
 Returns a substring starting from the byte with number **from** with byte length **count**.  
-!Note: if count is set to -1, then the new string will be cut from the **from** byte to the end
+**Note**: if count is not set, then the new string will be cut from the **from** byte to the end
 of the string.
+
+```TVMSolidity
+string long = "0123456789";
+string a = long.substr(1, 2); // a = "12"
+string b = long.substr(6); // b = "6789"
+```
 
 ##### \<string\>.append()
 
@@ -1110,7 +1136,9 @@ require(!status, 116);
 
 #### address
 
-**address** represents different types of TVM addresses: **addr_none**, **addr_extern**, **addr_std** and **addr_var**. TON Solidity compiler expands **address** type with the following members and functions:
+**address** represents different types of TVM addresses: **addr_none**, **addr_extern**,
+**addr_std** and **addr_var**. TON Solidity compiler expands **address** type with the following
+members and functions:
 
 ##### Object creating
 
@@ -1236,7 +1264,19 @@ Check whether this **address** is of type **addr_none**.
 <address>.unpack() returns (int8 /*wid*/, uint256 /*value*/);
 ```
 
-If `<address>` is **addr_std** then returns workchain id **wid** and address **value**. Otherwise, throws exception.
+Parses `<address>` containing a valid `MsgAddressInt` (`addr_std` or `addr_var`), applies rewriting
+from the anycast (if present) to the same-length prefix of the address, and returns both the
+workchain `wid` and the 256-bit address `value`. If the address `value` is not 256-bit, or if
+`<address>` is not a valid serialization of `MsgAddressInt`, throws a cell deserialization
+exception.
+
+It's wrapper for opcode `REWRITESTDADDR`.
+
+Example:
+
+```TVMSolidity
+(int8 wid, uint addr) = address(this).unpack();
+```
 
 ##### \<address\>.transfer()
 
@@ -1375,7 +1415,7 @@ this function returns an empty optional.
 ```
 
 Computes the minimal (maximal) key in the mapping that is lexicographically
-greater (less) than **key** and returns an optional value containing that
+greater (less) then **key** and returns an optional value containing that
 key and the associated value. Returns an empty optional if there is no such key.
 If KeyType is an integer type, argument for this functions can not possibly fit KeyType.
 
@@ -1894,7 +1934,7 @@ contract Bomber {
 ##### fallback
 
 **fallback** function is called when a body of an inbound internal/external message in such cases:
-1. The message contains a function id than the contract doesn't contain.
+1. The message contains a function id that the contract doesn't contain.
 2. Bit length of message between 1 and 31 (including).
 3. Bit length of message equals to zero, but the message contains reference(s).
 
@@ -1928,7 +1968,7 @@ contract ContractB {
     // that messages except the last one.
     function g(address addr) public pure {
         tvm.accept();
-        // The message contains a function id than the contract doesn't contain.
+        // The message contains a function id that the contract doesn't contain.
         // There is wrong casting to ContractAnother. `addr` is ContractA's address.
         ContractAnother(addr).sum{value: 1 ton}(2, 2);
 
@@ -1967,12 +2007,9 @@ onBounce(TvmSlice body) external {
 `onBounce` function is executed when contract receives a bounced inbound internal message.
 The message is generated by the network if the contract sends an internal message with `bounce: true`and
  * called contract doesn't exist;
- * called contract fails at compute phase (not at action phase!).
+ * called contract fails at storage/credit/computing phase (not at action phase!).
 
-The message is generated only if the remaining message value is enough for that.
-
-**Note:** if called contract fails before compute phase then a bounced internal message is not
-generated.
+The message is generated only if the remaining message value is enough for sending one back.
 
 `body` is empty or contains at most **256** data bits of the original message (without references).
 The function id takes **32** bits and parameters can take at most **224** bits.
@@ -2109,23 +2146,50 @@ function functionName() public pure functionID(123) {
 }
  ```
 
+#### internalMsg and externalMsg
+
+Keyword `internalMsg` and `externalMsg` specify which transactions the function can handle.
+If the function marked by keyword `internalMsg` is called by external message, the function throws
+an exception with code 71.
+If the function marked by keyword `externalMsg` is called by internal message, the function throws an
+exception with code 71.
+
+Example:
+```
+function f() public externalMsg { // this function receives only external messages 
+    /*...*/
+}
+
+// Note: keyword `external` specifies function visibility
+function ff() external externalMsg { // this function receives only external messages also  
+    /*...*/
+}
+
+function g() public internalMsg { // this function receives only internal messages
+    /*...*/
+}
+
+// These function receives internal and external messages.
+function fun() public { /*...*/ }
+```
+
 ### Events and return
 
-#### extAddr
+#### emit
 
-`emit` statement sends an external outbound message. `extAddr` suffix sets the destination address of the
-message. The address must be of **addr_extern** type.
+`emit` statement sends an external outbound message. Use `{dest: ...}`to set destination address.
+The address must be of **addr_extern** type.
 
-If `extAddr` is not used, the destination address is set to **addr_none**.
+If option `dest` is not used, the destination address is set to **addr_none**.
 
 Example:
 
 ```TVMSolidity
-event Sum(uint a, uint b, uint sum);
+event SomethingIsReceived(uint a, uint b, uint sum);
 ...
 address addr = address.makeAddrExtern(...);
-emit EventName(2, 8, 10).extAddr(addr); // dest address is set
-emit EventName(10, 15, 25); // dest address == addr_none
+emit SomethingIsReceived{dest: addr}(2, 8, 10); // dest address is set
+emit SomethingIsReceived(10, 15, 25); // dest address == addr_none
 ```
 
 #### return
@@ -2323,7 +2387,10 @@ require(b.refs() == 0);
 msg.value returns (uint128);
 ```
 
-Balance of the inbound message in nanotons.
+Returns:
+ * Balance of the inbound message in nanotons for internal message.
+ * 0 for external message.
+ * Undefined value for tick tock transaction.
 
 ##### msg.currencies
 
@@ -2344,6 +2411,11 @@ Returns sender's public key, obtained from the body of the external
 inbound message. If the message is not signed, `msg.pubkey()` returns 0. If the
 message is signed and message header ([pragma AbiHeader](#pragma-abiheader))
 does not contain `pubkey` then `msg.pubkey()` is equal to `tvm.pubkey()`.
+
+##### msg.isInternal, msg.isExternal and msg.isTickTock
+
+Returns whether the contract is called by internal or external messages or by outbound messages of
+tick/tock transactions.
 
 ##### msg.createdAt
 
@@ -2520,23 +2592,56 @@ integer index paramNumber as a cell and a boolean status.
 ##### tvm.rawReserve()
 
 ```TVMSolidity
-tvm.rawReserve(uint value,[ExtraCurrencyCollection currency,] uint8 flag);
+tvm.rawReserve(uint value, uint8 flag);
+tvm.rawReserve(uint value, ExtraCurrencyCollection currency, uint8 flag);
 ```
 
-Executes TVM instruction "RAWRESERVE" and "RAWRESERVEX". See [TVM][1].
-This command reserves some part of the contract balance.
+Creates an output action which reserves `reserve` nanotons. It is roughly equivalent to
+create an outbound message carrying `reserve` nanotons to oneself, so that the subsequent output
+actions would not be able to spend more money than the remainder. It's a wrapper for opcodes
+"RAWRESERVE" and "RAWRESERVEX". See [TVM][1].
+
+Les's denote:
+ * `original_balance` is balance of the contract before compute phase, which is equal to balance
+of the contract before the transaction minus storage fee. Note: `original_balance` doesn't include
+`msg.value` and `original_balance` is not equal to `address(this).balance`.
+ * `remaining_balance` is contract's current remaining balance at the action phase after some handled
+actions and before handing the "rawReserve" action.
+
+Let's consider how much nanotons (`reserve`) are reserved in all cases of `flag`:
+ * 0 -> `reserve = value` nanotons.
+ * 1 -> `reserve = remaining_balance - value` nanotons.
+ * 2 -> `reserve = min(value, remaining_balance)` nanotons.
+ * 3 = 2 + 1 -> `reserve = remaining_balance - min(value, remaining_balance)` nanotons.
+
+ * 4 -> `reserve = original_balance + value` nanotons.
+ * 5 = 4 + 1 -> `reserve = remaining_balance - (original_balance + value)` nanotons.
+ * 6 = 4 + 2 -> `reserve = min(original_balance + value, remaining_balance) = remaining_balance` nanotons.
+ * 7 = 4 + 2 + 1 -> `reserve = remaining_balance - min(original_balance + value, remaining_balance)` nanotons.
+
+ * 12 = 8 + 4 -> `reserve = original_balance - value` nanotons.
+ * 13 = 8 + 4 + 1 -> `reserve = remaining_balance - (original_balance - value)` nanotons.
+ * 14 = 8 + 4 + 2 -> `reserve = min(original_balance - value, remaining_balance)` nanotons.
+ * 15 = 8 + 4 + 2 + 1 -> `reserve = remaining_balance - min(original_balance - value, remaining_balance)` nanotons.
+
+All other values of `flag` are invalid.
+
+To make it clear, let's consider the order of `reserve` calculation:
+1. if `flag` has bit `+8` then `value = -value`.
+2. if `flag` has bit `+4` then `value += original_balance`.
+3. Check `value >= 0`.
+4. if `flag` has bit `+2` then `value = min(value, remaining_balance)`.
+5. if `flag` has bit `+1` then `value = remaining_balance - value`.
+6. `reserve = value`.
+7. Check `0 <= reserve <= remaining_balance`.
 
 Example:
 
 ```TVMSolidity
-tvm.rawReserve(111, 0);
-
-ExtraCurrencyCollection col;
-tvm.rawReserve(10 ton, col, 1);
-
-col[1] = 3;
-tvm.rawReserve(12 * 1e9, col, 2);
+tvm.rawReserve(1 ton, 4 + 8);
 ```
+
+See also: [23_rawReserve.sol](https://github.com/tonlabs/samples/blob/master/solidity/23_rawReserve.sol)
 
 ##### Hashing and cryptography
 
@@ -2546,9 +2651,10 @@ tvm.rawReserve(12 * 1e9, col, 2);
 tvm.hash(TvmCell cellTree) returns (uint256);
 tvm.hash(string data) returns (uint256);
 tvm.hash(bytes data) returns (uint256);
+tvm.hash(TvmSlice data) returns (uint256);
 ```
 
-Executes TVM instruction "HASHCU" ([TVM][1] - A.11.6. - F900).
+Executes TVM instruction "HASHCU" or "HASHSU" ([TVM][1] - A.11.6. - F900).
 It computes the representation hash of a given argument and returns
 it as a 256-bit unsigned integer. For `string` and `bytes` it computes
 hash of the tree of cells, which contains data, but not data itself.
@@ -3359,7 +3465,7 @@ Generates a new pseudo-random number.
 1) Returns `uint256` number.
 2) If the first argument `limit > 0` then function returns the value in the
 range `0..limit-1`. Else if `limit < 0` then the returned value lies in range
-`limit..-1`. Else if `limit == 0` than it returns `0`.
+`limit..-1`. Else if `limit == 0` then it returns `0`.
 
 Example:
 
@@ -3457,7 +3563,7 @@ sha256(string str) returns (uint256)
 1. Compute the SHA-256 hash. If the bit length of `slice` is not divisible by eight, throws a cell
 underflow exception. References of `slice` are not used to compute the hash. Only data bits located
 in the root cell of `slice` are used.
-2. Compute the SHA-256 hash only for the first 127 bytes. If `bytes.length > 127` than `b[128],
+2. Compute the SHA-256 hash only for the first 127 bytes. If `bytes.length > 127` then `b[128],
 b[129], b[130] ...` elements are ignored.
 3. Same as for `bytes`: only the first 127 bytes are taken into account.
 
@@ -3506,6 +3612,7 @@ Solidity runtime error codes:
 * 68 - There is no config parameter 20 or 21.
 * 69 - Calculating zero to the power of zero (`0**0` in solidity style or `0^0`).
 * 70 - `string` method `substr` was called with substr longer than the whole string.
+* 71 - function marked by `externalMsg`/`internalMsg` called by internal/external message.
 
 ### Division and rounding
 

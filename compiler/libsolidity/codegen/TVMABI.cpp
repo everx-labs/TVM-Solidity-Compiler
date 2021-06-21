@@ -200,7 +200,7 @@ std::vector<const FunctionDefinition *> TVMABI::publicFunctions(ContractDefiniti
 
 	for (auto c : contract.annotation().linearizedBaseContracts) {
 		for (const auto &_function : c->definedFunctions()) {
-			if (_function->isPublic() && !isTvmIntrinsic(_function->name()) && !_function->isConstructor() &&
+			if (_function->isPublic() && !_function->isConstructor() &&
 				!_function->isReceive() && !_function->isFallback() && !_function->isOnBounce() && !_function->isOnTickTock())
 				publicFunctions.push_back(_function);
 		}

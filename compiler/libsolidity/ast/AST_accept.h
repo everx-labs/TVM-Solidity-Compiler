@@ -712,8 +712,12 @@ void Throw::accept(ASTConstVisitor& _visitor) const
 
 void EmitStatement::accept(ASTVisitor& _visitor)
 {
-	if (_visitor.visit(*this))
+	if (_visitor.visit(*this)) {
 		m_eventCall->accept(_visitor);
+		for (const ASTPointer<Expression>& opt : m_options) {
+			opt->accept(_visitor);
+		}
+	}
 	_visitor.endVisit(*this);
 }
 
@@ -721,8 +725,9 @@ void EmitStatement::accept(ASTConstVisitor& _visitor) const
 {
 	if (_visitor.visit(*this)) {
 		m_eventCall->accept(_visitor);
-		if (m_extAddress)
-			m_extAddress->accept(_visitor);
+		for (const ASTPointer<Expression>& opt : m_options) {
+			opt->accept(_visitor);
+		}
 	}
 	_visitor.endVisit(*this);
 }

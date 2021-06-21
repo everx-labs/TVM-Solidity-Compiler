@@ -88,13 +88,14 @@ void TVMConstructorCompiler::generateConstructors() {
 		dfs(c);
 	}
 
-	if (linearizedBaseContracts[0]->constructor() == nullptr) {
+	FunctionDefinition const* constructor = linearizedBaseContracts[0]->constructor();
+	if (constructor == nullptr) {
 		m_pusher.push(-1, "ENDS");
 	} else {
-		vector<Type const*> types = getParams(linearizedBaseContracts[0]->constructor()->parameters()).first;
+		vector<Type const*> types = getParams(constructor->parameters()).first;
 		ChainDataDecoder{&m_pusher}.decodePublicFunctionParameters(types, false);
-		m_pusher.getStack().change(-static_cast<int>(linearizedBaseContracts[0]->constructor()->parameters().size()));
-		for (const ASTPointer<VariableDeclaration>& variable: linearizedBaseContracts[0]->constructor()->parameters()) {
+		m_pusher.getStack().change(-static_cast<int>(constructor->parameters().size()));
+		for (const ASTPointer<VariableDeclaration>& variable: constructor->parameters()) {
 			auto name = variable->name();
 			m_pusher.push(0, string(";; param: ") + name);
 			m_pusher.getStack().add(variable.get(), true);
@@ -145,9 +146,8 @@ void TVMConstructorCompiler::generateConstructors() {
 
 void TVMConstructorCompiler::c4ToC7WithMemoryInitAndConstructorProtection() {
 	// copy c4 to c7
-	m_pusher.getGlob(TvmConst::C7::IsInit);
+	m_pusher.was_c4_to_c7_called();
 	m_pusher.push(-1, ""); // fix stack
-	m_pusher.push(0, "ISNULL");
 
 	m_pusher.startIfRef();
 	m_pusher.pushCall(0, "c4_to_c7_with_init_storage");
@@ -158,7 +158,7 @@ void TVMConstructorCompiler::c4ToC7WithMemoryInitAndConstructorProtection() {
 ;; constructor protection
 GETGLOB 6
 THROWIF ConstructorIsCalledTwice
-PUSHINT 1
+TRUE
 SETGLOB 6
 ;; end constructor protection
 )";
@@ -241,7 +241,7 @@ TVMContractCompiler::generateContractCode(
 	for (ContractDefinition const* c : contract->annotation().linearizedBaseContracts) {
 		for (FunctionDefinition const *_function : c->definedFunctions()) {
 			if (_function->isConstructor() ||
-				!_function->isImplemented() || isTvmIntrinsic(_function->name()) ||
+				!_function->isImplemented() ||
 				_function->isInline()) {
 				continue;
 			}
@@ -321,12 +321,12 @@ TVMContractCompiler::generateContractCode(
 		}
 		{
 			StackPusherHelper pusher{&ctx};
-			TVMFunctionCompiler::generateC4ToC7(pusher, contract, false);
+			TVMFunctionCompiler::generateC4ToC7(pusher);
 			optimize_and_append_code(code, pusher);
 		}
 		{
 			StackPusherHelper pusher{&ctx};
-			TVMFunctionCompiler::generateC4ToC7(pusher, contract, true);
+			TVMFunctionCompiler::generateC4ToC7WithInitMemory(pusher);
 			optimize_and_append_code(code, pusher);
 		}
 		{
