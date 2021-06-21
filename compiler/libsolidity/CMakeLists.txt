@@ -90,8 +90,6 @@ set(sources
 	codegen/TVMFunctionCompiler.hpp
 	codegen/TVMInlineFunctionChecker.cpp
 	codegen/TVMInlineFunctionChecker.hpp
-	codegen/TVMIntrinsics.cpp
-	codegen/TVMIntrinsics.hpp
 	codegen/TVMPusher.cpp
 	codegen/TVMPusher.hpp
 	codegen/TVMStructCompiler.cpp

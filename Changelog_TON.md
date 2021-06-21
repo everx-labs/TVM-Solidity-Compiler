@@ -1,3 +1,16 @@
+### 0.46.0 (2021-06-18)
+
+Compiler features:
+ * Support `internalMsg`/`externalMsg` specifiers for public and external functions
+ * Support `msg.isInternal`, `msg.isExternal` and `msg.isTickTock`
+ * Support `storeOnes` and `storeZeroes` for `TvmBuilder`.
+
+Breaking change:
+ * Change behavior of function `<string>.substr()`.
+ * Use `{dest: ...}` instead of `.extAddr(...)` in emit statement to set destination address.
+
+Gas optimizations.
+
 ### 0.45.0 (2021-05-30)
 
 Compiler features:

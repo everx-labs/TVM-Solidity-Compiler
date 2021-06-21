@@ -177,8 +177,6 @@ struct TypeInfo {
 	}
 };
 
-bool isTvmIntrinsic(const string& name);
-
 const Type* getType(const Expression* expr);
 
 const Type* getType(const VariableDeclaration* var);

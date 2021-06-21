@@ -79,7 +79,6 @@ protected:
 		const std::function<void()>& pushSendrawmsgFlag,
 		const int argQty
 	);
-	bool checkTvmIntrinsic();
 
 	enum StateInitMembers {
 		SplitDepth,

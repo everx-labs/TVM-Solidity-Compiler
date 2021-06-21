@@ -111,10 +111,6 @@ int bitsForEnum(size_t val_count) {
 	return 8 * bytes;
 }
 
-bool isTvmIntrinsic(const string &name) {
-	return boost::starts_with(name, "tvm_");
-}
-
 const Type *getType(const Expression *expr) {
 	return expr->annotation().type;
 }

@@ -76,7 +76,7 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 				}
 			}
 
-			if (f->isConstructor() || f->isReceive() || f->isFallback() || f->isOnTickTock() || isTvmIntrinsic(f->name())) {
+			if (f->isConstructor() || f->isReceive() || f->isFallback() || f->isOnTickTock()) {
 				continue;
 			}
 
@@ -103,6 +103,22 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 								f->location(),
 								SecondarySourceLocation().append("Declaration of the base function: ", baseFunction->location()),
 								"Both override and base functions should be marked as responsible or not");
+					}
+
+					if ((!f->functionID().has_value() && baseFunction->functionID()) || (f->functionID().has_value() && !baseFunction->functionID())) {
+						m_errorReporter.typeError(
+								f->location(),
+								SecondarySourceLocation().append("Declaration of the base function: ",
+																 baseFunction->location()),
+								"Both override and base functions should have functionID if it is defined for one of them.");
+					}
+
+					if ((f->internalMsg() ^ baseFunction->internalMsg()) || (f->externalMsg() ^ baseFunction->externalMsg())) {
+						m_errorReporter.typeError(
+								f->location(),
+								SecondarySourceLocation().append("Declaration of the base function: ",
+																 baseFunction->location()),
+								"Both override and base functions should be marked as internalMsg or externalMsg.");
 					}
 				}
 			}
@@ -131,62 +147,6 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 				}
 			}
 		}
-	}
-}
-
-void TVMTypeChecker::checkTvmIntrinsic(FunctionDefinition const *f) {
-	std::map<std::string, std::string> deprecatedFunctionsReplacement;
-
-	deprecatedFunctionsReplacement["tvm_sender_pubkey"] = "msg.pubkey()";
-	deprecatedFunctionsReplacement["tvm_my_public_key"] = "tvm.pubkey()";
-	deprecatedFunctionsReplacement["tvm_chksignu"] = "tvm.checkSign()";
-	deprecatedFunctionsReplacement["tvm_hashcu"] = "tvm.hash()";
-	deprecatedFunctionsReplacement["tvm_accept"] = "tvm.accept()";
-	deprecatedFunctionsReplacement["tvm_unpack_address"] = "address.unpack()";
-	deprecatedFunctionsReplacement["tvm_make_address"] = "address.makeAddrStd()";
-	deprecatedFunctionsReplacement["tvm_transfer"] = "address.transfer()";
-	deprecatedFunctionsReplacement["tvm_make_zero_address"] = "address.makeAddrStd()";
-	deprecatedFunctionsReplacement["tvm_setcode"] = "tvm.setcode()";
-	deprecatedFunctionsReplacement["tvm_is_zero_address"] = "address.isNone()";
-	deprecatedFunctionsReplacement["tvm_zero_ext_address"] = "address.makeAddrNone()";
-	deprecatedFunctionsReplacement["tvm_make_external_address"] = "address.makeAddrExtern()";
-	deprecatedFunctionsReplacement["tvm_commit"] = "tvm.commit()";
-	deprecatedFunctionsReplacement["tvm_logstr"] = "tvm.log()";
-	deprecatedFunctionsReplacement["tvm_reset_storage"] = "tvm.resetStorage()";
-	deprecatedFunctionsReplacement["tvm_config_param1"] = "tvm.configParam()";
-	deprecatedFunctionsReplacement["tvm_config_param15"] = "tvm.configParam()";
-	deprecatedFunctionsReplacement["tvm_config_param17"] = "tvm.configParam()";
-	deprecatedFunctionsReplacement["tvm_config_param34"] = "tvm.configParam()";
-	deprecatedFunctionsReplacement["tvm_build_state_init"] = "tvm.buildStateInit()";
-	deprecatedFunctionsReplacement["tvm_ignore_integer_overflow"] = "pragma ignoreIntOverflow";
-
-	if (auto it = deprecatedFunctionsReplacement.find(f->name()); it != deprecatedFunctionsReplacement.end())
-		cast_warning(*f, "Function is deprecated it will be removed from compiler soon. Use " + it->second + " instead.");
-
-	if ((contractDefinition->name() != "stdlib") && (isIn(f->name(),
-	                                                      "tvm_ldu", "tvm_ldi", "tvm_pldu", "tvm_ldmsgaddr", "tvm_pldmsgaddr",
-	                                                      "tvm_ldslice", "tvm_ldref", "tvm_lddict", "tvm_setindex", "tvm_sti",
-	                                                      "tvm_stu", "tvm_stslice", "tvm_stref", "tvm_dictuset", "tvm_dictusetb",
-	                                                      "tvm_bchkbitsq", "tvm_schkbitsq", "tvm_sbitrefs", "tvm_srefs",
-	                                                      "tvm_brembits", "tvm_get_slice_from_integer_dict",
-	                                                      "tvm_tlen", "tvm_ends", "tvm_newc", "tvm_endc", "tvm_c4_key_length",
-	                                                      "tvm_exception_replayprotection",
-	                                                      "tvm_exception_unpackaddress", "tvm_exception_insertpubkey", "tvm_stbr",
-	                                                      "tvm_default_replay_protection_interval", "tvm_newdict", "tvm_c4",
-	                                                      "tvm_c7", "tvm_first", "tvm_second", "tvm_third", "tvm_index", "tvm_sendrawmsg",
-	                                                      "tvm_ubitsize", "tvm_stdict", "tvm_tpush", "tvm_setthird", "tvm_stbrefr",
-	                                                      "tvm_tuple0", "tvm_popctr", "tvm_sdskipfirst", "tvm_dictudel", "tvm_isnull",
-	                                                      "tvm_srempty", "tvm_sdempty", "tvm_pldref_and_to_slice",
-	                                                      "tvm_hashsu", "tvm_subslice", "tvm_pldslice", "tvm_selector_call",
-	                                                      "tvm_sempty", "tvm_bremrefs", "tvm_sbits", "tvm_bbits", "tvm_pldrefvar",
-	                                                      "tvm_push_fallback_func_id", "tvm_push_on_bounce_id", "tvm_push_minus_one",
-	                                                      "tvm_stzeroes", "tvm_stones", "tvm_stgrams", "tvm_skipdict",
-	                                                      "tvm_plddicts", "tvm_getparam", "tvm_plddict", "tvm_iszero",
-	                                                      "tvm_poproot", "tvm_throwany", "tvm_parsemsgaddr", "tvm_reverse_push",
-	                                                      "tvm_skip_and_load_uint256_in_slice_copy", "tvm_unpackfirst4",
-	                                                      "tvm_stack"
-	))) {
-		m_errorReporter.warning(f->location(), "Function is internal, use at your own risk.");
 	}
 }
 
@@ -237,9 +197,6 @@ bool TVMTypeChecker::visit(const FunctionDefinition &f) {
 
 	if (f.isInline() && f.isPublic()) {
 		m_errorReporter.typeError(f.location(), "Inline function should have private or internal visibility");
-	}
-	if (isTvmIntrinsic(f.name())) {
-		checkTvmIntrinsic(&f);
 	}
 	if (f.name() == "onCodeUpgrade") {
 		check_onCodeUpgrade(f);

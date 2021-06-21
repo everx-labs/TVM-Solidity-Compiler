@@ -27,7 +27,8 @@ namespace TvmConst {
 	}
 	namespace C7 {
 		const int MyCode = 1;
-		const int IsInit = 8;
+		const int TvmPubkey = 2;
+		const int ReplayProtTime = 3;
 		const int ReturnParams = 4;
 		namespace ReturnParam {
 			const int Bounce = 1;
@@ -83,6 +84,7 @@ namespace TvmConst {
 		const int NoConfigParam20Or21 = 68;
 		const int Exponent00 = 69;
 		const int TooLongSubstr = 70;
+		const int ByExtOrByIntMsgOnly = 71;
 	}
 
 	namespace FunctionId {

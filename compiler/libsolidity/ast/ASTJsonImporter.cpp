@@ -662,13 +662,15 @@ ASTPointer<Throw> ASTJsonImporter::createThrow(Json::Value const&  _node)
 	);
 }
 
-ASTPointer<EmitStatement> ASTJsonImporter::createEmitStatement(Json::Value const&  _node)
+ASTPointer<EmitStatement> ASTJsonImporter::createEmitStatement(Json::Value const&  /*_node*/)
 {
-	return createASTNode<EmitStatement>(
-		_node,
-		nullOrASTString(_node, "documentation"),
-		createFunctionCall(member(_node, "eventCall"))
-	);
+	// TODO use createFunctionCallOptions or see createReturn
+	solUnimplemented("");
+//	return createASTNode<EmitStatement>(
+//		_node,
+//		nullOrASTString(_node, "documentation"),
+//		createFunctionCall(member(_node, "eventCall"))
+//	);
 }
 
 ASTPointer<VariableDeclarationStatement> ASTJsonImporter::createVariableDeclarationStatement(Json::Value const& _node)

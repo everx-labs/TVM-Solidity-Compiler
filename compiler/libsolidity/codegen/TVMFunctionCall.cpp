@@ -19,7 +19,6 @@
 #include "DictOperations.hpp"
 #include "TVMFunctionCall.hpp"
 #include "TVMExpressionCompiler.hpp"
-#include "TVMIntrinsics.hpp"
 #include "TVMStructCompiler.hpp"
 
 #include <boost/algorithm/string.hpp>
@@ -65,7 +64,6 @@ bool FunctionCallCompiler::compile() {
 	if ((ma != nullptr && libraryCall(*ma)) ||
 		checkForMappingOrCurrenciesMethods() ||
 		checkNewExpression() ||
-		checkTvmIntrinsic() ||
 		checkAddressThis() ||
 		checkSolidityUnits() ||
 		checkLocalFunctionOrLibCallOrFuncVarCall()) {
@@ -1400,7 +1398,13 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 	if (boost::starts_with(_node.memberName(), "store")) {
 		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true);
 
-		if (_node.memberName() == "storeRef") {
+		if (_node.memberName() == "storeOnes") {
+			pushArgs();
+			m_pusher.push(-2 + 1, "STONES");
+		} else if (_node.memberName() == "storeZeros") {
+			pushArgs();
+			m_pusher.push(-2 + 1, "STZEROES");
+		} else if (_node.memberName() == "storeRef") {
 			pushArgAndConvert(0);
 			Type::Category cat = m_arguments.at(0)->annotation().type->category();
 			switch (cat) {
@@ -1791,7 +1795,7 @@ void FunctionCallCompiler::addressMethod() {
 	} else if (_node->memberName() == "unpack") {
 		m_pusher.push(0, ";; address.unpack()");
 		acceptExpr(&_node->expression());
-		m_pusher.pushMacroCallInCallRef(-1 + 2, "unpack_address_macro");
+		m_pusher.push(-1 + 2, "REWRITESTDADDR");
 	} else if (_node->memberName() == "getType") {
 		m_pusher.push(0, ";; address.getType()");
 		acceptExpr(&_node->expression());
@@ -2025,15 +2029,26 @@ void FunctionCallCompiler::rndFunction(MemberAccess const &_node) {
 
 bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 	if (_node.memberName() == "pubkey") { // tvm.pubkey
-		m_pusher.push(+1, "GETGLOB 2");
+		m_pusher.getGlob(TvmConst::C7::TvmPubkey);
 	} else if (_node.memberName() == "setPubkey") { // tvm.setPubkey
 		pushArgs();
-		m_pusher.push(-1, "SETGLOB 2");
+		m_pusher.setGlob(TvmConst::C7::TvmPubkey);
 	} else if (_node.memberName() == "accept") { // tvm.accept
 		m_pusher.push(0, "ACCEPT");
 	} else if (_node.memberName() == "hash") { // tvm.hash
 		pushArgs();
-		m_pusher.push(0, "HASHCU");
+		switch (m_arguments.at(0)->annotation().type->category()) {
+			case Type::Category::TvmCell:
+			case Type::Category::Array:
+			case Type::Category::StringLiteral:
+				m_pusher.push(0, "HASHCU");
+				break;
+			case Type::Category::TvmSlice:
+				m_pusher.push(0, "HASHSU");
+				break;
+			default:
+				solUnimplemented("");
+		}
 	} else if (_node.memberName() == "checkSign") { // tvm.checkSign
 		size_t cnt = m_arguments.size();
 		if (getType(m_arguments[0].get())->category() == Type::Category::TvmSlice) {
@@ -2314,7 +2329,13 @@ CALLREF {
 		boost::replace_all(code, "PrivateOpcode1", TvmConst::Selector::PrivateOpcode1());
 		m_pusher.pushLines(code);
 		m_pusher.push(-2 + 1, ""); // fix stack
-
+	} else if (_node.memberName() == "replayProtTime") {
+		m_pusher.getGlob(TvmConst::C7::ReplayProtTime);
+	} else if (_node.memberName() == "setReplayProtTime") {
+		pushArgs();
+		m_pusher.setGlob(TvmConst::C7::ReplayProtTime);
+	} else if (_node.memberName() == "replayProtInterval") {
+		m_pusher.pushInt(TvmConst::Message::ReplayProtection::Interval);
 	} else {
 		return false;
 	}
@@ -3078,11 +3099,6 @@ bool FunctionCallCompiler::checkNewExpression() {
 
 	solAssert(size + 1 == m_pusher.getStack().size(), "");
 	return true;
-}
-
-bool FunctionCallCompiler::checkTvmIntrinsic() {
-	IntrinsicsCompiler ic(m_pusher);
-	return ic.checkTvmIntrinsic(m_functionCall);
 }
 
 bool FunctionCallCompiler::structMethodCall() {

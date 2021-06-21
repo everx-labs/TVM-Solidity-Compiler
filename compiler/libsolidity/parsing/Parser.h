@@ -78,6 +78,8 @@ private:
 		std::optional<uint32_t> functionID{};
 		bool isInline = false;
 		bool responsible = false;
+		bool externalMsg = false;
+		bool internalMsg = false;
 	};
 
 	///@{

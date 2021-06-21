@@ -481,7 +481,7 @@ MemberList::MemberMap AddressType::nativeMembers(ContractDefinition const*) cons
 			TypePointers{},
 			strings{string("value"), string("bounce"), string("flag"), string("body"), string("currencies")},
 			strings{},
-			FunctionType::Kind::TVMTransfer,
+			FunctionType::Kind::AddressTransfer,
 			true,
 			StateMutability::Pure
 	));
@@ -2921,11 +2921,16 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMLoadSlice: id += "tvmloadslice"; break;
 	case Kind::TVMPubkey: id += "tvmpubkey"; break;
 	case Kind::TVMRawConfigParam: id += "tvmrawconfigparam"; break;
+	case Kind::TVMReplayProtInterval: id += "tvmreplayprotinterval"; break;
+	case Kind::TVMReplayProtTime: id += "tvmreplayprottime"; break;
 	case Kind::TVMResetStorage: id += "tvmresetstorage"; break;
 	case Kind::TVMSendMsg: id += "tvmsendmsg"; break;
 	case Kind::TVMSetcode: id += "tvmsetcode"; break;
 	case Kind::TVMSetPubkey: id += "tvmsetpubkey"; break;
-	case Kind::TVMTransfer: id += "tvmtransfer"; break;
+	case Kind::TVMSetReplayProtTime: id += "tvmsetreplayprottime"; break;
+
+
+	case Kind::AddressTransfer: id += "tvmtransfer"; break;
 
 	case Kind::TXtimestamp: id += "txtimestamp"; break;
 
@@ -3935,6 +3940,9 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"data", TypeProvider::tvmslice()},
 			{"sig", TypeProvider::fixedBytes(4)},
 			{"currencies", TypeProvider::extraCurrencyCollection()},
+			{"isExternal", TypeProvider::boolean()},
+			{"isInternal", TypeProvider::boolean()},
+			{"isTickTock", TypeProvider::boolean()},
 		});
 	case Kind::TVM: {
 		MemberList::MemberMap members = {
@@ -3950,7 +3958,12 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"resetStorage", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMResetStorage, false, StateMutability::NonPayable)},
 			{"log", TypeProvider::function(strings{"string"}, strings{}, FunctionType::Kind::LogTVM, false, StateMutability::Pure)},
 			{"exit", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit, false, StateMutability::Pure)},
-			{"exit1", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit1, false, StateMutability::Pure)}
+			{"exit1", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit1, false, StateMutability::Pure)},
+
+			// for stdlib
+			{"replayProtTime", TypeProvider::function({}, {"uint64"}, FunctionType::Kind::TVMReplayProtTime, false, StateMutability::Pure)},
+			{"setReplayProtTime", TypeProvider::function({"uint64"}, {}, FunctionType::Kind::TVMSetReplayProtTime, false, StateMutability::Pure)},
+			{"replayProtInterval", TypeProvider::function({}, {"uint64"}, FunctionType::Kind::TVMReplayProtInterval, false, StateMutability::Pure)},
 		};
 		members.emplace_back("rawReserve", TypeProvider::function(
 				TypePointers{TypeProvider::uint256(), TypeProvider::extraCurrencyCollection(),  TypeProvider::uint256()},
@@ -4005,6 +4018,14 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				TypePointers{TypeProvider::uint256()},
 				strings{string()},
 				strings{string()},
+				FunctionType::Kind::TVMHash,
+				false, StateMutability::Pure
+		));
+		members.emplace_back("hash", TypeProvider::function(
+				{TypeProvider::tvmslice()},
+				{TypeProvider::uint256()},
+				{{}},
+				{{}},
 				FunctionType::Kind::TVMHash,
 				false, StateMutability::Pure
 		));
@@ -4922,6 +4943,17 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ContractDefinition *) 
 			FunctionType::Kind::TVMBuilderMethods,
 			false, StateMutability::Pure
 	));
+
+	for (const std::string func : {"storeOnes", "storeZeros"}) {
+		members.emplace_back(func, TypeProvider::function(
+				{TypeProvider::uint256()},
+				{},
+				{{}},
+				{},
+				FunctionType::Kind::TVMBuilderMethods,
+				false, StateMutability::Pure
+		));
+	}
 
 	members.emplace_back("store", TypeProvider::function(
 			TypePointers{},

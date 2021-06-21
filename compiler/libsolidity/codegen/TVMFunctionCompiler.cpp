@@ -93,111 +93,96 @@ bool TVMFunctionCompiler::allJmp() const {
 	});
 }
 
-CodeLines TVMFunctionCompiler::loadFromC4() {
-	StackPusherHelper pusherHelper(&m_pusher.ctx());
+void TVMFunctionCompiler::generateC4ToC7(StackPusherHelper& pusher) {
+	pusher.generateMacro("c4_to_c7");
 
-
-	pusherHelper.pushLines(R"(LDU 256      ; pubkey c4)");
-	if (m_pusher.ctx().storeTimestampInC4()) {
-		pusherHelper.pushLines(R"(LDU 64      ; pubkey timestamp c4)");
+	pusher.push(0, "PUSHROOT");
+	pusher.push(0, "CTOS");
+	pusher.pushLines(R"(LDU 256      ; pubkey c4)");
+	if (pusher.ctx().storeTimestampInC4()) {
+		pusher.pushLines(R"(LDU 64      ; pubkey timestamp c4)");
 	}
-	pusherHelper.pushLines(R"(
-LDU 1       ; pubkey [timestamp] constructor_flag memory
+	pusher.pushLines(R"(
+LDI 1       ; pubkey [timestamp] constructor_flag memory
 )");
-	if (!pusherHelper.ctx().notConstantStateVariables().empty()) {
-		pusherHelper.getStack().change(+1); // slice
-		pusherHelper.structCompiler().sliceToStateVarsToC7();
+	if (!pusher.ctx().notConstantStateVariables().empty()) {
+		pusher.getStack().change(+1); // slice
+		pusher.structCompiler().sliceToStateVarsToC7();
 	} else {
-		pusherHelper.push(0, "ENDS");
+		pusher.push(0, "ENDS");
 	}
 
-	pusherHelper.push(+1, "TRUE");
-	pusherHelper.setGlob(TvmConst::C7::IsInit);
-	pusherHelper.push(0, "; pubkey [timestamp] constructor_flag");
-	pusherHelper.pushLines(R"(
+	pusher.push(0, "; pubkey [timestamp] constructor_flag");
+	pusher.pushLines(R"(
 SETGLOB 6   ; pubkey [timestamp]
 )");
 
-	if (m_pusher.ctx().storeTimestampInC4()) {
-		pusherHelper.pushLines(R"(SETGLOB 3   ; D)");
+	if (pusher.ctx().storeTimestampInC4()) {
+		pusher.pushLines("SETGLOB 3   ; pubkey");
 	}
 
-	pusherHelper.pushLines(R"(SETGLOB 2)");
-	return pusherHelper.code();
+	pusher.push(+1, ""); // fix stack
+	pusher.setGlob(TvmConst::C7::TvmPubkey);
+	pusher.push(0, " ");
 }
 
-void TVMFunctionCompiler::generateC4ToC7(StackPusherHelper& pusher, ContractDefinition const *contract, bool withInitMemory) {
-	TVMFunctionCompiler funCompiler{pusher, contract};
-    const std::string& name = withInitMemory? "c4_to_c7_with_init_storage": "c4_to_c7";
-	pusher.generateMacro(name);
+void TVMFunctionCompiler::generateC4ToC7WithInitMemory(StackPusherHelper& pusher) {
+	TVMFunctionCompiler funCompiler{pusher, pusher.ctx().getContract()};
+	pusher.generateMacro("c4_to_c7_with_init_storage");
+
 	pusher.pushLines(R"(
 PUSHROOT
-CTOS        ; c4
+CTOS
+SBITS
+GTINT 1
 )");
-	if (withInitMemory) {
-		pusher.pushLines(R"(
-DUP        ; c4 c4
-SBITS      ; c4 bits
-GTINT 1    ; c4 bits>1
-)");
-	}
+	pusher.startContinuationFromRef();
+	pusher.push(0, "CALL $c4_to_c7$");
+	pusher.endContinuation();
 
-	if (!withInitMemory) {
-		pusher.append(funCompiler.loadFromC4());
-	} else {
-		pusher.pushCont(funCompiler.loadFromC4());
-		pusher.pushLines(R"(
-PUSHCONT {
-	PLDDICT   ; D
-)");
-		pusher.addTabs();
-		int shift = 0;
-		for (VariableDeclaration const* v : pusher.ctx().notConstantStateVariables()) {
-			pusher.push(0, "; init " + v->name());
-			if (v->isStatic()) {
-				pusher.pushInt(TvmConst::C4::PersistenceMembersStartIndex + shift++); // index
-				pusher.pushS(1); // index dict
-				pusher.getDict(getKeyTypeOfC4(), *v->type(), GetDictOperation::GetFromMapping);
-			} else {
-				pusher.pushDefaultValue(v->type());
-			}
-			pusher.setGlob(v);
+	pusher.startContinuation();
+	pusher.pushInt(0);
+	pusher.push(0, "PUSHROOT");
+	pusher.push(0, "CTOS");
+	pusher.push(0, "PLDDICT   ; D");
+
+	int shift = 0;
+	for (VariableDeclaration const* v : pusher.ctx().notConstantStateVariables()) {
+		pusher.push(0, "; init " + v->name());
+		if (v->isStatic()) {
+			pusher.pushInt(TvmConst::C4::PersistenceMembersStartIndex + shift++); // index
+			pusher.pushS(1); // index dict
+			pusher.getDict(getKeyTypeOfC4(), *v->type(), GetDictOperation::GetFromMapping);
+		} else {
+			pusher.pushDefaultValue(v->type());
 		}
-		pusher.subTabs();
-		std::string str = R"(
-	; set contract pubkey
-	PUSHINT 0
-	SWAP
-	PUSHINT 64
-	DICTUGET
-	THROWIFNOT NoPubkeyInC4
-	PLDU 256
-	SETGLOB 2
+		pusher.setGlob(v);
+	}
+	std::string str = R"(
+PUSHINT 64
+DICTUGET
+THROWIFNOT NoPubkeyInC4
+PLDU 256
+SETGLOB TvmPubkey
 
-	PUSHINT 0 ; timestamp
-	SETGLOB 3
-	PUSHINT 0 ; constructor_flag
-	SETGLOB 6
+PUSHINT 0 ; timestamp
+SETGLOB 3
+PUSHINT 0 ; constructor_flag
+SETGLOB 6
 )";
-		boost::replace_all(str, "NoPubkeyInC4", toString(TvmConst::RuntimeException::NoPubkeyInC4));
-		pusher.pushLines(str);
-		pusher.push(+1, "TRUE");
-		pusher.setGlob(TvmConst::C7::IsInit);
+	boost::replace_all(str, "NoPubkeyInC4", toString(TvmConst::RuntimeException::NoPubkeyInC4));
+	boost::replace_all(str, "TvmPubkey", toString(TvmConst::C7::TvmPubkey));
+	pusher.pushLines(str);
 
-		pusher.addTabs();
-		for (VariableDeclaration const *variable: pusher.ctx().notConstantStateVariables()) {
-			if (auto value = variable->value().get()) {
-				pusher.push(0, ";; init state var: " + variable->name());
-				funCompiler.acceptExpr(value);
-				pusher.setGlob(variable);
-			}
+	for (VariableDeclaration const *variable: pusher.ctx().notConstantStateVariables()) {
+		if (auto value = variable->value().get()) {
+			pusher.push(0, ";; init state var: " + variable->name());
+			funCompiler.acceptExpr(value);
+			pusher.setGlob(variable);
 		}
-		pusher.subTabs();
-		pusher.pushLines(R"(
-}
-IFELSE
-)");
 	}
+	pusher.endContinuation();
+	pusher.push(0, "IFELSE");
 	pusher.push(0, " ");
 }
 
@@ -603,6 +588,21 @@ void TVMFunctionCompiler::visitFunctionWithModifiers() {
 		}
 		if (isFunctionOfFirstType(m_function)) {
 			pushDefaultParameters(m_function->returnParameters());
+		}
+
+		if (m_function->externalMsg() && m_function->internalMsg()) {
+			solUnimplemented("");
+		} else if (m_function->externalMsg()) {
+			m_pusher.push(+1, "DEPTH");
+			m_pusher.push(-1 + 1, "ADDCONST -5");
+			m_pusher.push(-1 + 1, "PICK");
+			m_pusher.push(-1 + 1, "EQINT -1");
+			m_pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ByExtOrByIntMsgOnly));
+		} else if (m_function->internalMsg()) {
+			m_pusher.push(+1, "DEPTH");
+			m_pusher.push(-1 + 1, "ADDCONST -5");
+			m_pusher.push(-1 + 1, "PICK");
+			m_pusher.push(-1, "THROWIF " + toString(TvmConst::RuntimeException::ByExtOrByIntMsgOnly));
 		}
 	}
 
@@ -1439,13 +1439,15 @@ bool TVMFunctionCompiler::visit(EmitStatement const &_emit) {
 		);
 	};
 
-	if (auto externalAddress = _emit.externalAddress()) {
-		acceptExpr(externalAddress.get(), true);
-		m_pusher.sendMsg({TvmConst::ext_msg_info::dest}, {}, appendBody, nullptr, nullptr, StackPusherHelper::MsgType::ExternalOut);
-	} else {
-		m_pusher.sendMsg({}, {}, appendBody, nullptr, nullptr, StackPusherHelper::MsgType::ExternalOut);
+	std::set<int> isParamOnStack;
+	if (!_emit.names().empty()) {
+		solAssert(_emit.names().size() == 1 && *_emit.names().at(0) == "dest", "");
+		solAssert(_emit.options().size() == 1, "");
+		isParamOnStack.insert(TvmConst::ext_msg_info::dest);
+		acceptExpr(_emit.options().at(0).get(), true);
 	}
 
+	m_pusher.sendMsg(isParamOnStack, {}, appendBody, nullptr, nullptr, StackPusherHelper::MsgType::ExternalOut);
 	return false;
 }
 
@@ -1618,7 +1620,7 @@ void TVMFunctionCompiler::pushMsgPubkey() {
 		// signatureSlice hashMsgSlice msgSlice
 		m_pusher.addTabs(2);
 		m_pusher.exchange(0, 2); // msgSlice hashMsgSlice signatureSlice
-		m_pusher.getGlob(2);
+		m_pusher.getGlob(TvmConst::C7::TvmPubkey);
 		m_pusher.subTabs(2);
 		m_pusher.pushLines(R"(
 	}
@@ -1627,7 +1629,7 @@ void TVMFunctionCompiler::pushMsgPubkey() {
 		// signatureSlice msgSlice hashMsgSlice
 		m_pusher.addTabs();
 		m_pusher.push(0, "ROT"); // msgSlice hashMsgSlice signatureSlice
-		m_pusher.getGlob(2);
+		m_pusher.getGlob(TvmConst::C7::TvmPubkey);
 		m_pusher.subTabs();
 	}
 
@@ -1816,9 +1818,8 @@ bool TVMFunctionCompiler::visit(PlaceholderStatement const &) {
 void TVMFunctionCompiler::pushC4ToC7IfNeed() {
 	// c4_to_c7 if need
 	if (m_function->stateMutability() != StateMutability::Pure) {
-		m_pusher.getGlob(TvmConst::C7::IsInit);
+		m_pusher.was_c4_to_c7_called();
 		m_pusher.push(-1, ""); // fix stack
-		m_pusher.push(0, "ISNULL");
 		m_pusher.startIfRef();
 		m_pusher.pushCall(0, "c4_to_c7");
 		m_pusher.endContinuation();

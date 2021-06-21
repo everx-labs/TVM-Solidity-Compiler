@@ -740,20 +740,33 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 	if (_node.memberName() == "sender") { // msg.sender
 		m_pusher.getGlob(TvmConst::C7::SenderAddress);
 	} else if (_node.memberName() == "value") { // msg.value
-		m_pusher.pushMacroCallInCallRef(+1, "message_balance_macro");
+		m_pusher.push(+1, "DEPTH");
+		m_pusher.push(-1 + 1, "ADDCONST -2");
+		m_pusher.push(-1 + 1, "PICK");
+	} else  if (isIn(_node.memberName(), "isInternal", "isExternal", "isTickTock")) {
+		m_pusher.push(+1, "DEPTH");
+		m_pusher.push(-1 + 1, "ADDCONST -5");
+		m_pusher.push(-1 + 1, "PICK");
+		if (_node.memberName() == "isInternal") {
+			m_pusher.push(-1 + 1, "EQINT 0");
+		} else if (_node.memberName() == "isExternal") {
+			m_pusher.push(-1 + 1, "EQINT -1");
+		} else if (_node.memberName() == "isTickTock") {
+			m_pusher.push(-1 + 1, "EQINT -2");
+		} else {
+			solUnimplemented("");
+		}
 	} else  if (_node.memberName() == "createdAt") { // msg.createdAt
 		m_pusher.pushLines(R"(
 DEPTH
-PUSHINT 5
-SUB
+ADDCONST -5
 PICK
 PUSHCONT {
 	PUSHINT 0
 }
 PUSHCONT {
 	DEPTH
-	PUSHINT 3
-	SUB
+	ADDCONST -3
 	PICK
 
 	CTOS
@@ -777,16 +790,14 @@ IFELSE
 	} else if (_node.memberName() == "currencies") { // msg.currencies
 		m_pusher.pushLines(R"(
 DEPTH
-PUSHINT 5
-SUB
+ADDCONST -5
 PICK
 PUSHCONT {
 	NEWDICT
 }
 PUSHCONT {
 	DEPTH
-	PUSHINT 3
-	SUB
+	ADDCONST -3
 	PICK
 
 	CTOS
@@ -805,8 +816,7 @@ IFELSE
 	} else if (_node.memberName() == "data") {
 		m_pusher.pushLines(R"(
 DEPTH
-PUSHINT 4
-SUB
+ADDCONST -4
 PICK
 )");
 		m_pusher.push(+1, ""); // fix stack

@@ -39,7 +39,8 @@ private:
 	);
 
 public:
-	static void generateC4ToC7(StackPusherHelper& pusher, ContractDefinition const *contract, bool withInitMemory);
+	static void generateC4ToC7(StackPusherHelper& pusher);
+	static void generateC4ToC7WithInitMemory(StackPusherHelper& pusher);
 	static void generateMacro(StackPusherHelper& pusher, FunctionDefinition const* function, const std::optional<std::string>& forceName = nullopt);
 	static void generateMainExternal(StackPusherHelper& pusher, ContractDefinition const *contract);
 	static void generateMainInternal(StackPusherHelper& pusher, ContractDefinition const *contract);
@@ -65,7 +66,6 @@ protected:
 	[[nodiscard]]
 	bool allJmp() const;
 
-	CodeLines loadFromC4();
 	void emitOnPublicFunctionReturn();
 	void pushDefaultParameters(const ast_vec<VariableDeclaration>& returnParameters);
 

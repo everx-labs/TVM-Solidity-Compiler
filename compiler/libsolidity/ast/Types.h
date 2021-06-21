@@ -1165,13 +1165,15 @@ public:
 		Creation, ///< external call using CREATE
 		Send, ///< CALL, but without data and gas
 		Transfer, ///< CALL, but without data and throws on error
-		AddressIsZero, ///< .isStdZero() .isExternZero() for address
-		AddressUnpack, ///< .unpack() for address
-		AddressType, ///< .getType() for address
-		AddressIsStdAddrWithoutAnyCast, ///< .isStdAddrWithoutAnyCast  for address
-		AddressMakeAddrExtern, ///< .makeAddrExtern() for address
-		AddressMakeAddrNone, ///< .makeAddrNone() for address
-		AddressMakeAddrStd, ///< .makeAddrStd() for address
+
+		AddressIsStdAddrWithoutAnyCast, ///< address.isStdAddrWithoutAnyCast  for address
+		AddressIsZero, ///< address.isStdZero() address.isExternZero() for address
+		AddressMakeAddrExtern, ///< address.makeAddrExtern() for address
+		AddressMakeAddrNone, ///< address.makeAddrNone() for address
+		AddressMakeAddrStd, ///< address.makeAddrStd() for address
+		AddressTransfer, ///< address.transfer()
+		AddressType, ///< address.getType() for address
+		AddressUnpack, ///< address.unpack() for address
 
 		TVMCellDepth, ///< cell.depth()
 		TVMCellToSlice, ///< cell.toSlice()
@@ -1253,11 +1255,13 @@ public:
 		TVMHash, ///< tvm.hash()
 		TVMPubkey, ///< tvm.pubkey()
 		TVMRawConfigParam, ///< tvm.rawConfigParam()
+		TVMReplayProtInterval, ///< tvm.replayProtInterval()
+		TVMReplayProtTime, ///< tvm.replayProtTime()
 		TVMResetStorage, ///< tvm.resetStorage()
 		TVMSendMsg, ///< tvm.sendMsg()
 		TVMSetcode, ///< tvm.setcode()
 		TVMSetPubkey, ///< tvm.setPubkey()
-		TVMTransfer, ///< address.transfer()
+		TVMSetReplayProtTime, ///< tvm.setReplayProtTime()
 
 		TXtimestamp, ///< tx.timestamp
 

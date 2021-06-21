@@ -29,7 +29,6 @@ public:
 private:
 	void checkPragma();
 	void checkOverrideAndOverload();
-	void checkTvmIntrinsic(FunctionDefinition const* f);
 	void check_onCodeUpgrade(FunctionDefinition const& f);
 
     bool visit(Mapping const& _mapping) override;

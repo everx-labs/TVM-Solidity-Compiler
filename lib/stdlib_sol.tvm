@@ -214,35 +214,6 @@ ENDC
 ; end function insert_pubkey
 BLKDROP2 4, 1
 
-.globl	unpack_address
-.type	unpack_address, @function
-CALL $unpack_address_macro$
-
-.macro unpack_address_macro
-;; param: slice
-; function unpack_address
-;; push identifier slice
-DUP
-PARSEMSGADDR
-;; decl: tuple
-;; if
-;; push identifier tuple
-DUP
-FIRST
-NEQINT 2
-THROWIF 53
-;; end if
-;; return
-;; push identifier tuple
-DUP
-THIRD
-;; push identifier tuple
-PUSH S1
-INDEX 3
-PLDU 256
-; end function unpack_address
-BLKDROP2 2, 2
-
 .globl	replay_protection
 .type	replay_protection, @function
 CALL $replay_protection_macro$
@@ -250,69 +221,28 @@ CALL $replay_protection_macro$
 .macro replay_protection_macro
 ;; param: msg_timestamp
 ; function replay_protection
-PUSHCONT {
-	;; if
-	GETGLOB 3
-	;; <
-	;; push identifier msg_timestamp
-	PUSH S1
-	LESS
-	;; short-circuiting &&
-	DUP
-	PUSHCONT {
-		DROP
-		;; push identifier msg_timestamp
-		DUP
-		;; <
-		NOW
-		;; *
-		PUSHINT 1000
-		MUL
-		;; +
-		PUSHINT 1800000
-		ADD
-		LESS
-	}
-	IF
-	PUSHCONT {
-		;; push identifier msg_timestamp
-		DUP
-		SETGLOB 3
-		;; return
-	}
-	IFJMP
-	;; end if
-	THROW 52
-}
-CALLX
+GETGLOB 3
+;; <
+;; push identifier msg_timestamp
+PUSH S1
+LESS
+THROWIFNOT 52
+;; push identifier msg_timestamp
+DUP
+;; <
+;; push identifier now
+NOW
+;; *
+PUSHINT 1000
+MUL
+;; +
+PUSHINT 1800000
+ADD
+LESS
+THROWIFNOT 52
+;; push identifier msg_timestamp
 ; end function replay_protection
-DROP
-
-.globl	message_balance
-.type	message_balance, @function
-CALL $message_balance_macro$
-
-.macro message_balance_macro
-;; ret param: balance
-PUSHINT 0
-; function message_balance
-;; if
-DEPTH
-ADDCONST -5
-PICK
-PUSHCONT {
-	DEPTH
-	ADDCONST -2
-	PICK
-	; expValue
-	; end expValue
-	; colValue
-	NIP
-	; end colValue
-}
-IFNOT
-;; end if
-; end function message_balance
+SETGLOB 3
 
 .globl	__tonToGas
 .type	__tonToGas, @function
@@ -993,9 +923,7 @@ CALL $convertAddressToHexString_macro$
 ;; address.unpack()
 ;; push identifier addr
 DUP
-CALLREF {
-	CALL $unpack_address_macro$
-}
+REWRITESTDADDR
 ;; decl: wid
 ;; decl: value
 ;; push identifier list

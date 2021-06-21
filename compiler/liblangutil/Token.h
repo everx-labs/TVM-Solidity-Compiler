@@ -163,6 +163,8 @@ namespace solidity::langutil
 	K(For, "for", 0)                                                   \
 	K(Function, "function", 0)                                         \
 	K(FunctionID, "functionID", 0)                                     \
+	K(ExternalMsg, "externalMsg", 0)                                   \
+	K(InternalMsg, "internalMsg", 0)                                   \
 	K(Hex, "hex", 0)                                                   \
 	K(If, "if", 0)                                                     \
 	K(Indexed, "indexed", 0)                                           \
