@@ -68,10 +68,12 @@ contract development.
   * [bytes](#bytes)
     * [\<bytes\>.empty()](#bytesempty)
     * [\<bytes\>.operator[]](#bytesoperator)
+    * [\<bytes\> slice](#bytes-slice)
     * [\<bytes\>.length](#byteslength)
     * [\<bytes\>.toSlice](#bytestoslice)
     * [\<bytes\>.dataSize()](#bytesdatasize)
     * [\<bytes\>.dataSizeQ()](#bytesdatasizeq)
+    * [\<bytes\>.append()](#bytesappend)
   * [string](#string)
     * [\<string\>.empty()](#stringempty)
     * [\<string\>.byteLength()](#stringbytelength)
@@ -141,7 +143,7 @@ contract development.
   * [Function mutability: pure, view and default](#function-mutability-pure-view-and-default)
   * [Keyword inline](#keyword-inline)
   * [functionID()](#functionid)
-  * [internalMsg and externalMsg](#internalmsg-and-externalmsg)
+  * [externalMsg and internalMsg](#externalmsg-and-internalmsg)
 * [Events and return](#events-and-return)
   * [emit](#emit)
   * [return](#return)
@@ -973,7 +975,7 @@ Returns status flag whether the `bytes` is empty (its length is 0).
 ##### \<bytes\>.operator[]
 
 ```TVMSolidity
-<bytes>.operator[](uint8 index) returns (byte);
+<bytes>.operator[](uint index) returns (byte);
 ```
 
 Returns a byte located at the **index** position.  
@@ -984,6 +986,32 @@ Example:
 bytes byteArray = "abba";
 int index = 0;
 byte a0 = byteArray[index];
+```
+
+##### \<bytes\> slice
+
+```TVMSolidity
+<bytes>.operator[](uint from, uint to) returns (bytes);
+```
+
+Returns a slice of bytes [**from**, **to**), including **from** byte and
+excluding **to**.
+Example:
+
+```TVMSolidity
+bytes byteArray = "01234567890123456789";
+bytes slice = byteArray[5:10];
+bytes etalon = "56789";
+require(slice == etalon);
+slice = byteArray[10:];
+etalon = "0123456789";
+require(slice == etalon);
+slice = byteArray[:10];
+require(slice == etalon);
+slice = byteArray[:];
+require(slice == byteArray);
+require(byteArray[:10] == etalon);
+require(etalon == byteArray[:10]);
 ```
 
 ##### \<bytes\>.length
@@ -1019,6 +1047,14 @@ Same as [\<TvmCell\>.dataSize()](#tvmcelldatasize).
 ```
 
 Same as [\<TvmCell\>.dataSizeQ()](#tvmcelldatasizeq).
+
+##### \<bytes\>.append()
+
+```TVMSolidity
+<bytes>.append(bytes tail);
+```
+
+Modifies the bytes by concatenating **tail** bytes to the end of the bytes.
 
 #### string
 
@@ -1415,7 +1451,7 @@ this function returns an empty optional.
 ```
 
 Computes the minimal (maximal) key in the mapping that is lexicographically
-greater (less) then **key** and returns an optional value containing that
+greater (less) than **key** and returns an optional value containing that
 key and the associated value. Returns an empty optional if there is no such key.
 If KeyType is an integer type, argument for this functions can not possibly fit KeyType.
 
@@ -2146,13 +2182,13 @@ function functionName() public pure functionID(123) {
 }
  ```
 
-#### internalMsg and externalMsg
+#### externalMsg and internalMsg
 
-Keyword `internalMsg` and `externalMsg` specify which transactions the function can handle.
-If the function marked by keyword `internalMsg` is called by external message, the function throws
-an exception with code 71.
+Keywords `externalMsg` and `internalMsg` specify which messages the function can handle.
 If the function marked by keyword `externalMsg` is called by internal message, the function throws an
 exception with code 71.
+If the function marked by keyword `internalMsg` is called by external message, the function throws
+an exception with code 72.
 
 Example:
 ```
@@ -3612,7 +3648,9 @@ Solidity runtime error codes:
 * 68 - There is no config parameter 20 or 21.
 * 69 - Calculating zero to the power of zero (`0**0` in solidity style or `0^0`).
 * 70 - `string` method `substr` was called with substr longer than the whole string.
-* 71 - function marked by `externalMsg`/`internalMsg` called by internal/external message.
+* 71 - Function marked by `externalMsg` is called by internal message.
+* 72 - Function marked by `internalMsg` is called by external message.
+* 73 - The value can't be converted to enum type.
 
 ### Division and rounding
 

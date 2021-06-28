@@ -1854,8 +1854,7 @@ PUSHCONT {
 		;; push identifier bits
 		DUP
 		;; >=
-		PUSHINT 16
-		GEQ
+		GTINT 15
 	}
 	IF
 	PUSHCONT {
@@ -1893,8 +1892,7 @@ PUSHCONT {
 		;; push identifier bits
 		DUP
 		;; >=
-		PUSHINT 8
-		GEQ
+		GTINT 7
 	}
 	IF
 	PUSHCONT {
@@ -1994,8 +1992,7 @@ PUSHCONT {
 			;; push identifier dig
 			DUP
 			;; >=
-			PUSHINT 48
-			GEQ
+			GTINT 47
 			;; short-circuiting &&
 			DUP
 			PUSHCONT {
@@ -2003,8 +2000,7 @@ PUSHCONT {
 				;; push identifier dig
 				DUP
 				;; <=
-				PUSHINT 57
-				LEQ
+				LESSINT 58
 			}
 			IF
 			PUSHCONT {
@@ -2025,8 +2021,7 @@ PUSHCONT {
 				;; push identifier dig
 				DUP
 				;; >=
-				PUSHINT 65
-				GEQ
+				GTINT 64
 				;; short-circuiting &&
 				DUP
 				PUSHCONT {
@@ -2034,8 +2029,7 @@ PUSHCONT {
 					;; push identifier dig
 					DUP
 					;; <=
-					PUSHINT 70
-					LEQ
+					LESSINT 71
 				}
 				IF
 				PUSHCONT {
@@ -2057,8 +2051,7 @@ PUSHCONT {
 					;; push identifier dig
 					DUP
 					;; >=
-					PUSHINT 97
-					GEQ
+					GTINT 96
 					;; short-circuiting &&
 					DUP
 					PUSHCONT {
@@ -2066,8 +2059,7 @@ PUSHCONT {
 						;; push identifier dig
 						DUP
 						;; <=
-						PUSHINT 102
-						LEQ
+						LESSINT 103
 					}
 					IF
 					PUSHCONT {
@@ -2264,73 +2256,110 @@ PUSH2 S2, S0
 ; end function strToList
 BLKDROP2 4, 2
 
-.globl	__substr
-.type	__substr, @function
-CALL $__substr_macro$
+.globl	bytes_substr
+.type	bytes_substr, @function
+CALL $bytes_substr_macro$
 
-.macro __substr_macro
+.macro bytes_substr_macro
+;; param: data
+;; param: start
+;; param: end
+;; param: tillEnd
+;; ret param: substr
+PUSHREF {
+}
+; function bytes_substr
+;; push identifier data
+PUSH S4
+PUSHINT 4294967295
+CDATASIZE
+;; decl: len
+; expValue
+; end expValue
+;; push identifier len
+PUSH S1
+;; >>
+RSHIFT 3
+; colValue
+POP S2
+; end colValue
+;; if
+;; push identifier tillEnd
+PUSH S4
+PUSHCONT {
+	;; push identifier len
+	PUSH S1
+	;; int256
+	FITS 256
+	; expValue
+	; end expValue
+	; colValue
+	POP S6
+	; end colValue
+}
+PUSHCONT {
+	;; if
+	;; push identifier end
+	PUSH S5
+	LESSINT 0
+	PUSHCONT {
+		;; push identifier len
+		PUSH S1
+		;; int256
+		FITS 256
+		;; +
+		;; push identifier end
+		PUSH S6
+		ADD
+		; expValue
+		; end expValue
+		; colValue
+		POP S6
+		; end colValue
+	}
+	IF
+	;; end if
+}
+IFELSE
+;; end if
+;; push identifier end
+PUSH S5
+;; uint256
+UFITS 256
+;; >
+;; push identifier start
+PUSH S7
+GREATER
+THROWIFNOT 70
+;; push identifier end
+PUSH S5
+;; uint256
+UFITS 256
+;; -
+;; push identifier start
+PUSH S7
+SUB
+;; decl: count
+;; push identifier data
+;; push identifier start
+BLKPUSH 2, 8
+;; push identifier count
+PUSH S2
 ;; param: str
 ;; param: from
 ;; param: count
 ;; ret param: substr
 PUSHREF {
 }
-; function __substr
-;; push identifier str
-PUSH S3
-PUSHINT 4294967295
-CDATASIZE
-;; decl: strSize
-; expValue
-; end expValue
-PUSH S1
-RSHIFT 3
-; colValue
-POP S2
-; end colValue
-;; push identifier strSize
-PUSH S1
-;; int256
-FITS 256
-;; >=
+; function __subCell
 ;; push identifier from
-PUSH S6
-;; int256
-FITS 256
-;; +
-;; push identifier count
-PUSH S6
-ADD
-GEQ
-THROWIFNOT 70
-;; if
-;; push identifier count
-PUSH S4
-EQINT -1
-PUSHCONT {
-	;; push identifier strSize
-	;; -
-	;; push identifier from
-	PUSH2 S1, S5
-	SUB
-	;; int256
-	FITS 256
-	; expValue
-	; end expValue
-	; colValue
-	POP S5
-	; end colValue
-}
-IF
-;; end if
-;; push identifier from
-PUSH S5
+PUSH S2
 PUSHINT 127
 DIVMOD
 ;; decl: skipCnt
 ;; decl: skipBytes
 ;; push identifier str
-PUSH S8
+PUSH S5
 CTOS
 ;; decl: slice
 ; while
@@ -2370,13 +2399,13 @@ NEWC
 ; while
 PUSHCONT {
 	;; push identifier count
-	PUSH S9
+	PUSH S6
 	NEQINT 0
 }
 PUSHCONT {
 	;; push identifier count
 	;; push identifier slice
-	PUSH2 S9, S2
+	PUSH2 S6, S2
 	SBITS
 	;; >>
 	RSHIFT 3
@@ -2410,14 +2439,14 @@ PUSHCONT {
 	;; push identifier byteNum
 	; expValue
 	; end expValue
-	PUSH2 S10, S0
+	PUSH2 S7, S0
 	SUB
 	; colValue
-	POP S11
+	POP S8
 	; end colValue
 	;; if
 	;; push identifier count
-	PUSH S10
+	PUSH S7
 	PUSHCONT {
 		;; if
 		;; push identifier slice
@@ -2471,15 +2500,271 @@ PUSHCONT {
 }
 WHILE
 ; end while
-;; return
 ;; push identifier list
 ;; push identifier builder
 DUP2
 CALLREF {
 	CALL $assembleList_macro$
 }
+; expValue
+; end expValue
+; colValue
+POP S6
+; end colValue
+BLKDROP 5
+; end function __subCell
+BLKDROP2 3, 1
+; expValue
+; end expValue
+; colValue
+POP S5
+; end colValue
+BLKDROP 4
+; end function bytes_substr
+BLKDROP2 4, 1
+
+.globl	__substr
+.type	__substr, @function
+CALL $__substr_macro$
+
+.macro __substr_macro
+;; param: str
+;; param: from
+;; param: count
+;; ret param: substr
+PUSHREF {
+}
+; function __substr
+;; push identifier str
+PUSH S3
+PUSHINT 4294967295
+CDATASIZE
+;; decl: strSize
+; expValue
+; end expValue
+PUSH S1
+RSHIFT 3
+; colValue
+POP S2
+; end colValue
+;; if
+;; push identifier count
+PUSH S4
+EQINT -1
+PUSHCONT {
+	;; push identifier strSize
+	;; -
+	;; push identifier from
+	PUSH2 S1, S5
+	SUB
+	;; int256
+	FITS 256
+	; expValue
+	; end expValue
+	; colValue
+	POP S5
+	; end colValue
+}
+IF
+;; end if
+;; push identifier strSize
+PUSH S1
+;; int256
+FITS 256
+;; >=
+;; push identifier from
+PUSH S6
+;; int256
+FITS 256
+;; +
+;; push identifier count
+PUSH S6
+ADD
+GEQ
+THROWIFNOT 70
+;; push identifier str
+;; push identifier from
+;; push identifier count
+BLKPUSH 3, 6
+;; uint256
+UFITS 256
+;; param: str
+;; param: from
+;; param: count
+;; ret param: substr
+PUSHREF {
+}
+; function __subCell
+;; push identifier from
+PUSH S2
+PUSHINT 127
+DIVMOD
+;; decl: skipCnt
+;; decl: skipBytes
+;; push identifier str
+PUSH S5
+CTOS
+;; decl: slice
+; while
+;; push identifier skipCnt
+PUSH S2
+PUSHCONT {
+	; expValue
+	DUP
+	; end expValue
+	LDREFRTOS
+	SWAP
+	; colValue
+	POP S2
+	; end colValue
+	; expValue
+	; end expValue
+	; colValue
+	NIP
+	; end colValue
+}
+REPEAT
+; end while
+; expValue
+; end expValue
+;; push identifier skipBytes
+PUSH2 S0, S1
+;; *
+MULCONST 8
+SDSKIPFIRST
+; colValue
+NIP
+; end colValue
+TUPLE 0
+;; decl: list
+NEWC
+;; decl: builder
+; while
+PUSHCONT {
+	;; push identifier count
+	PUSH S6
+	NEQINT 0
+}
+PUSHCONT {
+	;; push identifier count
+	;; push identifier slice
+	PUSH2 S6, S2
+	SBITS
+	;; >>
+	RSHIFT 3
+	;; push identifier builder
+	PUSH S2
+	BREMBITS
+	;; >>
+	RSHIFT 3
+	MIN
+	MIN
+	;; decl: byteNum
+	; expValue
+	; end expValue
+	; expValue
+	; end expValue
+	;; push identifier byteNum
+	PUSH3 S1, S3, S0
+	;; <<
+	LSHIFT 3
+	;; uint16
+	UFITS 16
+	LDSLICEX
+	; colValue
+	POP S6
+	; end colValue
+	SWAP
+	STSLICE
+	; colValue
+	POP S2
+	; end colValue
+	;; push identifier byteNum
+	; expValue
+	; end expValue
+	PUSH2 S7, S0
+	SUB
+	; colValue
+	POP S8
+	; end colValue
+	;; if
+	;; push identifier count
+	PUSH S7
+	PUSHCONT {
+		;; if
+		;; push identifier slice
+		PUSH S3
+		SBITS
+		PUSHCONT {
+			; expValue
+			PUSH S3
+			; end expValue
+			LDREFRTOS
+			SWAP
+			; colValue
+			POP S5
+			; end colValue
+			; expValue
+			; end expValue
+			; colValue
+			POP S4
+			; end colValue
+		}
+		IFNOT
+		;; end if
+		;; if
+		;; push identifier builder
+		PUSH S1
+		BREMBITS
+		LESSINT 8
+		PUSHCONT {
+			; expValue
+			; end expValue
+			;; push identifier builder
+			BLKPUSH 2, 2
+			TPUSH
+			; colValue
+			POP S3
+			; end colValue
+			;; delete
+			; expValue
+			; end expValue
+			NEWC
+			; colValue
+			POP S2
+			; end colValue
+		}
+		IF
+		;; end if
+	}
+	IF
+	;; end if
+	DROP
+}
+WHILE
+; end while
+;; push identifier list
+;; push identifier builder
+DUP2
+CALLREF {
+	CALL $assembleList_macro$
+}
+; expValue
+; end expValue
+; colValue
+POP S6
+; end colValue
+BLKDROP 5
+; end function __subCell
+BLKDROP2 3, 1
+; expValue
+; end expValue
+; colValue
+POP S4
+; end colValue
+BLKDROP 3
 ; end function __substr
-BLKDROP2 12, 1
+BLKDROP2 3, 1
 
 .globl	compareLongStrings
 .type	compareLongStrings, @function

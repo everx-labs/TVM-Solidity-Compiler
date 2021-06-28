@@ -17,6 +17,7 @@
  */
 
 #include "TVMOptimizations.hpp"
+#include "TVMConstants.hpp"
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/format.hpp>
 
@@ -24,6 +25,12 @@ namespace solidity::frontend {
 
 struct TVMOptimizer {
 	vector<string>	lines_;
+
+	static const set<string> s01;
+	static const set<string> s10;
+	static const set<string> s11;
+	static const set<string> s21;
+	static const set<string> s32;
 
 	static bool is_space(char ch) {
 		return ch == ' ' || ch == '\t';
@@ -196,6 +203,10 @@ struct TVMOptimizer {
 		bool is_POP() const 	{ 	return is("POP"); 		}
 		bool isBLKSWAP() const  { return is("ROT") || is("ROTREV") || is("SWAP2") || is("BLKSWAP"); }
 
+		bool isXCHG_withOneArg() const {
+			return is("XCHG") && rest().find(',') == string::npos;
+		}
+
 		bool is_const_add() const { return is("INC") || is("DEC") || is("ADDCONST"); }
 
 		int get_add_num() const {
@@ -231,72 +242,6 @@ struct TVMOptimizer {
 		}
 
 		void analyze() {
-			static const set<string> s01 {
-				"GETGLOB",
-				"NEWC",
-				"NEWDICT",
-				"NOW",
-				"PUSHINT",
-				"PUSHSLICE",
-				"TRUE",
-				"FALSE",
-				"ZERO",
-			};
-			static const set<string> s10 {
-				"DROP",
-				"ENDS",
-				"SETGLOB",
-				"THROWANY",
-				"THROWIF",
-				"THROWIFNOT",
-			};
-			static const set<string> s11 {
-				"CTOS",
-				"DEC",
-				"ENDC",
-				"EQINT",
-				"FIRST",
-				"FITS",
-				"HASHCU",
-				"HASHSU",
-				"INC",
-				"INDEX",
-				"NOT",
-				"PARSEMSGADDR",
-				"SBITS",
-				"SECOND",
-				"SHA256U",
-				"STSLICECONST",
-				"THIRD",
-				"UFITS",
-			};
-			static const set<string> s21 {
-				"ADD",
-				"AND",
-				"EQ",
-				"GREATER",
-				"INDEXVAR",
-				"LESS",
-				"MUL",
-				"NEQ",
-				"OR",
-				"PAIR",
-				"PLDUX",
-				"SETINDEX",
-				"STI",
-				"STSLICE",
-				"STU",
-				"SUB",
-		   		"DIV",
-		   		"MOD",
-		   		"SUBR",
-			};
-			static const set<string> s32 {
-				"DICTDEL",
-				"DICTIDEL",
-				"DICTUDEL",
-			};
-
 			if (try_simple_command(s01, 0, 1)) return;
 			if (try_simple_command(s10, 1, 0)) return;
 			if (try_simple_command(s11, 1, 1)) return;
@@ -641,7 +586,7 @@ struct TVMOptimizer {
 			// XCHG n
 			// BLKDROP n
 			int pushIndex = cmd1.fetchStackIndex();
-			if (cmd2.is("XCHG")) {
+			if (cmd2.isXCHG_withOneArg()) {
 				int xghIndex = cmd2.fetchStackIndex();
 				if (cmd3.is_drop_kind()) {
 					int dropedQty = cmd3.get_drop_index();
@@ -860,7 +805,7 @@ struct TVMOptimizer {
 			return Result(true, 5, {});
 		}
 
-		if (cmd1.is("XCHG") && cmd1.rest().find(',') == string::npos &&
+		if (cmd1.isXCHG_withOneArg() &&
 			cmd2.is("BLKDROP") &&
 			cmd3.is("NIP")
 		) {
@@ -1167,6 +1112,99 @@ struct TVMOptimizer {
 			cmd1.fetch_first_int() == cmd2.fetch_second_int()
 		) {
 			return Result(true, 2, {"REVERSE " + toString(cmd1.fetch_first_int() + 1) + ", 0"});
+		}
+
+		if (
+			cmd1.is("NEWC") &&
+			cmd2.is("STSLICECONST") &&
+			cmd3.is("ENDC")
+		) {
+			return Result(true, 3, {"PUSHREF { ", "\t.blob " + cmd2.rest(), "}"});
+		}
+
+		if (
+			cmd1.is("PUSHSLICE") &&
+			cmd2.is("NEWC") &&
+			cmd3.is("STSLICE") &&
+			cmd4.is("ENDC")
+		) {
+			return Result(true, 4, {"PUSHREF { ", "\t.blob " + cmd1.rest(), "}"});
+		}
+
+		if (
+			cmd1.is("ENDC") &&
+			cmd2.is("STREFR")
+		) {
+			return Result(true, 2, {"STBREFR"});
+		}
+
+		if (cmd1.is_PUSHINT() &&
+			-128 <= cmd1.fetch_bigint() - 1 &&
+			cmd1.fetch_bigint() - 1 < 128 &&
+			cmd2.is("GEQ")
+		) {
+			return Result(true, 2, {"GTINT " + toString(cmd1.fetch_bigint() - 1)});
+		}
+
+		if (cmd1.is_PUSHINT() &&
+			-128 <= cmd1.fetch_bigint() + 1 &&
+			cmd1.fetch_bigint() + 1 < 128 &&
+			cmd2.is("LEQ")
+		) {
+			return Result(true, 2, {"LESSINT " + toString(cmd1.fetch_bigint() + 1)});
+		}
+
+		// SWAP
+		// s01
+		// SWAP
+		// =>
+		// s01
+		// ROT
+		if (cmd1.is_SWAP() &&
+			s01.count(cmd2.cmd_) &&
+			cmd3.is_SWAP()
+		) {
+			return Result(true, 3, {cmd2.without_prefix(), "ROT"});
+		}
+
+		// SWAP
+		// ROT
+		// =>
+		// XCHG S2
+		if (cmd1.is_SWAP() &&
+			cmd2.is("ROT")
+		) {
+			return Result(true, 2, {"XCHG S2"});
+		}
+
+		// ROT
+		// SWAP
+		// =>
+		// XCHG S1, S2
+		if (cmd1.is("ROT") &&
+			cmd2.is("SWAP")
+		) {
+			return Result(true, 2, {"XCHG S1, S2"});
+		}
+
+		// XCHG s2
+		// SWAP
+		// =>
+		// ROTREV
+		if (cmd1.isXCHG_withOneArg() && cmd1.fetchStackIndex() == 2 &&
+			cmd2.is("SWAP")
+		) {
+			return Result(true, 2, {"ROTREV"});
+		}
+
+		// XCHG s2
+		// ROTREV
+		// =>
+		// SWAP
+		if (cmd1.isXCHG_withOneArg() && cmd1.fetchStackIndex() == 2 &&
+			cmd2.is("ROTREV")
+		) {
+			return Result(true, 2, {"SWAP"});
 		}
 
 		return Result(false);
@@ -1492,26 +1530,70 @@ void run_peephole_pass(const string& filename) {
 	cout << code.str();
 }
 
+const set<string> TVMOptimizer::s01 {
+		"GETGLOB",
+		"NEWC",
+		"NEWDICT",
+		"NOW",
+		"PUSHINT",
+		"PUSHSLICE",
+		"TRUE",
+		"FALSE",
+		"ZERO",
+};
+const set<string> TVMOptimizer::s10 {
+		"DROP",
+		"ENDS",
+		"SETGLOB",
+		"THROWANY",
+		"THROWIF",
+		"THROWIFNOT",
+};
+const set<string> TVMOptimizer::s11 {
+		"CTOS",
+		"DEC",
+		"ENDC",
+		"EQINT",
+		"FIRST",
+		"FITS",
+		"HASHCU",
+		"HASHSU",
+		"INC",
+		"INDEX",
+		"NOT",
+		"PARSEMSGADDR",
+		"SBITS",
+		"SECOND",
+		"SHA256U",
+		"STSLICECONST",
+		"THIRD",
+		"UFITS",
+};
+const set<string> TVMOptimizer::s21 {
+		"ADD",
+		"AND",
+		"EQ",
+		"GREATER",
+		"INDEXVAR",
+		"LESS",
+		"MUL",
+		"NEQ",
+		"OR",
+		"PAIR",
+		"PLDUX",
+		"SETINDEX",
+		"STI",
+		"STSLICE",
+		"STU",
+		"SUB",
+		"DIV",
+		"MOD",
+		"SUBR",
+};
+const set<string> TVMOptimizer::s32 {
+		"DICTDEL",
+		"DICTIDEL",
+		"DICTUDEL",
+};
+
 } // end solidity::frontend
-
-
-// SWAP
-// NEWC
-// SWAP
-// => NEWC ROTREV
-
-//SWAP
-// ROT
-//SWAP
-
-// SWAP
-// ROT
-
-// ROT
-// SWAP
-
-// XCHG s2
-// SWAP
-
-// XCHG s2
-// ROTREV

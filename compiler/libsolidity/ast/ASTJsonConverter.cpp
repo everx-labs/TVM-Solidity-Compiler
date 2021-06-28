@@ -460,6 +460,20 @@ bool ASTJsonConverter::visit(Mapping const& _node)
 	return false;
 }
 
+bool ASTJsonConverter::visit(Optional const& _node) {
+	setJsonNode(_node, "Optional", {
+		make_pair("maybeTypes", toJson(_node.maybeTypes())),
+	});
+	return false;
+}
+
+bool ASTJsonConverter::visit(TvmTuple const& _node) {
+	setJsonNode(_node, "TvmTuple", {
+		make_pair("type", toJson(_node.type())),
+	});
+	return false;
+}
+
 bool ASTJsonConverter::visit(ArrayTypeName const& _node)
 {
 	setJsonNode(_node, "ArrayTypeName", {
@@ -554,6 +568,15 @@ bool ASTJsonConverter::visit(ForStatement const& _node)
 	return false;
 }
 
+bool ASTJsonConverter::visit(ForEachStatement const& _node) {
+	setJsonNode(_node, "ForEachStatement", {
+		make_pair("rangeDeclaration", toJsonOrNull(_node.rangeDeclaration())),
+		make_pair("rangeExpression", toJsonOrNull(_node.rangeExpression())),
+		make_pair("body", toJson(_node.body()))
+	});
+	return false;
+}
+
 bool ASTJsonConverter::visit(Continue const& _node)
 {
 	setJsonNode(_node, "Continue", {});
@@ -583,9 +606,17 @@ bool ASTJsonConverter::visit(Throw const& _node)
 
 bool ASTJsonConverter::visit(EmitStatement const& _node)
 {
-	setJsonNode(_node, "EmitStatement", {
+	Json::Value names(Json::arrayValue);
+	for (auto const& name: _node.names())
+		names.append(Json::Value(*name));
+
+	std::vector<pair<string, Json::Value>> attributes = {
+		make_pair("names", std::move(names)),
+		make_pair("options", toJson(_node.options())),
 		make_pair("eventCall", toJson(_node.eventCall()))
-	});
+	};
+
+	setJsonNode(_node, "EmitStatement", std::move(attributes));
 	return false;
 }
 
@@ -710,6 +741,34 @@ bool ASTJsonConverter::visit(FunctionCallOptions const& _node)
 	return false;
 }
 
+bool ASTJsonConverter::visit(InitializerList const& _node)
+{
+	Json::Value names(Json::arrayValue);
+	for (auto const& name: _node.names())
+		names.append(Json::Value(*name));
+
+	std::vector<pair<string, Json::Value>> attributes = {
+			make_pair("names", std::move(names)),
+			make_pair("options", toJson(_node.options())),
+	};
+	appendExpressionAttributes(attributes, _node.annotation());
+
+	setJsonNode(_node, "InitializerList", std::move(attributes));
+	return false;
+}
+
+bool ASTJsonConverter::visit(CallList const& _node)
+{
+	std::vector<pair<string, Json::Value>> attributes = {
+		make_pair("expression", toJson(*_node.function())),
+		make_pair("arguments", toJson(_node.arguments())),
+	};
+	appendExpressionAttributes(attributes, _node.annotation());
+
+	setJsonNode(_node, "CallList", std::move(attributes));
+	return false;
+}
+
 bool ASTJsonConverter::visit(NewExpression const& _node)
 {
 	std::vector<pair<string, Json::Value>> attributes = {
@@ -777,6 +836,26 @@ bool ASTJsonConverter::visit(ElementaryTypeNameExpression const& _node)
 	};
 	appendExpressionAttributes(attributes, _node.annotation());
 	setJsonNode(_node, "ElementaryTypeNameExpression", std::move(attributes));
+	return false;
+}
+
+bool ASTJsonConverter::visit(MappingNameExpression const& _node)
+{
+	std::vector<pair<string, Json::Value>> attributes = {
+		make_pair("typeName", toJson(_node.type()))
+	};
+	appendExpressionAttributes(attributes, _node.annotation());
+	setJsonNode(_node, "MappingNameExpression", std::move(attributes));
+	return false;
+}
+
+bool ASTJsonConverter::visit(OptionalNameExpression const& _node)
+{
+	std::vector<pair<string, Json::Value>> attributes = {
+		make_pair("typeName", toJson(_node.type()))
+	};
+	appendExpressionAttributes(attributes, _node.annotation());
+	setJsonNode(_node, "OptionalNameExpression", std::move(attributes));
 	return false;
 }
 

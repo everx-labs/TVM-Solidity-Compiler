@@ -20,7 +20,7 @@
 
 #include "TVMABI.hpp"
 #include "TVMPusher.hpp"
-#include "TVMStructCompiler.hpp"
+#include "TVMConstants.hpp"
 
 using namespace solidity::frontend;
 
@@ -730,6 +730,12 @@ void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition* positio
 		loadq(algo,
 			  (ti.isSigned ? "LDIQ " : "LDUQ ") + toString(ti.numBits),
 			  (ti.isSigned ? "LDI " : "LDU ") + toString(ti.numBits));
+		if (auto enumType = to<EnumType>(type)) {
+			pusher->pushS(1);
+			pusher->pushInt(enumType->enumDefinition().members().size());
+			pusher->push(-1, "GEQ");
+			pusher->push(-1, "THROWIF " + toString(TvmConst::RuntimeException::WrongValueOfEnum));
+		}
 	} else if (auto arrayType = to<ArrayType>(type)) {
 		if (arrayType->isByteArray()) {
 			loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type), true);

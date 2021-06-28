@@ -20,6 +20,8 @@
 #include "TVMFunctionCall.hpp"
 #include "TVMExpressionCompiler.hpp"
 #include "TVMStructCompiler.hpp"
+#include "TVMABI.hpp"
+#include "TVMConstants.hpp"
 
 #include <boost/algorithm/string.hpp>
 #include <libsolidity/ast/TypeProvider.h>
@@ -378,12 +380,12 @@ bool FunctionCallCompiler::libraryCall(MemberAccess const& ma) {
 }
 
 std::function<void()> FunctionCallCompiler::generateDataSection(
-			const std::function<void()>& pushKey,
-			bool & hasVars,
-			const ASTPointer<Expression const>& vars,
-			bool & isNew,
-			const ASTPointer<Expression const>& contr
-		) {
+	const std::function<void()>& pushKey,
+	bool & hasVars,
+	Expression const* vars,
+	bool & isNew,
+	const ASTPointer<Expression const>& contr
+) {
 	return [pushKey, this, hasVars, vars, isNew, contr]() {
 		// creat dict with variable values
 		m_pusher.push(+1, "NEWDICT");
@@ -421,7 +423,7 @@ std::function<void()> FunctionCallCompiler::generateDataSection(
 				solAssert(pos != staticVars.end(), "");
 				return *pos;
 			};
-			auto initVars = to<InitializerList>(vars.get());
+			auto initVars = to<InitializerList>(vars);
 			for (size_t i = 0; i < initVars->names().size(); ++i) {
 				const ASTPointer<ASTString> &name = initVars->names().at(i);
 				const auto &[varDecl, varIndex] = getDeclAndIndex(*name);
@@ -459,52 +461,39 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 			return false;
 		}
 
-		std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
-		auto getIndex = [&](const std::string& name) -> int {
-			auto it = std::find_if(optionNames.begin(), optionNames.end(), [&](auto el) { return *el == name;});
-			if (it == optionNames.end()) {
-				return -1;
-			}
-			return it - optionNames.begin();
-		};
-
 		// Search for bounce option
-		const int extIndex = getIndex("extMsg");
-		if (extIndex != -1) {
+		if (findOption("extMsg")) {
 			checkExtMsgSend();
 			return true;
 		}
 
 		// parse options they are stored in two vectors: names and options
-		for (const auto &option: optionNames)
+		for (const auto &option: functionOptions->names())
 			if (!isIn(*option, "flag", "value", "currencies", "bounce", "callback"))
 				cast_error(_functionCall, "Unsupported function call option: " + *option);
 
 
 		// Search for bounce option
-		const int bounceIndex = getIndex("bounce");
-		if (bounceIndex != -1) {
-			exprs[TvmConst::int_msg_info::bounce] = functionOptions->options()[bounceIndex].get();
+		if (Expression const* bounce = findOption("bounce")) {
+			exprs[TvmConst::int_msg_info::bounce] = bounce;
 		} else {
 			constParams[TvmConst::int_msg_info::bounce] = "1";
 		}
 
 		// Search for currencies option
-		const int currenciesIndex = getIndex("currencies");
-		if (currenciesIndex != -1) {
-			exprs[TvmConst::int_msg_info::currency] = functionOptions->options()[currenciesIndex].get();
+		if (Expression const* currencies = findOption("currencies")) {
+			exprs[TvmConst::int_msg_info::currency] = currencies;
 		} else {
 			constParams[TvmConst::int_msg_info::currency] = "0";
 		}
 
 		// Search for value (ton) option
-		const int valueIndex = getIndex("value");
-		if (valueIndex != -1) {
-			const auto& value = TVMExpressionCompiler::constValue(*functionOptions->options().at(valueIndex));
+		if (Expression const* valueExpr = findOption("value")) {
+			const auto& value = TVMExpressionCompiler::constValue(*valueExpr);
 			if (value.has_value()) {
 				constParams[TvmConst::int_msg_info::tons] = StackPusherHelper::tonsToBinaryString(u256(value.value()));
 			} else {
-				exprs[TvmConst::int_msg_info::tons] = functionOptions->options()[valueIndex].get();
+				exprs[TvmConst::int_msg_info::tons] = valueExpr;
 			}
 		} else {
 			constParams[TvmConst::int_msg_info::tons] = getDefaultMsgValue();
@@ -517,10 +506,8 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 		functionDefinition = getRemoteFunctionDefinition(memberAccess);
 
 
-		const int callbackIndex = getIndex("callback");
-		if (callbackIndex != -1) {
-			CallableDeclaration const* remoteFunction =
-					getFunctionDeclarationOrConstructor(functionOptions->options()[callbackIndex].get());
+		if (Expression const* callback = findOption("callback")) {
+			CallableDeclaration const* remoteFunction = getFunctionDeclarationOrConstructor(callback);
 			callbackFunctionId = ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(
 					remoteFunction,
 					ReasonOfOutboundMessage::RemoteCallInternal
@@ -528,10 +515,9 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 		}
 
 		// Search for sendRawMsg flag option
-		const int flagIndex = getIndex("flag");
-		if (flagIndex != -1) {
-			pushSendrawmsgFlag = [flagIndex, functionOptions, this]() {
-				acceptExpr(functionOptions->options()[flagIndex].get());
+		if (Expression const* flag = findOption("flag")) {
+			pushSendrawmsgFlag = [flag, this]() {
+				acceptExpr(flag);
 			};
 		}
 	} else {
@@ -596,76 +582,32 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 void FunctionCallCompiler::checkExtMsgSend() {
 	auto functionOptions = to<FunctionCallOptions>(&m_functionCall.expression());
 
-	std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
-	auto getIndex = [&](const std::string& name) -> int {
-		// TODO move to function
-		auto it = std::find_if(optionNames.begin(), optionNames.end(), [&](auto el) { return *el == name;});
-		if (it == optionNames.end()) {
-			return -1;
-		}
-		return it - optionNames.begin();
-	};
-
-	const int extIndex = getIndex("extMsg");
-	const std::optional<bool> value = TVMExpressionCompiler::constBool(*functionOptions->options()[extIndex]);
+	Expression const* extMsg = findOption("extMsg");
+	const std::optional<bool> value = TVMExpressionCompiler::constBool(*extMsg);
 	solAssert(value.has_value(), "\"extMsg\" option should be set to constant true if set.");
 
 	bool addSignature = false;
-	const int signIndex = getIndex("sign");
-	if (signIndex != -1) {
-		addSignature = TVMExpressionCompiler::constBool(*functionOptions->options()[signIndex]).value();
+	Expression const* sign = findOption("sign");
+	if (sign != nullptr) {
+		addSignature = TVMExpressionCompiler::constBool(*sign).value();
 	}
 
-	const Expression * pubkey = nullptr;
-	ASTPointer<Expression const> expire = nullptr;
-	ASTPointer<Expression const> time = nullptr;
-	ASTPointer<Expression const> callbackid = nullptr;
-	ASTPointer<Expression const> abiVer = nullptr;
-	ASTPointer<Expression const> onerrorid = nullptr;
-	const Expression * stateInit= nullptr;
-    const Expression * signBoxHandle = nullptr;
-
-	const int pubkeyIndex = getIndex("pubkey");
-	if (pubkeyIndex != -1) {
-		pubkey = functionOptions->options()[pubkeyIndex].get();
-	}
-
-	const int stateIndex = getIndex("stateInit");
-	if (stateIndex != -1) {
-		stateInit = functionOptions->options()[stateIndex].get();
-	}
-
-	const int expireIndex = getIndex("expire");
-	if (expireIndex != -1) {
-		expire = functionOptions->options()[expireIndex];
-	}
-
-	const int timeIndex = getIndex("time");
-	if (timeIndex != -1) {
-		time = functionOptions->options()[timeIndex];
-	}
-
-	const int callbackIndex = getIndex("callbackId");
-	callbackid = functionOptions->options()[callbackIndex];
-
-	const int abiIndex = getIndex("abiVer");
-	abiVer = functionOptions->options()[abiIndex];
-
-	const int onErrorIndex = getIndex("onErrorId");
-	onerrorid = functionOptions->options()[onErrorIndex];
+	Expression const* pubkey = findOption("pubkey");
+	Expression const* expire = findOption("expire");
+	Expression const* time = findOption("time");
+	Expression const* callbackid = findOption("callbackId");
+	Expression const* abiVer = findOption("abiVer");
+	Expression const* onerrorid = findOption("onErrorId");
+	Expression const* stateInit = findOption("stateInit");
+    Expression const* signBoxHandle = findOption("signBoxHandle");
 
 	auto memberAccess = to<MemberAccess>(&functionOptions->expression());
 	FunctionDefinition const* functionDefinition = getRemoteFunctionDefinition(memberAccess);
 
-	const Expression * destination = &memberAccess->expression();
+	Expression const* destination = &memberAccess->expression();
 
-    const int signBoxIndex = getIndex("signBoxHandle");
-    if (signBoxIndex != -1) {
-        signBoxHandle = functionOptions->options()[signBoxIndex].get();
-    }
-
-	generateExtInboundMsg(addSignature, destination, pubkey, expire.get(), time.get(), callbackid.get(),
-						  abiVer.get(), onerrorid.get(), stateInit, signBoxHandle, functionDefinition, m_arguments);
+	generateExtInboundMsg(addSignature, destination, pubkey, expire, time, callbackid,
+						  abiVer, onerrorid, stateInit, signBoxHandle, functionDefinition, m_arguments);
 	m_pusher.pushInt(TvmConst::SENDRAWMSG::DefaultFlag);
 	m_pusher.sendrawmsg();
 }
@@ -733,7 +675,7 @@ void FunctionCallCompiler::generateExtInboundMsg(
 
 
 		for (const ASTPointer<Expression const>& arg : arguments | boost::adaptors::reversed) {
-			TVMExpressionCompiler{m_pusher}.compileNewExpr(arg.get());
+			acceptExpr(arg.get());
 		}
 
 		m_pusher.push(+1, "NEWC");
@@ -930,7 +872,7 @@ void FunctionCallCompiler::tvmBuildIntMsg() {
 
 	auto callList = to<CallList>(m_arguments[callArg].get());
 	const std::vector<ASTPointer<Expression const>> args = callList->arguments();
-	auto functionDefinition = to<FunctionDefinition>(getFunctionDeclarationOrConstructor(callList->function().get()));
+	auto functionDefinition = to<FunctionDefinition>(getFunctionDeclarationOrConstructor(callList->function()));
 	const bool needCallback = functionDefinition->isResponsible();
 	const int shift = needCallback ? 1 : 0;
 
@@ -957,25 +899,25 @@ void FunctionCallCompiler::tvmBuildIntMsg() {
 			true
 		);
 	};
-	if (currenciesArg != -1) {
-		// TODO check constParams
-		pushArgAndConvert(currenciesArg, "currencies");
-		isParamOnStack.insert(TvmConst::int_msg_info::currency);
-	}
-	if (valueArg != -1) {
-		// TODO check constParams
-		pushArgAndConvert(valueArg, "value");
-		isParamOnStack.insert(TvmConst::int_msg_info::tons);
-	}
-	if (destArg != -1) {
-		// TODO check constParams
-		pushArgAndConvert(destArg, "dest");
-		isParamOnStack.insert(TvmConst::int_msg_info::dest);
-	}
-	if (bounceArg != -1) {
-		// TODO check constParams
-		pushArgAndConvert(bounceArg, "bounce");
-		isParamOnStack.insert(TvmConst::int_msg_info::bounce);
+
+	for (const auto& [argIndex, name, id] : std::vector<std::tuple<int, std::string, int>>{
+		{currenciesArg, "currencies", TvmConst::int_msg_info::currency},
+		{valueArg, "value", TvmConst::int_msg_info::tons},
+		{destArg, "dest", TvmConst::int_msg_info::dest},
+		{bounceArg, "bounce", TvmConst::int_msg_info::bounce}
+	}) {
+		if (argIndex != - 1) {
+			std::optional<bigint> value = TVMExpressionCompiler::constValue(*m_arguments.at(argIndex));
+			std::optional<bool> flag = TVMExpressionCompiler::constBool(*m_arguments.at(argIndex));
+			if (value) {
+				constParams[id] = StackPusherHelper::tonsToBinaryString(*value);
+			} else if (flag) {
+				constParams[id] = StackPusherHelper::boolToBinaryString(*flag);
+			} else {
+				pushArgAndConvert(argIndex, name);
+				isParamOnStack.insert(id);
+			}
+		}
 	}
 
 	m_pusher.prepareMsg(
@@ -1044,7 +986,7 @@ void FunctionCallCompiler::tvmBuildMsgMethod() {
 		}
 	}
 	auto funcCall = to<CallList>(m_arguments[callArg].get());
-	auto functionDefinition = getFunctionDeclarationOrConstructor(funcCall->function().get());
+	auto functionDefinition = getFunctionDeclarationOrConstructor(funcCall->function());
 	bool addSignature = false;
 	if (signArg != -1) {
 		const std::optional<bool> value = TVMExpressionCompiler::constBool(*m_arguments[signArg]);
@@ -1142,7 +1084,7 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 				};
 				hasVars = (varArg != -1);
 				exprs[StateInitMembers::Data] = generateDataSection(pushKey, hasVars,
-																	hasVars ? m_arguments[varArg] : nullptr,
+																	hasVars ? m_arguments[varArg].get() : nullptr,
 																	isNew,
 																	hasVars ? m_arguments[contrArg] : nullptr);
 			}
@@ -1177,21 +1119,33 @@ DICTUSETB
 	}
 
 	if (_node.memberName() == "deploy") {
-		const std::function<void()> pushWid = [&](){
-			pushArgAndConvert(3);
-		};
-		const std::function<void()> pushValue = [&](){
-			pushArgAndConvert(2);
-		};
+		std::variant<int8_t, std::function<void()>> wid = int8_t{0};
+		if (std::optional<bigint> value = TVMExpressionCompiler::constValue(*m_arguments.at(3))) {
+			wid = int8_t(value.value());
+		} else {
+			wid = [&]() {
+				pushArgAndConvert(3);
+			};
+		}
+
+		std::variant<bigint, std::function<void()>> pushValue;
+		if (std::optional<bigint> value = TVMExpressionCompiler::constValue(*m_arguments.at(2))) {
+			pushValue = value.value();
+		} else {
+			pushValue = [&]() {
+				pushArgAndConvert(2);
+			};
+		}
+
 		const std::function<void(int builderSize)> appendBody = [&](int /*builderSize*/){
 			m_pusher.stones(1);
 			pushArgAndConvert(1);
 			m_pusher.push(-1, "STREFR");
 		};
-		const std::function<void()> pushSendrawmsgFlag;
+
 		pushArgAndConvert(0);
 		// stack: stateInit
-		deployNewContract(pushWid, pushValue, {}, {}, appendBody, pushSendrawmsgFlag, 0);
+		deployNewContract(wid, pushValue, true, {}, appendBody, {}, 0);
 		// stack: destAddress
 		return true;
 	}
@@ -1587,8 +1541,7 @@ IFELSE
 		m_pusher.push(-1 + 2, "UNPAIR");  // value' size dict
 		m_pusher.push(+1, "PUSH S1"); // value' size dict size
 		m_pusher.push(0, "INC"); // value' size dict newSize
-		m_pusher.exchange(0, 3); // newSize size dict value'
-		m_pusher.push(0, "ROTREV"); // newSize value' size dict
+		m_pusher.blockSwap(3, 1); // newSize value' size dict
 		m_pusher.setDict(key, *arrayBaseType, dataType); // newSize dict'
 		m_pusher.push(-2 + 1, "PAIR");  // arr
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
@@ -1740,13 +1693,13 @@ void FunctionCallCompiler::addressMethod() {
 						break;
 					case str2int("flag"):
 						pushSendrawmsgFlag = [e = m_arguments[arg], this](){
-							TVMExpressionCompiler{m_pusher}.compileNewExpr(e.get());
+							acceptExpr(e.get());
 						};
 						break;
 					case str2int("body"):
 						appendBody = [e = m_arguments[arg], this](int /*size*/){
 							m_pusher.stones(1);
-							TVMExpressionCompiler{m_pusher}.compileNewExpr(e.get());
+							acceptExpr(e.get());
 							m_pusher.push(-1, "STREFR");
 							return false;
 						};
@@ -2057,11 +2010,11 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		} else {
 			pushArgAndConvert(0);
 			if (cnt == 4) {
-				m_pusher.push(+1, "NEWC");
-				pushArgAndConvert(1);
-				m_pusher.push(-1, "STUR 256");
 				pushArgAndConvert(2);
-				m_pusher.push(-1, "STUR 256");
+				pushArgAndConvert(1);
+				m_pusher.push(+1, "NEWC");
+				m_pusher.push(-1, "STU 256");
+				m_pusher.push(-1, "STU 256");
 				m_pusher.push(0, "ENDC");
 				m_pusher.push(0, "CTOS");
 			} else {
@@ -2149,7 +2102,7 @@ POP c3
 			std::vector<Type const *> types = getParams(parameters).first;
 			EncodePosition position{32, types};
 			for (int i = m_arguments.size() - 1; i >= 1 + shift; --i) {
-				TVMExpressionCompiler{m_pusher}.compileNewExpr(m_arguments.at(i).get());
+				acceptExpr(m_arguments.at(i).get());
 			}
 			m_pusher.push(+1, "NEWC");
 			ChainDataEncoder{&m_pusher}.createMsgBody(
@@ -2494,19 +2447,17 @@ void FunctionCallCompiler::typeConversion() {
 			m_pusher.push(+1, "DUP");
 			m_pusher.pushInt(enumDef->members().size());
 			m_pusher.push(-1, "GEQ");
+			m_pusher.push(-1, "THROWIF " + toString(TvmConst::RuntimeException::WrongValueOfEnum));
 
 			auto type = m_arguments[0].get()->annotation().type;
 			TypeInfo ti(type);
 			if (!ti.isNumeric || ti.isSigned) {
-				m_pusher.push(+1, "OVER");
-				m_pusher.push(0, "ISNEG");
-				m_pusher.push(-1, "OR");
+				m_pusher.push(0, "UFITS 256"); // checks whether value >= 0
 			}
-			m_pusher.push(-1, "THROWIF 5"); // TODO set normal error code
+
 			return;
 		}
 	}
-
 
 	solAssert(m_arguments.size() == 1, "");
 	acceptExpr(m_arguments.at(0).get()); // it's correct
@@ -2858,50 +2809,37 @@ bool FunctionCallCompiler::createNewContract() {
 	pushArgs(true);
 	const TypePointer type = newExpr->typeName().annotation().type;
 
-	std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
-	// unit with getIndex()
-	auto stateIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "stateInit"; });
-	auto codeIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "code"; });
-	int pkIndex = -1;
-	auto pubkeyIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "pubkey"; });
-	if (pubkeyIt != optionNames.end())
-		pkIndex = pubkeyIt - optionNames.begin();
 	std::function<void()> pushKey = [&]() {
-		if (pkIndex == -1) {
-			m_pusher.pushInt(0);
+		if (Expression const* stateInit = findOption("pubkey")) {
+			acceptExpr(stateInit);
 		} else {
-			auto functionOptions = to<FunctionCallOptions>(&m_functionCall.expression());
-			acceptExpr(functionOptions->options().at(pkIndex).get());
+			m_pusher.pushInt(0);
 		}
 	};
 
-	if (stateIt != optionNames.end()) {
-		size_t index = stateIt - optionNames.begin();
-		acceptExpr(functionOptions->options()[index].get()); // stack: stateInit
-	} else if (codeIt != optionNames.end()) {
+	if (Expression const* stateInit = findOption("stateInit")) {
+		acceptExpr(stateInit); // stack: stateInit
+	} else if (Expression const* code = findOption("code")) {
 		const int ss = m_pusher.getStack().size();
 		std::map<StateInitMembers, std::function<void()>> stateInitExprs;
 
-		auto varIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "varInit"; });
-		bool hasVars = (varIt != optionNames.end());
+		Expression const* varInit = findOption("varInit");
+		bool hasVars = varInit != nullptr;
 		bool isNew = true;
 		stateInitExprs[StateInitMembers::Data] = generateDataSection(
 			pushKey, hasVars,
-			hasVars ? functionOptions->options().at(varIt - optionNames.begin()) : nullptr,
+			hasVars ? varInit : nullptr,
 			isNew,
 			nullptr
 		);
 
 		stateInitExprs[StateInitMembers::Code] = [&]() {
-			size_t codeIndex = codeIt - optionNames.begin();
-			acceptExpr(functionOptions->options().at(codeIndex).get());
+			acceptExpr(code);
 		};
 
-		auto splitDepthIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "splitDepth"; });
-		if (splitDepthIt != optionNames.end()) {
-			stateInitExprs[StateInitMembers::SplitDepth] = [&]() {
-				size_t splitDepthIndex = splitDepthIt - optionNames.begin();
-				acceptExpr(functionOptions->options()[splitDepthIndex].get()); // stack: data code split_depth
+		if (Expression const* splitDepth = findOption("splitDepth")) {
+			stateInitExprs[StateInitMembers::SplitDepth] = [this, splitDepth]() {
+				acceptExpr(splitDepth); // stack: data code split_depth
 			};
 		}
 
@@ -2913,37 +2851,47 @@ bool FunctionCallCompiler::createNewContract() {
 		solUnimplemented("");
 	}
 
-	std::function<void()> pushWid;
-	auto widIt = find_if(optionNames.begin(), optionNames.end(), [](auto el) { return *el == "wid"; });
-	if (widIt != optionNames.end()) {
-		pushWid = [&](){
-			size_t widIndex = widIt - optionNames.begin();
-			acceptExpr(functionOptions->options()[widIndex].get()); // stack: stateInit hash wid
-		};
+	std::variant<int8_t, std::function<void()>> pushWid = int8_t{0};
+	if (Expression const* wid = findOption("wid")) {
+		std::optional<bigint> value = TVMExpressionCompiler::constValue(*wid);
+		if (value) {
+			pushWid = int8_t(value.value());
+		} else {
+			pushWid = [&, wid]() {
+				acceptExpr(wid);
+			};
+		}
 	}
 
-	const std::function<void()> pushValue = [&](){
-		auto valueIt = find_if(optionNames.begin(), optionNames.end(),  [](auto el) { return *el == "value"; });
-		solAssert(valueIt != optionNames.end(), "");
-		size_t index = valueIt - optionNames.begin();
-		TVMExpressionCompiler{m_pusher}.compileNewExpr(functionOptions->options()[index].get());
-	};
+	std::variant<bigint, std::function<void()>> pushValue;
+	{
+		Expression const *value = findOption("value");
+		solAssert(value, "");
+		std::optional<bigint> v = TVMExpressionCompiler::constValue(*value);
+		if (v) {
+			pushValue = v.value();
+		} else {
+			pushValue = [&, value]() {
+				acceptExpr(value);
+			};
+		}
+	}
 
-	std::function<void()> pushBounce;
-	auto bounceIt = find_if(optionNames.begin(), optionNames.end(),  [](auto el) { return *el == "bounce"; });
-	if (bounceIt != optionNames.end()) {
-		pushBounce = [&]() {
-			size_t index = bounceIt - optionNames.begin();
-			TVMExpressionCompiler{m_pusher}.compileNewExpr(functionOptions->options()[index].get());
-		};
+	std::variant<bool, std::function<void()>> pushBounce = true;
+	if (Expression const* bounce = findOption("bounce")) {
+		if (std::optional<bool> value = TVMExpressionCompiler::constBool(*bounce)) {
+			pushBounce = value.value();
+		} else {
+			pushBounce = [&, bounce]() {
+				acceptExpr(bounce);
+			};
+		}
 	}
 
 	std::function<void()> pushCurrency;
-	auto currencyIt = find_if(optionNames.begin(), optionNames.end(),  [](auto el) { return *el == "currencies"; });
-	if (currencyIt != optionNames.end()) {
-		pushCurrency = [&]() {
-			size_t index = currencyIt - optionNames.begin();
-			TVMExpressionCompiler{m_pusher}.compileNewExpr(functionOptions->options()[index].get());
+	if (Expression const* currencies = findOption("currencies")) {
+		pushCurrency = [this, currencies]() {
+			acceptExpr(currencies);
 		};
 	}
 
@@ -2962,10 +2910,8 @@ bool FunctionCallCompiler::createNewContract() {
 	};
 
 	std::function<void()> pushSendrawmsgFlag;
-	auto flagIt = find_if(optionNames.begin(), optionNames.end(),  [](auto el) { return *el == "flag"; });
-	if (flagIt != optionNames.end()) {
-		Expression const *sendrawmsgFlag = functionOptions->options()[flagIt - optionNames.begin()].get();
-		pushSendrawmsgFlag = [&]() { acceptExpr(sendrawmsgFlag); };
+	if (Expression const* flag = findOption("flag")) {
+		pushSendrawmsgFlag = [flag, this]() { acceptExpr(flag); };
 	}
 
 	deployNewContract(pushWid, pushValue, pushBounce, pushCurrency, pushBody, pushSendrawmsgFlag, m_arguments.size());
@@ -2973,11 +2919,10 @@ bool FunctionCallCompiler::createNewContract() {
 	return true;
 }
 
-// TODO pushBounce and another params can be const
 void FunctionCallCompiler::deployNewContract(
-	const std::function<void()>& pushWid,
-	const std::function<void()>& pushValue,
-	const std::function<void()>& pushBounce,
+	const std::variant<int8_t, std::function<void()>>& wid,
+	const std::variant<bigint, std::function<void()>>& value,
+	const std::variant<bool, std::function<void()>>& pushBounce,
 	const std::function<void()>& pushCurrency,
 	const std::function<void(int builderSize)>& appendBody,
 	const std::function<void()>& pushSendrawmsgFlag,
@@ -2987,43 +2932,52 @@ void FunctionCallCompiler::deployNewContract(
 
 	std::map<int, std::string> constParams = {{TvmConst::int_msg_info::ihr_disabled, "1"}};
 
-	if (pushBounce) {
-		exprs[TvmConst::int_msg_info::bounce] = pushBounce;
-	} else {
-		constParams[TvmConst::int_msg_info::bounce] = "1";
+	if (pushBounce.index() == 0) {
+		constParams[TvmConst::int_msg_info::bounce] = StackPusherHelper::boolToBinaryString(std::get<0>(pushBounce));
+	} else if (pushBounce.index() == 1) {
+		exprs[TvmConst::int_msg_info::bounce] = std::get<1>(pushBounce);
 	}
 
 	if (pushCurrency) {
 		exprs[TvmConst::int_msg_info::currency] = pushCurrency;
-	} else {
-		constParams[TvmConst::int_msg_info::currency] = "0";
 	}
 
 	// stack: stateInit
 	m_pusher.pushS(0);
 	m_pusher.push(-1 + 1, "HASHCU"); // stack: stateInit hash
 
-	if (pushWid) {
-		pushWid();
+	if (wid.index() == 0) {
+		int8_t w = std::get<0>(wid);
+		std::string binWID = "100";
+		StackPusherHelper::addBinaryNumberToString(binWID, u256(w), 8);
+		m_pusher.push(+1, "NEWC");
+		m_pusher.push(-1 + 1, "STSLICECONST x" + StackPusherHelper::binaryStringToSlice(binWID));
+	} else {
+		std::get<1>(wid)();
 		m_pusher.push(+1, "NEWC");
 		m_pusher.push(-1 + 1, "STSLICECONST x9_"); // addr_std$10 anycast:(Maybe Anycast) // 10 0 1 = 9
 		m_pusher.push(-1, "STI 8"); // workchain_id:int8
-	} else {
-		m_pusher.push(+1, "NEWC");
-		m_pusher.push(-1 + 1, "STSLICECONST x801_"); // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 // 10 0  00000000 1 = 801
 	}
 	m_pusher.push(-1, "STU 256"); // address:bits256
-	m_pusher.push(-1 + 1, "ENDC");
-	m_pusher.push(-1 + 1, "CTOS");
+	bool isDestBuilder = !m_isCurrentResultNeeded;
+	if (!isDestBuilder) {
+		m_pusher.push(-1 + 1, "ENDC");
+		m_pusher.push(-1 + 1, "CTOS");
+	}
 
-	// stack: arg[n-1], ..., arg[1], arg[0], stateInit destAddress
+	// stack: arg[n-1], ..., arg[1], arg[0], stateInit, destAddress
 	m_pusher.blockSwap(argQty + 1, 1);
 	// stack:  destAddress, arg[n-1], ..., arg[1], arg[0], stateInit
 	int destAddressStack = m_pusher.getStack().size() - 1 - argQty;
 
-	exprs[TvmConst::int_msg_info::tons] = [&](){
-		pushValue();
-	};
+	if (value.index() == 0) {
+		constParams[TvmConst::int_msg_info::tons] = StackPusherHelper::tonsToBinaryString(std::get<0>(value));
+	} else {
+		exprs[TvmConst::int_msg_info::tons] = [&](){
+			std::get<1>(value)();
+		};
+	}
+
 	exprs[TvmConst::int_msg_info::dest] = [&](){
 		int stackIndex = m_pusher.getStack().size() - destAddressStack;
 		m_pusher.pushS(stackIndex);
@@ -3046,7 +3000,9 @@ void FunctionCallCompiler::deployNewContract(
 		constParams,
 		appendBody,
 		appendStateInit,
-		pushSendrawmsgFlag
+		pushSendrawmsgFlag,
+		StackPusherHelper::MsgType::Internal,
+		isDestBuilder
 	);
 	// stack: destAddress
 }
@@ -3114,8 +3070,8 @@ bool FunctionCallCompiler::structMethodCall() {
 }
 
 void FunctionCallCompiler::buildStateInit(std::map<StateInitMembers, std::function<void()>> exprs) {
-	solAssert(exprs.count(StateInitMembers::Special) == 0, "TODO");
-	solAssert(exprs.count(StateInitMembers::Library) == 0, "TODO");
+	solAssert(exprs.count(StateInitMembers::Special) == 0, "");
+	solAssert(exprs.count(StateInitMembers::Library) == 0, "");
 	solAssert(exprs.count(StateInitMembers::Code) == 1, "Code must present");
 	solAssert(exprs.count(StateInitMembers::Data) == 1, "Data must present");
 
@@ -3224,4 +3180,16 @@ void FunctionCallCompiler::compileLog()
 		pushArgs();
 		m_pusher.pushLog();
 	}
+}
+
+Expression const* FunctionCallCompiler::findOption(const std::string& name) {
+	auto functionOptions = to<FunctionCallOptions>(&m_functionCall.expression());
+	if (!functionOptions)
+		return {};
+	std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
+	auto iter = find_if(optionNames.begin(), optionNames.end(), [&](auto el) { return *el == name; });
+	if (iter == optionNames.end())
+		return {};
+	size_t index = iter - optionNames.begin();
+	return functionOptions->options().at(index).get();
 }

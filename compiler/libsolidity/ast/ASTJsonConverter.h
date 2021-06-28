@@ -89,6 +89,8 @@ public:
 	bool visit(UserDefinedTypeName const& _node) override;
 	bool visit(FunctionTypeName const& _node) override;
 	bool visit(Mapping const& _node) override;
+	bool visit(Optional const& _node) override;
+	bool visit(TvmTuple const& _node) override;
 	bool visit(ArrayTypeName const& _node) override;
 	bool visit(InlineAssembly const& _node) override;
 	bool visit(Block const& _node) override;
@@ -98,6 +100,7 @@ public:
 	bool visit(TryStatement const& _node) override;
 	bool visit(WhileStatement const& _node) override;
 	bool visit(ForStatement const& _node) override;
+	bool visit(ForEachStatement const& _node) override;
 	bool visit(Continue const& _node) override;
 	bool visit(Break const& _node) override;
 	bool visit(Return const& _node) override;
@@ -112,16 +115,23 @@ public:
 	bool visit(BinaryOperation const& _node) override;
 	bool visit(FunctionCall const& _node) override;
 	bool visit(FunctionCallOptions const& _node) override;
+	bool visit(InitializerList const& _node) override;
+	bool visit(CallList const& _node) override;
 	bool visit(NewExpression const& _node) override;
 	bool visit(MemberAccess const& _node) override;
 	bool visit(IndexAccess const& _node) override;
 	bool visit(IndexRangeAccess const& _node) override;
 	bool visit(Identifier const& _node) override;
 	bool visit(ElementaryTypeNameExpression const& _node) override;
+	bool visit(MappingNameExpression const& _node) override;
+	bool visit(OptionalNameExpression const& _node) override;
 	bool visit(Literal const& _node) override;
 	bool visit(StructuredDocumentation const& _node) override;
 
 	void endVisit(EventDefinition const&) override;
+
+protected:
+	bool visitNode(ASTNode const&) override { solUnimplemented(""); }
 
 private:
 	void setJsonNode(

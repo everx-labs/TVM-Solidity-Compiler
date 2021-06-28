@@ -132,7 +132,7 @@ private:
 	void decodeParameter(Type const* type, DecodePosition* position);
 private:
 	StackPusherHelper *pusher{};
-	bool fastLoad;
+	bool fastLoad{};
 };
 
 

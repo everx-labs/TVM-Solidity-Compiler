@@ -38,7 +38,6 @@
 #include <vector>
 
 #include "../codegen/TVMCommons.hpp"
-#include "../codegen/TVMStructCompiler.hpp"
 #include "../codegen/TVMConstants.hpp"
 
 
@@ -409,6 +408,7 @@ TypePointers TypeChecker::checkSliceDecode(FunctionCall const& _functionCall)
 				case Type::Category::ExtraCurrencyCollection:
 				case Type::Category::Optional:
 				case Type::Category::Struct:
+				case Type::Category::Enum:
 					break;
 
 				default:
@@ -1112,7 +1112,7 @@ bool TypeChecker::visit(ForEachStatement const& _forStatement)
 	_forStatement.rangeDeclaration()->accept(*this);
 	_forStatement.rangeExpression()->accept(*this);
 
-	auto vars = dynamic_cast<VariableDeclarationStatement const*>(_forStatement.rangeDeclaration().get());
+	auto vars = dynamic_cast<VariableDeclarationStatement const*>(_forStatement.rangeDeclaration());
 	if (vars == nullptr) {
 		m_errorReporter.typeError(
 			_forStatement.rangeDeclaration()->location(),
@@ -2596,7 +2596,7 @@ void TypeChecker::checkInitList(InitializerList const *list, ContractType const 
 }
 
 void TypeChecker::checkCallList(
-	vector<ASTPointer<Expression const>> const& arguments,
+	vector<Expression const *> const& arguments,
 	FunctionCall const& _functionCall,
 	bool ignoreCallBack // for ext msg we set callbackFunctionId==0
 ) {
@@ -2609,7 +2609,7 @@ void TypeChecker::checkCallList(
 
 	}
 	FunctionDefinition const *functionDeclaration =
-			checkPubFunctionOrContractTypeAndGetDefinition(*arguments.front().get());
+			checkPubFunctionOrContractTypeAndGetDefinition(*arguments.front());
 
 	if (functionDeclaration != nullptr) {
 		bool needCallback = !ignoreCallBack && functionDeclaration->isResponsible();
@@ -2630,7 +2630,7 @@ void TypeChecker::checkCallList(
 			);
 		} else {
 			if (needCallback) {
-				checkPubFunctionAndGetDefinition(*arguments.at(1).get(), true);
+				checkPubFunctionAndGetDefinition(*arguments.at(1), true);
 			}
 			for (size_t i = 0; i < calleeParams.size(); i++)
 				expectType(*arguments[1 + shift + i], *calleeParams[i]->annotation().type);
@@ -3113,12 +3113,12 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 					auto callList = dynamic_cast<CallList const*>(arguments.at(index).get());
 					if (callList) {
 						// now, we ignore constructor call, because in this case we must set stateInit
-						checkPubFunctionAndGetDefinition(*callList->function().get(), true);
+						checkPubFunctionAndGetDefinition(*callList->function(), true);
 
-						std::vector<ASTPointer<Expression const>> params;
+						std::vector<Expression const*> params;
 						params.push_back(callList->function());
-						for (const ASTPointer<Expression const>& p : callList->arguments()) {
-							params.push_back(p);
+						for (const ASTPointer<Expression const> & p : callList->arguments()) {
+							params.push_back(p.get());
 						}
 						checkCallList(params, _functionCall, false);
 					}
@@ -3159,10 +3159,10 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				) {
 					auto callList = dynamic_cast<CallList const*>(arguments.at(index).get());
 					if (callList) {
-						std::vector<ASTPointer<Expression const>> params;
+						std::vector<Expression const*> params;
 						params.push_back(callList->function());
 						for (const ASTPointer<Expression const>& p : callList->arguments()) {
-							params.push_back(p);
+							params.push_back(p.get());
 						}
 						checkCallList(params, _functionCall, true);
 					}
@@ -3218,7 +3218,11 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			}
 			case FunctionType::Kind::TVMEncodeBody:
 			{
-				checkCallList(arguments, _functionCall, false);
+				std::vector<Expression const*> params;
+				for (const ASTPointer<Expression const>& p : arguments) {
+					params.push_back(p.get());
+				}
+				checkCallList(params, _functionCall, false);
 
 				typeCheckFunctionCall(_functionCall, functionType);
 				returnTypes = functionType->returnParameterTypes();
@@ -3424,7 +3428,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		if (isExternalInboundMessage) {
 			arr = {"extMsg", "time", "expire", "call", "sign",  "pubkey", "abiVer", "callbackId", "onErrorId", "stateInit", "signBoxHandle"};
 		} else if (isNewExpression) {
-			arr = {"stateInit", "code", "data", "pubkey", "varInit", "splitDepth", "wid", "value", "currencies", "bounce", "flag"};
+			arr = {"stateInit", "code", "pubkey", "varInit", "splitDepth", "wid", "value", "currencies", "bounce", "flag"};
 		} else {
 			arr = {"value", "currencies", "bounce", "flag", "callback"};
 		}
@@ -3929,7 +3933,7 @@ bool TypeChecker::visit(IndexRangeAccess const& _access)
 
 	if (!arrayType->isDynamicallySized())
 		m_errorReporter.typeError(_access.location(), "Index range access is only supported for dynamic calldata arrays.");
-	_access.annotation().type = TypeProvider::arraySlice(*arrayType);
+	_access.annotation().type = arrayType;
 	_access.annotation().isLValue = isLValue;
 	_access.annotation().isPure = isPure;
 

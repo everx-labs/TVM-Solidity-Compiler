@@ -26,8 +26,6 @@
 #include <libsolidity/ast/ASTVisitor.h>
 
 #include "TVMCommons.hpp"
-#include "TVMConstants.hpp"
-#include "TVMABI.hpp"
 
 using namespace std;
 using namespace solidity;
@@ -36,9 +34,6 @@ using namespace langutil;
 using namespace solidity::util;
 
 namespace solidity::frontend {
-
-class StructCompiler;
-
 
 class TVMStack : public boost::noncopyable {
     int m_size{};
@@ -141,7 +136,6 @@ protected:
 	TVMStack m_stack;
 	CodeLines m_code;
 	TVMCompilerContext* m_ctx;
-	std::unique_ptr<StructCompiler> m_structCompiler;
 
 public:
 	explicit StackPusherHelper(TVMCompilerContext* ctx, const int stackSize = 0);
@@ -175,7 +169,6 @@ public:
 	void startCell();
 	void endContinuation(int deltaStack = 0);
 
-	StructCompiler& structCompiler();
 	TVMStack& getStack();
     void pushString(const std::string& str, bool toSlice);
 	void pushLog();
@@ -212,6 +205,7 @@ public:
 	static std::string tonsToBinaryString(Literal const* literal);
 	static std::string tonsToBinaryString(const u256& value);
 	static std::string tonsToBinaryString(bigint value);
+	static std::string boolToBinaryString(bool value);
 	std::string literalToSliceAddress(Literal const* literal, bool pushSlice = true);
 	static bigint pow10(int power);
 
@@ -229,7 +223,7 @@ public:
 	void exchange(int i, int j);
 	void prepareKeyForDictOperations(Type const* key, bool doIgnoreBytes);
 	[[nodiscard]]
-	int int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams);
+	int int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams, bool isDestBuilder);
 	[[nodiscard]]
 	int ext_msg_info(const std::set<int> &isParamOnStack, bool isOut);
 	void appendToBuilder(const std::string& bitString);
@@ -293,13 +287,15 @@ public:
 				 const std::function<void(int)> &appendBody,
 				 const std::function<void()> &appendStateInit,
 				 const std::function<void()> &pushSendrawmsgFlag,
-				 MsgType messageType = MsgType::Internal);
+				 MsgType messageType = MsgType::Internal,
+				 bool isDestBuilder = false);
 
 	void prepareMsg(const std::set<int>& isParamOnStack,
 				 const std::map<int, std::string> &constParams,
 				 const std::function<void(int)> &appendBody,
 				 const std::function<void()> &appendStateInit,
-				 MsgType messageType = MsgType::Internal);
+				 MsgType messageType = MsgType::Internal,
+				 bool isDestBuilder = false);
 
 	void byteLengthOfCell();
 
