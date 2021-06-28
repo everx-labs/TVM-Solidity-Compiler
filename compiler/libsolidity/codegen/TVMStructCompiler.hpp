@@ -38,10 +38,10 @@ public:
 	void createDefaultStruct(bool resultIsBuilder = false);
 	void pushMember(const std::string &memberName);
 	void setMemberForTuple(const std::string &memberName);
+	// MyStruct(1, 2, 4) or MyStruct({x: 1, y: 2, z: 4})
 	void structConstructor(ast_vec<ASTString> const& names, const std::function<void(int, Type const*)>& pushParam);
 	void tupleToBuilder();
 	void convertSliceToTuple();
-	void sliceToStateVarsToC7();
 
 private:
 	int getIndex(const std::string& name);

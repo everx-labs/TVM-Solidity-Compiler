@@ -147,17 +147,17 @@ static void license()
 	exit(0);
 }
 
-static bool needsHumanTargetedStdout(po::variables_map const& _args)
-{
-	for (string const& arg: {
-		g_argAstJson,
-		g_argNatspecUser,
-		g_argNatspecDev,
-	})
-		if (_args.count(arg))
-			return true;
-	return false;
-}
+//static bool needsHumanTargetedStdout(po::variables_map const& _args)
+//{
+//	for (string const& arg: {
+//		g_argAstJson,
+//		g_argNatspecUser,
+//		g_argNatspecDev,
+//	})
+//		if (_args.count(arg))
+//			return true;
+//	return false;
+//}
 
 void CommandLineInterface::handleNatspec(bool _natspecDev, string const& _contract)
 {
@@ -324,11 +324,12 @@ Allowed options)",
 		return false;
 	}
 
-	const bool tvmAbi = m_args.count(g_argTvmABI);
-	const bool tvmCode = m_args.count(g_argTvm);
-	if (tvmAbi && tvmCode)
+	const bool hasCodeOrAbi = m_args.count(g_argTvm) > 0 || m_args.count(g_argTvmABI) > 0;
+	const bool hasJson = m_args.count(g_argAstJson) > 0 || m_args.count(g_argAstCompactJson) > 0;
+	if (hasCodeOrAbi && hasJson)
 	{
-		serr() << "Option " << g_argTvmABI << " and " << g_argTvm << " are mutually exclusive." << endl;
+		serr() << "Option " << g_argTvm  << " and " << g_argTvmABI << " are not compatible with "
+			 << g_argAstJson << "and" << g_argAstJson << endl;
 		return false;
 	}
 
@@ -436,7 +437,13 @@ bool CommandLineInterface::processInput()
 			m_compiler->generateAbi();
 		if (m_args.count(g_argTvm))
 			m_compiler->generateCode();
-		if (m_args.count(g_argTvm) == 0 && m_args.count(g_argTvmABI) == 0) {
+		if (
+			m_args.count(g_argTvm) == 0 &&
+			m_args.count(g_argTvmABI) == 0 &&
+			m_args.count(g_strAstJson) == 0 &&
+			m_args.count(g_strAstCompactJson) == 0
+		) {
+			// no params at all
 			m_compiler->generateCode();
 			m_compiler->generateAbi();
         }
@@ -452,8 +459,8 @@ bool CommandLineInterface::processInput()
 		string fileName = m_args[g_argInputFile].as<string>();
 		m_compiler->setInputFile(fileName);
 
-		bool successful{};
-		bool didCompileSomething{};
+		bool successful = true;
+		bool didCompileSomething = false;
 		std::tie(successful, didCompileSomething) = m_compiler->compile();
 		g_hasOutput |= didCompileSomething;
 
@@ -543,10 +550,10 @@ void CommandLineInterface::handleAst(string const& _argStr)
 
 		bool legacyFormat = !m_args.count(g_argAstCompactJson);
 
-		sout() << title << endl << endl;
+//		sout() << title << endl << endl;
 		for (auto const& sourceCode: m_sourceCodes)
 		{
-			sout() << endl << "======= " << sourceCode.first << " =======" << endl;
+//			sout() << endl << "======= " << sourceCode.first << " =======" << endl;
 			ASTJsonConverter(legacyFormat, m_compiler->sourceIndices()).print(sout(), m_compiler->ast(sourceCode.first));
 		}
 	}
@@ -573,8 +580,8 @@ void CommandLineInterface::outputCompilationResults()
 	vector<string> contracts = m_compiler->contractNames();
 	for (string const& contract: contracts)
 	{
-		if (needsHumanTargetedStdout(m_args))
-			sout() << endl << "======= " << contract << " =======" << endl;
+//		if (needsHumanTargetedStdout(m_args))
+//			sout() << endl << "======= " << contract << " =======" << endl;
 
 		handleNatspec(true, contract);
 		handleNatspec(false, contract);

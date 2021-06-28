@@ -19,6 +19,7 @@
 #include "TVMCommons.hpp"
 #include "TVMPusher.hpp"
 #include "TVMStructCompiler.hpp"
+#include "TVMABI.hpp"
 
 using namespace solidity::frontend;
 
@@ -143,18 +144,6 @@ void StructCompiler::convertSliceToTuple() {
 	pusher->tuple(memberTypes.size());
 
 	solAssert(ss == pusher->getStack().size(), "");
-}
-
-void StructCompiler::sliceToStateVarsToC7() {
-	// slice on stack
-	const int ss = pusher->getStack().size();
-	ChainDataDecoder decoder{pusher};
-	decoder.decodeData(memberTypes, pusher->ctx().getOffsetC4(), true);
-	for (int i = memberTypes.size() - 1; i >= 0; --i) {
-		pusher->setGlob(TvmConst::C7::FirstIndexForVariables + i);
-	}
-	solAssert(ss - 1 == pusher->getStack().size(), "");
-	// no slice any more
 }
 
 int StructCompiler::getIndex(const std::string& name) {

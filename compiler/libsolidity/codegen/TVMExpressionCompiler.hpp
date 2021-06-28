@@ -84,6 +84,7 @@ protected:
 	void visitMemberAccessArray(MemberAccess const& _node);
 	void visitMemberAccessFixedBytes(MemberAccess const& _node, FixedBytesType const* fbt);
 	static void indexTypeCheck(IndexAccess const& _node);
+	void visit2(IndexRangeAccess const& indexRangeAccess);
 	void visit2(IndexAccess const& indexAccess);
 	bool visit2(FunctionCall const& _functionCall);
 	void visit2(Conditional const& _conditional);

@@ -22,6 +22,7 @@
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCall.hpp"
 #include "TVMStructCompiler.hpp"
+#include "TVMConstants.hpp"
 
 using namespace solidity::frontend;
 
@@ -77,6 +78,8 @@ bool TVMExpressionCompiler::acceptExpr(const Expression *expr) {
 		doDropResultIfNeeded = visit2(*e7);
 	} else if (auto e8 = to<Conditional>(expr)) {
 		visit2(*e8);
+	} else if (auto e9 = to<IndexRangeAccess>(expr)) {
+		visit2(*e9);
 	} else {
 		cast_error(*expr, string("Unsupported expression ") + typeid(expr).name());
 	}
@@ -587,15 +590,15 @@ void TVMExpressionCompiler::visit2(BinaryOperation const &_binaryOperation) {
 		m_pusher.hardConvert(rightTargetType, rt);
 	};
 
-	if (lt->category() == Type::Category::TvmCell &&
-		rt->category() == Type::Category::TvmCell
-	) {
-		visitBinaryOperationForTvmCell(acceptLeft, acceptRight, op);
+	if (isString(lt) && isString(rt)) {
+		visitBinaryOperationForString(acceptLeft, acceptRight, op);
 		return;
 	}
 
-	if (isString(lt) && isString(rt)) {
-		visitBinaryOperationForString(acceptLeft, acceptRight, op);
+	if ((lt->category() == Type::Category::TvmCell &&
+		 rt->category() == Type::Category::TvmCell) ||
+		(isByteArrayOrString(lt) && isByteArrayOrString(rt))) {
+		visitBinaryOperationForTvmCell(acceptLeft, acceptRight, op);
 		return;
 	}
 
@@ -960,6 +963,34 @@ void TVMExpressionCompiler::indexTypeCheck(IndexAccess const &_node) {
 	if (!isIn(baseExprCategory, Type::Category::Mapping, Type::Category::ExtraCurrencyCollection, Type::Category::TvmTuple) && !isUsualArray(baseExprType)) {
 		cast_error(_node, "Index access is supported only for dynamic arrays, tuples and mappings");
 	}
+}
+
+void TVMExpressionCompiler::visit2(IndexRangeAccess const &indexRangeAccess) {
+	m_pusher.push(0, ";; index range");
+	Type const *baseType = indexRangeAccess.baseExpression().annotation().type;
+	if (baseType->category() == Type::Category::Array) {
+		auto baseArrayType = to<ArrayType>(baseType);
+		if (baseArrayType->isByteArray()) {
+			acceptExpr(&indexRangeAccess.baseExpression()); // bytes
+			if (indexRangeAccess.startExpression()) {
+				compileNewExpr(indexRangeAccess.startExpression());
+			}
+			else {
+				m_pusher.pushInt(0);
+			}
+			if (indexRangeAccess.endExpression()) {
+				compileNewExpr(indexRangeAccess.endExpression());
+				m_pusher.push(+1, "FALSE");
+			} else {
+				m_pusher.pushInt(0);
+				m_pusher.push(+1, "TRUE");
+			}
+
+			m_pusher.pushMacroCallInCallRef(-4 +1, "bytes_substr");
+			return;
+		}
+	}
+	solUnimplemented("Wrong range expression");
 }
 
 void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {

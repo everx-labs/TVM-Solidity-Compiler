@@ -1231,7 +1231,7 @@ public:
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 
-	ASTPointer<TypeName> const& maybeType() const { return m_type; }
+	TypeName const& type() const { return *m_type.get(); }
 
 private:
 	ASTPointer<TypeName> m_type;
@@ -1565,8 +1565,8 @@ public:
 
 	ForEachStatementAnnotation& annotation() const override;
 
-	ASTPointer<Statement> rangeDeclaration() const { return m_rangeDeclaration; }
-	ASTPointer<Expression> rangeExpression() const { return m_rangeExpression; }
+	Statement const* rangeDeclaration() const { return m_rangeDeclaration.get(); }
+	Expression const* rangeExpression() const { return m_rangeExpression.get(); }
 
 private:
 	// for ( range_declaration : range_expression )
@@ -1955,6 +1955,7 @@ private:
 
 /**
  * Function call definition. Contains function and arguments.
+ * e.g. {Foo.bar, 1, 2} in
  */
 class CallList: public Expression {
 public:
@@ -1969,7 +1970,7 @@ public:
 	void accept(ASTConstVisitor& _visitor) const override;
 
 	std::vector<ASTPointer<Expression const>> arguments() const { return {m_arguments.begin(), m_arguments.end()}; }
-	ASTPointer<Expression> function() const { return m_function; }
+	Expression const* function() const { return m_function.get(); }
 
 private:
 	ASTPointer<Expression> m_function;

@@ -161,7 +161,7 @@ public:
 		FixedBytes, Contract, Struct, Function, Enum, Tuple,
 		Mapping, TypeType, Modifier, Magic, Module,
 		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection, TvmTuple,
-		VarInteger, InitializerList, CallList, // <-- variables of that types can't be declarated in solidity contract
+		VarInteger, InitializerList, CallList, // <-- variables of that types can't be declared in solidity contract
 		Optional
 	};
 

@@ -19,6 +19,7 @@
 #include "TVM.h"
 #include "TVMCommons.hpp"
 #include "TVMPusher.hpp"
+#include "TVMConstants.hpp"
 
 namespace solidity::frontend {
 

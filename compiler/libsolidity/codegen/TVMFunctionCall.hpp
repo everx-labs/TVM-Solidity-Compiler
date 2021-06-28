@@ -18,11 +18,12 @@
 
 #pragma once
 
-#include "TVMPusher.hpp"
+#include <variant>
 
 namespace solidity::frontend {
 
 class TVMExpressionCompiler;
+class StackPusherHelper;
 
 class FunctionCallCompiler {
 public:
@@ -71,9 +72,9 @@ protected:
 	bool checkNewExpression();
 	bool createNewContract();
 	void deployNewContract(
-		const std::function<void()>& pushWid,
-		const std::function<void()>& pushValue,
-		const std::function<void()>& pushBounce,
+		const std::variant<int8_t, std::function<void()>>& wid,
+		const std::variant<bigint, std::function<void()>>& value,
+		const std::variant<bool, std::function<void()>>& pushBounce,
 		const std::function<void()>& pushCurrency,
 		const std::function<void(int builderSize)>& appendBody,
 		const std::function<void()>& pushSendrawmsgFlag,
@@ -91,7 +92,7 @@ protected:
 	std::function<void()> generateDataSection(
 		const std::function<void()>& pushKey,
 		bool &hasVars,
-		const ASTPointer<Expression const>& vars,
+		Expression const* vars,
 		bool &isNew,
 		const ASTPointer<const Expression>& contr
 	);
@@ -120,6 +121,7 @@ protected:
 	void pushExprAndConvert(const Expression* expr, Type const* targetType);
 	void acceptExpr(const Expression* expr);
 	void compileLog();
+	Expression const* findOption(const std::string& name);
 private:
 	StackPusherHelper& m_pusher;
 	TVMExpressionCompiler* const m_exprCompiler{};

@@ -130,7 +130,7 @@ private:
 	FunctionDefinition const* checkPubFunctionOrContractTypeAndGetDefinition(Expression const& arg);
 	void checkInitList(InitializerList const *list, ContractType const *ct);
 	void checkCallList(
-		std::vector<ASTPointer<Expression const>> const& arguments,
+		std::vector<Expression const*> const& arguments,
 		FunctionCall const& _functionCall,
 		bool ignoreCallBack
 	);

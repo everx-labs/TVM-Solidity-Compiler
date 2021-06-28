@@ -27,7 +27,7 @@
 #include "TVMFunctionCompiler.hpp"
 #include "TVMInlineFunctionChecker.hpp"
 #include "TVMOptimizations.hpp"
-#include "TVMStructCompiler.hpp"
+#include "TVMConstants.hpp"
 
 using namespace solidity::frontend;
 

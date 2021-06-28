@@ -17,20 +17,18 @@
 
 #include "DictOperations.hpp"
 #include "TVMPusher.hpp"
-#include "TVMContractCompiler.hpp"
 #include "TVMExpressionCompiler.hpp"
 #include "TVMStructCompiler.hpp"
+#include "TVMABI.hpp"
+#include "TVMConstants.hpp"
 
 #include <boost/range/adaptor/map.hpp>
 
 using namespace solidity::frontend;
 
 StackPusherHelper::StackPusherHelper(TVMCompilerContext *ctx, const int stackSize) :
-		m_ctx(ctx),
-		m_structCompiler{new StructCompiler{this,
-											ctx->notConstantStateVariableTypes(),
-											ctx->notConstantStateVariableNames()
-											}} {
+	m_ctx(ctx)
+{
 	m_stack.change(stackSize);
 }
 
@@ -72,10 +70,6 @@ void StackPusherHelper::pushLog() {
 	push(0, "CTOS");
 	push(0, "STRDUMP");
 	drop();
-}
-
-StructCompiler &StackPusherHelper::structCompiler() {
-	return *m_structCompiler;
 }
 
 void StackPusherHelper::generateC7ToT4Macro() {
@@ -1140,6 +1134,10 @@ std::string StackPusherHelper::tonsToBinaryString(bigint value) {
 	return res + s;
 }
 
+std::string StackPusherHelper::boolToBinaryString(bool value) {
+	return value ? "1" : "0";
+}
+
 std::string StackPusherHelper::literalToSliceAddress(Literal const *literal, bool pushSlice) {
 	Type const* type = literal->annotation().type;
 	u256 value = type->literalValue(literal);
@@ -1264,7 +1262,7 @@ void StackPusherHelper::hardConvert(Type const *leftType, Type const *rightType)
 				integerFromInteger(to<IntegerType>(leftType), r);
 				break;
 			case Type::Category::FixedBytes:
-				// nothing do here
+				// do nothing here
 				break;
 			case Type::Category::Address:
 				solUnimplemented("See FunctionCallCompiler::typeConversion");
@@ -1274,7 +1272,19 @@ void StackPusherHelper::hardConvert(Type const *leftType, Type const *rightType)
 				break;
 		}
 	};
-	
+
+	auto tupleFromTuple = [&](TupleType const* leftType, TupleType const* rightType) {
+		std::vector<TypePointer> const& lc = leftType->components();
+		std::vector<TypePointer> const& rc = rightType->components();
+		solAssert(lc.size() == rc.size(), "");
+		int n = lc.size();
+		for (int i = n - 1; 0 <= i; --i) {
+			hardConvert(lc.at(i), rc.at(i));
+			if (n >= 2) {
+				blockSwap(n - 1, 1);
+			}
+		}
+	};
 	
 	
 	
@@ -1334,7 +1344,6 @@ void StackPusherHelper::hardConvert(Type const *leftType, Type const *rightType)
 			break;
 		}
 
-
 		case Type::Category::Array: {
 			auto r = to<ArrayType>(rightType);
 			if (!r->isByteArray()) {
@@ -1366,10 +1375,18 @@ void StackPusherHelper::hardConvert(Type const *leftType, Type const *rightType)
 		case Type::Category::TvmSlice:
 			break;
 
-		case Type::Category::Tuple:
-			// opt(fixed32x5, fixed32x5) a;
-//			 a.get() = (1, 2, 4);
+		case Type::Category::Tuple: {
+			auto r = to<TupleType>(rightType);
+			switch (leftType->category()) {
+				case Type::Category::Tuple:
+					tupleFromTuple(to<TupleType>(leftType), r);
+					break;
+				default:
+					solUnimplemented(leftType->toString());
+					break;
+			}
 			break;
+		}
 
 		case Type::Category::StringLiteral: {
 			auto r = to<StringLiteralType>(rightType);
@@ -1636,7 +1653,8 @@ void StackPusherHelper::prepareKeyForDictOperations(Type const *key, bool doIgno
 	}
 }
 
-int StackPusherHelper::int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams) {
+int StackPusherHelper::int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams,
+									bool isDestBuilder) {
 	// int_msg_info$0  ihr_disabled:Bool  bounce:Bool(#1)  bounced:Bool
 	//                 src:MsgAddress  dest:MsgAddressInt(#4)
 	//                 value:CurrencyCollection(#5,#6)  ihr_fee:Grams  fwd_fee:Grams
@@ -1671,7 +1689,11 @@ int StackPusherHelper::int_msg_info(const std::set<int> &isParamOnStack, const s
 					++maxBitStringSize;
 					break;
 				case TvmConst::int_msg_info::dest:
-					push(-1, "STSLICE");
+					if (isDestBuilder) {
+						push(-1, "STB");
+					} else {
+						push(-1, "STSLICE");
+					}
 					maxBitStringSize += AddressInfo::maxBitLength();
 					break;
 				case TvmConst::int_msg_info::tons:
@@ -1802,15 +1824,18 @@ void StackPusherHelper::sendIntMsg(const std::map<int, Expression const *> &expr
 
 
 
-void StackPusherHelper::prepareMsg(const std::set<int>& isParamOnStack,
-								const std::map<int, std::string> &constParams,
-								const std::function<void(int)> &appendBody,
-								const std::function<void()> &appendStateInit,
-								MsgType messageType) {
+void StackPusherHelper::prepareMsg(
+	const std::set<int>& isParamOnStack,
+	const std::map<int, std::string> &constParams,
+	const std::function<void(int)> &appendBody,
+	const std::function<void()> &appendStateInit,
+	MsgType messageType,
+	bool isDestBuilder
+) {
 	int msgInfoSize = 0;
 	switch (messageType) {
 		case MsgType::Internal:
-			msgInfoSize = int_msg_info(isParamOnStack, constParams);
+			msgInfoSize = int_msg_info(isParamOnStack, constParams, isDestBuilder);
 			break;
 		case MsgType::ExternalOut:
 			msgInfoSize = ext_msg_info(isParamOnStack);
@@ -1850,8 +1875,9 @@ void StackPusherHelper::sendMsg(const std::set<int>& isParamOnStack,
 								const std::function<void(int)> &appendBody,
 								const std::function<void()> &appendStateInit,
 								const std::function<void()> &pushSendrawmsgFlag,
-								MsgType messageType) {
-	prepareMsg(isParamOnStack, constParams, appendBody, appendStateInit, messageType);
+								MsgType messageType,
+								bool isDestBuilder) {
+	prepareMsg(isParamOnStack, constParams, appendBody, appendStateInit, messageType, isDestBuilder);
 	if (pushSendrawmsgFlag) {
 		pushSendrawmsgFlag();
 	} else {

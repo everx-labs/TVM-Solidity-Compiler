@@ -1,3 +1,21 @@
+### 0.47.0 (2021-06-28)
+
+Compiler features:
+ * Added support for byte arrays slices ("bytes" type).
+ * Added serialization to builder and deserialization from slice for "enum" type values.
+
+Breaking change:
+ * Throw exception with code 72 on external message invocations for the functions with modifier `internalMsg`.
+
+Bugfixes:
+ * Fixed an issue with generating source files in JSON format.
+ * Fixed conversion of integer to the fixed point type.
+
+Gas optimizations:
+ * Optimize away, if unused, deployed contract address returned by expression `new Contr{...}(...)`.
+ * Assorted peephole stack optimizations.
+
+
 ### 0.46.0 (2021-06-18)
 
 Compiler features:

@@ -26,7 +26,7 @@
 #include "TVMAnalyzer.hpp"
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCompiler.hpp"
-#include "TVMStructCompiler.hpp"
+#include "TVMConstants.hpp"
 
 using namespace solidity::frontend;
 
@@ -107,7 +107,15 @@ LDI 1       ; pubkey [timestamp] constructor_flag memory
 )");
 	if (!pusher.ctx().notConstantStateVariables().empty()) {
 		pusher.getStack().change(+1); // slice
-		pusher.structCompiler().sliceToStateVarsToC7();
+		// slice on stack
+		std::vector<Type const *> stateVarTypes = pusher.ctx().notConstantStateVariableTypes();
+		const int ss = pusher.getStack().size();
+		ChainDataDecoder decoder{&pusher};
+		decoder.decodeData(stateVarTypes, pusher.ctx().getOffsetC4(), true);
+		for (int i = stateVarTypes.size() - 1; i >= 0; --i) {
+			pusher.setGlob(TvmConst::C7::FirstIndexForVariables + i);
+		}
+		solAssert(ss - 1 == pusher.getStack().size(), "");
 	} else {
 		pusher.push(0, "ENDS");
 	}
@@ -597,12 +605,12 @@ void TVMFunctionCompiler::visitFunctionWithModifiers() {
 			m_pusher.push(-1 + 1, "ADDCONST -5");
 			m_pusher.push(-1 + 1, "PICK");
 			m_pusher.push(-1 + 1, "EQINT -1");
-			m_pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ByExtOrByIntMsgOnly));
+			m_pusher.push(-1, "THROWIFNOT " + toString(TvmConst::RuntimeException::ByExtMsgOnly));
 		} else if (m_function->internalMsg()) {
 			m_pusher.push(+1, "DEPTH");
 			m_pusher.push(-1 + 1, "ADDCONST -5");
 			m_pusher.push(-1 + 1, "PICK");
-			m_pusher.push(-1, "THROWIF " + toString(TvmConst::RuntimeException::ByExtOrByIntMsgOnly));
+			m_pusher.push(-1, "THROWIF " + toString(TvmConst::RuntimeException::ByIntMsgOnly));
 		}
 	}
 
@@ -1046,12 +1054,12 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 
 	const int saveStackSize = m_pusher.getStack().size();
 	TVMExpressionCompiler ec{m_pusher};
-	ec.acceptExpr(_forStatement.rangeExpression().get(), true); // stack: dict
+	ec.acceptExpr(_forStatement.rangeExpression(), true); // stack: dict
 
 	// init
 	auto arrayType = to<ArrayType>(_forStatement.rangeExpression()->annotation().type);
 	auto mappingType = to<MappingType>(_forStatement.rangeExpression()->annotation().type);
-	auto vds = to<VariableDeclarationStatement>(_forStatement.rangeDeclaration().get());
+	auto vds = to<VariableDeclarationStatement>(_forStatement.rangeDeclaration());
 	int loopVarQty{};
 	if (arrayType) {
 		solAssert(vds->declarations().size() == 1, "");

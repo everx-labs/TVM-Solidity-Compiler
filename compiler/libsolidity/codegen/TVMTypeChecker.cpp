@@ -227,6 +227,15 @@ bool TVMTypeChecker::visit(const FunctionDefinition &f) {
 	return true;
 }
 
+bool TVMTypeChecker::visit(IndexRangeAccess const& indexRangeAccess) {
+	Type const *baseType = indexRangeAccess.baseExpression().annotation().type;
+	auto baseArrayType = to<ArrayType>(baseType);
+	if (baseType->category() != Type::Category::Array || !baseArrayType->isByteArray()) {
+		m_errorReporter.typeError(indexRangeAccess.location(), "Index range access is available only for bytes.");
+	}
+	return true;
+}
+
 bool TVMTypeChecker::visit(ContractDefinition const& cd) {
 	contractDefinition = &cd;
 

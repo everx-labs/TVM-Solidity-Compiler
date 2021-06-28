@@ -84,7 +84,9 @@ namespace TvmConst {
 		const int NoConfigParam20Or21 = 68;
 		const int Exponent00 = 69;
 		const int TooLongSubstr = 70;
-		const int ByExtOrByIntMsgOnly = 71;
+		const int ByExtMsgOnly = 71;
+		const int ByIntMsgOnly = 72;
+		const int WrongValueOfEnum = 73;
 	}
 
 	namespace FunctionId {

@@ -18,6 +18,7 @@
 #include "DictOperations.hpp"
 #include "TVMPusher.hpp"
 #include "TVMExpressionCompiler.hpp"
+#include "TVMConstants.hpp"
 
 
 DictOperation::DictOperation(StackPusherHelper& pusher, Type const& keyType, Type const& valueType) :

@@ -1578,6 +1578,8 @@ TypeResult ArrayType::binaryOperatorResult(Token _operator, const Type *_other) 
 {
 	if (isString() && (_operator == Token::Add || TokenTraits::isCompareOp(_operator)))
 		return Type::commonType(this, _other);
+	if (isByteArray() && _operator == Token::Equal)
+		return Type::commonType(this, _other);
 	return nullptr;
 }
 
@@ -1817,6 +1819,14 @@ MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 			FunctionType::Kind::TVMDataSize,
 			{}, StateMutability::Pure
 		));
+		members.emplace_back("append", TypeProvider::function(
+				TypePointers{TypeProvider::bytesMemory()},
+				TypePointers{},
+				strings{string("tail")},
+				strings{},
+				FunctionType::Kind::StringMethod,
+				false, StateMutability::Pure
+		));
 	}
 
 	if (!isString())
@@ -1870,14 +1880,6 @@ MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 			TypePointers{TypeProvider::uint256()},
 			strings{},
 			strings{string("byteLength")},
-			FunctionType::Kind::StringMethod,
-			false, StateMutability::Pure
-		));
-		members.emplace_back("append", TypeProvider::function(
-			TypePointers{TypeProvider::stringMemory()},
-			TypePointers{},
-			strings{string("tail")},
-			strings{},
 			FunctionType::Kind::StringMethod,
 			false, StateMutability::Pure
 		));
