@@ -456,7 +456,6 @@ FunctionType const* TypeProvider::function(
 	bool _arbitraryParameters,
 	StateMutability _stateMutability,
 	Declaration const* _declaration,
-	bool _valueSet,
 	bool _bound
 )
 {
@@ -469,7 +468,6 @@ FunctionType const* TypeProvider::function(
 		_arbitraryParameters,
 		_stateMutability,
 		_declaration,
-		_valueSet,
 		_bound
 	);
 }

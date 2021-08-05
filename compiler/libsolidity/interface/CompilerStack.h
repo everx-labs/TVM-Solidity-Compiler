@@ -183,15 +183,6 @@ public:
 		m_generateCode = true;
 	}
 
-	void withOptimizations() {
-		m_withOptimizations = true;
-	}
-
-
-	void withDebugInfo() {
-		m_withDebugInfo = true;
-	}
-
 	void setOutputFolder(const std::string& folder) {
 		m_folder = folder;
 	}

@@ -23,6 +23,16 @@
 
 using namespace solidity::frontend;
 
+StructCompiler::StructCompiler(StackPusherHelper *pusher, TupleType const* tuple) :
+	pusher{pusher}
+{
+	int i = 0;
+	for (auto t :tuple->components()) {
+		memberNames.push_back(toString(i++));
+		memberTypes.push_back(t);
+	}
+}
+
 std::vector<Type const*>
 getTypesFrom(StructDefinition const *structDefinition)
 {
@@ -115,7 +125,7 @@ void StructCompiler::structConstructor(
 
 void StructCompiler::tupleToBuilder() {
     // stack: tuple
-	const int ss = pusher->getStack().size();
+	const int ss = pusher->stackSize();
 
 	pusher->startCallRef();
 
@@ -131,19 +141,19 @@ void StructCompiler::tupleToBuilder() {
 	encoder.encodeParameters(memberTypes, position);
 	pusher->endContinuation();
 	// stack: builder
-	const int curSize = pusher->getStack().size();
+	const int curSize = pusher->stackSize();
 
 	solAssert(ss == curSize, "");
 }
 
 void StructCompiler::convertSliceToTuple() {
-	const int ss = pusher->getStack().size();
+	const int ss = pusher->stackSize();
 
 	ChainDataDecoder decoder{pusher};
 	decoder.decodeData(memberTypes, 0, false);
 	pusher->tuple(memberTypes.size());
 
-	solAssert(ss == pusher->getStack().size(), "");
+	solAssert(ss == pusher->stackSize(), "");
 }
 
 int StructCompiler::getIndex(const std::string& name) {

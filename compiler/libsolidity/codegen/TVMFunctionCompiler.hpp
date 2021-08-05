@@ -39,27 +39,29 @@ private:
 	);
 
 public:
-	static void generateC4ToC7(StackPusherHelper& pusher);
-	static void generateC4ToC7WithInitMemory(StackPusherHelper& pusher);
-	static void generateMacro(StackPusherHelper& pusher, FunctionDefinition const* function, const std::optional<std::string>& forceName = nullopt);
-	static void generateMainExternal(StackPusherHelper& pusher, ContractDefinition const *contract);
-	static void generateMainInternal(StackPusherHelper& pusher, ContractDefinition const *contract);
-	static void generateOnCodeUpgrade(StackPusherHelper& pusher, FunctionDefinition const* function);
-	static void generateOnTickTock(StackPusherHelper& pusher, FunctionDefinition const* function);
-	static void generatePrivateFunction(StackPusherHelper& pusher, const std::string& name);
-	static void generateLibraryFunction(StackPusherHelper& pusher, FunctionDefinition const* function, const std::string& name);
-	static void generateLibraryFunctionMacro(StackPusherHelper& pusher, FunctionDefinition const* function, const std::string& name);
-	static void generateReceive(StackPusherHelper& pusher, FunctionDefinition const* function);
-	static void generateFallback(StackPusherHelper& pusher, FunctionDefinition const* function);
-	static void generateOnBounce(StackPusherHelper& pusher, FunctionDefinition const* function);
-	static void generatePublicFunction(StackPusherHelper& pusher, FunctionDefinition const* function);
+	static Pointer<Function> generateC4ToC7(StackPusherHelper& pusher);
+	static Pointer<Function> generateC4ToC7WithInitMemory(StackPusherHelper& pusher);
+	[[nodiscard]]
+	static Pointer<Function> generateMacro(StackPusherHelper& pusher, FunctionDefinition const* function, const std::optional<std::string>& forceName = nullopt);
+	static Pointer<Function> generateMainExternal(StackPusherHelper& pusher, ContractDefinition const *contract);
+	static Pointer<Function> generateMainInternal(StackPusherHelper& pusher, ContractDefinition const *contract);
+	static Pointer<Function> generateCheckResume(StackPusherHelper& pusher);
+	static Pointer<Function> generateOnCodeUpgrade(StackPusherHelper& pusher, FunctionDefinition const* function);
+	static Pointer<Function> generateOnTickTock(StackPusherHelper& pusher, FunctionDefinition const* function);
+	static Pointer<Function> generatePrivateFunction(StackPusherHelper& pusher, const std::string& name);
+	static Pointer<Function> generateLibraryFunction(StackPusherHelper& pusher, FunctionDefinition const* function, const std::string& name);
+	static Pointer<Function> generateLibraryFunctionMacro(StackPusherHelper& pusher, FunctionDefinition const* function, const std::string& name);
+	static Pointer<Function> generateReceive(StackPusherHelper& pusher, FunctionDefinition const* function);
+	static Pointer<Function> generateFallback(StackPusherHelper& pusher, FunctionDefinition const* function);
+	static Pointer<Function> generateOnBounce(StackPusherHelper& pusher, FunctionDefinition const* function);
+	static Pointer<Function> generatePublicFunction(StackPusherHelper& pusher, FunctionDefinition const* function);
 	static void generateFunctionWithModifiers(StackPusherHelper& pusher, FunctionDefinition const* function, bool pushArgs);
-	static void generateGetter(StackPusherHelper& pusher, VariableDeclaration const* vd);
-	static void generatePublicFunctionSelector(StackPusherHelper& pusher, ContractDefinition const *contract);
+	static Pointer<Function> generateGetter(StackPusherHelper& pusher, VariableDeclaration const* vd);
+	static Pointer<Function> generatePublicFunctionSelector(StackPusherHelper& pusher, ContractDefinition const *contract);
 	void decodeFunctionParamsAndLocateVars(bool hasCallback);
 
 protected:
-	static void generateReceiveOrFallback(StackPusherHelper& pusher, FunctionDefinition const* function, const std::string& name);
+	static Pointer<Function> generateReceiveOrFallbackOrOnBounce(StackPusherHelper& pusher, FunctionDefinition const* function, const std::string& name);
 	ast_vec<ModifierInvocation> functionModifiers();
 	void endContinuation2(bool doDrop);
 
@@ -102,12 +104,11 @@ private:
 	ControlFlowInfo pushControlFlowFlagAndReturnControlFlowInfo(ContInfo &ci, bool isLoop);
 	void doWhile(WhileStatement const& _whileStatement);
 	void breakOrContinue(int code);
-	bool tryOptimizeReturn(Expression const* expr);
-	static bool isConstNumberOrConstTuple(Expression const* expr);
 
 	void setGlobSenderAddressIfNeed();
-	void generateMainExternalForAbiV1();
-	void generateMainExternalForAbiV2();
+	void setCtorFlag();
+	Pointer<Function> generateMainExternalForAbiV1();
+	Pointer<Function> generateMainExternalForAbiV2();
 
 	void pushMsgPubkey();
 	void checkSignatureAndReadPublicKey();
@@ -116,7 +117,7 @@ private:
 	void callPublicFunctionOrFallback();
 	void pushC4ToC7IfNeed();
 	void pushC7ToC4IfNeed();
-	std::string pushReceiveOrFallback();
+	void pushReceiveOrFallback();
 
 	void buildPublicFunctionSelector(const std::vector<std::pair<uint32_t, std::string>>& functions, int left, int right);
     void pushLocation(const ASTNode& node, bool reset = false);

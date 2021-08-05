@@ -879,7 +879,7 @@ public:
 	MemberList::MemberMap nativeMembers(ContractDefinition const* _currentScope) const override;
 	TypePointer encodingType() const override;
 	TypePointer decodingType() const override;
-	TypeResult interfaceType(bool _inLibrary) const override;
+	TypeResult interfaceType(bool) const override { return this; }
 
 	/// @returns true if this is valid to be stored in calldata
 	bool validForCalldata() const;
@@ -1032,7 +1032,7 @@ public:
 	MemberList::MemberMap nativeMembers(ContractDefinition const* _currentScope) const override;
 
 	Type const* encodingType() const override;
-	TypeResult interfaceType(bool _inLibrary) const override;
+	TypeResult interfaceType(bool) const override { return this; }
 
 	bool recursive() const
 	{
@@ -1099,10 +1099,7 @@ public:
 
 	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
 	TypePointer encodingType() const override;
-	TypeResult interfaceType(bool _inLibrary) const override
-	{
-		return _inLibrary ? this : encodingType();
-	}
+	TypeResult interfaceType(bool) const override { return this; }
 
 	EnumDefinition const& enumDefinition() const { return m_enum; }
 	/// @returns the value that the string has in the Enum
@@ -1224,7 +1221,7 @@ public:
 		ValueToGas, ///< valueToGas
 		GasToValue, ///< gasToValue
 
-		MessagePubkey, ///< msg.pubkey()
+		MsgPubkey, ///< msg.pubkey()
 
 		MathAbs, ///< math.abs()
 		MathDivC, ///< math.divc()
@@ -1244,6 +1241,7 @@ public:
 		TVMBuildStateInit, ///< tvm.buildStateInit()
 		TVMChecksign, ///< tvm.checkSign()
 		TVMCode, ///< tvm.code()
+		TVMCodeSalt, ///< tvm.codeSalt()
 		TVMCommit, ///< tvm.commit()
 		TVMConfigParam, ///< tvm.configParam()
 		TVMDeploy, ///< functions to deploy contract from contract
@@ -1260,6 +1258,7 @@ public:
 		TVMResetStorage, ///< tvm.resetStorage()
 		TVMSendMsg, ///< tvm.sendMsg()
 		TVMSetcode, ///< tvm.setcode()
+		TVMSetCodeSalt, ///< tvm.setCodeSalt()
 		TVMSetPubkey, ///< tvm.setPubkey()
 		TVMSetReplayProtTime, ///< tvm.setReplayProtTime()
 
@@ -1348,7 +1347,6 @@ public:
 		bool _arbitraryParameters = false,
 		StateMutability _stateMutability = StateMutability::NonPayable,
 		Declaration const* _declaration = nullptr,
-		bool _valueSet = false,
 		bool _bound = false
 	):
 		m_parameterTypes(_parameterTypes),
@@ -1358,7 +1356,6 @@ public:
 		m_kind(_kind),
 		m_stateMutability(_stateMutability),
 		m_arbitraryParameters(_arbitraryParameters),
-		m_valueSet(_valueSet),
 		m_bound(_bound),
 		m_declaration(_declaration)
 	{
@@ -1410,7 +1407,7 @@ public:
 	bool hasSimpleZeroValueInMemory() const override { return false; }
 	MemberList::MemberMap nativeMembers(ContractDefinition const* _currentScope) const override;
 	TypePointer encodingType() const override;
-	TypeResult interfaceType(bool _inLibrary) const override;
+	TypeResult interfaceType(bool) const override;
 
 	/// @returns TypePointer of a new FunctionType object. All input/return parameters are an
 	/// appropriate external types (i.e. the interfaceType()s) of input/return parameters of
@@ -1483,12 +1480,7 @@ public:
 	}
 
 	bool bound() const { return m_bound; }
-	bool valueSet() const { return m_valueSet; }
 
-
-	/// @returns a copy of this type, where gas or value are set manually. This will never set one
-	/// of the parameters to false.
-	TypePointer copyAndSetCallOptions(bool _setValue) const;
 
 	/// @returns a copy of this function type where the location of reference types is changed
 	/// from CallData to Memory. This is the type that would be used when the function is
@@ -1505,12 +1497,11 @@ private:
 	TypePointers m_returnParameterTypes;
 	std::vector<std::string> m_parameterNames;
 	std::vector<std::string> m_returnParameterNames;
-	Kind const m_kind;
+	Kind const m_kind{};
 	StateMutability m_stateMutability = StateMutability::NonPayable;
 	/// true if the function takes an arbitrary number of arguments of arbitrary types
 	bool const m_arbitraryParameters = false;
 
-	bool const m_valueSet = false; ///< true if the value to be sent is on the stack
 	bool const m_bound = false; ///< true if the function is called as arg1.fun(arg2, ..., argn)
 
 	Declaration const* m_declaration = nullptr;
@@ -1536,7 +1527,7 @@ public:
 	bool canLiveOutsideStorage() const override { return true; }
 	TypeResult binaryOperatorResult(Token, Type const*) const override { return nullptr; }
 	Type const* encodingType() const override;
-	TypeResult interfaceType(bool _inLibrary) const override;
+	TypeResult interfaceType(bool ) const override { return this; }
 	/// Cannot be stored in memory, but just in case.
 	bool hasSimpleZeroValueInMemory() const override { solAssert(false, ""); }
 
@@ -1567,6 +1558,7 @@ public:
 	bool operator==(Type const& _other) const override;
 	std::string toString(bool _short) const override;
 	std::string canonicalName() const override;
+	TypeResult interfaceType(bool) const override { return this; }
 	bool canLiveOutsideStorage() const override { return true; }
 	TypeResult binaryOperatorResult(Token, Type const*) const override { return nullptr; }
 	bool hasSimpleZeroValueInMemory() const override { solAssert(false, ""); }

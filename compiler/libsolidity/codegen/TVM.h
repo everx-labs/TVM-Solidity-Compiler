@@ -25,8 +25,6 @@
 class GlobalParams {
 public:
     static solidity::langutil::ErrorReporter* g_errorReporter;
-    static bool g_withOptimizations;
-    static bool g_withDebugInfo;
 };
 
 void TVMCompilerProceedContract(
@@ -35,8 +33,6 @@ void TVMCompilerProceedContract(
 	std::vector<solidity::frontend::PragmaDirective const *> const* pragmaDirectives,
 	bool generateAbi,
 	bool generateCode,
-	bool withOptimizations,
-	bool withDebugInfo,
 	const std::string& solFileName,
 	const std::string& outputFolder,
 	const std::string& filePrefix,

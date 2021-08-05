@@ -1905,14 +1905,22 @@ private:
 class FunctionCall: public Expression
 {
 public:
+	enum class Kind {
+		Await,
+		ExtMsg,
+		Usual
+	};
+
 	FunctionCall(
 		int64_t _id,
 		SourceLocation const& _location,
 		ASTPointer<Expression> const& _expression,
 		std::vector<ASTPointer<Expression>> const& _arguments,
-		std::vector<ASTPointer<ASTString>> const& _names
+		std::vector<ASTPointer<ASTString>> const& _names,
+		Kind kind
 	):
-		Expression(_id, _location), m_expression(_expression), m_arguments(_arguments), m_names(_names) {}
+		Expression(_id, _location), m_expression(_expression), m_arguments(_arguments), m_names(_names),
+		m_kind(kind) {}
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 
@@ -1921,11 +1929,14 @@ public:
 	std::vector<ASTPointer<ASTString>> const& names() const { return m_names; }
 
 	FunctionCallAnnotation& annotation() const override;
+	bool isAwait() const { return m_kind == Kind::Await; }
+	bool isExtMsg() const { return m_kind == Kind::ExtMsg; }
 
 private:
 	ASTPointer<Expression> m_expression;
 	std::vector<ASTPointer<Expression>> m_arguments;
 	std::vector<ASTPointer<ASTString>> m_names;
+	Kind m_kind;
 };
 
 

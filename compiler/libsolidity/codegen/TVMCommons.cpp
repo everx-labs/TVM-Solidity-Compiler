@@ -16,6 +16,8 @@
  * Common TVM codegen routines, in particular, types, data structures, scope, stack manipulations, etc.
  */
 
+#include <boost/algorithm/string/trim.hpp>
+
 #include "TVM.h"
 #include "TVMCommons.hpp"
 #include "TVMPusher.hpp"
@@ -97,6 +99,15 @@ bool isString(const Type *type) {
 
 bool isSlice(const Type * type) {
 	return to<TvmSliceType>(type) != nullptr;
+}
+
+bool isSmallOptional(OptionalType const* type) {
+	ABITypeSize size{type->valueType()};
+	return 1 + size.maxBits <= 1023 && size.maxRefs <= 3;
+}
+
+bool optValueAsTuple(Type const* optValueType) {
+	return isIn(optValueType->category(), Type::Category::Mapping, Type::Category::Optional);
 }
 
 int bitsForEnum(size_t val_count) {
@@ -387,6 +398,111 @@ std::set<CallableDeclaration const*> getAllBaseFunctions(CallableDeclaration con
 		res.insert(cur.begin(), cur.end());
 	}
 	return res;
+}
+
+
+ABITypeSize::ABITypeSize(const Type *type) {
+	if (isAddressOrContractType(type)){
+		minBits = AddressInfo::minBitLength();
+		maxBits = AddressInfo::maxBitLength();
+		minRefs = 0;
+		maxRefs = 0;
+	} else if (isIntegralType(type)) {
+		TypeInfo ti{type};
+		solAssert(ti.isNumeric, "");
+		minBits = ti.numBits;
+		maxBits = ti.numBits;
+		minRefs = 0;
+		maxRefs = 0;
+	} else if (auto arrayType = to<ArrayType>(type)) {
+		if (arrayType->isByteArray()) {
+			minBits = 0;
+			maxBits = 0;
+			minRefs = 1;
+			maxRefs = 1;
+		} else {
+			minBits = 32 + 1;
+			maxBits = 32 + 1;
+			minRefs = 0;
+			maxRefs = 1;
+		}
+	} else if (to<TvmCellType>(type)) {
+		minBits = 0;
+		maxBits = 0;
+		minRefs = 1;
+		maxRefs = 1;
+	} else if (auto opt = to<OptionalType>(type)) {
+		if (isSmallOptional(opt)) {
+			ABITypeSize size{opt->valueType()};
+			minBits = 1 + size.minBits;
+			maxBits = 1 + size.maxBits;
+			minRefs = size.minRefs;
+			maxRefs = size.maxRefs;
+		} else {
+			minBits = 1;
+			maxBits = 1;
+			minRefs = 0;
+			maxRefs = 1;
+		}
+	} else if (auto st = to<StructType>(type)) {
+		minBits = 0;
+		maxBits = 0;
+		minRefs = 0;
+		maxRefs = 0;
+		for (auto t : st->structDefinition().members()) {
+			ABITypeSize size{t->type()};
+			minBits += size.minBits;
+			maxBits += size.maxBits;
+			minRefs += size.minRefs;
+			maxRefs += size.maxRefs;
+		}
+	} else if (auto tup = to<TupleType>(type)) {
+		minBits = 0;
+		maxBits = 0;
+		minRefs = 0;
+		maxRefs = 0;
+		for (auto t : tup->components()) {
+			ABITypeSize size{t};
+			minBits += size.minBits;
+			maxBits += size.maxBits;
+			minRefs += size.minRefs;
+			maxRefs += size.maxRefs;
+		}
+	} else if (to<MappingType>(type)) {
+		minBits = 1;
+		maxBits = 1;
+		minRefs = 0;
+		maxRefs = 1;
+	} else if (to<FunctionType>(type)) {
+		minBits = 32;
+		maxBits = 32;
+		minRefs = 0;
+		maxRefs = 0;
+	} else {
+		solUnimplemented("Undefined type: " + type->toString());
+	}
+}
+
+bool isLoc(Pointer<TvmAstNode> const& node) {
+	auto c = dynamic_pointer_cast<Loc>(node);
+	return c != nullptr;
+}
+
+vector<string> split (const string &s, char sep) {
+	vector<string> result;
+	stringstream ss (s);
+	string item;
+
+	while (getline (ss, item, sep)) {
+		result.push_back (item);
+	}
+
+	return result;
+}
+
+int strToInt(const std::string& str) {
+	const std::string& trimed = boost::algorithm::trim_copy(str);
+	return boost::lexical_cast<int>(trimed);
 }
 
 } // end namespace solidity::frontend

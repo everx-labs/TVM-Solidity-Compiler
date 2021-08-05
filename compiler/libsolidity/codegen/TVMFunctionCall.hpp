@@ -122,6 +122,7 @@ protected:
 	void acceptExpr(const Expression* expr);
 	void compileLog();
 	Expression const* findOption(const std::string& name);
+	void cellBitRefQty(bool forCell = true);
 private:
 	StackPusherHelper& m_pusher;
 	TVMExpressionCompiler* const m_exprCompiler{};

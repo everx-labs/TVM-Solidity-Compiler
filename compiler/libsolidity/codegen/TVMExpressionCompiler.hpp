@@ -34,9 +34,8 @@ public:
 	LValueInfo expandLValue(
 			Expression const* const _expr,
 			const bool withExpandLastValue,
-			bool willNoStackPermutationForLValue = false,
-			bool isLValue = true,
-			Type const* rightType = nullptr
+			bool isLValue,
+			Type const* rightType
 	);
 	void collectLValue(const LValueInfo &lValueInfo, bool haveValueOnStackTop, bool isValueBuilder);
 
@@ -56,7 +55,6 @@ protected:
 	void visit2(UnaryOperation const& _node);
 	void compareSlices(Token op);
 	void compareStrings(Token op);
-	bool tryOptimizeBinaryOperation(BinaryOperation const& _node);
 	static std::vector<Expression const*> unroll(BinaryOperation const&  _node);
 	void visitBinaryOperationForTvmCell(
 		const std::function<void()>& pushLeft,

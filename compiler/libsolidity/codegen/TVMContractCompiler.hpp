@@ -20,6 +20,7 @@
 
 #include "TVM.h"
 #include "TVMPusher.hpp"
+#include "TvmAst.hpp"
 
 namespace solidity::frontend {
 
@@ -35,7 +36,7 @@ class TVMConstructorCompiler: private boost::noncopyable {
 public:
 	explicit TVMConstructorCompiler(StackPusherHelper& pusher);
 	void dfs(ContractDefinition const* c);
-	void generateConstructors();
+	Pointer<Function> generateConstructors();
 private:
 	void c4ToC7WithMemoryInitAndConstructorProtection();
 };
@@ -53,7 +54,7 @@ public:
 		ContractDefinition const& contract,
 		PragmaDirectiveHelper const &pragmaHelper
 	);
-	static CodeLines generateContractCode(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
+	static Pointer<Contract> generateContractCode(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
 private:
 	static void fillInlineFunctions(TVMCompilerContext& ctx, ContractDefinition const* contract);
 };

@@ -62,8 +62,6 @@
 #include <iostream>
 #include <fstream>
 
-#include <libsolidity/codegen/TVMOptimizations.hpp>
-
 #if !defined(STDERR_FILENO)
 	#define STDERR_FILENO 2
 #endif
@@ -117,12 +115,10 @@ static string const g_argOutputDir = g_strOutputDir;
 static string const g_argFile = g_strFile;
 static string const g_argVersion = g_strVersion;
 
-static string const g_argDebug = "debug";
 static string const g_argSetContract = "contract";
 static string const g_argTvm = "tvm";
 static string const g_argTvmABI = "tvm-abi";
 static string const g_argTvmOptimize = "tvm-optimize";
-static string const g_argTvmPeephole = "tvm-peephole";
 static string const g_argRefreshRemote = "tvm-refresh-remote";
 static string const g_argTvmUnsavedStructs = "tvm-unsaved-structs";
 static string const g_argFunctionIds = "function-ids";
@@ -296,11 +292,9 @@ Allowed options)",
 		(g_argTvm.c_str(), "Produce TVM assembly (deprecated).")
 		(g_argTvmABI.c_str(), "Produce JSON ABI for contract.")
 		(g_argFunctionIds.c_str(), "Print name and id for each public function.")
-		(g_argTvmPeephole.c_str(), "Run peephole optimization pass")
-		(g_argTvmOptimize.c_str(), "Optimize produced TVM assembly code (deprecated)")
-		(g_argTvmUnsavedStructs.c_str(), "Enable struct usage analyzer")
-		(g_argDebug.c_str(), "Generate debug info")
-		(g_argRefreshRemote.c_str(), "Force download and rewrite remote import files");
+		(g_argTvmOptimize.c_str(), "It's deprecated.")
+		(g_argTvmUnsavedStructs.c_str(), "Enable struct usage analyzer.")
+		(g_argRefreshRemote.c_str(), "Force download and rewrite remote import files.");
 	desc.add(outputComponents);
 
 	po::options_description allOptions = desc;
@@ -330,18 +324,6 @@ Allowed options)",
 	{
 		serr() << "Option " << g_argTvm  << " and " << g_argTvmABI << " are not compatible with "
 			 << g_argAstJson << "and" << g_argAstJson << endl;
-		return false;
-	}
-
-	if (m_args.count(g_argTvmPeephole)) {
-		for (int i = 1; i < _argc; i++) {
-			string s = _argv[i];
-			if (s != "--" + g_argTvmPeephole) {
-				run_peephole_pass(s);
-				return false;
-			}
-		}
-		serr() << "Missing filename." << endl;
 		return false;
 	}
 
@@ -447,11 +429,9 @@ bool CommandLineInterface::processInput()
 			m_compiler->generateCode();
 			m_compiler->generateAbi();
         }
-        m_compiler->withOptimizations();
-        if (m_args.count(g_argTvmOptimize))
-            serr() << "Flag '--tvm-optimize' is deprecated. Code is optimized by default." << endl;
-        if (m_args.count(g_argDebug))
-            m_compiler->withDebugInfo();
+
+		if (m_args.count(g_argTvmOptimize))
+			serr() << "Flag '--tvm-optimize' is deprecated. Code is optimized by default." << endl;
 
 		if (m_args.count(g_argFunctionIds))
 			m_compiler->printFunctionIds();
