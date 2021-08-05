@@ -1576,7 +1576,7 @@ ASTPointer<EmitStatement> Parser::parseEmitStatement(ASTPointer<ASTString> const
 	eventCallNodeFactory.markEndPosition();
 	nodeFactory.markEndPosition();
 	expectToken(Token::RParen);
-	auto eventCall = eventCallNodeFactory.createNode<FunctionCall>(eventName, arguments, names);
+	auto eventCall = eventCallNodeFactory.createNode<FunctionCall>(eventName, arguments, names, FunctionCall::Kind::Usual);
 	auto statement = nodeFactory.createNode<EmitStatement>(_docString, eventCall, optionList.first, optionList.second);
 	return statement;
 }
@@ -1948,9 +1948,18 @@ ASTPointer<Expression> Parser::parseLeftHandSideExpression(
 			vector<ASTPointer<Expression>> arguments;
 			vector<ASTPointer<ASTString>> names;
 			std::tie(arguments, names) = parseFunctionCallArguments();
-			nodeFactory.markEndPosition();
 			expectToken(Token::RParen);
-			expression = nodeFactory.createNode<FunctionCall>(expression, arguments, names);
+			FunctionCall::Kind kind = FunctionCall::Kind::Usual;
+			auto nextToken = m_scanner->peekNextToken();
+			if (m_scanner->currentToken() == Token::Period && (nextToken == Token::Await || nextToken == Token::ExtMsg))
+			{
+				bool isAwait = m_scanner->peekNextToken() == Token::Await;
+				m_scanner->next();
+				m_scanner->next();
+				kind = isAwait ? FunctionCall::Kind::Await : FunctionCall::Kind::ExtMsg;
+			}
+			nodeFactory.markEndPosition();
+			expression = nodeFactory.createNode<FunctionCall>(expression, arguments, names, kind);
 			break;
 		}
 		case Token::LBrace:
@@ -2149,8 +2158,13 @@ pair<vector<ASTPointer<Expression>>, vector<ASTPointer<ASTString>>> Parser::pars
 		if (!first)
 			expectToken(Token::Comma);
 
+		if (m_scanner->currentToken() == Token::ExtMsg) {
+			fatalParserError("\"extMsg\" call option is deprecated, use suffix \".extMsg\".\nFor example: Foo(addr).bar{...}(...).extMsg;\n");
+		}
+
 		ret.second.push_back(expectIdentifierToken());
 		expectToken(Token::Colon);
+
 		Token t = m_scanner->currentToken();
 		if (t == Token::LBrace) {
 			if (*ret.second.back() == "varInit") {

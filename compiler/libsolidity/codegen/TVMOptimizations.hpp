@@ -21,10 +21,9 @@
 #include "TVMPusher.hpp"
 
 namespace solidity::frontend {
-
-	CodeLines optimize_code(const CodeLines&);
-	
-	void run_peephole_pass(const string& filename);
-
+	class TVMOptimizer : public TvmAstVisitor {
+	public:
+		void endVisit(CodeBlock &_node) override;
+	};
 } // end solidity::frontend
 

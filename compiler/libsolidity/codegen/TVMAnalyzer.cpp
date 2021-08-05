@@ -204,22 +204,52 @@ ContactsUsageScanner::ContactsUsageScanner(const ContractDefinition &cd) {
 	}
 }
 
-bool ContactsUsageScanner::visit(const FunctionCall &_functionCall) {
-	auto ma = to<MemberAccess>(&_functionCall.expression());
-	if (ma && ma->memberName() == "pubkey" && ma->expression().annotation().type->category() == Type::Category::Magic) {
-		auto expr = to<Identifier>(&ma->expression());
-		if (expr && expr->name() == "msg") {
-			haveMsgPubkey = true;
+bool ContactsUsageScanner::visit(FunctionCall const& _functionCall) {
+	Expression const& expr = _functionCall.expression();
+	Type const* exprType = getType(&expr);
+	auto funType = to<FunctionType>(exprType);
+	if (funType) {
+		if (funType->hasDeclaration() &&
+			isIn(funType->kind(), FunctionType::Kind::Internal, FunctionType::Kind::DelegateCall))
+		{
+			// Library functions aren't part of contract definition, that's why we use lazy visiting
+			Declaration const& decl = funType->declaration();
+			if (!m_usedFunctions.count(&decl)) {
+				m_usedFunctions.insert(&decl);
+				decl.accept(*this);
+			}
 		}
+		switch (funType->kind()) {
+			case FunctionType::Kind::MsgPubkey:
+				m_hasMsgPubkey = true;
+				break;
+			case FunctionType::Kind::TVMCode:
+				m_hasTvmCode = true;
+				break;
+			default:
+				break;
+		}
+	}
+
+	if (_functionCall.isAwait()) {
+		m_hasAwaitCall = true;
+
+		Type const* expressionType = getType(&_functionCall.expression());
+		auto functionType = to<FunctionType>(expressionType);
+		auto fd = to<FunctionDefinition>(&functionType->declaration());
+		solAssert(fd, "");
+		m_awaitFunctions.insert(fd);
 	}
 	return true;
 }
 
 bool ContactsUsageScanner::visit(const MemberAccess &_node) {
-	if (_node.expression().annotation().type->category() == Type::Category::Magic) {
+	if (getType(&_node.expression())->category() == Type::Category::Magic) {
 		auto identifier = to<Identifier>(&_node.expression());
-		if (identifier && identifier->name() == "msg" && _node.memberName() == "sender") {
-			haveMsgSender = true;
+		if (identifier) {
+			if (identifier->name() == "msg" && _node.memberName() == "sender") {
+				m_hasMsgSender = true;
+			}
 		}
 	}
 	return true;
@@ -227,23 +257,7 @@ bool ContactsUsageScanner::visit(const MemberAccess &_node) {
 
 bool ContactsUsageScanner::visit(const FunctionDefinition &fd) {
 	if (fd.isResponsible())
-		haveResponsibleFunction = true;
-	return true;
-}
-
-FunctionUsageScanner::FunctionUsageScanner(const ASTNode &node) {
-	node.accept(*this);
-}
-
-bool FunctionUsageScanner::visit(const FunctionCall &_functionCall) {
-	auto identifier = to<Identifier>(&_functionCall.expression());
-	if (identifier) {
-		auto functionDefinition = to<FunctionDefinition>(identifier->annotation().referencedDeclaration);
-		if (functionDefinition && !functionDefinition->isInline()) {
-			havePrivateFunctionCall = true;
-		}
-	}
-
+		m_hasResponsibleFunction = true;
 	return true;
 }
 

@@ -31,6 +31,8 @@ private:
 	void checkOverrideAndOverload();
 	void check_onCodeUpgrade(FunctionDefinition const& f);
 
+public:
+	bool visit(VariableDeclaration const& _node) override;
 	bool visit(Mapping const& _mapping) override;
 	bool visit(FunctionDefinition const& fc) override;
 	bool visit(ContractDefinition const& ) override;

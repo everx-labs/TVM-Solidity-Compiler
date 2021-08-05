@@ -747,23 +747,24 @@ ASTPointer<BinaryOperation> ASTJsonImporter::createBinaryOperation(Json::Value c
 	);
 }
 
-ASTPointer<FunctionCall> ASTJsonImporter::createFunctionCall(Json::Value const&  _node)
+ASTPointer<FunctionCall> ASTJsonImporter::createFunctionCall(Json::Value const&  /*_node*/)
 {
-	std::vector<ASTPointer<Expression>> arguments;
-	for (auto& arg: member(_node, "arguments"))
-		arguments.push_back(convertJsonToASTNode<Expression>(arg));
-	std::vector<ASTPointer<ASTString>> names;
-	for (auto& name: member(_node, "names"))
-	{
-		astAssert(name.isString(), "Expected 'names' members to be strings!");
-		names.push_back(make_shared<ASTString>(name.asString()));
-	}
-	return createASTNode<FunctionCall>(
-		_node,
-		convertJsonToASTNode<Expression>(member(_node, "expression")),
-		arguments,
-		names
-	);
+	solUnimplemented("TODO");
+//	std::vector<ASTPointer<Expression>> arguments;
+//	for (auto& arg: member(_node, "arguments"))
+//		arguments.push_back(convertJsonToASTNode<Expression>(arg));
+//	std::vector<ASTPointer<ASTString>> names;
+//	for (auto& name: member(_node, "names"))
+//	{
+//		astAssert(name.isString(), "Expected 'names' members to be strings!");
+//		names.push_back(make_shared<ASTString>(name.asString()));
+//	}
+//	return createASTNode<FunctionCall>(
+//		_node,
+//		convertJsonToASTNode<Expression>(member(_node, "expression")),
+//		arguments,
+//		names
+//	);
 }
 
 ASTPointer<FunctionCallOptions> ASTJsonImporter::createFunctionCallOptions(Json::Value const&  _node)

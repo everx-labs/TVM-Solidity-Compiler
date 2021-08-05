@@ -72,19 +72,22 @@ public:
 	bool visit(MemberAccess const &_node) override;
 	bool visit(FunctionDefinition const& fd) override;
 
-	bool haveMsgPubkey{};
-	bool haveMsgSender{};
-	bool haveResponsibleFunction{};
-};
+	bool hasMsgPubkey() const { return m_hasMsgPubkey; }
+	bool hasMsgSender() const { return m_hasMsgSender; }
+	bool hasResponsibleFunction() const { return m_hasResponsibleFunction; }
+	bool hasAwaitCall() const { return m_hasAwaitCall; }
+	bool hasTvmCode() const { return m_hasTvmCode; }
+	set<FunctionDefinition const *> const& awaitFunctions() const { return m_awaitFunctions; }
 
-class FunctionUsageScanner: public ASTConstVisitor
-{
-public:
-	explicit FunctionUsageScanner(const ASTNode& node);
-	bool visit(FunctionCall const& _functionCall) override;
-	bool havePrivateFunctionCall{};
+private:
+	bool m_hasMsgPubkey{};
+	bool m_hasMsgSender{};
+	bool m_hasResponsibleFunction{};
+	bool m_hasAwaitCall{};
+	bool m_hasTvmCode{};
+	std::set<Declaration const*> m_usedFunctions;
+	std::set<FunctionDefinition const*> m_awaitFunctions;
 };
-
 
 class LoopScanner: public ASTConstVisitor
 {

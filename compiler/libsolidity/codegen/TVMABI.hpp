@@ -34,21 +34,22 @@ public:
 	 );
 	static void generateABI(ContractDefinition const* contract,
 							std::vector<PragmaDirective const *> const& pragmaDirectives, std::ostream* out = &cout);
-	static string getParamTypeString(Type const* type);
 private:
 	static std::vector<const FunctionDefinition *> publicFunctions(ContractDefinition const& contract);
 	static void printData(const Json::Value& json, std::ostream* out);
 	static void print(const Json::Value& json, std::ostream* out);
-	static Json::Value processFunction(
-		const string& fname,
+	static Json::Value toJson(
+		const std::string& fname,
 		const std::vector<VariableDeclaration const*> &params,
 		const std::vector<VariableDeclaration const*> &retParams,
 		FunctionDefinition const* funcDef = nullptr
 	);
 	static Json::Value encodeParams(const std::vector<VariableDeclaration const*> &params);
-	static Json::Value setupType(const string& name, const Type* type);
-	static Json::Value setupComponents(Json::Value json, const Type* type);
+public:
+	static Json::Value setupNameTypeComponents(const std::string& name, const Type* type);
+private:
 	static Json::Value setupStructComponents(const StructType* type);
+	static Json::Value setupTupleComponents(const TupleType* type);
 };
 
 class DecodePosition : private boost::noncopyable {
@@ -86,7 +87,7 @@ private:
 
 class DecodePositionAbiV2 : public DecodePosition {
 public:
-	DecodePositionAbiV2(int minBits, int maxBits, const vector<Type const *>& types, bool fastDecode);
+	DecodePositionAbiV2(int minBits, int maxBits, const vector<Type const *>& types, bool fastDecode, int usedRefs = 0);
 	Algo updateStateAndGetLoadAlgo(Type const* type) override;
 
 private:
@@ -116,7 +117,7 @@ private:
 	static int minBits(bool hasCallback);
 public:
 	void decodePublicFunctionParameters(const std::vector<Type const*>& types, bool isResponsible);
-	void decodeData(const std::vector<Type const*>& types, int offset, bool _fastLoad);
+	void decodeData(const std::vector<Type const*>& types, int offset, bool _fastLoad, int usedRefs = 0);
 	void decodeParameters(
 		const std::vector<Type const*>& types,
 		DecodePosition& position,
@@ -154,7 +155,7 @@ class EncodePosition : private boost::noncopyable {
 	int lastRefType{};
 
 public:
-	explicit EncodePosition(int bits, const std::vector<Type const *> &types);
+	explicit EncodePosition(int bits, const std::vector<Type const *> &types, int refs = 0);
 	bool needNewCell(Type const* type);
 private:
 	bool updateState(int i);
@@ -208,7 +209,7 @@ public:
 	);
 
 private:
-	std::string getTypeString(Type const * type);
+	std::string toStringForCalcFuncID(Type const * type);
 
 private:
 	StackPusherHelper *pusher{};

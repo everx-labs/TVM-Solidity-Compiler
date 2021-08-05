@@ -1,8 +1,28 @@
+### 0.48.0 (2021-08-04)
+
+Compiler features:
+ * Added `tvm.setData()` and `tvm.getData()` builtins for accessing raw content of `C4` register.
+ * Added support of `bytes` to `bytesN` conversion.
+
+Support ABI 2.1:
+ * Field `fields` appeared in abi file. You can parse state variable. See `tonos-cli decode account --help`.
+ * Supported `string` type in abi.
+
+Bugfixes:
+ * Fixed an issue when a function can be called but constructor hasn't been called yet.
+
+Breaking change:
+ * Syntax of creating and sending of an external inbound message changed from option `{extMsg: true}`
+to suffix `.extMsg`.
+ * Rename `_answer_id` to `answerId` for responsible functions.
+ * Removed syntax `.value()` and `.flag()` for remote call customizing.
+
 ### 0.47.0 (2021-06-28)
 
 Compiler features:
  * Added support for byte arrays slices ("bytes" type).
  * Added serialization to builder and deserialization from slice for "enum" type values.
+ * Support synchronous calls with `.await` suffix.
 
 Breaking change:
  * Throw exception with code 72 on external message invocations for the functions with modifier `internalMsg`.
@@ -15,12 +35,11 @@ Gas optimizations:
  * Optimize away, if unused, deployed contract address returned by expression `new Contr{...}(...)`.
  * Assorted peephole stack optimizations.
 
-
 ### 0.46.0 (2021-06-18)
 
 Compiler features:
- * Support `internalMsg`/`externalMsg` specifiers for public and external functions
- * Support `msg.isInternal`, `msg.isExternal` and `msg.isTickTock`
+ * Support `internalMsg`/`externalMsg` specifiers for public and external functions.
+ * Support `msg.isInternal`, `msg.isExternal` and `msg.isTickTock`.
  * Support `storeOnes` and `storeZeroes` for `TvmBuilder`.
 
 Breaking change:

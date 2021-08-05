@@ -570,8 +570,6 @@ std::pair<bool, bool> CompilerStack::compile()
 				&targetPragmaDirectives,
 				m_generateAbi,
 				m_generateCode,
-				m_withOptimizations,
-				m_withDebugInfo,
 				m_inputFile,
 				m_folder,
 				m_file_prefix,

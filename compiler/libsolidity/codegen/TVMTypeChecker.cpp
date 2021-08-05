@@ -40,7 +40,7 @@ TVMTypeChecker::TVMTypeChecker(
 void TVMTypeChecker::checkPragma() {
 	PragmaDirectiveHelper pragmaHelper{pragmaDirectives};
 
-	if (pragmaHelper.abiVersion() == 1) {
+	if (pragmaHelper.abiVersion() == AbiVersion::V1) {
 		for (const std::string s : {"expire", "time", "pubkey"}) {
 			auto [have, astNode] = pragmaHelper.haveHeader(s);
 			if (have) {
@@ -160,6 +160,13 @@ void TVMTypeChecker::check_onCodeUpgrade(FunctionDefinition const& f) {
 	}
 }
 
+bool TVMTypeChecker::visit(VariableDeclaration const& _node) {
+	if (_node.isStateVariable() && _node.type()->category() == Type::Category::TvmSlice) {
+		m_errorReporter.typeError(_node.location(), "This type can't be used for state variables.");
+	}
+	return true;
+}
+
 bool TVMTypeChecker::visit(const Mapping &_mapping) {
     if (auto keyType = to<UserDefinedTypeName>(&_mapping.keyType())) {
         if (keyType->annotation().type->category() == Type::Category::Struct) {
@@ -188,11 +195,14 @@ bool TVMTypeChecker::visit(const Mapping &_mapping) {
 }
 
 bool TVMTypeChecker::visit(const FunctionDefinition &f) {
+	if (f.functionID().has_value() && f.functionID().value() == 0) {
+		m_errorReporter.typeError(f.location(), "functionID can't be equal to zero because this value is reserved for receive function.");
+	}
 	if (f.functionID().has_value() && !f.isPublic()) {
 		m_errorReporter.typeError(f.location(), "Only public/external functions can have functionID.");
 	}
-	if (f.functionID().has_value() && (f.isReceive() || f.isFallback() || f.isOnTickTock())) {
-		m_errorReporter.typeError(f.location(), "functionID isn't supported for receive, fallback and onTickTock functions.");
+	if (f.functionID().has_value() && (f.isReceive() || f.isFallback() || f.isOnTickTock() || f.isOnBounce())) {
+		m_errorReporter.typeError(f.location(), "functionID isn't supported for receive, fallback, onBounce and onTickTock functions.");
 	}
 
 	if (f.isInline() && f.isPublic()) {

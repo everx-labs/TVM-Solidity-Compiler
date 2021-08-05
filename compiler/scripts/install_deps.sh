@@ -6,7 +6,7 @@
 #
 # This is an "infrastucture-as-code" alternative to the manual build
 # instructions pages which we previously maintained at:
-# http://solidity.readthedocs.io/en/latest/installing-solidity.html
+# https://docs.soliditylang.org/en/latest/installing-solidity.html
 #
 # The aim of this script is to simplify things down to the following basic
 # flow for all supported operating systems:
@@ -23,7 +23,7 @@
 #
 # The documentation for solidity is hosted at:
 #
-# http://solidity.readthedocs.io/
+# https://docs.soliditylang.org
 #
 # ------------------------------------------------------------------------------
 # This file is part of solidity.
@@ -51,7 +51,7 @@ uname -v > /dev/null 2>&1 || { echo >&2 "ERROR - solidity requires 'uname' to id
 
 # See http://unix.stackexchange.com/questions/92199/how-can-i-reliably-get-the-operating-systems-name
 detect_linux_distro() {
-    if [ $(command -v lsb_release) ]; then
+    if [ "$(command -v lsb_release)" ]; then
         DISTRO=$(lsb_release -is)
     elif [ -f /etc/os-release ]; then
         # extract 'foo' from NAME=foo, only on the line with NAME=foo
@@ -61,7 +61,7 @@ detect_linux_distro() {
     else
         DISTRO=''
     fi
-    echo $DISTRO
+    echo "$DISTRO"
 }
 
 case $(uname -s) in
@@ -93,18 +93,18 @@ case $(uname -s) in
             10.15)
                 echo "Installing solidity dependencies on macOS 10.15 Catalina."
                 ;;
-            11.0 | 11.1 | 11.2 | 11.3)
-                echo "Installing solidity dependencies on macOS 11.0 - 11.3 Big Sur."
+            11.0 | 11.1 | 11.2 | 11.3 | 11.4)
+                echo "Installing solidity dependencies on macOS 11.0 / 11.1 / 11.2 / 11.3 / 11.4 Big Sur."
                 ;;
             *)
                 echo "Unsupported macOS version."
-                echo "We only support Mavericks, Yosemite, El Capitan, Sierra, High Sierra, Mojave, and Catalina."
+                echo "We only support Mavericks, Yosemite, El Capitan, Sierra, High Sierra, Mojave, Catalina, and Big Sur."
                 exit 1
                 ;;
         esac
 
         # Check for Homebrew install and abort if it is not installed.
-        brew -v > /dev/null 2>&1 || { echo >&2 "ERROR - solidity requires a Homebrew install.  See http://brew.sh."; exit 1; }
+        brew -v > /dev/null 2>&1 || { echo >&2 "ERROR - solidity requires a Homebrew install.  See https://brew.sh."; exit 1; }
         brew update
         brew install boost
         brew install cmake
@@ -223,7 +223,7 @@ case $(uname -s) in
                 #openSUSE
                 echo "Installing solidity dependencies on openSUSE."
                 echo "ERROR - 'install_deps.sh' doesn't have openSUSE support yet."
-                echo "See http://solidity.readthedocs.io/en/latest/installing-solidity.html for manual instructions."
+                echo "See https://docs.soliditylang.org/en/latest/installing-solidity.html for manual instructions."
                 echo "If you would like to get 'install_deps.sh' working for openSUSE, that would be fantastic."
                 echo "See https://github.com/ethereum/webthree-umbrella/issues/552."
                 exit 1
@@ -299,7 +299,7 @@ case $(uname -s) in
 
                 #other Linux
                 echo "ERROR - Unsupported or unidentified Linux distro."
-                echo "See http://solidity.readthedocs.io/en/latest/installing-solidity.html for manual instructions."
+                echo "See https://docs.soliditylang.org/en/latest/installing-solidity.html for manual instructions."
                 echo "If you would like to get your distro working, that would be fantastic."
                 echo "Drop us a message at https://gitter.im/ethereum/solidity-dev."
                 exit 1
@@ -316,7 +316,7 @@ case $(uname -s) in
     *)
         #other
         echo "ERROR - Unsupported or unidentified operating system."
-        echo "See http://solidity.readthedocs.io/en/latest/installing-solidity.html for manual instructions."
+        echo "See https://docs.soliditylang.org/en/latest/installing-solidity.html for manual instructions."
         echo "If you would like to get your operating system working, that would be fantastic."
         echo "Drop us a message at https://gitter.im/ethereum/solidity-dev."
         ;;

@@ -158,7 +158,6 @@ public:
 		bool _arbitraryParameters = false,
 		StateMutability _stateMutability = StateMutability::NonPayable,
 		Declaration const* _declaration = nullptr,
-		bool _valueSet = false,
 		bool _bound = false
 	);
 

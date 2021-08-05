@@ -17,9 +17,11 @@
 
 #include "libsolutil/picosha2.h"
 #include <libsolidity/ast/TypeProvider.h>
+#include <libsolidity/analysis/TypeChecker.h>
 
 #include "TVMABI.hpp"
 #include "TVMPusher.hpp"
+#include "TVM.h"
 #include "TVMConstants.hpp"
 
 using namespace solidity::frontend;
@@ -72,9 +74,11 @@ void TVMABI::printFunctionIds(
 	cout << "}";
 }
 
-void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaDirective const *> const &pragmaDirectives,
-						ostream *out) {
-
+void TVMABI::generateABI(
+	ContractDefinition const *contract,
+	std::vector<PragmaDirective const *> const &pragmaDirectives,
+	ostream *out
+) {
 	PragmaDirectiveHelper pdh{pragmaDirectives};
 	TVMCompilerContext ctx(contract, pdh);
 
@@ -87,13 +91,21 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 	std::set<std::string> used;
 
 	Json::Value root(Json::objectValue);
-	root["ABI version"] = ctx.pragmaHelper().abiVersion();
+	switch (ctx.pragmaHelper().abiVersion()) {
+		case AbiVersion::V1:
+			root["ABI version"] = 1;
+			break;
+		case AbiVersion::V2_1:
+			root["ABI version"] = 2;
+			root["version"] = "2.1";
+			break;
+	}
 
 	// header
-	if (ctx.pragmaHelper().abiVersion() == 2) {
+	if (ctx.pragmaHelper().abiVersion() == AbiVersion::V2_1) {
 		Json::Value header(Json::arrayValue);
 		for (const std::string h : {"pubkey", "time", "expire"}) {
-			if (std::get<0>(pdh.haveHeader(h)) || (h == "time" && ctx.haveTimeInAbiHeader())) {
+			if (std::get<0>(pdh.haveHeader(h)) || (h == "time" && ctx.hasTimeInAbiHeader())) {
 				header.append(h);
 			}
 		}
@@ -109,26 +121,28 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 				continue;
 			}
 			used.insert(fname);
-			functions.append(processFunction(fname, convertArray(f->parameters()), convertArray(f->returnParameters()), f));
+			functions.append(toJson(fname, convertArray(f->parameters()), convertArray(f->returnParameters()), f));
 		}
 
 		if (used.count("constructor") == 0) {
-			auto v = ast_vec<VariableDeclaration>();
-			functions.append(processFunction("constructor", convertArray(v), convertArray(v), nullptr));
+			functions.append(toJson("constructor", {}, {}, nullptr));
 		}
 
 		// add public state variables to functions
 		for (VariableDeclaration const* vd : ctx.notConstantStateVariables()) {
 			if (vd->isPublic()) {
-				auto v = ast_vec<VariableDeclaration>();
-				functions.append(processFunction(vd->name(), convertArray(v), {vd}));
+				functions.append(toJson(vd->name(), {}, {vd}));
 			}
 		}
 
+		for (FunctionDefinition const* fd : ctx.usage().awaitFunctions()) {
+			std::string name = "_await_" + fd->annotation().contract->name() + "_" + fd->name();
+			functions.append(toJson(name, convertArray(fd->returnParameters()), {}));
+		}
+
+
 		root["functions"] = functions;
 	}
-
-
 
 	// events
 	{
@@ -153,21 +167,56 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 	{
 		Json::Value data(Json::arrayValue);
 		for (const auto &[v, index] : ctx.getStaticVariables()) {
-			Json::Value cur = setupType(v->name(), v->type());
+			Json::Value cur = setupNameTypeComponents(v->name(), v->type());
 			cur["key"] = index;
 			data.append(cur);
 		}
 		root["data"] = data;
 	}
 
-//		Json::StreamWriterBuilder builder;
-//		const std::string json_file = Json::writeString(builder, root);
-//		*out << json_file << std::endl;
+	// fields
+	switch (ctx.pragmaHelper().abiVersion()) {
+		case AbiVersion::V1:
+			break;
+		case AbiVersion::V2_1: {
+			Json::Value fields(Json::arrayValue);
+			std::vector<std::pair<std::string, std::string>> offset{{"_pubkey", "uint256"}};
+			if (ctx.storeTimestampInC4()) {
+				offset.emplace_back("_timestamp", "uint64");
+			}
+			offset.emplace_back("_constructorFlag", "bool");
+			if (ctx.usage().hasAwaitCall()) {
+				offset.emplace_back("_await", "optional(cell)");
+			}
+
+			for (const auto& [name, type] : offset) {
+				Json::Value field(Json::objectValue);
+				field["name"] = name;
+				field["type"] = type;
+				fields.append(field);
+			}
+
+			for (VariableDeclaration const* stateVar : ctx.notConstantStateVariables()) {
+				Json::Value cur = setupNameTypeComponents(stateVar->name(), stateVar->type());
+				fields.append(cur);
+			}
+			root["fields"] = fields;
+			break;
+		}
+	}
+
+//	Json::StreamWriterBuilder builder;
+//	const std::string json_file = Json::writeString(builder, root);
+//	*out << json_file << std::endl;
+
 
 	*out << "{\n";
-	*out << "\t" << R"("ABI version": )" << root["ABI version"] << ",\n";
+	*out << "\t" << R"("ABI version": )" << root["ABI version"].asString() << ",\n";
+	if (root.isMember("version")) {
+		*out << "\t" << R"("version": )" << root["version"] << ",\n";
+	}
 
-	if (ctx.pragmaHelper().abiVersion() == 2) {
+	if (root.isMember("version")) {
 		*out << "\t" << R"("header": [)";
 		for (unsigned i = 0; i < root["header"].size(); ++i) {
 			*out << root["header"][i];
@@ -188,7 +237,15 @@ void TVMABI::generateABI(ContractDefinition const *contract, std::vector<PragmaD
 
 	*out << "\t" << R"("events": [)" << "\n";
 	print(root["events"], out);
-	*out << "\t" << "]\n";
+
+	if (root.isMember("fields")) {
+		*out << "\t" << "],\n";
+		*out << "\t" << R"("fields": [)" << "\n";
+		printData(root["fields"], out);
+		*out << "\t" << "]\n";
+	} else {
+		*out << "\t" << "]\n";
+	}
 
 	*out << "}" << endl;
 }
@@ -274,7 +331,7 @@ void TVMABI::print(const Json::Value &json, ostream *out) {
 	}
 }
 
-Json::Value TVMABI::processFunction(
+Json::Value TVMABI::toJson(
 	const string &fname,
 	const std::vector<VariableDeclaration const*> &params,
 	const std::vector<VariableDeclaration const*> &retParams,
@@ -284,7 +341,7 @@ Json::Value TVMABI::processFunction(
 	Json::Value inputs = encodeParams(params);
 	if (funcDef != nullptr && funcDef->isResponsible()) {
 		Json::Value json(Json::objectValue);
-		json["name"] = "_answer_id";
+		json["name"] = "answerId";
 		json["type"] = "uint32";
 		inputs.insert(0, json);
 	}
@@ -306,76 +363,131 @@ Json::Value TVMABI::encodeParams(const std::vector<VariableDeclaration const*> &
 	for (const auto& variable: params) {
 		string name = variable->name();
 		if (name.empty()) name = "value" + toString(idx);
-		Json::Value json = setupType(name, getType(variable));
+		Json::Value json = setupNameTypeComponents(name, getType(variable));
 		result.append(json);
 		idx++;
 	}
 	return result;
 }
 
-string TVMABI::getParamTypeString(Type const *type) {
-	const Type::Category category = type->category();
-	TypeInfo ti(type);
-	if (category == Type::Category::Address || category == Type::Category::Contract) {
-		return "address";
-	} else if (ti.isNumeric) {
-		if (to<BoolType>(type)) {
-			return "bool";
-		}
-		if (ti.isSigned) {
-			return "int" + toString(ti.numBits);
-		} else {
-			return "uint" + toString(ti.numBits);
-		}
-	} else if (auto arrayType = to<ArrayType>(type)) {
-		Type const *arrayBaseType = arrayType->baseType();
-		if (arrayType->isByteArray()) {
-			return "bytes";
-		}
-		if (isIntegralType(arrayBaseType) || isAddressOrContractType(arrayBaseType) ||
-			to<StructType>(arrayBaseType) || to<ArrayType>(arrayBaseType)) {
-
-			return getParamTypeString(arrayBaseType) + "[]";
-		}
-	} else if (to<StructType>(type)) {
-		return "tuple";
-	} else if (category == Type::Category::TvmCell) {
-		return "cell";
-	} else if (category == Type::Category::Mapping) {
-		auto mapping = to<MappingType>(type);
-		return "map(" + getParamTypeString(mapping->keyType()) + "," +
-			   getParamTypeString(mapping->valueType()) + ")";
-	}
-	solUnimplemented("Unsupported param type " + type->toString(true));
-}
-
-Json::Value TVMABI::setupComponents(Json::Value json, const Type *type) {
-	switch (type->category()) {
-		case Type::Category::Struct:
-			json["components"] = setupStructComponents(to<StructType>(type));
-			break;
-		case Type::Category::Array: {
-			auto arrayType = to<ArrayType>(type);
-			json = setupComponents(json, arrayType->baseType());
-			break;
-		}
-		case Type::Category::Mapping: {
-			auto mappingType = to<MappingType>(type);
-			json = setupComponents(json, mappingType->valueType());
-			break;
-		}
-		default:
-			break;
-	}
-	return json;
-}
-
-Json::Value TVMABI::setupType(const string &name, const Type *type) {
+Json::Value TVMABI::setupNameTypeComponents(const string &name, const Type *type) {
 	Json::Value json(Json::objectValue);
 	json["name"] = name;
-	json["type"] = getParamTypeString(type);
+	std::string typeName;
+	std::optional<Json::Value> components;
 
-	json = setupComponents(json, type);
+	TypeChecker typeChecker{*GlobalParams::g_errorReporter};
+	SourceLocation tmpLoc;
+	std::set<StructDefinition const*> tmpSet;
+	if (
+		to<StructType>(type) == nullptr &&
+		typeChecker.isBadAbiType(tmpLoc, type, tmpLoc, tmpSet, false))
+	{
+		switch (type->category()) {
+			case Type::Category::Mapping:
+				typeName = "optional(cell)";
+				break;
+			case Type::Category::Function:
+				typeName = "uint32";
+				break;
+			case Type::Category::FixedPoint: {
+				TypeInfo ti{type};
+				typeName = (ti.isSigned ? "int" : "uint") + toString(ti.numBits);
+				break;
+			}
+			case Type::Category::Array: {
+				typeName = "tuple";
+				Json::Value comp(Json::arrayValue);
+				{
+					Json::Value obj(Json::objectValue);
+					obj["name"] = name + "_length";
+					obj["type"] = "uint32";
+					comp.append(obj);
+				}
+				{
+					Json::Value obj(Json::objectValue);
+					obj["name"] = name + "_dict";
+					obj["type"] = "optional(cell)";
+					comp.append(obj);
+				}
+				components = comp;
+				break;
+			}
+			default:
+				solUnimplemented("TODO: support for " + type->toString());
+		}
+	} else {
+		const Type::Category category = type->category();
+		TypeInfo ti(type);
+		if (category == Type::Category::Address || category == Type::Category::Contract) {
+			typeName = "address";
+		} else if (ti.isNumeric) {
+			if (to<BoolType>(type)) {
+				typeName = "bool";
+			} else if (ti.isSigned) {
+				typeName = "int" + toString(ti.numBits);
+			} else {
+				typeName = "uint" + toString(ti.numBits);
+			}
+		} else if (auto arrayType = to<ArrayType>(type)) {
+			Type const *arrayBaseType = arrayType->baseType();
+			if (arrayType->isByteArray()) {
+				if (arrayType->isString()) {
+					typeName = "string";
+				} else {
+					typeName = "bytes";
+				}
+			} else {
+				Json::Value obj = setupNameTypeComponents("arrayBaseType", arrayBaseType);
+				typeName = obj["type"].asString() + "[]";
+				if (obj.isMember("components")) {
+					components = obj["components"];
+				}
+			}
+		} else if (auto st = to<StructType>(type)) {
+			typeName = "tuple";
+			components = setupStructComponents(st);
+		} else if (category == Type::Category::TvmCell) {
+			typeName = "cell";
+		} else if (category == Type::Category::Mapping) {
+			auto mapping = to<MappingType>(type);
+			std::string key;
+			std::string value;
+			{
+				Json::Value obj = setupNameTypeComponents("keyType", mapping->keyType());
+				key = obj["type"].asString();
+				solAssert(!obj.isMember("components"), "");
+			}
+			{
+				Json::Value obj = setupNameTypeComponents("valueType", mapping->valueType());
+				value = obj["type"].asString();
+				if (obj.isMember("components")) {
+					components = obj["components"];
+				}
+			}
+			typeName = "map(" + key + "," + value + ")";
+		} else if (auto opt = to<OptionalType>(type)) {
+			if (auto tt = to<TupleType>(opt->valueType())) {
+				typeName = "optional(tuple)";
+				components = setupTupleComponents(tt);
+			} else {
+				Json::Value obj = setupNameTypeComponents("valueType", opt->valueType());
+				typeName = "optional(" + obj["type"].asString() + ")";
+				if (obj.isMember("components")) {
+					components = obj["components"];
+				}
+			}
+		} else {
+			solUnimplemented("");
+		}
+	}
+
+	solAssert(!typeName.empty(), "");
+	json["type"] = typeName;
+	if (components.has_value()) {
+		json["components"] = components.value();
+	}
+
 	return json;
 }
 
@@ -384,7 +496,17 @@ Json::Value TVMABI::setupStructComponents(const StructType *type) {
 	const StructDefinition& structDefinition = type->structDefinition();
 	const auto& members = structDefinition.members();
 	for (const auto & member : members) {
-		components.append(setupType(member->name(), getType(member.get())));
+		components.append(setupNameTypeComponents(member->name(), getType(member.get())));
+	}
+	return components;
+}
+
+Json::Value TVMABI::setupTupleComponents(const TupleType* type) {
+	Json::Value components(Json::arrayValue);
+	int i = 0;
+	for (Type const* c : type->components()) {
+		std::string name = "value" + toString(i++);
+		components.append(setupNameTypeComponents(name, c));
 	}
 	return components;
 }
@@ -463,9 +585,9 @@ int Position::cellNumber() const {
 	return idCell;
 }
 
-DecodePositionAbiV2::DecodePositionAbiV2(int minBits, int maxBits, const vector<Type const *>& _types, bool fastDecode) :
+DecodePositionAbiV2::DecodePositionAbiV2(int minBits, int maxBits, const vector<Type const *>& _types, bool fastDecode, int usedRefs) :
 		minPos{minBits, 0},
-		maxPos{maxBits, 0},
+		maxPos{maxBits, usedRefs},
 		fastDecode{fastDecode} {
 	for (const auto & type : _types) {
 		initTypes(type);
@@ -553,7 +675,7 @@ int ChainDataDecoder::maxBits(bool isResponsible) {
 	// external inbound message
 	int maxUsed = 1 + 512 + // signature
 				  (pusher->ctx().pragmaHelper().havePubkey()? 1 + 256 : 0) +
-				  (pusher->ctx().haveTimeInAbiHeader()? 64 : 0) +
+				  (pusher->ctx().hasTimeInAbiHeader()? 64 : 0) +
 				  (pusher->ctx().pragmaHelper().haveExpire()? 32 : 0) +
 				  32 + // functionID
 				  (isResponsible ? 32 : 0); // callback function
@@ -568,10 +690,10 @@ void ChainDataDecoder::decodePublicFunctionParameters(const std::vector<Type con
 	fastLoad = false;
 	std::unique_ptr<DecodePosition> position;
 	switch (pusher->ctx().pragmaHelper().abiVersion()) {
-		case 1:
+		case AbiVersion::V1:
 			position = std::make_unique<DecodePositionAbiV1>();
 			break;
-		case 2: {
+		case AbiVersion::V2_1: {
 			position = std::make_unique<DecodePositionAbiV2>(minBits(isResponsible), maxBits(isResponsible), types, false);
 			break;
 		}
@@ -581,10 +703,10 @@ void ChainDataDecoder::decodePublicFunctionParameters(const std::vector<Type con
 	decodeParameters(types, *position, true);
 }
 
-void ChainDataDecoder::decodeData(const std::vector<Type const*>& types, int offset, bool _fastLoad) {
+void ChainDataDecoder::decodeData(const std::vector<Type const*>& types, int offset, bool _fastLoad, int usedRefs) {
 	fastLoad = _fastLoad;
 	std::unique_ptr<DecodePosition> position;
-	position = std::make_unique<DecodePositionAbiV2>(offset, offset, types, fastLoad);
+	position = std::make_unique<DecodePositionAbiV2>(offset, offset, types, fastLoad, usedRefs);
 	decodeParameters(types, *position, true);
 }
 
@@ -594,67 +716,70 @@ void ChainDataDecoder::decodeParameters(
 	const bool doDropSlice
 ) {
 	// slice are on stack
-	solAssert(pusher->getStack().size() >= 1, "");
+	solAssert(pusher->stackSize() >= 1, "");
 
 	for (const auto & type : types) {
-		auto savedStackSize = pusher->getStack().size();
+		auto savedStackSize = pusher->stackSize();
 		decodeParameter(type, &position);
-		pusher->getStack().ensureSize(savedStackSize + 1, "decodeParameter-2");
+		pusher->ensureSize(savedStackSize + 1, "decodeParameter-2");
 	}
 	if (doDropSlice) {
 		pusher->push(-1, "ENDS"); // only ENDS
 	}
 
-	solAssert(static_cast<int>(types.size()) <= pusher->getStack().size(), "");
+	if (!pusher->hasLock())
+		solAssert(static_cast<int>(types.size()) <= pusher->stackSize(), "");
 }
 
 void ChainDataDecoder::loadNextSlice() {
-	pusher->push(0, ";; load next cell");
-	pusher->push(0, "LDREF");
-	pusher->push(0, "ENDS"); // only ENDS
-	pusher->push(0, "CTOS");
+	pusher->push(-1 + 2, "LDREF");
+	pusher->push(-1, "ENDS"); // only ENDS
+	pusher->push(-1 + 1, "CTOS");
 }
 
 void ChainDataDecoder::checkBitsAndLoadNextSlice() {
-	pusher->pushLines(R"(DUP
-SDEMPTY
-PUSHCONT {
-	LDREF
-	ENDS
-	CTOS
-}
-IF
-)");
+	pusher->startOpaque();
+	pusher->pushS(0);
+	pusher->push(-1 + 1, "SDEMPTY");
+	pusher->startContinuation();
+	pusher->push(-1 + 2, "LDREF");
+	pusher->push(-1, "ENDS");
+	pusher->push(-1 + 1, "CTOS");
+	pusher->endContinuation();
+	pusher->_if();
+	pusher->endOpaque(1, 1);
 }
 
 void ChainDataDecoder::checkRefsAndLoadNextSlice() {
-	pusher->pushLines(R"(DUP
-SREFS
-EQINT 1
-PUSHCONT {
-	LDREF
-	ENDS
-	CTOS
-}
-IF
-)");
+	pusher->startOpaque();
+	pusher->pushS(0);
+	pusher->push(-1 + 1, "SREFS");
+	pusher->push(-1 + 1, "EQINT 1");
+	pusher->startContinuation();
+	pusher->push(-1 + 2, "LDREF");
+	pusher->push(-1, "ENDS");
+	pusher->push(-1 + 1, "CTOS");
+	pusher->endContinuation();
+	pusher->_if();
+	pusher->endOpaque(1, 1);
 }
 
 void ChainDataDecoder::checkBitsAndRefsAndLoadNextSlice() {
 	// check that bits==0 and ref==1
-	pusher->pushLines(R"(DUP
-SBITREFS
-EQINT 1
-SWAP
-EQINT 0
-AND
-PUSHCONT {
-	LDREF
-	ENDS
-	CTOS
-}
-IF
-)");
+	pusher->startOpaque();
+	pusher->pushS(0);
+	pusher->push(-1 + 2, "SBITREFS");
+	pusher->push(-1 + 1, "EQINT 1");
+	pusher->exchange(1);
+	pusher->push(-1 + 1, "EQINT 0");
+	pusher->push(-2 + 1, "AND");
+	pusher->startContinuation();
+	pusher->push(-1 + 2, "LDREF");
+	pusher->push(-1, "ENDS");
+	pusher->push(-1 + 1, "CTOS");
+	pusher->endContinuation();
+	pusher->_if();
+	pusher->endOpaque(1, 1);
 }
 
 void ChainDataDecoder::loadNextSliceIfNeed(const DecodePosition::Algo algo, bool isRefType) {
@@ -690,12 +815,14 @@ void ChainDataDecoder::loadq(const DecodePosition::Algo algo, const std::string 
 			loadNextSlice();
 			pusher->push(+1, opcode);
 		} else {
-			pusher->push(+1, opcodeq);
+			pusher->startOpaque();
+			pusher->pushAsym(opcodeq);
 			pusher->startContinuation();
 			loadNextSlice();
-			pusher->push(0, opcode);
+			pusher->push(-1 + 2, opcode);
 			pusher->endContinuation();
-			pusher->push(0, "IFNOT");
+			pusher->_ifNot();
+			pusher->endOpaque(1, 2);
 		}
 	}
 }
@@ -703,23 +830,18 @@ void ChainDataDecoder::loadq(const DecodePosition::Algo algo, const std::string 
 void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition* position) {
 	const Type::Category category = type->category();
 	if (to<TvmCellType>(type)) {
-		pusher->push(0, ";; decode TvmCell");
 		loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type), true);
 		pusher->push(+1, "LDREF");
 	} else if (auto structType = to<StructType>(type)) {
-		ASTString const& structName = structType->structDefinition().name();
-		pusher->push(0, ";; decode struct " + structName + " " + type->toString());
 		ast_vec<VariableDeclaration> const& members = structType->structDefinition().members();
 		for (const ASTPointer<VariableDeclaration> &m : members) {
-			pusher->push(0, ";; decode " + structName + "." + m->name());
 			decodeParameter(m->type(), position);
 		}
-		pusher->push(0, ";; build struct " + structName + " ss:" + toString(pusher->getStack().size()));
 		// members... slice
 		const int memberQty = members.size();
 		pusher->blockSwap(memberQty, 1); // slice members...
 		pusher->tuple(memberQty); // slice struct
-		pusher->push(0, "SWAP"); // ... struct slice
+		pusher->exchange(1); // ... struct slice
 	} else if (category == Type::Category::Address || category == Type::Category::Contract) {
 		DecodePosition::Algo algo = position->updateStateAndGetLoadAlgo(type);
 		loadq(algo, "LDMSGADDRQ", "LDMSGADDR");
@@ -734,7 +856,7 @@ void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition* positio
 			pusher->pushS(1);
 			pusher->pushInt(enumType->enumDefinition().members().size());
 			pusher->push(-1, "GEQ");
-			pusher->push(-1, "THROWIF " + toString(TvmConst::RuntimeException::WrongValueOfEnum));
+			pusher->_throw("THROWIF " + toString(TvmConst::RuntimeException::WrongValueOfEnum));
 		}
 	} else if (auto arrayType = to<ArrayType>(type)) {
 		if (arrayType->isByteArray()) {
@@ -758,10 +880,9 @@ void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition* positio
 	}
 }
 
-
-EncodePosition::EncodePosition(int bits, const std::vector<Type const *> &_types) :
+EncodePosition::EncodePosition(int bits, const std::vector<Type const *> &_types, int refs) :
 		restSliceBits{TvmConst::CellBitLength - bits},
-		restFef{4},
+		restFef{4 - refs},
 		qtyOfCreatedBuilders{0} {
 
 	for (Type const * t : _types) {
@@ -890,12 +1011,12 @@ uint32_t ChainDataEncoder::calculateFunctionID(
 	std::stringstream ss;
 	ss << name << "(";
 	bool comma = false;
-	if (pusher->ctx().pragmaHelper().abiVersion() == 1) {
+	if (pusher->ctx().pragmaHelper().abiVersion() == AbiVersion::V1) {
 		ss << "time";
 		comma = true;
 	}
 	for (const auto& type : inputs) {
-		std::string typestr = getTypeString(type);
+		std::string typestr = toStringForCalcFuncID(type);
 		solAssert(!typestr.empty(), "Wrong type in remote function params.");
 		if (comma)
 			ss << ",";
@@ -907,7 +1028,7 @@ uint32_t ChainDataEncoder::calculateFunctionID(
 	if (outputs) {
 		ss << "(";
 		for (const auto& output : *outputs) {
-			std::string typestr = getTypeString(output->type());
+			std::string typestr = toStringForCalcFuncID(output->type());
 			solAssert(!typestr.empty(), "Wrong type in remote function params.");
 			if (comma)
 				ss << ",";
@@ -916,10 +1037,14 @@ uint32_t ChainDataEncoder::calculateFunctionID(
 		}
 		ss << ")";
 	}
-	if (pusher->ctx().pragmaHelper().abiVersion() == 2)
-		ss << "v2";
-	else
-		ss << "v1";
+	switch (pusher->ctx().pragmaHelper().abiVersion()) {
+		case AbiVersion::V1:
+			ss << "v1";
+			break;
+		case AbiVersion::V2_1:
+			ss << "v2";
+			break;
+	}
 
 	std::string str = ss.str();
 	bytes hash = picosha2::hash256(bytes(
@@ -1002,7 +1127,7 @@ void ChainDataEncoder::createMsgBodyAndAppendToBuilder(
 		const bool reversedArgs
 ) {
 
-	const int saveStackSize = pusher->getStack().size();
+	const int saveStackSize = pusher->stackSize();
 
 	std::vector<Type const*> types = getParams(params).first;
 	const int callbackLength = callbackFunctionId.has_value() ? 32 : 0;
@@ -1026,7 +1151,7 @@ void ChainDataEncoder::createMsgBodyAndAppendToBuilder(
 		pusher->push(-1, "STBREFR");
 	}
 
-	solAssert(saveStackSize == int(pusher->getStack().size() + params.size()), "");
+	solAssert(saveStackSize == int(pusher->stackSize() + params.size()), "");
 
 }
 
@@ -1074,13 +1199,13 @@ void ChainDataEncoder::encodeParameters(
 		if (auto structType = to<StructType>(type)) {
 			std::vector<ASTPointer<VariableDeclaration>> const& members = structType->structDefinition().members();
 			// struct builder
-			pusher->exchange(0, 1); // builder struct
+			pusher->exchange(1); // builder struct
 			pusher->untuple(members.size()); // builder, m0, m1, ..., m[len(n)-1]
 			pusher->reverse(members.size() + 1, 0); // m[len(n)-1], ..., m1, m0, builder
 			for (const ASTPointer<VariableDeclaration>& m : members | boost::adaptors::reversed) {
 				typesOnStack.push_back(m->type());
 			}
-		}  else {
+		} else {
 			if (position.needNewCell(type)) {
 				// arg[n-1], ..., arg[1], arg[0], builder
 				pusher->blockSwap(argQty, 1);
@@ -1094,22 +1219,35 @@ void ChainDataEncoder::encodeParameters(
 	}
 }
 
-std::string ChainDataEncoder::getTypeString(Type const * type) {
-	if (auto structType = to<StructType>(type)) {
+std::string ChainDataEncoder::toStringForCalcFuncID(Type const * type) {
+	if (auto optType = to<OptionalType>(type)) {
+		return "optional(" + toStringForCalcFuncID(optType->valueType()) + ")";
+	} else if (auto tupleType = to<TupleType>(type)) {
+		std::string ret = "(";
+		for (size_t i = 0; i < tupleType->components().size(); i++) {
+			if (i != 0) ret += ",";
+			ret += toStringForCalcFuncID(tupleType->components().at(i));
+		}
+		ret += ")";
+		return ret;
+	} else if (auto structType = to<StructType>(type)) {
 		std::string ret = "(";
 		for (size_t i = 0; i < structType->structDefinition().members().size(); i++) {
 			if (i != 0) ret += ",";
-			ret += getTypeString(structType->structDefinition().members()[i]->type());
+			ret += toStringForCalcFuncID(structType->structDefinition().members()[i]->type());
 		}
 		ret += ")";
 		return ret;
 	} else if (auto arrayType = to<ArrayType>(type)) {
 		if (!arrayType->isByteArray())
-			return getTypeString(arrayType->baseType()) + "[]";
+			return toStringForCalcFuncID(arrayType->baseType()) + "[]";
 	} else if (auto mapping = to<MappingType>(type)) {
-		return "map(" + getTypeString(mapping->keyType()) + "," +
-			   getTypeString(mapping->valueType()) + ")";
+		return "map(" + toStringForCalcFuncID(mapping->keyType()) + "," +
+			   toStringForCalcFuncID(mapping->valueType()) + ")";
 	}
 
-	return TVMABI::getParamTypeString(type);
+	Json::Value obj = TVMABI::setupNameTypeComponents("some", type);
+	solAssert(!obj.isMember("components"), "");
+	std::string typeName = obj["type"].asString();
+	return typeName;
 }

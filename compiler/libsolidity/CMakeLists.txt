@@ -75,6 +75,12 @@ set(sources
 	codegen/TVM.h
 	codegen/TVMABI.cpp
 	codegen/TVMABI.hpp
+	codegen/TVMAnalyzer.cpp
+	codegen/TVMAnalyzer.hpp
+	codegen/TvmAst.cpp
+	codegen/TvmAst.hpp
+	codegen/TvmAstVisitor.cpp
+	codegen/TvmAstVisitor.hpp
 	codegen/TVMCommons.cpp
 	codegen/TVMCommons.hpp
 	codegen/TVMConstants.hpp
@@ -90,16 +96,16 @@ set(sources
 	codegen/TVMFunctionCompiler.hpp
 	codegen/TVMInlineFunctionChecker.cpp
 	codegen/TVMInlineFunctionChecker.hpp
+	codegen/TVMOptimizations.cpp
+	codegen/TVMOptimizations.hpp
 	codegen/TVMPusher.cpp
 	codegen/TVMPusher.hpp
+	codegen/TVMSimulator.cpp
+	codegen/TVMSimulator.hpp
 	codegen/TVMStructCompiler.cpp
 	codegen/TVMStructCompiler.hpp
 	codegen/TVMTypeChecker.cpp
 	codegen/TVMTypeChecker.hpp
-	codegen/TVMOptimizations.cpp
-	codegen/TVMOptimizations.hpp
-	codegen/TVMAnalyzer.hpp
-	codegen/TVMAnalyzer.cpp
 )
 
 add_library(solidity ${sources})

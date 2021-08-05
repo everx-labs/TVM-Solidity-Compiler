@@ -147,6 +147,7 @@ namespace solidity::langutil
 	K(Anonymous, "anonymous", 0)                                       \
 	K(As, "as", 0)                                                     \
 	K(Assembly, "assembly", 0)                                         \
+	K(Await, "await", 0)                                               \
 	K(Break, "break", 0)                                               \
 	K(Constant, "constant", 0)                                         \
 	K(Constructor, "constructor", 0)                                   \
@@ -158,6 +159,7 @@ namespace solidity::langutil
 	K(Emit, "emit", 0)                                                 \
 	K(Event, "event", 0)                                               \
 	K(External, "external", 0)                                         \
+	K(ExtMsg, "extMsg", 0)                                             \
 	K(Fallback, "fallback", 0)                                         \
 	K(onBounce, "onBounce", 0)                                         \
 	K(For, "for", 0)                                                   \

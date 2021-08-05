@@ -26,6 +26,8 @@
 #include <libsolidity/ast/ASTVisitor.h>
 
 #include "TVMCommons.hpp"
+#include "TvmAst.hpp"
+#include "TVMAnalyzer.hpp"
 
 using namespace std;
 using namespace solidity;
@@ -43,6 +45,7 @@ public:
 	TVMStack() = default;
 	int size() const;
 	void change(int diff);
+	void change(int take, int ret);
 	bool isParam(Declaration const* name) const;
 	void add(Declaration const* name, bool doAllocation);
 	int getOffset(Declaration const* name) const;
@@ -51,22 +54,27 @@ public:
 	void ensureSize(int savedStackSize, const string& location = "", const ASTNode* node = nullptr) const;
 };
 
-struct CodeLines {
-	vector<string> lines;
-	int tabQty{};
-
+class CodeLines {
+public:
+	CodeLines() {
+		//cerr << "DELETE ME\n";
+	}
+	vector<string> const &getLines() const { return lines; }
+	void setLines(vector<string> const& _lines) { lines = _lines; }
 	string str(const string& indent = "") const;
-	void addTabs(int qty = 1);
-	void subTabs(int qty = 1);
 	void startContinuation();
 	void startContinuationFromRef();
 	void startIfRef();
 	void startIfJmpRef();
+	void startIfNotJmpRef();
 	void startIfNotRef();
 	void startCallRef();
 	void endContinuation();
 	void push(const string& cmd);
 	void append(const CodeLines& oth);
+private:
+	vector<string> lines;
+	int tabQty{};
 };
 
 class TVMCompilerContext {
@@ -78,7 +86,7 @@ public:
 	std::vector<Type const *> notConstantStateVariableTypes() const;
 	std::vector<std::string> notConstantStateVariableNames() const;
 	PragmaDirectiveHelper const& pragmaHelper() const;
-	bool haveTimeInAbiHeader() const;
+	bool hasTimeInAbiHeader() const;
 	bool isStdlib() const;
 	string getFunctionInternalName(FunctionDefinition const* _function, bool calledByPoint = true) const;
 	static string getLibFunctionName(FunctionDefinition const* _function, bool withObject) ;
@@ -93,8 +101,8 @@ public:
 	std::vector<std::pair<VariableDeclaration const*, int>> getStaticVariables() const;
 	void setCurrentFunction(FunctionDefinition const* f) { m_currentFunction = f; }
 	FunctionDefinition const* getCurrentFunction() { return m_currentFunction; }
-	void addInlineFunction(const std::string& name, const CodeLines& code);
-	CodeLines getInlinedFunction(const std::string& name);
+	void addInlineFunction(const std::string& name, Pointer<CodeBlock> body);
+	Pointer<CodeBlock> getInlinedFunction(const std::string& name);
 	void addPublicFunction(uint32_t functionId, const std::string& functionName);
 	const std::vector<std::pair<uint32_t, std::string>>& getPublicFunctions();
 
@@ -107,8 +115,7 @@ public:
 	bool isOnBounceGenerated() const { return m_isOnBounceGenerated; }
 	void setIsOnBounce() { m_isOnBounceGenerated = true; }
 	bool isBaseFunction(CallableDeclaration const* d) const;
-	void setSaveMyCodeSelector();
-	bool getSaveMyCodeSelector();
+	ContactsUsageScanner const& usage() const { return m_usage; }
 
 private:
 	ContractDefinition const* m_contract{};
@@ -117,7 +124,7 @@ private:
 	std::map<VariableDeclaration const*, int> m_stateVarIndex;
 	std::set<FunctionDefinition const*> m_libFunctions;
 	FunctionDefinition const* m_currentFunction{};
-	std::map<std::string, CodeLines> m_inlinedFunctions;
+	std::map<std::string, Pointer<CodeBlock>> m_inlinedFunctions;
 	std::map<FunctionDefinition const*, std::set<FunctionDefinition const*>> graph;
 	enum class Color {
 		White, Red, Black
@@ -128,51 +135,83 @@ private:
 	bool m_isReceiveGenerated{};
 	bool m_isOnBounceGenerated{};
     std::set<CallableDeclaration const*> m_baseFunctions;
-    bool saveMyCodeSelector{};
+    ContactsUsageScanner m_usage;
 };
 
 class StackPusherHelper {
-protected:
-	TVMStack m_stack;
-	CodeLines m_code;
-	TVMCompilerContext* m_ctx;
-
 public:
-	explicit StackPusherHelper(TVMCompilerContext* ctx, const int stackSize = 0);
+	explicit StackPusherHelper(TVMCompilerContext* ctx, int stackSize = 0);
 
+	Pointer<CodeBlock> getBlock() const {
+		solAssert(m_instructions.size() == 1, "");
+		return createNode<CodeBlock>(m_instructions.at(0).type.value(), m_instructions.at(0).opcodes);
+	}
+
+	Pointer<CodeBlock> pollLastBlock() {
+		solAssert(m_instructions.size() >= 2, "");
+		auto ret = createNode<CodeBlock>(m_instructions.back().type.value(), m_instructions.back().opcodes);
+		m_instructions.pop_back();
+		return ret;
+	}
+
+	void pushInlineFunction(Pointer<CodeBlock> block, int take, int ret);
 	void pollLastRetOpcode();
-	bool tryPollConvertBuilderToSlice();
 	bool tryPollEmptyPushCont();
 	bool cmpLastCmd(const std::string& cmd, int offset = 0);
 	void pollLastOpcode();
-	bool optimizeIf();
-
-	void append(const CodeLines& oth);
-	void addTabs(const int qty = 1);
-	void subTabs(const int qty = 1);
-	void pushCont(const CodeLines& cont, const string& comment = {});
-	void generateGlobl(const string& fname);
-	void generateInternal(const string& fname, const int id);
-	void generateMacro(const string& functionName);
-	CodeLines code() const;
 
 	[[nodiscard]]
 	TVMCompilerContext& ctx();
+private:
+	void change(int delta);
+	void change(int take, int ret);
+public:
+	int stackSize() const;
+	void ensureSize(int savedStackSize, const string &location = "", const ASTNode* node = nullptr);
+	void startOpaque();
+	void endOpaque(int take, int ret, bool isPure = false);
+private:
+	static Pointer<AsymGen> asym(const string& cmd);
+public:
+	void push(Pointer<Stack> opcode);
+	void push(Pointer<AsymGen> opcode);
+	void push(Pointer<HardCode> opcode);
+	void pushAsym(std::string const& opcode);
 	void push(int stackDiff, const string& cmd);
 
 	void startContinuation(int deltaStack = 0);
 	void startContinuationFromRef();
 	void startIfRef(int deltaStack = 0);
 	void startIfJmpRef(int deltaStack = 0);
+	void startIfNotJmpRef(int deltaStack = 0);
 	void startIfNotRef(int deltaStack = 0);
 	void startCallRef(int deltaStack = 0);
-	void startCell();
+	void startPushRef();
 	void endContinuation(int deltaStack = 0);
+	void ifElse(bool useJmp = false);
+private:
+	void if_or_ifnot(TvmIfElse::Type);
+public:
+	void _if();
+	void _ifNot();
+	void ifNotJmp();
+	void ifJmp();
+private:
+	void repeatOrUntil(RepeatOrUntil::Type type);
+public:
+	void repeat();
+	void until();
+	void _while();
+	void startCallX();
+	void endCallX();
+	void ret();
+	void ifret();
+	void _throw(std::string cmd);
 
 	TVMStack& getStack();
+	void pushLoc(const std::string& file, int line);
     void pushString(const std::string& str, bool toSlice);
 	void pushLog();
-	void pushLines(const std::string& lines);
 	void untuple(int n);
 	void index(int index);
 	void setIndex(int index);
@@ -181,9 +220,16 @@ public:
 	void resetAllStateVars();
 	void getGlob(VariableDeclaration const * vd);
 	void getGlob(int index);
+	void pushC4();
+	void popRoot();
+	void pushC3();
+	void popC3();
+	void execute(int take, int ret);
 	void setGlob(int index);
 	void setGlob(VariableDeclaration const * vd);
 	void pushS(int i);
+	void dup2();
+	void pushS2(int i, int j);
 	void popS(int i);
 	void pushInt(const bigint& i);
 	void stzeroes(int qty);
@@ -198,10 +244,15 @@ public:
 
 	void store(const Type *type, bool reverse);
 	void pushZeroAddress();
-	void generateC7ToT4Macro();
+	Pointer<Function> generateC7ToT4Macro();
+	Pointer<Function> generateC7ToT4MacroForAwait();
 
+	// TODO move to formatter
 	static void addBinaryNumberToString(std::string &s, bigint value, int bitlen = 256);
 	static std::string binaryStringToSlice(const std::string & s);
+	static std::string toBitString(const std::string& slice);
+	static std::vector<std::string> unitSlices(const std::string& sliceA, const std::string& sliceB);
+	static std::vector<std::string> unitBitString(const std::string& bitStringA, const std::string& bitStringB);
 	static std::string tonsToBinaryString(Literal const* literal);
 	static std::string tonsToBinaryString(const u256& value);
 	static std::string tonsToBinaryString(bigint value);
@@ -211,16 +262,17 @@ public:
 
 	void hardConvert(Type const *leftType, Type const *rightType);
 	void checkFit(Type const *type);
-	void push(const CodeLines& codeLines);
 	void pushParameter(std::vector<ASTPointer<VariableDeclaration>> const& params);
-	void pushMacroCallInCallRef(int stackDelta, const string& fname);
-	void pushCallOrCallRef(const string& functionName, FunctionType const* ft, const std::optional<int>& deltaStack = nullopt);
-	void pushCall(int delta, const std::string& functionName);
+	void pushMacroCallInCallRef(int take, int ret, const string& fname);
+	void pushCallOrCallRef(const string& functionName, FunctionType const* ft, const std::optional<std::pair<int, int>>& deltaStack = nullopt);
+	void pushCall(int take, int ret, const std::string& functionName);
 	void drop(int cnt = 1);
 	void blockSwap(int m, int n);
 	void reverse(int qty, int startIndex);
 	void dropUnder(int leftCount, int droppedCount);
-	void exchange(int i, int j);
+	void exchange(int i);
+	void rot();
+	void rotRev();
 	void prepareKeyForDictOperations(Type const* key, bool doIgnoreBytes);
 	[[nodiscard]]
 	int int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams, bool isDestBuilder);
@@ -274,7 +326,9 @@ public:
 	void sendIntMsg(const std::map<int, const Expression *> &exprs,
 					const std::map<int, std::string> &constParams,
 					const std::function<void(int)> &appendBody,
-					const std::function<void()> &pushSendrawmsgFlag);
+					const std::function<void()> &pushSendrawmsgFlag,
+					bool isAwait,
+					size_t callParamsOnStack);
 
 	enum class MsgType{
 		Internal,
@@ -300,8 +354,25 @@ public:
 	void byteLengthOfCell();
 
 	void was_c4_to_c7_called();
-};
+	void checkCtorCalled();
+	void checkIfCtorCalled(bool ifFlag);
+	bool hasLock() const { return lockStack > 0; }
 
+private:
+	int lockStack{};
+	TVMStack m_stack2;
 
+	class PusherBlock {
+	public:
+		explicit PusherBlock(std::optional<CodeBlock::Type> _type) : type{_type} {
+		}
+//	private:
+		std::optional<CodeBlock::Type> type;// is null => opaque
+		std::vector<Pointer<TvmAstNode>> opcodes;
+	};
+
+	std::vector<PusherBlock> m_instructions;
+	TVMCompilerContext* m_ctx;
+}; // end StackPusherHelper
 
 } // end solidity::frontend

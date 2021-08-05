@@ -51,6 +51,10 @@ public:
 		m_errorReporter(_errorReporter)
 	{}
 
+	TypeChecker(langutil::ErrorReporter& _errorReporter):
+			m_errorReporter(_errorReporter)
+	{}
+
 	/// Performs type checking on the given contract and all of its sub-nodes.
 	/// @returns true iff all checks passed. Note even if all checks passed, errors() can still contain warnings
 	bool checkTypeRequirements(ASTNode const& _contract);
@@ -139,12 +143,15 @@ private:
 	void endVisit(InheritanceSpecifier const& _inheritance) override;
 	void endVisit(UsingForDirective const& _usingFor) override;
 	bool visit(StructDefinition const& _struct) override;
-	bool checkAbiType(
-		VariableDeclaration const* origVar,
+public:
+	bool isBadAbiType(
+		solidity::langutil::SourceLocation const& origVarLoc,
 		Type const* curType,
-		VariableDeclaration const* curVar,
-		std::set<StructDefinition const*>& usedStructs
+		solidity::langutil::SourceLocation const& curVarLoc,
+		std::set<StructDefinition const*>& usedStructs,
+		bool doPrintErr
 	);
+private:
 	bool visit(FunctionDefinition const& _function) override;
 	void endVisit(FunctionDefinition const& _function) override;
 	bool visit(VariableDeclaration const& _variable) override;

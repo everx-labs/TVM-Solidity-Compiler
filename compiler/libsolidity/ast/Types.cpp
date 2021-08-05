@@ -1615,6 +1615,10 @@ BoolResult ArrayType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 {
 	if (isImplicitlyConvertibleTo(_convertTo))
 		return true;
+
+	if (isByteArray() && (_convertTo.category() == Category::FixedBytes))
+		return true;
+
 	// allow conversion bytes <-> string
 	if (_convertTo.category() != category())
 		return false;
@@ -1991,37 +1995,6 @@ TypePointer ArrayType::decodingType() const
 	return this;
 }
 
-TypeResult ArrayType::interfaceType(bool _inLibrary) const
-{
-	if (_inLibrary && m_interfaceType_library.has_value())
-		return *m_interfaceType_library;
-
-	if (!_inLibrary && m_interfaceType.has_value())
-		return *m_interfaceType;
-
-	TypeResult result{TypePointer{}};
-	TypeResult baseInterfaceType = m_baseType->interfaceType(_inLibrary);
-
-	if (!baseInterfaceType.get())
-	{
-		solAssert(!baseInterfaceType.message().empty(), "Expected detailed error message!");
-		result = baseInterfaceType;
-	}
-	else if (m_arrayKind != ArrayKind::Ordinary)
-		result = TypeProvider::withLocation(this, true);
-	else if (isDynamicallySized())
-		result = TypeProvider::array(baseInterfaceType);
-	else
-		result = TypeProvider::array(baseInterfaceType, m_length);
-
-	if (_inLibrary)
-		m_interfaceType_library = result;
-	else
-		m_interfaceType = result;
-
-	return result;
-}
-
 u256 ArrayType::memoryDataSize() const
 {
 	solAssert(!isDynamicallySized(), "");
@@ -2308,90 +2281,6 @@ MemberList::MemberMap StructType::nativeMembers(ContractDefinition const*) const
 			false, StateMutability::Pure
 	));
 	return members;
-}
-
-TypeResult StructType::interfaceType(bool _inLibrary) const
-{
-	if (_inLibrary && m_interfaceType_library.has_value())
-		return *m_interfaceType_library;
-
-	if (!_inLibrary && m_interfaceType.has_value())
-		return *m_interfaceType;
-
-	TypeResult result{TypePointer{}};
-
-	m_recursive = false;
-
-	auto visitor = [&](
-		StructDefinition const& _struct,
-		util::CycleDetector<StructDefinition>& _cycleDetector,
-		size_t /*_depth*/
-	)
-	{
-		// Check that all members have interface types.
-		// Return an error if at least one struct member does not have a type.
-		// This might happen, for example, if the type of the member does not exist.
-		for (ASTPointer<VariableDeclaration> const& variable: _struct.members())
-		{
-			// If the struct member does not have a type return false.
-			// A TypeError is expected in this case.
-			if (!variable->annotation().type)
-			{
-				result = TypeResult::err("Invalid type!");
-				return;
-			}
-
-			Type const* memberType = variable->annotation().type;
-
-			while (dynamic_cast<ArrayType const*>(memberType))
-				memberType = dynamic_cast<ArrayType const*>(memberType)->baseType();
-
-			if (StructType const* innerStruct = dynamic_cast<StructType const*>(memberType))
-				if (
-					innerStruct->m_recursive == true ||
-					_cycleDetector.run(innerStruct->structDefinition())
-				)
-				{
-					m_recursive = true;
-					result = TypeResult::err("Recursive structs can only be passed as storage pointers to libraries, not as memory objects to contract functions.");
-					return;
-				}
-
-			auto iType = memberType->interfaceType(_inLibrary);
-			if (!iType.get())
-			{
-				solAssert(!iType.message().empty(), "Expected detailed error message!");
-				result = iType;
-				return;
-			}
-		}
-	};
-
-	m_recursive = m_recursive.value() || (util::CycleDetector<StructDefinition>(visitor).run(structDefinition()) != nullptr);
-
-	std::string const recursiveErrMsg = "Recursive type not allowed for public or external contract functions.";
-
-	if (_inLibrary)
-	{
-		if (!result.message().empty())
-			m_interfaceType_library = result;
-		else
-			m_interfaceType_library = TypeProvider::withLocation(this, true);
-
-		if (m_recursive.value())
-			m_interfaceType = TypeResult::err(recursiveErrMsg);
-
-		return *m_interfaceType_library;
-	}
-
-	if (m_recursive.value())
-		m_interfaceType = TypeResult::err(recursiveErrMsg);
-	else if (!result.message().empty())
-		m_interfaceType = result;
-	else
-		m_interfaceType = TypeProvider::withLocation(this, true);
-
-	return *m_interfaceType;
 }
 
 std::unique_ptr<ReferenceType> StructType::copyForLocation(bool _isPointer) const
@@ -2910,6 +2799,7 @@ string FunctionType::richIdentifier() const
 
 	case Kind::TVMChecksign: id += "tvmchecksign"; break;
 	case Kind::TVMCode: id += "tvmcode"; break;
+	case Kind::TVMCodeSalt: id += "tvmcodesalt"; break;
 	case Kind::TVMCommit: id += "tvmcommit"; break;
 	case Kind::TVMConfigParam: id += "tvmconfigparam"; break;
 	case Kind::TVMDeploy: id += "tvmdeploy"; break;
@@ -2928,6 +2818,7 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMResetStorage: id += "tvmresetstorage"; break;
 	case Kind::TVMSendMsg: id += "tvmsendmsg"; break;
 	case Kind::TVMSetcode: id += "tvmsetcode"; break;
+	case Kind::TVMSetCodeSalt: id += "tvmsetcodesalt"; break;
 	case Kind::TVMSetPubkey: id += "tvmsetpubkey"; break;
 	case Kind::TVMSetReplayProtTime: id += "tvmsetreplayprottime"; break;
 
@@ -2937,7 +2828,7 @@ string FunctionType::richIdentifier() const
 	case Kind::TXtimestamp: id += "txtimestamp"; break;
 
 	case Kind::ExtraCurrencyCollectionMethods: id += "extracurrencycollectionmethods"; break;
-	case Kind::MessagePubkey: id += "msgpubkey"; break;
+	case Kind::MsgPubkey: id += "msgpubkey"; break;
 	case Kind::AddressIsZero: id += "addressiszero"; break;
 	case Kind::AddressUnpack: id += "addressunpack"; break;
 	case Kind::AddressType: id += "addresstype"; break;
@@ -3025,8 +2916,7 @@ string FunctionType::richIdentifier() const
 	}
 	id += "_" + stateMutabilityToString(m_stateMutability);
 	id += identifierList(m_parameterTypes) + "returns" + identifierList(m_returnParameterTypes);
-	if (m_valueSet)
-		id += "value";
+
 	if (bound())
 		id += "bound_to" + identifierList(selfType());
 	return id;
@@ -3094,7 +2984,6 @@ TypeResult FunctionType::binaryOperatorResult(Token _operator, Type const* _othe
 
 string FunctionType::canonicalName() const
 {
-	solAssert(m_kind == Kind::External, "");
 	return "function";
 }
 
@@ -3196,8 +3085,6 @@ unsigned FunctionType::sizeOnStack() const
 		break;
 	}
 
-	if (m_valueSet)
-		size++;
 	if (bound())
 		size += m_parameterTypes.front()->sizeOnStack();
 	return size;
@@ -3274,51 +3161,6 @@ MemberList::MemberMap FunctionType::nativeMembers(ContractDefinition const* _sco
 			members.emplace_back("selector", TypeProvider::fixedBytes(4));
 			members.emplace_back("address", TypeProvider::address());
 		}
-		if (m_kind != Kind::BareDelegateCall) {
-			members.emplace_back(
-					"value",
-					TypeProvider::function(
-							parseElementaryTypeVector({"uint"}),
-							TypePointers{copyAndSetCallOptions(true)},
-							strings(1, ""),
-							strings(1, ""),
-							Kind::SetValue,
-							false,
-							StateMutability::Pure,
-							nullptr,
-							m_valueSet
-					)
-			);
-			members.emplace_back(
-					"flag",
-					TypeProvider::function(
-							parseElementaryTypeVector({"uint"}),
-							TypePointers{copyAndSetCallOptions(false)},
-							strings(1, ""),
-							strings(1, ""),
-							Kind::SetFlag,
-							false,
-							StateMutability::Pure,
-							nullptr,
-							m_valueSet
-					)
-			);
-		}
-		if (m_kind != Kind::Creation)
-			members.emplace_back(
-				"gas",
-				TypeProvider::function(
-					parseElementaryTypeVector({"uint"}),
-					TypePointers{copyAndSetCallOptions(false)},
-					strings(1, ""),
-					strings(1, ""),
-					Kind::SetGas,
-					false,
-					StateMutability::Pure,
-					nullptr,
-					m_valueSet
-				)
-			);
 		return members;
 	}
 	case Kind::DelegateCall:
@@ -3351,10 +3193,7 @@ TypePointer FunctionType::encodingType() const
 
 TypeResult FunctionType::interfaceType(bool /*_inLibrary*/) const
 {
-	if (m_kind == Kind::External)
-		return this;
-	else
-		return TypeResult::err("Internal type is not allowed for public or external functions.");
+	return this;
 }
 
 bool FunctionType::canTakeArguments(
@@ -3436,10 +3275,6 @@ bool FunctionType::equalExcludingStateMutability(FunctionType const& _other) con
 		return false;
 
 	if (!hasEqualParameterTypes(_other) || !hasEqualReturnTypes(_other))
-		return false;
-
-	//@todo this is ugly, but cannot be prevented right now
-	if (m_valueSet != _other.m_valueSet)
 		return false;
 
 	if (bound() != _other.bound())
@@ -3540,23 +3375,6 @@ TypePointers FunctionType::parseElementaryTypeVector(strings const& _types)
 	return pointers;
 }
 
-TypePointer FunctionType::copyAndSetCallOptions(bool _setValue) const
-{
-	solAssert(m_kind != Kind::Declaration, "");
-	return TypeProvider::function(
-		m_parameterTypes,
-		m_returnParameterTypes,
-		m_parameterNames,
-		m_returnParameterNames,
-		m_kind,
-		m_arbitraryParameters,
-		m_stateMutability,
-		m_declaration,
-		m_valueSet || _setValue,
-		m_bound
-	);
-}
-
 FunctionTypePointer FunctionType::asCallableFunction(bool _inLibrary, bool _bound) const
 {
 	if (_bound)
@@ -3591,7 +3409,6 @@ FunctionTypePointer FunctionType::asCallableFunction(bool _inLibrary, bool _boun
 		m_arbitraryParameters,
 		m_stateMutability,
 		m_declaration,
-		m_valueSet,
 		_bound
 	);
 }
@@ -3714,12 +3531,6 @@ TypeResult MappingType::unaryOperatorResult(Token _operator) const {
 
 TypeResult OptionalType::unaryOperatorResult(Token _operator) const {
 	return _operator == Token::Delete ? TypeProvider::tuple(std::vector<Type const*>()) : TypePointer();
-}
-
-TypeResult MappingType::interfaceType(bool _inLibrary) const
-{
-	solAssert(keyType()->interfaceType(_inLibrary).get(), "Must be an elementary type!");
-	return this;
 }
 
 string TypeType::richIdentifier() const
@@ -3935,7 +3746,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 	case Kind::Message:
 		return MemberList::MemberMap({
 			{"sender", TypeProvider::address()},
-			{"pubkey", TypeProvider::function(strings(), strings{"uint"}, FunctionType::Kind::MessagePubkey, false, StateMutability::Pure)},
+			{"pubkey", TypeProvider::function(strings(), strings{"uint"}, FunctionType::Kind::MsgPubkey, false, StateMutability::Pure)},
 			{"createdAt", TypeProvider::uint(32)},
 			{"gas", TypeProvider::uint256()},
 			{"value", TypeProvider::uint(128)},
@@ -3949,13 +3760,14 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 	case Kind::TVM: {
 		MemberList::MemberMap members = {
 			{"code", TypeProvider::function({}, {TypeProvider::tvmcell()}, {}, {{}}, FunctionType::Kind::TVMCode, false, StateMutability::Pure)},
-			{"codeSalt", TypeProvider::function({TypeProvider::tvmcell()}, {TypeProvider::optional(TypeProvider::tvmcell())}, {{}}, {{}}, FunctionType::Kind::TVMCode, false, StateMutability::Pure)},
-			{"setCodeSalt", TypeProvider::function({TypeProvider::tvmcell(), TypeProvider::tvmcell()}, {TypeProvider::tvmcell()}, {{}, {}}, {{}}, FunctionType::Kind::TVMCode, false, StateMutability::Pure)},
+			{"codeSalt", TypeProvider::function({TypeProvider::tvmcell()}, {TypeProvider::optional(TypeProvider::tvmcell())}, {{}}, {{}}, FunctionType::Kind::TVMCodeSalt, false, StateMutability::Pure)},
+			{"setCodeSalt", TypeProvider::function({TypeProvider::tvmcell(), TypeProvider::tvmcell()}, {TypeProvider::tvmcell()}, {{}, {}}, {{}}, FunctionType::Kind::TVMSetCodeSalt, false, StateMutability::Pure)},
 			{"pubkey", TypeProvider::function(strings(), strings{"uint"}, FunctionType::Kind::TVMPubkey, false, StateMutability::Pure)},
 			{"setPubkey", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetPubkey, false, StateMutability::NonPayable)},
 			{"accept", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMAccept, false, StateMutability::Pure)},
 			{"commit", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMCommit, false, StateMutability::NonPayable)},
 			{"rawCommit", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMCommit, false, StateMutability::NonPayable)},
+			{"getData", TypeProvider::function({}, {TypeProvider::tvmcell()}, {}, {{}}, FunctionType::Kind::TVMCommit, false, StateMutability::Pure)},
 			{"setData", TypeProvider::function({TypeProvider::tvmcell()}, {}, {{}}, {}, FunctionType::Kind::TVMCommit, false, StateMutability::NonPayable)},
 			{"resetStorage", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMResetStorage, false, StateMutability::NonPayable)},
 			{"log", TypeProvider::function(strings{"string"}, strings{}, FunctionType::Kind::LogTVM, false, StateMutability::Pure)},
@@ -4207,6 +4019,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				FunctionType::Kind::TVMEncodeBody,
 				true, StateMutability::Pure
 		));
+
 		return members;
 	}
 	case Kind::Rnd: {

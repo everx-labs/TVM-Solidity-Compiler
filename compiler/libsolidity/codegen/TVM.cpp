@@ -23,8 +23,6 @@
 using namespace solidity::frontend;
 
 solidity::langutil::ErrorReporter* GlobalParams::g_errorReporter{};
-bool GlobalParams::g_withOptimizations{};
-bool GlobalParams::g_withDebugInfo{};
 
 void TVMCompilerProceedContract(
     solidity::langutil::ErrorReporter* errorReporter,
@@ -32,17 +30,12 @@ void TVMCompilerProceedContract(
 	std::vector<PragmaDirective const *> const* pragmaDirectives,
 	bool generateAbi,
 	bool generateCode,
-	bool withOptimizations,
-	bool withDebugInfo,
 	const std::string& solFileName,
 	const std::string& outputFolder,
 	const std::string& filePrefix,
 	bool doPrintFunctionIds
 ) {
     GlobalParams::g_errorReporter = errorReporter;
-    GlobalParams::g_withDebugInfo = withDebugInfo;
-    GlobalParams::g_withOptimizations = withOptimizations;
-
 	std::string pathToFiles;
 
 	if (filePrefix.empty()) {

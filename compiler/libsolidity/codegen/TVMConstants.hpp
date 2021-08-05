@@ -37,6 +37,10 @@ namespace TvmConst {
 			const int Flag = 4;
 			const int CallbackFunctionId = 5;
 		}
+		const int MsgPubkey = 5;
+		constexpr int ConstructorFlag = 6;
+		constexpr int WasPubFuncCalled = 7;
+		constexpr int AwaitAnswerId = 8;
 		constexpr int SenderAddress = 9;
 		constexpr int FirstIndexForVariables = 10;
 	}
@@ -87,6 +91,9 @@ namespace TvmConst {
 		const int ByExtMsgOnly = 71;
 		const int ByIntMsgOnly = 72;
 		const int WrongValueOfEnum = 73;
+		const int WrongAwaitAddress = 74;
+		const int WrongAwaitFuncId = 75;
+		const int CallThatWasBeforeCtorCall = 76;
 	}
 
 	namespace FunctionId {
@@ -113,9 +120,8 @@ namespace TvmConst {
 	}
 
 	namespace Selector {
-		inline std::string RootCodeCell() { return "8adb35"; }
+		inline std::string RootCodeCell() { return "8adb35"; } // 8a-PUSHREF db35-JMPXDATA
 		inline std::string PrivateOpcode0() { return "F4A4_"; } // DICTPUSHCONST
 		inline std::string PrivateOpcode1() { return "F4A1"; } // DICTUGETJMP
 	}
-
 }

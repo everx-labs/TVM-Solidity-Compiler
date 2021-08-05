@@ -21,6 +21,7 @@
 #include "TVMStructCompiler.hpp"
 #include "TVMABI.hpp"
 #include "TVMConstants.hpp"
+#include "TVMAnalyzer.hpp"
 
 #include <boost/range/adaptor/map.hpp>
 
@@ -29,7 +30,13 @@ using namespace solidity::frontend;
 StackPusherHelper::StackPusherHelper(TVMCompilerContext *ctx, const int stackSize) :
 	m_ctx(ctx)
 {
-	m_stack.change(stackSize);
+	change(stackSize);
+	m_instructions.emplace_back(CodeBlock::Type::None);
+}
+
+void StackPusherHelper::pushLoc(const std::string& file, int line) {
+	auto op = createNode<Loc>(file, line);
+	m_instructions.back().opcodes.emplace_back(op);
 }
 
 void StackPusherHelper::pushString(const std::string& _str, bool toSlice) {
@@ -39,31 +46,30 @@ void StackPusherHelper::pushString(const std::string& _str, bool toSlice) {
         return ;
     }
 
-    const int saveStackSize = getStack().size();
+    const int saveStackSize = stackSize();
     const int length = hexStr.size();
     const int symbolQty = ((TvmConst::CellBitLength / 8) * 8) / 4; // one symbol in string == 8 bit. Letter can't be divided by 2 cells
-    if (toSlice) {
-		push(+1, "PUSHREFSLICE {");
-    } else {
-		push(+1, "PUSHREF {");
-	}
-    addTabs();
+	PushCellOrSlice::Type type = toSlice ? PushCellOrSlice::Type::PUSHREFSLICE : PushCellOrSlice::Type::PUSHREF;
+	std::vector<std::pair<PushCellOrSlice::Type, std::string>> data;
     int builderQty = 0;
     int start = 0;
     do {
         std::string slice = hexStr.substr(start, std::min(symbolQty, length - start));
-        if (start > 0) {
-            startCell();
-        }
-        push(0, ".blob x" + slice);
+		data.emplace_back(type, ".blob x" + slice);
         start += symbolQty;
         ++builderQty;
+		type = PushCellOrSlice::Type::CELL;
     } while (start < length);
-    for (int i = 0; i < builderQty; ++i) {
-        endContinuation();
-    }
 
-    getStack().ensureSize(saveStackSize + 1, "");
+	Pointer<PushCellOrSlice> cell;
+	for (const auto&[t, d] : data | boost::adaptors::reversed) {
+		cell = createNode<PushCellOrSlice>(t, d, cell);
+	}
+	solAssert(cell != nullptr, "");
+	m_instructions.back().opcodes.emplace_back(cell);
+	change(0, 1);
+
+    ensureSize(saveStackSize + 1, "");
 }
 
 void StackPusherHelper::pushLog() {
@@ -72,36 +78,105 @@ void StackPusherHelper::pushLog() {
 	drop();
 }
 
-void StackPusherHelper::generateC7ToT4Macro() {
-	push(+1, ""); // fix stack, allocate builder
-	generateMacro("c7_to_c4");
+// TODO move to function compiler
+Pointer<Function> StackPusherHelper::generateC7ToT4Macro() {
 	const std::vector<Type const *>& memberTypes = m_ctx->notConstantStateVariableTypes();
 	if (!memberTypes.empty()) {
 		for (int i = memberTypes.size() - 1; i >= 0; --i) {
 			getGlob(TvmConst::C7::FirstIndexForVariables + i);
 		}
 	}
-	push(0, "GETGLOB 6");
 	if (ctx().storeTimestampInC4()) {
-		push(0, "GETGLOB 3");
+		getGlob(TvmConst::C7::ReplayProtTime);
 	}
 	getGlob(TvmConst::C7::TvmPubkey);
-	push(0, "NEWC");
-	push(0, "STU 256");
+	push(+1, "NEWC");
+	push(-2 + 1, "STU 256");
 	if (ctx().storeTimestampInC4()) {
-		push(0, "STU 64");
+		push(-2 + 1, "STU 64");
 	}
-	push(0, "STI 1");
+	push(-1 + 1, "STONE"); // constructor flag
+	if (m_ctx->usage().hasAwaitCall()) {
+		push(-1 + 1, "STZERO");
+	}
 	if (!memberTypes.empty()) {
 		ChainDataEncoder encoder{this};
-		EncodePosition position{m_ctx->getOffsetC4(), memberTypes};
+		EncodePosition position{m_ctx->getOffsetC4(), memberTypes,
+								m_ctx->usage().hasAwaitCall() ? 1 : 0};
 		encoder.encodeParameters(memberTypes, position);
 	}
-	pushLines(R"(
-ENDC
-POP C4
-)");
-	push(0, " ");
+
+	push(-1 + 1, "ENDC");
+	popRoot();
+	Pointer<CodeBlock> block = getBlock();
+	auto f = createNode<Function>("c7_to_c4", Function::FunctionType::Macro, block);
+	return f;
+}
+
+// TODO unit with generateC7ToT4Macro
+Pointer<Function> StackPusherHelper::generateC7ToT4MacroForAwait() {
+	push(+1, ""); // fix stack, allocate builder
+
+	const std::vector<Type const *>& memberTypes = m_ctx->notConstantStateVariableTypes();
+	if (ctx().storeTimestampInC4()) {
+		getGlob(TvmConst::C7::ReplayProtTime);
+	}
+	getGlob(TvmConst::C7::TvmPubkey);
+	push(+1, "NEWC");
+	push(-2 + 1, "STU 256");
+	if (ctx().storeTimestampInC4()) {
+		push(-2 + 1, "STU 64");
+	}
+	push(-1 + 1, "STONE"); // constructor flag
+	push(-1 + 1, "STONE");
+	exchange(1);
+	push(createNode<HardCode>(std::vector<std::string>{
+		"NEWC",
+		"STSLICE",
+		"PUSH c0",
+		"PUSH c3",
+		"PUSHCONT {",
+		"	; -- c0 c3 cc",
+		"	SETCONT c3",
+		"	SETCONT c0",
+		"	;; 5 sys vars  -- func stack  --- 2 bldrs --- cont",
+		"	BLKSWAP 2, 1",
+		"	DEPTH",
+		"	ADDCONST -7 ; 5 system args + 2 bldrs",
+		"	PUSHINT 2",
+		"	BLKSWX",
+		"	;; 5 sys args -- 2 bldrs -- func stack -- cont",
+		"	GETGLOB " + toString(TvmConst::C7::MsgPubkey),
+		"	GETGLOB " + toString(TvmConst::C7::SenderAddress),
+		"	GETGLOB " + toString(TvmConst::C7::AwaitAnswerId),
+		"	BLKSWAP 1, 3",
+		"	DEPTH",
+		"	ADDCONST -8 ; 5 system args + 2 bldrs + cont",
+		"	PUSHINT -1",
+		"	SETCONTVARARGS",
+		"	SWAP",
+		"	STCONT",
+		"	ENDC ; -- suspended-code-cell",
+		"	STREFR",
+	}, 0, 0));
+	if (!memberTypes.empty()) {
+		for (int i = memberTypes.size() - 1; i >= 0; --i) {
+			getGlob(TvmConst::C7::FirstIndexForVariables + i);
+		}
+		blockSwap(1, memberTypes.size());
+		ChainDataEncoder encoder{this};
+		EncodePosition position{m_ctx->getOffsetC4(), memberTypes,
+								m_ctx->usage().hasAwaitCall() ? 1 : 0};
+		encoder.encodeParameters(memberTypes, position);
+	}
+	push(createNode<HardCode>(std::vector<std::string>{
+		"	ENDC",
+		"	POPROOT",
+		"	THROW 0",
+		"}",
+		"CALLCC",
+	}, 0, 0));
+	return createNode<Function>("c7_to_c4_for_await", Function::FunctionType::Macro, getBlock());
 }
 
 bool StackPusherHelper::doesFitInOneCellAndHaveNoStruct(Type const* key, Type const* value) {
@@ -212,13 +287,12 @@ StackPusherHelper::prepareValueForDictOperations(Type const *keyType, Type const
 		case DictValueType::Function:
 		{
 			if (!isValueBuilder) {
-				push(0, "NEWC");
+				push(+1, "NEWC");
 				store(valueType, false);
-				push(+1, "");
 			}
 			if (!doesFitInOneCellAndHaveNoStruct(keyType, valueType)) {
-				push(0, "NEWC");
-				push(0, "STBREF");
+				push(+1, "NEWC");
+				push(-1, "STBREF");
 			}
 			return DataType::Builder;
 		}
@@ -313,9 +387,9 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 				// stack: value slice Tuple
 			}
 			if (saveOrigKeyAndNoTuple)
-				push(0, "ROT");
+				rot();
 			else
-				exchange(0, 1);
+				exchange(1);
 			// stack: slice key value
 		}
 		// stack: [slice, key] value
@@ -383,7 +457,7 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 	};
 
 	auto checkOnMappingOrOptional = [&]() {
-		if (isIn(valueType->category(), Type::Category::Mapping, Type::Category::Optional)) {
+		if (optValueAsTuple(valueType)) {
 			tuple(1);
 		}
 	};
@@ -406,17 +480,17 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 			bool hasEmptyPushCont = tryPollEmptyPushCont();
 			pushRefCont ? startContinuationFromRef() : startContinuation();
 			pushDefaultValue(valueType, false);
-			endContinuation(-1);
+			endContinuation();
 
 			if (hasEmptyPushCont)
-				push(0, "IFNOT");
+				_ifNot();
 			else
-				push(0, "IFELSE");
+				ifElse();
 			break;
 		}
 		case DecodeType::DecodeValueOrPushNull: {
 			if (!saveOrigKeyAndNoTuple) {
-				push(0, "NULLSWAPIFNOT");
+				pushAsym("NULLSWAPIFNOT");
 			}
 
 			isValueStruct ? startContinuationFromRef() : startContinuation();
@@ -432,27 +506,28 @@ void StackPusherHelper::recoverKeyAndValueAfterDictOperation(
 
 			if (saveOrigKeyAndNoTuple) {
 				startContinuation();
-				push(0, "NULL");
-				push(0, "NULL");
-				push(0, "NULL");
+				push(+1, "NULL");
+				push(+1, "NULL");
+				push(+1, "NULL");
+				push(-3, ""); // fix stack
 				endContinuation();
 
-				push(0, "IFELSE");
+				ifElse();
 			} else {
-				push(0, "IF");
+				_if();
 			}
 
 			break;
 		}
 		case DecodeType::PushNullOrDecodeValue: {
-			push(0, "NULLSWAPIF");
+			pushAsym("NULLSWAPIF");
 
 			startContinuation();
 			preloadValue();
 			checkOnMappingOrOptional();
 			endContinuation();
 
-			push(0, "IFNOT");
+			_ifNot();
 			break;
 		}
 	}
@@ -463,168 +538,375 @@ void StackPusherHelper::setDict(Type const &keyType, Type const &valueType, cons
 	d.dictSet();
 }
 
-
-void StackPusherHelper::pollLastRetOpcode() {
-	int offset = 0;
-	int size = m_code.lines.size();
-	while (offset < size && cmpLastCmd("\\.loc .*", offset))
-	    ++offset;
-	solAssert(cmpLastCmd("RET", offset), "");
-	int begPos = size - 1 - offset;
-    m_code.lines.erase(m_code.lines.begin() + begPos);
+void StackPusherHelper::pushInlineFunction(Pointer<CodeBlock> block, int take, int ret) {
+	solAssert(block->type() == CodeBlock::Type::None, "");
+	for (Pointer<TvmAstNode> const& i : block->instructions()) {
+		m_instructions.back().opcodes.emplace_back(i);
+	}
+	change(take, ret);
 }
 
-bool StackPusherHelper::tryPollConvertBuilderToSlice() {
-	int n = m_code.lines.size();
-	if (n >= 2 &&
-		cmpLastCmd("CTOS") &&
-		cmpLastCmd("ENDC", 1)
-	)
-	{
-		m_code.lines.pop_back();
-		m_code.lines.pop_back();
-		return true;
-	}
-	return false;
+void StackPusherHelper::pollLastRetOpcode() {
+	std::vector<Pointer<TvmAstNode>>& opcodes = m_instructions.back().opcodes;
+	int offset = 0;
+	int size = opcodes.size();
+	while (offset < size && isLoc(opcodes.at(opcodes.size() - 1 - offset)))
+	    ++offset;
+	int begPos = size - 1 - offset;
+	auto opcode = to<ConFlowInst>(opcodes.at(begPos).get());
+	solAssert(opcode->opcode() == "RET", "");
+	opcodes.erase(opcodes.begin() + begPos);
 }
 
 bool StackPusherHelper::tryPollEmptyPushCont() {
-	int n = m_code.lines.size();
-	if (n >= 2 &&
-		(cmpLastCmd("PUSHCONT \\{", 1) || cmpLastCmd("PUSHREFCONT \\{", 1)) &&
-		cmpLastCmd("\\}")
-	) {
-		m_code.lines.pop_back();
-		m_code.lines.pop_back();
+	std::vector<Pointer<TvmAstNode>>& opcodes = m_instructions.back().opcodes;
+	solAssert(opcodes.size() >= 2, "");
+	auto block = dynamic_pointer_cast<CodeBlock>(opcodes.back());
+	solAssert(block != nullptr, "");
+	if (block->instructions().empty()) {
+		opcodes.pop_back();
 		return true;
 	}
 	return false;
 }
 
 bool StackPusherHelper::cmpLastCmd(const std::string& cmd, int offset) {
-	int n = m_code.lines.size() - 1 - offset;
-	return n >= 0 &&
-		std::regex_match(m_code.lines.at(n), std::regex("(\t*)" + cmd));
+	std::vector<Pointer<TvmAstNode>>& opcodes = m_instructions.back().opcodes;
+	int n = opcodes.size() - 1 - offset;
+	if (n < 0) {
+		return false;
+	}
+	auto gen = dynamic_pointer_cast<GenOpcode>(opcodes.at(n));
+	if (gen == nullptr) {
+		return false;
+	}
+	return gen->fullOpcode() == cmd;
 }
 
 void StackPusherHelper::pollLastOpcode() {
-	m_code.lines.pop_back();
-}
-
-bool StackPusherHelper::optimizeIf() {
-	bool reverseOpcode = false;
-	if (cmpLastCmd("NOT")) {
-		while (cmpLastCmd("NOT")) {
-			pollLastOpcode();
-			reverseOpcode ^= true;
-		}
-	} else if (cmpLastCmd("EQINT 0")) {
-		pollLastOpcode();
-		reverseOpcode ^= true;
-	} else if (cmpLastCmd("NEQINT 0")) {
-		pollLastOpcode();
-	}
-	return reverseOpcode;
-}
-
-void StackPusherHelper::append(const CodeLines &oth) {
-	m_code.append(oth);
-}
-
-void StackPusherHelper::addTabs(const int qty) {
-	m_code.addTabs(qty);
-}
-
-void StackPusherHelper::subTabs(const int qty) {
-	m_code.subTabs(qty);
-}
-
-void StackPusherHelper::pushCont(const CodeLines &cont, const string &comment) {
-	if (comment.empty())
-		push(0, "PUSHCONT {");
-	else
-		push(0, "PUSHCONT { ; " + comment);
-	for (const auto& l : cont.lines)
-		push(0, string("\t") + l);
-	push(+1, "}"); // adjust stack // TODO delete +1. For ifelse it's a problem
-}
-
-void StackPusherHelper::generateGlobl(const string &fname) {
-	push(0, ".globl\t" + fname);
-	push(0, ".type\t"  + fname + ", @function");
-}
-
-void StackPusherHelper::generateInternal(const string &fname, const int id) {
-	push(0, ".internal-alias :" + fname + ", " + toString(id));
-	push(0, ".internal :" + fname);
-}
-
-void StackPusherHelper::generateMacro(const string &functionName) {
-	push(0, ".macro " + functionName);
-}
-
-CodeLines StackPusherHelper::code() const {
-	return m_code;
+	solAssert(!m_instructions.back().opcodes.empty(), "");
+	m_instructions.back().opcodes.pop_back();
 }
 
 TVMCompilerContext &StackPusherHelper::ctx() {
 	return *m_ctx;
 }
 
+void StackPusherHelper::change(int delta) {
+	solAssert(lockStack >= 0, "");
+	if (lockStack == 0) {
+		m_stack2.change(delta);
+	}
+}
+
+void StackPusherHelper::change(int take, int ret) {
+	change(-take + ret);
+}
+
+int StackPusherHelper::stackSize() const {
+	return m_stack2.size();
+}
+
+void StackPusherHelper::ensureSize(int savedStackSize, const string &location, const ASTNode* node) {
+	if (lockStack == 0) {
+		m_stack2.ensureSize(savedStackSize, location, node);
+	}
+}
+
+void StackPusherHelper::startOpaque() {
+	++lockStack;
+	m_instructions.emplace_back(nullopt);
+}
+
+void StackPusherHelper::endOpaque(int take, int ret, bool isPure) {
+	--lockStack;
+	solAssert(m_instructions.size() >= 2, "");
+	PusherBlock block = m_instructions.back();
+	solAssert(!block.type.has_value(), "");
+	m_instructions.pop_back();
+	auto bl = createNode<CodeBlock>(CodeBlock::Type::None, block.opcodes);
+	auto node = createNode<Opaque>(bl, take, ret, isPure);
+	m_instructions.back().opcodes.push_back(node);
+	change(take, ret);
+}
+
+Pointer<AsymGen>
+StackPusherHelper::asym(const string& cmd) {
+	auto f = [&](const std::string& pattert) {
+		istringstream iss(cmd);
+		string real;
+		iss >> real;
+		return real == pattert;
+	};
+
+	auto dictRem = [&]() {
+		for (std::string key : {"", "I", "U"}) {
+			for (std::string op : {"MIN", "MAX"}) {
+				for (std::string suf : {"", "REF"}) {
+					std::string candidat = "DICT" + key + "REM" + op + suf;
+					if (candidat == cmd) {
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	};
+
+	auto dictSomeGet = [&]() {
+		for (std::string key : {"", "I", "U"}) {
+			for (std::string op : {"SETGET", "ADDGET", "REPLACEGET"}) {
+				for (std::string suf : {"", "REF", "B"}) {
+					std::string candidat = "DICT" + key + op + suf;
+					if (candidat == cmd) {
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	};
+
+	Pointer<AsymGen> opcode;
+	if (f("CONFIGPARAM")) { opcode = createNode<AsymGen>(cmd, 1, 1, 2); }
+	else if (f("NULLSWAPIF")) { opcode = createNode<AsymGen>(cmd, 1, 1, 2); }
+	else if (f("NULLSWAPIFNOT")) { opcode = createNode<AsymGen>(cmd, 1, 1, 2); }
+
+	else if (f("LDDICTQ")) { opcode = createNode<AsymGen>(cmd, 1, 2, 3); }
+	else if (f("LDIQ")) { opcode = createNode<AsymGen>(cmd, 1, 2, 3); }
+	else if (f("LDMSGADDRQ")) { opcode = createNode<AsymGen>(cmd, 1, 2, 3); }
+	else if (f("LDUQ")) { opcode = createNode<AsymGen>(cmd, 1, 2, 3); }
+
+	else if (f("DICTMIN")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
+	else if (f("DICTIMIN")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
+	else if (f("DICTUMIN")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
+	else if (f("DICTMINREF")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
+	else if (f("DICTIMINREF")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
+	else if (f("DICTUMINREF")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
+
+	else if (f("DICTMAX")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
+	else if (f("DICTIMAX")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
+	else if (f("DICTUMAX")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
+	else if (f("DICTMAXREF")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
+	else if (f("DICTIMAXREF")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
+	else if (f("DICTUMAXREF")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
+
+	else if (f("CDATASIZEQ")) { opcode = createNode<AsymGen>(cmd, 2, 1, 4); }
+	else if (f("SDATASIZEQ")) { opcode = createNode<AsymGen>(cmd, 2, 1, 4); }
+
+	else if (dictRem()) { opcode = createNode<AsymGen>(cmd, 2, 2, 3); }
+
+	// TODO use function generator
+	else if (f("DICTGET")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
+	else if (f("DICTIGET")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
+	else if (f("DICTUGET")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
+	else if (f("DICTGETREF")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
+	else if (f("DICTIGETREF")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
+	else if (f("DICTUGETREF")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
+
+	else if (f("DICTGETNEXT")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
+	else if (f("DICTGETNEXTEQ")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
+	else if (f("DICTGETPREV")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
+	else if (f("DICTGETPREVEQ")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
+	else if (f("DICTIGETNEXT")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
+	else if (f("DICTIGETNEXTEQ")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
+	else if (f("DICTIGETPREV")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
+	else if (f("DICTIGETPREVEQ")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
+	else if (f("DICTUGETNEXT")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
+	else if (f("DICTUGETNEXTEQ")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
+	else if (f("DICTUGETPREV")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
+	else if (f("DICTUGETPREVEQ")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
+
+	else if (dictSomeGet()) { opcode = createNode<AsymGen>(cmd, 4, 2, 3); }
+
+	else solAssert(opcode, "StackPusherHelper::asym " + cmd);
+	return opcode;
+}
+
+void StackPusherHelper::push(Pointer<Stack> opcode) {
+	m_instructions.back().opcodes.push_back(opcode);
+}
+
+void StackPusherHelper::push(Pointer<AsymGen> opcode) {
+	// no stack changing
+	solAssert(lockStack >= 0, "");
+	m_instructions.back().opcodes.push_back(opcode);
+}
+
+void StackPusherHelper::push(Pointer<HardCode> opcode) {
+	m_instructions.back().opcodes.push_back(opcode);
+	change(opcode->take(), opcode->ret());
+}
+
+void StackPusherHelper::pushAsym(std::string const& opcode) {
+	solAssert(lockStack >= 1, "");
+	Pointer<AsymGen> node = asym(opcode);
+	m_instructions.back().opcodes.push_back(node);
+}
+
 void StackPusherHelper::push(int stackDiff, const string &cmd) {
-	m_code.push(cmd);
-	m_stack.change(stackDiff);
+	if (cmd.empty()) {
+		change(stackDiff); // TODO delete this!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+		return;
+	}
+
+	Pointer<GenOpcode> opcode = gen(cmd);
+	solAssert(stackDiff == -opcode->take() + opcode->ret(), "stackDiff == -opcode->take() + opcode->ret() " + cmd);
+	change(opcode->take(), opcode->ret());
+	m_instructions.back().opcodes.push_back(opcode);
 }
 
 void StackPusherHelper::startContinuation(int deltaStack) {
-	m_code.startContinuation();
-	m_stack.change(deltaStack);
+	solAssert(deltaStack == 0, "");
+	m_instructions.emplace_back(CodeBlock::Type::PUSHCONT);
 }
 
 void StackPusherHelper::startContinuationFromRef() {
-	m_code.startContinuationFromRef();
+	m_instructions.emplace_back(CodeBlock::Type::PUSHREFCONT);
 }
 
 void StackPusherHelper::startIfRef(int deltaStack) {
-	m_code.startIfRef();
-	m_stack.change(deltaStack);
+	solAssert(deltaStack == 0, "");
+	m_instructions.emplace_back(CodeBlock::Type::IFREF);
 }
 
 void StackPusherHelper::startIfJmpRef(int deltaStack) {
-	m_code.startIfJmpRef();
-	m_stack.change(deltaStack);
+	solAssert(deltaStack == 0, "");
+	m_instructions.emplace_back(CodeBlock::Type::IFJMPREF);
+}
+
+void StackPusherHelper::startIfNotJmpRef(int deltaStack) {
+	solAssert(deltaStack == 0, "");
+	m_instructions.emplace_back(CodeBlock::Type::IFNOTJMPREF);
 }
 
 void StackPusherHelper::startIfNotRef(int deltaStack) {
-	m_code.startIfNotRef();
-	m_stack.change(deltaStack);
+	solAssert(deltaStack == 0, "");
+	m_instructions.emplace_back(CodeBlock::Type::IFNOTREF);
 }
 
 void StackPusherHelper::startCallRef(int deltaStack) {
-	m_code.startCallRef();
-	m_stack.change(deltaStack);
+	// TODO delete int deltaStack
+	solAssert(deltaStack == 0, "");
+	m_instructions.emplace_back(CodeBlock::Type::CALLREF);
 }
 
-void StackPusherHelper::startCell() {
-    m_code.push(".cell {");
-    m_code.addTabs();
+void StackPusherHelper::startPushRef() {
+	// TODO use PushCellOrSlice
+	m_instructions.emplace_back(CodeBlock::Type::PUSHREF);
 }
 
 void StackPusherHelper::endContinuation(int deltaStack) {
-	m_code.endContinuation();
-	m_stack.change(deltaStack);
+	solAssert(deltaStack == 0, "");
+	solAssert(m_instructions.size() >= 2, "");
+	PusherBlock block = m_instructions.back();
+	m_instructions.pop_back();
+	auto b = createNode<CodeBlock>(block.type.value(), block.opcodes);
+	m_instructions.back().opcodes.push_back(b);
+}
+
+void StackPusherHelper::ifElse(bool withJmp) {
+	solAssert(m_instructions.back().opcodes.size() >= 3, "");
+	auto falseBlock = dynamic_pointer_cast<CodeBlock>(m_instructions.back().opcodes.back());
+	solAssert(falseBlock != nullptr, "");
+	m_instructions.back().opcodes.pop_back();
+	auto trueBlock = dynamic_pointer_cast<CodeBlock>(m_instructions.back().opcodes.back());
+	solAssert(trueBlock != nullptr, "");
+	m_instructions.back().opcodes.pop_back();
+	TvmIfElse::Type type = withJmp ? TvmIfElse::Type::IFELSE_WITH_JMP : TvmIfElse::Type::IFELSE;
+	auto b = createNode<TvmIfElse>(type, trueBlock, falseBlock);
+	m_instructions.back().opcodes.push_back(b);
+}
+
+void StackPusherHelper::if_or_ifnot(TvmIfElse::Type t) {
+	solAssert(m_instructions.back().opcodes.size() >= 1, "");
+	auto trueBlock = dynamic_pointer_cast<CodeBlock>(m_instructions.back().opcodes.back());
+	solAssert(trueBlock, "");
+	m_instructions.back().opcodes.pop_back();
+	auto b = createNode<TvmIfElse>(t, trueBlock);
+	m_instructions.back().opcodes.push_back(b);
+}
+
+void StackPusherHelper::_if() {
+	if_or_ifnot(TvmIfElse::Type::IF);
+}
+
+void StackPusherHelper::_ifNot() {
+	if_or_ifnot(TvmIfElse::Type::IFNOT);
+}
+
+void StackPusherHelper::ifNotJmp() {
+	if_or_ifnot(TvmIfElse::Type::IFNOTJMP);
+}
+
+void StackPusherHelper::ifJmp() {
+	if_or_ifnot(TvmIfElse::Type::IFJMP);
+}
+
+void StackPusherHelper::repeatOrUntil(RepeatOrUntil::Type type) {
+	solAssert(m_instructions.back().opcodes.size() >= 1, "");
+
+	auto loopBody = dynamic_pointer_cast<CodeBlock>(m_instructions.back().opcodes.back());
+	m_instructions.back().opcodes.pop_back();
+	solAssert(loopBody != nullptr, "");
+
+	auto b = createNode<RepeatOrUntil>(type, loopBody);
+	m_instructions.back().opcodes.push_back(b);
+}
+
+void StackPusherHelper::repeat() {
+	repeatOrUntil(RepeatOrUntil::Type::Repeat);
+}
+
+void StackPusherHelper::until() {
+	repeatOrUntil(RepeatOrUntil::Type::Until);
+}
+
+void StackPusherHelper::_while() {
+	solAssert(m_instructions.back().opcodes.size() >= 3, ""); // TODO >= 2 ?
+	auto body = dynamic_pointer_cast<CodeBlock>(m_instructions.back().opcodes.back());
+	solAssert(body != nullptr, "");
+	m_instructions.back().opcodes.pop_back();
+	auto condition = dynamic_pointer_cast<CodeBlock>(m_instructions.back().opcodes.back());
+	solAssert(condition != nullptr, "");
+	m_instructions.back().opcodes.pop_back();
+	auto b = createNode<While>(condition, body);
+	m_instructions.back().opcodes.push_back(b);
+}
+
+void StackPusherHelper::startCallX() {
+	m_instructions.emplace_back(CodeBlock::Type::CALLX);
+}
+
+void StackPusherHelper::endCallX() {
+	solAssert(m_instructions.size() >= 2, "");
+	PusherBlock block = m_instructions.back();
+	m_instructions.pop_back();
+	auto b = createNode<CodeBlock>(block.type.value(), block.opcodes);
+	m_instructions.back().opcodes.push_back(b);
+}
+
+void StackPusherHelper::ret() {
+	auto opcode = make_RET();
+	m_instructions.back().opcodes.push_back(opcode);
+	change(opcode->take(), opcode->ret());
+}
+
+void StackPusherHelper::ifret() {
+	auto opcode = make_IFRET();
+	m_instructions.back().opcodes.push_back(opcode);
+	change(opcode->take(), opcode->ret());
+}
+
+void StackPusherHelper::_throw(std::string cmd) {
+	auto opcode = make_THROW(cmd);
+	m_instructions.back().opcodes.push_back(opcode);
+	change(opcode->take(), opcode->ret());
 }
 
 TVMStack &StackPusherHelper::getStack() {
-	return m_stack;
-}
-
-void StackPusherHelper::pushLines(const std::string &lines) {
-	std::istringstream stream{lines};
-	std::string line;
-	while (std::getline(stream, line)) {
-		push(0, line);
-	}
+//	solUnimplemented("");
+	return m_stack2; // TODO delete
 }
 
 void StackPusherHelper::untuple(int n) {
@@ -634,7 +916,9 @@ void StackPusherHelper::untuple(int n) {
 	} else {
 		solAssert(n <= 255, "");
 		pushInt(n);
-		push(-2 + n, "UNTUPLEVAR");
+		auto b = createNode<GenOpcode>("UNTUPLEVAR", 2, n);
+		m_instructions.back().opcodes.push_back(b);
+		change(2, n);
 	}
 }
 
@@ -656,7 +940,7 @@ void StackPusherHelper::setIndex(int index) {
 	} else {
 		solAssert(index <= 254, "");
 		pushInt(index);
-		push(-1 - 2 + 1, "SETINDEXVAR");
+		push(-3 + 1, "SETINDEXVAR");
 	}
 }
 
@@ -678,17 +962,17 @@ void StackPusherHelper::tuple(int qty) {
 	} else {
 		solAssert(qty <= 255, "");
 		pushInt(qty);
-		push(-1 - qty + 1, "TUPLEVAR");
+		auto opcode = createNode<GenOpcode>("TUPLEVAR", qty + 1, 1);
+		m_instructions.back().opcodes.push_back(opcode);
+		change(qty + 1, 1);
 	}
 }
 
 void StackPusherHelper::resetAllStateVars() {
-	push(0, ";; set default state vars");
 	for (VariableDeclaration const *variable: ctx().notConstantStateVariables()) {
 		pushDefaultValue(variable->type());
 		setGlob(variable);
 	}
-	push(0, ";; end set default state vars");
 }
 
 void StackPusherHelper::getGlob(VariableDeclaration const *vd) {
@@ -698,23 +982,45 @@ void StackPusherHelper::getGlob(VariableDeclaration const *vd) {
 
 void StackPusherHelper::getGlob(int index) {
 	solAssert(index >= 0, "");
-	if (index <= 31) {
-		push(+1, "GETGLOB " + toString(index));
-	} else {
-		solAssert(index < 255, "");
-		pushInt(index);
-		push(-1 + 1, "GETGLOBVAR");
-	}
+	Pointer<Inst> opcode = createNode<Glob>(Glob::Opcode::GetOrGetVar, index);
+	change(+1);
+	m_instructions.back().opcodes.push_back(opcode);
+}
+
+void StackPusherHelper::pushC4() {
+	Pointer<Inst> opcode = createNode<Glob>(Glob::Opcode::PUSHROOT);
+	change(+1);
+	m_instructions.back().opcodes.push_back(opcode);
+}
+
+void StackPusherHelper::popRoot() {
+	Pointer<Inst> opcode = createNode<Glob>(Glob::Opcode::POPROOT);
+	change(-1);
+	m_instructions.back().opcodes.push_back(opcode);
+}
+
+void StackPusherHelper::pushC3() {
+	auto opcode = createNode<Glob>(Glob::Opcode::PUSH_C3);
+	change(+1);
+	m_instructions.back().opcodes.push_back(opcode);
+}
+
+void StackPusherHelper::popC3() {
+	auto opcode = createNode<Glob>(Glob::Opcode::POP_C3);
+	change(-1);
+	m_instructions.back().opcodes.push_back(opcode);
+}
+
+void StackPusherHelper::execute(int take, int ret) {
+	auto opcode = createNode<GenOpcode>("EXECUTE", take, ret);
+	change(take, ret);
+	m_instructions.back().opcodes.push_back(opcode);
 }
 
 void StackPusherHelper::setGlob(int index) {
-	if (index <= 31) {
-		push(-1, "SETGLOB " + toString(index));
-	} else {
-		solAssert(index < 255, "");
-		pushInt(index);
-		push(-1 - 1, "SETGLOBVAR");
-	}
+	Pointer<Inst> opcode = make_setGlob(index);
+	change(-1);
+	m_instructions.back().opcodes.push_back(opcode);
 }
 
 void StackPusherHelper::setGlob(VariableDeclaration const *vd) {
@@ -725,16 +1031,25 @@ void StackPusherHelper::setGlob(VariableDeclaration const *vd) {
 
 void StackPusherHelper::pushS(int i) {
 	solAssert(i >= 0, "");
-	if (i == 0) {
-		push(+1, "DUP");
-	} else {
-		push(+1, "PUSH S" + toString(i));
-	}
+	m_instructions.back().opcodes.push_back(make_PUSH(i));
+	change(+1);
+}
+
+void StackPusherHelper::dup2() {
+	m_instructions.back().opcodes.push_back(make_PUSH2(1, 0));
+	change(+2);
+}
+
+void StackPusherHelper::pushS2(int i, int j) {
+	solAssert(i >= 0 && j >= 0, "");
+	m_instructions.back().opcodes.push_back(make_PUSH2(i, j));
+	change(+2);
 }
 
 void StackPusherHelper::popS(int i) {
-	solAssert(i >= 0, "");
-	push(-1, "POP S" + toString(i));
+	solAssert(i >= 1, "");
+	m_instructions.back().opcodes.push_back(make_POP(i));
+	change(-1);
 }
 
 void StackPusherHelper::pushInt(const bigint& i) {
@@ -745,40 +1060,85 @@ bool StackPusherHelper::fastLoad(const Type* type) {
 	// slice
 	switch (type->category()) {
 		case Type::Category::Optional: {
-			const int saveStakeSize = getStack().size();
+			const int saveStakeSize = stackSize();
 			auto opt = to<OptionalType>(type);
 
-			push(+1, "LDOPTREF"); // value slice
-			exchange(0, 1); // slice value
-			pushS(0); // slice value value
-			push(-1 + 1, "ISNULL"); // slice value isNull
+			auto f = [&](bool reverseOrder) {
+				if (isSmallOptional(opt)) {
+					load(opt->valueType(), reverseOrder);
+				} else {
+					push(-1 + 2, "LDREFRTOS");
+					std::unique_ptr<StructCompiler> sc;
+					if (auto st = to<StructType>(opt->valueType())) {
+						sc = std::make_unique<StructCompiler>(this, st);
+					} else if (auto tt = to<TupleType>(opt->valueType())) {
+						sc = std::make_unique<StructCompiler>(this, tt);
+					} else {
+						solUnimplemented("");
+					}
+					sc->convertSliceToTuple();
+					if (!reverseOrder) {
+						exchange(1);
+					}
+				}
+			};
+
+			push(+1, "LDI 1"); // hasValue slice
+			exchange(1);  // slice hasValue
 			push(-1, ""); // fix stack
 
 			startContinuation();
-			// slice value
-			push(0, "CTOS"); // slice sliceValue
-			// TODO add test
-			preload(opt->valueType()); // slice value
-			if (isIn(opt->valueType()->category(), Type::Category::Mapping, Type::Category::Optional)) {
+			if (optValueAsTuple(opt->valueType())) {
+				f(true);
 				tuple(1);
+				exchange(1);
+			} else {
+				f(false);
 			}
 			endContinuation();
+			push(-1, ""); // fix stack
+			if (!hasLock()) {
+				solAssert(saveStakeSize == getStack().size(), "");
+			}
 
-			push(0, "IFNOT");
+			startContinuation();
+			pushNull();
+			exchange(1);
+			endContinuation();
+			push(-1, ""); // fix stack
+			if (!hasLock()) {
+				solAssert(saveStakeSize == getStack().size(), "");
+			}
 
-			solAssert(saveStakeSize + 1 == getStack().size(), "");
+			ifElse();
+			push(+1, ""); // fix stack
+			if (!hasLock()) {
+				solAssert(saveStakeSize + 1 == getStack().size(), "");
+			}
+			return true;
+		}
+		case Type::Category::Tuple: {
+			auto tup = to<TupleType>(type);
+			for (auto t : tup->components()) {
+				load(t, false);
+			}
+			blockSwap(tup->components().size(), 1);
+			tuple(tup->components().size());
 			return false;
 		}
 		case Type::Category::TvmCell:
 			push(-1 + 2, "LDREF");
 			return true;
 		case Type::Category::Struct: {
-			solUnimplemented("???");
-			// slice structAsSlice
 			auto st = to<StructType>(type);
-			StructCompiler sc{this, st};
-			sc.convertSliceToTuple();
-			return false;
+			std::vector<ASTPointer<VariableDeclaration>> const& members = st->structDefinition().members();
+			for (const ASTPointer<VariableDeclaration>& t : members) {
+				load(t->type(), false);
+			}
+			blockSwap(members.size(), 1);
+			tuple(members.size());
+			exchange(1);
+			return true;
 		}
 		case Type::Category::Address:
 		case Type::Category::Contract:
@@ -807,7 +1167,7 @@ bool StackPusherHelper::fastLoad(const Type* type) {
 			} else {
 				push(-1 + 2, "LDU 32");
 				push(-1 + 2, "LDDICT");
-				push(0, "ROTREV");
+				rotRev();
 				push(-2 + 1, "PAIR");
 				return false;
 			}
@@ -818,53 +1178,26 @@ bool StackPusherHelper::fastLoad(const Type* type) {
 		default:
 			solUnimplemented(type->toString());
 	}
+	// true  => value slice
+	// false => slice value
 }
 
 void StackPusherHelper::load(const Type *type, bool reverseOrder) {
 	// slice
 	bool directOrder = fastLoad(type);
 	if (directOrder == reverseOrder) {
-		exchange(0, 1);
+		exchange(1);
 	}
 	// reverseOrder? slice member : member slice
 }
 
 void StackPusherHelper::preload(const Type *type) {
-	const int stackSize = getStack().size();
+	const int stackSize = this->stackSize();
 	// on stack there is slice
 	switch (type->category()) {
 		case Type::Category::Optional: {
-			auto opt = to<OptionalType>(type);
-
-			pushS(0);
-			push(-1 + 1, "PLDI 1"); // slice hasVal
-
-			push(-1, ""); // fix stack
-
-			// have value
-			int savedStake0 = getStack().size();
-			startContinuation();
-			// stack: slice
-			push(-1 + 1, "PLDREF");
-			push(-1 + 1, "CTOS");
-			preload(opt->valueType());
-			if (isIn(opt->valueType()->category(), Type::Category::Mapping, Type::Category::Optional)) {
-				tuple(1);
-			}
-			endContinuation();
-			getStack().ensureSize(savedStake0);
-
-			// no value
-			int savedStake1 = getStack().size();
-			startContinuation();
-			// stack: slice
+			load(type, false);
 			drop();
-			push(+1, "NULL");
-			endContinuation();
-			getStack().ensureSize(savedStake1);
-
-			push(0, "IFELSE");
-
 			break;
 		}
 		case Type::Category::Address:
@@ -913,8 +1246,8 @@ void StackPusherHelper::preload(const Type *type) {
 			push(-1 + 1, "PLDDICT");
 			break;
 		case Type::Category::VarInteger:
-			push(0, "LDVARUINT32");
-			push(0, "DROP");
+			push(-1 + 2, "LDVARUINT32");
+			drop();
 			break;
 		case Type::Category::Tuple: {
 			const auto[types, names] = getTupleTypes(to<TupleType>(type));
@@ -925,7 +1258,7 @@ void StackPusherHelper::preload(const Type *type) {
 		default:
 			solUnimplemented("Decode isn't supported for " + type->toString(true));
 	}
-	getStack().ensureSize(stackSize);
+	ensureSize(stackSize);
 }
 
 void StackPusherHelper::store(
@@ -934,26 +1267,25 @@ void StackPusherHelper::store(
 ) {
 	// value   builder  -> reverse = false
 	// builder value    -> reverse = true
-	const int stackSize = getStack().size();
+	const int stackSize = this->stackSize();
 	int deltaStack = 1;
 	switch (type->category()) {
 		case Type::Category::Optional: {
 			auto optType = to<OptionalType>(type);
-
 			if (!reverse)
-				exchange(0, 1);	// builder value
+				exchange(1);	// builder value
 			pushS(0);	// builder value value
 			push(-1 + 1, "ISNULL");	// builder value isnull
-
 			push(-1, ""); // fix stack
-			getStack().ensureSize(stackSize);
+			ensureSize(stackSize);
 
 			startContinuation();
 			// builder value
 			drop(1); // builder
-			stzeroes(1);
+			stzeroes(1);  // builder'
 			endContinuation();
 			push(+1, ""); // fix stack
+			getStack().ensureSize(stackSize);
 
 			startContinuation();
 			// builder value
@@ -961,22 +1293,32 @@ void StackPusherHelper::store(
 				untuple(1);
 			}
 			// builder value
-			if (optType->valueType()->category() == Type::Category::Struct) {
-				auto st = to<StructType>(optType->valueType());
-				StructCompiler sc{this, st};
-				sc.tupleToBuilder(); // builder builderWithValue
+			exchange(1); // value builder
+			stones(1); // value builder'
+			if (isSmallOptional(optType)) {
+				store(optType->valueType(), false); // builder''
 			} else {
-				push(+1, "NEWC"); // builder value builder
-				store(optType->valueType(), false); // builder builderWithValue
+				// value builder'
+				std::unique_ptr<StructCompiler> sc;
+				exchange(1); // builder' value
+				if (optType->valueType()->category() == Type::Category::Tuple) {
+					auto tup = to<TupleType>(optType->valueType());
+					sc = std::make_unique<StructCompiler>(this, tup);
+				} else if (optType->valueType()->category() == Type::Category::Struct) {
+					auto st = to<StructType>(optType->valueType());
+					sc = std::make_unique<StructCompiler>(this, st);
+				} else {
+					// TODO add test for struct
+					solUnimplemented("");
+				}
+				sc->tupleToBuilder();
+				push(-2 + 1, "STBREFR");
 			}
-			exchange(0, 1); // builderWithValue builder
-			stones(1);
-			push(-1, "STBREF");	// builder
 			endContinuation();
 			push(+1, ""); // fix stack
-			getStack().ensureSize(stackSize);
+			ensureSize(stackSize);
 
-			push(0, "IFELSE");
+			ifElse();
 			push(-1, ""); // fix stack
 
 			break;
@@ -987,11 +1329,10 @@ void StackPusherHelper::store(
 		case Type::Category::Struct: {
 			auto structType = to<StructType>(type);
 			if (!reverse)
-				push(0, "SWAP");
+				exchange(1);
 			auto members = structType->structDefinition().members();
 			untuple(members.size());
-			this->reverse(members.size(), 0);
-			blockSwap(1, members.size());
+			this->reverse(members.size() + 1, 0);
 			for (const auto& member : members)
 				store(member->type(), false);
 			break;
@@ -1015,7 +1356,7 @@ void StackPusherHelper::store(
 		case Type::Category::Mapping:
 		case Type::Category::ExtraCurrencyCollection:
 			if (reverse) {
-				push(0, "SWAP"); // builder dict
+				exchange(1); // builder dict
 			}
 			// dict builder
 			push(-1, "STDICT"); // builder
@@ -1026,10 +1367,10 @@ void StackPusherHelper::store(
 				push(-1, reverse? "STREFR" : "STREF"); // builder
 			} else {
 				if (!reverse) {
-					push(0, "SWAP"); // builder arr
+					exchange(1); // builder arr
 				}
 				push(-1 + 2, "UNPAIR"); // builder size dict
-				exchange(0, 2);// dict size builder
+				exchange(2);// dict size builder
 				push(-1, "STU 32"); // dict builder'
 				push(-1, "STDICT"); // builder''
 			}
@@ -1040,7 +1381,7 @@ void StackPusherHelper::store(
 			break;
 		case Type::Category::Tuple: {
 			if (!reverse)
-				exchange(0, 1);	// builder value
+				exchange(1);	// builder value
 
 			const auto[types, names] = getTupleTypes(to<TupleType>(type));
 			StructCompiler sc{this, types, names};
@@ -1050,7 +1391,7 @@ void StackPusherHelper::store(
 		}
 		case Type::Category::VarInteger: {
 			if (!reverse)
-				exchange(0, 1);	// builder value
+				exchange(1);	// builder value
 
 			push(-1, "STVARUINT32"); // builder
 			break;
@@ -1060,7 +1401,7 @@ void StackPusherHelper::store(
 		}
 	}
 
-	getStack().ensureSize(stackSize - deltaStack);
+	ensureSize(stackSize - deltaStack);
 }
 
 void StackPusherHelper::pushZeroAddress() {
@@ -1095,6 +1436,57 @@ std::string StackPusherHelper::binaryStringToSlice(const std::string &_s) {
 		ans += "_";
 	}
 	return ans;
+}
+
+std::string StackPusherHelper::toBitString(const std::string& slice) {
+	std::string bitString;
+	if (slice.at(0) == 'x') {
+		for (std::size_t i = 1; i < slice.size(); ++i) {
+			if (i + 2 == slice.size() && slice[i + 1] == '_') {
+				size_t pos{};
+				int value = std::stoi(slice.substr(i, 1), &pos, 16);
+				solAssert(pos == 1, "");
+				int bitLen = 4;
+				while (true) {
+					bool isOne = value % 2 == 1;
+					--bitLen;
+					value /= 2;
+					if (isOne) {
+						break;
+					}
+				}
+				StackPusherHelper::addBinaryNumberToString(bitString, value, bitLen);
+				break;
+			}
+			size_t pos{};
+			auto sss = slice.substr(i, 1);
+			int value = std::stoi(sss, &pos, 16);
+			solAssert(pos == 1, "");
+			StackPusherHelper::addBinaryNumberToString(bitString, value, 4);
+		}
+	} else {
+		if (isIn(slice, "0", "1")) {
+			return slice;
+		}
+		solUnimplemented("");
+	}
+	return bitString;
+}
+
+std::vector<std::string> StackPusherHelper::unitSlices(const std::string& sliceA, const std::string& sliceB) {
+	return unitBitString(toBitString(sliceA), toBitString(sliceB));
+}
+
+std::vector<std::string> StackPusherHelper::unitBitString(const std::string& bitStringA, const std::string& bitStringB) {
+	const std::string& bitString = bitStringA + bitStringB;
+	std::vector<std::string> opcodes;
+	for (int i = 0; i < static_cast<int>(bitString.length()); i += 4 * TvmConst::MaxPushSliceBitLength) {
+		opcodes.push_back(bitString.substr(i, std::min(4 * TvmConst::MaxPushSliceBitLength, static_cast<int>(bitString.length()) - i)));
+	}
+	for (std::string& opcode : opcodes) {
+		opcode = "x" + StackPusherHelper::binaryStringToSlice(opcode);
+	}
+	return opcodes;
 }
 
 std::string StackPusherHelper::tonsToBinaryString(Literal const *literal) {
@@ -1165,7 +1557,7 @@ void StackPusherHelper::hardConvert(Type const *leftType, Type const *rightType)
 	if (leftType->category() == Type::Category::Optional && *leftType != *rightType) {
 		auto l = to<OptionalType>(leftType);
 		hardConvert(l->valueType(), rightType);
-		if (isIn(l->valueType()->category(), Type::Category::Mapping, Type::Category::Optional)) {
+		if (optValueAsTuple(l->valueType())) {
 			tuple(1);
 		}
 		return;
@@ -1222,6 +1614,12 @@ void StackPusherHelper::hardConvert(Type const *leftType, Type const *rightType)
 		} else if (diff < 0) {
 			push(0, "RSHIFT " + std::to_string(-diff));
 		}
+	};
+
+	auto fixedBytesFromBytes = [this](FixedBytesType const* r) {
+		size_t bits = r->numBytes() * 8;
+		push(0, "CTOS");
+		push(0, "PLDU " + std::to_string(bits));
 	};
 
 	auto fixedBytesFromStringLiteral = [this](FixedBytesType const* l, StringLiteralType const* r) {
@@ -1351,6 +1749,9 @@ void StackPusherHelper::hardConvert(Type const *leftType, Type const *rightType)
 			}
 			// bytes or string
 			switch (leftType->category()) {
+				case Type::Category::FixedBytes:
+					fixedBytesFromBytes(to<FixedBytesType>(leftType));
+					break;
 				case Type::Category::Array:
 					break;
 				default:
@@ -1439,42 +1840,34 @@ void StackPusherHelper::checkFit(Type const *type) {
 
 }
 
-void StackPusherHelper::push(const CodeLines &codeLines) {
-	for (const std::string& s : codeLines.lines) {
-		push(0, s);
-	}
-}
-
 void StackPusherHelper::pushParameter(std::vector<ASTPointer<VariableDeclaration>> const& params) {
 	for (const ASTPointer<VariableDeclaration>& variable: params) {
-		push(0, string(";; param: ") + variable->name());
 		getStack().add(variable.get(), true);
 	}
 }
 
-void StackPusherHelper::pushMacroCallInCallRef(int stackDelta, const string& functionName) {
+void StackPusherHelper::pushMacroCallInCallRef(int take, int ret, const string& functionName) {
 	startCallRef();
-	pushCall(stackDelta, functionName);
+	pushCall(take, ret, functionName);
 	endContinuation();
 }
 
 void StackPusherHelper::pushCallOrCallRef(
 	const string &functionName,
 	const FunctionType *ft,
-	const std::optional<int>& deltaStack
+	const std::optional<std::pair<int, int>>& deltaStack
 ) {
-    // TODO simplify
-	int delta{};
+	int take{};
+	int ret{};
 	if (deltaStack.has_value()) {
-		delta = deltaStack.value();
+		std::tie(take, ret) = deltaStack.value();
 	} else {
-		int params = ft->parameterTypes().size();
-		int retVals = ft->returnParameterTypes().size();
-		delta = -params + retVals;
+		take = ft->parameterTypes().size();
+		ret = ft->returnParameterTypes().size();
 	}
 
 	if (boost::ends_with(functionName, "_macro") || functionName == ":onCodeUpgrade") {
-		pushMacroCallInCallRef(delta, functionName);
+		pushMacroCallInCallRef(take, ret, functionName);
 		return;
 	}
 
@@ -1482,32 +1875,23 @@ void StackPusherHelper::pushCallOrCallRef(
 	FunctionDefinition const* v = m_ctx->getCurrentFunction();
 	bool hasLoop = m_ctx->addAndDoesHaveLoop(v, _to);
 	if (hasLoop) {
-		pushCall(delta, functionName);
+		pushCall(take, ret, functionName);
 	} else {
-		pushMacroCallInCallRef(delta, functionName + "_macro");
+		pushMacroCallInCallRef(take, ret, functionName + "_macro");
 	}
 }
 
-void StackPusherHelper::pushCall(int delta, const std::string& functionName) {
-	push(delta, "CALL $" + functionName + "$");
+void StackPusherHelper::pushCall(int take, int ret, const std::string& functionName) {
+	change(take, ret);
+	auto opcode = createNode<GenOpcode>("CALL $" + functionName + "$", take, ret);
+	m_instructions.back().opcodes.push_back(opcode);
 }
 
 void StackPusherHelper::drop(int cnt) {
-	solAssert(cnt >= 0, "");
-	if (cnt == 0)
-		return;
-
-	if (cnt == 1) {
-		push(-1, "DROP");
-	} else if (cnt == 2) {
-		push(-2, "DROP2");
-	} else {
-		if (cnt > 15) {
-			pushInt(cnt);
-			push(-(cnt + 1), "DROPX");
-		} else {
-			push(-cnt, "BLKDROP " + toString(cnt));
-		}
+	if (cnt >= 1) {
+		auto opcode = make_DROP(cnt);
+		push(-cnt, "");
+		m_instructions.back().opcodes.push_back(opcode);
 	}
 }
 
@@ -1518,19 +1902,20 @@ void StackPusherHelper::blockSwap(int m, int n) {
 		return;
 	}
 	if (m == 1 && n == 1) {
-		exchange(0, 1);
+		exchange(1);
 	} else if (m == 1 && n == 2) {
-		push(0, "ROT");
+		rot();
 	} else if (m == 2 && n == 1) {
-		push(0, "ROTREV");
+		rotRev();
 	} else if (m == 2 && n == 2) {
-		push(0, "SWAP2");
+		push(createNode<Stack>(Stack::Opcode::SWAP2, m, n));
 	} else if (n <= 16 && m <= 16) {
-		push(0, "BLKSWAP " + toString(m) + ", " + toString(n));
+		push(createNode<Stack>(Stack::Opcode::BLKSWAP, m, n));
 	} else {
 		pushInt(m);
 		pushInt(n);
-		push(-2, "BLKSWX");
+		push(createNode<Stack>(Stack::Opcode::BLKSWX, m, n));
+		change(-2);
 	}
 }
 
@@ -1538,15 +1923,16 @@ void StackPusherHelper::reverse(int i, int j) {
 	solAssert(i >= 2, "");
 	solAssert(j >= 0, "");
 	if (i == 2 && j == 0) {
-		push(0, "SWAP");
+		exchange(1);
 	} else if (i == 3 && j == 0) {
-		push(0, "XCHG s2");
+		exchange(2);
 	} else if (i - 2 <= 15 && j <= 15) {
-		push(0, "REVERSE " + toString(i) + ", " + toString(j));
+		push(make_reverse(i, j));
 	} else {
 		pushInt(i);
 		pushInt(j);
-		push(-2, "REVX");
+		push(-2, ""); // fix stack
+		push(createNode<Stack>(Stack::Opcode::REVX));
 	}
 }
 
@@ -1559,10 +1945,12 @@ void StackPusherHelper::dropUnder(int leftCount, int droppedCount) {
 		if (droppedCount > 15 || leftCount > 15) {
 			pushInt(droppedCount);
 			pushInt(leftCount);
-			push(-2, "BLKSWX");
+			push(-2, ""); // fix stack
+			push(createNode<Stack>(Stack::Opcode::BLKSWX, droppedCount, leftCount));
 			drop(droppedCount);
 		} else {
-			push(-droppedCount, "BLKDROP2 " + toString(droppedCount) + ", " + toString(leftCount));
+			push(createNode<Stack>(Stack::Opcode::BLKDROP2, droppedCount, leftCount));
+			change(-droppedCount);
 		}
 	};
 
@@ -1571,35 +1959,23 @@ void StackPusherHelper::dropUnder(int leftCount, int droppedCount) {
 	} else if (leftCount == 0) {
 		drop(droppedCount);
 	} else if (droppedCount == 1 && leftCount == 1) {
-		push(-1, "NIP");
+		popS(1);
 	} else {
 		f();
 	}
 }
 
-void StackPusherHelper::exchange(int i, int j) {
-	solAssert(i <= j, "");
-	solAssert(i >= 0, "");
-	solAssert(j >= 1, "");
-	if (i == 0 && j <= 255) {
-		if (j == 1) {
-			push(0, "SWAP");
-		} else if (j <= 15) {
-			push(0, "XCHG s" + toString(j));
-		} else {
-			push(0, "XCHG s0,s" + toString(j));
-		}
-	} else if (i == 1 && 2 <= j && j <= 15) {
-		push(0, "XCHG s1,s" + toString(j));
-	} else if (1 <= i && i < j && j <= 15) {
-		push(0, "XCHG s" + toString(i) + ",s" + toString(j));
-	} else if (j <= 255) {
-		exchange(0, i);
-		exchange(0, j);
-		exchange(0, i);
-	} else {
-		solUnimplemented("");
-	}
+void StackPusherHelper::exchange(int i) {
+	Pointer<Stack> opcode = make_XCH_S(i);
+	push(opcode);
+}
+
+void StackPusherHelper::rot() {
+	push(makeROT());
+}
+
+void StackPusherHelper::rotRev() {
+	push(createNode<Stack>(Stack::Opcode::ROTREV));
 }
 
 TypePointer StackPusherHelper::parseIndexType(Type const *type) {
@@ -1629,8 +2005,6 @@ bool StackPusherHelper::tryAssignParam(Declaration const *name) {
 		solAssert(idx >= 0, "");
 		if (idx == 0) {
 			// nothing
-		} else if (idx == 1) {
-			push(-1, "NIP");
 		} else {
 			popS(idx);
 		}
@@ -1697,7 +2071,7 @@ int StackPusherHelper::int_msg_info(const std::set<int> &isParamOnStack, const s
 					maxBitStringSize += AddressInfo::maxBitLength();
 					break;
 				case TvmConst::int_msg_info::tons:
-					exchange(0, 1);
+					exchange(1);
 					push(-1, "STGRAMS");
 					maxBitStringSize += VarUIntegerInfo::maxTonBitLength();
 					break;
@@ -1779,7 +2153,7 @@ void StackPusherHelper::appendToBuilder(const std::string &bitString) {
 
 void StackPusherHelper::checkOptionalValue() {
 	push(-1 + 1, "ISNULL");
-	push(-1, "THROWIF " + toString(TvmConst::RuntimeException::GetOptionalException));
+	_throw("THROWIF " + toString(TvmConst::RuntimeException::GetOptionalException));
 }
 
 void StackPusherHelper::stzeroes(int qty) {
@@ -1813,11 +2187,20 @@ void StackPusherHelper::sendrawmsg() {
 void StackPusherHelper::sendIntMsg(const std::map<int, Expression const *> &exprs,
 								   const std::map<int, std::string> &constParams,
 								   const std::function<void(int)> &appendBody,
-								   const std::function<void()> &pushSendrawmsgFlag) {
+								   const std::function<void()> &pushSendrawmsgFlag,
+								   bool isAwait,
+								   size_t callParamsOnStack) {
 	std::set<int> isParamOnStack;
+	size_t pushedValCnt = 0;
 	for (auto &[param, expr] : exprs | boost::adaptors::reversed) {
 		isParamOnStack.insert(param);
 		TVMExpressionCompiler{*this}.compileNewExpr(expr);
+		if (param != TvmConst::int_msg_info::dest)
+			pushedValCnt++;
+		else if (isAwait) {
+			pushS(0);
+			blockSwap(++pushedValCnt + callParamsOnStack, 1);
+		}
 	}
 	sendMsg(isParamOnStack, constParams, appendBody, nullptr, pushSendrawmsgFlag);
 }
@@ -1897,6 +2280,12 @@ void TVMStack::change(int diff) {
     }
 }
 
+void TVMStack::change(int take, int ret) {
+	solAssert(take >= 0, "");
+	solAssert(ret >= 0, "");
+	change(-take + ret);
+}
+
 bool TVMStack::isParam(Declaration const *name) const {
 	return getStackSize(name) != -1;
 }
@@ -1933,7 +2322,7 @@ int TVMStack::getStackSize(Declaration const *name) const {
 
 void TVMStack::ensureSize(int savedStackSize, const string &location, const ASTNode* node) const {
 	if (node != nullptr && savedStackSize != m_size) {
-		cast_error(*node, string{} + "Stake size error: expected: " + toString(savedStackSize)
+		cast_error(*node, string{} + "Stack size error: expected: " + toString(savedStackSize)
 								   + " but real: " + toString(m_size) + " at " + location);
 	}
 	solAssert(savedStackSize == m_size, "stack: exp:" + toString(savedStackSize)
@@ -1946,14 +2335,6 @@ string CodeLines::str(const string &indent) const {
 		o << indent << s << endl;
 	}
 	return o.str();
-}
-
-void CodeLines::addTabs(const int qty) {
-	tabQty += qty;
-}
-
-void CodeLines::subTabs(const int qty) {
-	tabQty -= qty;
 }
 
 void CodeLines::startContinuation() {
@@ -1973,6 +2354,11 @@ void CodeLines::startIfRef() {
 
 void CodeLines::startIfJmpRef() {
 	push("IFJMPREF {");
+	++tabQty;
+}
+
+void CodeLines::startIfNotJmpRef() {
+	push("IFNOTJMPREF {");
 	++tabQty;
 }
 
@@ -2029,8 +2415,10 @@ void TVMCompilerContext::initMembers(ContractDefinition const *contract) {
 	}
 }
 
-TVMCompilerContext::TVMCompilerContext(ContractDefinition const *contract,
-									   PragmaDirectiveHelper const &pragmaHelper) : m_pragmaHelper{pragmaHelper} {
+TVMCompilerContext::TVMCompilerContext(ContractDefinition const *contract, PragmaDirectiveHelper const &pragmaHelper) :
+	m_pragmaHelper{pragmaHelper},
+	m_usage{*contract}
+{
 	initMembers(contract);
 }
 
@@ -2071,12 +2459,12 @@ PragmaDirectiveHelper const &TVMCompilerContext::pragmaHelper() const {
 	return m_pragmaHelper;
 }
 
-bool TVMCompilerContext::haveTimeInAbiHeader() const {
-	if (m_pragmaHelper.abiVersion() == 1) {
-		return true;
-	}
-	if (m_pragmaHelper.abiVersion() == 2) {
-		return m_pragmaHelper.haveTime() || afterSignatureCheck() == nullptr;
+bool TVMCompilerContext::hasTimeInAbiHeader() const {
+	switch (m_pragmaHelper.abiVersion()) {
+		case AbiVersion::V1:
+			return true;
+		case AbiVersion::V2_1:
+			return m_pragmaHelper.haveTime() || afterSignatureCheck() == nullptr;
 	}
 	solUnimplemented("");
 }
@@ -2143,14 +2531,15 @@ FunctionDefinition const *TVMCompilerContext::afterSignatureCheck() const {
 }
 
 bool TVMCompilerContext::storeTimestampInC4() const {
-	return haveTimeInAbiHeader() && afterSignatureCheck() == nullptr;
+	return hasTimeInAbiHeader() && afterSignatureCheck() == nullptr;
 }
 
 int TVMCompilerContext::getOffsetC4() const {
 	return
 		256 + // pubkey
 		(storeTimestampInC4() ? 64 : 0) +
-		1; // constructor_flag
+		1 + // constructor flag
+		(m_usage.hasAwaitCall() ? 1 : 0);
 }
 
 void TVMCompilerContext::addLib(FunctionDefinition const* f) {
@@ -2168,12 +2557,12 @@ std::vector<std::pair<VariableDeclaration const*, int>> TVMCompilerContext::getS
 	return res;
 }
 
-void TVMCompilerContext::addInlineFunction(const std::string& name, const CodeLines& code) {
+void TVMCompilerContext::addInlineFunction(const std::string& name, Pointer<CodeBlock> body) {
 	solAssert(m_inlinedFunctions.count(name) == 0, "");
-	m_inlinedFunctions[name] = code;
+	m_inlinedFunctions[name] = body;
 }
 
-CodeLines TVMCompilerContext::getInlinedFunction(const std::string& name) {
+Pointer<CodeBlock> TVMCompilerContext::getInlinedFunction(const std::string& name) {
 	return m_inlinedFunctions.at(name);
 }
 
@@ -2205,14 +2594,6 @@ bool TVMCompilerContext::addAndDoesHaveLoop(FunctionDefinition const* _v, Functi
 
 bool TVMCompilerContext::isBaseFunction(CallableDeclaration const* d) const {
     return m_baseFunctions.count(d) != 0;
-}
-
-void TVMCompilerContext::setSaveMyCodeSelector() {
-	saveMyCodeSelector = true;
-}
-
-bool TVMCompilerContext::getSaveMyCodeSelector() {
-	return saveMyCodeSelector;
 }
 
 bool TVMCompilerContext::dfs(FunctionDefinition const* v) {
@@ -2265,15 +2646,19 @@ void StackPusherHelper::pushDefaultValue(Type const* type, bool isResultBuilder)
                 if (isResultBuilder) {
                     push(+1, "NEWC");
                 } else {
-                    push(+1, "PUSHREF {");
-                    push(0, "}");
+                	// TODO PushCellOrSlice
+					startPushRef();
+					endContinuation();
+					push(+1, "");
                 }
 				break;
 			}
 			if (!isResultBuilder) {
+				startOpaque();
 				pushInt(0);
 				push(+1, "NEWDICT");
 				push(-2 + 1, "PAIR");
+				endOpaque(0, 1, true);
 			} else {
 				push(+1, "NEWC");
 				pushInt(33);
@@ -2351,4 +2736,19 @@ void StackPusherHelper::byteLengthOfCell() {
 void StackPusherHelper::was_c4_to_c7_called() {
 	getGlob(TvmConst::C7::TvmPubkey);
 	push(-1 + 1, "ISNULL");
+}
+
+void StackPusherHelper::checkCtorCalled() {
+	getGlob(TvmConst::C7::ConstructorFlag);
+	_throw("THROWIFNOT " + toString(TvmConst::RuntimeException::CallThatWasBeforeCtorCall));
+}
+
+void StackPusherHelper::checkIfCtorCalled(bool ifFlag) {
+	if (ifFlag) {
+		startIfJmpRef();
+	} else {
+		startIfNotJmpRef();
+	}
+	checkCtorCalled();
+	endContinuation();
 }

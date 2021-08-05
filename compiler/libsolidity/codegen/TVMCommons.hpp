@@ -33,6 +33,8 @@
 #include <boost/range/adaptor/reversed.hpp>
 #include <utility>
 
+#include "TvmAst.hpp"
+
 using namespace std;
 using namespace solidity;
 using namespace solidity::frontend;
@@ -98,14 +100,12 @@ static bool doesAlways(const Statement* st) {
 }
 
 bool isAddressOrContractType(const Type* type);
-
 bool isUsualArray(const Type* type);
-
 bool isByteArrayOrString(const Type* type);
-
 bool isString(const Type* type);
-
 bool isSlice(const Type* type);
+bool isSmallOptional(OptionalType const* type);
+bool optValueAsTuple(Type const* optValueType);
 
 struct AddressInfo {
 
@@ -228,6 +228,11 @@ void cast_warning(const ASTNode& node, const string& error_message);
 [[noreturn]]
 void fatal_error(const string &error_message);
 
+enum class AbiVersion {
+	V1,
+	V2_1
+};
+
 class PragmaDirectiveHelper {
 public:
 	explicit PragmaDirectiveHelper(std::vector<PragmaDirective const *> const& _pragmaDirectives) :
@@ -246,8 +251,8 @@ public:
 		return std::get<0>(haveHeader("expire"));
 	}
 
-	int abiVersion() const {
-		return std::get<0>(haveHeader("v1"))? 1 : 2;
+	AbiVersion abiVersion() const {
+		return std::get<0>(haveHeader("v1"))? AbiVersion::V1 : AbiVersion::V2_1;
 	}
 
 	std::tuple<bool, PragmaDirective const *> haveHeader(const std::string& str) const {
@@ -287,53 +292,7 @@ struct ABITypeSize {
 	int minRefs = -1;
 	int maxRefs = -1;
 
-	explicit ABITypeSize(Type const* type) {
-		if (isAddressOrContractType(type)){
-			minBits = AddressInfo::minBitLength();
-			maxBits = AddressInfo::maxBitLength();
-			minRefs = 0;
-			maxRefs = 0;
-		} else if (isIntegralType(type)) {
-			TypeInfo ti{type};
-			solAssert(ti.isNumeric, "");
-			minBits = ti.numBits;
-			maxBits = ti.numBits;
-			minRefs = 0;
-			maxRefs = 0;
-		} else if (auto arrayType = to<ArrayType>(type)) {
-			if (arrayType->isByteArray()) {
-				minBits = 0;
-				maxBits = 0;
-				minRefs = 1;
-				maxRefs = 1;
-			} else {
-				minBits = 32 + 1;
-				maxBits = 32 + 1;
-				minRefs = 0;
-				maxRefs = 1;
-			}
-		} else if (to<TvmCellType>(type)) {
-			minBits = 0;
-			maxBits = 0;
-			minRefs = 1;
-			maxRefs = 1;
-		} else if (
-			to<MappingType>(type) ||
-			to<OptionalType>(type)
-		) {
-			minBits = 1;
-			maxBits = 1;
-			minRefs = 0;
-			maxRefs = 1;
-		} else if (to<FunctionType>(type)) {
-			minBits = 32;
-			maxBits = 32;
-			minRefs = 0;
-			maxRefs = 0;
-		} else {
-			solUnimplemented("Undefined type: " + type->toString());
-		}
-	}
+	explicit ABITypeSize(Type const* type);
 };
 
 inline std::pair<std::vector<Type const*>, std::vector<ASTNode const*>>
@@ -459,11 +418,11 @@ struct LValueInfo {
 };
 
 DictValueType toDictValueType(const Type::Category& category);
-
 int integerLog2(int value);
-
 std::string stringToBytes(const std::string& str);
-
 std::set<CallableDeclaration const*> getAllBaseFunctions(CallableDeclaration const* f);
+bool isLoc(Pointer<TvmAstNode> const& node);
+vector<string> split(const string &s, char sep = '\n');
+int strToInt(const std::string& str);
 
 } // end solidity::frontend

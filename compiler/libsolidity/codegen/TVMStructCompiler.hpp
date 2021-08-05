@@ -29,6 +29,7 @@ class StackPusherHelper;
 
 class StructCompiler : public boost::noncopyable {
 public:
+	StructCompiler(StackPusherHelper *pusher, TupleType const* tuple);
 	StructCompiler(StackPusherHelper *pusher, StructType const* structType);
 	StructCompiler(
 		StackPusherHelper *pusher,

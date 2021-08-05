@@ -37,7 +37,8 @@ void DictMinMax::minOrMax(bool saveOrigKeyAndNoTuple) {
 	bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
 	dictOpcode = "DICT" + typeToDictChar(&keyType) + (isMin? "MIN" : "MAX") + (isInRef? "REF" : "");
 
-	pusher.push(-2 + 2, dictOpcode); // (value, key, -1) or 0
+	pusher.startOpaque();
+	pusher.pushAsym(dictOpcode); // (value, key, -1) or 0
 	pusher.recoverKeyAndValueAfterDictOperation(
 			&keyType,
 			&valueType,
@@ -46,6 +47,10 @@ void DictMinMax::minOrMax(bool saveOrigKeyAndNoTuple) {
 			StackPusherHelper::DecodeType::DecodeValueOrPushNull,
 			saveOrigKeyAndNoTuple
 	);
+	if (saveOrigKeyAndNoTuple)
+		pusher.endOpaque(2, 3);
+	else
+		pusher.endOpaque(2, 1);
 }
 
 void DictPrevNext::prevNext(bool saveOrigKeyAndNoTuple) {
@@ -63,8 +68,9 @@ void DictPrevNext::prevNext(bool saveOrigKeyAndNoTuple) {
 		solUnimplemented("");
 	}
 
-	int ss = pusher.getStack().size();
-	pusher.push(-3 + 2, dictOpcode); // value key -1 or 0
+	int ss = pusher.stackSize();
+	pusher.startOpaque();
+	pusher.pushAsym(dictOpcode); // value key -1 or 0
 
 	pusher.recoverKeyAndValueAfterDictOperation(
 			&keyType,
@@ -74,11 +80,12 @@ void DictPrevNext::prevNext(bool saveOrigKeyAndNoTuple) {
 			StackPusherHelper::DecodeType::DecodeValueOrPushNull,
 			saveOrigKeyAndNoTuple
 	);
+	pusher.endOpaque(3, saveOrigKeyAndNoTuple ? 3 : 1);
 
 	if (saveOrigKeyAndNoTuple) {
-		pusher.getStack().ensureSize(ss - 3 + 3);
+		pusher.ensureSize(ss - 3 + 3);
 	} else {
-		pusher.getStack().ensureSize(ss - 3 + 2 - 2 + 1);
+		pusher.ensureSize(ss - 3 + 1);
 	}
 }
 
@@ -97,14 +104,17 @@ void GetFromDict::getDict() {
 	// if op == GetSetFromMapping than stack: value key dict keyLength
 	// else                            stack: key dict keyLength
 
-	const int saveStake = pusher.getStack().size();
+	const int saveStake = pusher.stackSize();
 	std::string opcode = "DICT" + typeToDictChar(&keyType);
-	int stackDelta{};
+	int take{};
+	int ret{};
+	pusher.startOpaque();
 	switch (op) {
 		case GetDictOperation::GetSetFromMapping:
 		case GetDictOperation::GetAddFromMapping:
 		case GetDictOperation::GetReplaceFromMapping: {
-			stackDelta = -4 + 2;
+			take = 4;
+			ret = 2;
 			if (op == GetDictOperation::GetSetFromMapping)
 				opcode += "SETGET";
 			else if (op == GetDictOperation::GetAddFromMapping)
@@ -126,7 +136,7 @@ void GetFromDict::getDict() {
 				case DataType::Slice:
 					break;
 			}
-			pusher.push(stackDelta, opcode);
+			pusher.pushAsym(opcode);
 
 			StackPusherHelper::DecodeType decodeType{};
 			if (op == GetDictOperation::GetAddFromMapping)
@@ -138,31 +148,33 @@ void GetFromDict::getDict() {
 				decodeType = StackPusherHelper::DecodeType::DecodeValueOrPushNull;
 			else
 				solUnimplemented("");
-			int ss = pusher.getStack().size();
+			int ss = pusher.stackSize();
 			pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, didUseOpcodeWithRef, decodeType);
-			solAssert(ss == pusher.getStack().size(), "");
+			solAssert(ss == pusher.stackSize(), "");
 			break;
 		}
 
 		case GetDictOperation::Exist: {
-			stackDelta = -3 + 1;
+			take = 3;
+			ret = 1;
 			opcode += "GET";
-			pusher.push(stackDelta, opcode);
+			pusher.pushAsym(opcode);
 			checkExist();
 			break;
 		}
 		case GetDictOperation::Fetch:
 		case GetDictOperation::GetFromArray:
 		case GetDictOperation::GetFromMapping: {
-			stackDelta = -3 + 1;
+			take = 3;
+			ret = 1;
 			opcode += "GET";
 			bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
 			if (isInRef) {
 				opcode += "REF";
 			}
-			pusher.push(stackDelta, opcode);
+			pusher.pushAsym(opcode);
 			if (op == GetDictOperation::GetFromArray) {
-				pusher.push(0, "THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
+				pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
 			}
 			StackPusherHelper::DecodeType decodeType{};
 			if (op == GetDictOperation::Fetch) {
@@ -178,16 +190,16 @@ void GetFromDict::getDict() {
 			break;
 		}
 	}
+	pusher.endOpaque(take, ret);
 
-	pusher.getStack().ensureSize(saveStake + stackDelta);
+	pusher.ensureSize(saveStake -take + ret);
 }
 
 void GetFromDict::checkExist() {
-	pusher.push(0, "DUP");
-	pusher.startContinuation();
-	pusher.push(0, "NIP");
-	pusher.endContinuation();
-	pusher.push(0, "IF");
+	pusher.startOpaque();
+	pusher.pushAsym("NULLSWAPIFNOT");
+	pusher.dropUnder(1, 1);
+	pusher.endOpaque(1, 1);
 }
 
 DictSet::DictSet(StackPusherHelper &pusher, const Type &keyType, const Type &valueType, const DataType &dataType,
@@ -252,16 +264,18 @@ DelMinOrMax::DelMinOrMax(StackPusherHelper &pusher, const Type &keyType, const T
 void DelMinOrMax::delMinOrMax() {
 	bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
 	opcode = "DICT" + typeToDictChar(&keyType) + "REM" + (isDelMin? "MIN" : "MAX") + (isInRef? "REF" : "");
-	stackSize = pusher.getStack().size();
+	stackSize = pusher.stackSize();
 
-	lValueInfo = ec->expandLValue(&memberAccess->expression(), true, false); // lValue... map
+	lValueInfo = ec->expandLValue(&memberAccess->expression(), true, true, nullptr); // lValue... map
 	pusher.pushInt(keyLength); // dict nbits
-	pusher.push(-2 + 3, opcode); //  D value key -1
 
+	pusher.startOpaque();
+	pusher.pushAsym(opcode); //  D value key -1
 	pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, true, isInRef, StackPusherHelper::DecodeType::DecodeValueOrPushNull);
+	pusher.endOpaque(2, 2);
 
 	// mapLValue... D optPair
-	const int cntOfValuesOnStack = pusher.getStack().size() - stackSize;
+	const int cntOfValuesOnStack = pusher.stackSize() - stackSize;
 	pusher.blockSwap(cntOfValuesOnStack - 1, 1); // optPair mapLValue... map
 	ec->collectLValue(lValueInfo, true, false); // value key
 }

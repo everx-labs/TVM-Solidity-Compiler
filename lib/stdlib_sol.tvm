@@ -3,266 +3,162 @@
 CALL $insert_pubkey_macro$
 
 .macro insert_pubkey_macro
-;; param: stateInit
-;; param: pubkey
-; function insert_pubkey
-;; push identifier stateInit
-PUSH S1
+.loc stdlib.sol, 14
+OVER
 CTOS
-;; decl: slice
+.loc stdlib.sol, 15
 NEWC
-;; decl: builder
-;; if
-; expValue
-PUSH S1
-; end expValue
+.loc stdlib.sol, 18
+OVER
 LDI 1
-; colValue
 POP S3
-; end colValue
 PUSHCONT {
-	; expValue
-	; end expValue
-	; colValue
+	.loc stdlib.sol, 19
 	STSLICECONST 1
-	; end colValue
-	; expValue
-	PUSH S1
-	; end expValue
+	.loc stdlib.sol, 20
+	OVER
 	LDU 32
-	; colValue
 	POP S3
-	; end colValue
-	;; decl: split_depth
-	; expValue
-	; end expValue
-	;; push identifier split_depth
-	; colValue
-	; end colValue
+	.loc stdlib.sol, 21
 	SWAP
 	STSLICECONST 1
 	STU 32
+	.loc stdlib.sol, 0
 }
 PUSHCONT {
-	; expValue
-	; end expValue
-	; colValue
+	.loc stdlib.sol, 23
 	STSLICECONST 0
-	; end colValue
+	.loc stdlib.sol, 0
 }
 IFELSE
-;; end if
-;; if
-; expValue
-PUSH S1
-; end expValue
+.loc stdlib.sol, 27
+OVER
 LDI 1
-; colValue
 POP S3
-; end colValue
 PUSHCONT {
-	; expValue
-	; end expValue
-	; colValue
+	.loc stdlib.sol, 28
 	STSLICECONST 1
-	; end colValue
-	; expValue
-	PUSH S1
-	; end expValue
+	.loc stdlib.sol, 29
+	OVER
 	LDI 1
 	LDI 1
-	; colValue
 	POP S4
-	; end colValue
-	;; decl: tick
-	;; decl: tock
-	; expValue
+	.loc stdlib.sol, 30
 	PUSH S2
-	; end expValue
-	;; push identifier tock
-	;; push identifier tick
-	; colValue
-	; end colValue
 	SWAP
 	PUSH S2
 	ROT
 	STI 1
 	STI 1
-	POP S2
-	DROP
+	BLKDROP2 2, 1
+	.loc stdlib.sol, 0
 }
 PUSHCONT {
-	; expValue
-	; end expValue
-	; colValue
+	.loc stdlib.sol, 32
 	STSLICECONST 0
-	; end colValue
+	.loc stdlib.sol, 0
 }
 IFELSE
-;; end if
-; expValue
-; end expValue
-; expValue
-PUSH2 S0, S1
-; end expValue
+.loc stdlib.sol, 36
+OVER
 LDDICT
-; colValue
-POP S4
-; end colValue
+POP S3
 SWAP
 STDICT
-; colValue
-NIP
-; end colValue
+.loc stdlib.sol, 40
 NEWDICT
-;; decl: data
-;; if
-; expValue
+.loc stdlib.sol, 41
 PUSH S2
-; end expValue
 LDI 1
-; colValue
 POP S4
-; end colValue
 PUSHCONT {
-	; expValue
-	PUSH S2
-	; end expValue
+	.loc stdlib.sol, 42
+	DROP
+	OVER
 	LDREFRTOS
 	SWAP
-	; colValue
-	POP S4
-	; end colValue
-	;; decl: tmp
-	; expValue
-	DUP
-	; end expValue
+	POP S3
+	.loc stdlib.sol, 43
 	LDDICT
-	; colValue
-	POP S2
-	; end colValue
-	; expValue
-	; end expValue
-	; colValue
-	POP S2
-	; end colValue
+	.loc stdlib.sol, 0
 	DROP
 }
 IF
-;; end if
-; expValue
+.loc stdlib.sol, 45
 PUSHINT 0
-; end expValue
-;; push identifier pubkey
-PUSH2 S1, S4
-; colValue
+SWAP
+PUSH S4
 NEWC
 STU 256
 ROTREV
 PUSHINT 64
 DICTUSETB
-NIP
-; end colValue
+.loc stdlib.sol, 46
 NEWC
-;; decl: builderData
-; expValue
-; end expValue
-;; push identifier data
+.loc stdlib.sol, 47
 DUP2
 STDICT
-; colValue
 NIP
-; end colValue
-; expValue
+.loc stdlib.sol, 48
 PUSH S2
-; end expValue
 STSLICECONST 1
-; colValue
 POP S3
-; end colValue
-; expValue
-; end expValue
-;; push identifier builderData
-PUSH2 S2, S0
-STBREFR
-; colValue
-POP S3
-; end colValue
-DROP2
-; expValue
-; end expValue
-; expValue
-PUSH2 S0, S1
-; end expValue
+.loc stdlib.sol, 49
+PUSH S2
+STBREF
+BLKDROP2 2, 1
+.loc stdlib.sol, 53
+OVER
 LDDICT
-; colValue
-POP S4
-; end colValue
+POP S3
 SWAP
 STDICT
-; colValue
-NIP
-; end colValue
-;; push identifier slice
-PUSH S1
+.loc stdlib.sol, 55
+OVER
 SEMPTY
 THROWIFNOT 55
-;; return
-;; push identifier builder
-DUP
+.loc stdlib.sol, 57
 ENDC
-; end function insert_pubkey
-BLKDROP2 4, 1
+BLKDROP2 3, 1
+.loc stdlib.sol, 0
 
 .globl	replay_protection
 .type	replay_protection, @function
 CALL $replay_protection_macro$
 
 .macro replay_protection_macro
-;; param: msg_timestamp
-; function replay_protection
+.loc stdlib.sol, 61
 GETGLOB 3
-;; <
-;; push identifier msg_timestamp
-PUSH S1
+OVER
 LESS
 THROWIFNOT 52
-;; push identifier msg_timestamp
+.loc stdlib.sol, 62
 DUP
-;; <
-;; push identifier now
 NOW
-;; *
 PUSHINT 1000
 MUL
-;; +
 PUSHINT 1800000
 ADD
 LESS
 THROWIFNOT 52
-;; push identifier msg_timestamp
-; end function replay_protection
+.loc stdlib.sol, 63
 SETGLOB 3
+.loc stdlib.sol, 0
 
 .globl	__tonToGas
 .type	__tonToGas, @function
 CALL $__tonToGas_macro$
 
 .macro __tonToGas_macro
-;; param: _ton
-;; param: wid
-; function __tonToGas
-;; return
-;; push identifier _ton
-PUSH S1
+.loc stdlib.sol, 67
+OVER
 PUSHINT 65536
-;; push identifier wid
 PUSH S2
 CALLREF {
 	CALL $__gasGasPrice_macro$
 }
 MULDIV
-; end function __tonToGas
+.loc stdlib.sol, 0
 BLKDROP2 2, 1
 
 .globl	__gasToTon
@@ -270,19 +166,14 @@ BLKDROP2 2, 1
 CALL $__gasToTon_macro$
 
 .macro __gasToTon_macro
-;; param: gas
-;; param: wid
-; function __gasToTon
-;; return
-;; push identifier gas
-;; push identifier wid
+.loc stdlib.sol, 71
 DUP2
 CALLREF {
 	CALL $__gasGasPrice_macro$
 }
 PUSHINT 65536
 MULDIVC
-; end function __gasToTon
+.loc stdlib.sol, 0
 BLKDROP2 2, 1
 
 .globl	__gasGasPrice
@@ -290,131 +181,91 @@ BLKDROP2 2, 1
 CALL $__gasGasPrice_macro$
 
 .macro __gasGasPrice_macro
-;; param: wid
-;; ret param: gasPrice
+.loc stdlib.sol, 74
 PUSHINT 0
-; function __gasGasPrice
-;; push identifier wid
-PUSH S1
+.loc stdlib.sol, 75
+OVER
 EQINT 0
-;; short-circuiting ||
 DUP
 PUSHCONT {
 	DROP
-	;; push identifier wid
-	PUSH S1
+	OVER
 	EQINT -1
 }
 IFNOT
 THROWIFNOT 67
-;; push identifier wid
-PUSH S1
-EQINT 0
-PUSHCONT {
-	PUSHINT 21
-}
+.loc stdlib.sol, 76
+OVER
 PUSHCONT {
 	PUSHINT 20
+}
+PUSHCONT {
+	PUSHINT 21
 }
 IFELSE
 CONFIGPARAM
 NULLSWAPIFNOT
-;; decl: cell
-;; decl: status
-;; push identifier status
+.loc stdlib.sol, 77
 DUP
 THROWIFNOT 68
-;; push identifier cell
-PUSH S1
+.loc stdlib.sol, 78
+OVER
 CTOS
-;; decl: s
-; expValue
+.loc stdlib.sol, 79
 DUP
-; end expValue
 LDU 8
 LDU 64
 LDU 64
 LDU 8
 LDU 64
-; colValue
 POP S6
-; end colValue
 REVERSE 5, 0
 BLKDROP 4
-; expValue
-; end expValue
-; colValue
-POP S4
-; end colValue
-BLKDROP 3
-; end function __gasGasPrice
-NIP
+BLKDROP2 5, 1
+.loc stdlib.sol, 0
 
 .globl	__exp
 .type	__exp, @function
 CALL $__exp_macro$
 
 .macro __exp_macro
-;; param: a
-;; param: n
-; function __exp
+.loc stdlib.sol, 83
 PUSHINT 1
-;; decl: res
-; while
+.loc stdlib.sol, 84
 PUSHCONT {
-	;; push identifier n
-	PUSH S1
+	OVER
 	NEQINT 0
 }
 PUSHCONT {
-	;; if
-	;; push identifier n
-	PUSH S1
-	;; %
+	.loc stdlib.sol, 85
+	OVER
 	MODPOW2 1
-	NEQINT 0
 	PUSHCONT {
-		;; push identifier a
-		; expValue
-		; end expValue
-		; colValue
+		.loc stdlib.sol, 86
 		PUSH S2
 		MUL
-		; end colValue
-		;; --
-		; expValue
-		PUSH S1
-		; end expValue
+		.loc stdlib.sol, 87
+		OVER
 		DEC
-		; colValue
 		POP S2
-		; end colValue
+		.loc stdlib.sol, 0
 	}
 	PUSHCONT {
-		;; push identifier a
-		; expValue
-		; end expValue
+		.loc stdlib.sol, 89
 		PUSH2 S2, S2
 		MUL
-		; colValue
 		POP S3
-		; end colValue
-		; expValue
-		; end expValue
-		PUSH S1
+		.loc stdlib.sol, 90
+		OVER
 		RSHIFT 1
-		; colValue
 		POP S2
-		; end colValue
+		.loc stdlib.sol, 0
 	}
 	IFELSE
-	;; end if
+	.loc stdlib.sol, 0
 }
 WHILE
-; end while
-;; return
-;; push identifier res
-; end function __exp
+.loc stdlib.sol, 0
 BLKDROP2 2, 1
 
 .globl	parseInteger
@@ -422,68 +273,43 @@ BLKDROP2 2, 1
 CALL $parseInteger_macro$
 
 .macro parseInteger_macro
-;; param: integer
-;; param: modulo
-;; ret param: digits
+.loc stdlib.sol, 99
 TUPLE 0
-; function parseInteger
 PUSHCONT {
-	;; if
-	;; push identifier integer
+	.loc stdlib.sol, 100
 	PUSH S2
 	PUSHCONT {
-		; expValue
-		DUP
-		; end expValue
+		.loc stdlib.sol, 101
 		PUSHINT 0
 		TPUSH
-		; colValue
-		NIP
-		; end colValue
-		;; return
-		;; push identifier digits
+		.loc stdlib.sol, 0
 	}
 	IFNOTJMP
-	;; end if
+	.loc stdlib.sol, 104
 	PUSHINT 0
-	;; decl: dig
-	; while
+	.loc stdlib.sol, 105
 	PUSHCONT {
-		;; push identifier integer
 		PUSH S3
 		NEQINT 0
 	}
 	PUSHCONT {
-		;; push identifier integer
-		;; push identifier modulo
+		.loc stdlib.sol, 106
 		OVER2
 		DIVMOD
-		SWAP
-		; expValue
-		; end expValue
-		; colValue
-		POP S5
-		; end colValue
-		; expValue
-		; end expValue
-		; colValue
-		NIP
-		; end colValue
-		; expValue
-		; end expValue
-		;; push identifier dig
+		POP S2
+		POP S4
+		.loc stdlib.sol, 107
 		DUP2
 		TPUSH
-		; colValue
 		POP S2
-		; end colValue
+		.loc stdlib.sol, 0
 	}
 	WHILE
-	; end while
 	DROP
+	.loc stdlib.sol, 99
 }
 CALLX
-; end function parseInteger
+.loc stdlib.sol, 0
 BLKDROP2 2, 1
 
 .globl	convertIntToDecStr_short
@@ -491,26 +317,17 @@ BLKDROP2 2, 1
 CALL $convertIntToDecStr_short_macro$
 
 .macro convertIntToDecStr_short_macro
-;; param: list
-;; param: builder
-;; param: integer
-; function convertIntToDecStr_short
-;; return
-;; push identifier list
-;; push identifier builder
-;; push identifier integer
+.loc stdlib.sol, 112
 BLKPUSH 3, 2
-;; uint256
 ABS
 PUSHINT 0
 FALSE
-;; push identifier integer
 PUSH S5
 LESSINT 0
 CALLREF {
 	CALL $convertIntToDecStr_macro$
 }
-; end function convertIntToDecStr_short
+.loc stdlib.sol, 0
 BLKDROP2 3, 2
 
 .globl	convertIntToDecStr
@@ -518,48 +335,27 @@ BLKDROP2 3, 2
 CALL $convertIntToDecStr_macro$
 
 .macro convertIntToDecStr_macro
-;; param: list
-;; param: builder
-;; param: integer
-;; param: width
-;; param: leadingZeros
-;; param: addMinus
-; function convertIntToDecStr
-;; push identifier builder
+.loc stdlib.sol, 116
 PUSH S4
 BREMBITS
-;; /
 RSHIFT 3
-;; decl: remBytes
-;; if
-;; push identifier remBytes
+.loc stdlib.sol, 117
 DUP
 PUSHCONT {
-	; expValue
-	; end expValue
-	;; push identifier builder
+	.loc stdlib.sol, 118
 	BLKPUSH 2, 6
 	TPUSH
-	; colValue
 	POP S7
-	; end colValue
-	;; delete
-	; expValue
-	; end expValue
-	; colValue
-	; end colValue
-	; expValue
-	; end expValue
-	; colValue
+	.loc stdlib.sol, 119
 	DROP
 	NEWC
 	POP S5
+	.loc stdlib.sol, 120
 	PUSHINT 127
-	; end colValue
+	.loc stdlib.sol, 0
 }
 IFNOT
-;; end if
-;; push identifier leadingZeros
+.loc stdlib.sol, 122
 PUSH S2
 PUSHCONT {
 	PUSHINT 48
@@ -568,433 +364,266 @@ PUSHCONT {
 	PUSHINT 32
 }
 IFELSE
-;; decl: fill
-;; if
-;; push identifier addMinus
+.loc stdlib.sol, 123
 PUSH S2
 PUSHCONT {
-	; expValue
+	.loc stdlib.sol, 124
 	PUSH S6
-	; end expValue
-	PUSHINT 45
-	STUR 8
-	; colValue
+	STSLICECONST x2d
 	POP S7
-	; end colValue
+	.loc stdlib.sol, 0
 }
 IF
-;; end if
-;; --
-; expValue
-PUSH S1
-; end expValue
+.loc stdlib.sol, 125
+OVER
 DEC
-; colValue
 POP S2
-; end colValue
-;; if
-;; push identifier remBytes
-PUSH S1
+.loc stdlib.sol, 126
+OVER
 PUSHCONT {
-	; expValue
-	; end expValue
-	;; push identifier builder
+	.loc stdlib.sol, 127
 	BLKPUSH 2, 7
 	TPUSH
-	; colValue
 	POP S8
-	; end colValue
-	;; delete
-	; expValue
-	; end expValue
+	.loc stdlib.sol, 128
 	NEWC
-	; colValue
 	POP S7
-	; end colValue
-	; expValue
-	; end expValue
+	.loc stdlib.sol, 129
 	PUSHINT 127
-	; colValue
 	POP S2
-	; end colValue
+	.loc stdlib.sol, 0
 }
 IFNOT
-;; end if
-;; push identifier integer
+.loc stdlib.sol, 131
 PUSH S5
 PUSHINT 10
 CALLREF {
 	CALL $parseInteger_macro$
 }
-;; decl: digits
-;; push identifier digits
+.loc stdlib.sol, 132
 DUP
 TLEN
-;; decl: length
-;; if
-;; push identifier width
+.loc stdlib.sol, 133
 PUSH S6
 PUSHCONT {
-	;; if
-	;; push identifier width
-	;; <
-	;; push identifier length
+	.loc stdlib.sol, 134
 	PUSH2 S6, S0
 	LESS
-	;; short-circuiting ||
 	DUP
 	PUSHCONT {
 		DROP
-		;; push identifier width
 		PUSH S6
 		GTINT 127
 	}
 	IFNOT
 	THROWIF 66
-	;; end if
-	;; push identifier width
-	;; -
-	;; push identifier length
+	.loc stdlib.sol, 136
 	PUSH2 S6, S0
 	SUB
-	;; decl: zeroes
-	;; if
-	;; push identifier zeroes
-	;; <=
-	;; push identifier remBytes
+	.loc stdlib.sol, 137
 	PUSH2 S0, S4
 	LEQ
 	PUSHCONT {
-		; while
-		;; push identifier zeroes
+		.loc stdlib.sol, 138
 		DUP
 		PUSHCONT {
-			; expValue
-			; end expValue
-			;; push identifier fill
+			.loc stdlib.sol, 139
 			PUSH2 S9, S3
 			STUR 8
-			; colValue
 			POP S10
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		REPEAT
-		; end while
-		;; push identifier zeroes
-		; expValue
-		; end expValue
+		.loc stdlib.sol, 141
 		PUSH2 S4, S0
 		SUB
-		; colValue
 		POP S5
-		; end colValue
-		;; if
-		;; push identifier remBytes
+		.loc stdlib.sol, 142
 		PUSH S4
 		PUSHCONT {
-			; expValue
-			; end expValue
-			;; push identifier builder
+			.loc stdlib.sol, 143
 			BLKPUSH 2, 10
 			TPUSH
-			; colValue
 			POP S11
-			; end colValue
-			;; delete
-			; expValue
-			; end expValue
+			.loc stdlib.sol, 144
 			NEWC
-			; colValue
 			POP S10
-			; end colValue
-			; expValue
-			; end expValue
+			.loc stdlib.sol, 145
 			PUSHINT 127
-			; colValue
 			POP S5
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		IFNOT
-		;; end if
+		.loc stdlib.sol, 0
 	}
 	PUSHCONT {
-		; while
-		;; push identifier remBytes
+		.loc stdlib.sol, 148
 		PUSH S4
 		PUSHCONT {
-			; expValue
-			; end expValue
-			;; push identifier fill
+			.loc stdlib.sol, 149
 			PUSH2 S9, S3
 			STUR 8
-			; colValue
 			POP S10
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		REPEAT
-		; end while
-		; expValue
-		; end expValue
-		;; push identifier builder
+		.loc stdlib.sol, 151
 		BLKPUSH 2, 10
 		TPUSH
-		; colValue
 		POP S11
-		; end colValue
-		;; delete
-		; expValue
-		; end expValue
+		.loc stdlib.sol, 152
 		NEWC
-		; colValue
 		POP S10
-		; end colValue
-		; while
-		;; push identifier zeroes
-		;; -
-		;; push identifier remBytes
+		.loc stdlib.sol, 153
 		PUSH2 S0, S4
 		SUB
 		PUSHCONT {
-			; expValue
-			; end expValue
-			;; push identifier fill
+			.loc stdlib.sol, 154
 			PUSH2 S9, S3
 			STUR 8
-			; colValue
 			POP S10
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		REPEAT
-		; end while
-		; expValue
-		; end expValue
+		.loc stdlib.sol, 156
 		PUSHINT 127
-		;; -
-		;; push identifier zeroes
-		PUSH S1
+		OVER
 		SUB
-		;; +
-		;; push identifier remBytes
 		PUSH S5
 		ADD
-		; colValue
 		POP S5
-		; end colValue
+		.loc stdlib.sol, 0
 	}
 	IFELSE
-	;; end if
 	DROP
+	.loc stdlib.sol, 0
 }
 IF
-;; end if
-;; if
-;; push identifier length
-;; <=
-;; push identifier remBytes
+.loc stdlib.sol, 159
 PUSH2 S0, S3
 LEQ
 PUSHCONT {
-	; while
-	;; push identifier length
+	.loc stdlib.sol, 160
 	DUP
 	PUSHCONT {
-		; expValue
-		PUSH S1
-		; end expValue
+		.loc stdlib.sol, 161
+		OVER
 		TPOP
 		SWAP
-		; colValue
 		POP S3
-		; end colValue
-		;; decl: dig
-		; expValue
+		.loc stdlib.sol, 162
 		PUSH S9
-		; end expValue
 		PUSHINT 48
-		;; +
-		;; push identifier dig
 		PUSH S2
 		ADD
 		STUR 8
-		; colValue
 		POP S10
-		; end colValue
+		.loc stdlib.sol, 0
 		DROP
 	}
 	REPEAT
-	; end while
+	.loc stdlib.sol, 0
 }
 PUSHCONT {
-	; while
-	;; push identifier remBytes
+	.loc stdlib.sol, 165
 	PUSH S3
 	PUSHCONT {
-		; expValue
-		PUSH S1
-		; end expValue
+		.loc stdlib.sol, 166
+		OVER
 		TPOP
 		SWAP
-		; colValue
 		POP S3
-		; end colValue
-		;; decl: dig
-		; expValue
+		.loc stdlib.sol, 167
 		PUSH S9
-		; end expValue
 		PUSHINT 48
-		;; +
-		;; push identifier dig
 		PUSH S2
 		ADD
 		STUR 8
-		; colValue
 		POP S10
-		; end colValue
+		.loc stdlib.sol, 0
 		DROP
 	}
 	REPEAT
-	; end while
-	; expValue
-	; end expValue
-	;; push identifier builder
+	.loc stdlib.sol, 169
 	BLKPUSH 2, 9
 	TPUSH
-	; colValue
 	POP S10
-	; end colValue
-	;; delete
-	; expValue
-	; end expValue
+	.loc stdlib.sol, 170
 	NEWC
-	; colValue
 	POP S9
-	; end colValue
-	; while
-	;; push identifier length
-	;; -
-	;; push identifier remBytes
+	.loc stdlib.sol, 171
 	PUSH2 S0, S3
 	SUB
 	PUSHCONT {
-		; expValue
-		PUSH S1
-		; end expValue
+		.loc stdlib.sol, 172
+		OVER
 		TPOP
 		SWAP
-		; colValue
 		POP S3
-		; end colValue
-		;; decl: dig
-		; expValue
+		.loc stdlib.sol, 173
 		PUSH S9
-		; end expValue
 		PUSHINT 48
-		;; +
-		;; push identifier dig
 		PUSH S2
 		ADD
 		STUR 8
-		; colValue
 		POP S10
-		; end colValue
+		.loc stdlib.sol, 0
 		DROP
 	}
 	REPEAT
-	; end while
+	.loc stdlib.sol, 0
 }
 IFELSE
-;; end if
-;; return
-;; push identifier list
-;; push identifier builder
-BLKPUSH 2, 9
-; end function convertIntToDecStr
-BLKDROP2 10, 2
+.loc stdlib.sol, 177
+BLKDROP 8
+.loc stdlib.sol, 0
 
 .globl	convertAddressToHexString
 .type	convertAddressToHexString, @function
 CALL $convertAddressToHexString_macro$
 
 .macro convertAddressToHexString_macro
-;; param: list
-;; param: builder
-;; param: addr
-; function convertAddressToHexString
-;; address.unpack()
-;; push identifier addr
+.loc stdlib.sol, 181
 DUP
 REWRITESTDADDR
-;; decl: wid
-;; decl: value
-;; push identifier list
-;; push identifier builder
+.loc stdlib.sol, 182
 BLKPUSH 2, 4
-;; push identifier wid
 PUSH S3
 CALLREF {
 	CALL $convertIntToHexStr_short_macro$
 }
-SWAP
-; expValue
-; end expValue
-; colValue
-POP S6
-; end colValue
-; expValue
-; end expValue
-; colValue
-POP S4
-; end colValue
-;; push identifier builder
+POP S5
+POP S5
+.loc stdlib.sol, 183
 PUSH S3
 BREMBITS
-;; decl: remBits
-;; if
-;; push identifier remBits
+.loc stdlib.sol, 184
 DUP
 GTINT 8
 PUSHCONT {
-	; expValue
+	.loc stdlib.sol, 185
 	PUSH S4
-	; end expValue
-	PUSHINT 58
-	STUR 8
-	; colValue
+	STSLICECONST x3a
 	POP S5
-	; end colValue
+	.loc stdlib.sol, 0
 }
 PUSHCONT {
-	; expValue
-	; end expValue
-	;; push identifier builder
+	.loc stdlib.sol, 187
 	BLKPUSH 2, 5
 	TPUSH
-	; colValue
 	POP S6
-	; end colValue
-	;; delete
-	; expValue
-	; end expValue
+	.loc stdlib.sol, 188
 	NEWC
-	; colValue
 	POP S5
-	; end colValue
-	; expValue
+	.loc stdlib.sol, 189
 	PUSH S4
-	; end expValue
-	PUSHINT 58
-	STUR 8
-	; colValue
+	STSLICECONST x3a
 	POP S5
-	; end colValue
+	.loc stdlib.sol, 0
 }
 IFELSE
-;; end if
-;; return
-;; push identifier list
-;; push identifier builder
+.loc stdlib.sol, 191
 BLKPUSH 2, 5
-;; push identifier value
 PUSH S3
 PUSHINT 64
 TRUE
@@ -1003,29 +632,20 @@ FALSE
 CALLREF {
 	CALL $convertIntToHexStr_macro$
 }
-; end function convertAddressToHexString
 BLKDROP2 6, 2
+.loc stdlib.sol, 0
 
 .globl	convertFixedPointToString
 .type	convertFixedPointToString, @function
 CALL $convertFixedPointToString_macro$
 
 .macro convertFixedPointToString_macro
-;; param: list
-;; param: builder
-;; param: value
-;; param: fractionalDigits
-; function convertFixedPointToString
-;; push identifier value
-PUSH S1
-;; uint256
+.loc stdlib.sol, 195
+OVER
 ABS
-;; decl: absVal
-;; push identifier absVal
+.loc stdlib.sol, 196
 DUP
 PUSHINT 10
-;; **
-;; push identifier fractionalDigits
 PUSH S3
 DUP2
 OR
@@ -1034,119 +654,75 @@ CALLREF {
 	CALL $__exp_macro$
 }
 DIVMOD
-;; decl: integer
-;; decl: fractional
-;; push identifier list
-;; push identifier builder
+.loc stdlib.sol, 197
 BLKPUSH 2, 6
-;; push identifier integer
 PUSH S3
 PUSHINT 0
 FALSE
-;; push identifier value
 PUSH S9
 SGN
 LESSINT 0
 CALLREF {
 	CALL $convertIntToDecStr_macro$
 }
-SWAP
-; expValue
-; end expValue
-; colValue
-POP S8
-; end colValue
-; expValue
-; end expValue
-; colValue
-POP S6
-; end colValue
-;; push identifier builder
+POP S7
+POP S7
+.loc stdlib.sol, 198
 PUSH S5
 BREMBITS
-;; decl: remBits
-;; if
-;; push identifier remBits
+.loc stdlib.sol, 199
 DUP
 GTINT 8
 PUSHCONT {
-	; expValue
+	.loc stdlib.sol, 200
 	PUSH S6
-	; end expValue
-	PUSHINT 46
-	STUR 8
-	; colValue
+	STSLICECONST x2e
 	POP S7
-	; end colValue
+	.loc stdlib.sol, 0
 }
 PUSHCONT {
-	; expValue
-	; end expValue
-	;; push identifier builder
+	.loc stdlib.sol, 202
 	BLKPUSH 2, 7
 	TPUSH
-	; colValue
 	POP S8
-	; end colValue
-	;; delete
-	; expValue
-	; end expValue
+	.loc stdlib.sol, 203
 	NEWC
-	; colValue
 	POP S7
-	; end colValue
-	; expValue
+	.loc stdlib.sol, 204
 	PUSH S6
-	; end expValue
-	PUSHINT 46
-	STUR 8
-	; colValue
+	STSLICECONST x2e
 	POP S7
-	; end colValue
+	.loc stdlib.sol, 0
 }
 IFELSE
-;; end if
-;; return
-;; push identifier list
-;; push identifier builder
+.loc stdlib.sol, 206
 BLKPUSH 2, 7
-;; push identifier fractional
-;; push identifier fractionalDigits
 PUSH2 S3, S6
 TRUE
 FALSE
 CALLREF {
 	CALL $convertIntToDecStr_macro$
 }
-; end function convertFixedPointToString
 BLKDROP2 8, 2
+.loc stdlib.sol, 0
 
 .globl	convertIntToHexStr_short
 .type	convertIntToHexStr_short, @function
 CALL $convertIntToHexStr_short_macro$
 
 .macro convertIntToHexStr_short_macro
-;; param: list
-;; param: builder
-;; param: integer
-; function convertIntToHexStr_short
-;; return
-;; push identifier list
-;; push identifier builder
-;; push identifier integer
+.loc stdlib.sol, 210
 BLKPUSH 3, 2
-;; uint256
 ABS
 PUSHINT 0
 FALSE
 TRUE
-;; push identifier integer
 PUSH S6
 LESSINT 0
 CALLREF {
 	CALL $convertIntToHexStr_macro$
 }
-; end function convertIntToHexStr_short
+.loc stdlib.sol, 0
 BLKDROP2 3, 2
 
 .globl	convertIntToHexStr
@@ -1154,49 +730,27 @@ BLKDROP2 3, 2
 CALL $convertIntToHexStr_macro$
 
 .macro convertIntToHexStr_macro
-;; param: list
-;; param: builder
-;; param: integer
-;; param: width
-;; param: leadingZeros
-;; param: isLow
-;; param: addMinus
-; function convertIntToHexStr
-;; push identifier builder
+.loc stdlib.sol, 214
 PUSH S5
 BREMBITS
-;; /
 RSHIFT 3
-;; decl: remBytes
-;; if
-;; push identifier remBytes
+.loc stdlib.sol, 215
 DUP
 PUSHCONT {
-	; expValue
-	; end expValue
-	;; push identifier builder
+	.loc stdlib.sol, 216
 	BLKPUSH 2, 7
 	TPUSH
-	; colValue
 	POP S8
-	; end colValue
-	;; delete
-	; expValue
-	; end expValue
-	; colValue
-	; end colValue
-	; expValue
-	; end expValue
-	; colValue
+	.loc stdlib.sol, 217
 	DROP
 	NEWC
 	POP S6
+	.loc stdlib.sol, 218
 	PUSHINT 127
-	; end colValue
+	.loc stdlib.sol, 0
 }
 IFNOT
-;; end if
-;; push identifier leadingZeros
+.loc stdlib.sol, 220
 PUSH S3
 PUSHCONT {
 	PUSHINT 48
@@ -1205,267 +759,168 @@ PUSHCONT {
 	PUSHINT 32
 }
 IFELSE
-;; decl: fill
-;; if
-;; push identifier addMinus
+.loc stdlib.sol, 221
 PUSH S2
 PUSHCONT {
-	; expValue
+	.loc stdlib.sol, 222
 	PUSH S7
-	; end expValue
-	PUSHINT 45
-	STUR 8
-	; colValue
+	STSLICECONST x2d
 	POP S8
-	; end colValue
+	.loc stdlib.sol, 0
 }
 IF
-;; end if
-;; --
-; expValue
-PUSH S1
-; end expValue
+.loc stdlib.sol, 223
+OVER
 DEC
-; colValue
 POP S2
-; end colValue
-;; if
-;; push identifier remBytes
-PUSH S1
+.loc stdlib.sol, 224
+OVER
 PUSHCONT {
-	; expValue
-	; end expValue
-	;; push identifier builder
+	.loc stdlib.sol, 225
 	BLKPUSH 2, 8
 	TPUSH
-	; colValue
 	POP S9
-	; end colValue
-	;; delete
-	; expValue
-	; end expValue
+	.loc stdlib.sol, 226
 	NEWC
-	; colValue
 	POP S8
-	; end colValue
-	; expValue
-	; end expValue
+	.loc stdlib.sol, 227
 	PUSHINT 127
-	; colValue
 	POP S2
-	; end colValue
+	.loc stdlib.sol, 0
 }
 IFNOT
-;; end if
-;; push identifier integer
+.loc stdlib.sol, 229
 PUSH S6
 PUSHINT 16
 CALLREF {
 	CALL $parseInteger_macro$
 }
-;; decl: digits
-;; push identifier digits
+.loc stdlib.sol, 230
 DUP
 TLEN
-;; decl: length
-;; if
-;; push identifier width
+.loc stdlib.sol, 232
 PUSH S7
 PUSHCONT {
-	;; if
-	;; push identifier width
-	;; <
-	;; push identifier length
+	.loc stdlib.sol, 233
 	PUSH2 S7, S0
 	LESS
-	;; short-circuiting ||
 	DUP
 	PUSHCONT {
 		DROP
-		;; push identifier width
 		PUSH S7
 		GTINT 127
 	}
 	IFNOT
 	THROWIF 69
-	;; end if
-	;; push identifier width
-	;; -
-	;; push identifier length
+	.loc stdlib.sol, 235
 	PUSH2 S7, S0
 	SUB
-	;; decl: zeroes
-	;; if
-	;; push identifier zeroes
-	;; <=
-	;; push identifier remBytes
+	.loc stdlib.sol, 236
 	PUSH2 S0, S4
 	LEQ
 	PUSHCONT {
-		; while
-		;; push identifier zeroes
+		.loc stdlib.sol, 237
 		DUP
 		PUSHCONT {
-			; expValue
-			; end expValue
-			;; push identifier fill
+			.loc stdlib.sol, 238
 			PUSH2 S10, S3
 			STUR 8
-			; colValue
 			POP S11
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		REPEAT
-		; end while
-		;; push identifier zeroes
-		; expValue
-		; end expValue
+		.loc stdlib.sol, 240
 		PUSH2 S4, S0
 		SUB
-		; colValue
 		POP S5
-		; end colValue
-		;; if
-		;; push identifier remBytes
+		.loc stdlib.sol, 241
 		PUSH S4
 		PUSHCONT {
-			; expValue
-			; end expValue
-			;; push identifier builder
+			.loc stdlib.sol, 242
 			BLKPUSH 2, 11
 			TPUSH
-			; colValue
 			POP S12
-			; end colValue
-			;; delete
-			; expValue
-			; end expValue
+			.loc stdlib.sol, 243
 			NEWC
-			; colValue
 			POP S11
-			; end colValue
-			; expValue
-			; end expValue
+			.loc stdlib.sol, 244
 			PUSHINT 127
-			; colValue
 			POP S5
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		IFNOT
-		;; end if
+		.loc stdlib.sol, 0
 	}
 	PUSHCONT {
-		; while
-		;; push identifier remBytes
+		.loc stdlib.sol, 247
 		PUSH S4
 		PUSHCONT {
-			; expValue
-			; end expValue
-			;; push identifier fill
+			.loc stdlib.sol, 248
 			PUSH2 S10, S3
 			STUR 8
-			; colValue
 			POP S11
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		REPEAT
-		; end while
-		; expValue
-		; end expValue
-		;; push identifier builder
+		.loc stdlib.sol, 250
 		BLKPUSH 2, 11
 		TPUSH
-		; colValue
 		POP S12
-		; end colValue
-		;; delete
-		; expValue
-		; end expValue
+		.loc stdlib.sol, 251
 		NEWC
-		; colValue
 		POP S11
-		; end colValue
-		; while
-		;; push identifier zeroes
-		;; -
-		;; push identifier remBytes
+		.loc stdlib.sol, 252
 		PUSH2 S0, S4
 		SUB
 		PUSHCONT {
-			; expValue
-			; end expValue
-			;; push identifier fill
+			.loc stdlib.sol, 253
 			PUSH2 S10, S3
 			STUR 8
-			; colValue
 			POP S11
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		REPEAT
-		; end while
-		; expValue
-		; end expValue
+		.loc stdlib.sol, 255
 		PUSHINT 127
-		;; -
-		;; push identifier zeroes
-		PUSH S1
+		OVER
 		SUB
-		;; +
-		;; push identifier remBytes
 		PUSH S5
 		ADD
-		; colValue
 		POP S5
-		; end colValue
+		.loc stdlib.sol, 0
 	}
 	IFELSE
-	;; end if
 	DROP
+	.loc stdlib.sol, 0
 }
 IF
-;; end if
-;; if
-;; push identifier length
-;; <=
-;; push identifier remBytes
+.loc stdlib.sol, 258
 PUSH2 S0, S3
 LEQ
 PUSHCONT {
-	; while
-	;; push identifier length
+	.loc stdlib.sol, 259
 	DUP
 	PUSHCONT {
-		; expValue
-		PUSH S1
-		; end expValue
+		.loc stdlib.sol, 260
+		OVER
 		TPOP
 		SWAP
-		; colValue
 		POP S3
-		; end colValue
-		;; decl: dig
-		;; if
-		;; push identifier dig
+		.loc stdlib.sol, 261
 		DUP
 		LESSINT 10
 		PUSHCONT {
-			; expValue
+			.loc stdlib.sol, 262
 			PUSH S10
-			; end expValue
 			PUSHINT 48
-			;; +
-			;; push identifier dig
 			PUSH S2
 			ADD
 			STUR 8
-			; colValue
 			POP S11
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		PUSHCONT {
-			; expValue
-			; end expValue
-			;; push identifier isLow
+			.loc stdlib.sol, 264
 			PUSH2 S10, S6
 			PUSHCONT {
 				PUSHINT 87
@@ -1474,58 +929,43 @@ PUSHCONT {
 				PUSHINT 55
 			}
 			IFELSE
-			;; +
-			;; push identifier dig
 			PUSH S2
 			ADD
 			STUR 8
-			; colValue
 			POP S11
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		IFELSE
-		;; end if
 		DROP
+		.loc stdlib.sol, 0
 	}
 	REPEAT
-	; end while
+	.loc stdlib.sol, 0
 }
 PUSHCONT {
-	; while
-	;; push identifier remBytes
+	.loc stdlib.sol, 267
 	PUSH S3
 	PUSHCONT {
-		; expValue
-		PUSH S1
-		; end expValue
+		.loc stdlib.sol, 268
+		OVER
 		TPOP
 		SWAP
-		; colValue
 		POP S3
-		; end colValue
-		;; decl: dig
-		;; if
-		;; push identifier dig
+		.loc stdlib.sol, 269
 		DUP
 		LESSINT 10
 		PUSHCONT {
-			; expValue
+			.loc stdlib.sol, 270
 			PUSH S10
-			; end expValue
 			PUSHINT 48
-			;; +
-			;; push identifier dig
 			PUSH S2
 			ADD
 			STUR 8
-			; colValue
 			POP S11
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		PUSHCONT {
-			; expValue
-			; end expValue
-			;; push identifier isLow
+			.loc stdlib.sol, 272
 			PUSH2 S10, S6
 			PUSHCONT {
 				PUSHINT 87
@@ -1534,74 +974,48 @@ PUSHCONT {
 				PUSHINT 55
 			}
 			IFELSE
-			;; +
-			;; push identifier dig
 			PUSH S2
 			ADD
 			STUR 8
-			; colValue
 			POP S11
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		IFELSE
-		;; end if
 		DROP
+		.loc stdlib.sol, 0
 	}
 	REPEAT
-	; end while
-	; expValue
-	; end expValue
-	;; push identifier builder
+	.loc stdlib.sol, 274
 	BLKPUSH 2, 10
 	TPUSH
-	; colValue
 	POP S11
-	; end colValue
-	;; delete
-	; expValue
-	; end expValue
+	.loc stdlib.sol, 275
 	NEWC
-	; colValue
 	POP S10
-	; end colValue
-	; while
-	;; push identifier length
-	;; -
-	;; push identifier remBytes
+	.loc stdlib.sol, 276
 	PUSH2 S0, S3
 	SUB
 	PUSHCONT {
-		; expValue
-		PUSH S1
-		; end expValue
+		.loc stdlib.sol, 277
+		OVER
 		TPOP
 		SWAP
-		; colValue
 		POP S3
-		; end colValue
-		;; decl: dig
-		;; if
-		;; push identifier dig
+		.loc stdlib.sol, 278
 		DUP
 		LESSINT 10
 		PUSHCONT {
-			; expValue
+			.loc stdlib.sol, 279
 			PUSH S10
-			; end expValue
 			PUSHINT 48
-			;; +
-			;; push identifier dig
 			PUSH S2
 			ADD
 			STUR 8
-			; colValue
 			POP S11
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		PUSHCONT {
-			; expValue
-			; end expValue
-			;; push identifier isLow
+			.loc stdlib.sol, 281
 			PUSH2 S10, S6
 			PUSHCONT {
 				PUSHINT 87
@@ -1610,576 +1024,377 @@ PUSHCONT {
 				PUSHINT 55
 			}
 			IFELSE
-			;; +
-			;; push identifier dig
 			PUSH S2
 			ADD
 			STUR 8
-			; colValue
 			POP S11
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		IFELSE
-		;; end if
 		DROP
+		.loc stdlib.sol, 0
 	}
 	REPEAT
-	; end while
+	.loc stdlib.sol, 0
 }
 IFELSE
-;; end if
-;; return
-;; push identifier list
-;; push identifier builder
-BLKPUSH 2, 10
-; end function convertIntToHexStr
-BLKDROP2 11, 2
+.loc stdlib.sol, 284
+BLKDROP 9
+.loc stdlib.sol, 0
 
 .globl	storeStringInBuilders
 .type	storeStringInBuilders, @function
 CALL $storeStringInBuilders_macro$
 
 .macro storeStringInBuilders_macro
-;; param: list
-;; param: first
-;; param: second
-; function storeStringInBuilders
-;; push identifier first
-PUSH S1
+.loc stdlib.sol, 288
+OVER
 BREMBITS
-;; -
 ADDCONST -7
-;; decl: remBits
-;; push identifier second
-PUSH S1
+.loc stdlib.sol, 289
+OVER
 SBITREFS
-;; decl: bitLen
-;; decl: refs
-;; if
-;; push identifier refs
+.loc stdlib.sol, 290
 DUP
 PUSHCONT {
-	; expValue
+	.loc stdlib.sol, 291
 	PUSH S3
-	; end expValue
 	PUSHINT 0
-	;; push identifier refs
 	PUSH S2
 	SSKIPFIRST
-	; colValue
 	POP S4
-	; end colValue
+	.loc stdlib.sol, 0
 }
 IF
-;; end if
-;; push identifier bitLen
-;; <=
-;; push identifier remBits
+.loc stdlib.sol, 292
 PUSH2 S1, S2
 LEQ
-;; decl: fits
-;; if
-;; push identifier fits
+.loc stdlib.sol, 293
 DUP
 PUSHCONT {
-	; expValue
-	; end expValue
-	;; push identifier second
+	.loc stdlib.sol, 294
 	PUSH2 S4, S5
 	STSLICE
-	; colValue
 	POP S6
-	; end colValue
+	.loc stdlib.sol, 0
 }
 PUSHCONT {
-	; expValue
-	; end expValue
-	;; push identifier remBits
+	.loc stdlib.sol, 296
 	BLKPUSH 2, 4
 	LDSLICEX
-	; colValue
 	POP S6
-	; end colValue
-	;; decl: start
-	; expValue
-	; end expValue
-	;; push identifier start
-	PUSH2 S0, S6
+	.loc stdlib.sol, 297
+	PUSH S6
 	STSLICE
-	; colValue
-	POP S7
-	; end colValue
-	; expValue
-	; end expValue
-	;; push identifier first
-	BLKPUSH 2, 7
+	POP S6
+	.loc stdlib.sol, 298
+	BLKPUSH 2, 6
 	TPUSH
-	; colValue
-	POP S8
-	; end colValue
-	;; delete
-	; expValue
-	; end expValue
-	; colValue
-	; end colValue
-	; expValue
-	; end expValue
-	;; push identifier second
-	; colValue
-	; end colValue
-	DROP
+	POP S7
+	.loc stdlib.sol, 299
 	NEWC
 	POP S6
+	.loc stdlib.sol, 300
 	PUSH2 S4, S5
 	STSLICE
 	POP S6
+	.loc stdlib.sol, 0
 }
 IFELSE
-;; end if
-;; return
-;; push identifier list
-;; push identifier first
-BLKPUSH 2, 6
-; end function storeStringInBuilders
-BLKDROP2 7, 2
+.loc stdlib.sol, 302
+BLKDROP 5
+.loc stdlib.sol, 0
 
 .globl	assembleList
 .type	assembleList, @function
 CALL $assembleList_macro$
 
 .macro assembleList_macro
-;; param: list
-;; param: builder
-; function assembleList
-; while
+.loc stdlib.sol, 306
 PUSHCONT {
-	;; !
-	;; push identifier list
-	PUSH S1
+	OVER
 	TLEN
 	ISZERO
 	NOT
 }
 PUSHCONT {
-	; expValue
-	PUSH S1
-	; end expValue
+	.loc stdlib.sol, 307
+	OVER
 	TPOP
 	SWAP
-	; colValue
 	POP S3
-	; end colValue
-	;; decl: nbuilder
-	; expValue
-	; end expValue
-	;; push identifier builder
-	PUSH2 S0, S1
-	STBREFR
-	; colValue
-	NIP
-	; end colValue
-	; expValue
-	; end expValue
-	;; push identifier nbuilder
-	; colValue
-	; end colValue
-	NIP
+	.loc stdlib.sol, 308
+	STBREF
+	.loc stdlib.sol, 0
 }
 WHILE
-; end while
-;; return
-;; push identifier builder
-DUP
+.loc stdlib.sol, 311
 ENDC
-; end function assembleList
-BLKDROP2 2, 1
+.loc stdlib.sol, 0
+NIP
 
 .globl	__stoi
 .type	__stoi, @function
 CALL $__stoi_macro$
 
 .macro __stoi_macro
-;; param: str
-;; ret param: retParam@0
+.loc stdlib.sol, 314
 PUSHINT 0
-;; ret param: retParam@1
 PUSHINT 0
-; function __stoi
 PUSHCONT {
-	;; push identifier str
+	.loc stdlib.sol, 315
 	PUSH S2
 	CTOS
-	;; decl: strSlice
-	;; if
-	;; push identifier strSlice
+	.loc stdlib.sol, 316
 	DUP
 	SBITS
 	LESSINT 8
 	PUSHCONT {
-		;; return
+		.loc stdlib.sol, 317
+		DROP
 		PUSHINT 0
 		FALSE
-		BLKDROP2 2, 3
-		ROT
-		DROP
+		BLKDROP2 2, 2
+		.loc stdlib.sol, 0
 	}
 	IFJMP
-	;; end if
-	;; push identifier strSlice
-	;; decl: copy
-	; expValue
+	.loc stdlib.sol, 319
 	BLKPUSH 2, 0
-	; end expValue
+	.loc stdlib.sol, 320
 	LDU 8
-	; colValue
 	POP S2
-	; end colValue
-	;; decl: first
-	;; push identifier first
+	.loc stdlib.sol, 321
 	DUP
 	EQINT 45
-	;; decl: isNeg
+	.loc stdlib.sol, 322
 	PUSHINT 0
-	;; decl: second
-	;; push identifier copy
+	.loc stdlib.sol, 323
 	PUSH S3
 	SBITS
-	;; decl: bits
-	;; if
-	;; push identifier isNeg
-	;; short-circuiting &&
+	.loc stdlib.sol, 324
 	PUSH2 S2, S2
 	PUSHCONT {
 		DROP
-		;; push identifier bits
 		DUP
-		;; >=
 		GTINT 15
 	}
 	IF
 	PUSHCONT {
-		; expValue
+		.loc stdlib.sol, 325
 		PUSH S4
-		; end expValue
 		LDU 8
 		LDU 8
-		; colValue
 		POP S7
-		; end colValue
-		SWAP
-		; expValue
-		; end expValue
-		; colValue
-		POP S5
-		; end colValue
-		; expValue
-		; end expValue
-		; colValue
-		POP S2
-		; end colValue
+		POP S3
+		POP S4
+		.loc stdlib.sol, 0
 	}
 	IF
-	;; end if
-	;; if
-	;; !
-	;; push identifier isNeg
+	.loc stdlib.sol, 327
 	PUSH S2
 	NOT
-	;; short-circuiting &&
 	DUP
 	PUSHCONT {
 		DROP
-		;; push identifier bits
 		DUP
-		;; >=
 		GTINT 7
 	}
 	IF
 	PUSHCONT {
-		; expValue
+		.loc stdlib.sol, 328
 		PUSH S4
-		; end expValue
 		LDU 8
-		; colValue
 		POP S6
-		; end colValue
-		; expValue
-		; end expValue
-		; colValue
 		POP S2
-		; end colValue
+		.loc stdlib.sol, 0
 	}
 	IF
-	;; end if
-	;; push identifier first
+	.loc stdlib.sol, 330
 	PUSH S3
 	EQINT 48
-	;; short-circuiting &&
 	DUP
 	PUSHCONT {
 		DROP
-		;; push identifier second
-		PUSH S1
+		OVER
 		EQINT 120
 	}
 	IF
-	;; decl: isHex
-	;; if
-	;; push identifier isNeg
+	.loc stdlib.sol, 332
 	PUSH S3
 	PUSHCONT {
-		; expValue
+		.loc stdlib.sol, 333
 		PUSH S6
-		; end expValue
 		LDU 8
-		; colValue
 		POP S8
-		; end colValue
 		DROP
+		.loc stdlib.sol, 0
 	}
 	IF
-	;; end if
-	;; if
-	;; push identifier isHex
+	.loc stdlib.sol, 334
 	DUP
 	PUSHCONT {
-		; expValue
+		.loc stdlib.sol, 335
 		PUSH S6
-		; end expValue
 		LDU 8
 		LDU 8
-		; colValue
 		POP S9
-		; end colValue
 		DROP2
+		.loc stdlib.sol, 0
 	}
 	IF
-	;; end if
+	.loc stdlib.sol, 337
 	PUSHINT 0
-	;; decl: res
+	.loc stdlib.sol, 338
 	TRUE
-	;; decl: status
-	;; push identifier strSlice
+	.loc stdlib.sol, 340
 	PUSH S8
 	SBITS
-	;; >>
 	RSHIFT 3
-	;; decl: digits
-	;; if
-	;; push identifier isHex
+	.loc stdlib.sol, 342
 	PUSH S3
 	PUSHCONT {
-		; while
-		;; push identifier digits
+		.loc stdlib.sol, 343
 		DUP
 		PUSHCONT {
-			; expValue
+			.loc stdlib.sol, 344
 			PUSH S9
-			; end expValue
 			LDU 8
-			; colValue
 			POP S11
-			; end colValue
-			;; decl: dig
-			; expValue
-			; end expValue
+			.loc stdlib.sol, 345
 			PUSH S3
 			MULCONST 16
-			; colValue
 			POP S4
-			; end colValue
-			;; if
-			;; push identifier dig
+			.loc stdlib.sol, 346
 			DUP
-			;; >=
 			GTINT 47
-			;; short-circuiting &&
 			DUP
 			PUSHCONT {
 				DROP
-				;; push identifier dig
 				DUP
-				;; <=
 				LESSINT 58
 			}
 			IF
 			PUSHCONT {
-				;; push identifier dig
+				.loc stdlib.sol, 347
 				DUP
-				;; -
 				ADDCONST -48
-				; expValue
 				PUSH S4
-				; end expValue
 				ADD
-				; colValue
 				POP S4
-				; end colValue
+				.loc stdlib.sol, 0
 			}
 			PUSHCONT {
-				;; if
-				;; push identifier dig
 				DUP
-				;; >=
 				GTINT 64
-				;; short-circuiting &&
 				DUP
 				PUSHCONT {
 					DROP
-					;; push identifier dig
 					DUP
-					;; <=
 					LESSINT 71
 				}
 				IF
 				PUSHCONT {
-					;; push identifier dig
+					.loc stdlib.sol, 349
 					DUP
-					;; -
-					;; +
 					ADDCONST -55
-					; expValue
 					PUSH S4
-					; end expValue
 					ADD
-					; colValue
 					POP S4
-					; end colValue
+					.loc stdlib.sol, 0
 				}
 				PUSHCONT {
-					;; if
-					;; push identifier dig
 					DUP
-					;; >=
 					GTINT 96
-					;; short-circuiting &&
 					DUP
 					PUSHCONT {
 						DROP
-						;; push identifier dig
 						DUP
-						;; <=
 						LESSINT 103
 					}
 					IF
 					PUSHCONT {
-						;; push identifier dig
+						.loc stdlib.sol, 351
 						DUP
-						;; -
-						;; +
 						ADDCONST -87
-						; expValue
 						PUSH S4
-						; end expValue
 						ADD
-						; colValue
 						POP S4
-						; end colValue
+						.loc stdlib.sol, 0
 					}
 					PUSHCONT {
-						; expValue
-						; end expValue
+						.loc stdlib.sol, 353
 						FALSE
-						; colValue
 						POP S3
-						; end colValue
+						.loc stdlib.sol, 0
 					}
 					IFELSE
-					;; end if
 				}
 				IFELSE
-				;; end if
 			}
 			IFELSE
-			;; end if
 			DROP
+			.loc stdlib.sol, 0
 		}
 		REPEAT
-		; end while
+		.loc stdlib.sol, 0
 	}
 	PUSHCONT {
-		; while
-		;; push identifier digits
+		.loc stdlib.sol, 357
 		DUP
 		PUSHCONT {
-			; expValue
+			.loc stdlib.sol, 358
 			PUSH S9
-			; end expValue
 			LDU 8
-			; colValue
 			POP S11
-			; end colValue
-			;; decl: dig
-			;; if
-			;; push identifier dig
+			.loc stdlib.sol, 359
 			DUP
 			LESSINT 48
-			;; short-circuiting ||
 			DUP
 			PUSHCONT {
 				DROP
-				;; push identifier dig
 				DUP
 				GTINT 57
 			}
 			IFNOT
 			PUSHCONT {
-				; expValue
-				; end expValue
+				.loc stdlib.sol, 360
 				FALSE
-				; colValue
 				POP S3
-				; end colValue
+				.loc stdlib.sol, 0
 			}
 			IF
-			;; end if
-			; expValue
-			; end expValue
+			.loc stdlib.sol, 361
 			PUSH S3
 			MULCONST 10
-			; colValue
 			POP S4
-			; end colValue
-			;; push identifier dig
-			;; -
-			; expValue
-			; end expValue
-			; colValue
-			; end colValue
+			.loc stdlib.sol, 362
 			ADDCONST -48
 			PUSH S3
 			ADD
 			POP S3
+			.loc stdlib.sol, 0
 		}
 		REPEAT
-		; end while
+		.loc stdlib.sol, 0
 	}
 	IFELSE
-	;; end if
-	;; if
-	;; push identifier isNeg
+	.loc stdlib.sol, 365
 	PUSH S6
 	PUSHCONT {
-		; expValue
-		; end expValue
-		;; -
-		;; push identifier res
+		.loc stdlib.sol, 366
 		PUSH S2
 		NEGATE
-		; colValue
 		POP S3
-		; end colValue
+		.loc stdlib.sol, 0
 	}
 	IF
-	;; end if
-	;; return
-	;; push identifier res
-	;; push identifier status
+	.loc stdlib.sol, 367
 	BLKPUSH 2, 2
 	BLKDROP2 12, 2
+	.loc stdlib.sol, 314
 }
 CALLX
-; end function __stoi
+.loc stdlib.sol, 0
 BLKDROP2 1, 2
 
 .globl	strToList
@@ -2187,340 +1402,205 @@ BLKDROP2 1, 2
 CALL $strToList_macro$
 
 .macro strToList_macro
-;; param: str
-; function strToList
+.loc stdlib.sol, 371
 TUPLE 0
-;; decl: list
-;; push identifier str
-PUSH S1
+.loc stdlib.sol, 372
+OVER
 CTOS
-;; decl: slice
-; while
+.loc stdlib.sol, 373
 PUSHCONT {
-	;; push identifier slice
 	DUP
 	SREFS
 	NEQINT 0
 }
 PUSHCONT {
-	; expValue
+	.loc stdlib.sol, 374
 	DUP
-	; end expValue
 	LDREFRTOS
 	SWAP
-	; colValue
 	POP S2
-	; end colValue
-	;; decl: n_slice
-	;; decl: builder
-	; expValue
-	; end expValue
-	;; push identifier slice
-	; colValue
-	PUSH S1
+	.loc stdlib.sol, 375
+	SWAP
 	NEWC
+	.loc stdlib.sol, 376
 	STSLICE
-	; end colValue
-	; expValue
-	; end expValue
-	;; push identifier builder
-	PUSH2 S3, S0
+	.loc stdlib.sol, 377
+	PUSH S2
+	SWAP
 	TPUSH
-	; colValue
-	POP S4
-	; end colValue
-	; expValue
-	; end expValue
-	;; push identifier n_slice
-	; colValue
-	; end colValue
-	DROP
-	NIP
+	POP S2
+	.loc stdlib.sol, 0
 }
 WHILE
-; end while
+.loc stdlib.sol, 380
 NEWC
-;; decl: builder
-; expValue
-; end expValue
-;; push identifier slice
+.loc stdlib.sol, 381
 DUP2
 STSLICE
-; colValue
 NIP
-; end colValue
-;; return
-;; push identifier list
-;; push identifier builder
-PUSH2 S2, S0
-; end function strToList
-BLKDROP2 4, 2
+.loc stdlib.sol, 382
+PUSH S2
+SWAP
+BLKDROP2 3, 2
+.loc stdlib.sol, 0
 
 .globl	bytes_substr
 .type	bytes_substr, @function
 CALL $bytes_substr_macro$
 
 .macro bytes_substr_macro
-;; param: data
-;; param: start
-;; param: end
-;; param: tillEnd
-;; ret param: substr
+.loc stdlib.sol, 385
 PUSHREF {
 }
-; function bytes_substr
-;; push identifier data
+.loc stdlib.sol, 386
 PUSH S4
 PUSHINT 4294967295
 CDATASIZE
-;; decl: len
-; expValue
-; end expValue
-;; push identifier len
-PUSH S1
-;; >>
+.loc stdlib.sol, 387
+OVER
 RSHIFT 3
-; colValue
 POP S2
-; end colValue
-;; if
-;; push identifier tillEnd
+.loc stdlib.sol, 388
 PUSH S4
 PUSHCONT {
-	;; push identifier len
-	PUSH S1
-	;; int256
+	.loc stdlib.sol, 389
+	OVER
 	FITS 256
-	; expValue
-	; end expValue
-	; colValue
 	POP S6
-	; end colValue
+	.loc stdlib.sol, 0
 }
 PUSHCONT {
-	;; if
-	;; push identifier end
 	PUSH S5
 	LESSINT 0
 	PUSHCONT {
-		;; push identifier len
-		PUSH S1
-		;; int256
+		.loc stdlib.sol, 391
+		OVER
 		FITS 256
-		;; +
-		;; push identifier end
 		PUSH S6
 		ADD
-		; expValue
-		; end expValue
-		; colValue
 		POP S6
-		; end colValue
+		.loc stdlib.sol, 0
 	}
 	IF
-	;; end if
+	.loc stdlib.sol, 0
 }
 IFELSE
-;; end if
-;; push identifier end
+.loc stdlib.sol, 392
 PUSH S5
-;; uint256
 UFITS 256
-;; >
-;; push identifier start
 PUSH S7
 GREATER
 THROWIFNOT 70
-;; push identifier end
+.loc stdlib.sol, 393
 PUSH S5
-;; uint256
 UFITS 256
-;; -
-;; push identifier start
 PUSH S7
 SUB
-;; decl: count
-;; push identifier data
-;; push identifier start
+.loc stdlib.sol, 394
 BLKPUSH 2, 8
-;; push identifier count
 PUSH S2
-;; param: str
-;; param: from
-;; param: count
-;; ret param: substr
 PUSHREF {
 }
-; function __subCell
-;; push identifier from
+.loc stdlib.sol, 407
 PUSH S2
 PUSHINT 127
 DIVMOD
-;; decl: skipCnt
-;; decl: skipBytes
-;; push identifier str
+.loc stdlib.sol, 408
 PUSH S5
 CTOS
-;; decl: slice
-; while
-;; push identifier skipCnt
+.loc stdlib.sol, 409
 PUSH S2
 PUSHCONT {
-	; expValue
+	.loc stdlib.sol, 410
 	DUP
-	; end expValue
 	LDREFRTOS
 	SWAP
-	; colValue
 	POP S2
-	; end colValue
-	; expValue
-	; end expValue
-	; colValue
 	NIP
-	; end colValue
+	.loc stdlib.sol, 0
 }
 REPEAT
-; end while
-; expValue
-; end expValue
-;; push identifier skipBytes
-PUSH2 S0, S1
-;; *
+.loc stdlib.sol, 412
+OVER
 MULCONST 8
 SDSKIPFIRST
-; colValue
-NIP
-; end colValue
+.loc stdlib.sol, 413
 TUPLE 0
-;; decl: list
+.loc stdlib.sol, 414
 NEWC
-;; decl: builder
-; while
+.loc stdlib.sol, 415
 PUSHCONT {
-	;; push identifier count
 	PUSH S6
 	NEQINT 0
 }
 PUSHCONT {
-	;; push identifier count
-	;; push identifier slice
+	.loc stdlib.sol, 416
 	PUSH2 S6, S2
 	SBITS
-	;; >>
 	RSHIFT 3
-	;; push identifier builder
 	PUSH S2
 	BREMBITS
-	;; >>
 	RSHIFT 3
 	MIN
 	MIN
-	;; decl: byteNum
-	; expValue
-	; end expValue
-	; expValue
-	; end expValue
-	;; push identifier byteNum
+	.loc stdlib.sol, 417
 	PUSH3 S1, S3, S0
-	;; <<
 	LSHIFT 3
-	;; uint16
 	UFITS 16
 	LDSLICEX
-	; colValue
 	POP S6
-	; end colValue
 	SWAP
 	STSLICE
-	; colValue
 	POP S2
-	; end colValue
-	;; push identifier byteNum
-	; expValue
-	; end expValue
+	.loc stdlib.sol, 418
 	PUSH2 S7, S0
 	SUB
-	; colValue
 	POP S8
-	; end colValue
-	;; if
-	;; push identifier count
+	.loc stdlib.sol, 419
 	PUSH S7
 	PUSHCONT {
-		;; if
-		;; push identifier slice
+		.loc stdlib.sol, 420
 		PUSH S3
 		SBITS
 		PUSHCONT {
-			; expValue
+			.loc stdlib.sol, 421
 			PUSH S3
-			; end expValue
 			LDREFRTOS
 			SWAP
-			; colValue
 			POP S5
-			; end colValue
-			; expValue
-			; end expValue
-			; colValue
 			POP S4
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		IFNOT
-		;; end if
-		;; if
-		;; push identifier builder
-		PUSH S1
+		.loc stdlib.sol, 423
+		OVER
 		BREMBITS
 		LESSINT 8
 		PUSHCONT {
-			; expValue
-			; end expValue
-			;; push identifier builder
+			.loc stdlib.sol, 424
 			BLKPUSH 2, 2
 			TPUSH
-			; colValue
 			POP S3
-			; end colValue
-			;; delete
-			; expValue
-			; end expValue
+			.loc stdlib.sol, 425
 			NEWC
-			; colValue
 			POP S2
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		IF
-		;; end if
+		.loc stdlib.sol, 0
 	}
 	IF
-	;; end if
+	.loc stdlib.sol, 0
 	DROP
 }
 WHILE
-; end while
-;; push identifier list
-;; push identifier builder
+.loc stdlib.sol, 429
 DUP2
 CALLREF {
 	CALL $assembleList_macro$
 }
-; expValue
-; end expValue
-; colValue
-POP S6
-; end colValue
-BLKDROP 5
-; end function __subCell
-BLKDROP2 3, 1
-; expValue
-; end expValue
-; colValue
-POP S5
-; end colValue
-BLKDROP 4
-; end function bytes_substr
+BLKDROP2 14, 1
+.loc stdlib.sol, 0
 BLKDROP2 4, 1
 
 .globl	__substr
@@ -2528,242 +1608,143 @@ BLKDROP2 4, 1
 CALL $__substr_macro$
 
 .macro __substr_macro
-;; param: str
-;; param: from
-;; param: count
-;; ret param: substr
+.loc stdlib.sol, 397
 PUSHREF {
 }
-; function __substr
-;; push identifier str
+.loc stdlib.sol, 398
 PUSH S3
 PUSHINT 4294967295
 CDATASIZE
-;; decl: strSize
-; expValue
-; end expValue
-PUSH S1
+.loc stdlib.sol, 399
+OVER
 RSHIFT 3
-; colValue
 POP S2
-; end colValue
-;; if
-;; push identifier count
+.loc stdlib.sol, 400
 PUSH S4
 EQINT -1
 PUSHCONT {
-	;; push identifier strSize
-	;; -
-	;; push identifier from
+	.loc stdlib.sol, 401
 	PUSH2 S1, S5
 	SUB
-	;; int256
 	FITS 256
-	; expValue
-	; end expValue
-	; colValue
 	POP S5
-	; end colValue
+	.loc stdlib.sol, 0
 }
 IF
-;; end if
-;; push identifier strSize
-PUSH S1
-;; int256
+.loc stdlib.sol, 402
+OVER
 FITS 256
-;; >=
-;; push identifier from
 PUSH S6
-;; int256
 FITS 256
-;; +
-;; push identifier count
 PUSH S6
 ADD
 GEQ
 THROWIFNOT 70
-;; push identifier str
-;; push identifier from
-;; push identifier count
+.loc stdlib.sol, 403
 BLKPUSH 3, 6
-;; uint256
 UFITS 256
-;; param: str
-;; param: from
-;; param: count
-;; ret param: substr
 PUSHREF {
 }
-; function __subCell
-;; push identifier from
+.loc stdlib.sol, 407
 PUSH S2
 PUSHINT 127
 DIVMOD
-;; decl: skipCnt
-;; decl: skipBytes
-;; push identifier str
+.loc stdlib.sol, 408
 PUSH S5
 CTOS
-;; decl: slice
-; while
-;; push identifier skipCnt
+.loc stdlib.sol, 409
 PUSH S2
 PUSHCONT {
-	; expValue
+	.loc stdlib.sol, 410
 	DUP
-	; end expValue
 	LDREFRTOS
 	SWAP
-	; colValue
 	POP S2
-	; end colValue
-	; expValue
-	; end expValue
-	; colValue
 	NIP
-	; end colValue
+	.loc stdlib.sol, 0
 }
 REPEAT
-; end while
-; expValue
-; end expValue
-;; push identifier skipBytes
-PUSH2 S0, S1
-;; *
+.loc stdlib.sol, 412
+OVER
 MULCONST 8
 SDSKIPFIRST
-; colValue
-NIP
-; end colValue
+.loc stdlib.sol, 413
 TUPLE 0
-;; decl: list
+.loc stdlib.sol, 414
 NEWC
-;; decl: builder
-; while
+.loc stdlib.sol, 415
 PUSHCONT {
-	;; push identifier count
 	PUSH S6
 	NEQINT 0
 }
 PUSHCONT {
-	;; push identifier count
-	;; push identifier slice
+	.loc stdlib.sol, 416
 	PUSH2 S6, S2
 	SBITS
-	;; >>
 	RSHIFT 3
-	;; push identifier builder
 	PUSH S2
 	BREMBITS
-	;; >>
 	RSHIFT 3
 	MIN
 	MIN
-	;; decl: byteNum
-	; expValue
-	; end expValue
-	; expValue
-	; end expValue
-	;; push identifier byteNum
+	.loc stdlib.sol, 417
 	PUSH3 S1, S3, S0
-	;; <<
 	LSHIFT 3
-	;; uint16
 	UFITS 16
 	LDSLICEX
-	; colValue
 	POP S6
-	; end colValue
 	SWAP
 	STSLICE
-	; colValue
 	POP S2
-	; end colValue
-	;; push identifier byteNum
-	; expValue
-	; end expValue
+	.loc stdlib.sol, 418
 	PUSH2 S7, S0
 	SUB
-	; colValue
 	POP S8
-	; end colValue
-	;; if
-	;; push identifier count
+	.loc stdlib.sol, 419
 	PUSH S7
 	PUSHCONT {
-		;; if
-		;; push identifier slice
+		.loc stdlib.sol, 420
 		PUSH S3
 		SBITS
 		PUSHCONT {
-			; expValue
+			.loc stdlib.sol, 421
 			PUSH S3
-			; end expValue
 			LDREFRTOS
 			SWAP
-			; colValue
 			POP S5
-			; end colValue
-			; expValue
-			; end expValue
-			; colValue
 			POP S4
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		IFNOT
-		;; end if
-		;; if
-		;; push identifier builder
-		PUSH S1
+		.loc stdlib.sol, 423
+		OVER
 		BREMBITS
 		LESSINT 8
 		PUSHCONT {
-			; expValue
-			; end expValue
-			;; push identifier builder
+			.loc stdlib.sol, 424
 			BLKPUSH 2, 2
 			TPUSH
-			; colValue
 			POP S3
-			; end colValue
-			;; delete
-			; expValue
-			; end expValue
+			.loc stdlib.sol, 425
 			NEWC
-			; colValue
 			POP S2
-			; end colValue
+			.loc stdlib.sol, 0
 		}
 		IF
-		;; end if
+		.loc stdlib.sol, 0
 	}
 	IF
-	;; end if
+	.loc stdlib.sol, 0
 	DROP
 }
 WHILE
-; end while
-;; push identifier list
-;; push identifier builder
+.loc stdlib.sol, 429
 DUP2
 CALLREF {
 	CALL $assembleList_macro$
 }
-; expValue
-; end expValue
-; colValue
-POP S6
-; end colValue
-BLKDROP 5
-; end function __subCell
-BLKDROP2 3, 1
-; expValue
-; end expValue
-; colValue
-POP S4
-; end colValue
-BLKDROP 3
-; end function __substr
+BLKDROP2 13, 1
+.loc stdlib.sol, 0
 BLKDROP2 3, 1
 
 .globl	compareLongStrings
@@ -2771,21 +1752,16 @@ BLKDROP2 3, 1
 CALL $compareLongStrings_macro$
 
 .macro compareLongStrings_macro
-;; param: lstr
-;; param: rstr
-;; ret param: retParam@0
+.loc stdlib.sol, 432
 PUSHINT 0
-; function compareLongStrings
 PUSHCONT {
-	;; push identifier lstr
+	.loc stdlib.sol, 436
 	PUSH S2
 	CTOS
-	;; decl: left
-	;; push identifier rstr
+	.loc stdlib.sol, 437
 	PUSH S2
 	CTOS
-	;; decl: right
-	; while
+	.loc stdlib.sol, 438
 	FALSE ; decl return flag
 	PUSHCONT {
 		DUP
@@ -2798,113 +1774,76 @@ PUSHCONT {
 		IF
 	}
 	PUSHCONT {
-		;; push identifier left
-		;; push identifier right
+		.loc stdlib.sol, 439
 		BLKPUSH 2, 2
 		SDLEXCMP
-		;; decl: res
-		;; if
-		;; push identifier res
+		.loc stdlib.sol, 440
 		DUP
 		PUSHCONT {
-			;; return
-			;; push identifier res
-			DUP
-			BLKDROP2 5, 1
+			.loc stdlib.sol, 441
+			BLKDROP2 4, 1
 			PUSHINT 4
+			.loc stdlib.sol, 0
 		}
 		IFJMP
-		;; end if
-		;; push identifier left
+		.loc stdlib.sol, 443
 		PUSH S3
 		SREFS
-		;; decl: lRefs
-		;; push identifier right
+		.loc stdlib.sol, 444
 		PUSH S3
 		SREFS
-		;; decl: rRefs
-		;; if
-		;; push identifier lRefs
-		;; >
-		;; push identifier rRefs
+		.loc stdlib.sol, 445
 		DUP2
 		GREATER
 		PUSHCONT {
-			;; return
+			BLKDROP 7
 			PUSHINT 1
-			BLKDROP2 7, 1
 			PUSHINT 4
 		}
 		IFJMP
-		;; end if
-		;; if
-		;; push identifier rRefs
-		;; >
-		;; push identifier lRefs
+		.loc stdlib.sol, 447
 		PUSH2 S0, S1
 		GREATER
 		PUSHCONT {
-			;; return
+			BLKDROP 7
 			PUSHINT -1
-			BLKDROP2 7, 1
 			PUSHINT 4
 		}
 		IFJMP
-		;; end if
-		;; if
-		;; push identifier lRefs
-		;; +
-		;; push identifier rRefs
+		.loc stdlib.sol, 449
 		DUP2
 		ADD
 		PUSHCONT {
-			;; return
+			BLKDROP 7
 			PUSHINT 0
-			BLKDROP2 7, 1
 			PUSHINT 4
 		}
 		IFNOTJMP
-		;; end if
-		; expValue
+		.loc stdlib.sol, 451
 		PUSH S5
-		; end expValue
 		LDREFRTOS
 		SWAP
-		; colValue
 		POP S7
-		; end colValue
-		; expValue
-		; end expValue
-		; colValue
 		POP S6
-		; end colValue
-		; expValue
+		.loc stdlib.sol, 452
 		PUSH S4
-		; end expValue
 		LDREFRTOS
 		SWAP
-		; colValue
 		POP S6
-		; end colValue
-		; expValue
-		; end expValue
-		; colValue
 		POP S5
-		; end colValue
+		.loc stdlib.sol, 0
 		BLKDROP 3
 	}
 	WHILE
 	EQINT 4
 	IFRET
-	; end while
-	;; return
+	.loc stdlib.sol, 454
+	BLKDROP 3
 	PUSHINT 0
-	BLKDROP2 1, 3
-	ROTREV
-	DROP2
+	.loc stdlib.sol, 432
 }
 CALLX
-; end function compareLongStrings
+.loc stdlib.sol, 0
 BLKDROP2 2, 1
 
 .globl	concatenateStrings
@@ -2912,87 +1851,49 @@ BLKDROP2 2, 1
 CALL $concatenateStrings_macro$
 
 .macro concatenateStrings_macro
-;; param: str
-;; param: tail
-; function concatenateStrings
-;; push identifier str
-PUSH S1
+.loc stdlib.sol, 458
+OVER
 CALLREF {
 	CALL $strToList_macro$
 }
-;; decl: list
-;; decl: builder
-;; push identifier tail
+.loc stdlib.sol, 459
 PUSH S2
 CTOS
-;; decl: slice
-;; push identifier list
-;; push identifier builder
-;; push identifier slice
+.loc stdlib.sol, 460
 BLKPUSH 3, 2
 CALLREF {
 	CALL $storeStringInBuilders_macro$
 }
-SWAP
-; expValue
-; end expValue
-; colValue
-POP S4
-; end colValue
-; expValue
-; end expValue
-; colValue
-POP S2
-; end colValue
-; while
+POP S3
+POP S3
+.loc stdlib.sol, 461
 PUSHCONT {
-	;; push identifier slice
 	DUP
 	PUSHINT 1
 	SCHKREFSQ
 }
 PUSHCONT {
-	; expValue
+	.loc stdlib.sol, 462
 	DUP
-	; end expValue
 	LDREFRTOS
 	SWAP
-	; colValue
 	POP S2
-	; end colValue
-	; expValue
-	; end expValue
-	; colValue
 	NIP
-	; end colValue
-	;; push identifier list
-	;; push identifier builder
-	;; push identifier slice
+	.loc stdlib.sol, 463
 	BLKPUSH 3, 2
 	CALLREF {
 		CALL $storeStringInBuilders_macro$
 	}
-	SWAP
-	; expValue
-	; end expValue
-	; colValue
-	POP S4
-	; end colValue
-	; expValue
-	; end expValue
-	; colValue
-	POP S2
-	; end colValue
+	POP S3
+	POP S3
+	.loc stdlib.sol, 0
 }
 WHILE
-; end while
-;; return
-;; push identifier list
-;; push identifier builder
+.loc stdlib.sol, 465
 BLKPUSH 2, 2
 CALLREF {
 	CALL $assembleList_macro$
 }
-; end function concatenateStrings
 BLKDROP2 5, 1
+.loc stdlib.sol, 0
 

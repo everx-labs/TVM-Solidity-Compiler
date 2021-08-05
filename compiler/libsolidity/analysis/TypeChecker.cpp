@@ -381,11 +381,9 @@ void TypeChecker::typeCheckCallBack(FunctionType const* remoteFunction, Expressi
 TypePointers TypeChecker::checkSliceDecode(FunctionCall const& _functionCall)
 {
 	vector<ASTPointer<Expression const>> arguments = _functionCall.arguments();
-	if (arguments.empty())
-		m_errorReporter.typeError(
-			_functionCall.location(),
-			"This function takes positive number of arguments."
-		);
+	if (arguments.empty()) {
+		m_errorReporter.fatalTypeError(_functionCall.location(), "Expected at least one argument.");
+	}
 
 	TypePointers components;
 	for (auto const& typeArgument: arguments) {
@@ -544,26 +542,48 @@ bool TypeChecker::visit(StructDefinition const& _struct)
 	return false;
 }
 
-bool TypeChecker::checkAbiType(
-	VariableDeclaration const* origVar,
+bool TypeChecker::isBadAbiType(
+	SourceLocation const& origVarLoc,
 	Type const* curType,
-	VariableDeclaration const* curVar,
-	std::set<StructDefinition const*>& usedStructs
+	SourceLocation const& curVarLoc,
+	std::set<StructDefinition const*>& usedStructs,
+	bool doPrintErr
 ) {
-	auto printError = [&](const std::string& message){
-		if (origVar == curVar) {
-			m_errorReporter.typeError(origVar->location(), message);
-		} else {
-			m_errorReporter.typeError(
-				origVar->location(),
-				SecondarySourceLocation().append("Another declaration is here:", curVar->location()),
-				message
-			);
+	auto printError = [&](const std::string& message) {
+		if (doPrintErr) {
+			if (origVarLoc == curVarLoc) {
+				m_errorReporter.typeError(origVarLoc, message);
+			} else {
+				m_errorReporter.typeError(
+						origVarLoc,
+						SecondarySourceLocation().append("Another declaration is here:", curVarLoc),
+						message
+				);
+			}
 		}
 	};
 
 	const Type::Category category = curType->category();
 	switch (category) {
+		case Type::Category::Optional: {
+			auto optType = to<OptionalType>(curType);
+			switch (optType->valueType()->category()) {
+				case Type::Category::Tuple: {
+					auto tup = to<TupleType>(optType->valueType());
+					for (Type const* t : tup->components()) {
+						if (isBadAbiType(origVarLoc, t, curVarLoc, usedStructs, doPrintErr)) {
+							return true;
+						}
+					}
+					break;
+				}
+				default:
+					if (isBadAbiType(origVarLoc, optType->valueType(), curVarLoc, usedStructs, doPrintErr)) {
+						return true;
+					}
+			}
+			break;
+		}
 		case Type::Category::Mapping: {
 			auto mappingType = to<MappingType>(curType);
 			auto intKey = to<IntegerType>(mappingType->keyType());
@@ -574,7 +594,7 @@ bool TypeChecker::checkAbiType(
 			   		"any of int<M>/uint<M> types with M from 8 to 256 or std address.");
 				return true;
 			}
-			if (checkAbiType(origVar, mappingType->valueType(), curVar, usedStructs)) {
+			if (isBadAbiType(origVarLoc, mappingType->valueType(), curVarLoc, usedStructs, doPrintErr)) {
 				return true;
 			}
 			break;
@@ -582,7 +602,9 @@ bool TypeChecker::checkAbiType(
 		case Type::Category::Array: {
 			auto arrayType = to<ArrayType>(curType);
 			if (!arrayType->isByteArray()) {
-				checkAbiType(origVar, arrayType->baseType(), curVar, usedStructs);
+				if (isBadAbiType(origVarLoc, arrayType->baseType(), curVarLoc, usedStructs, doPrintErr)) {
+					return true;
+				}
 			}
 			break;
 		}
@@ -590,16 +612,18 @@ bool TypeChecker::checkAbiType(
 			auto valueStruct = to<StructType>(curType);
 			StructDefinition const& structDefinition = valueStruct->structDefinition();
 			if (usedStructs.count(&structDefinition)) {
-				m_errorReporter.typeError(
-					origVar->location(),
-					SecondarySourceLocation().append("Recursive struct:", structDefinition.location()),
-					"ABI doesn't support recursive types."
-				);
+				if (doPrintErr) {
+					m_errorReporter.typeError(
+							origVarLoc,
+							SecondarySourceLocation().append("Recursive struct:", structDefinition.location()),
+							"ABI doesn't support recursive types."
+					);
+				}
 				return true;
 			}
 			usedStructs.insert(&structDefinition);
 			for (const ASTPointer<VariableDeclaration>& member : structDefinition.members()) {
-				if (checkAbiType(origVar, member->type(), member.get(), usedStructs))
+				if (isBadAbiType(origVarLoc, member->type(), member.get()->location(), usedStructs, doPrintErr))
 					return true;
 			}
 			usedStructs.erase(&structDefinition);
@@ -660,7 +684,7 @@ bool TypeChecker::visit(FunctionDefinition const& _function)
 		for (const auto& params : {_function.parameters(), _function.returnParameters()}) {
 			for (ASTPointer<VariableDeclaration> const &var : params) {
 				std::set<StructDefinition const *> usedStructs;
-				checkAbiType(var.get(), var->type(), var.get(), usedStructs);
+				isBadAbiType(var.get()->location(), var->type(), var.get()->location(), usedStructs, true);
 				var->accept(*this);
 			}
 		}
@@ -782,7 +806,7 @@ bool TypeChecker::visit(VariableDeclaration const& _variable)
 				);
 		}
 		std::set<StructDefinition const*> usedStructs;
-		checkAbiType(&_variable, _variable.type(), &_variable, usedStructs);
+		isBadAbiType(_variable.location(), _variable.type(), _variable.location(), usedStructs, true);
 	}
 
 	switch (varType->category())
@@ -1893,7 +1917,8 @@ TypePointer TypeChecker::typeCheckTypeConversionAndRetrieveReturnType(
 			if (dynamic_cast<ArrayType const*>(argType))
 			{
 				auto resultArrayType = dynamic_cast<ArrayType const*>(resultType);
-				solAssert(!!resultArrayType, "");
+				auto resultFixedBytesType = dynamic_cast<FixedBytesType const*>(resultType);
+				solAssert(!!resultArrayType || !!resultFixedBytesType, "");
 			}
 		}
 		else
@@ -2504,6 +2529,84 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 			m_errorReporter.typeError(paramArgMap[i]->location(), msg);
 		}
 	}
+
+	auto functionCallOpt = dynamic_cast<const FunctionCallOptions *>(&_functionCall.expression());
+	if (functionCallOpt) {
+		bool isExternalInboundMessage = _functionCall.isExtMsg();
+
+		std::vector<std::string> arr;
+		auto fold = [&]() {
+			std::string s;
+			for (size_t i = 0; i < arr.size(); ++i) {
+				if (i + 1 == arr.size())
+					s += " and ";
+				else if (i > 0)
+					s += ", ";
+				s += arr[i];
+			}
+			return s;
+		};
+		const bool isNewExpression = dynamic_cast<const NewExpression *>(&functionCallOpt->expression()) != nullptr;
+
+		if (isExternalInboundMessage) {
+			arr = {"time", "expire", "call", "sign", "pubkey", "abiVer", "callbackId", "onErrorId", "stateInit","signBoxHandle"};
+		} else if (isNewExpression) {
+			arr = {"stateInit", "code", "pubkey", "varInit", "splitDepth", "wid", "value", "currencies", "bounce", "flag"};
+		} else {
+			arr = {"value", "currencies", "bounce", "flag", "callback"};
+		}
+
+		auto names = functionCallOpt->names();
+		const vector<ASTPointer<const Expression>> &options = functionCallOpt->options();
+		for (size_t i = 0; i < names.size(); ++i) {
+			string const &name = *(names[i]);
+			if (std::find(arr.begin(), arr.end(), name) == arr.end()) {
+				m_errorReporter.typeError(
+						functionCallOpt->location(),
+						"Unknown option \"" + name + "\". " +
+						"Valid options are " + fold() + "."
+				);
+			}
+			if (name == "pubkey") {
+				if (isExternalInboundMessage)
+					expectType(*options[i], *TypeProvider::optional(TypeProvider::uint256()));
+				else
+					expectType(*options[i], *TypeProvider::uint256());
+			}
+		}
+		auto getId = [&](string const & param) {
+			auto it = find_if(names.begin(), names.end(), [&](auto el){
+				return *el == param;
+			});
+			return it == names.end() ? -1 : it - names.begin();
+		};
+
+		auto callback = getId("callback");
+		if (callback != -1 && _functionCall.isAwait())
+			m_errorReporter.typeError(
+					_functionCall.location(),
+					R"("callback" option can't be set for await call.)"
+					);
+		auto callbackId = getId("callbackId");
+		auto abiVer = getId("abiVer");
+		auto onErrorId = getId("onErrorId");
+		auto expressionFunctionType = dynamic_cast<FunctionType const*>(type(functionCallOpt->expression()));
+		if (!_functionCall.isExtMsg() && callback == -1 &&
+				!expressionFunctionType->returnParameterTypes().empty() &&
+				!_functionCall.isAwait()) {
+			checkNeedCallback(expressionFunctionType, *functionCallOpt);
+		}
+		if (isExternalInboundMessage &&
+		(callbackId == -1 || abiVer == -1 || onErrorId == -1)) {
+			m_errorReporter.typeError(
+					functionCallOpt->location(),
+					R"("callbackId", "onErrorId" and "abiVer" options must be set.)"
+			);
+		}
+
+
+	}
+
 }
 
 FunctionDefinition const*
@@ -2989,6 +3092,9 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				break;
 			}
 			case FunctionType::Kind::TVMBuilderStore:
+				if (arguments.empty()) {
+					m_errorReporter.fatalTypeError(_functionCall.location(), "Expected at least one argument.");
+				}
 				typeCheckTvmEncodeFunctions(_functionCall);
 				break;
 			case FunctionType::Kind::ABIEncode:
@@ -3324,9 +3430,27 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 
 	if (functionType != nullptr &&
 		dynamic_cast<FunctionCallOptions const*>(&_functionCall.expression()) == nullptr &&
-		functionType->kind() == FunctionType::Kind::External)
+		functionType->kind() == FunctionType::Kind::External && !_functionCall.isAwait())
 	{
 		checkNeedCallback(functionType, _functionCall);
+	}
+
+	if (_functionCall.isAwait()) {
+		if (functionType == nullptr || functionType->kind() != FunctionType::Kind::External) {
+			m_errorReporter.fatalTypeError(
+				_functionCall.location(),
+				"\".await\" is supported only for external function calls."
+			);
+		}
+		if (functionType) {
+			auto fd = dynamic_cast<FunctionDefinition const*>(&functionType->declaration());
+			if (fd && !fd->isResponsible()) {
+				m_errorReporter.fatalTypeError(
+					_functionCall.location(),
+					"\".await\" is supported only for responsible functions."
+				);
+			}
+		}
 	}
 
 	return false;
@@ -3358,7 +3482,6 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	int setWid = -1;
 	int setCallback = -1;
 	int setSign = -1;
-	int setExtMsg = -1;
 	int setExpire = -1;
 	int setTime = -1;
 	int setAbi = -1;
@@ -3392,58 +3515,35 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 
 		_option = index;
 	};
-
 	const bool isNewExpression = dynamic_cast<const NewExpression *>(&_functionCallOptions.expression()) != nullptr;
 	auto names = _functionCallOptions.names();
-	auto extMsg = find_if(names.begin(), names.end(), [](auto el){
-		return *el == "extMsg";
-	});
-	const bool isExternalInboundMessage = extMsg != names.end();
-	if (isExternalInboundMessage) {
-		size_t index = extMsg - names.begin();
-		options[index]->accept(*this);
-		auto lit = dynamic_cast<const Literal *>(options[index].get());
-		if (lit == nullptr || lit->token() != Token::TrueLiteral)
-			m_errorReporter.typeError(
-				_functionCallOptions.location(),
-				R"(Option "extMsg" can be specified only with constant true bool value.)");
-	}
+	std::vector<std::string> arr;
+	if (isNewExpression)
+		arr = {"stateInit", "code", "pubkey", "varInit", "splitDepth", "wid", "value", "currencies", "bounce", "flag"};
+	else
+		arr = {"time", "expire", "call", "sign",  "pubkey", "abiVer", "callbackId", "onErrorId", "stateInit", "signBoxHandle", "value", "currencies", "bounce", "flag", "callback"};
+	auto fold = [&](){
+		std::string s;
+		for (size_t i = 0; i < arr.size(); ++i) {
+			if (i + 1 == arr.size())
+				s += " and ";
+			else if (i > 0)
+				s += ", ";
+			s += arr[i];
+		}
+		return s;
+	};
 	for (size_t i = 0; i < names.size(); ++i) {
 		options[i]->accept(*this);
 		string const &name = *(names[i]);
 
-		std::vector<std::string> arr;
-		auto fold = [&](){
-			std::string s;
-			for (size_t i = 0; i < arr.size(); ++i) {
-				if (i + 1 == arr.size())
-					s += " and ";
-				else if (i > 0)
-					s += ", ";
-				s += arr[i];
-			}
-			return s;
-		};
-
-		if (isExternalInboundMessage) {
-			arr = {"extMsg", "time", "expire", "call", "sign",  "pubkey", "abiVer", "callbackId", "onErrorId", "stateInit", "signBoxHandle"};
-		} else if (isNewExpression) {
-			arr = {"stateInit", "code", "pubkey", "varInit", "splitDepth", "wid", "value", "currencies", "bounce", "flag"};
-		} else {
-			arr = {"value", "currencies", "bounce", "flag", "callback"};
-		}
-
-		// check option is appropriate
 		if (std::find(arr.begin(), arr.end(), name) == arr.end()) {
 			m_errorReporter.typeError(
 					_functionCallOptions.location(),
 					"Unknown option \"" + name + "\". " +
-					 "Valid options are " + fold() + "."
+					"Valid options are " + fold() + "."
 			);
-		// check type of option
-		} else if (name == "extMsg") {
-			expectType(*options[i], *TypeProvider::boolean());
-			setCheckOption(setExtMsg, "extMsg", i);
+			// check type of option
 		} else if (name == "sign") {
 			expectType(*options[i], *TypeProvider::boolean());
 			setCheckOption(setSign, "sign", i);
@@ -3452,14 +3552,10 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 						_functionCallOptions.location(),
 						R"(Option "sign" can be specified only with constant bool value.)");
 		} else if (name == "pubkey") {
-            if (isExternalInboundMessage)
-                expectType(*options[i], *TypeProvider::optional(TypeProvider::uint256()));
-            else
-                expectType(*options[i], *TypeProvider::uint256());
-            setCheckOption(setPubkey, "pubkey", i);
-        } else if (name == "signBoxHandle") {
-            expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(32)));
-            setCheckOption(setSignHandler, "signBoxHandle", i);
+			setCheckOption(setPubkey, "pubkey", i);
+		} else if (name == "signBoxHandle") {
+			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(32)));
+			setCheckOption(setSignHandler, "signBoxHandle", i);
 		} else if (name == "abiVer") {
 			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(8)));
 			setCheckOption(setAbi, "abiVer", i);
@@ -3510,16 +3606,6 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		}
 	}
 
-	if (isExternalInboundMessage && (setCallback == -1 || setAbi == -1 || setOnError == -1)) {
-		m_errorReporter.typeError(
-			_functionCallOptions.location(),
-			R"("callbackId", "onErrorId" and "abiVer" options must be set.)"
-		);
-	}
-	if (!isExternalInboundMessage && setCallback == -1 && !isNewExpression && !expressionFunctionType->returnParameterTypes().empty()) {
-		checkNeedCallback(expressionFunctionType, _functionCallOptions);
-	}
-
 	if (isNewExpression) {
 		if (setStateInit == -1 && setCode == -1) {
 			m_errorReporter.typeError(_functionCallOptions.location(), R"(Either option "stateInit" or option "code" must be set.)");
@@ -3550,7 +3636,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		}
 	}
 
-	_functionCallOptions.annotation().type = expressionFunctionType->copyAndSetCallOptions(setValue);
+	_functionCallOptions.annotation().type = expressionFunctionType;
 	return false;
 }
 
@@ -3636,6 +3722,14 @@ bool TypeChecker::visit(MemberAccess const& _memberAccess)
 
 	if (possibleMembers.empty())
 	{
+		if (to<MemberAccess>(&_memberAccess.expression()) != nullptr)
+			if (memberName == "value" || memberName == "flag")
+				m_errorReporter.fatalTypeError(
+						_memberAccess.location(),
+						string("\".value()\" and \".flag()\" functionality is ") +
+						"deprecated, use call options in {} instead."
+				);
+
 		if (initialMemberCount == 0)
 		{
 			// Try to see if the member was removed because it is only available for storage types.
@@ -3657,19 +3751,7 @@ bool TypeChecker::visit(MemberAccess const& _memberAccess)
 		{
 			auto const& t = funType->returnParameterTypes();
 
-			if (memberName == "value")
-			{
-				if (funType->kind() == FunctionType::Kind::Creation)
-					errorMsg = "Constructor for " + t.front()->toString() + " must be payable for member \"value\" to be available.";
-				else if (
-					funType->kind() == FunctionType::Kind::DelegateCall ||
-					funType->kind() == FunctionType::Kind::BareDelegateCall
-				)
-					errorMsg = "Member \"value\" is not allowed in delegated calls due to \"msg.value\" persisting.";
-				else
-					errorMsg = "Member \"value\" is only available for payable functions.";
-			}
-			else if (
+			if (
 				t.size() == 1 &&
 				(t.front()->category() == Type::Category::Struct ||
 				t.front()->category() == Type::Category::Contract)
@@ -3697,8 +3779,7 @@ bool TypeChecker::visit(MemberAccess const& _memberAccess)
 		m_errorReporter.fatalTypeError(
 			_memberAccess.location(),
 			"Member \"" + memberName + "\" not unique "
-			"after argument-dependent lookup in " + exprType->toString() +
-			(memberName == "value" ? " - did you forget the \"payable\" modifier?" : ".")
+			"after argument-dependent lookup in " + exprType->toString()
 		);
 
 	annotation.referencedDeclaration = possibleMembers.front().declaration;

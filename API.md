@@ -129,6 +129,7 @@ contract development.
   * [pragma AbiHeader](#pragma-abiheader)
   * [pragma msgValue](#pragma-msgvalue)
 * [State variables](#state-variables)
+  * [Decoding state variables](#decoding-state-variables)
   * [Keyword `constant`](#keyword-constant)
   * [Keyword `static`](#keyword-static)
   * [Keyword `public`](#keyword-public)
@@ -148,13 +149,15 @@ contract development.
   * [emit](#emit)
   * [return](#return)
 * [External function calls](#external-function-calls)
+  * [Synchronous calls](#synchronous-calls)
 * [Delete variables](#delete-variables)
 * [API functions and members](#api-functions-and-members)
   * [**msg** namespace](#msg-namespace)
+    * [msg.sender](#msgsender)
     * [msg.value](#msgvalue)
     * [msg.currencies](#msgcurrencies)
     * [msg.pubkey()](#msgpubkey)
-    * [msg.isInternal, msg.isExternal and msg.isTickTock](#msgpubkey)
+    * [msg.isInternal, msg.isExternal and msg.isTickTock](#msgisinternal-msgisexternal-and-msgisticktock)
     * [msg.createdAt](#msgcreatedat)
     * [msg.data](#msgdata)
   * [**tvm** namespace](#tvm-namespace)
@@ -162,6 +165,7 @@ contract development.
       * [tvm.accept()](#tvmaccept)
       * [tvm.commit()](#tvmcommit)
       * [tvm.rawCommit()](#tvmrawcommit)
+      * [tvm.getData()](#tvmgetdata)
       * [tvm.setData()](#tvmsetdata)
       * [tvm.log()](#tvmlog)
       * [tvm.hexdump() and tvm.bindump()](#tvmhexdump-and-tvmbindump)
@@ -195,6 +199,7 @@ contract development.
       * [tvm.exit() and tvm.exit1()](#tvmexit-and-tvmexit1)
       * [tvm.buildExtMsg()](#tvmbuildextmsg)
       * [tvm.buildIntMsg()](#tvmbuildintmsg)
+      * [tvm.sendrawmsg()](#tvmsendrawmsg)
   * [**math** namespace](#math-namespace)
     * [math.min() math.max()](#mathmin-mathmax)
     * [math.minmax()](#mathminmax)
@@ -1056,6 +1061,15 @@ Same as [\<TvmCell\>.dataSizeQ()](#tvmcelldatasizeq).
 
 Modifies the bytes by concatenating **tail** bytes to the end of the bytes.
 
+##### bytes convertion
+
+```TVMSolidity
+bytes byteArray = "1234";
+bytes4 bb = byteArray;
+```
+
+`bytes` can be converted to `bytesN` which causes **N** * 8 being loaded from the cell and saved to variable.
+
 #### string
 
 TON Solidity compiler expands **string** type with the following functions:
@@ -1347,7 +1361,7 @@ Parameter `flag` can also be modified:
 * `flag + 2` - means that any errors arising while processing this message during the action phase
 should be ignored.
 * `flag + 32` - means that the current account must be destroyed if its resulting balance is zero.
-For example, `flag: 128 + 32` used to send all balance and destroy the contract.
+For example, `flag: 128 + 32` is used to send all balance and destroy the contract.
 
 In order to clarify using flags see [this sample](https://github.com/tonlabs/samples/blob/master/solidity/20_bomber.sol).
 
@@ -1875,6 +1889,10 @@ pragma msgValue 10_000_000_123;
 
 ### State variables
 
+#### Decoding state variables
+
+You can decode state variables using tonos-cli. See `tonos-cli decode account --help`.
+
 #### Keyword `constant`
 
 For `constant` variables, the value has to be a constant at compile time and this value is
@@ -2060,7 +2078,7 @@ More useful example of how to use `onBounce` function:
 
 #### onTickTock
 
-**onTickTock** function is executed on tick and tock transactions.
+**onTickTock** function is executed on tick/tock transaction.
 That transactions are automatically invoked for certain special accounts.
 See ([TBLKCH][2] - 4.2.4.)
 For tick transactions **isTock** is false, for tock transactions - true.
@@ -2097,19 +2115,18 @@ See example of how to upgrade code of the contract:
 
 #### afterSignatureCheck
 
-Developer can define **afterSignatureCheck** function to create his own replay protection function instead of the default one.
-
-Prototype:
-
 ```TVMSolidity
 function afterSignatureCheck(TvmSlice body, TvmCell message) private inline returns (TvmSlice) {
     /*...*/
 }
 ```
 
-See example of how to define this function:
+**afterSignatureCheck** function is used to define custom replay protection function instead of the
+default one. Never call [tvm.commit()](#tvmcommit) or [tvm.accept()](#tvmaccept) in the function
+because the function can be called before calling constructor.
 
-* [Custom replay protection](https://github.com/tonlabs/samples/blob/master/solidity/14_CustomReplayProtection.sol)
+See example of how to define this function:
+ * [Custom replay protection](https://github.com/tonlabs/samples/blob/master/solidity/14_CustomReplayProtection.sol)
 
 ### Function specifiers
 
@@ -2171,13 +2188,14 @@ function sum(uint a, uint b) private inline returns (uint) {
 #### functionID()
 
 **functionID** keyword allows setting identifier of the function manually.
-Each public function has unique 32-bit id. If `functionID` is not used
-then function id is calculated as a hash of function signature.
+Each public function has unique 32-bit id. id==0 is reserved for [receive](#receive) function.
+If `functionID` is not used then function id is calculated as a hash of the function signature.
+In general, there is no need to set function id manually.
 
 Example:
 
 ```TVMSolidity
-function functionName() public pure functionID(123) {
+function f() public pure functionID(123) {
     /*...*/
 }
  ```
@@ -2269,7 +2287,7 @@ If callee function returns some value and marked as `responsible` then `callback
 This callback function will be called by another contract. Remote function will pass its return
 values as function arguments for the callback function. That's why types of return values of the
 callee function must be equal to function arguments of the callback function.  
-If function marked as `responsible` then field `_answer_id` appears in input parameters of the
+If function marked as `responsible` then field `answerId` appears in input parameters of the
 function in *abi.json file.
 
 Example of external calling of function which returns nothing:
@@ -2323,7 +2341,7 @@ contract Caller {
 {
     "name": "getCost",
     "inputs": [
-        {"name":"_answer_id","type":"uint32"},
+        {"name":"answerId","type":"uint32"},
         {"name":"x","type":"uint256"}
     ],
     "outputs": [
@@ -2337,16 +2355,40 @@ See also:
 and [4.1_CurrencyExchange.sol](https://github.com/tonlabs/samples/blob/master/solidity/4.1_CurrencyExchange.sol)
  * [return](#return)
 
-#### tvm.sendrawmsg()
+#### Synchronous calls
+
+TON Solidity compiler allows user to perform synchronous calls. To do it user should call remote contract
+function with `.await` suffix. Example:
 
 ```TVMSolidity
-tvm.sendrawmsg(TvmCell msg, uint8 flag);
+interface IContract {
+	function getNum(uint a) external responsible returns (uint) ;
+}
+
+contract Caller {
+	function call(address addr) public pure {
+		...
+		uint res = IContract(addr).getNum(123).await;
+		require(res == 124, 101);
+		...
+	}
+}
 ```
 
-Send the internal/external message `msg` with `flag`. It's wrapper for opcode
-`SENDRAWMSG` ([TVM][1] - A.11.10).
-Internal message `msg` can be generated by [tvm.buildIntMsg()](#tvmbuildintmsg).
-Possible values of `flag` are described here: [\<address\>.transfer()](#addresstransfer).
+When function `call` is called this code:
+1) Executes code before **await** call;
+2) Generates and sends internal message to **IContract** contract with address **addr**;
+3) Saves current state of the contract including continuation, that is currently executed;
+4) Waits for the answer from the remote contract;
+5) If an internal message is received from the required address, contract unpacks the state and continues function execution.
+
+Such await calls can be used everywhere in the code (e.g. inside a cycle), but be aware that usage of such
+constructions means that your contract function could possibly execute in more than one transaction. 
+Should be mentioned, that execution after the await call will spend money, that were attached to the responce
+message. It means, that for correct work the receiver contract should make an accept after the await call,
+or be sure that remote contract attaches enough currency for further execution.
+
+**Note**: This feature designed for usage in debots, in usual contracts use it at your own risk.
 
 ### Delete variables
 
@@ -2417,6 +2459,17 @@ require(b.refs() == 0);
 
 #### **msg** namespace
 
+##### msg.sender
+
+```TVMSolidity
+msg.sender returns (address);
+```
+
+Returns:
+ * sender of the message for internal message.
+ * address(0) for external message.
+ * address(0) for tick/tock transaction.
+
 ##### msg.value
 
 ```TVMSolidity
@@ -2426,7 +2479,7 @@ msg.value returns (uint128);
 Returns:
  * Balance of the inbound message in nanotons for internal message.
  * 0 for external message.
- * Undefined value for tick tock transaction.
+ * Undefined value for tick/tock transaction.
 
 ##### msg.currencies
 
@@ -2450,8 +2503,7 @@ does not contain `pubkey` then `msg.pubkey()` is equal to `tvm.pubkey()`.
 
 ##### msg.isInternal, msg.isExternal and msg.isTickTock
 
-Returns whether the contract is called by internal or external messages or by outbound messages of
-tick/tock transactions.
+Returns whether the contract is called by internal or external messages or by tick/tock transactions.
 
 ##### msg.createdAt
 
@@ -2493,9 +2545,9 @@ See example of how to use this function:
 tvm.commit();
 ```
 
-Creates "check point" of the state variables (by copying them from c7 to c4) and register c5.
-If contract throws an exception then state variables and register c5 will
-roll back to the "check point", and current transaction will be considered "successful".
+Creates a "check point" of the state variables (by copying them from c7 to c4) and register c5.
+If the contract throws an exception at the computing phase then the state variables and register c5
+will roll back to the "check point", and the computing phase will be considered "successful".
 If contract doesn't throw an exception, it has no effect.
 
 ##### tvm.rawCommit()
@@ -2509,6 +2561,23 @@ for opcode `COMMIT`. See [TVM][1].
 
 **Note**: Don't use `tvm.rawCommit()` after `tvm.accept()` in processing external messages because
 you don't save from c7 to c4 the hidden state variable `timestamp`, which is used for replay protection.
+
+##### tvm.getData()
+
+```TVMSolidity
+tvm.getData() returns (TvmCell);
+```
+
+It's an experimental function.
+
+A dual of the `tvm.setData()` returning value of c4 register. Getting a raw storage cell is useful when upgrading
+a new version of contract that introduces an altered data layout.
+
+Manipulation with a raw storage cell requires an understanding of the way the compiler layouts the data.
+Refer to the description of `tvm.setData()` below to get more details.
+
+**Note:** state variables and replay protection timestamp stored in data cell have the same values
+that were before the transaction. See [tvm.commit()](#tvmcommit) how to update register c4.
 
 ##### tvm.setData()
 
@@ -3243,9 +3312,8 @@ contract Test {
 ```
 
 External inbound message can also be built and sent with construction similar to remote contract
-call. It requires call option "extMsg" to be specified with constant true value and other options
-similar to `buildExtMsg` function call.  
-Note: this type of call should be used only offchain in debot contracts.
+call. It requires suffix ".extMsg" and call options similar to `buildExtMsg` function call.  
+**Note**: this type of call should be used only offchain in debot contracts.
 
 ```TVMSolidity
 interface Foo {
@@ -3256,14 +3324,14 @@ contract Test {
 
     function test7() public {
         address addr = address.makeAddrStd(0, 0x0123456789012345678901234567890123456789012345678901234567890123);
-        Foo(addr).bar{extMsg: true, expire: 0x12345, time: 0x123}(123, 45);
+        Foo(addr).bar{expire: 0x12345, time: 0x123}(123, 45).extMsg;
         optional(uint) pubkey;
         optional(uint32) signBox;
-        Foo(addr).bar{extMsg: true, expire: 0x12345, time: 0x123, pubkey: pubkey}(123, 45);
-        Foo(addr).bar{extMsg: true, expire: 0x12345, time: 0x123, pubkey: pubkey, sign: true}(123, 45);
+        Foo(addr).bar{expire: 0x12345, time: 0x123, pubkey: pubkey}(123, 45).extMsg;
+        Foo(addr).bar{expire: 0x12345, time: 0x123, pubkey: pubkey, sign: true}(123, 45).extMsg;
         pubkey.set(0x95c06aa743d1f9000dd64b75498f106af4b7e7444234d7de67ea26988f6181df);
-        Foo(addr).bar{extMsg: true, expire: 0x12345, time: 0x123, pubkey: pubkey, sign: true}(123, 45);
-        Foo(addr).bar{extMsg: true, expire: 0x12345, time: 0x123, sign: true, signBoxHandle: signBox}(123, 45);
+        Foo(addr).bar{expire: 0x12345, time: 0x123, pubkey: pubkey, sign: true}(123, 45).extMsg;
+        Foo(addr).bar{expire: 0x12345, time: 0x123, sign: true, signBoxHandle: signBox}(123, 45).extMsg;
     }
 }
 ```
@@ -3292,6 +3360,17 @@ described.
 See also:
  * sample [22_sender.sol](https://github.com/tonlabs/samples/blob/master/solidity/22_sender.sol)
  * [tvm.encodeBody()](#tvmencodebody)
+
+#### tvm.sendrawmsg()
+
+```TVMSolidity
+tvm.sendrawmsg(TvmCell msg, uint8 flag);
+```
+
+Send the internal/external message `msg` with `flag`. It's wrapper for opcode
+`SENDRAWMSG` ([TVM][1] - A.11.10).
+Internal message `msg` can be generated by [tvm.buildIntMsg()](#tvmbuildintmsg).
+Possible values of `flag` are described here: [\<address\>.transfer()](#addresstransfer).
 
 #### **math** namespace
 
@@ -3628,29 +3707,32 @@ Throws an exception if `wid` doesn't equal `0` and `-1`.
 Smart-contract written on solidity can throw runtime errors while execution.
 
 Solidity runtime error codes:
-* 40 - External inbound message has an invalid signature. See [tvm.pubkey()](#tvmpubkey) and [msg.pubkey()](#msgpubkey).
-* 50 - Array index or index of [\<mapping\>.at()](#mappingat) is out of range.
-* 51 - Calling of contract's constructor that has already been called.
-* 52 - Replay protection exception. See `timestamp` in [pragma AbiHeader](#pragma-abiheader).
-* 53 - See [\<address\>.unpack()](#addressunpack).
-* 54 - Calling `<array>.pop` for empty array.
-* 55 - See [tvm.insertPubkey()](#tvminsertpubkey).
-* 57 - External inbound message is expired. See `expire` in [pragma AbiHeader](#pragma-abiheader).
-* 58 - External inbound message has no signature but has public key. See `pubkey` in [pragma AbiHeader](#pragma-abiheader).
-* 60 - Inbound message has wrong function id. In contract there are no functions with such function id and there is no fallback function which could handle the message. See [fallback](#fallback).
-* 61 - Deploying `StateInit` has no public key in `data` field.
-* 62 - Reserved for internal usage.
-* 63 - See [\<optional(Type)\>.get()](#optionaltypeget).
-* 64 - `tvm.buildExtMSg()` call with wrong parameters. See [tvm.buildExtMsg()](#tvmbuildextmsg).
-* 65 - Calling of unassigned variable of function type. See [Function type](#function-type).
-* 66 - Converting an integer to a string with width less than number length. See [format()](#format).
-* 67 - See [gasToValue](#gastovalue) and [valueToGas](#valuetogas).
-* 68 - There is no config parameter 20 or 21.
-* 69 - Calculating zero to the power of zero (`0**0` in solidity style or `0^0`).
-* 70 - `string` method `substr` was called with substr longer than the whole string.
-* 71 - Function marked by `externalMsg` is called by internal message.
-* 72 - Function marked by `internalMsg` is called by external message.
-* 73 - The value can't be converted to enum type.
+* **40** - External inbound message has an invalid signature. See [tvm.pubkey()](#tvmpubkey) and [msg.pubkey()](#msgpubkey).
+* **50** - Array index or index of [\<mapping\>.at()](#mappingat) is out of range.
+* **51** - Calling of contract's constructor that has already been called.
+* **52** - Replay protection exception. See `timestamp` in [pragma AbiHeader](#pragma-abiheader).
+* **53** - See [\<address\>.unpack()](#addressunpack).
+* **54** - Calling `<array>.pop` for empty array.
+* **55** - See [tvm.insertPubkey()](#tvminsertpubkey).
+* **57** - External inbound message is expired. See `expire` in [pragma AbiHeader](#pragma-abiheader).
+* **58** - External inbound message has no signature but has public key. See `pubkey` in [pragma AbiHeader](#pragma-abiheader).
+* **60** - Inbound message has wrong function id. In contract there are no functions with such function id and there is no fallback function which could handle the message. See [fallback](#fallback).
+* **61** - Deploying `StateInit` has no public key in `data` field.
+* **62** - Reserved for internal usage.
+* **63** - See [\<optional(Type)\>.get()](#optionaltypeget).
+* **64** - `tvm.buildExtMSg()` call with wrong parameters. See [tvm.buildExtMsg()](#tvmbuildextmsg).
+* **65** - Calling of unassigned variable of function type. See [Function type](#function-type).
+* **66** - Converting an integer to a string with width less than number length. See [format()](#format).
+* **67** - See [gasToValue](#gastovalue) and [valueToGas](#valuetogas).
+* **68** - There is no config parameter 20 or 21.
+* **69** - Calculating zero to the power of zero (`0**0` in solidity style or `0^0`).
+* **70** - `string` method `substr` was called with substr longer than the whole string.
+* **71** - Function marked by `externalMsg` is called by internal message.
+* **72** - Function marked by `internalMsg` is called by external message.
+* **73** - The value can't be converted to enum type.
+* **74** - Await answer message has wrong source address.
+* **75** - Await answer message has wrong function id.
+* **76** - Public function was called before constructor.
 
 ### Division and rounding
 
