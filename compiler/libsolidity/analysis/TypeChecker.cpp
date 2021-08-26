@@ -3176,10 +3176,16 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				if (cat != Type::Category::StringLiteral) {
 					m_errorReporter.fatalTypeError(
 							arguments[0]->location(),
-							string("First parameter should be a literal string")
+							string("Expected string literal.")
 					);
 				}
 				auto lit = dynamic_cast<const Literal *>(arguments[0].get());
+				if (lit == nullptr) {
+					m_errorReporter.fatalTypeError(
+							arguments[0]->location(),
+							string("Expected string literal.")
+					);
+				}
 				std::string format = lit->value();
 				size_t placeholdersCnt = 0;
 				for (int i = 0; i < static_cast<int>(format.size()) - 1; i++) {
@@ -3949,9 +3955,9 @@ bool TypeChecker::visit(IndexAccess const& _access)
 		isLValue = false; // @todo this heavily depends on how it is embedded
 		break;
 	}
-	case Type::Category::TvmTuple:
+	case Type::Category::TvmVector:
 	{
-		TvmTupleType const& actualType = dynamic_cast<TvmTupleType const&>(*baseType);
+		TvmVectorType const& actualType = dynamic_cast<TvmVectorType const&>(*baseType);
 		if (!index)
 			m_errorReporter.typeError(_access.location(), "Index expression cannot be omitted.");
 		else

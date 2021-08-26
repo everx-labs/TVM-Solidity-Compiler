@@ -160,7 +160,7 @@ public:
 		Address, Integer, RationalNumber, StringLiteral, Bool, FixedPoint, Array, ArraySlice,
 		FixedBytes, Contract, Struct, Function, Enum, Tuple,
 		Mapping, TypeType, Modifier, Magic, Module,
-		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection, TvmTuple,
+		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection, TvmVector,
 		VarInteger, InitializerList, CallList, // <-- variables of that types can't be declared in solidity contract
 		Optional
 	};
@@ -645,17 +645,17 @@ public:
 /**
  * The TVM Tuple type.
  */
-class TvmTupleType: public Type
+class TvmVectorType: public Type
 {
 public:
-	TvmTupleType(Type const* _type):
+	TvmVectorType(Type const* _type):
 		m_type(_type) {}
 
-	Category category() const override { return Category::TvmTuple; }
+	Category category() const override { return Category::TvmVector; }
 	bool isValueType() const override { return true; }
-	std::string richIdentifier() const override { return "t_tvmtuple"; }
+	std::string richIdentifier() const override;
 	TypeResult unaryOperatorResult(Token _operator) const override;
-	std::string toString(bool) const override { return "TvmTuple"; }
+	std::string toString(bool) const override;
 
 	TypePointer encodingType() const override { return this; }
 	TypeResult interfaceType(bool) const override { return this; }
@@ -1218,8 +1218,11 @@ public:
 		BlockHash, ///< BLOCKHASH
 		AddMod, ///< ADDMOD
 		MulMod, ///< MULMOD
-		ValueToGas, ///< valueToGas
+
+		BitSize, ///< bitSize
 		GasToValue, ///< gasToValue
+		UBitSize, ///< uBitSize
+		ValueToGas, ///< valueToGas
 
 		MsgPubkey, ///< msg.pubkey()
 

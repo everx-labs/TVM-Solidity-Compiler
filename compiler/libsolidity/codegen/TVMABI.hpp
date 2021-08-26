@@ -24,7 +24,7 @@
 
 namespace solidity::frontend {
 
-class StackPusherHelper;
+class StackPusher;
 
 class TVMABI {
 public:
@@ -111,7 +111,7 @@ public:
 
 class ChainDataDecoder : private boost::noncopyable {
 public:
-	explicit ChainDataDecoder(StackPusherHelper *pusher);
+	explicit ChainDataDecoder(StackPusher *pusher);
 private:
 	int maxBits(bool hasCallback);
 	static int minBits(bool hasCallback);
@@ -132,7 +132,7 @@ private:
 	void loadq(const DecodePosition::Algo algo, const std::string& opcodeq, const std::string& opcode);
 	void decodeParameter(Type const* type, DecodePosition* position);
 private:
-	StackPusherHelper *pusher{};
+	StackPusher *pusher{};
 	bool fastLoad{};
 };
 
@@ -166,7 +166,7 @@ public:
 
 class ChainDataEncoder : private boost::noncopyable {
 public:
-	explicit ChainDataEncoder(StackPusherHelper *pusher) : pusher{pusher} {}
+	explicit ChainDataEncoder(StackPusher *pusher) : pusher{pusher} {}
 	void createDefaultConstructorMsgBodyAndAppendToBuilder(int bitSizeBuilder);
 	void createDefaultConstructorMessage2();
 
@@ -212,7 +212,7 @@ private:
 	std::string toStringForCalcFuncID(Type const * type);
 
 private:
-	StackPusherHelper *pusher{};
+	StackPusher *pusher{};
 };
 
 }	// solidity::frontend

@@ -13,7 +13,7 @@
 /**
  * @author TON Labs <connect@tonlabs.io>
  * @date 2021
- * Simulator of TVM execution
+ * Stack optimizer
  */
 
 #pragma once
@@ -21,22 +21,9 @@
 #include "TvmAstVisitor.hpp"
 
 namespace solidity::frontend {
-	class Simulator : public TvmAstVisitor {
+	class StackOptimizer : public TvmAstVisitor {
 	public:
-		explicit Simulator(
-			std::vector<Pointer<TvmAstNode>>::const_iterator _beg,
-			std::vector<Pointer<TvmAstNode>>::const_iterator _end,
-			int _startSize
-		) :
-			m_stackSize{_startSize}
-		{
-			run(_beg, _end);
-		}
-	private:
-		void run(const std::vector<Pointer<TvmAstNode>>::const_iterator _beg,
-				 const std::vector<Pointer<TvmAstNode>>::const_iterator _end);
-	public:
-		bool visit(AsymGen &_node) override;
+//		bool visit(AsymGen &_node) override;
 		bool visit(DeclRetFlag &_node) override;
 		bool visit(Opaque &_node) override;
 		bool visit(HardCode &_node) override;
@@ -56,30 +43,22 @@ namespace solidity::frontend {
 		bool visit(TvmRepeat &_node) override;
 		bool visit(TvmUntil &_node) override;
 		bool visit(While &_node) override;
-		bool visit(Contract &_node) override;
 		bool visit(Function &_node) override;
+		bool visit(Contract &_node) override;
 		void endVisit(CodeBlock &_node) override;
-
-		std::optional<Pointer<CodeBlock>> trySimulate(CodeBlock const& block, int begStackSize, int endStackSize);
-		bool isPopAndDrop(Pointer<TvmAstNode> const& a, Pointer<TvmAstNode> const& b);
-
-		bool success() const;
-		bool wasSet() const { return m_wasSet; }
-		std::vector<Pointer<TvmAstNode>> const& commands() const { return m_commands; }
-
 	protected:
 		bool visitNode(TvmAstNode const&) override;
 		void endVisitNode(TvmAstNode const&) override;
-
 	private:
-		bool m_wasSet{};
-		bool m_unableToConvertOpcode{};
-		bool m_isDropped{};
-		bool m_wasReturnBreakContinue{};
-
-		int m_stackSize{};
-		std::vector<Pointer<TvmAstNode>> m_commands;
+		bool successfullyUpdate(int index, std::vector<Pointer<TvmAstNode>>& instructions);
+		void initStack(int size);
+		void delta(int delta);
+		int size();
+		int scopeSize();
+		void startScope();
+		void endScope();
+	private:
+		std::vector<int> m_stackSize;
 	};
 } // end solidity::frontend
-
 

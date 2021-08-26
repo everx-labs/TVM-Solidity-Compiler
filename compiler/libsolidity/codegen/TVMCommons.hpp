@@ -424,5 +424,8 @@ std::set<CallableDeclaration const*> getAllBaseFunctions(CallableDeclaration con
 bool isLoc(Pointer<TvmAstNode> const& node);
 vector<string> split(const string &s, char sep = '\n');
 int strToInt(const std::string& str);
+int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>>::const_iterator beg,
+				  std::vector<Pointer<TvmAstNode>>::const_iterator end);
+int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>> const& arr);
 
 } // end solidity::frontend

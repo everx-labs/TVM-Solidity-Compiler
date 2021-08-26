@@ -1217,12 +1217,12 @@ private:
 };
 
 /**
- * A TVM tuple type. Its source form is "TvmTuple(Type)"
+ * A TVM tuple type. Its source form is "vector(Type)"
  */
-class TvmTuple: public TypeName
+class TvmVector: public TypeName
 {
 public:
-	TvmTuple(
+	TvmVector(
 			int64_t _id,
 			SourceLocation const& _location,
 			ASTPointer<TypeName> const& _type

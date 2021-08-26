@@ -124,4 +124,7 @@ namespace TvmConst {
 		inline std::string PrivateOpcode0() { return "F4A4_"; } // DICTPUSHCONST
 		inline std::string PrivateOpcode1() { return "F4A1"; } // DICTUGETJMP
 	}
+
+	const int IterStackOptQty = 10;
+	const int TvmTupleLen = 255;
 }

@@ -44,6 +44,10 @@ void Glob::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
 }
 
+void DeclRetFlag::accept(TvmAstVisitor& _visitor) {
+	_visitor.visit(*this);
+}
+
 void Opaque::accept(TvmAstVisitor& _visitor) {
 	if (_visitor.visit(*this))
 	{
@@ -87,7 +91,18 @@ std::string GenOpcode::fullOpcode() const {
 	return ret;
 }
 
-void ConFlowInst::accept(TvmAstVisitor& _visitor) {
+void TvmReturn::accept(TvmAstVisitor& _visitor) {
+	_visitor.visit(*this);
+}
+
+void ReturnOrBreakOrCont::accept(TvmAstVisitor& _visitor) {
+	if (_visitor.visit(*this))
+	{
+		m_body->accept(_visitor);
+	}
+}
+
+void TvmException::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
 }
 
@@ -102,28 +117,12 @@ void PushCellOrSlice::accept(TvmAstVisitor& _visitor) {
 
 std::string CodeBlock::toString(CodeBlock::Type t) {
 	switch (t) {
-		case CodeBlock::Type::None:
-			solUnimplemented("");
-			break;
-
-		case CodeBlock::Type::CALLREF:
-			return "CALLREF";
-		case CodeBlock::Type::IFREF:
-			return "IFREF";
 		case CodeBlock::Type::PUSHCONT:
 			return "PUSHCONT";
 		case CodeBlock::Type::PUSHREFCONT:
 			return "PUSHREFCONT";
-		case CodeBlock::Type::IFJMPREF:
-			return "IFJMPREF";
-		case CodeBlock::Type::IFNOTJMPREF:
-			return "IFNOTJMPREF";
-		case CodeBlock::Type::PUSHREF:
-			return "PUSHREF";
-		case CodeBlock::Type::IFNOTREF:
-			return "IFNOTREF";
-		case CodeBlock::Type::CALLX:
-			return "CALLX";
+		default:
+			solUnimplemented("");
 	}
 	solUnimplemented("");
 }
@@ -138,6 +137,28 @@ void CodeBlock::accept(TvmAstVisitor& _visitor) {
 	_visitor.endVisit(*this);
 }
 
+void SubProgram::accept(TvmAstVisitor &_visitor) {
+	if (_visitor.visit(*this))
+	{
+		m_block->accept(_visitor);
+	}
+}
+
+void TvmCondition::accept(TvmAstVisitor& _visitor) {
+	if (_visitor.visit(*this))
+	{
+		mTrueBody->accept(_visitor);
+		mFalseBody->accept(_visitor);
+	}
+}
+
+void LogCircuit::accept(TvmAstVisitor& _visitor) {
+	if (_visitor.visit(*this))
+	{
+		m_body->accept(_visitor);
+	}
+}
+
 void TvmIfElse::accept(TvmAstVisitor& _visitor) {
 	if (_visitor.visit(*this))
 	{
@@ -148,7 +169,14 @@ void TvmIfElse::accept(TvmAstVisitor& _visitor) {
 	}
 }
 
-void RepeatOrUntil::accept(TvmAstVisitor& _visitor) {
+void TvmRepeat::accept(TvmAstVisitor& _visitor) {
+	if (_visitor.visit(*this))
+	{
+		m_body->accept(_visitor);
+	}
+}
+
+void TvmUntil::accept(TvmAstVisitor& _visitor) {
 	if (_visitor.visit(*this))
 	{
 		m_body->accept(_visitor);
@@ -179,7 +207,7 @@ void Contract::accept(TvmAstVisitor& _visitor) {
 	}
 }
 
-const std::vector<Pointer<Function>>& Contract::functions() const {
+std::vector<Pointer<Function>>& Contract::functions() {
 	return m_functions;
 }
 
@@ -267,6 +295,8 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"BBITS", {1, 1}},
 		{"BDEPTH", {1, 1}},
 		{"BINDUMP", {1, 1}},
+		{"BITNOT", {1, 1}}, // pseudo opcode. Alias for NOT
+		{"BITSIZE", {1, 1}},
 		{"BLESS", {1, 1}},
 		{"BREFS", {1, 1}},
 		{"BREMBITS", {1, 1}},
@@ -293,13 +323,13 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"ISNULL", {1, 1}},
 		{"ISPOS", {1, 1}},
 		{"ISZERO", {1, 1}},
+		{"LAST", {1, 1}},
 		{"LESSINT", {1, 1}},
 		{"MODPOW2", {1, 1}},
 		{"MULCONST", {1, 1}},
 		{"NEGATE", {1, 1}},
 		{"NEQINT", {1, 1}},
 		{"NOT", {1, 1}},
-		{"BITNOT", {1, 1}}, // pseudo opcode. Alias for NOT
 		{"PARSEMSGADDR", {1, 1}},
 		{"PLDDICT", {1, 1}},
 		{"PLDI", {1, 1}},
@@ -321,6 +351,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"STZERO", {1, 1}},
 		{"THIRD", {1, 1}},
 		{"TLEN", {1, 1}},
+		{"UBITSIZE", {1, 1}},
 		{"UFITS", {1, 1}},
 
 		{"BBITREFS", {1, 2}},
@@ -449,68 +480,60 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 			opcode = createNode<GenOpcode>(cmd, 2, 1);
 		}
 	} else {
-		solUnimplemented("StackPusherHelper::push: " + cmd);
+		solUnimplemented("StackPusher::push: " + cmd);
 	}
 	solAssert(opcode != nullptr, "");
 	return opcode;
 }
 
-Pointer<Stack> make_DROP(int cnt) {
+Pointer<Stack> makeDROP(int cnt) {
 	solAssert(cnt >= 1, "");
 	return createNode<Stack>(Stack::Opcode::DROP, cnt);
 }
 
-Pointer<Stack> make_POP(int i) {
+Pointer<Stack> makePOP(int i) {
 	solAssert(i >= 1 && i <= 255, "");
 	return createNode<Stack>(Stack::Opcode::POP_S, i);
 }
 
-Pointer<Stack> make_BLKPUSH(int qty, int index) {
-	solAssert(qty >= 1 && qty <= 15, "");
+Pointer<Stack> makeBLKPUSH(int qty, int index) {
+	solAssert(qty >= 1, "");
 	solAssert(index >= 0 && index <= 15, "");
-	if (qty == 1) return make_PUSH(index);
+	if (qty == 1) return makePUSH(index);
 	return createNode<Stack>(Stack::Opcode::BLKPUSH, qty, index);
 }
 
-Pointer<Stack> make_PUSH(int i) {
+Pointer<Stack> makePUSH(int i) {
 	solAssert(0 <= i && i <= 255, "");
 	return createNode<Stack>(Stack::Opcode::PUSH_S, i);
 }
 
-Pointer<Stack> make_DUP2() {
-	return createNode<Stack>(Stack::Opcode::DUP2);
-}
-
-Pointer<Stack> make_PUSH2(int i, int j) {
+Pointer<Stack> makePUSH2(int i, int j) {
 	solAssert(0 <= i && i <= 15, "");
 	solAssert(0 <= j && j <= 15, "");
 	return createNode<Stack>(Stack::Opcode::PUSH2_S, i, j);
 }
 
-Pointer<Stack> make_PUSH3(int i, int j, int k) {
+Pointer<Stack> makePUSH3(int i, int j, int k) {
 	solAssert(0 <= i && i <= 15, "");
 	solAssert(0 <= j && j <= 15, "");
 	solAssert(0 <= k && k <= 15, "");
 	return createNode<Stack>(Stack::Opcode::PUSH3_S, i, j, k);
 }
 
-Pointer<Stack> make_OVER2() {
-	return createNode<Stack>(Stack::Opcode::OVER2);
+Pointer<TvmReturn> makeRET() {
+	return createNode<TvmReturn>(TvmReturn::Type::RET);
 }
 
-Pointer<ConFlowInst> make_RET() {
-	return createNode<ConFlowInst>("RET", 0, 0);
+Pointer<TvmReturn> makeIFRET() {
+	return createNode<TvmReturn>(TvmReturn::Type::IFRET);
 }
 
-Pointer<ConFlowInst> make_IFRET() {
-	return createNode<ConFlowInst>("IFRET", 1, 0);
+Pointer<TvmReturn> makeIFNOTRET() {
+	return createNode<TvmReturn>(TvmReturn::Type::IFNOTRET);
 }
 
-Pointer<ConFlowInst> make_IFNOTRET() {
-	return createNode<ConFlowInst>("IFNOTRET", 1, 0);
-}
-
-Pointer<ConFlowInst> make_THROW(const std::string& cmd) {
+Pointer<TvmException> makeTHROW(const std::string& cmd) {
 	std::string op;
 	std::string param;
 	{
@@ -522,61 +545,70 @@ Pointer<ConFlowInst> make_THROW(const std::string& cmd) {
 		return op == pattert;
 	};
 
-	Pointer<ConFlowInst> opcode;
-	if (f("THROW")) { opcode = createNode<ConFlowInst>(cmd, 0, 0); }
-	else if (f("THROWANY")) { opcode = createNode<ConFlowInst>(cmd, 1, 0); } // ??? it returns 2 params
-	else if (f("THROWANYIF")) { opcode = createNode<ConFlowInst>(cmd, 2, 0); }
-	else if (f("THROWANYIFNOT")) { opcode = createNode<ConFlowInst>(cmd, 2, 0); }
-	else if (f("THROWARG")) { opcode = createNode<ConFlowInst>(cmd, 1, 0); } // ??? it returns 2 params
-	else if (f("THROWARGANY")) { opcode = createNode<ConFlowInst>(cmd, 2, 0); }
-	else if (f("THROWARGANYIF")) { opcode = createNode<ConFlowInst>(cmd, 3, 0); }
-	else if (f("THROWARGANYIFNOT")) { opcode = createNode<ConFlowInst>(cmd, 3, 0); }
-	else if (f("THROWARGIF")) { opcode = createNode<ConFlowInst>(cmd, 2, 0); }
-	else if (f("THROWARGIFNOT")) { opcode = createNode<ConFlowInst>(cmd, 2, 0); }
-	else if (f("THROWIF")) { opcode = createNode<ConFlowInst>(cmd, 1, 0); }
-	else if (f("THROWIFNOT")) { opcode = createNode<ConFlowInst>(cmd, 1, 0); }
+	Pointer<TvmException> opcode;
+	if (f("THROW")) { opcode = createNode<TvmException>(cmd, 0, 0); }
+	else if (f("THROWANY")) { opcode = createNode<TvmException>(cmd, 1, 0); } // ??? it returns 2 params
+	else if (f("THROWANYIF")) { opcode = createNode<TvmException>(cmd, 2, 0); }
+	else if (f("THROWANYIFNOT")) { opcode = createNode<TvmException>(cmd, 2, 0); }
+	else if (f("THROWARG")) { opcode = createNode<TvmException>(cmd, 1, 0); } // ??? it returns 2 params
+	else if (f("THROWARGANY")) { opcode = createNode<TvmException>(cmd, 2, 0); }
+	else if (f("THROWARGANYIF")) { opcode = createNode<TvmException>(cmd, 3, 0); }
+	else if (f("THROWARGANYIFNOT")) { opcode = createNode<TvmException>(cmd, 3, 0); }
+	else if (f("THROWARGIF")) { opcode = createNode<TvmException>(cmd, 2, 0); }
+	else if (f("THROWARGIFNOT")) { opcode = createNode<TvmException>(cmd, 2, 0); }
+	else if (f("THROWIF")) { opcode = createNode<TvmException>(cmd, 1, 0); }
+	else if (f("THROWIFNOT")) { opcode = createNode<TvmException>(cmd, 1, 0); }
 	else  {
 		solUnimplemented("");
 	}
 	return opcode;
 }
 
-Pointer<Stack> make_XCH_S(int i) {
-	solAssert(i >= 1 && i <= 255, "");
-	return createNode<Stack>(Stack::Opcode::XCHG_S0, i);
+Pointer<Stack> makeXCH_S(int i) {
+	return makeXCH_S_S(0, i);
 }
 
-Pointer<Stack> make_XCH_S_S(int i, int j) {
-	return createNode<Stack>(Stack::Opcode::XCHG_S_S, i, j);
+Pointer<Stack> makeXCH_S_S(int i, int j) {
+	solAssert(i <= j, "");
+	return createNode<Stack>(Stack::Opcode::XCHG, i, j);
 }
 
-Pointer<Glob> make_setGlob(int i) {
+Pointer<Glob> makeSetGlob(int i) {
 	return createNode<Glob>(Glob::Opcode::SetOrSetVar, i);
 }
 
-Pointer<Stack> make_BLKDROP2(int droppedCount, int leftCount) {
-	solAssert(1 <= droppedCount && droppedCount <= 15, "");
-	solAssert(0 <= leftCount && leftCount <= 15, "");
+Pointer<Stack> makeBLKDROP2(int droppedCount, int leftCount) {
+	solAssert(1 <= droppedCount, "");
+	solAssert(0 <= leftCount, "");
 	if (leftCount == 1 && droppedCount == 1) {
 		return createNode<Stack>(Stack::Opcode::POP_S, 1);
+	}
+	if (leftCount == 0) {
+		return makeDROP(droppedCount);
 	}
 	return createNode<Stack>(Stack::Opcode::BLKDROP2, droppedCount, leftCount);
 }
 
-Pointer<PushCellOrSlice> make_PUSHREF(std::string const& data) {
+Pointer<PushCellOrSlice> makePUSHREF(std::string const& data) {
 	return createNode<PushCellOrSlice>(PushCellOrSlice::Type::PUSHREF, data, nullptr);
 }
 
-Pointer<Stack> make_reverse(int i, int j) {
+Pointer<Stack> makeREVERSE(int i, int j) {
+	solAssert(i >= 2, "");
+	solAssert(j >= 0, "");
 	return createNode<Stack>(Stack::Opcode::REVERSE, i, j);
 }
 
 Pointer<Stack> makeROT() {
-	return createNode<Stack>(Stack::Opcode::ROT);
+	return createNode<Stack>(Stack::Opcode::BLKSWAP, 1, 2);
 }
 
 Pointer<Stack> makeROTREV() {
-	return createNode<Stack>(Stack::Opcode::ROTREV);
+	return createNode<Stack>(Stack::Opcode::BLKSWAP, 2, 1);
+}
+
+Pointer<Stack> makeBLKSWAP(int down, int top) {
+	return createNode<Stack>(Stack::Opcode::BLKSWAP, down, top);
 }
 
 Pointer<TvmIfElse> makeRevert(TvmIfElse const& node) {
@@ -593,9 +625,98 @@ Pointer<TvmIfElse> makeRevert(TvmIfElse const& node) {
 			return createNode<TvmIfElse>(TvmIfElse::Type::IFELSE, node.falseBody(), node.trueBody());
 		case TvmIfElse::Type::IFELSE_WITH_JMP:
 			return createNode<TvmIfElse>(TvmIfElse::Type::IFELSE_WITH_JMP, node.falseBody(), node.trueBody());
+		case TvmIfElse::Type::IFREF:
+			return createNode<TvmIfElse>(TvmIfElse::Type::IFNOTREF, node.falseBody(), node.trueBody());
+		case TvmIfElse::Type::IFNOTREF:
+			return createNode<TvmIfElse>(TvmIfElse::Type::IFREF, node.falseBody(), node.trueBody());
+		case TvmIfElse::Type::IFJMPREF:
+			return createNode<TvmIfElse>(TvmIfElse::Type::IFNOTJMPREF, node.falseBody(), node.trueBody());
+		case TvmIfElse::Type::IFNOTJMPREF:
+			return createNode<TvmIfElse>(TvmIfElse::Type::IFJMPREF, node.falseBody(), node.trueBody());
 	}
 	solUnimplemented("");
 }
 
+Pointer<TvmCondition> makeRevertCond(TvmCondition const& node) {
+	return createNode<TvmCondition>(node.falseBody(), node.trueBody(), node.ret());
+}
+
+bool isPureGen01OrGetGlob(TvmAstNode const& node) {
+	if (auto gen = to<Gen>(&node)) {
+		return gen->isPure() && std::make_pair(gen->take(), gen->ret()) == std::make_pair(0, 1);
+	}
+	auto gl = to<Glob>(&node);
+	if (gl && gl->opcode() == Glob::Opcode::GetOrGetVar) {
+		return true;
+	}
+	return false;
+}
+
+bool isSWAP(Pointer<TvmAstNode> const& node) {
+	return isBLKSWAP(node) && isBLKSWAP(node).value() == std::make_pair(1, 1);
+}
+
+// down, top
+std::optional<std::pair<int, int>> isBLKSWAP(Pointer<TvmAstNode> const& node) {
+	auto stack = to<Stack>(node.get());
+	if (stack) {
+		int i = stack->i();
+		int j = stack->j();
+		switch (stack->opcode()) {
+			case Stack::Opcode::BLKSWAP:
+				return {{i, j}};
+				case Stack::Opcode::XCHG: {
+					if (i == 0 && j == 1)
+						return {{1, 1}};
+					break;
+				}
+				case Stack::Opcode::REVERSE: {
+					if (i == 2 && j == 0)
+						return {{1, 1}};
+					break;
+				}
+				default:
+					break;
+		}
+	}
+	return {};
+}
+
+std::optional<int> isDrop(Pointer<TvmAstNode> const& node) {
+	auto stack = to<Stack>(node.get());
+	if (!stack)
+		return {};
+	switch (stack->opcode()) {
+		case Stack::Opcode::DROP:
+			return stack->i();
+		default:
+			return {};
+	}
+	solUnimplemented("");
+}
+
+std::optional<int> isPOP(Pointer<TvmAstNode> const& node) {
+	auto stack = to<Stack>(node.get());
+	if (stack) {
+		switch (stack->opcode()) {
+		case Stack::Opcode::POP_S:
+			return {{stack->i()}};
+		case Stack::Opcode::BLKDROP2:
+			if (stack->i() == 1 && stack->j() == 1)
+				return {{1}};
+			break;
+		default:
+			break;
+		}
+	}
+	return {};
+}
+
+bool isXCHG(Pointer<TvmAstNode> const& node, int i, int j) {
+	auto cmd2Stack = to<Stack>(node.get());
+	return cmd2Stack && cmd2Stack->opcode() == Stack::Opcode::XCHG &&
+			cmd2Stack->i() == i &&
+			cmd2Stack->j() == j;
+}
 
 } // end solidity::frontend

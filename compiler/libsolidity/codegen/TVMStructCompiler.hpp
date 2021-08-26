@@ -25,14 +25,14 @@
 
 namespace solidity::frontend {
 
-class StackPusherHelper;
+class StackPusher;
 
 class StructCompiler : public boost::noncopyable {
 public:
-	StructCompiler(StackPusherHelper *pusher, TupleType const* tuple);
-	StructCompiler(StackPusherHelper *pusher, StructType const* structType);
+	StructCompiler(StackPusher *pusher, TupleType const* tuple);
+	StructCompiler(StackPusher *pusher, StructType const* structType);
 	StructCompiler(
-		StackPusherHelper *pusher,
+		StackPusher *pusher,
 		const std::vector<Type const*>& memberTypes,
 		const std::vector<std::string>& memberNames
 	);
@@ -50,7 +50,7 @@ private:
 private:
 	std::vector<std::string> memberNames;
 	std::vector<Type const*> memberTypes;
-	StackPusherHelper *pusher{};
+	StackPusher *pusher{};
 }; // end StructCompiler
 } // end solidity::frontend
 

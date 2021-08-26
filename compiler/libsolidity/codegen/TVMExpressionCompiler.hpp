@@ -24,7 +24,7 @@ namespace solidity::frontend {
 
 class TVMExpressionCompiler {
 public:
-	explicit TVMExpressionCompiler(StackPusherHelper &pusher);
+	explicit TVMExpressionCompiler(StackPusher &pusher);
 	void compileNewExpr(const Expression* expr);
 	void acceptExpr(const Expression* expr, bool _isResultNeeded);
 	static std::optional<bigint> constValue(Expression const& _e);
@@ -95,7 +95,7 @@ protected:
 	void pushIndexAndConvert(IndexAccess const& indexAccess);
 
 private:
-	StackPusherHelper &m_pusher;
+	StackPusher &m_pusher;
 	int m_expressionDepth{};
 	bool m_isResultNeeded{};
 };

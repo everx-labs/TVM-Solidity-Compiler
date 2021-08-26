@@ -4,7 +4,7 @@ CALL $insert_pubkey_macro$
 
 .macro insert_pubkey_macro
 .loc stdlib.sol, 14
-OVER
+SWAP
 CTOS
 .loc stdlib.sol, 15
 NEWC
@@ -44,13 +44,10 @@ PUSHCONT {
 	LDI 1
 	POP S4
 	.loc stdlib.sol, 30
-	PUSH S2
-	SWAP
-	PUSH S2
-	ROT
+	XCHG S1, S2
+	ROTREV
 	STI 1
 	STI 1
-	BLKDROP2 2, 1
 	.loc stdlib.sol, 0
 }
 PUSHCONT {
@@ -73,21 +70,21 @@ LDI 1
 POP S4
 PUSHCONT {
 	.loc stdlib.sol, 42
-	DROP
-	OVER
+	PUSH S2
 	LDREFRTOS
 	SWAP
-	POP S3
+	POP S4
 	.loc stdlib.sol, 43
 	LDDICT
-	.loc stdlib.sol, 0
 	DROP
+	NIP
+	.loc stdlib.sol, 0
 }
 IF
 .loc stdlib.sol, 45
 PUSHINT 0
 SWAP
-PUSH S4
+ROLL 4
 NEWC
 STU 256
 ROTREV
@@ -96,17 +93,13 @@ DICTUSETB
 .loc stdlib.sol, 46
 NEWC
 .loc stdlib.sol, 47
-DUP2
 STDICT
-NIP
 .loc stdlib.sol, 48
-PUSH S2
+OVER
 STSLICECONST 1
-POP S3
+POP S2
 .loc stdlib.sol, 49
-PUSH S2
-STBREF
-BLKDROP2 2, 1
+STBREFR
 .loc stdlib.sol, 53
 OVER
 LDDICT
@@ -114,12 +107,11 @@ POP S3
 SWAP
 STDICT
 .loc stdlib.sol, 55
-OVER
+SWAP
 SEMPTY
 THROWIFNOT 55
 .loc stdlib.sol, 57
 ENDC
-BLKDROP2 3, 1
 .loc stdlib.sol, 0
 
 .globl	replay_protection
@@ -151,15 +143,14 @@ CALL $__tonToGas_macro$
 
 .macro __tonToGas_macro
 .loc stdlib.sol, 67
-OVER
+SWAP
 PUSHINT 65536
-PUSH S2
+ROT
 CALLREF {
 	CALL $__gasGasPrice_macro$
 }
 MULDIV
 .loc stdlib.sol, 0
-BLKDROP2 2, 1
 
 .globl	__gasToTon
 .type	__gasToTon, @function
@@ -167,35 +158,30 @@ CALL $__gasToTon_macro$
 
 .macro __gasToTon_macro
 .loc stdlib.sol, 71
-DUP2
 CALLREF {
 	CALL $__gasGasPrice_macro$
 }
 PUSHINT 65536
 MULDIVC
 .loc stdlib.sol, 0
-BLKDROP2 2, 1
 
 .globl	__gasGasPrice
 .type	__gasGasPrice, @function
 CALL $__gasGasPrice_macro$
 
 .macro __gasGasPrice_macro
-.loc stdlib.sol, 74
-PUSHINT 0
 .loc stdlib.sol, 75
-OVER
+DUP
 EQINT 0
 DUP
 PUSHCONT {
 	DROP
-	OVER
+	DUP
 	EQINT -1
 }
 IFNOT
 THROWIFNOT 67
 .loc stdlib.sol, 76
-OVER
 PUSHCONT {
 	PUSHINT 20
 }
@@ -206,22 +192,17 @@ IFELSE
 CONFIGPARAM
 NULLSWAPIFNOT
 .loc stdlib.sol, 77
-DUP
 THROWIFNOT 68
 .loc stdlib.sol, 78
-OVER
 CTOS
 .loc stdlib.sol, 79
-DUP
 LDU 8
 LDU 64
 LDU 64
 LDU 8
 LDU 64
-POP S6
-REVERSE 5, 0
-BLKDROP 4
-BLKDROP2 5, 1
+DROP
+BLKDROP2 4, 1
 .loc stdlib.sol, 0
 
 .globl	__exp
@@ -281,7 +262,30 @@ PUSHCONT {
 	PUSHCONT {
 		.loc stdlib.sol, 101
 		PUSHINT 0
-		TPUSH
+		CALLREF {
+			SWAP
+			DUP
+			TLEN
+			PUSHCONT {
+				TPOP
+				DUP
+				TLEN
+				PUSHINT 255
+				SUB
+				PUSHCONT {
+					TPUSH
+					TUPLE 0
+				}
+				IFNOT
+			}
+			PUSHCONT {
+				TUPLE 0
+			}
+			IFELSE
+			ROT
+			TPUSH
+			TPUSH
+		}
 		.loc stdlib.sol, 0
 	}
 	IFNOTJMP
@@ -300,7 +304,30 @@ PUSHCONT {
 		POP S4
 		.loc stdlib.sol, 107
 		DUP2
-		TPUSH
+		CALLREF {
+			SWAP
+			DUP
+			TLEN
+			PUSHCONT {
+				TPOP
+				DUP
+				TLEN
+				PUSHINT 255
+				SUB
+				PUSHCONT {
+					TPUSH
+					TUPLE 0
+				}
+				IFNOT
+			}
+			PUSHCONT {
+				TUPLE 0
+			}
+			IFELSE
+			ROT
+			TPUSH
+			TPUSH
+		}
 		POP S2
 		.loc stdlib.sol, 0
 	}
@@ -318,17 +345,17 @@ CALL $convertIntToDecStr_short_macro$
 
 .macro convertIntToDecStr_short_macro
 .loc stdlib.sol, 112
-BLKPUSH 3, 2
+ROTREV
+PUSH S2
 ABS
 PUSHINT 0
 FALSE
-PUSH S5
+ROLL 5
 LESSINT 0
 CALLREF {
 	CALL $convertIntToDecStr_macro$
 }
 .loc stdlib.sol, 0
-BLKDROP2 3, 2
 
 .globl	convertIntToDecStr
 .type	convertIntToDecStr, @function
@@ -344,19 +371,42 @@ DUP
 PUSHCONT {
 	.loc stdlib.sol, 118
 	BLKPUSH 2, 6
-	TPUSH
+	CALLREF {
+		SWAP
+		DUP
+		TLEN
+		PUSHCONT {
+			TPOP
+			DUP
+			TLEN
+			PUSHINT 255
+			SUB
+			PUSHCONT {
+				TPUSH
+				TUPLE 0
+			}
+			IFNOT
+		}
+		PUSHCONT {
+			TUPLE 0
+		}
+		IFELSE
+		ROT
+		TPUSH
+		TPUSH
+	}
 	POP S7
 	.loc stdlib.sol, 119
-	DROP
 	NEWC
-	POP S5
+	POP S6
 	.loc stdlib.sol, 120
+	DROP
 	PUSHINT 127
 	.loc stdlib.sol, 0
 }
 IFNOT
 .loc stdlib.sol, 122
-PUSH S2
+ROT
 PUSHCONT {
 	PUSHINT 48
 }
@@ -365,12 +415,12 @@ PUSHCONT {
 }
 IFELSE
 .loc stdlib.sol, 123
-PUSH S2
+ROT
 PUSHCONT {
 	.loc stdlib.sol, 124
-	PUSH S6
+	PUSH S4
 	STSLICECONST x2d
-	POP S7
+	POP S5
 	.loc stdlib.sol, 0
 }
 IF
@@ -382,12 +432,35 @@ POP S2
 OVER
 PUSHCONT {
 	.loc stdlib.sol, 127
-	BLKPUSH 2, 7
-	TPUSH
-	POP S8
+	BLKPUSH 2, 5
+	CALLREF {
+		SWAP
+		DUP
+		TLEN
+		PUSHCONT {
+			TPOP
+			DUP
+			TLEN
+			PUSHINT 255
+			SUB
+			PUSHCONT {
+				TPUSH
+				TUPLE 0
+			}
+			IFNOT
+		}
+		PUSHCONT {
+			TUPLE 0
+		}
+		IFELSE
+		ROT
+		TPUSH
+		TPUSH
+	}
+	POP S6
 	.loc stdlib.sol, 128
 	NEWC
-	POP S7
+	POP S5
 	.loc stdlib.sol, 129
 	PUSHINT 127
 	POP S2
@@ -395,30 +468,47 @@ PUSHCONT {
 }
 IFNOT
 .loc stdlib.sol, 131
-PUSH S5
+ROLL 3
 PUSHINT 10
 CALLREF {
 	CALL $parseInteger_macro$
 }
 .loc stdlib.sol, 132
 DUP
-TLEN
+CALLREF {
+	DUP
+	TLEN
+	DUP
+	PUSHCONT {
+		DEC
+		PUSHINT 255
+		MUL
+		SWAP
+		LAST
+		TLEN
+		ADD
+	}
+	PUSHCONT {
+		NIP
+	}
+	IFELSE
+}
 .loc stdlib.sol, 133
-PUSH S6
+PUSH S4
 PUSHCONT {
 	.loc stdlib.sol, 134
-	PUSH2 S6, S0
+	PUSH2 S4, S0
 	LESS
 	DUP
 	PUSHCONT {
 		DROP
-		PUSH S6
+		PUSH S4
 		GTINT 127
 	}
 	IFNOT
 	THROWIF 66
 	.loc stdlib.sol, 136
-	PUSH2 S6, S0
+	PUSH2 S4, S0
 	SUB
 	.loc stdlib.sol, 137
 	PUSH2 S0, S4
@@ -428,9 +518,9 @@ PUSHCONT {
 		DUP
 		PUSHCONT {
 			.loc stdlib.sol, 139
-			PUSH2 S9, S3
+			PUSH2 S6, S3
 			STUR 8
-			POP S10
+			POP S7
 			.loc stdlib.sol, 0
 		}
 		REPEAT
@@ -442,12 +532,35 @@ PUSHCONT {
 		PUSH S4
 		PUSHCONT {
 			.loc stdlib.sol, 143
-			BLKPUSH 2, 10
-			TPUSH
-			POP S11
+			BLKPUSH 2, 7
+			CALLREF {
+				SWAP
+				DUP
+				TLEN
+				PUSHCONT {
+					TPOP
+					DUP
+					TLEN
+					PUSHINT 255
+					SUB
+					PUSHCONT {
+						TPUSH
+						TUPLE 0
+					}
+					IFNOT
+				}
+				PUSHCONT {
+					TUPLE 0
+				}
+				IFELSE
+				ROT
+				TPUSH
+				TPUSH
+			}
+			POP S8
 			.loc stdlib.sol, 144
 			NEWC
-			POP S10
+			POP S7
 			.loc stdlib.sol, 145
 			PUSHINT 127
 			POP S5
@@ -461,27 +574,50 @@ PUSHCONT {
 		PUSH S4
 		PUSHCONT {
 			.loc stdlib.sol, 149
-			PUSH2 S9, S3
+			PUSH2 S6, S3
 			STUR 8
-			POP S10
+			POP S7
 			.loc stdlib.sol, 0
 		}
 		REPEAT
 		.loc stdlib.sol, 151
-		BLKPUSH 2, 10
-		TPUSH
-		POP S11
+		BLKPUSH 2, 7
+		CALLREF {
+			SWAP
+			DUP
+			TLEN
+			PUSHCONT {
+				TPOP
+				DUP
+				TLEN
+				PUSHINT 255
+				SUB
+				PUSHCONT {
+					TPUSH
+					TUPLE 0
+				}
+				IFNOT
+			}
+			PUSHCONT {
+				TUPLE 0
+			}
+			IFELSE
+			ROT
+			TPUSH
+			TPUSH
+		}
+		POP S8
 		.loc stdlib.sol, 152
 		NEWC
-		POP S10
+		POP S7
 		.loc stdlib.sol, 153
 		PUSH2 S0, S4
 		SUB
 		PUSHCONT {
 			.loc stdlib.sol, 154
-			PUSH2 S9, S3
+			PUSH2 S6, S3
 			STUR 8
-			POP S10
+			POP S7
 			.loc stdlib.sol, 0
 		}
 		REPEAT
@@ -508,18 +644,29 @@ PUSHCONT {
 	PUSHCONT {
 		.loc stdlib.sol, 161
 		OVER
-		TPOP
-		SWAP
+		CALLREF {
+			TPOP
+			TPOP
+			ROTREV
+			DUP
+			TLEN
+			PUSHCONT {
+				TPUSH
+			}
+			PUSHCONT {
+				DROP
+			}
+			IFELSE
+		}
 		POP S3
 		.loc stdlib.sol, 162
-		PUSH S9
+		PUSH S6
 		PUSHINT 48
-		PUSH S2
+		ROT
 		ADD
 		STUR 8
-		POP S10
+		POP S6
 		.loc stdlib.sol, 0
-		DROP
 	}
 	REPEAT
 	.loc stdlib.sol, 0
@@ -530,52 +677,97 @@ PUSHCONT {
 	PUSHCONT {
 		.loc stdlib.sol, 166
 		OVER
-		TPOP
-		SWAP
+		CALLREF {
+			TPOP
+			TPOP
+			ROTREV
+			DUP
+			TLEN
+			PUSHCONT {
+				TPUSH
+			}
+			PUSHCONT {
+				DROP
+			}
+			IFELSE
+		}
 		POP S3
 		.loc stdlib.sol, 167
-		PUSH S9
+		PUSH S6
 		PUSHINT 48
-		PUSH S2
+		ROT
 		ADD
 		STUR 8
-		POP S10
+		POP S6
 		.loc stdlib.sol, 0
-		DROP
 	}
 	REPEAT
 	.loc stdlib.sol, 169
-	BLKPUSH 2, 9
-	TPUSH
-	POP S10
+	BLKPUSH 2, 6
+	CALLREF {
+		SWAP
+		DUP
+		TLEN
+		PUSHCONT {
+			TPOP
+			DUP
+			TLEN
+			PUSHINT 255
+			SUB
+			PUSHCONT {
+				TPUSH
+				TUPLE 0
+			}
+			IFNOT
+		}
+		PUSHCONT {
+			TUPLE 0
+		}
+		IFELSE
+		ROT
+		TPUSH
+		TPUSH
+	}
+	POP S7
 	.loc stdlib.sol, 170
 	NEWC
-	POP S9
+	POP S6
 	.loc stdlib.sol, 171
 	PUSH2 S0, S3
 	SUB
 	PUSHCONT {
 		.loc stdlib.sol, 172
 		OVER
-		TPOP
-		SWAP
+		CALLREF {
+			TPOP
+			TPOP
+			ROTREV
+			DUP
+			TLEN
+			PUSHCONT {
+				TPUSH
+			}
+			PUSHCONT {
+				DROP
+			}
+			IFELSE
+		}
 		POP S3
 		.loc stdlib.sol, 173
-		PUSH S9
+		PUSH S6
 		PUSHINT 48
-		PUSH S2
+		ROT
 		ADD
 		STUR 8
-		POP S10
+		POP S6
 		.loc stdlib.sol, 0
-		DROP
 	}
 	REPEAT
 	.loc stdlib.sol, 0
 }
 IFELSE
 .loc stdlib.sol, 177
-BLKDROP 8
+BLKDROP 5
 .loc stdlib.sol, 0
 
 .globl	convertAddressToHexString
@@ -584,47 +776,66 @@ CALL $convertAddressToHexString_macro$
 
 .macro convertAddressToHexString_macro
 .loc stdlib.sol, 181
-DUP
 REWRITESTDADDR
 .loc stdlib.sol, 182
-BLKPUSH 2, 4
-PUSH S3
+OVER2
+ROLL 3
 CALLREF {
 	CALL $convertIntToHexStr_short_macro$
 }
-POP S5
-POP S5
+POP S3
+POP S3
 .loc stdlib.sol, 183
-PUSH S3
+OVER
 BREMBITS
 .loc stdlib.sol, 184
-DUP
 GTINT 8
 PUSHCONT {
 	.loc stdlib.sol, 185
-	PUSH S4
+	OVER
 	STSLICECONST x3a
-	POP S5
+	POP S2
 	.loc stdlib.sol, 0
 }
 PUSHCONT {
 	.loc stdlib.sol, 187
-	BLKPUSH 2, 5
-	TPUSH
-	POP S6
+	BLKPUSH 2, 2
+	CALLREF {
+		SWAP
+		DUP
+		TLEN
+		PUSHCONT {
+			TPOP
+			DUP
+			TLEN
+			PUSHINT 255
+			SUB
+			PUSHCONT {
+				TPUSH
+				TUPLE 0
+			}
+			IFNOT
+		}
+		PUSHCONT {
+			TUPLE 0
+		}
+		IFELSE
+		ROT
+		TPUSH
+		TPUSH
+	}
+	POP S3
 	.loc stdlib.sol, 188
 	NEWC
-	POP S5
+	POP S2
 	.loc stdlib.sol, 189
-	PUSH S4
+	OVER
 	STSLICECONST x3a
-	POP S5
+	POP S2
 	.loc stdlib.sol, 0
 }
 IFELSE
 .loc stdlib.sol, 191
-BLKPUSH 2, 5
-PUSH S3
 PUSHINT 64
 TRUE
 TRUE
@@ -632,7 +843,6 @@ FALSE
 CALLREF {
 	CALL $convertIntToHexStr_macro$
 }
-BLKDROP2 6, 2
 .loc stdlib.sol, 0
 
 .globl	convertFixedPointToString
@@ -644,10 +854,8 @@ CALL $convertFixedPointToString_macro$
 OVER
 ABS
 .loc stdlib.sol, 196
-DUP
 PUSHINT 10
-PUSH S3
-DUP2
+PUSH3 S2, S0, S2
 OR
 THROWIFNOT 69
 CALLREF {
@@ -655,55 +863,77 @@ CALLREF {
 }
 DIVMOD
 .loc stdlib.sol, 197
-BLKPUSH 2, 6
-PUSH S3
+BLKPUSH 2, 5
+ROLL 3
 PUSHINT 0
 FALSE
-PUSH S9
+ROLL 7
 SGN
 LESSINT 0
 CALLREF {
 	CALL $convertIntToDecStr_macro$
 }
-POP S7
-POP S7
+POP S4
+POP S4
 .loc stdlib.sol, 198
-PUSH S5
+PUSH S2
 BREMBITS
 .loc stdlib.sol, 199
-DUP
 GTINT 8
 PUSHCONT {
 	.loc stdlib.sol, 200
-	PUSH S6
+	PUSH S2
 	STSLICECONST x2e
-	POP S7
+	POP S3
 	.loc stdlib.sol, 0
 }
 PUSHCONT {
 	.loc stdlib.sol, 202
-	BLKPUSH 2, 7
-	TPUSH
-	POP S8
+	OVER2
+	CALLREF {
+		SWAP
+		DUP
+		TLEN
+		PUSHCONT {
+			TPOP
+			DUP
+			TLEN
+			PUSHINT 255
+			SUB
+			PUSHCONT {
+				TPUSH
+				TUPLE 0
+			}
+			IFNOT
+		}
+		PUSHCONT {
+			TUPLE 0
+		}
+		IFELSE
+		ROT
+		TPUSH
+		TPUSH
+	}
+	POP S4
 	.loc stdlib.sol, 203
 	NEWC
-	POP S7
+	POP S3
 	.loc stdlib.sol, 204
-	PUSH S6
+	PUSH S2
 	STSLICECONST x2e
-	POP S7
+	POP S3
 	.loc stdlib.sol, 0
 }
 IFELSE
 .loc stdlib.sol, 206
-BLKPUSH 2, 7
-PUSH2 S3, S6
+SWAP2
+ROT
+ROLL 3
 TRUE
 FALSE
 CALLREF {
 	CALL $convertIntToDecStr_macro$
 }
-BLKDROP2 8, 2
 .loc stdlib.sol, 0
 
 .globl	convertIntToHexStr_short
@@ -712,18 +942,18 @@ CALL $convertIntToHexStr_short_macro$
 
 .macro convertIntToHexStr_short_macro
 .loc stdlib.sol, 210
-BLKPUSH 3, 2
+ROTREV
+PUSH S2
 ABS
 PUSHINT 0
 FALSE
 TRUE
-PUSH S6
+ROLL 6
 LESSINT 0
 CALLREF {
 	CALL $convertIntToHexStr_macro$
 }
 .loc stdlib.sol, 0
-BLKDROP2 3, 2
 
 .globl	convertIntToHexStr
 .type	convertIntToHexStr, @function
@@ -739,19 +969,42 @@ DUP
 PUSHCONT {
 	.loc stdlib.sol, 216
 	BLKPUSH 2, 7
-	TPUSH
+	CALLREF {
+		SWAP
+		DUP
+		TLEN
+		PUSHCONT {
+			TPOP
+			DUP
+			TLEN
+			PUSHINT 255
+			SUB
+			PUSHCONT {
+				TPUSH
+				TUPLE 0
+			}
+			IFNOT
+		}
+		PUSHCONT {
+			TUPLE 0
+		}
+		IFELSE
+		ROT
+		TPUSH
+		TPUSH
+	}
 	POP S8
 	.loc stdlib.sol, 217
-	DROP
 	NEWC
-	POP S6
+	POP S7
 	.loc stdlib.sol, 218
+	DROP
 	PUSHINT 127
 	.loc stdlib.sol, 0
 }
 IFNOT
 .loc stdlib.sol, 220
-PUSH S3
+ROLL 3
 PUSHCONT {
 	PUSHINT 48
 }
@@ -760,12 +1013,12 @@ PUSHCONT {
 }
 IFELSE
 .loc stdlib.sol, 221
-PUSH S2
+ROT
 PUSHCONT {
 	.loc stdlib.sol, 222
-	PUSH S7
+	PUSH S5
 	STSLICECONST x2d
-	POP S8
+	POP S6
 	.loc stdlib.sol, 0
 }
 IF
@@ -777,12 +1030,35 @@ POP S2
 OVER
 PUSHCONT {
 	.loc stdlib.sol, 225
-	BLKPUSH 2, 8
-	TPUSH
-	POP S9
+	BLKPUSH 2, 6
+	CALLREF {
+		SWAP
+		DUP
+		TLEN
+		PUSHCONT {
+			TPOP
+			DUP
+			TLEN
+			PUSHINT 255
+			SUB
+			PUSHCONT {
+				TPUSH
+				TUPLE 0
+			}
+			IFNOT
+		}
+		PUSHCONT {
+			TUPLE 0
+		}
+		IFELSE
+		ROT
+		TPUSH
+		TPUSH
+	}
+	POP S7
 	.loc stdlib.sol, 226
 	NEWC
-	POP S8
+	POP S6
 	.loc stdlib.sol, 227
 	PUSHINT 127
 	POP S2
@@ -790,30 +1066,47 @@ PUSHCONT {
 }
 IFNOT
 .loc stdlib.sol, 229
-PUSH S6
+ROLL 4
 PUSHINT 16
 CALLREF {
 	CALL $parseInteger_macro$
 }
 .loc stdlib.sol, 230
 DUP
-TLEN
+CALLREF {
+	DUP
+	TLEN
+	DUP
+	PUSHCONT {
+		DEC
+		PUSHINT 255
+		MUL
+		SWAP
+		LAST
+		TLEN
+		ADD
+	}
+	PUSHCONT {
+		NIP
+	}
+	IFELSE
+}
 .loc stdlib.sol, 232
-PUSH S7
+PUSH S5
 PUSHCONT {
 	.loc stdlib.sol, 233
-	PUSH2 S7, S0
+	PUSH2 S5, S0
 	LESS
 	DUP
 	PUSHCONT {
 		DROP
-		PUSH S7
+		PUSH S5
 		GTINT 127
 	}
 	IFNOT
 	THROWIF 69
 	.loc stdlib.sol, 235
-	PUSH2 S7, S0
+	PUSH2 S5, S0
 	SUB
 	.loc stdlib.sol, 236
 	PUSH2 S0, S4
@@ -823,9 +1116,9 @@ PUSHCONT {
 		DUP
 		PUSHCONT {
 			.loc stdlib.sol, 238
-			PUSH2 S10, S3
+			PUSH2 S7, S3
 			STUR 8
-			POP S11
+			POP S8
 			.loc stdlib.sol, 0
 		}
 		REPEAT
@@ -837,12 +1130,35 @@ PUSHCONT {
 		PUSH S4
 		PUSHCONT {
 			.loc stdlib.sol, 242
-			BLKPUSH 2, 11
-			TPUSH
-			POP S12
+			BLKPUSH 2, 8
+			CALLREF {
+				SWAP
+				DUP
+				TLEN
+				PUSHCONT {
+					TPOP
+					DUP
+					TLEN
+					PUSHINT 255
+					SUB
+					PUSHCONT {
+						TPUSH
+						TUPLE 0
+					}
+					IFNOT
+				}
+				PUSHCONT {
+					TUPLE 0
+				}
+				IFELSE
+				ROT
+				TPUSH
+				TPUSH
+			}
+			POP S9
 			.loc stdlib.sol, 243
 			NEWC
-			POP S11
+			POP S8
 			.loc stdlib.sol, 244
 			PUSHINT 127
 			POP S5
@@ -856,27 +1172,50 @@ PUSHCONT {
 		PUSH S4
 		PUSHCONT {
 			.loc stdlib.sol, 248
-			PUSH2 S10, S3
+			PUSH2 S7, S3
 			STUR 8
-			POP S11
+			POP S8
 			.loc stdlib.sol, 0
 		}
 		REPEAT
 		.loc stdlib.sol, 250
-		BLKPUSH 2, 11
-		TPUSH
-		POP S12
+		BLKPUSH 2, 8
+		CALLREF {
+			SWAP
+			DUP
+			TLEN
+			PUSHCONT {
+				TPOP
+				DUP
+				TLEN
+				PUSHINT 255
+				SUB
+				PUSHCONT {
+					TPUSH
+					TUPLE 0
+				}
+				IFNOT
+			}
+			PUSHCONT {
+				TUPLE 0
+			}
+			IFELSE
+			ROT
+			TPUSH
+			TPUSH
+		}
+		POP S9
 		.loc stdlib.sol, 251
 		NEWC
-		POP S11
+		POP S8
 		.loc stdlib.sol, 252
 		PUSH2 S0, S4
 		SUB
 		PUSHCONT {
 			.loc stdlib.sol, 253
-			PUSH2 S10, S3
+			PUSH2 S7, S3
 			STUR 8
-			POP S11
+			POP S8
 			.loc stdlib.sol, 0
 		}
 		REPEAT
@@ -903,25 +1242,37 @@ PUSHCONT {
 	PUSHCONT {
 		.loc stdlib.sol, 260
 		OVER
-		TPOP
-		SWAP
+		CALLREF {
+			TPOP
+			TPOP
+			ROTREV
+			DUP
+			TLEN
+			PUSHCONT {
+				TPUSH
+			}
+			PUSHCONT {
+				DROP
+			}
+			IFELSE
+		}
 		POP S3
 		.loc stdlib.sol, 261
 		DUP
 		LESSINT 10
 		PUSHCONT {
 			.loc stdlib.sol, 262
-			PUSH S10
+			PUSH S7
 			PUSHINT 48
 			PUSH S2
 			ADD
 			STUR 8
-			POP S11
+			POP S8
 			.loc stdlib.sol, 0
 		}
 		PUSHCONT {
 			.loc stdlib.sol, 264
-			PUSH2 S10, S6
+			PUSH2 S7, S5
 			PUSHCONT {
 				PUSHINT 87
 			}
@@ -932,7 +1283,7 @@ PUSHCONT {
 			PUSH S2
 			ADD
 			STUR 8
-			POP S11
+			POP S8
 			.loc stdlib.sol, 0
 		}
 		IFELSE
@@ -948,25 +1299,37 @@ PUSHCONT {
 	PUSHCONT {
 		.loc stdlib.sol, 268
 		OVER
-		TPOP
-		SWAP
+		CALLREF {
+			TPOP
+			TPOP
+			ROTREV
+			DUP
+			TLEN
+			PUSHCONT {
+				TPUSH
+			}
+			PUSHCONT {
+				DROP
+			}
+			IFELSE
+		}
 		POP S3
 		.loc stdlib.sol, 269
 		DUP
 		LESSINT 10
 		PUSHCONT {
 			.loc stdlib.sol, 270
-			PUSH S10
+			PUSH S7
 			PUSHINT 48
 			PUSH S2
 			ADD
 			STUR 8
-			POP S11
+			POP S8
 			.loc stdlib.sol, 0
 		}
 		PUSHCONT {
 			.loc stdlib.sol, 272
-			PUSH2 S10, S6
+			PUSH2 S7, S5
 			PUSHCONT {
 				PUSHINT 87
 			}
@@ -977,7 +1340,7 @@ PUSHCONT {
 			PUSH S2
 			ADD
 			STUR 8
-			POP S11
+			POP S8
 			.loc stdlib.sol, 0
 		}
 		IFELSE
@@ -986,37 +1349,72 @@ PUSHCONT {
 	}
 	REPEAT
 	.loc stdlib.sol, 274
-	BLKPUSH 2, 10
-	TPUSH
-	POP S11
+	BLKPUSH 2, 7
+	CALLREF {
+		SWAP
+		DUP
+		TLEN
+		PUSHCONT {
+			TPOP
+			DUP
+			TLEN
+			PUSHINT 255
+			SUB
+			PUSHCONT {
+				TPUSH
+				TUPLE 0
+			}
+			IFNOT
+		}
+		PUSHCONT {
+			TUPLE 0
+		}
+		IFELSE
+		ROT
+		TPUSH
+		TPUSH
+	}
+	POP S8
 	.loc stdlib.sol, 275
 	NEWC
-	POP S10
+	POP S7
 	.loc stdlib.sol, 276
 	PUSH2 S0, S3
 	SUB
 	PUSHCONT {
 		.loc stdlib.sol, 277
 		OVER
-		TPOP
-		SWAP
+		CALLREF {
+			TPOP
+			TPOP
+			ROTREV
+			DUP
+			TLEN
+			PUSHCONT {
+				TPUSH
+			}
+			PUSHCONT {
+				DROP
+			}
+			IFELSE
+		}
 		POP S3
 		.loc stdlib.sol, 278
 		DUP
 		LESSINT 10
 		PUSHCONT {
 			.loc stdlib.sol, 279
-			PUSH S10
+			PUSH S7
 			PUSHINT 48
 			PUSH S2
 			ADD
 			STUR 8
-			POP S11
+			POP S8
 			.loc stdlib.sol, 0
 		}
 		PUSHCONT {
 			.loc stdlib.sol, 281
-			PUSH2 S10, S6
+			PUSH2 S7, S5
 			PUSHCONT {
 				PUSHINT 87
 			}
@@ -1027,7 +1425,7 @@ PUSHCONT {
 			PUSH S2
 			ADD
 			STUR 8
-			POP S11
+			POP S8
 			.loc stdlib.sol, 0
 		}
 		IFELSE
@@ -1039,7 +1437,7 @@ PUSHCONT {
 }
 IFELSE
 .loc stdlib.sol, 284
-BLKDROP 9
+BLKDROP 6
 .loc stdlib.sol, 0
 
 .globl	storeStringInBuilders
@@ -1067,42 +1465,65 @@ PUSHCONT {
 }
 IF
 .loc stdlib.sol, 292
-PUSH2 S1, S2
+DROP
+OVER
 LEQ
 .loc stdlib.sol, 293
-DUP
 PUSHCONT {
 	.loc stdlib.sol, 294
-	PUSH2 S4, S5
+	PUSH2 S1, S2
 	STSLICE
-	POP S6
+	POP S3
 	.loc stdlib.sol, 0
 }
 PUSHCONT {
 	.loc stdlib.sol, 296
-	BLKPUSH 2, 4
+	DUP2
 	LDSLICEX
-	POP S6
+	POP S3
 	.loc stdlib.sol, 297
-	PUSH S6
+	PUSH S3
 	STSLICE
-	POP S6
+	POP S3
 	.loc stdlib.sol, 298
-	BLKPUSH 2, 6
-	TPUSH
-	POP S7
+	OVER2
+	CALLREF {
+		SWAP
+		DUP
+		TLEN
+		PUSHCONT {
+			TPOP
+			DUP
+			TLEN
+			PUSHINT 255
+			SUB
+			PUSHCONT {
+				TPUSH
+				TUPLE 0
+			}
+			IFNOT
+		}
+		PUSHCONT {
+			TUPLE 0
+		}
+		IFELSE
+		ROT
+		TPUSH
+		TPUSH
+	}
+	POP S4
 	.loc stdlib.sol, 299
 	NEWC
-	POP S6
+	POP S3
 	.loc stdlib.sol, 300
-	PUSH2 S4, S5
+	PUSH2 S1, S2
 	STSLICE
-	POP S6
+	POP S3
 	.loc stdlib.sol, 0
 }
 IFELSE
 .loc stdlib.sol, 302
-BLKDROP 5
+DROP2
 .loc stdlib.sol, 0
 
 .globl	assembleList
@@ -1120,8 +1541,20 @@ PUSHCONT {
 PUSHCONT {
 	.loc stdlib.sol, 307
 	OVER
-	TPOP
-	SWAP
+	CALLREF {
+		TPOP
+		TPOP
+		ROTREV
+		DUP
+		TLEN
+		PUSHCONT {
+			TPUSH
+		}
+		PUSHCONT {
+			DROP
+		}
+		IFELSE
+	}
 	POP S3
 	.loc stdlib.sol, 308
 	STBREF
@@ -1140,7 +1573,7 @@ CALL $__stoi_macro$
 .macro __stoi_macro
 .loc stdlib.sol, 314
 PUSHINT 0
-PUSHINT 0
+DUP
 PUSHCONT {
 	.loc stdlib.sol, 315
 	PUSH S2
@@ -1151,10 +1584,9 @@ PUSHCONT {
 	LESSINT 8
 	PUSHCONT {
 		.loc stdlib.sol, 317
-		DROP
+		BLKDROP 3
 		PUSHINT 0
 		FALSE
-		BLKDROP2 2, 2
 		.loc stdlib.sol, 0
 	}
 	IFJMP
@@ -1210,7 +1642,7 @@ PUSHCONT {
 	}
 	IF
 	.loc stdlib.sol, 330
-	PUSH S3
+	ROLL 3
 	EQINT 48
 	DUP
 	PUSHCONT {
@@ -1223,9 +1655,9 @@ PUSHCONT {
 	PUSH S3
 	PUSHCONT {
 		.loc stdlib.sol, 333
-		PUSH S6
+		PUSH S5
 		LDU 8
-		POP S8
+		POP S7
 		DROP
 		.loc stdlib.sol, 0
 	}
@@ -1234,10 +1666,10 @@ PUSHCONT {
 	DUP
 	PUSHCONT {
 		.loc stdlib.sol, 335
-		PUSH S6
+		PUSH S5
 		LDU 8
 		LDU 8
-		POP S9
+		POP S8
 		DROP2
 		.loc stdlib.sol, 0
 	}
@@ -1247,19 +1679,19 @@ PUSHCONT {
 	.loc stdlib.sol, 338
 	TRUE
 	.loc stdlib.sol, 340
-	PUSH S8
+	PUSH S7
 	SBITS
 	RSHIFT 3
 	.loc stdlib.sol, 342
-	PUSH S3
+	ROLL 3
 	PUSHCONT {
 		.loc stdlib.sol, 343
 		DUP
 		PUSHCONT {
 			.loc stdlib.sol, 344
-			PUSH S9
+			PUSH S7
 			LDU 8
-			POP S11
+			POP S9
 			.loc stdlib.sol, 345
 			PUSH S3
 			MULCONST 16
@@ -1343,9 +1775,9 @@ PUSHCONT {
 		DUP
 		PUSHCONT {
 			.loc stdlib.sol, 358
-			PUSH S9
+			PUSH S7
 			LDU 8
-			POP S11
+			POP S9
 			.loc stdlib.sol, 359
 			DUP
 			LESSINT 48
@@ -1379,7 +1811,7 @@ PUSHCONT {
 	}
 	IFELSE
 	.loc stdlib.sol, 365
-	PUSH S6
+	ROLL 5
 	PUSHCONT {
 		.loc stdlib.sol, 366
 		PUSH S2
@@ -1389,8 +1821,8 @@ PUSHCONT {
 	}
 	IF
 	.loc stdlib.sol, 367
-	BLKPUSH 2, 2
-	BLKDROP2 12, 2
+	ROTREV
+	BLKDROP2 7, 2
 	.loc stdlib.sol, 314
 }
 CALLX
@@ -1405,7 +1837,7 @@ CALL $strToList_macro$
 .loc stdlib.sol, 371
 TUPLE 0
 .loc stdlib.sol, 372
-OVER
+SWAP
 CTOS
 .loc stdlib.sol, 373
 PUSHCONT {
@@ -1417,8 +1849,7 @@ PUSHCONT {
 	.loc stdlib.sol, 374
 	DUP
 	LDREFRTOS
-	SWAP
-	POP S2
+	BLKDROP2 1, 2
 	.loc stdlib.sol, 375
 	SWAP
 	NEWC
@@ -1427,7 +1858,30 @@ PUSHCONT {
 	.loc stdlib.sol, 377
 	PUSH S2
 	SWAP
-	TPUSH
+	CALLREF {
+		SWAP
+		DUP
+		TLEN
+		PUSHCONT {
+			TPOP
+			DUP
+			TLEN
+			PUSHINT 255
+			SUB
+			PUSHCONT {
+				TPUSH
+				TUPLE 0
+			}
+			IFNOT
+		}
+		PUSHCONT {
+			TUPLE 0
+		}
+		IFELSE
+		ROT
+		TPUSH
+		TPUSH
+	}
 	POP S2
 	.loc stdlib.sol, 0
 }
@@ -1435,13 +1889,7 @@ WHILE
 .loc stdlib.sol, 380
 NEWC
 .loc stdlib.sol, 381
-DUP2
 STSLICE
-NIP
-.loc stdlib.sol, 382
-PUSH S2
-SWAP
-BLKDROP2 3, 2
 .loc stdlib.sol, 0
 
 .globl	bytes_substr
@@ -1456,29 +1904,29 @@ PUSHREF {
 PUSH S4
 PUSHINT 4294967295
 CDATASIZE
+DROP
+NIP
 .loc stdlib.sol, 387
-OVER
 RSHIFT 3
-POP S2
 .loc stdlib.sol, 388
-PUSH S4
+ROT
 PUSHCONT {
 	.loc stdlib.sol, 389
-	OVER
+	DUP
 	FITS 256
-	POP S6
+	POP S3
 	.loc stdlib.sol, 0
 }
 PUSHCONT {
-	PUSH S5
+	PUSH S2
 	LESSINT 0
 	PUSHCONT {
 		.loc stdlib.sol, 391
-		OVER
+		DUP
 		FITS 256
-		PUSH S6
+		PUSH S3
 		ADD
-		POP S6
+		POP S3
 		.loc stdlib.sol, 0
 	}
 	IF
@@ -1486,122 +1934,24 @@ PUSHCONT {
 }
 IFELSE
 .loc stdlib.sol, 392
-PUSH S5
+PUSH S2
 UFITS 256
-PUSH S7
+PUSH S4
 GREATER
 THROWIFNOT 70
 .loc stdlib.sol, 393
-PUSH S5
+ROT
 UFITS 256
-PUSH S7
+PUSH S3
 SUB
 .loc stdlib.sol, 394
-BLKPUSH 2, 8
-PUSH S2
-PUSHREF {
-}
-.loc stdlib.sol, 407
-PUSH S2
-PUSHINT 127
-DIVMOD
-.loc stdlib.sol, 408
-PUSH S5
-CTOS
-.loc stdlib.sol, 409
-PUSH S2
-PUSHCONT {
-	.loc stdlib.sol, 410
-	DUP
-	LDREFRTOS
-	SWAP
-	POP S2
-	NIP
-	.loc stdlib.sol, 0
-}
-REPEAT
-.loc stdlib.sol, 412
-OVER
-MULCONST 8
-SDSKIPFIRST
-.loc stdlib.sol, 413
-TUPLE 0
-.loc stdlib.sol, 414
-NEWC
-.loc stdlib.sol, 415
-PUSHCONT {
-	PUSH S6
-	NEQINT 0
-}
-PUSHCONT {
-	.loc stdlib.sol, 416
-	PUSH2 S6, S2
-	SBITS
-	RSHIFT 3
-	PUSH S2
-	BREMBITS
-	RSHIFT 3
-	MIN
-	MIN
-	.loc stdlib.sol, 417
-	PUSH3 S1, S3, S0
-	LSHIFT 3
-	UFITS 16
-	LDSLICEX
-	POP S6
-	SWAP
-	STSLICE
-	POP S2
-	.loc stdlib.sol, 418
-	PUSH2 S7, S0
-	SUB
-	POP S8
-	.loc stdlib.sol, 419
-	PUSH S7
-	PUSHCONT {
-		.loc stdlib.sol, 420
-		PUSH S3
-		SBITS
-		PUSHCONT {
-			.loc stdlib.sol, 421
-			PUSH S3
-			LDREFRTOS
-			SWAP
-			POP S5
-			POP S4
-			.loc stdlib.sol, 0
-		}
-		IFNOT
-		.loc stdlib.sol, 423
-		OVER
-		BREMBITS
-		LESSINT 8
-		PUSHCONT {
-			.loc stdlib.sol, 424
-			BLKPUSH 2, 2
-			TPUSH
-			POP S3
-			.loc stdlib.sol, 425
-			NEWC
-			POP S2
-			.loc stdlib.sol, 0
-		}
-		IF
-		.loc stdlib.sol, 0
-	}
-	IF
-	.loc stdlib.sol, 0
-	DROP
-}
-WHILE
-.loc stdlib.sol, 429
-DUP2
+BLKSWAP 2, 3
+ROT
 CALLREF {
-	CALL $assembleList_macro$
+	CALL $__subCell_macro$
 }
-BLKDROP2 14, 1
+BLKDROP2 2, 1
 .loc stdlib.sol, 0
-BLKDROP2 4, 1
 
 .globl	__substr
 .type	__substr, @function
@@ -1615,57 +1965,65 @@ PUSHREF {
 PUSH S3
 PUSHINT 4294967295
 CDATASIZE
+DROP
+NIP
 .loc stdlib.sol, 399
-OVER
 RSHIFT 3
-POP S2
 .loc stdlib.sol, 400
-PUSH S4
+PUSH S2
 EQINT -1
 PUSHCONT {
 	.loc stdlib.sol, 401
-	PUSH2 S1, S5
+	PUSH2 S0, S3
 	SUB
 	FITS 256
-	POP S5
+	POP S3
 	.loc stdlib.sol, 0
 }
 IF
 .loc stdlib.sol, 402
-OVER
 FITS 256
-PUSH S6
+PUSH S3
 FITS 256
-PUSH S6
+PUSH S3
 ADD
 GEQ
 THROWIFNOT 70
 .loc stdlib.sol, 403
-BLKPUSH 3, 6
+ROLLREV 3
 UFITS 256
+CALLREF {
+	CALL $__subCell_macro$
+}
+NIP
+.loc stdlib.sol, 0
+
+.globl	__subCell
+.type	__subCell, @function
+CALL $__subCell_macro$
+
+.macro __subCell_macro
+.loc stdlib.sol, 406
 PUSHREF {
 }
 .loc stdlib.sol, 407
-PUSH S2
+ROT
 PUSHINT 127
 DIVMOD
 .loc stdlib.sol, 408
-PUSH S5
+ROLL 4
 CTOS
 .loc stdlib.sol, 409
-PUSH S2
+ROT
 PUSHCONT {
 	.loc stdlib.sol, 410
-	DUP
 	LDREFRTOS
-	SWAP
-	POP S2
 	NIP
 	.loc stdlib.sol, 0
 }
 REPEAT
 .loc stdlib.sol, 412
-OVER
+SWAP
 MULCONST 8
 SDSKIPFIRST
 .loc stdlib.sol, 413
@@ -1674,12 +2032,12 @@ TUPLE 0
 NEWC
 .loc stdlib.sol, 415
 PUSHCONT {
-	PUSH S6
+	PUSH S4
 	NEQINT 0
 }
 PUSHCONT {
 	.loc stdlib.sol, 416
-	PUSH2 S6, S2
+	PUSH2 S4, S2
 	SBITS
 	RSHIFT 3
 	PUSH S2
@@ -1697,37 +2055,56 @@ PUSHCONT {
 	STSLICE
 	POP S2
 	.loc stdlib.sol, 418
-	PUSH2 S7, S0
-	SUB
-	POP S8
+	PUSH S5
+	SUBR
+	POP S5
 	.loc stdlib.sol, 419
-	PUSH S7
+	PUSH S4
 	PUSHCONT {
 		.loc stdlib.sol, 420
-		PUSH S3
+		PUSH S2
 		SBITS
 		PUSHCONT {
 			.loc stdlib.sol, 421
-			PUSH S3
+			PUSH S2
 			LDREFRTOS
-			SWAP
-			POP S5
-			POP S4
+			NIP
+			POP S3
 			.loc stdlib.sol, 0
 		}
 		IFNOT
 		.loc stdlib.sol, 423
-		OVER
+		DUP
 		BREMBITS
 		LESSINT 8
 		PUSHCONT {
 			.loc stdlib.sol, 424
-			BLKPUSH 2, 2
-			TPUSH
-			POP S3
+			CALLREF {
+				SWAP
+				DUP
+				TLEN
+				PUSHCONT {
+					TPOP
+					DUP
+					TLEN
+					PUSHINT 255
+					SUB
+					PUSHCONT {
+						TPUSH
+						TUPLE 0
+					}
+					IFNOT
+				}
+				PUSHCONT {
+					TUPLE 0
+				}
+				IFELSE
+				ROT
+				TPUSH
+				TPUSH
+			}
 			.loc stdlib.sol, 425
 			NEWC
-			POP S2
 			.loc stdlib.sol, 0
 		}
 		IF
@@ -1735,17 +2112,14 @@ PUSHCONT {
 	}
 	IF
 	.loc stdlib.sol, 0
-	DROP
 }
 WHILE
 .loc stdlib.sol, 429
-DUP2
 CALLREF {
 	CALL $assembleList_macro$
 }
-BLKDROP2 13, 1
-.loc stdlib.sol, 0
 BLKDROP2 3, 1
+.loc stdlib.sol, 0
 
 .globl	compareLongStrings
 .type	compareLongStrings, @function
@@ -1811,28 +2185,25 @@ PUSHCONT {
 		}
 		IFJMP
 		.loc stdlib.sol, 449
-		DUP2
 		ADD
 		PUSHCONT {
-			BLKDROP 7
+			BLKDROP 5
 			PUSHINT 0
 			PUSHINT 4
 		}
 		IFNOTJMP
 		.loc stdlib.sol, 451
-		PUSH S5
+		PUSH S3
 		LDREFRTOS
-		SWAP
-		POP S7
-		POP S6
+		NIP
+		POP S4
 		.loc stdlib.sol, 452
-		PUSH S4
+		PUSH S2
 		LDREFRTOS
-		SWAP
-		POP S6
-		POP S5
+		NIP
+		POP S3
 		.loc stdlib.sol, 0
-		BLKDROP 3
+		DROP
 	}
 	WHILE
 	EQINT 4
@@ -1852,12 +2223,12 @@ CALL $concatenateStrings_macro$
 
 .macro concatenateStrings_macro
 .loc stdlib.sol, 458
-OVER
+SWAP
 CALLREF {
 	CALL $strToList_macro$
 }
 .loc stdlib.sol, 459
-PUSH S2
+ROT
 CTOS
 .loc stdlib.sol, 460
 BLKPUSH 3, 2
@@ -1874,10 +2245,7 @@ PUSHCONT {
 }
 PUSHCONT {
 	.loc stdlib.sol, 462
-	DUP
 	LDREFRTOS
-	SWAP
-	POP S2
 	NIP
 	.loc stdlib.sol, 463
 	BLKPUSH 3, 2
@@ -1890,10 +2258,381 @@ PUSHCONT {
 }
 WHILE
 .loc stdlib.sol, 465
-BLKPUSH 2, 2
+ROTREV
 CALLREF {
 	CALL $assembleList_macro$
 }
-BLKDROP2 5, 1
+NIP
 .loc stdlib.sol, 0
+
+.globl	__strchr
+.type	__strchr, @function
+CALL $__strchr_macro$
+
+.macro __strchr_macro
+.loc stdlib.sol, 468
+NULL
+PUSHCONT {
+	.loc stdlib.sol, 469
+	PUSHINT 0
+	.loc stdlib.sol, 470
+	PUSH S3
+	CTOS
+	NULL
+	FALSE ; decl return flag
+	PUSHCONT {
+		DUP
+		LESSINT 2
+		DUP
+		PUSHCONT {
+			DROP
+			PUSH S2
+			SEMPTY
+			NOT
+		}
+		IF
+	}
+	PUSHCONT {
+		PUSH S2
+		LDUQ 8
+		PUSHCONT {
+			PLDREF
+			CTOS
+			LDU 8
+		}
+		IFNOT
+		POP S4
+		POP S2
+		PUSHCONT {
+			.loc stdlib.sol, 471
+			PUSH2 S1, S5
+			EQUAL
+			PUSHCONT {
+				.loc stdlib.sol, 472
+				ROLL 3
+				BLKDROP2 4, 1
+				PUSHINT 4
+				.loc stdlib.sol, 0
+			}
+			IFJMP
+			.loc stdlib.sol, 474
+			PUSH S3
+			INC
+			POP S4
+			.loc stdlib.sol, 0
+		}
+		CALLX
+		DUP
+		GTINT 1
+		IFRET
+	}
+	WHILE
+	EQINT 4
+	IFRET
+	BLKDROP 3
+	.loc stdlib.sol, 468
+}
+CALLX
+.loc stdlib.sol, 0
+BLKDROP2 2, 1
+
+.globl	__strrchr
+.type	__strrchr, @function
+CALL $__strrchr_macro$
+
+.macro __strrchr_macro
+.loc stdlib.sol, 478
+NULL
+.loc stdlib.sol, 479
+PUSHINT 0
+.loc stdlib.sol, 480
+ROLL 3
+CTOS
+NULL
+PUSHCONT {
+	OVER
+	SEMPTY
+	NOT
+}
+PUSHCONT {
+	OVER
+	LDUQ 8
+	PUSHCONT {
+		PLDREF
+		CTOS
+		LDU 8
+	}
+	IFNOT
+	POP S3
+	NIP
+	.loc stdlib.sol, 481
+	PUSH2 S0, S4
+	EQUAL
+	PUSHCONT {
+		.loc stdlib.sol, 482
+		PUSH S2
+		POP S4
+		.loc stdlib.sol, 0
+	}
+	IF
+	.loc stdlib.sol, 484
+	PUSH S2
+	INC
+	POP S3
+	.loc stdlib.sol, 0
+}
+WHILE
+BLKDROP 3
+.loc stdlib.sol, 0
+NIP
+
+.globl	__strstr
+.type	__strstr, @function
+CALL $__strstr_macro$
+
+.macro __strstr_macro
+.loc stdlib.sol, 513
+NULL
+PUSHCONT {
+	.loc stdlib.sol, 514
+	PUSH S2
+	CTOS
+	.loc stdlib.sol, 515
+	PUSH S2
+	CTOS
+	.loc stdlib.sol, 516
+	DUP
+	PUSHINT 4294967295
+	SDATASIZE
+	DROP
+	NIP
+	.loc stdlib.sol, 517
+	PUSH S2
+	PUSHINT 4294967295
+	SDATASIZE
+	DROP
+	NIP
+	.loc stdlib.sol, 518
+	DUP2
+	GREATER
+	PUSHCONT {
+		.loc stdlib.sol, 519
+		BLKDROP 4
+		.loc stdlib.sol, 0
+	}
+	IFJMP
+	.loc stdlib.sol, 521
+	OVER
+	RSHIFT 3
+	POP S2
+	.loc stdlib.sol, 522
+	RSHIFT 3
+	.loc stdlib.sol, 523
+	PUSH2 S0, S2
+	.loc stdlib.sol, 524
+	LDU 8
+	POP S5
+	.loc stdlib.sol, 525
+	FALSE ; decl return flag
+	PUSHCONT {
+		DUP
+		LESSINT 2
+		DUP
+		PUSHCONT {
+			DROP
+			PUSH2 S3, S4
+			GEQ
+		}
+		IF
+	}
+	PUSHCONT {
+		.loc stdlib.sol, 526
+		PUSH S6
+		LDU 8
+		POP S8
+		.loc stdlib.sol, 527
+		PUSH S7
+		SBITREFS
+		.loc stdlib.sol, 528
+		SWAP
+		LESSINT 8
+		DUP
+		PUSHCONT {
+			DROP
+			DUP
+			GTINT 0
+		}
+		IF
+		PUSHCONT {
+			.loc stdlib.sol, 529
+			PUSH S8
+			LDREFRTOS
+			NIP
+			POP S9
+			.loc stdlib.sol, 0
+		}
+		IF
+		.loc stdlib.sol, 531
+		FALSE ; decl return flag
+		ROT
+		PUSH S4
+		EQUAL
+		PUSHCONT {
+			.loc stdlib.sol, 532
+			BLKPUSH 2, 8
+			PUSHINT 0
+			PUSHCONT {
+				.loc stdlib.sol, 490
+				PUSH S2
+				SBITS
+				.loc stdlib.sol, 491
+				PUSH S2
+				SBITS
+				.loc stdlib.sol, 492
+				FALSE ; decl return flag
+				PUSHCONT {
+					DUP
+					LESSINT 2
+					DUP
+					PUSHCONT {
+						DROP
+						PUSH S2
+						NEQINT 0
+						DUP
+						PUSHCONT {
+							DROP
+							OVER
+							NEQINT 0
+						}
+						IF
+					}
+					IF
+				}
+				PUSHCONT {
+					.loc stdlib.sol, 493
+					BLKPUSH 2, 2
+					MIN
+					.loc stdlib.sol, 494
+					PUSH2 S6, S0
+					LDSLICEX
+					POP S8
+					.loc stdlib.sol, 495
+					PUSH2 S6, S1
+					LDSLICEX
+					POP S8
+					.loc stdlib.sol, 496
+					PUSH2 S5, S2
+					SUB
+					POP S6
+					.loc stdlib.sol, 497
+					ROT
+					PUSH S4
+					SUBR
+					POP S4
+					.loc stdlib.sol, 498
+					SDEQ
+					PUSHCONT {
+						.loc stdlib.sol, 499
+						BLKDROP 4
+						FALSE
+						PUSHINT 4
+						.loc stdlib.sol, 0
+					}
+					IFNOTJMP
+					.loc stdlib.sol, 501
+					PUSH S2
+					EQINT 0
+					DUP
+					PUSHCONT {
+						DROP
+						PUSH S5
+						SREFS
+						NEQINT 0
+					}
+					IF
+					PUSHCONT {
+						.loc stdlib.sol, 502
+						PUSH S5
+						LDREFRTOS
+						NIP
+						POP S6
+						.loc stdlib.sol, 503
+						PUSH S5
+						SBITS
+						POP S3
+						.loc stdlib.sol, 0
+					}
+					IF
+					.loc stdlib.sol, 505
+					OVER
+					EQINT 0
+					DUP
+					PUSHCONT {
+						DROP
+						PUSH S4
+						SREFS
+						NEQINT 0
+					}
+					IF
+					PUSHCONT {
+						.loc stdlib.sol, 506
+						PUSH S4
+						LDREFRTOS
+						NIP
+						POP S5
+						.loc stdlib.sol, 507
+						PUSH S4
+						SBITS
+						POP S2
+						.loc stdlib.sol, 0
+					}
+					IF
+					.loc stdlib.sol, 0
+				}
+				WHILE
+				EQINT 4
+				IFRET
+				.loc stdlib.sol, 510
+				BLKDROP 3
+				TRUE
+				.loc stdlib.sol, 489
+			}
+			CALLX
+			.loc stdlib.sol, 0
+			BLKDROP2 2, 1
+			PUSHCONT {
+				.loc stdlib.sol, 533
+				ROLL 4
+				ROLL 5
+				SUB
+				UFITS 32
+				BLKDROP2 8, 1
+				.loc stdlib.sol, 534
+				PUSHINT 4
+				.loc stdlib.sol, 0
+			}
+			IFJMP
+		}
+		IF
+		.loc stdlib.sol, 0
+		DUP
+		IFRET
+		DROP
+		.loc stdlib.sol, 537
+		PUSH S4
+		DEC
+		POP S5
+		.loc stdlib.sol, 0
+		DROP
+	}
+	WHILE
+	EQINT 4
+	IFRET
+	.loc stdlib.sol, 539
+	BLKDROP 6
+	.loc stdlib.sol, 513
+}
+CALLX
+.loc stdlib.sol, 0
+BLKDROP2 2, 1
 

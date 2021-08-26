@@ -31,17 +31,24 @@ namespace solidity::frontend
 	public:
 		virtual ~TvmAstVisitor() = default;
 		virtual bool visit(AsymGen &_node) { return visitNode(_node); }
+		virtual bool visit(DeclRetFlag &_node) { return visitNode(_node); }
 		virtual bool visit(Opaque &_node) { return visitNode(_node); }
 		virtual bool visit(HardCode &_node) { return visitNode(_node); }
 		virtual bool visit(Loc &_node) { return visitNode(_node); }
-		virtual bool visit(ConFlowInst &_node) { return visitNode(_node); }
+		virtual bool visit(TvmReturn &_node) { return visitNode(_node); }
+		virtual bool visit(ReturnOrBreakOrCont &_node) { return visitNode(_node); }
+		virtual bool visit(TvmException &_node) { return visitNode(_node); }
 		virtual bool visit(GenOpcode &_node) { return visitNode(_node); }
 		virtual bool visit(PushCellOrSlice &_node) { return visitNode(_node); }
 		virtual bool visit(Glob &_node) { return visitNode(_node); }
 		virtual bool visit(Stack &_node) { return visitNode(_node); }
 		virtual bool visit(CodeBlock &_node) { return visitNode(_node); }
+		virtual bool visit(SubProgram &_node) { return visitNode(_node); }
+		virtual bool visit(TvmCondition &_node) { return visitNode(_node); }
+		virtual bool visit(LogCircuit &_node) { return visitNode(_node); }
 		virtual bool visit(TvmIfElse &_node) { return visitNode(_node); }
-		virtual bool visit(RepeatOrUntil &_node) { return visitNode(_node); }
+		virtual bool visit(TvmRepeat &_node) { return visitNode(_node); }
+		virtual bool visit(TvmUntil &_node) { return visitNode(_node); }
 		virtual bool visit(While &_node) { return visitNode(_node); }
 		virtual bool visit(Contract &_node) { return visitNode(_node); }
 		virtual bool visit(Function &_node) { return visitNode(_node); }
@@ -56,17 +63,24 @@ namespace solidity::frontend
 	public:
 		explicit Printer(std::ostream& out) : m_out{out} { }
 		bool visit(AsymGen &_node) override;
+		bool visit(DeclRetFlag &_node) override;
 		bool visit(Opaque &_node) override;
 		bool visit(HardCode &_node) override;
 		bool visit(Loc &_node) override;
-		bool visit(ConFlowInst &_node) override;
+		bool visit(TvmReturn &_node) override;
+		bool visit(ReturnOrBreakOrCont &_node) override;
+		bool visit(TvmException &_node) override;
 		bool visit(GenOpcode &_node) override;
 		bool visit(PushCellOrSlice &_node) override;
 		bool visit(Glob &_node) override;
 		bool visit(Stack &_node) override;
 		bool visit(CodeBlock &_node) override;
+		bool visit(SubProgram &_node) override;
+		bool visit(TvmCondition &_node) override;
+		bool visit(LogCircuit &_node) override;
 		bool visit(TvmIfElse &_node) override;
-		bool visit(RepeatOrUntil &_node) override;
+		bool visit(TvmRepeat &_node) override;
+		bool visit(TvmUntil &_node) override;
 		bool visit(While &_node) override;
 		bool visit(Contract &_node) override;
 		bool visit(Function &_node) override;
@@ -83,5 +97,10 @@ namespace solidity::frontend
 	class LocSquasher : public TvmAstVisitor {
 	public:
 		bool visit(CodeBlock &_node) override;
+	};
+
+	class DeleterAfterRet : public TvmAstVisitor {
+	public:
+		void endVisit(CodeBlock &_node) override;
 	};
 }	// end solidity::frontend

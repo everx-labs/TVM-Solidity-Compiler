@@ -20,6 +20,7 @@ contract development.
     * [\<TvmSlice\>.dataSizeQ()](#tvmslicedatasizeq)
     * [\<TvmSlice\>.bits()](#tvmslicebits)
     * [\<TvmSlice\>.refs()](#tvmslicerefs)
+    * [\<TvmSlice\>.bitsAndRefs()](#tvmslicebitsandrefs)
     * [\<TvmSlice\>.depth()](#tvmslicedepth)
     * [\<TvmSlice\>.hasNBits(), \<TvmSlice\>.hasNRefs() and \<TvmSlice\>.hasNBitsAndRefs()](#tvmslicehasnbits-tvmslicehasnrefs-and-tvmslicehasnbitsandrefs)
     * [\<TvmSlice\>.compare()](#tvmslicecompare)
@@ -60,7 +61,9 @@ contract development.
 * [TON specific control structures](#ton-specific-control-structures)
   * [Range-based for loop](#range-based-for-loop)
   * [repeat](#repeat)
-* [Changes and extensions in solidity types](#changes-and-extensions-in-solidity-types)
+* [Changes and extensions in Solidity types](#changes-and-extensions-in-solidity-types)
+  * [Integers](#integers)
+    * [bitSize() and uBitSize()](#bitsize-and-ubitsize)
   * [struct](#struct)
     * [\<struct\>.unpack()](#structunpack)
   * [arrays](#arrays)
@@ -79,6 +82,7 @@ contract development.
     * [\<string\>.byteLength()](#stringbytelength)
     * [\<string\>.substr()](#stringsubstr)
     * [\<string\>.append()](#stringappend)
+    * [\<string\>.find() and \<string\>.findLast()](#stringfind-and-stringfindlast)
     * [format()](#format)
     * [stoi()](#stoi)
   * [address](#address)
@@ -375,6 +379,14 @@ Returns number of data bits in the slice.
 ```
 
 Returns number of references in the slice.
+
+##### \<TvmSlice\>.bitsAndRefs()
+
+```TVMSolidity
+<TvmSlice>.bitsAndRefs() returns (uint16, uint8);
+```
+
+Returns number of data bits and references in the slice.
 
 ##### \<TvmSlice\>.depth()
 
@@ -768,13 +780,15 @@ Deletes the content of the optional.
 
 #### vector(Type)
 
-The template **vector** type manages a container of values of one type.
-It allows working with a bunch of values faster, but it can be used only locally
-(nor as a parameter neither as a returned type of a public function, and not as a
-state variable type).
+`vector(Type)` is a template container type capable of storing an arbitrary set of values of a
+single type, pretty much like dynamic-sized array.
+Two major differences are that `vector(Type)`:
+1. is much more efficient than a dynamic-sized array;
+2. has a lifespan of a smart-contract execution, so it can't be neither passed nor returned as an
+external function call parameter, nor stored in a state variable.
 
-**Note:** vector is an implementation of `TVM Tuple` type, and it has a limited
-length of 255 values.
+**Note:** `vector` implementation based on `TVM Tuple` type, and it has a limited
+length of 255 * 255 = 65025 values.
 
 ##### \<vector(Type)\>.push(Type)
 
@@ -910,7 +924,46 @@ Allows repeating block of code several times.
 A **repeat** loop evaluates the expression only one time.
 This expression must have an unsigned integer type.
 
-### Changes and extensions in solidity types
+### Changes and extensions in Solidity types
+
+#### Integers
+
+``int`` / ``uint``: Signed and unsigned integers of various sizes. Keywords ``uintN`` and ``intN``
+where ``N`` is a number from ``8``  to ``256`` in steps of 8 denotes the number of bits. ``uint`` and ``int``
+are aliases for ``uint256`` and ``int256``, respectively.
+
+Operators:
+
+* Comparisons: ``<=``, ``<``, ``==``, ``!=``, ``>=``, ``>`` (evaluate to ``bool``)
+* Bit operators: ``&``, ``|``, ``^`` (bitwise exclusive or), ``~`` (bitwise negation)
+* Shift operators: ``<<`` (left shift), ``>>`` (right shift)
+* Arithmetic operators: ``+``, ``-``, unary ``-``, ``*``, ``/``, ``%`` (modulo), ``**`` (exponentiation)
+
+##### bitSize() and uBitSize()
+
+```TVMSolidity
+bitSize(int x) returns (uint16)
+uBitSize(uint x) returns (uint16)
+```
+
+`bitSize` computes the smallest `c` ≥ 0 such that `x` fits into a `c`-bit signed integer
+(−2<sup>c−1</sup> ≤ x < 2<sup>c−1</sup>).
+
+`uBitSize` computes the smallest `c` ≥ 0 such that `x` fits into a `c`-bit unsigned integer
+(0 ≤ x < 2<sup>c</sup>).
+
+Example:
+
+```TVMSolidity
+require(bitSize(12) == 5); // 12 == 1100(in bin sys)
+require(bitSize(1) == 2);
+require(bitSize(-1) == 1);
+require(bitSize(0) == 0);
+
+require(uBitSize(10) == 4);
+require(uBitSize(1) == 1);
+require(uBitSize(0) == 0);
+```
 
 #### struct
 
@@ -1074,6 +1127,8 @@ bytes4 bb = byteArray;
 
 TON Solidity compiler expands **string** type with the following functions:
 
+**Note**: Due to VM restrictions string length can't exceed `1024 * 127 = 130048` bytes.
+
 ##### \<string\>.empty()
 
 ```TVMSolidity
@@ -1085,7 +1140,7 @@ Returns status flag whether the string is empty (its length is 0).
 ##### \<string\>.byteLength()
 
 ```TVMSolidity
-<string>.byteLength() returns (uint);
+<string>.byteLength() returns (uint32);
 ```
 
 Returns byte length of the string data.
@@ -1112,7 +1167,35 @@ string b = long.substr(6); // b = "6789"
 <string>.append(string tail);
 ```
 
-Modifies the string by concatenating **tail** string to the end of the string.
+Appends the tail string to the string.
+
+##### \<string\>.find() and \<string\>.findLast()
+
+```TVMSolidity
+<string>.find(bytes1 symbol) returns (optional(uint32));
+<string>.find(string substr) returns (optional(uint32));
+<string>.findLast(bytes1 symbol) returns (optional(uint32));
+```
+
+Looks for **symbol** (or substring) in the string and returns index of the first (`find`) or the
+last (`findLast`) occurrence. If there is no such symbol in the string, empty optional is returned.
+
+Example:
+```TVMSolidity
+string str = "01234567890";
+optional(uint32) a = str.find(byte('0'));
+require(a.hasValue());
+require(a.get() == 0);
+
+byte symbol = 'a';
+optional(uint32) b = str.findLast(symbol);
+require(!b.hasValue());
+
+string sub = "111";
+optional(uint32) c = str.find(symbol);
+require(!c.hasValue());
+
+```
 
 #### format()
 

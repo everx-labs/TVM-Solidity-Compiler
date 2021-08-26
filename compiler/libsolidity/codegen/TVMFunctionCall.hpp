@@ -23,12 +23,12 @@
 namespace solidity::frontend {
 
 class TVMExpressionCompiler;
-class StackPusherHelper;
+class StackPusher;
 
 class FunctionCallCompiler {
 public:
 	FunctionCallCompiler(
-		StackPusherHelper& m_pusher,
+		StackPusher& m_pusher,
 		TVMExpressionCompiler* exprCompiler,
 		FunctionCall const& _functionCall,
 		bool isCurrentResultNeeded
@@ -54,7 +54,7 @@ protected:
 	void arrayMethods(MemberAccess const& _node);
 	bool checkForOptionalMethods(MemberAccess const& _node);
 	bool checkForTvmBuilderMethods(MemberAccess const& _node, Type::Category category);
-	bool checkForTvmTupleMethods(MemberAccess const& _node, Type::Category category);
+	bool checkForTvmVectorMethods(MemberAccess const& _node, Type::Category category);
 	void cellMethods(MemberAccess const& _node);
 	void addressMethod();
 	bool checkForTvmConfigParamFunction(MemberAccess const& _node);
@@ -124,7 +124,7 @@ protected:
 	Expression const* findOption(const std::string& name);
 	void cellBitRefQty(bool forCell = true);
 private:
-	StackPusherHelper& m_pusher;
+	StackPusher& m_pusher;
 	TVMExpressionCompiler* const m_exprCompiler{};
 	FunctionCall const& m_functionCall;
 	std::vector<ASTPointer<Expression const>> m_arguments;

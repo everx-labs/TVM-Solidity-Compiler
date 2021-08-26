@@ -12,16 +12,16 @@
  */
 /**
  * @author TON Labs <connect@tonlabs.io>
- * @date 2019
- * TVM codegen driver
+ * @date 2021
+ * Peephole optimizer
  */
 
 #pragma once
 
-#include "TVMPusher.hpp"
+#include "TvmAstVisitor.hpp"
 
 namespace solidity::frontend {
-	class TVMOptimizer : public TvmAstVisitor {
+	class PeepholeOptimizer : public TvmAstVisitor {
 	public:
 		void endVisit(CodeBlock &_node) override;
 	};

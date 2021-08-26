@@ -1,3 +1,13 @@
+### 0.49.0 (2021-08-25)
+
+Compiler features:
+ * Added string search methods: `<string>.find()` and `<string>.findLast()`.
+ * Added `<TvmSlice\>.bitsAndRefs()`.
+ * Added `bitSize()` and `uBitSize()` for computing bit length of an interger.
+
+Gas optimizations:
+ * Assorted stack optimizations.
+
 ### 0.48.0 (2021-08-04)
 
 Compiler features:

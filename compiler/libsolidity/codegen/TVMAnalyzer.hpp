@@ -141,4 +141,4 @@ public:
 
 LocationReturn notNeedsPushContWhenInlining(Block const &_block);
 
-bool isFunctionOfFirstType(FunctionDefinition const* f);
+bool withPrelocatedRetValues(FunctionDefinition const* f);

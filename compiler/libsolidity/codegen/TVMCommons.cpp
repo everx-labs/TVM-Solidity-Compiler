@@ -505,4 +505,19 @@ int strToInt(const std::string& str) {
 	return boost::lexical_cast<int>(trimed);
 }
 
+int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>>::const_iterator beg,
+				  std::vector<Pointer<TvmAstNode>>::const_iterator end) {
+	int qty = 0;
+	for (auto it = beg; it != end; ++it) {
+		if (!to<Loc>((*it).get())){
+			++qty;
+		}
+	}
+	return qty;
+}
+
+int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>> const& arr) {
+	return qtyWithoutLoc(arr.begin(), arr.end());
+}
+
 } // end namespace solidity::frontend

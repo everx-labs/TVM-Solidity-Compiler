@@ -71,6 +71,10 @@ set(sources
 
 	codegen/DictOperations.cpp
 	codegen/DictOperations.hpp
+	codegen/PeepholeOptimizer.cpp
+	codegen/PeepholeOptimizer.hpp
+	codegen/StackOptimizer.cpp
+	codegen/StackOptimizer.hpp
 	codegen/TVM.cpp
 	codegen/TVM.h
 	codegen/TVMABI.cpp
@@ -96,8 +100,6 @@ set(sources
 	codegen/TVMFunctionCompiler.hpp
 	codegen/TVMInlineFunctionChecker.cpp
 	codegen/TVMInlineFunctionChecker.hpp
-	codegen/TVMOptimizations.cpp
-	codegen/TVMOptimizations.hpp
 	codegen/TVMPusher.cpp
 	codegen/TVMPusher.hpp
 	codegen/TVMSimulator.cpp

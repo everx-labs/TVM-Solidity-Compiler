@@ -1871,19 +1871,37 @@ MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 			StateMutability::Pure
 		));
 		members.emplace_back("substr", TypeProvider::function(
-				TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
-				TypePointers{TypeProvider::stringMemory()},
-				strings{string("from"), "to"},
-				strings{string("substr")},
-				FunctionType::Kind::StringSubstr,
-				false,
-				StateMutability::Pure
+			TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
+			TypePointers{TypeProvider::stringMemory()},
+			strings{string("from"), "to"},
+			strings{string("substr")},
+			FunctionType::Kind::StringSubstr,
+			false,
+			StateMutability::Pure
 		));
 		members.emplace_back("byteLength", TypeProvider::function(
 			TypePointers{},
-			TypePointers{TypeProvider::uint256()},
+			TypePointers{TypeProvider::uint(32)},
 			strings{},
 			strings{string("byteLength")},
+			FunctionType::Kind::StringMethod,
+			false, StateMutability::Pure
+		));
+		for (const std::string name : {"find", "findLast"}) {
+			members.emplace_back(name, TypeProvider::function(
+				TypePointers{TypeProvider::fixedBytes(1)},
+				TypePointers{TypeProvider::optional(TypeProvider::uint(32))},
+				strings{string("symbol")},
+				strings{string("pos")},
+				FunctionType::Kind::StringMethod,
+				false, StateMutability::Pure
+			));
+		}
+		members.emplace_back("find", TypeProvider::function(
+			TypePointers{TypeProvider::stringMemory()},
+			TypePointers{TypeProvider::optional(TypeProvider::uint(32))},
+			strings{string("substr")},
+			strings{string("pos")},
 			FunctionType::Kind::StringMethod,
 			false, StateMutability::Pure
 		));
@@ -2890,8 +2908,11 @@ string FunctionType::richIdentifier() const
 	case Kind::BlockHash: id += "blockhash"; break;
 	case Kind::AddMod: id += "addmod"; break;
 	case Kind::MulMod: id += "mulmod"; break;
-	case Kind::ValueToGas: id += "valuetogas"; break;
+
+	case Kind::BitSize: id += "bitsize"; break;
 	case Kind::GasToValue: id += "gastovalue"; break;
+	case Kind::UBitSize: id += "ubitsize"; break;
+	case Kind::ValueToGas: id += "valuetogas"; break;
 
 	case Kind::ArrayEmpty: id += "arrayempty"; break;
 	case Kind::ArrayPush: id += "arraypush"; break;
@@ -4496,6 +4517,15 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) co
 			false, StateMutability::Pure
 	));
 
+	members.emplace_back("bitsAndRefs", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::uint(16), TypeProvider::uint(8)},
+			strings{},
+			strings{string(), string()},
+			FunctionType::Kind::TVMSliceSize,
+			false, StateMutability::Pure
+	));
+
 	members.emplace_back("depth", TypeProvider::function(
 			TypePointers{},
 			TypePointers{TypeProvider::uint(64)},
@@ -4585,13 +4615,13 @@ MemberList::MemberMap TvmCellType::nativeMembers(const ContractDefinition *) con
 	return members;
 }
 
-TypeResult TvmTupleType::unaryOperatorResult(Token _operator) const {
+TypeResult TvmVectorType::unaryOperatorResult(Token _operator) const {
 	if (_operator == Token::Delete)
 		return TypeProvider::emptyTuple();
 	return nullptr;
 }
 
-MemberList::MemberMap TvmTupleType::nativeMembers(const ContractDefinition *) const
+MemberList::MemberMap TvmVectorType::nativeMembers(const ContractDefinition *) const
 {
 	MemberList::MemberMap members;
 
@@ -4632,6 +4662,14 @@ MemberList::MemberMap TvmTupleType::nativeMembers(const ContractDefinition *) co
 	));
 
 	return members;
+}
+
+std::string TvmVectorType::toString(bool _short) const {
+	return "vector(" + valueType()->toString(_short) + ")";
+}
+
+std::string TvmVectorType::richIdentifier() const {
+	return "t_vector_" + valueType()->richIdentifier();
 }
 
 TypeResult TvmBuilderType::unaryOperatorResult(Token _operator) const {

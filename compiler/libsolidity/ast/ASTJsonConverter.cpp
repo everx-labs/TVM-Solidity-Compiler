@@ -467,8 +467,8 @@ bool ASTJsonConverter::visit(Optional const& _node) {
 	return false;
 }
 
-bool ASTJsonConverter::visit(TvmTuple const& _node) {
-	setJsonNode(_node, "TvmTuple", {
+bool ASTJsonConverter::visit(TvmVector const& _node) {
+	setJsonNode(_node, "vector", {
 		make_pair("type", toJson(_node.type())),
 	});
 	return false;

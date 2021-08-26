@@ -261,7 +261,7 @@ bool ContactsUsageScanner::visit(const FunctionDefinition &fd) {
 	return true;
 }
 
-bool isFunctionOfFirstType(const FunctionDefinition *f) {
+bool withPrelocatedRetValues(const FunctionDefinition *f) {
 	LocationReturn locationReturn = ::notNeedsPushContWhenInlining(f->body());
 	if (!f->returnParameters().empty() && isIn(locationReturn, LocationReturn::noReturn, LocationReturn::Anywhere)) {
 		return true;

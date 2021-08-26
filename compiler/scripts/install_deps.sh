@@ -216,6 +216,21 @@ case $(uname -s) in
                 ;;
 
 #------------------------------------------------------------------------------
+# Gentoo Linux
+#------------------------------------------------------------------------------
+
+            "Gentoo")
+                #Gentoo
+                echo "Installing solidity dependencies on Gentoo Linux."
+
+                # All dependencies can be found in portage.
+                # See https://pkgs.alpinelinux.org/
+
+                sudo emerge dev-util/cmake sys-devel/gcc net-misc/curl dev-libs/boost dev-util/boost-build
+
+                ;;
+
+#------------------------------------------------------------------------------
 # OpenSUSE
 #------------------------------------------------------------------------------
 
