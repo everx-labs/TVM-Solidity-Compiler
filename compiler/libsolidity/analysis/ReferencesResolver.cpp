@@ -231,7 +231,7 @@ void ReferencesResolver::endVisit(Optional const& _typeName)
 	}
 }
 
-void ReferencesResolver::endVisit(TvmTuple const& _typeName)
+void ReferencesResolver::endVisit(TvmVector const& _typeName)
 {
 	TypeName const& type = _typeName.type();
 	_typeName.annotation().type = TypeProvider::tvmtuple(type.annotation().type);

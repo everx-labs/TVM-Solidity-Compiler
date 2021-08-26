@@ -29,11 +29,12 @@
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCompiler.hpp"
 #include "TVMInlineFunctionChecker.hpp"
-#include "TVMOptimizations.hpp"
+#include "StackOptimizer.hpp"
+#include "PeepholeOptimizer.hpp"
 
 using namespace solidity::frontend;
 
-TVMConstructorCompiler::TVMConstructorCompiler(StackPusherHelper &pusher) : m_pusher{pusher} {
+TVMConstructorCompiler::TVMConstructorCompiler(StackPusher &pusher) : m_pusher{pusher} {
 
 }
 
@@ -78,12 +79,12 @@ Pointer<Function> TVMConstructorCompiler::generateConstructors() {
 		m_pusher.ctx().addPublicFunction(functionId, "constructor");
 	}
 
-	m_pusher.push(+1, ""); // fix stack
+	m_pusher.push(+1, ""); // push encoded params of constructor
+	m_pusher.push(+1, ""); // functionID
 	m_pusher.drop();
 
 	c4ToC7WithMemoryInitAndConstructorProtection();
 
-	m_pusher.push(+1, ""); // push encoded params of constructor
 	std::vector<ContractDefinition const*> linearizedBaseContracts =
 			m_pusher.ctx().getContract()->annotation().linearizedBaseContracts; // from derived to base
 	for (ContractDefinition const* c : linearizedBaseContracts) {
@@ -91,9 +92,11 @@ Pointer<Function> TVMConstructorCompiler::generateConstructors() {
 	}
 
 	FunctionDefinition const* constructor = linearizedBaseContracts[0]->constructor();
+	int take{};
 	if (constructor == nullptr) {
 		m_pusher.push(-1, "ENDS");
 	} else {
+		take = constructor->parameters().size();
 		vector<Type const*> types = getParams(constructor->parameters()).first;
 		ChainDataDecoder{&m_pusher}.decodePublicFunctionParameters(types, false);
 		m_pusher.getStack().change(-static_cast<int>(constructor->parameters().size()));
@@ -102,6 +105,7 @@ Pointer<Function> TVMConstructorCompiler::generateConstructors() {
 			m_pusher.getStack().add(variable.get(), true);
 		}
 	}
+	solAssert(m_pusher.stackSize() == take, "");
 	std::set<ContractDefinition const*> areParamsOnStack;
 	areParamsOnStack.insert(linearizedBaseContracts[0]);
 	for (ContractDefinition const* c : linearizedBaseContracts | boost::adaptors::reversed) {
@@ -142,19 +146,19 @@ Pointer<Function> TVMConstructorCompiler::generateConstructors() {
 	m_pusher.setGlob(TvmConst::C7::WasPubFuncCalled);
 
 	Pointer<CodeBlock> block = m_pusher.getBlock();
-	Pointer<Function> f = createNode<Function>("constructor", Function::FunctionType::Macro, block);
+	// take slice (contains params) and functionID
+	Pointer<Function> f = createNode<Function>(2, 0, "constructor", Function::FunctionType::Macro, block);
 	return f;
 }
-
 
 void TVMConstructorCompiler::c4ToC7WithMemoryInitAndConstructorProtection() {
 	// copy c4 to c7
 	m_pusher.was_c4_to_c7_called();
 	m_pusher.push(-1, ""); // fix stack
 
-	m_pusher.startIfRef();
+	m_pusher.startContinuation();
 	m_pusher.pushCall(0, 0, "c4_to_c7_with_init_storage");
-	m_pusher.endContinuation();
+	m_pusher.ifRef();
 
 	// generate constructor protection
 	m_pusher.getGlob(TvmConst::C7::ConstructorFlag);
@@ -213,6 +217,9 @@ TVMContractCompiler::generateContractCode(
 	std::vector<Pointer<Function>> functions;
 
 	TVMCompilerContext ctx{contract, pragmaHelper};
+	{
+
+	}
 
 	if (!ctx.isStdlib()) {
 		pragmas.emplace_back(std::string{} + ".version sol " + solidity::frontend::VersionNumber);
@@ -222,7 +229,7 @@ TVMContractCompiler::generateContractCode(
 
 	// generate global constructor which inlines all contract constructors
 	if (!ctx.isStdlib()) {
-		StackPusherHelper pusher{&ctx};
+		StackPusher pusher{&ctx};
 		TVMConstructorCompiler compiler(pusher);
 		Pointer<Function> f = compiler.generateConstructors();
 		functions.push_back(f);
@@ -241,41 +248,41 @@ TVMContractCompiler::generateContractCode(
 			if (_function->isOnBounce()) {
 				if (!ctx.isOnBounceGenerated()) {
 					ctx.setIsOnBounce();
-					StackPusherHelper pusher{&ctx};
+					StackPusher pusher{&ctx};
 					Pointer<Function> f = TVMFunctionCompiler::generateOnBounce(pusher, _function);
 					functions.push_back(f);
 				}
 			} else if (_function->isReceive()) {
 				if (!ctx.isReceiveGenerated()) {
 					ctx.setIsReceiveGenerated();
-					StackPusherHelper pusher{&ctx};
+					StackPusher pusher{&ctx};
 					Pointer<Function> f = TVMFunctionCompiler::generateReceive(pusher, _function);
 					functions.push_back(f);
 				}
 			} else if (_function->isFallback()) {
 				if (!ctx.isFallBackGenerated()) {
 					ctx.setIsFallBackGenerated();
-					StackPusherHelper pusher{&ctx};
+					StackPusher pusher{&ctx};
 					Pointer<Function> f = TVMFunctionCompiler::generateFallback(pusher, _function);
 					functions.push_back(f);
 				}
 			} else if (_function->isOnTickTock()) {
-				StackPusherHelper pusher{&ctx};
+				StackPusher pusher{&ctx};
 				Pointer<Function> f = TVMFunctionCompiler::generateOnTickTock(pusher, _function);
 				functions.push_back(f);
 			} else if (isMacro(_function->name())) {
-				StackPusherHelper pusher{&ctx};
+				StackPusher pusher{&ctx};
 				Pointer<Function> f = TVMFunctionCompiler::generateMacro(pusher, _function);
 				functions.push_back(f);
 			} else if (_function->name() == "onCodeUpgrade") {
-				StackPusherHelper pusher{&ctx};
+				StackPusher pusher{&ctx};
 				Pointer<Function> f = TVMFunctionCompiler::generateOnCodeUpgrade(pusher, _function);
 				functions.push_back(f);
 			} else {
 				if (_function->isPublic()) {
 					bool isBaseMethod = _function != getContractFunctions(contract, _function->name()).back();
 					if (!isBaseMethod) {
-						StackPusherHelper pusher{&ctx};
+						StackPusher pusher{&ctx};
 						Pointer<Function> f = TVMFunctionCompiler::generatePublicFunction(pusher, _function);
 						functions.push_back(f);
 
@@ -288,13 +295,13 @@ TVMContractCompiler::generateContractCode(
 				if (_function->visibility() <= Visibility::Public) {
 				    std::string functionName = ctx.getFunctionInternalName(_function);
 					{
-						StackPusherHelper pusher{&ctx};
+						StackPusher pusher{&ctx};
 						Pointer<Function> f = TVMFunctionCompiler::generatePrivateFunction(pusher, functionName);
 						functions.push_back(f);
 					}
 					{
 						const std::string macroName = functionName + "_macro";
-						StackPusherHelper pusher{&ctx};
+						StackPusher pusher{&ctx};
 						Pointer<Function> f = TVMFunctionCompiler::generateMacro(pusher, _function, macroName);
 						functions.push_back(f);
 					}
@@ -306,12 +313,12 @@ TVMContractCompiler::generateContractCode(
 	if (!ctx.isStdlib()) {
 		{
 			{
-				StackPusherHelper pusher{&ctx};
+				StackPusher pusher{&ctx};
 				Pointer<Function> f = pusher.generateC7ToT4Macro();
 				functions.emplace_back(f);
 			}
 			{
-				StackPusherHelper pusher{&ctx};
+				StackPusher pusher{&ctx};
 				if (ctx.usage().hasAwaitCall()) {
 					Pointer<Function> f = pusher.generateC7ToT4MacroForAwait();
 					functions.emplace_back(f);
@@ -319,27 +326,27 @@ TVMContractCompiler::generateContractCode(
 			}
 		}
 		{
-			StackPusherHelper pusher{&ctx};
+			StackPusher pusher{&ctx};
 			Pointer<Function> f = TVMFunctionCompiler::generateC4ToC7(pusher);
 			functions.emplace_back(f);
 		}
 		{
-			StackPusherHelper pusher{&ctx};
+			StackPusher pusher{&ctx};
 			Pointer<Function> f = TVMFunctionCompiler::generateC4ToC7WithInitMemory(pusher);
 			functions.emplace_back(f);
 		}
 		{
-			StackPusherHelper pusher{&ctx};
+			StackPusher pusher{&ctx};
 			Pointer<Function> f = TVMFunctionCompiler::generateMainInternal(pusher, contract);
 			functions.emplace_back(f);
 		}
 		if (ctx.usage().hasAwaitCall()) {
-			StackPusherHelper pusher{&ctx};
+			StackPusher pusher{&ctx};
 			Pointer<Function> f = TVMFunctionCompiler::generateCheckResume(pusher);
 			functions.emplace_back(f);
 		}
 		{
-			StackPusherHelper pusher{&ctx};
+			StackPusher pusher{&ctx};
 			Pointer<Function> f = TVMFunctionCompiler::generateMainExternal(pusher, contract);
 			functions.emplace_back(f);
 		}
@@ -347,7 +354,7 @@ TVMContractCompiler::generateContractCode(
 
 	for (VariableDeclaration const* vd : ctx.notConstantStateVariables()) {
 		if (vd->isPublic()) {
-			StackPusherHelper pusher{&ctx};
+			StackPusher pusher{&ctx};
 			Pointer<Function> f = TVMFunctionCompiler::generateGetter(pusher, vd);
 			functions.emplace_back(f);
 
@@ -381,13 +388,13 @@ TVMContractCompiler::generateContractCode(
 
 		if (!function->parameters().empty()) {
 			{
-				StackPusherHelper pusher{&ctx};
+				StackPusher pusher{&ctx};
 				const std::string name = TVMCompilerContext::getLibFunctionName(function, true);
 				Pointer<Function> f = TVMFunctionCompiler::generateLibraryFunction(pusher, function, name);
 				functions.emplace_back(f);
 			}
 			{
-				StackPusherHelper pusher{&ctx};
+				StackPusher pusher{&ctx};
 				const std::string name = TVMCompilerContext::getLibFunctionName(function, true) + "_macro";
 				Pointer<Function> f = TVMFunctionCompiler::generateLibraryFunctionMacro(pusher, function, name);
 				functions.emplace_back(f);
@@ -395,19 +402,19 @@ TVMContractCompiler::generateContractCode(
 		}
 		const std::string name = TVMCompilerContext::getLibFunctionName(function, false);
 		{
-			StackPusherHelper pusher{&ctx};
+			StackPusher pusher{&ctx};
 			Pointer<Function> f = TVMFunctionCompiler::generatePrivateFunction(pusher, name);
 			functions.emplace_back(f);
 		}
 		{
-			StackPusherHelper pusher{&ctx};
+			StackPusher pusher{&ctx};
 			Pointer<Function> f = TVMFunctionCompiler::generateMacro(pusher, function, name + "_macro");
 			functions.emplace_back(f);
 		}
 	}
 
 	if (!ctx.isStdlib()) {
-		StackPusherHelper pusher{&ctx};
+		StackPusher pusher{&ctx};
 		Pointer<Function> f = TVMFunctionCompiler::generatePublicFunctionSelector(pusher, contract);
 		functions.emplace_back(f);
 	}
@@ -416,22 +423,23 @@ TVMContractCompiler::generateContractCode(
 		pragmas.emplace_back(".pragma selector-save-my-code");
 	}
 
-
-
-	for (Pointer<Function>& f : functions) {
-		LocSquasher sq;
-		f->accept(sq);
-	}
-
-	for (Pointer<Function>& f : functions) {
-		TVMOptimizer opt;
-		f->accept(opt);
-
-		LocSquasher sq;
-		f->accept(sq);
-	}
-
 	Pointer<Contract> c = createNode<Contract>(pragmas, functions);
+
+	DeleterAfterRet d;
+	c->accept(d);
+
+	LocSquasher sq;
+	c->accept(sq);
+
+	StackOptimizer opt;
+	c->accept(opt);
+
+	PeepholeOptimizer peepHole;
+	c->accept(peepHole);
+
+	sq = LocSquasher{};
+	c->accept(sq);
+
 	return c;
 }
 
@@ -453,7 +461,7 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 
 	for (FunctionDefinition const * function : order) {
 		ctx.setCurrentFunction(function);
-		StackPusherHelper pusher{&ctx};
+		StackPusher pusher{&ctx};
 		TVMFunctionCompiler::generateFunctionWithModifiers(pusher, function, true);
 		const std::string name = functionName(function);
 

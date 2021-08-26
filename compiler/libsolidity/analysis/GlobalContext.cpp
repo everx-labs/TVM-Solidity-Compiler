@@ -71,6 +71,8 @@ int magicVariableToID(std::string const& _name)
 	else if (_name == "this") return -28;
 	else if (_name == "gasToValue") return -60;
 	else if (_name == "valueToGas") return -61;
+	else if (_name == "bitSize") return -62;
+	else if (_name == "uBitSize") return -63;
 	else
 		solAssert(false, "Unknown magic variable: \"" + _name + "\".");
 }
@@ -122,6 +124,8 @@ inline vector<shared_ptr<MagicVariableDeclaration const>> constructMagicVariable
 		)),
 		magicVarDecl("valueToGas", TypeProvider::function({"uint128", "int8"}, {"uint128"}, FunctionType::Kind::ValueToGas, false, StateMutability::Pure)),
 		magicVarDecl("gasToValue", TypeProvider::function({"uint128", "int8"}, {"uint128"}, FunctionType::Kind::GasToValue, false, StateMutability::Pure)),
+		magicVarDecl("bitSize", TypeProvider::function({"int"}, {"uint16"}, FunctionType::Kind::BitSize, false, StateMutability::Pure)),
+		magicVarDecl("uBitSize", TypeProvider::function({"uint"}, {"uint16"}, FunctionType::Kind::UBitSize, false, StateMutability::Pure)),
 	};
 }
 

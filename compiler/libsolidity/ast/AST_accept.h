@@ -436,7 +436,7 @@ void Optional::accept(ASTConstVisitor& _visitor) const
 	_visitor.endVisit(*this);
 }
 
-void TvmTuple::accept(ASTVisitor& _visitor)
+void TvmVector::accept(ASTVisitor& _visitor)
 {
 	if (_visitor.visit(*this))
 	{
@@ -445,7 +445,7 @@ void TvmTuple::accept(ASTVisitor& _visitor)
 	_visitor.endVisit(*this);
 }
 
-void TvmTuple::accept(ASTConstVisitor& _visitor) const
+void TvmVector::accept(ASTConstVisitor& _visitor) const
 {
 	if (_visitor.visit(*this))
 	{

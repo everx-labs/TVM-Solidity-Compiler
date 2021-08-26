@@ -27,14 +27,14 @@ namespace solidity::frontend {
 class TVMCompilerContext;
 
 class TVMConstructorCompiler: private boost::noncopyable {
-	StackPusherHelper& m_pusher;
+	StackPusher& m_pusher;
 	std::map<ContractDefinition const*, std::vector<ContractDefinition const*>> path;
 	std::vector<ContractDefinition const*> dfsOrder;
 	std::map<ContractDefinition const*, bool> used;
 	std::map<ContractDefinition const*, std::vector<ASTPointer<Expression>> const*> m_args;
 
 public:
-	explicit TVMConstructorCompiler(StackPusherHelper& pusher);
+	explicit TVMConstructorCompiler(StackPusher& pusher);
 	void dfs(ContractDefinition const* c);
 	Pointer<Function> generateConstructors();
 private:

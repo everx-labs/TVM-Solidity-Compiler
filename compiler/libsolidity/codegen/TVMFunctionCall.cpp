@@ -28,7 +28,7 @@
 
 using namespace solidity::frontend;
 
-FunctionCallCompiler::FunctionCallCompiler(StackPusherHelper &m_pusher, TVMExpressionCompiler *exprCompiler,
+FunctionCallCompiler::FunctionCallCompiler(StackPusher &m_pusher, TVMExpressionCompiler *exprCompiler,
 											FunctionCall const& _functionCall, bool isCurrentResultNeeded) :
 		m_pusher{m_pusher},
 		m_exprCompiler{exprCompiler},
@@ -88,7 +88,7 @@ bool FunctionCallCompiler::compile() {
 				sliceMethods(*ma);
 			} else if (
 				checkForTvmBuilderMethods(*ma, category) ||
-				checkForTvmTupleMethods(*ma, category) ||
+				checkForTvmVectorMethods(*ma, category) ||
 				checkForOptionalMethods(*ma))
 			{
 				// nothing
@@ -293,9 +293,9 @@ void FunctionCallCompiler::typeTypeMethods(MemberAccess const &_node) {
 		const auto& len = TVMExpressionCompiler::constValue(*m_arguments.at(1));
 		if (num.has_value() && len.has_value()) {
 			std::string addr = "01";
-			StackPusherHelper::addBinaryNumberToString(addr, u256(len.value()), 9);
-			StackPusherHelper::addBinaryNumberToString(addr, u256(num.value()), int(len.value()));
-			m_pusher.push(+1, "PUSHSLICE x" + StackPusherHelper::binaryStringToSlice(addr));
+			StackPusher::addBinaryNumberToString(addr, u256(len.value()), 9);
+			StackPusher::addBinaryNumberToString(addr, u256(num.value()), int(len.value()));
+			m_pusher.push(+1, "PUSHSLICE x" + StackPusher::binaryStringToSlice(addr));
 		} else {
 			pushArgs();
 			m_pusher.pushS(0); // numb cntBit cntBit
@@ -314,9 +314,9 @@ void FunctionCallCompiler::typeTypeMethods(MemberAccess const &_node) {
 		const auto& val = TVMExpressionCompiler::constValue(*m_arguments.at(1));
 		if (wid.has_value() && val.has_value()) {
 			std::string addr = "100";
-			StackPusherHelper::addBinaryNumberToString(addr, u256(wid.value()), 8);
-			StackPusherHelper::addBinaryNumberToString(addr, u256(val.value()), 256);
-			m_pusher.push(+1, "PUSHSLICE x" + StackPusherHelper::binaryStringToSlice(addr));
+			StackPusher::addBinaryNumberToString(addr, u256(wid.value()), 8);
+			StackPusher::addBinaryNumberToString(addr, u256(val.value()), 256);
+			m_pusher.push(+1, "PUSHSLICE x" + StackPusher::binaryStringToSlice(addr));
 		} else {
 			pushArgs(true);
 			m_pusher.push(+1, "NEWC");
@@ -479,7 +479,7 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 		if (Expression const* valueExpr = findOption("value")) {
 			const auto& value = TVMExpressionCompiler::constValue(*valueExpr);
 			if (value.has_value()) {
-				constParams[TvmConst::int_msg_info::tons] = StackPusherHelper::tonsToBinaryString(u256(value.value()));
+				constParams[TvmConst::int_msg_info::tons] = StackPusher::tonsToBinaryString(u256(value.value()));
 			} else {
 				exprs[TvmConst::int_msg_info::tons] = valueExpr;
 			}
@@ -557,8 +557,9 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 	m_pusher.sendIntMsg(exprs, constParams, appendBody, pushSendrawmsgFlag, _functionCall.isAwait(), m_arguments.size());
 
 	if (_functionCall.isAwait()) {
-		// TODO push to PUSHREF to decrease code size
-		// push remote addr
+		// stack: remote addr
+		m_pusher.startOpaque();
+		m_pusher.startContinuation();
 		m_pusher.pushMacroCallInCallRef(0, 0, "c7_to_c4_for_await");
 		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
 			"DEPTH",
@@ -580,10 +581,11 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 		m_pusher.push(+2, ""); // fix stack
 		// decode returned vars
 		ChainDataDecoder decoder{&m_pusher};
-
 		vector<Type const*> types = getParams(functionDefinition->returnParameters()).first;
 		decoder.decodePublicFunctionParameters(types, false);
 		m_pusher.push(-1, ""); // fix stack
+		m_pusher.callRef(0, 0);
+		m_pusher.endOpaque(1, types.size()); // take one parameter - it's dest address
 	}
 	return true;
 }
@@ -604,7 +606,7 @@ void FunctionCallCompiler::checkExtMsgSend() {
 	Expression const* abiVer = findOption("abiVer");
 	Expression const* onerrorid = findOption("onErrorId");
 	Expression const* stateInit = findOption("stateInit");
-    Expression const* signBoxHandle = findOption("signBoxHandle");
+	Expression const* signBoxHandle = findOption("signBoxHandle");
 
 	auto memberAccess = to<MemberAccess>(&functionOptions->expression());
 	FunctionDefinition const* functionDefinition = getRemoteFunctionDefinition(memberAccess);
@@ -620,13 +622,13 @@ void FunctionCallCompiler::checkExtMsgSend() {
 std::string FunctionCallCompiler::getDefaultMsgValue() {
 	const auto expr = m_pusher.ctx().pragmaHelper().haveMsgValue();
 	if (!expr) {
-		return StackPusherHelper::tonsToBinaryString(u256{TvmConst::Message::DefaultMsgValue});
+		return StackPusher::tonsToBinaryString(u256{TvmConst::Message::DefaultMsgValue});
 	}
 	const auto& val = TVMExpressionCompiler::constValue(*expr);
 	if (!val.has_value()) {
 		cast_error(*expr, "Default value should be compile time expression of number type");
 	}
-	return StackPusherHelper::tonsToBinaryString(val.value());
+	return StackPusher::tonsToBinaryString(val.value());
 }
 
 const FunctionDefinition* FunctionCallCompiler::getRemoteFunctionDefinition(const MemberAccess* memberAccess) {
@@ -654,7 +656,7 @@ void FunctionCallCompiler::generateExtInboundMsg(
 	const Expression *abiVer,
 	const Expression *onerrorid,
 	const Expression *stateInit,
-    const Expression *signBoxHandle,
+	const Expression *signBoxHandle,
 	const CallableDeclaration *functionDefinition,
 	const ast_vec<Expression const> arguments
 ) {
@@ -784,23 +786,23 @@ void FunctionCallCompiler::generateExtInboundMsg(
 	acceptExpr(callbackid);
 	m_pusher.push(+1, "NEWC");
 	// stack: [signBoxHandle] abiVer onerrorid callbackid builder
-    m_pusher.push(0, "STSLICECONST x6_"); // header 01
-    if (signBoxHandle == nullptr)
-        m_pusher.push(0, "STSLICECONST x264_"); // const length 76
-    else {
-        m_pusher.pushS(4);
+	m_pusher.push(0, "STSLICECONST x6_"); // header 01
+	if (signBoxHandle == nullptr)
+		m_pusher.push(0, "STSLICECONST x264_"); // const length 76
+	else {
+		m_pusher.pushS(4);
 		m_pusher.startOpaque();
-        m_pusher.push(0, "ISNULL");
-        m_pusher.startContinuation();
-        m_pusher.push(0, "STSLICECONST x264_"); // const length 76
-        m_pusher.endContinuation();
-        m_pusher.startContinuation();
-        m_pusher.push(0, "STSLICECONST x364_"); // const length 108
-        m_pusher.endContinuation();
-        m_pusher.ifElse();
-        m_pusher.push(-1, "");
+		m_pusher.push(0, "ISNULL");
+		m_pusher.startContinuation();
+		m_pusher.push(0, "STSLICECONST x264_"); // const length 76
+		m_pusher.endContinuation();
+		m_pusher.startContinuation();
+		m_pusher.push(0, "STSLICECONST x364_"); // const length 108
+		m_pusher.endContinuation();
+		m_pusher.ifElse();
+		m_pusher.push(-1, "");
 		m_pusher.endOpaque(2, 1);
-    }
+	}
 	// stack: [signBoxHandle] abiVer onerrorid callbackid builder
 	m_pusher.push(-1, "STU 32"); // stack: [signBoxHandle] abiVer onerrorid builder
 	m_pusher.push(-1, "STU 32"); // stack: [signBoxHandle] abiVer builder
@@ -818,23 +820,23 @@ void FunctionCallCompiler::generateExtInboundMsg(
 	else
 		m_pusher.push(0, "STZERO");
 	if (signBoxHandle == nullptr)
-        m_pusher.push(0, "STZERO");
+		m_pusher.push(0, "STZERO");
 	else {
 		// stack: [signBoxHandle] builder
-        m_pusher.pushS(1);
+		m_pusher.pushS(1);
 		m_pusher.startOpaque();
-        m_pusher.push(0, "ISNULL");
-        m_pusher.startContinuation();
-        m_pusher.dropUnder(1, 1);
-        m_pusher.stzeroes(1);
-        m_pusher.endContinuation();
-        m_pusher.startContinuation();
-        m_pusher.stones(1);
-        m_pusher.push(+1, ""); // fix stack
-        m_pusher.push(-1, "STU 32");
-        m_pusher.endContinuation();
-        m_pusher.ifElse();
-        m_pusher.push(-1, ""); // fix stack
+		m_pusher.push(0, "ISNULL");
+		m_pusher.startContinuation();
+		m_pusher.dropUnder(1, 1);
+		m_pusher.stzeroes(1);
+		m_pusher.endContinuation();
+		m_pusher.startContinuation();
+		m_pusher.stones(1);
+		m_pusher.push(+1, ""); // fix stack
+		m_pusher.push(-1, "STU 32");
+		m_pusher.endContinuation();
+		m_pusher.ifElse();
+		m_pusher.push(-1, ""); // fix stack
 		m_pusher.endOpaque(3, 1);
 	}
 
@@ -847,7 +849,7 @@ void FunctionCallCompiler::generateExtInboundMsg(
 			m_pusher.push(-1, "STREFR");
 		};
 
-	m_pusher.prepareMsg({TvmConst::ext_msg_info::src, TvmConst::ext_msg_info::dest}, {}, appendBody, appendStateInit, StackPusherHelper::MsgType::ExternalIn);
+	m_pusher.prepareMsg({TvmConst::ext_msg_info::src, TvmConst::ext_msg_info::dest}, {}, appendBody, appendStateInit, StackPusher::MsgType::ExternalIn);
 
 	solAssert(stackSize + 1 == m_pusher.stackSize(), "");
 }
@@ -924,9 +926,9 @@ void FunctionCallCompiler::tvmBuildIntMsg() {
 			std::optional<bigint> value = TVMExpressionCompiler::constValue(*m_arguments.at(argIndex));
 			std::optional<bool> flag = TVMExpressionCompiler::constBool(*m_arguments.at(argIndex));
 			if (value) {
-				constParams[id] = StackPusherHelper::tonsToBinaryString(*value);
+				constParams[id] = StackPusher::tonsToBinaryString(*value);
 			} else if (flag) {
-				constParams[id] = StackPusherHelper::boolToBinaryString(*flag);
+				constParams[id] = StackPusher::boolToBinaryString(*flag);
 			} else {
 				pushArgAndConvert(argIndex, name);
 				isParamOnStack.insert(id);
@@ -939,7 +941,7 @@ void FunctionCallCompiler::tvmBuildIntMsg() {
 		constParams,
 		appendBody,
 		nullptr,
-		StackPusherHelper::MsgType::Internal
+		StackPusher::MsgType::Internal
 	);
 
 	solAssert(m_pusher.stackSize() == stackSize + 1, "");
@@ -1201,6 +1203,9 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 	} else if (_node.memberName() == "refs") {
 		acceptExpr(&_node.expression());
 		m_pusher.push(-1+1, "SREFS");
+	} else if (_node.memberName() == "bitsAndRefs") {
+		acceptExpr(&_node.expression());
+		m_pusher.push(-1+2, "SBITREFS");
 	} else if (_node.memberName() == "depth") {
 		acceptExpr(&_node.expression());
 		m_pusher.push(-1 + 1, "SDEPTH");
@@ -1309,14 +1314,62 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 }
 
 
-bool FunctionCallCompiler::checkForTvmTupleMethods(MemberAccess const &_node, Type::Category category) {
-	if (category != Type::Category::TvmTuple)
+bool FunctionCallCompiler::checkForTvmVectorMethods(MemberAccess const &_node, Type::Category category) {
+	if (category != Type::Category::TvmVector)
 		return false;
 
 	if (_node.memberName() == "push") {
 		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, true, nullptr);
 		acceptExpr(m_arguments[0].get());
+
+		//start callref
+		m_pusher.startContinuation();
+
+		// vector new_el
+		m_pusher.startOpaque();
+		m_pusher.exchange(1);
+		// new_el vector
+		m_pusher.pushS(0);
+		m_pusher.push(0, "TLEN");
+		//new_el vector vector_len
+
+		// if vector is not empty get last tuple
+		m_pusher.startContinuation();
+		m_pusher.push(+1, "TPOP");
+		// new_el vector' last_tuple
+		m_pusher.pushS(0);
+		m_pusher.push(0, "TLEN");
+		m_pusher.pushInt(TvmConst::TvmTupleLen);
+		m_pusher.push(-1, "SUB");
+
+		// if last tuple is full (his length is equal to 255) push it back to vector and create new tuple
+		m_pusher.startContinuation();
 		m_pusher.push(-1, "TPUSH");
+		m_pusher.tuple(0);
+		m_pusher.endContinuation();
+		m_pusher._ifNot();
+		// new_el vector' tuple
+		m_pusher.endContinuation();
+
+		// if vector is empty create new tuple
+		m_pusher.startContinuation();
+		m_pusher.tuple(0);
+		m_pusher.endContinuation();
+
+		m_pusher.ifElse();
+
+		// new_el vector' tuple
+		m_pusher.rot();
+		// vector' tuple new_el
+		m_pusher.push(-1, "TPUSH");
+		// vector' tuple'
+		m_pusher.push(-1, "TPUSH");
+		// vector''
+		m_pusher.endOpaque(2, 1);
+
+		// end callref
+		m_pusher.callRef(2, 1);
+
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
 		return true;
 	}
@@ -1325,18 +1378,90 @@ bool FunctionCallCompiler::checkForTvmTupleMethods(MemberAccess const &_node, Ty
 		const int stackSize = m_pusher.stackSize();
 		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, true, nullptr);
 		const int stackChange = m_pusher.stackSize() - stackSize;
-		solAssert(stackChange >= 1, "Wrong stack change");
+
+		//start callref
+		m_pusher.startContinuation();
+
+		// vector
+		m_pusher.startOpaque();
 		m_pusher.push(+1, "TPOP");
-		m_pusher.blockSwap(stackChange, 1);
+		// vector' last_tuple
+		m_pusher.push(+1, "TPOP");
+		// [vector_expand] vector' last_tuple' last_el
+
+		// put last el before vector and it's expand components
+		m_pusher.blockSwap(stackChange + 1, 1);
+		// last_el [vector_expand] vector' last_tuple'
+
+		// if the last tuple is empty delete it
+		m_pusher.pushS(0);
+		m_pusher.push(0, "TLEN");
+		// last_el [vector_expand] vector' last_tuple' last_tuple_len
+
+		// if last_tuple is not empty push it back to the vector
+		m_pusher.startContinuation();
+		m_pusher.push(-1, "TPUSH");
+		m_pusher.endContinuation();
+
+		// if last_tuple is empty drop it
+		m_pusher.startContinuation();
+		m_pusher.drop(1);
+		m_pusher.endContinuation();
+
+		m_pusher.ifElse();
+		// last_el [vector_expand] vector'
+
+		m_pusher.endOpaque(1, 2);
+
+		// end callref
+		m_pusher.callRef(1, 2);
+
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
-		const int finalChange = m_pusher.stackSize() - stackSize;
-		solAssert(finalChange == 1, "Wrong stack change");
+		// last_el
 		return true;
 	}
 
 	if (_node.memberName() == "length") {
 		acceptExpr(&_node.expression());
+		// vector
+
+		//start callref
+		m_pusher.startContinuation();
+
+		m_pusher.startOpaque();
+		m_pusher.pushS(0);
 		m_pusher.push(-1 + 1, "TLEN");
+		// vector len
+		m_pusher.pushS(0);
+		// vector len len
+
+		// if len is not zero count length of full tuples and add length of the last tuple
+		m_pusher.startContinuation();
+		// vector len
+		m_pusher.push(0, "DEC");
+		// vector len--
+		m_pusher.pushInt(TvmConst::TvmTupleLen);
+		m_pusher.push(-1, "MUL");
+		// vector full_tuples_len
+		m_pusher.exchange(1);
+		m_pusher.push(-1+1, "LAST");
+		// full_tuples_len last_tuple
+		m_pusher.push(+1-1, "TLEN");
+		// full_tuples_len last_tuple_len
+		m_pusher.push(-1, "ADD");
+		m_pusher.endContinuation();
+
+		// if length is zero just leave it on stack
+		m_pusher.startContinuation();
+		m_pusher.popS(1);
+		m_pusher.endContinuation();
+
+		m_pusher.ifElse();
+
+		m_pusher.endOpaque(1, 1);
+
+		// end callref
+		m_pusher.callRef(1, 1);
 		return true;
 	}
 
@@ -1503,6 +1628,19 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 			m_pusher.pushInt(-1);
 		}
 		m_pusher.pushMacroCallInCallRef(3, 1, "__substr_macro");
+	} else if (_node.memberName() == "find") {
+		acceptExpr(&_node.expression());
+		pushArgs();
+		Type::Category cat = m_arguments.at(0)->annotation().type->category();
+		if (cat == Type::Category::FixedBytes) {
+			m_pusher.pushMacroCallInCallRef(2, 1, "__strchr_macro");
+		} else {
+			m_pusher.pushMacroCallInCallRef(2, 1, "__strstr_macro");
+		}
+	} else if (_node.memberName() == "findLast") {
+		acceptExpr(&_node.expression());
+		pushArgs();
+		m_pusher.pushMacroCallInCallRef(2, 1, "__strrchr_macro");
 	} else if (_node.memberName() == "byteLength") {
 		acceptExpr(&_node.expression());
 		m_pusher.byteLengthOfCell();
@@ -1642,7 +1780,7 @@ void FunctionCallCompiler::addressMethod() {
 		auto setValue = [&](Expression const* expr) {
 			const auto& value = TVMExpressionCompiler::constValue(*expr);
 			if (value.has_value()) {
-				constParams[TvmConst::int_msg_info::tons] = StackPusherHelper::tonsToBinaryString(u256(value.value()));
+				constParams[TvmConst::int_msg_info::tons] = StackPusher::tonsToBinaryString(u256(value.value()));
 			} else {
 				exprs[TvmConst::int_msg_info::tons] = expr;
 			}
@@ -2131,9 +2269,9 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		m_pusher.was_c4_to_c7_called();
 		m_pusher.push(-1, ""); // fix stack
 
-		m_pusher.startIfNotRef();
+		m_pusher.startContinuation();
 		m_pusher.pushMacroCallInCallRef(0, 0, "c7_to_c4");
-		m_pusher.endContinuation();
+		m_pusher.ifNotRef();
 
 		if (_node.memberName() == "exit")
 			m_pusher._throw("THROW 0");
@@ -2325,7 +2463,7 @@ void FunctionCallCompiler::mathFunction(const MemberAccess &_node) {
 		pushArgs();
 		if (m_retType->category() == Type::Category::FixedPoint) {
 			int power = to<FixedPointType>(m_retType)->fractionalDigits();
-			m_pusher.pushInt(StackPusherHelper::pow10(power)); // res 10^n
+			m_pusher.pushInt(StackPusher::pow10(power)); // res 10^n
 			m_pusher.exchange(1);
 			m_pusher.push(-3 + 1, "MUL" + boost::to_upper_copy<std::string>(_node.memberName()));
 		} else {
@@ -2538,6 +2676,16 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 			m_pusher.pushMacroCallInCallRef(2, 1, "__tonToGas_macro");
 			return true;
 		}
+		case FunctionType::Kind::BitSize: {
+			pushArgs();
+			m_pusher.push(-1 + 1, "BITSIZE");
+			return true;
+		}
+		case FunctionType::Kind::UBitSize: {
+			pushArgs();
+			m_pusher.push(-1 + 1, "UBITSIZE");
+			return true;
+		}
 
 		case FunctionType::Kind::SHA256: { // "sha256"
 			pushArgAndConvert(0);
@@ -2553,7 +2701,7 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 		case FunctionType::Kind::Selfdestruct: { // "selfdestruct"
 			const std::map<int, std::string> constParams{
 					{TvmConst::int_msg_info::ihr_disabled, "1"},
-					{TvmConst::int_msg_info::tons,         StackPusherHelper::tonsToBinaryString(u256(0))},
+					{TvmConst::int_msg_info::tons,         StackPusher::tonsToBinaryString(u256(0))},
 					{TvmConst::int_msg_info::bounce,       "0"},
 			};
 			m_pusher.sendIntMsg(
@@ -2654,20 +2802,20 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 				pos = 0;
 			}
 			// create new vector(TvmBuilder)
-			m_pusher.push(+1, "NIL");
+			m_pusher.pushDefaultValue(TypeProvider::tvmtuple(TypeProvider::tvmbuilder()));
 			// create new builder to store data in it
 			m_pusher.push(+1, "NEWC");
 
 			auto pushConstStr = [&](const string& constStr) {
-                if (!constStr.empty()) {
-                    size_t maxSlice = TvmConst::CellBitLength / 8;
-                    for(size_t i = 0; i  < constStr.length(); i += maxSlice) {
-                        m_pusher.pushString(constStr.substr(i, min(maxSlice, constStr.length() - i)), true);
-                        // stack: vector(TvmBuilder) builder Slice
-                        m_pusher.pushMacroCallInCallRef(1, 0, "storeStringInBuilders_macro");
-                    }
-                    // stack: vector(TvmBuilder) builder
-                }
+				if (!constStr.empty()) {
+					size_t maxSlice = TvmConst::CellBitLength / 8;
+					for(size_t i = 0; i  < constStr.length(); i += maxSlice) {
+						m_pusher.pushString(constStr.substr(i, min(maxSlice, constStr.length() - i)), true);
+						// stack: BldrList builder Slice
+						m_pusher.pushMacroCallInCallRef(3, 2, "storeStringInBuilders_macro");
+					}
+					// stack: BldrList builder
+				}
 			};
 			for (size_t it = 0; it < substrings.size(); it++) {
 				// stack: vector(TvmBuilder) builder
@@ -2745,7 +2893,7 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 					cast_error(*m_arguments[it + 1].get(), "Unsupported argument type");
 				}
 			}
-            pushConstStr(formatStr);
+			pushConstStr(formatStr);
 
 			m_pusher.pushMacroCallInCallRef(2, 1, "assembleList_macro");
 			return true;
@@ -2930,7 +3078,7 @@ void FunctionCallCompiler::deployNewContract(
 	std::map<int, std::string> constParams = {{TvmConst::int_msg_info::ihr_disabled, "1"}};
 
 	if (pushBounce.index() == 0) {
-		constParams[TvmConst::int_msg_info::bounce] = StackPusherHelper::boolToBinaryString(std::get<0>(pushBounce));
+		constParams[TvmConst::int_msg_info::bounce] = StackPusher::boolToBinaryString(std::get<0>(pushBounce));
 	} else if (pushBounce.index() == 1) {
 		exprs[TvmConst::int_msg_info::bounce] = std::get<1>(pushBounce);
 	}
@@ -2946,9 +3094,9 @@ void FunctionCallCompiler::deployNewContract(
 	if (wid.index() == 0) {
 		int8_t w = std::get<0>(wid);
 		std::string binWID = "100";
-		StackPusherHelper::addBinaryNumberToString(binWID, u256(w), 8);
+		StackPusher::addBinaryNumberToString(binWID, u256(w), 8);
 		m_pusher.push(+1, "NEWC");
-		m_pusher.push(-1 + 1, "STSLICECONST x" + StackPusherHelper::binaryStringToSlice(binWID));
+		m_pusher.push(-1 + 1, "STSLICECONST x" + StackPusher::binaryStringToSlice(binWID));
 	} else {
 		std::get<1>(wid)();
 		m_pusher.push(+1, "NEWC");
@@ -2968,7 +3116,7 @@ void FunctionCallCompiler::deployNewContract(
 	int destAddressStack = m_pusher.stackSize() - 1 - argQty;
 
 	if (value.index() == 0) {
-		constParams[TvmConst::int_msg_info::tons] = StackPusherHelper::tonsToBinaryString(std::get<0>(value));
+		constParams[TvmConst::int_msg_info::tons] = StackPusher::tonsToBinaryString(std::get<0>(value));
 	} else {
 		exprs[TvmConst::int_msg_info::tons] = [&](){
 			std::get<1>(value)();
@@ -2998,7 +3146,7 @@ void FunctionCallCompiler::deployNewContract(
 		appendBody,
 		appendStateInit,
 		pushSendrawmsgFlag,
-		StackPusherHelper::MsgType::Internal,
+		StackPusher::MsgType::Internal,
 		isDestBuilder
 	);
 	// stack: destAddress

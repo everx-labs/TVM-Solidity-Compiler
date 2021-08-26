@@ -23,7 +23,7 @@
 
 using namespace solidity::frontend;
 
-StructCompiler::StructCompiler(StackPusherHelper *pusher, TupleType const* tuple) :
+StructCompiler::StructCompiler(StackPusher *pusher, TupleType const* tuple) :
 	pusher{pusher}
 {
 	int i = 0;
@@ -53,12 +53,12 @@ getNamesFrom(StructDefinition const *structDefinition)
 	return result;
 }
 
-StructCompiler::StructCompiler(StackPusherHelper *pusher, StructType const *structType) :
+StructCompiler::StructCompiler(StackPusher *pusher, StructType const *structType) :
 	StructCompiler{pusher, getTypesFrom(&structType->structDefinition()), getNamesFrom(&structType->structDefinition())} {
 }
 
 StructCompiler::StructCompiler(
-	StackPusherHelper *pusher,
+	StackPusher *pusher,
 	const std::vector<Type const*>& memberTypes,
 	const std::vector<std::string>& memberNames
 ) :
@@ -127,7 +127,7 @@ void StructCompiler::tupleToBuilder() {
     // stack: tuple
 	const int ss = pusher->stackSize();
 
-	pusher->startCallRef();
+	pusher->startContinuation();
 
 	const int n = memberNames.size();
 	pusher->untuple(n);
@@ -139,7 +139,7 @@ void StructCompiler::tupleToBuilder() {
 	ChainDataEncoder encoder{pusher};
 	EncodePosition position{0, memberTypes};
 	encoder.encodeParameters(memberTypes, position);
-	pusher->endContinuation();
+	pusher->callRef(1, 1);
 	// stack: builder
 	const int curSize = pusher->stackSize();
 

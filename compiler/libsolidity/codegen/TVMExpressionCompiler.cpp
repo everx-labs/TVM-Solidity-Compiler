@@ -26,7 +26,7 @@
 
 using namespace solidity::frontend;
 
-TVMExpressionCompiler::TVMExpressionCompiler(StackPusherHelper &pusher) :
+TVMExpressionCompiler::TVMExpressionCompiler(StackPusher &pusher) :
 		m_pusher{pusher},
 		m_expressionDepth{-1},
 		m_isResultNeeded{false}
@@ -331,7 +331,7 @@ void TVMExpressionCompiler::compileUnaryDelete(UnaryOperation const &node) {
 			collectLValue(lValueInfo, true, false);
 		} else { // mapping
 			m_pusher.pushS(1);                            // ... index dict index
-            TypePointer const dictKey = StackPusherHelper::parseIndexType(indexAccess->baseExpression().annotation().type);
+            TypePointer const dictKey = StackPusher::parseIndexType(indexAccess->baseExpression().annotation().type);
 			m_pusher.exchange(1);                                // ... index index' dict
 			m_pusher.pushInt(lengthOfDictKey(dictKey)); // ..index index dict nbits
 			m_pusher.push(-3 + 2, "DICT" + typeToDictChar(dictKey) + "DEL");  // ... index dict' {-1,0}
@@ -506,8 +506,7 @@ void TVMExpressionCompiler::visitLogicalShortCircuiting(BinaryOperation const &_
 			m_pusher.push(-1, op == Token::Or ? "OR" : "AND");
 		} else {
 			m_pusher.pushS(0);
-			m_pusher.push(-1, ""); // fix stack for if
-
+			m_pusher.push(-1, ""); // fix stack
 			m_pusher.startContinuation();
 			m_pusher.drop();
 			compileNewExpr(order[i]);
@@ -518,8 +517,7 @@ void TVMExpressionCompiler::visitLogicalShortCircuiting(BinaryOperation const &_
 		if (to<Identifier>(order[i]) || order[i]->annotation().isPure) {
 			// nothing
 		} else {
-			m_pusher.endContinuation();
-			op == Token::Or ? m_pusher._ifNot() : m_pusher._if();
+			m_pusher.endLogCircuit(op == Token::Or ? LogCircuit::Type::OR : LogCircuit::Type::AND);
 		}
 	}
 }
@@ -638,7 +636,7 @@ void TVMExpressionCompiler::visitMathBinaryOperation(
 		} else if (op == Token::Mul) {
 			if (commonType->category() == Type::Category::FixedPoint) {
 				int power = to<FixedPointType>(commonType)->fractionalDigits();
-				m_pusher.pushInt(StackPusherHelper::pow10(power));
+				m_pusher.pushInt(StackPusher::pow10(power));
 				m_pusher.push(-3 + 1, "MULDIV");
 			} else {
 				m_pusher.push(-2 + 1, "MUL");
@@ -652,7 +650,7 @@ void TVMExpressionCompiler::visitMathBinaryOperation(
 		else if (op == Token::Div) {
 			if (commonType->category() == Type::Category::FixedPoint) {
 				int power = to<FixedPointType>(commonType)->fractionalDigits();
-				m_pusher.pushInt(StackPusherHelper::pow10(power)); // res 10^n
+				m_pusher.pushInt(StackPusher::pow10(power)); // res 10^n
 				m_pusher.exchange(1);
 				m_pusher.push(-3 + 1, "MULDIV");
 			} else {
@@ -910,7 +908,7 @@ void TVMExpressionCompiler::visitMemberAccessFixedBytes(MemberAccess const &_nod
 void TVMExpressionCompiler::indexTypeCheck(IndexAccess const &_node) {
 	Type const* baseExprType = _node.baseExpression().annotation().type;
 	Type::Category baseExprCategory = _node.baseExpression().annotation().type->category();
-	if (!isIn(baseExprCategory, Type::Category::Mapping, Type::Category::ExtraCurrencyCollection, Type::Category::TvmTuple) && !isUsualArray(baseExprType)) {
+	if (!isIn(baseExprCategory, Type::Category::Mapping, Type::Category::ExtraCurrencyCollection, Type::Category::TvmVector) && !isUsualArray(baseExprType)) {
 		cast_error(_node, "Index access is supported only for dynamic arrays, tuples and mappings");
 	}
 }
@@ -950,7 +948,7 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 			acceptExpr(&indexAccess.baseExpression()); // bytes
 			m_pusher.push(-1 + 1, "CTOS");
 			compileNewExpr(indexAccess.indexExpression()); // slice index
-			m_pusher.startCallRef();
+			m_pusher.startContinuation();
 			m_pusher.pushInt(127);
 			m_pusher.push(-2 + 2, "DIVMOD"); // slice cntRef rest
 			m_pusher.rotRev(); // rest slice cntRef
@@ -965,20 +963,29 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 			m_pusher.push(-1 + 1, "MULCONST 8");
 			m_pusher.push(-2 + 1, "SDSKIPFIRST");
 			m_pusher.push(-1 + 1, "PLDU 8");
-			m_pusher.endContinuation();
+			m_pusher.callRef(2, 1);
 			return;
 		} else {
 			compileNewExpr(indexAccess.indexExpression()); // index
 			acceptExpr(&indexAccess.baseExpression()); // index array
 			m_pusher.index(1); // index dict
 		}
-	} else if (baseType->category() == Type::Category::TvmTuple) {
+	} else if (baseType->category() == Type::Category::TvmVector) {
 		acceptExpr(&indexAccess.baseExpression()); // tuple
 		const auto& val = constValue(*indexAccess.indexExpression());
-		if (val.has_value() && val <= 15)
+		if (val.has_value() && val <= 15) {
+			m_pusher.push(-1 + 1, "INDEX 0");
 			m_pusher.push(-1 + 1, "INDEX " + val.value().str());
-		else {
-			acceptExpr(indexAccess.indexExpression()); // tuple index
+		} else {
+			acceptExpr(indexAccess.indexExpression()); // vector index
+			m_pusher.pushInt(TvmConst::TvmTupleLen);
+			m_pusher.push(-2+2, "DIVMOD");
+			// vector tuple_num rest
+			m_pusher.rotRev();
+			// rest vector tuple_num
+			m_pusher.push(-2 + 1, "INDEXVAR");
+			// rest tuple
+			m_pusher.exchange(1);
 			m_pusher.push(-2 + 1, "INDEXVAR");
 		}
 		return;
@@ -988,8 +995,8 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 		acceptExpr(&indexAccess.baseExpression()); // index dict
 	}
 
-	m_pusher.getDict(*StackPusherHelper::parseIndexType(baseType),
-	                 *StackPusherHelper::parseValueType(indexAccess),
+	m_pusher.getDict(*StackPusher::parseIndexType(baseType),
+	                 *StackPusher::parseValueType(indexAccess),
 	                 baseType->category() == Type::Category::Mapping ||
 	                 baseType->category() == Type::Category::ExtraCurrencyCollection ?
 	                 GetDictOperation::GetFromMapping :
@@ -1019,9 +1026,8 @@ void TVMExpressionCompiler::visit2(Conditional const &_conditional) {
 	m_pusher.endContinuation();
 	m_pusher.push(-paramQty, ""); // fix stack
 
-	m_pusher.ifElse();
 
-	m_pusher.push(+paramQty, ""); // fix stack
+	m_pusher.pushConditional(paramQty);
 	solAssert(stackSize + paramQty == m_pusher.stackSize(), "");
 }
 
@@ -1099,8 +1105,8 @@ TVMExpressionCompiler::expandLValue(
 				m_pusher.pushS2(1, 0);
 				// index dict1 index dict1
 
-				m_pusher.getDict(*StackPusherHelper::parseIndexType(index->baseExpression().annotation().type),
-				                 *StackPusherHelper::parseValueType(*index),
+				m_pusher.getDict(*StackPusher::parseIndexType(index->baseExpression().annotation().type),
+				                 *StackPusher::parseValueType(*index),
 				                 GetDictOperation::GetFromMapping);
 				// index dict1 dict2
 			} else if (index->baseExpression().annotation().type->category() == Type::Category::Array) {
@@ -1115,7 +1121,7 @@ TVMExpressionCompiler::expandLValue(
 					break;
 				}
 				m_pusher.pushS2(1, 0); // size index dict index dict
-				m_pusher.getDict(*StackPusherHelper::parseIndexType(index->baseExpression().annotation().type),
+				m_pusher.getDict(*StackPusher::parseIndexType(index->baseExpression().annotation().type),
 				                 *index->annotation().type, GetDictOperation::GetFromArray);
 				// size index dict value
 			} else {
@@ -1187,8 +1193,8 @@ TVMExpressionCompiler::collectLValue(
 					m_pusher.dropUnder(1, 1); // dict
 				} else {
 					// index dict value
-					TypePointer const keyType = StackPusherHelper::parseIndexType(indexAccess->baseExpression().annotation().type);
-					TypePointer const valueDictType = StackPusherHelper::parseValueType(*indexAccess);
+					TypePointer const keyType = StackPusher::parseIndexType(indexAccess->baseExpression().annotation().type);
+					TypePointer const valueDictType = StackPusher::parseValueType(*indexAccess);
 					const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueDictType, false);
 					m_pusher.rotRev(); // value index dict
 					m_pusher.setDict(*keyType, *valueDictType, dataType); // dict'
@@ -1200,7 +1206,7 @@ TVMExpressionCompiler::collectLValue(
 					m_pusher.popS(1); // size dict
 				} else {
 					// size index dict value
-					TypePointer const keyType = StackPusherHelper::parseIndexType(indexAccess->baseExpression().annotation().type);
+					TypePointer const keyType = StackPusher::parseIndexType(indexAccess->baseExpression().annotation().type);
 					auto valueDictType = getType(indexAccess);
 					const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueDictType, false);
 					m_pusher.rotRev(); // size value index dict

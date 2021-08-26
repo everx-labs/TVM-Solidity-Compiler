@@ -21,12 +21,19 @@
 
 #include <libsolidity/codegen/TvmAstVisitor.hpp>
 #include <liblangutil/Exceptions.h>
+#include "TVMCommons.hpp"
 
 using namespace solidity::frontend;
 
 bool Printer::visit(AsymGen &_node) {
 	tabs();
 	m_out << _node.opcode() << std::endl;
+	return false;
+}
+
+bool Printer::visit(DeclRetFlag &/*_node*/) {
+	tabs();
+	m_out << "FALSE ; decl return flag" << std::endl;
 	return false;
 }
 
@@ -52,10 +59,35 @@ bool Printer::visit(Loc &_node) {
 	return false;
 }
 
-bool Printer::visit(ConFlowInst &_node) {
+bool Printer::visit(TvmReturn &_node) {
 	tabs();
-	m_out << _node.fullOpcode();
+	switch (_node.type()) {
+		case TvmReturn::Type::RET:
+			m_out << "RET";
+			break;
+			case TvmReturn::Type::IFRET:
+			m_out << "IFRET";
+			break;
+			case TvmReturn::Type::IFNOTRET:
+			m_out << "IFNOTRET";
+			break;
+	}
 	endL();
+	return false;
+}
+
+bool Printer::visit(ReturnOrBreakOrCont &_node) {
+	tabs();
+	m_out << "; start return" << std::endl;
+	_node.body()->accept(*this);
+	tabs();
+	m_out << "; end return" << std::endl;
+	return false;
+}
+
+bool Printer::visit(TvmException &_node) {
+	tabs();
+	m_out << _node.fullOpcode() << std::endl;
 	return false;
 }
 
@@ -164,21 +196,25 @@ bool Printer::visit(Stack &_node) {
 			solAssert(k==-1, "");
 		}
 	};
+
+	auto drop = [&](int n){
+		if (n == 1) {
+			m_out << "DROP";
+		} else if (n == 2) {
+			m_out << "DROP2";
+		} else if (n <= 15) {
+			m_out << "BLKDROP";
+			printIndexes();
+		} else {
+			m_out << "PUSHINT " + std::to_string(n) << std::endl;
+			tabs();
+			m_out << "DROPX";
+		}
+	};
+
 	switch (_node.opcode()) {
 		case Stack::Opcode::DROP: {
-			int n = i;
-			if (n == 1) {
-				m_out << "DROP";
-			} else if (n == 2) {
-				m_out << "DROP2";
-			} else if (n <= 15) {
-				m_out << "BLKDROP";
-				printIndexes();
-			} else {
-				m_out << "PUSHINT " + std::to_string(n) << std::endl;
-				tabs();
-				m_out << "DROPX";
-			}
+			drop(i);
 			break;
 		}
 		case Stack::Opcode::PUSH_S:
@@ -191,28 +227,42 @@ bool Printer::visit(Stack &_node) {
 				m_out << "PUSH S" << i;
 			}
 			break;
-		case Stack::Opcode::XCHG_S0: {
-			if (i == 1) {
-				m_out << "SWAP";
+		case Stack::Opcode::XCHG: {
+			if (i == 0) {
+				if (j == 1) {
+					m_out << "SWAP";
+				} else {
+					m_out << "XCHG S" << j;
+				}
 			} else {
-				m_out << "XCHG";
-				printSS();
+				m_out << "XCHG S" << i << ", S" << j;
 			}
 			break;
 		}
-		case Stack::Opcode::ROT:
-			m_out << "ROT";
-			break;
-		case Stack::Opcode::ROTREV:
-			m_out << "ROTREV";
-			break;
 		case Stack::Opcode::BLKDROP2:
-			m_out << "BLKDROP2";
-			printIndexes();
+			if (i > 15 || j > 15) {
+				m_out << "PUSHINT " << i << std::endl;
+				tabs();
+				m_out << "PUSHINT " << j << std::endl;
+				tabs();
+				m_out << "BLKSWX" << std::endl;
+				tabs();
+				drop(i);
+			} else {
+				solAssert((i >= 2 && j >= 1) || (i >= 1 && j >= 2), "");
+				m_out << "BLKDROP2";
+				printIndexes();
+			}
 			break;
 		case Stack::Opcode::PUSH2_S:
-			m_out << "PUSH2";
-			printSS();
+			if (i == 1 && j == 0)
+				m_out << "DUP2";
+			else if (i == 3 && j == 2)
+				m_out << "OVER2";
+			else {
+				m_out << "PUSH2";
+				printSS();
+			}
 			break;
 		case Stack::Opcode::POP_S:
 			if (i == 1) {
@@ -222,39 +272,76 @@ bool Printer::visit(Stack &_node) {
 				printSS();
 			}
 			break;
-		case Stack::Opcode::BLKSWAP:
-			m_out << "BLKSWAP";
-			printIndexes();
+		case Stack::Opcode::BLKSWAP: {
+			int bottom = _node.i();
+			int top = _node.j();
+			if (bottom == 1 && top == 1) {
+				m_out << "SWAP";
+			} else if (bottom == 1 && top == 2) {
+				m_out << "ROT";
+			} else if (bottom == 2 && top == 1) {
+				m_out << "ROTREV";
+			} else if (bottom == 2 && top == 2) {
+				m_out << "SWAP2";
+			} else if (1 <= bottom && bottom <= 16 && 1 <= top && top <= 16) {
+				if (bottom == 1) {
+					m_out << "ROLL " << top;
+				} else if (top == 1) {
+					m_out << "ROLLREV " << bottom;
+				} else {
+					m_out << "BLKSWAP";
+					printIndexes();
+				}
+			} else {
+				m_out << "PUSHINT " << bottom << std::endl;
+				tabs();
+				m_out << "PUSHINT " << top << std::endl;
+				tabs();
+				m_out << "BLKSWX";
+			}
 			break;
+		}
 		case Stack::Opcode::REVERSE:
-			m_out << "REVERSE";
-			printIndexes();
-			break;
-		case Stack::Opcode::DUP2:
-			m_out << "DUP2";
-			break;
-		case Stack::Opcode::BLKSWX:
-			m_out << "BLKSWX";
-			break;
-		case Stack::Opcode::REVX:
-			m_out << "REVX";
-			break;
-		case Stack::Opcode::SWAP2:
-			m_out << "SWAP2";
+			solAssert(2 <= i, "");
+			if (i == 2 && j == 0) {
+				m_out << "SWAP";
+			} else if (i == 3 && j == 0) {
+				m_out << "XCHG S2";
+			} else if (2 <= i && i <= 17 && 0 <= j && j <= 15) {
+				m_out << "REVERSE";
+				printIndexes();
+			} else {
+				m_out << "PUSHINT " << i << std::endl;
+				tabs();
+				m_out << "PUSHINT " << j << std::endl;
+				tabs();
+				m_out << "REVX";
+			}
 			break;
 		case Stack::Opcode::BLKPUSH:
-			m_out << "BLKPUSH";
-			printIndexes();
+			if (i == 2 && j == 1) {
+				m_out << "DUP2";
+			} else if (i == 2 && j == 3) {
+				m_out << "OVER2";
+			} else {
+				if (i > 15)
+					solAssert(j == 0, "");
+				int rest = i;
+				bool first = true;
+				while (rest > 0) {
+					if (!first) {
+						m_out << std::endl;
+						tabs();
+					}
+					m_out << "BLKPUSH " << std::min(15, rest) << ", " << j;
+
+					rest -= 15;
+					first = false;
+				}
+			}
 			break;
 		case Stack::Opcode::PUSH3_S:
 			m_out << "PUSH3";
-			printSS();
-			break;
-		case Stack::Opcode::OVER2:
-			m_out << "OVER2";
-			break;
-		case Stack::Opcode::XCHG_S_S:
-			m_out << "XCHG";
 			printSS();
 			break;
 	}
@@ -266,29 +353,19 @@ bool Printer::visit(CodeBlock &_node) {
 	switch (_node.type()) {
 		case CodeBlock::Type::None:
 			break;
-		case CodeBlock::Type::CALLX: // TODO split
-			tabs();
-			m_out << "PUSHCONT {" << std::endl;
-			++m_tab;
-			break;
 		default:
 			tabs();
 			m_out << CodeBlock::toString(_node.type()) << " {" << std::endl;
 			++m_tab;
 			break;
 	}
+
 	for (Pointer<TvmAstNode> const& inst : _node.instructions()) {
 		inst->accept(*this);
 	}
+
 	switch (_node.type()) {
 		case CodeBlock::Type::None:
-			break;
-		case CodeBlock::Type::CALLX:
-			--m_tab;
-			tabs();
-			m_out << "}" << std::endl;
-			tabs();
-			m_out << "CALLX" << std::endl;
 			break;
 		default:
 			--m_tab;
@@ -296,56 +373,153 @@ bool Printer::visit(CodeBlock &_node) {
 			m_out << "}" << std::endl;
 			break;
 	}
+
+	return false;
+}
+
+bool Printer::visit(SubProgram &_node) {
+	tabs();
+	switch (_node.type()) {
+		case SubProgram::Type::CALLX:
+			m_out << "PUSHCONT";
+			break;
+		case SubProgram::Type::CALLREF:
+			m_out << "CALLREF";
+			break;
+	}
+	m_out << " {" << std::endl;
+
+	++m_tab;
+	_node.block()->accept(*this);
+	--m_tab;
+
+	tabs();
+	m_out << "}" << std::endl;
+
+	switch (_node.type()) {
+		case SubProgram::Type::CALLX:
+			tabs();
+			m_out << "CALLX" << std::endl;
+			break;
+		default:
+			break;
+	}
+
+	return false;
+}
+
+bool Printer::visit(TvmCondition &_node)  {
+	_node.trueBody()->accept(*this);
+	_node.falseBody()->accept(*this);
+	tabs();
+	m_out << "IFELSE" << std::endl;
+	return false;
+}
+
+bool Printer::visit(LogCircuit &_node) {
+	tabs();
+	m_out << "PUSHCONT {" << std::endl;
+
+	++m_tab;
+	_node.body()->accept(*this);
+	--m_tab;
+
+	tabs();
+	m_out << "}" << std::endl;
+
+	tabs();
+	switch (_node.type()) {
+		case LogCircuit::Type::AND:
+			m_out << "IF";
+			break;
+		case LogCircuit::Type::OR:
+			m_out << "IFNOT";
+			break;
+	}
+	m_out << std::endl;
+
 	return false;
 }
 
 bool Printer::visit(TvmIfElse &_node) {
-	_node.trueBody()->accept(*this);
-	if (_node.falseBody()) {
-		_node.falseBody()->accept(*this);
+	if (isIn(_node.type(),
+			 TvmIfElse::Type::IFREF,
+			 TvmIfElse::Type::IFNOTREF,
+			 TvmIfElse::Type::IFJMPREF,
+			 TvmIfElse::Type::IFNOTJMPREF)
+	) {
+		tabs();
+		switch (_node.type()) {
+			case TvmIfElse::Type::IFREF:
+				m_out << "IFREF";
+				break;
+			case TvmIfElse::Type::IFNOTREF:
+				m_out << "IFNOTREF";
+				break;
+			case TvmIfElse::Type::IFJMPREF:
+				m_out << "IFJMPREF";
+				break;
+			case TvmIfElse::Type::IFNOTJMPREF:
+				m_out << "IFNOTJMPREF";
+				break;
+			default:
+				solUnimplemented("");
+		}
+		m_out << " {" << std::endl;
+		++m_tab;
+		for (Pointer<TvmAstNode> const& i : _node.trueBody()->instructions()) {
+			i->accept(*this);
+		}
+		--m_tab;
+		tabs();
+		m_out << "}" << std::endl;
+	} else {
+		_node.trueBody()->accept(*this);
+		if (_node.falseBody()) {
+			_node.falseBody()->accept(*this);
+		}
+		tabs();
+		switch (_node.type()) {
+			case TvmIfElse::Type::IF:
+				m_out << "IF";
+				break;
+			case TvmIfElse::Type::IFNOT:
+				m_out << "IFNOT";
+				break;
+			case TvmIfElse::Type::IFJMP:
+				m_out << "IFJMP";
+				break;
+			case TvmIfElse::Type::IFNOTJMP:
+				m_out << "IFNOTJMP";
+				break;
+			case TvmIfElse::Type::IFELSE:
+				m_out << "IFELSE";
+				break;
+			case TvmIfElse::Type::IFELSE_WITH_JMP:
+				m_out << "CONDSEL" << std::endl;
+				tabs();
+				m_out << "JMPX";
+				break;
+			default:
+				solUnimplemented("");
+		}
+		m_out << std::endl;
 	}
-
-	tabs();
-	switch (_node.type()) {
-		case TvmIfElse::Type::IFELSE:
-			m_out << "IFELSE";
-			break;
-		case TvmIfElse::Type::IF:
-			m_out << "IF";
-			break;
-		case TvmIfElse::Type::IFNOT:
-			m_out << "IFNOT";
-			break;
-		case TvmIfElse::Type::IFNOTJMP:
-			m_out << "IFNOTJMP";
-			break;
-		case TvmIfElse::Type::IFJMP:
-			m_out << "IFJMP";
-			break;
-		case TvmIfElse::Type::IFELSE_WITH_JMP:
-			m_out << "CONDSEL" << std::endl;
-			tabs();
-			m_out << "JMPX";
-			break;
-
-	}
-	m_out << std::endl;
 
 	return false;
 }
 
-bool Printer::visit(RepeatOrUntil &_node) {
+bool Printer::visit(TvmRepeat &_node) {
 	_node.body()->accept(*this);
 	tabs();
-	switch (_node.type()) {
-		case RepeatOrUntil::Type::Repeat:
-			m_out << "REPEAT";
-			break;
-		case RepeatOrUntil::Type::Until:
-			m_out << "UNTIL";
-			break;
-	}
-	m_out << std::endl;
+	m_out << "REPEAT" << std::endl;
+	return false;
+}
+
+bool Printer::visit(TvmUntil &_node) {
+	_node.body()->accept(*this);
+	tabs();
+	m_out << "UNTIL" << std::endl;
 	return false;
 }
 
@@ -375,6 +549,7 @@ bool Printer::visit(Function &_node) {
 			m_out << ".type\t" << _node.name() << ", @function" << std::endl;
 			break;
 		case Function::FunctionType::Macro:
+		case Function::FunctionType::MacroGetter:
 			m_out << ".macro " << _node.name() << std::endl;
 			break;
 		case Function::FunctionType::MainInternal:
@@ -455,4 +630,20 @@ bool LocSquasher::visit(CodeBlock &_node) {
 	_node.upd(res);
 
 	return true;
+}
+
+void DeleterAfterRet::endVisit(CodeBlock &_node) {
+	bool findRet{};
+	std::vector<Pointer<TvmAstNode>> newInstrs;
+	for (Pointer<TvmAstNode> const& opcode : _node.instructions()) {
+		if (!findRet && to<ReturnOrBreakOrCont>(opcode.get())) {
+			findRet = true;
+			newInstrs.emplace_back(opcode);
+		} else {
+			if (!findRet || to<Loc>(opcode.get())) {
+				newInstrs.emplace_back(opcode);
+			}
+		}
+	}
+	_node.upd(newInstrs);
 }

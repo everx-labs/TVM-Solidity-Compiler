@@ -27,10 +27,10 @@ namespace solidity::frontend {
 class TVMFunctionCompiler: public ASTConstVisitor, private boost::noncopyable
 {
 private:
-	TVMFunctionCompiler(StackPusherHelper& pusher, ContractDefinition const *contract);
+	TVMFunctionCompiler(StackPusher& pusher, ContractDefinition const *contract);
 
 	TVMFunctionCompiler(
-		StackPusherHelper& pusher,
+		StackPusher& pusher,
 		int modifier,
 		FunctionDefinition const* f,
 		bool isLibraryWithObj,
@@ -39,29 +39,34 @@ private:
 	);
 
 public:
-	static Pointer<Function> generateC4ToC7(StackPusherHelper& pusher);
-	static Pointer<Function> generateC4ToC7WithInitMemory(StackPusherHelper& pusher);
+	static Pointer<Function> generateC4ToC7(StackPusher& pusher);
+	static Pointer<Function> generateC4ToC7WithInitMemory(StackPusher& pusher);
 	[[nodiscard]]
-	static Pointer<Function> generateMacro(StackPusherHelper& pusher, FunctionDefinition const* function, const std::optional<std::string>& forceName = nullopt);
-	static Pointer<Function> generateMainExternal(StackPusherHelper& pusher, ContractDefinition const *contract);
-	static Pointer<Function> generateMainInternal(StackPusherHelper& pusher, ContractDefinition const *contract);
-	static Pointer<Function> generateCheckResume(StackPusherHelper& pusher);
-	static Pointer<Function> generateOnCodeUpgrade(StackPusherHelper& pusher, FunctionDefinition const* function);
-	static Pointer<Function> generateOnTickTock(StackPusherHelper& pusher, FunctionDefinition const* function);
-	static Pointer<Function> generatePrivateFunction(StackPusherHelper& pusher, const std::string& name);
-	static Pointer<Function> generateLibraryFunction(StackPusherHelper& pusher, FunctionDefinition const* function, const std::string& name);
-	static Pointer<Function> generateLibraryFunctionMacro(StackPusherHelper& pusher, FunctionDefinition const* function, const std::string& name);
-	static Pointer<Function> generateReceive(StackPusherHelper& pusher, FunctionDefinition const* function);
-	static Pointer<Function> generateFallback(StackPusherHelper& pusher, FunctionDefinition const* function);
-	static Pointer<Function> generateOnBounce(StackPusherHelper& pusher, FunctionDefinition const* function);
-	static Pointer<Function> generatePublicFunction(StackPusherHelper& pusher, FunctionDefinition const* function);
-	static void generateFunctionWithModifiers(StackPusherHelper& pusher, FunctionDefinition const* function, bool pushArgs);
-	static Pointer<Function> generateGetter(StackPusherHelper& pusher, VariableDeclaration const* vd);
-	static Pointer<Function> generatePublicFunctionSelector(StackPusherHelper& pusher, ContractDefinition const *contract);
-	void decodeFunctionParamsAndLocateVars(bool hasCallback);
+	static Pointer<Function> generateMacro(StackPusher& pusher, FunctionDefinition const* function, const std::optional<std::string>& forceName = nullopt);
+	static Pointer<Function> generateMainExternal(StackPusher& pusher, ContractDefinition const *contract);
+	static Pointer<Function> generateMainInternal(StackPusher& pusher, ContractDefinition const *contract);
+	static Pointer<Function> generateCheckResume(StackPusher& pusher);
+	static Pointer<Function> generateOnCodeUpgrade(StackPusher& pusher, FunctionDefinition const* function);
+	static Pointer<Function> generateOnTickTock(StackPusher& pusher, FunctionDefinition const* function);
+	static Pointer<Function> generatePrivateFunction(StackPusher& pusher, const std::string& name);
+	static Pointer<Function> generateLibraryFunction(StackPusher& pusher, FunctionDefinition const* function, const std::string& name);
+	static Pointer<Function> generateLibraryFunctionMacro(StackPusher& pusher, FunctionDefinition const* function, const std::string& name);
+	static Pointer<Function> generateReceive(StackPusher& pusher, FunctionDefinition const* function);
+	static Pointer<Function> generateFallback(StackPusher& pusher, FunctionDefinition const* function);
+	static Pointer<Function> generateOnBounce(StackPusher& pusher, FunctionDefinition const* function);
+	static Pointer<Function> generatePublicFunction(StackPusher& pusher, FunctionDefinition const* function);
+	static void generateFunctionWithModifiers(StackPusher& pusher, FunctionDefinition const* function, bool pushArgs);
+	static Pointer<Function> generateGetter(StackPusher& pusher, VariableDeclaration const* vd);
+	static Pointer<Function> generatePublicFunctionSelector(StackPusher& pusher, ContractDefinition const *contract);
+	void decodeFunctionParams(bool hasCallback);
 
 protected:
-	static Pointer<Function> generateReceiveOrFallbackOrOnBounce(StackPusherHelper& pusher, FunctionDefinition const* function, const std::string& name);
+	static Pointer<Function> generateReceiveOrFallbackOrOnBounce(
+		StackPusher& pusher,
+		FunctionDefinition const* function,
+		const std::string& name,
+		int take
+	);
 	ast_vec<ModifierInvocation> functionModifiers();
 	void endContinuation2(bool doDrop);
 
@@ -123,7 +128,7 @@ private:
     void pushLocation(const ASTNode& node, bool reset = false);
 
 private:
-	StackPusherHelper& m_pusher;
+	StackPusher& m_pusher;
 	std::vector<ControlFlowInfo> m_controlFlowInfo;
 
 	const int m_startStackSize{};

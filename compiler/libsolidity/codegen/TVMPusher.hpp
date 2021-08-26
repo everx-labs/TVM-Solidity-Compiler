@@ -54,29 +54,6 @@ public:
 	void ensureSize(int savedStackSize, const string& location = "", const ASTNode* node = nullptr) const;
 };
 
-class CodeLines {
-public:
-	CodeLines() {
-		//cerr << "DELETE ME\n";
-	}
-	vector<string> const &getLines() const { return lines; }
-	void setLines(vector<string> const& _lines) { lines = _lines; }
-	string str(const string& indent = "") const;
-	void startContinuation();
-	void startContinuationFromRef();
-	void startIfRef();
-	void startIfJmpRef();
-	void startIfNotJmpRef();
-	void startIfNotRef();
-	void startCallRef();
-	void endContinuation();
-	void push(const string& cmd);
-	void append(const CodeLines& oth);
-private:
-	vector<string> lines;
-	int tabQty{};
-};
-
 class TVMCompilerContext {
 public:
 	TVMCompilerContext(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
@@ -138,19 +115,13 @@ private:
     ContactsUsageScanner m_usage;
 };
 
-class StackPusherHelper {
+class StackPusher {
 public:
-	explicit StackPusherHelper(TVMCompilerContext* ctx, int stackSize = 0);
+	explicit StackPusher(TVMCompilerContext* ctx, int stackSize = 0);
 
 	Pointer<CodeBlock> getBlock() const {
 		solAssert(m_instructions.size() == 1, "");
-		return createNode<CodeBlock>(m_instructions.at(0).type.value(), m_instructions.at(0).opcodes);
-	}
-
-	Pointer<CodeBlock> pollLastBlock() {
-		solAssert(m_instructions.size() >= 2, "");
-		auto ret = createNode<CodeBlock>(m_instructions.back().type.value(), m_instructions.back().opcodes);
-		m_instructions.pop_back();
+		auto ret = createNode<CodeBlock>(CodeBlock::Type::None, m_instructions.back().opcodes);
 		return ret;
 	}
 
@@ -170,6 +141,7 @@ public:
 	void ensureSize(int savedStackSize, const string &location = "", const ASTNode* node = nullptr);
 	void startOpaque();
 	void endOpaque(int take, int ret, bool isPure = false);
+	void declRetFlag();
 private:
 	static Pointer<AsymGen> asym(const string& cmd);
 public:
@@ -178,17 +150,26 @@ public:
 	void push(Pointer<HardCode> opcode);
 	void pushAsym(std::string const& opcode);
 	void push(int stackDiff, const string& cmd);
+	void pushCellOrSlice(Pointer<PushCellOrSlice> opcode);
 
-	void startContinuation(int deltaStack = 0);
-	void startContinuationFromRef();
-	void startIfRef(int deltaStack = 0);
-	void startIfJmpRef(int deltaStack = 0);
-	void startIfNotJmpRef(int deltaStack = 0);
-	void startIfNotRef(int deltaStack = 0);
-	void startCallRef(int deltaStack = 0);
-	void startPushRef();
-	void endContinuation(int deltaStack = 0);
+	void startContinuation();
+private:
+	void endCont(CodeBlock::Type type);
+public:
+	void endContinuation();
+	void endContinuationFromRef();
+	void endRetOrBreakOrCont();
+	void endLogCircuit(LogCircuit::Type type);
+
+private:
+	void callRefOrCallX(int take, int ret, SubProgram::Type type);
+public:
+	void callRef(int take, int ret);
+	void callX(int take, int ret);
+
+
 	void ifElse(bool useJmp = false);
+	void pushConditional(int ret);
 private:
 	void if_or_ifnot(TvmIfElse::Type);
 public:
@@ -196,14 +177,18 @@ public:
 	void _ifNot();
 	void ifNotJmp();
 	void ifJmp();
+
+	void ifRef();
+	void ifNotRef();
+	void ifJmpRef();
+	void ifNotJmpRef();
+
 private:
-	void repeatOrUntil(RepeatOrUntil::Type type);
+	void repeatOrUntil(bool isRepeat);
 public:
 	void repeat();
 	void until();
 	void _while();
-	void startCallX();
-	void endCallX();
 	void ret();
 	void ifret();
 	void _throw(std::string cmd);
@@ -269,7 +254,7 @@ public:
 	void drop(int cnt = 1);
 	void blockSwap(int m, int n);
 	void reverse(int qty, int startIndex);
-	void dropUnder(int leftCount, int droppedCount);
+	void dropUnder(int droppedCount, int leftCount);
 	void exchange(int i);
 	void rot();
 	void rotRev();
@@ -364,15 +349,11 @@ private:
 
 	class PusherBlock {
 	public:
-		explicit PusherBlock(std::optional<CodeBlock::Type> _type) : type{_type} {
-		}
-//	private:
-		std::optional<CodeBlock::Type> type;// is null => opaque
 		std::vector<Pointer<TvmAstNode>> opcodes;
 	};
 
 	std::vector<PusherBlock> m_instructions;
 	TVMCompilerContext* m_ctx;
-}; // end StackPusherHelper
+}; // end StackPusher
 
 } // end solidity::frontend

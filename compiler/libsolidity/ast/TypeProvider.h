@@ -197,7 +197,7 @@ public:
 
 	static OptionalType const* optional(Type const* _type);
 
-	static TvmTupleType const* tvmtuple(Type const* _type);
+	static TvmVectorType const* tvmtuple(Type const* _type);
 
 private:
 	/// Global TypeProvider instance.

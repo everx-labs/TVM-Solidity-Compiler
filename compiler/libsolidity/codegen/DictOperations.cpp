@@ -21,7 +21,7 @@
 #include "TVMConstants.hpp"
 
 
-DictOperation::DictOperation(StackPusherHelper& pusher, Type const& keyType, Type const& valueType) :
+DictOperation::DictOperation(StackPusher& pusher, Type const& keyType, Type const& valueType) :
 		pusher{pusher},
 		keyType{keyType},
 		keyLength{lengthOfDictKey(&keyType)},
@@ -44,7 +44,7 @@ void DictMinMax::minOrMax(bool saveOrigKeyAndNoTuple) {
 			&valueType,
 			haveKey,
 			isInRef,
-			StackPusherHelper::DecodeType::DecodeValueOrPushNull,
+			StackPusher::DecodeType::DecodeValueOrPushNull,
 			saveOrigKeyAndNoTuple
 	);
 	if (saveOrigKeyAndNoTuple)
@@ -77,7 +77,7 @@ void DictPrevNext::prevNext(bool saveOrigKeyAndNoTuple) {
 			&valueType,
 			true,
 			false,
-			StackPusherHelper::DecodeType::DecodeValueOrPushNull,
+			StackPusher::DecodeType::DecodeValueOrPushNull,
 			saveOrigKeyAndNoTuple
 	);
 	pusher.endOpaque(3, saveOrigKeyAndNoTuple ? 3 : 1);
@@ -89,7 +89,7 @@ void DictPrevNext::prevNext(bool saveOrigKeyAndNoTuple) {
 	}
 }
 
-GetFromDict::GetFromDict(StackPusherHelper &pusher, const Type &keyType, const Type &valueType,
+GetFromDict::GetFromDict(StackPusher &pusher, const Type &keyType, const Type &valueType,
 						 const GetDictOperation op,
 						 const DataType &dataType) :
 		DictOperation{pusher, keyType, valueType},
@@ -138,14 +138,14 @@ void GetFromDict::getDict() {
 			}
 			pusher.pushAsym(opcode);
 
-			StackPusherHelper::DecodeType decodeType{};
+			StackPusher::DecodeType decodeType{};
 			if (op == GetDictOperation::GetAddFromMapping)
-				decodeType = StackPusherHelper::DecodeType::PushNullOrDecodeValue;
+				decodeType = StackPusher::DecodeType::PushNullOrDecodeValue;
 			else if (
 					op == GetDictOperation::GetSetFromMapping ||
 					op == GetDictOperation::GetReplaceFromMapping
 			)
-				decodeType = StackPusherHelper::DecodeType::DecodeValueOrPushNull;
+				decodeType = StackPusher::DecodeType::DecodeValueOrPushNull;
 			else
 				solUnimplemented("");
 			int ss = pusher.stackSize();
@@ -176,13 +176,13 @@ void GetFromDict::getDict() {
 			if (op == GetDictOperation::GetFromArray) {
 				pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
 			}
-			StackPusherHelper::DecodeType decodeType{};
+			StackPusher::DecodeType decodeType{};
 			if (op == GetDictOperation::Fetch) {
-				decodeType = StackPusherHelper::DecodeType::DecodeValueOrPushNull;
+				decodeType = StackPusher::DecodeType::DecodeValueOrPushNull;
 			} else if (op == GetDictOperation::GetFromArray) {
-				decodeType = StackPusherHelper::DecodeType::DecodeValue;
+				decodeType = StackPusher::DecodeType::DecodeValue;
 			} else if (op == GetDictOperation::GetFromMapping) {
-				decodeType = StackPusherHelper::DecodeType::DecodeValueOrPushDefault;
+				decodeType = StackPusher::DecodeType::DecodeValueOrPushDefault;
 			} else {
 				solUnimplemented("");
 			}
@@ -202,7 +202,7 @@ void GetFromDict::checkExist() {
 	pusher.endOpaque(1, 1);
 }
 
-DictSet::DictSet(StackPusherHelper &pusher, const Type &keyType, const Type &valueType, const DataType &dataType,
+DictSet::DictSet(StackPusher &pusher, const Type &keyType, const Type &valueType, const DataType &dataType,
 				 SetDictOperation operation) :
 		DictOperation{pusher, keyType, valueType},
 		dataType{dataType},
@@ -251,7 +251,7 @@ void DictSet::dictSet() {
 	}
 }
 
-DelMinOrMax::DelMinOrMax(StackPusherHelper &pusher, const Type &keyType, const Type &valueType, bool isDelMin,
+DelMinOrMax::DelMinOrMax(StackPusher &pusher, const Type &keyType, const Type &valueType, bool isDelMin,
 						 const MemberAccess *memberAccess) :
 		DictOperation{pusher, keyType, valueType},
 		isDelMin{isDelMin},
@@ -271,7 +271,7 @@ void DelMinOrMax::delMinOrMax() {
 
 	pusher.startOpaque();
 	pusher.pushAsym(opcode); //  D value key -1
-	pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, true, isInRef, StackPusherHelper::DecodeType::DecodeValueOrPushNull);
+	pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, true, isInRef, StackPusher::DecodeType::DecodeValueOrPushNull);
 	pusher.endOpaque(2, 2);
 
 	// mapLValue... D optPair

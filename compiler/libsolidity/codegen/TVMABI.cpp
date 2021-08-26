@@ -31,7 +31,7 @@ void TVMABI::printFunctionIds(
 	PragmaDirectiveHelper const& pragmaHelper
 ) {
 	TVMCompilerContext ctx{&contract, pragmaHelper};
-	StackPusherHelper pusher{&ctx};
+	StackPusher pusher{&ctx};
 	ChainDataEncoder encoder{&pusher};
 	std::vector<const FunctionDefinition *> publicFunctions = TVMABI::publicFunctions(contract);
 	std::map<std::string, uint32_t> map;
@@ -666,7 +666,7 @@ DecodePosition::Algo DecodePositionAbiV2::updateStateAndGetLoadAlgo(Type const *
 	return CheckBits;
 }
 
-ChainDataDecoder::ChainDataDecoder(StackPusherHelper *pusher) :
+ChainDataDecoder::ChainDataDecoder(StackPusher *pusher) :
 		pusher{pusher} {
 
 }
@@ -1151,7 +1151,8 @@ void ChainDataEncoder::createMsgBodyAndAppendToBuilder(
 		pusher->push(-1, "STBREFR");
 	}
 
-	solAssert(saveStackSize == int(pusher->stackSize() + params.size()), "");
+	if (!pusher->hasLock())
+		solAssert(saveStackSize == int(pusher->stackSize() + params.size()), "");
 
 }
 

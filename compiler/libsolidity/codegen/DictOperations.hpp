@@ -34,14 +34,14 @@ using namespace solidity::util;
 
 namespace solidity::frontend {
 
-class StackPusherHelper;
+class StackPusher;
 class TVMExpressionCompiler;
 
 class DictOperation {
 public:
-	DictOperation(StackPusherHelper& pusher, Type const& keyType, Type const& valueType);
+	DictOperation(StackPusher& pusher, Type const& keyType, Type const& valueType);
 protected:
-	StackPusherHelper& pusher;
+	StackPusher& pusher;
 	Type const& keyType;
 	const int keyLength{};
 	Type const& valueType;
@@ -51,7 +51,7 @@ protected:
 
 class DictMinMax : public DictOperation {
 public:
-	DictMinMax(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, bool isMin) :
+	DictMinMax(StackPusher& pusher, Type const& keyType, Type const& valueType, bool isMin) :
 			DictOperation{pusher, keyType, valueType}, isMin{isMin} {
 
 	}
@@ -65,7 +65,7 @@ private:
 
 class DictPrevNext : public DictOperation {
 public:
-	DictPrevNext(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, const std::string& oper) :
+	DictPrevNext(StackPusher& pusher, Type const& keyType, Type const& valueType, const std::string& oper) :
 			DictOperation{pusher, keyType, valueType},
 			oper{oper}
 	{
@@ -79,7 +79,7 @@ private:
 
 class GetFromDict : public DictOperation {
 public:
-	GetFromDict(StackPusherHelper& pusher, Type const& keyType, Type const& valueType, const GetDictOperation op,
+	GetFromDict(StackPusher& pusher, Type const& keyType, Type const& valueType, const GetDictOperation op,
 				const DataType& dataType);
 
 	void getDict();
@@ -95,7 +95,7 @@ protected:
 class DictSet : public DictOperation {
 public:
 	DictSet(
-			StackPusherHelper& pusher,
+			StackPusher& pusher,
 			Type const &keyType,
 			Type const &valueType,
 			const DataType& dataType,
@@ -112,7 +112,7 @@ private:
 
 class DelMinOrMax : public DictOperation {
 public:
-	DelMinOrMax(StackPusherHelper& pusher, Type const &keyType, Type const &valueType, bool isDelMin, MemberAccess const* memberAccess);
+	DelMinOrMax(StackPusher& pusher, Type const &keyType, Type const &valueType, bool isDelMin, MemberAccess const* memberAccess);
 	void delMinOrMax();
 
 private:

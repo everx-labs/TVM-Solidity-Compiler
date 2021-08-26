@@ -554,7 +554,7 @@ OptionalType const* TypeProvider::optional(Type const* _type)
 	return createAndGet<OptionalType>(_type);
 }
 
-TvmTupleType const* TypeProvider::tvmtuple(Type const* _type)
+TvmVectorType const* TypeProvider::tvmtuple(Type const* _type)
 {
-	return createAndGet<TvmTupleType>(_type);
+	return createAndGet<TvmVectorType>(_type);
 }
