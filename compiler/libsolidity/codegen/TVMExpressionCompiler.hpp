@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019 TON DEV SOLUTIONS LTD.
+ * Copyright 2018-2021 TON DEV SOLUTIONS LTD.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -68,7 +68,7 @@ protected:
 	);
 	void visitLogicalShortCircuiting(BinaryOperation const &_binaryOperation);
 	void visit2(BinaryOperation const& _node);
-	bool isCheckFitUseless(Type const* type, Token op);
+	static bool isCheckFitUseless(Type const* type, Token op);
 	void visitMathBinaryOperation(
 		Token op,
 		Type const* commonType,
@@ -84,7 +84,7 @@ protected:
 	static void indexTypeCheck(IndexAccess const& _node);
 	void visit2(IndexRangeAccess const& indexRangeAccess);
 	void visit2(IndexAccess const& indexAccess);
-	bool visit2(FunctionCall const& _functionCall);
+	void visit2(FunctionCall const& _functionCall);
 	void visit2(Conditional const& _conditional);
 	bool fold_constants(const Expression *expr);
 	static bool isOptionalGet(Expression const* expr);

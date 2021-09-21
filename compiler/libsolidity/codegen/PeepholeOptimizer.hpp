@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019 TON DEV SOLUTIONS LTD.
+ * Copyright 2018-2021 TON DEV SOLUTIONS LTD.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -23,7 +23,10 @@
 namespace solidity::frontend {
 	class PeepholeOptimizer : public TvmAstVisitor {
 	public:
+		explicit PeepholeOptimizer(bool _withUnpackOpaque) : m_withUnpackOpaque{_withUnpackOpaque} {}
 		void endVisit(CodeBlock &_node) override;
+	private:
+		bool m_withUnpackOpaque;
 	};
 } // end solidity::frontend
 

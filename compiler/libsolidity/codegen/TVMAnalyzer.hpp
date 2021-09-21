@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019 TON DEV SOLUTIONS LTD.
+ * Copyright 2018-2021 TON DEV SOLUTIONS LTD.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -97,19 +97,32 @@ public:
 		solAssert(m_loopDepth == 0, "");
 	}
 
-protected:
-	bool visit(WhileStatement const&) override {
+private:
+	bool startLoop() {
 		m_loopDepth++;
 		return true;
+	}
+
+protected:
+
+	bool visit(ForEachStatement const&) override {
+		return startLoop();
+	}
+
+	bool visit(WhileStatement const&) override {
+		return startLoop();
+	}
+
+	bool visit(ForStatement const&) override {
+		return startLoop();
+	}
+
+	void endVisit(ForEachStatement const&) override {
+		m_loopDepth--;
 	}
 
 	void endVisit(WhileStatement const&) override {
 		m_loopDepth--;
-	}
-
-	bool visit(ForStatement const&) override {
-		m_loopDepth++;
-		return true;
 	}
 
 	void endVisit(ForStatement const&) override {

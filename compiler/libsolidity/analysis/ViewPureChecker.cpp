@@ -309,7 +309,6 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::TVM, "checkSign"},
 			{MagicType::Kind::TVM, "code"},
 			{MagicType::Kind::TVM, "codeSalt"},
-			{MagicType::Kind::TVM, "setCodeSalt"},
 			{MagicType::Kind::TVM, "configParam"},
 			{MagicType::Kind::TVM, "encodeBody"},
 			{MagicType::Kind::TVM, "exit"},
@@ -322,7 +321,9 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::TVM, "rawConfigParam"},
 			{MagicType::Kind::TVM, "sendrawmsg"},
 			{MagicType::Kind::TVM, "setcode"},
+			{MagicType::Kind::TVM, "setCodeSalt"},
 			{MagicType::Kind::TVM, "setCurrentCode"},
+			{MagicType::Kind::TVM, "stateInitHash"},
 		};
 		set<MagicMember> static const nonpayableMembers{
 			{MagicType::Kind::TVM, "commit"},

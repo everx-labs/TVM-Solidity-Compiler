@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019 TON DEV SOLUTIONS LTD.
+ * Copyright 2018-2021 TON DEV SOLUTIONS LTD.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -34,7 +34,7 @@ public:
 		bool isCurrentResultNeeded
 	);
 	void structConstructorCall();
-	bool compile();
+	void compile();
 
 protected:
 	bool checkForMappingOrCurrenciesMethods();
@@ -99,7 +99,7 @@ protected:
 	bool checkRemoteMethodCall(FunctionCall const &_functionCall);
 	void checkExtMsgSend();
 	std::string getDefaultMsgValue();
-	const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
+	static const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
 	void generateExtInboundMsg(
 		bool addSignature,
 		const Expression * destination,

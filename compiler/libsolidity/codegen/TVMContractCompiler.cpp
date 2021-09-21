@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019 TON DEV SOLUTIONS LTD.
+ * Copyright 2018-2021 TON DEV SOLUTIONS LTD.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -130,20 +130,27 @@ Pointer<Function> TVMConstructorCompiler::generateConstructors() {
 			}
 		}
 
+
 		m_pusher.ctx().setCurrentFunction(c->constructor());
-		TVMFunctionCompiler::generateFunctionWithModifiers(m_pusher, c->constructor(), false);
+
+		int take2 = c->constructor()->parameters().size();
+		StackPusher pusher = m_pusher;
+		pusher.clear();
+		pusher.takeLast(take2);
+		TVMFunctionCompiler::generateFunctionWithModifiers(pusher, c->constructor(), false);
+		m_pusher.push(-take2, ""); // fix stack
+		m_pusher.add(pusher);
 	}
 
 	if (!haveConstructor) {
 		m_pusher.push(0, "ACCEPT");
 	}
 
-	solAssert(m_pusher.stackSize() == 0, "");
+//	solAssert(m_pusher.stackSize() == 0, "");
 
 	m_pusher.pushMacroCallInCallRef(0, 0, "c7_to_c4");
 
-	m_pusher.push(+1, "TRUE");
-	m_pusher.setGlob(TvmConst::C7::WasPubFuncCalled);
+	m_pusher._throw("THROW 0");
 
 	Pointer<CodeBlock> block = m_pusher.getBlock();
 	// take slice (contains params) and functionID
@@ -190,7 +197,7 @@ void TVMContractCompiler::generateABI(
 	}
 }
 
-void TVMContractCompiler::proceedContract(
+void TVMContractCompiler::generateCode(
 	const std::string& fileName,
 	ContractDefinition const& contract,
 	PragmaDirectiveHelper const &pragmaHelper
@@ -292,19 +299,17 @@ TVMContractCompiler::generateContractCode(
 						ctx.addPublicFunction(functionId, _function->name());
 					}
 				}
+				std::string functionName = ctx.getFunctionInternalName(_function);
 				if (_function->visibility() <= Visibility::Public) {
-				    std::string functionName = ctx.getFunctionInternalName(_function);
-					{
-						StackPusher pusher{&ctx};
-						Pointer<Function> f = TVMFunctionCompiler::generatePrivateFunction(pusher, functionName);
-						functions.push_back(f);
-					}
-					{
-						const std::string macroName = functionName + "_macro";
-						StackPusher pusher{&ctx};
-						Pointer<Function> f = TVMFunctionCompiler::generateMacro(pusher, _function, macroName);
-						functions.push_back(f);
-					}
+					StackPusher pusher{&ctx};
+					Pointer<Function> f = TVMFunctionCompiler::generatePrivateFunction(pusher, functionName);
+					functions.push_back(f);
+				}
+				{
+					const std::string macroName = functionName + "_macro";
+					StackPusher pusher{&ctx};
+					Pointer<Function> f = TVMFunctionCompiler::generateMacro(pusher, _function, macroName);
+					functions.push_back(f);
 				}
 			}
 		}
@@ -431,16 +436,29 @@ TVMContractCompiler::generateContractCode(
 	LocSquasher sq;
 	c->accept(sq);
 
+	optimizeCode(c);
+
+	return c;
+}
+
+void TVMContractCompiler::optimizeCode(Pointer<Contract>& c) {
+	DeleterCallX dc;
+	c->accept(dc);
+
+	LogCircuitExpander lce;
+	c->accept(lce);
+
 	StackOptimizer opt;
 	c->accept(opt);
 
-	PeepholeOptimizer peepHole;
+	PeepholeOptimizer peepHole{false};
 	c->accept(peepHole);
 
-	sq = LocSquasher{};
-	c->accept(sq);
+	peepHole = PeepholeOptimizer{true};
+	c->accept(peepHole);
 
-	return c;
+	LocSquasher sq = LocSquasher{};
+	c->accept(sq);
 }
 
 void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractDefinition const *contract) {

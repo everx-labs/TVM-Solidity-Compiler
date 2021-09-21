@@ -1,9 +1,25 @@
+### 0.50.0 (2021-09-21)
+
+Compiler features:
+ * Added the option `stateInit` for `tvm.buildIntMsg` and `\<address\>.transfer()`.
+ * Added function `tvm.stateInitHash()` to calculate stateInit hash based on code and data cells.
+ * Added keyword `null`.
+
+Breaking change:
+ * Deleted `\<TvmSlice\>.bitsAndRefs()`. Please, use `\<TvmSlice\>.size()`.
+ * Renamed `\<TvmBuilder\>.bitsAndRefs()` -> `\<TvmSlice\>.size()`.
+ * Deleted `tvm.deploy()`. Please, use `\<address\>.transfer({stateInit: ..., ...})`.
+ * Changed `TvmSlice`, `TvmCell` and `TvmBuilder` `.depth()` method return type from `uint64` to `uint16`. 
+
+Gas optimizations:
+ * Assorted stack optimizations.
+
 ### 0.49.0 (2021-08-25)
 
 Compiler features:
  * Added string search methods: `<string>.find()` and `<string>.findLast()`.
  * Added `<TvmSlice\>.bitsAndRefs()`.
- * Added `bitSize()` and `uBitSize()` for computing bit length of an interger.
+ * Added `bitSize()` and `uBitSize()` for computing bit length of an integer.
 
 Gas optimizations:
  * Assorted stack optimizations.

@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019 TON DEV SOLUTIONS LTD.
+ * Copyright 2018-2021 TON DEV SOLUTIONS LTD.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -100,8 +100,18 @@ bool Printer::visit(GenOpcode &_node) {
 	else if (_node.fullOpcode() == "UNTUPLE 1") m_out << "UNSINGLE";
 	else if (_node.fullOpcode() == "UNTUPLE 2") m_out << "UNPAIR";
 	else if (_node.fullOpcode() == "UNTUPLE 3") m_out << "UNTRIPLE";
-	else
+	else if (isIn(_node.opcode(), "INDEX_EXCEP", "INDEX_NOEXCEP")) {
+		int index = boost::lexical_cast<int>(_node.arg());
+		if (index <= 15) {
+			m_out << "INDEX " << index;
+		} else {
+			m_out << "PUSHINT " << index << std::endl;
+			tabs();
+			m_out << "INDEXVAR";
+		}
+	} else {
 		m_out << _node.fullOpcode();
+	}
 	m_out << std::endl;
 	return false;
 }
@@ -140,7 +150,7 @@ bool Printer::visit(Glob &_node) {
 	tabs();
 	switch (_node.opcode()) {
 		case Glob::Opcode::GetOrGetVar:
-			if (_node.index() <= 31) {
+			if (1 <= _node.index() && _node.index() <= 31) {
 				m_out << "GETGLOB " << _node.index();
 			} else {
 				m_out << "PUSHINT " << _node.index() << std::endl;
@@ -149,7 +159,7 @@ bool Printer::visit(Glob &_node) {
 			}
 			break;
 		case Glob::Opcode::SetOrSetVar:
-			if (_node.index() <= 31) {
+			if (1 <= _node.index() && _node.index() <= 31) {
 				m_out << "SETGLOB " << _node.index();
 			} else {
 				m_out << "PUSHINT " << _node.index() << std::endl;
@@ -166,8 +176,14 @@ bool Printer::visit(Glob &_node) {
 		case Glob::Opcode::POP_C3:
 			m_out << "POP C3";
 			break;
+		case Glob::Opcode::PUSH_C7:
+			m_out << "PUSH C7";
+			break;
 		case Glob::Opcode::PUSH_C3:
 			m_out << "PUSH C3";
+			break;
+		case Glob::Opcode::POP_C7:
+			m_out << "POP C7";
 			break;
 	}
 	endL();
@@ -343,6 +359,14 @@ bool Printer::visit(Stack &_node) {
 		case Stack::Opcode::PUSH3_S:
 			m_out << "PUSH3";
 			printSS();
+			break;
+
+		case Stack::Opcode::TUCK:
+			m_out << "TUCK";
+			break;
+
+		case Stack::Opcode::PUXC:
+			m_out << "PUXC S" << i << ", S" << j;
 			break;
 	}
 	endL();
@@ -646,4 +670,109 @@ void DeleterAfterRet::endVisit(CodeBlock &_node) {
 		}
 	}
 	_node.upd(newInstrs);
+}
+
+bool DeleterCallX::visit(Function &_node) {
+	Pointer<CodeBlock> const& block = _node.block();
+	std::vector<Pointer<TvmAstNode>> const& inst = block->instructions();
+	if (qtyWithoutLoc(inst) == 1) {
+		std::vector<Pointer<TvmAstNode>> newCmds;
+		for (Pointer<TvmAstNode> const& op : inst) {
+			if (to<Loc>(op.get())) {
+				newCmds.emplace_back(op);
+			} else if (auto sub = to<SubProgram>(op.get()); sub) {
+				newCmds.insert(newCmds.end(), sub->block()->instructions().begin(), sub->block()->instructions().end());
+			} else {
+				return false;
+			}
+		}
+		block->upd(newCmds);
+	}
+	return false;
+}
+
+void LogCircuitExpander::endVisit(CodeBlock &_node) {
+	std::vector<Pointer<TvmAstNode>> block;
+	for (Pointer<TvmAstNode> const& opcode : _node.instructions()) {
+		auto lc = to<LogCircuit>(opcode.get());
+		if (lc && lc->canExpand()) {
+			m_stackSize = 1;
+			m_newInst = {};
+			bool isPure = true;
+			std::vector<Pointer<TvmAstNode>> const &inst = lc->body()->instructions();
+			for (size_t i = 0; i < inst.size(); ++i) {
+				Pointer<TvmAstNode> op = inst.at(i);
+				if (i == 0) {
+					solAssert(isDrop(inst.at(i)).value() == 1, "");
+					continue;
+				}
+				if (to<LogCircuit>(op.get()) && i + 1 != inst.size()) {
+					isPure = false; // never happens
+				}
+
+				isPure &= isPureOperation(op);
+			}
+			if (isPure) {
+				solAssert(m_stackSize == 2, "");
+				Pointer<TvmAstNode> tail = m_newInst.back();
+				bool hasTailLogCircuit = !m_newInst.empty() && to<LogCircuit>(m_newInst.back().get());
+				if (hasTailLogCircuit) {
+					if (to<LogCircuit>(m_newInst.back().get())->type() != lc->type()) {
+						block.emplace_back(opcode);
+						continue;
+					}
+
+					m_newInst.pop_back(); // DUP
+					m_newInst.pop_back(); // LogCircuit
+				}
+				switch (lc->type()) {
+					case LogCircuit::Type::AND:
+						m_newInst.emplace_back(gen("AND"));
+						break;
+					case LogCircuit::Type::OR:
+						m_newInst.emplace_back(gen("OR"));
+						break;
+				}
+				if (hasTailLogCircuit) {
+					m_newInst.emplace_back(makePUSH(0)); // DUP
+					m_newInst.emplace_back(tail); // LogCircuit
+				}
+
+				block.pop_back(); // remove DUP opcode
+				block.insert(block.end(), m_newInst.begin(), m_newInst.end());
+				continue;
+			}
+		}
+		block.emplace_back(opcode);
+	}
+	_node.upd(block);
+}
+
+bool LogCircuitExpander::isPureOperation(Pointer<TvmAstNode> const& op) {
+	auto gen = to<Gen>(op.get());
+	if (gen && gen->isPure()) {
+		m_newInst.emplace_back(op);
+		m_stackSize += -gen->take() + gen->ret();
+		return true;
+	}
+
+	if (to<LogCircuit>(op.get())) {
+		m_newInst.emplace_back(op);
+		m_stackSize += -2 + 1;
+		return true;
+	}
+
+	auto stack = to<Stack>(op.get());
+	if (stack && stack->opcode() == Stack::Opcode::PUSH_S) {
+		int index = stack->i();
+		if (index + 1 < m_stackSize) {
+			m_newInst.emplace_back(makePUSH(index));
+		} else {
+			m_newInst.emplace_back(makePUSH(index + 1));
+		}
+		++m_stackSize;
+		return true;
+	}
+
+	return false;
 }

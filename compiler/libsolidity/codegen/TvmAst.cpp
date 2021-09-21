@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019 TON DEV SOLUTIONS LTD.
+ * Copyright 2018-2021 TON DEV SOLUTIONS LTD.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -40,8 +40,49 @@ void Stack::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
 }
 
+Glob::Glob(Glob::Opcode opcode, int index) :
+	Gen{isIn(opcode, Glob::Opcode::GetOrGetVar, Glob::Opcode::PUSHROOT, Glob::Opcode::PUSH_C3)},
+	m_opcode{opcode},
+	m_index{index}
+{
+}
+
 void Glob::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
+}
+
+int Glob::take() const {
+	switch (m_opcode) {
+		case Opcode::GetOrGetVar:
+		case Opcode::PUSHROOT:
+		case Opcode::PUSH_C3:
+		case Opcode::PUSH_C7:
+			return 0;
+
+		case Opcode::SetOrSetVar:
+		case Opcode::POPROOT:
+		case Opcode::POP_C3:
+		case Opcode::POP_C7:
+			return 1;
+	}
+	solUnimplemented("");
+}
+
+int Glob::ret() const {
+	switch (m_opcode) {
+		case Opcode::GetOrGetVar:
+		case Opcode::PUSHROOT:
+		case Opcode::PUSH_C3:
+		case Opcode::PUSH_C7:
+			return 1;
+
+		case Opcode::SetOrSetVar:
+		case Opcode::POPROOT:
+		case Opcode::POP_C3:
+		case Opcode::POP_C7:
+			return 0;
+	}
+	solUnimplemented("");
 }
 
 void DeclRetFlag::accept(TvmAstVisitor& _visitor) {
@@ -113,6 +154,25 @@ void PushCellOrSlice::accept(TvmAstVisitor& _visitor) {
 			m_child->accept(_visitor);
 		}
 	}
+}
+
+bool PushCellOrSlice::equal(PushCellOrSlice const& another) const {
+	PushCellOrSlice const* a = this;
+	PushCellOrSlice const* b = &another;
+	while (true) {
+		if (a->m_blob != b->m_blob || a->m_type != b->m_type) {
+			return false;
+		}
+		if (!a->m_child && !b->m_child) {
+			return true;
+		}
+		if (!a->m_child || !b->m_child) {
+			return false;
+		}
+		a = a->m_child.get();
+		b = b->m_child.get();
+	}
+	solUnimplemented("");
 }
 
 std::string CodeBlock::toString(CodeBlock::Type t) {
@@ -292,44 +352,45 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 
 		{"ABS", {1, 1}},
 		{"ADDCONST", {1, 1}},
-		{"BBITS", {1, 1}},
+		{"BBITS", {1, 1, true}},
 		{"BDEPTH", {1, 1}},
 		{"BINDUMP", {1, 1}},
 		{"BITNOT", {1, 1}}, // pseudo opcode. Alias for NOT
-		{"BITSIZE", {1, 1}},
+		{"BITSIZE", {1, 1, true}},
 		{"BLESS", {1, 1}},
-		{"BREFS", {1, 1}},
-		{"BREMBITS", {1, 1}},
-		{"BREMREFS", {1, 1}},
+		{"BREFS", {1, 1, true}},
+		{"BREMBITS", {1, 1, true}},
+		{"BREMREFS", {1, 1, true}},
 		{"CDEPTH", {1, 1}},
 		{"CTOS", {1, 1}},
 		{"DEC", {1, 1}},
-		{"DICTEMPTY", {1, 1}},
+		{"DICTEMPTY", {1, 1, true}},
 		{"ENDC", {1, 1}},
-		{"EQINT", {1, 1}},
-		{"FIRST", {1, 1}},
+		{"EQINT", {1, 1, true}},
+		{"FIRST", {1, 1}}, // TODO delete
 		{"FITS", {1, 1}},
-		{"GTINT", {1, 1}},
-		{"HASHCU", {1, 1}},
-		{"HASHSU", {1, 1}},
+		{"GTINT", {1, 1, true}},
+		{"HASHCU", {1, 1, true}},
+		{"HASHSU", {1, 1, true}},
 		{"HEXDUMP", {1, 1}},
 		{"INC", {1, 1}},
-		{"INDEX", {1, 1}},
+		{"INDEX_EXCEP", {1, 1}},
+		{"INDEX_NOEXCEP", {1, 1, true}},
 		{"INDEX2", {1, 1}},
 		{"INDEX3", {1, 1}},
-		{"ISNEG", {1, 1}},
-		{"ISNNEG", {1, 1}},
-		{"ISNPOS", {1, 1}},
-		{"ISNULL", {1, 1}},
-		{"ISPOS", {1, 1}},
-		{"ISZERO", {1, 1}},
+		{"ISNEG", {1, 1, true}},
+		{"ISNNEG", {1, 1, true}},
+		{"ISNPOS", {1, 1, true}},
+		{"ISNULL", {1, 1, true}},
+		{"ISPOS", {1, 1, true}},
+		{"ISZERO", {1, 1, true}},
 		{"LAST", {1, 1}},
-		{"LESSINT", {1, 1}},
+		{"LESSINT", {1, 1, true}},
 		{"MODPOW2", {1, 1}},
 		{"MULCONST", {1, 1}},
 		{"NEGATE", {1, 1}},
-		{"NEQINT", {1, 1}},
-		{"NOT", {1, 1}},
+		{"NEQINT", {1, 1, true}},
+		{"NOT", {1, 1, true}}, // logical not
 		{"PARSEMSGADDR", {1, 1}},
 		{"PLDDICT", {1, 1}},
 		{"PLDI", {1, 1}},
@@ -337,25 +398,25 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"PLDREFIDX", {1, 1}},
 		{"PLDU", {1, 1}},
 		{"RAND", {1, 1}},
-		{"SBITS", {1, 1}},
-		{"SDEMPTY", {1, 1}},
+		{"SBITS", {1, 1, true}},
+		{"SDEMPTY", {1, 1, true}},
 		{"SDEPTH", {1, 1}},
-		{"SECOND", {1, 1}},
-		{"SEMPTY", {1, 1}},
-		{"SGN", {1, 1}},
-		{"SHA256U", {1, 1}},
-		{"SREFS", {1, 1}},
+		{"SECOND", {1, 1}}, // TODO delete
+		{"SEMPTY", {1, 1, true}},
+		{"SGN", {1, 1, true}},
+		{"SHA256U", {1, 1, true}},
+		{"SREFS", {1, 1, true}},
 		{"STONE", {1, 1}},
 		{"STRDUMP", {1, 1}},
 		{"STSLICECONST", {1, 1}},
 		{"STZERO", {1, 1}},
-		{"THIRD", {1, 1}},
+		{"THIRD", {1, 1}}, // TODO delete
 		{"TLEN", {1, 1}},
 		{"UBITSIZE", {1, 1}},
 		{"UFITS", {1, 1}},
 
-		{"BBITREFS", {1, 2}},
-		{"BREMBITREFS", {1, 2}},
+		{"BBITREFS", {1, 2, true}},
+		{"BREMBITREFS", {1, 2, true}},
 		{"LDDICT", {1, 2}},
 		{"LDDICT", {1, 2}},
 		{"LDGRAMS", {1, 2}},
@@ -368,7 +429,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"LDU", {1, 2}},
 		{"LDVARUINT32", {1, 2}},
 		{"REWRITESTDADDR", {1, 2}},
-		{"SBITREFS", {1, 2}},
+		{"SBITREFS", {1, 2, true}},
 		{"TPOP", {1, 2}},
 		{"UNPAIR", {1, 2}},
 
@@ -376,27 +437,27 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"SENDRAWMSG", {2, 0}},
 
 		{"ADD", {2, 1}},
-		{"AND", {2, 1}},
-		{"CMP", {2, 1}},
+		{"AND", {2, 1, true}},
+		{"CMP", {2, 1, true}},
 		{"DIV", {2, 1}},
 		{"DIVC", {2, 1}},
 		{"DIVR", {2, 1}},
-		{"EQUAL", {2, 1}},
-		{"GEQ", {2, 1}},
-		{"GREATER", {2, 1}},
-		{"INDEXVAR", {2, 1}},
-		{"LEQ", {2, 1}},
-		{"LESS", {2, 1}},
-		{"MAX", {2, 1}},
-		{"MIN", {2, 1}},
+		{"EQUAL", {2, 1, true}},
+		{"GEQ", {2, 1, true}},
+		{"GREATER", {2, 1, true}},
+		{"INDEXVAR", {2, 1}}, // only for vector
+		{"LEQ", {2, 1, true}},
+		{"LESS", {2, 1, true}},
+		{"MAX", {2, 1, true}},
+		{"MIN", {2, 1, true}},
 		{"MOD", {2, 1}},
 		{"MUL", {2, 1}},
-		{"NEQ", {2, 1}},
-		{"OR", {2, 1}},
-		{"PAIR", {2, 1}},
-		{"SCHKBITSQ", {2, 1}},
-		{"SCHKREFSQ", {2, 1}},
-		{"SDEQ", {2, 1}},
+		{"NEQ", {2, 1, true}},
+		{"OR", {2, 1, true}},
+		{"PAIR", {2, 1, true}},
+		{"SCHKBITSQ", {2, 1, true}},
+		{"SCHKREFSQ", {2, 1, true}},
+		{"SDEQ", {2, 1, true}},
 		{"SDLEXCMP", {2, 1}},
 		{"SDSKIPFIRST", {2, 1}},
 		{"SETINDEX", {2, 1}},
@@ -422,13 +483,13 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"SUB", {2, 1}},
 		{"SUBR", {2, 1}},
 		{"TPUSH", {2, 1}},
-		{"XOR", {2, 1}},
+		{"XOR", {2, 1, true}},
 
 		{"DIVMOD", {2, 2}},
 		{"LDIX", {2, 2}},
 		{"LDSLICEX", {2, 2}},
 		{"LDUX", {2, 2}},
-		{"MINMAX", {2, 2}},
+		{"MINMAX", {2, 2, true}},
 
 		{"CDATASIZE", {2, 3}},
 		{"SDATASIZE", {2, 3}},
@@ -442,6 +503,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"MULDIVR", {3, 1}},
 		{"SCHKBITREFSQ", {3, 1}},
 		{"SETINDEXVAR", {3, 1}},
+		{"SETINDEXVARQ", {3, 1}},
 		{"SSKIPFIRST", {3, 1}},
 		{"STUX", {3, 1}},
 		{"TRIPLE", {3, 1}},
@@ -611,6 +673,14 @@ Pointer<Stack> makeBLKSWAP(int down, int top) {
 	return createNode<Stack>(Stack::Opcode::BLKSWAP, down, top);
 }
 
+Pointer<Stack> makeTUCK() {
+	return createNode<Stack>(Stack::Opcode::TUCK);
+}
+
+Pointer<Stack> makePUXC(int i, int j) {
+	return createNode<Stack>(Stack::Opcode::PUXC, i, j);
+}
+
 Pointer<TvmIfElse> makeRevert(TvmIfElse const& node) {
 	switch (node.type()) {
 		case TvmIfElse::Type::IF:
@@ -717,6 +787,59 @@ bool isXCHG(Pointer<TvmAstNode> const& node, int i, int j) {
 	return cmd2Stack && cmd2Stack->opcode() == Stack::Opcode::XCHG &&
 			cmd2Stack->i() == i &&
 			cmd2Stack->j() == j;
+}
+
+std::optional<int> isXCHG_S0(Pointer<TvmAstNode> const& node) {
+	auto stack = to<Stack>(node.get());
+	if (stack) {
+		int i = stack->i();
+		int j = stack->j();
+		switch (stack->opcode()) {
+			case Stack::Opcode::XCHG:
+				if (i == 0)
+					return {j};
+				break;
+			case Stack::Opcode::BLKSWAP:
+				if (i == 1 && j == 1)
+					return {1};
+				break;
+			case Stack::Opcode::REVERSE:
+				if (i == 2 && j == 0)
+					return {1};
+				if (i == 3 && j == 0)
+					return {2};
+				break;
+			default:
+				break;
+		}
+	}
+	return {};
+}
+
+// qty, index
+std::optional<std::pair<int, int>> isREVERSE(Pointer<TvmAstNode> const& node) {
+	auto stack = to<Stack>(node.get());
+	if (stack) {
+		int i = stack->i();
+		int j = stack->j();
+		switch (stack->opcode()) {
+			case Stack::Opcode::REVERSE:
+				return {{i, j}};
+			case Stack::Opcode::BLKSWAP:
+				if (i == 1 && j == 1)
+					return {{2, 0}};
+				break;
+			case Stack::Opcode::XCHG:
+				if (i == 0 && j == 1)
+					return {{2, 0}};
+				if (i == 0 && j == 2)
+					return {{3, 0}};
+				break;
+			default:
+				break;
+		}
+	}
+	return {};
 }
 
 } // end solidity::frontend

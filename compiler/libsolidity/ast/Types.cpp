@@ -471,16 +471,18 @@ MemberList::MemberMap AddressType::nativeMembers(ContractDefinition const*) cons
 			FunctionType::Kind::AddressIsStdAddrWithoutAnyCast,
 			false, StateMutability::Pure
 	));
-	// members.emplace_back(MemberList::Member{"send", TypeProvider::function(strings{"uint"}, strings{"bool"}, FunctionType::Kind::Send, false, StateMutability::NonPayable)});
 	members.emplace_back("transfer", TypeProvider::function(
-			TypePointers{TypeProvider::uint(128),
-							 TypeProvider::boolean(),
-							 TypeProvider::uint(16),
-							 TypeProvider::tvmcell(),
-							 TypeProvider::extraCurrencyCollection()},
-			TypePointers{},
-			strings{string("value"), string("bounce"), string("flag"), string("body"), string("currencies")},
-			strings{},
+			{
+				TypeProvider::uint(128),
+				TypeProvider::boolean(),
+				TypeProvider::uint(16),
+				TypeProvider::tvmcell(),
+				TypeProvider::extraCurrencyCollection(),
+				TypeProvider::tvmcell(),
+		 	},
+			{},
+			{"value", "bounce", "flag", "body", "currencies", "stateInit"},
+			{},
 			FunctionType::Kind::AddressTransfer,
 			true,
 			StateMutability::Pure
@@ -3554,6 +3556,30 @@ TypeResult OptionalType::unaryOperatorResult(Token _operator) const {
 	return _operator == Token::Delete ? TypeProvider::tuple(std::vector<Type const*>()) : TypePointer();
 }
 
+BoolResult NullType::isImplicitlyConvertibleTo(Type const& _other) const {
+	auto opt = dynamic_cast<OptionalType const*>(&_other);
+	if (opt) {
+		return true;
+	}
+	return false;
+}
+
+std::string NullType::richIdentifier() const {
+	return "null";
+}
+
+bool NullType::operator==(Type const& _other) const {
+	return _other.category() == category();
+}
+
+std::string NullType::toString(bool /*_short*/) const {
+	return "null";
+}
+
+std::string NullType::canonicalName() const {
+	return "null";
+}
+
 string TypeType::richIdentifier() const
 {
 	return "t_type" + identifierList(actualType());
@@ -3960,6 +3986,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				TypeProvider::extraCurrencyCollection(),
 				TypeProvider::boolean(),
 				TypeProvider::callList(),
+				TypeProvider::tvmcell(),
 			},
 			{TypeProvider::tvmcell()},
 			{
@@ -3968,6 +3995,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				"currencies", // can be omitted
 				"bounce", // can be omitted
 				"call", // mandatory
+				"stateInit", // can be omitted
 			},
 			{{}},
 			FunctionType::Kind::TVMBuildIntMsg,
@@ -4014,11 +4042,11 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				false, StateMutability::Pure
 		));
 
-		members.emplace_back("deploy", TypeProvider::function(
-				{TypeProvider::tvmcell(), TypeProvider::tvmcell(), TypeProvider::uint(128), TypeProvider::integer(8, IntegerType::Modifier::Signed)},
-				{TypeProvider::address()},
-				{{}, {}, {}, {}},
-				{{}},
+		members.emplace_back("stateInitHash", TypeProvider::function(
+				TypePointers{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint(16), TypeProvider::uint(16)},
+				TypePointers{TypeProvider::uint256()},
+				strings{string(), string(), string(), string()},
+				strings{string()},
 				FunctionType::Kind::TVMDeploy,
 				false, StateMutability::Pure
 		));
@@ -4517,18 +4545,9 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) co
 			false, StateMutability::Pure
 	));
 
-	members.emplace_back("bitsAndRefs", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::uint(16), TypeProvider::uint(8)},
-			strings{},
-			strings{string(), string()},
-			FunctionType::Kind::TVMSliceSize,
-			false, StateMutability::Pure
-	));
-
 	members.emplace_back("depth", TypeProvider::function(
 			TypePointers{},
-			TypePointers{TypeProvider::uint(64)},
+			TypePointers{TypeProvider::uint(16)},
 			strings{},
 			strings{string()},
 			FunctionType::Kind::TVMSliceSize,
@@ -4577,7 +4596,7 @@ MemberList::MemberMap TvmCellType::nativeMembers(const ContractDefinition *) con
 
 	members.emplace_back("depth", TypeProvider::function(
 		TypePointers{},
-		TypePointers{TypeProvider::uint(64)},
+		TypePointers{TypeProvider::uint(16)},
 		strings{},
 		strings{string()},
 		FunctionType::Kind::TVMCellDepth,
@@ -4691,7 +4710,7 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ContractDefinition *) 
 
     members.emplace_back("depth", TypeProvider::function(
             TypePointers{},
-            TypePointers{TypeProvider::uint(64)},
+            TypePointers{TypeProvider::uint(16)},
             strings{},
             strings{string()},
             FunctionType::Kind::TVMBuilderMethods,
@@ -4716,7 +4735,7 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ContractDefinition *) 
 			false, StateMutability::Pure
 	));
 
-	members.emplace_back("bitsAndRefs", TypeProvider::function(
+	members.emplace_back("size", TypeProvider::function(
 			TypePointers{},
 			TypePointers{TypeProvider::uint(16), TypeProvider::uint(8)},
 			strings{},

@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019 TON DEV SOLUTIONS LTD.
+ * Copyright 2018-2021 TON DEV SOLUTIONS LTD.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -66,7 +66,7 @@ void TVMCompilerProceedContract(
 		TVMContractCompiler::printFunctionIds(_contract, pragmaHelper);
 	} else {
 		if (generateCode) {
-			TVMContractCompiler::proceedContract(pathToFiles + ".code", _contract, pragmaHelper);
+			TVMContractCompiler::generateCode(pathToFiles + ".code", _contract, pragmaHelper);
 		}
 		if (generateAbi) {
 			TVMContractCompiler::generateABI(pathToFiles + ".abi.json", &_contract, *pragmaDirectives);

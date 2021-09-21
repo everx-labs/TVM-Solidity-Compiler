@@ -3414,7 +3414,9 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			default:
 			{
 				typeCheckFunctionCall(_functionCall, functionType);
-				returnTypes = functionType->returnParameterTypes();
+				if (functionType->kind() != FunctionType::Kind::External || _functionCall.isAwait()) {
+					returnTypes = functionType->returnParameterTypes();
+				}
 				break;
 			}
 		}

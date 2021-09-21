@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019 TON DEV SOLUTIONS LTD.
+ * Copyright 2018-2021 TON DEV SOLUTIONS LTD.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -103,4 +103,20 @@ namespace solidity::frontend
 	public:
 		void endVisit(CodeBlock &_node) override;
 	};
+
+	class DeleterCallX : public TvmAstVisitor {
+	public:
+		bool visit(Function &_node) override;
+	};
+
+	class LogCircuitExpander : public TvmAstVisitor {
+	public:
+		void endVisit(CodeBlock &_node) override;
+	private:
+		bool isPureOperation(Pointer<TvmAstNode> const& op);
+	private:
+		int m_stackSize{};
+		std::vector<Pointer<TvmAstNode>> m_newInst;
+	};
+
 }	// end solidity::frontend
