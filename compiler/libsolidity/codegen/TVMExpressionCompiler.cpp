@@ -75,7 +75,7 @@ bool TVMExpressionCompiler::acceptExpr(const Expression *expr) {
 	} else if (auto e6 = to<IndexAccess>(expr)) {
 		visit2(*e6);
 	} else if (auto e7 = to<FunctionCall>(expr)) {
-		doDropResultIfNeeded = visit2(*e7);
+		visit2(*e7);
 	} else if (auto e8 = to<Conditional>(expr)) {
 		visit2(*e8);
 	} else if (auto e9 = to<IndexRangeAccess>(expr)) {
@@ -187,6 +187,9 @@ void TVMExpressionCompiler::visit2(Literal const &_node) {
 	switch (_node.annotation().type->category()) {
 		case Type::Category::Bool:
 			m_pusher.push(+1, _node.token() == Token::TrueLiteral? "TRUE" : "FALSE");
+			break;
+		case Type::Category::Null:
+			m_pusher.push(+1, "NULL");
 			break;
 		case Type::Category::StringLiteral: {
 			switch (m_pusher.ctx().pragmaHelper().abiVersion()) {
@@ -501,24 +504,15 @@ void TVMExpressionCompiler::visitLogicalShortCircuiting(BinaryOperation const &_
 	std::vector<Expression const *> order = unroll(_binaryOperation);
 	compileNewExpr(order[0]);
 	for (int i = 1; i < static_cast<int>(order.size()); ++i) {
-		if (to<Identifier>(order[i]) || order[i]->annotation().isPure) {
-			compileNewExpr(order[i]);
-			m_pusher.push(-1, op == Token::Or ? "OR" : "AND");
-		} else {
-			m_pusher.pushS(0);
-			m_pusher.push(-1, ""); // fix stack
-			m_pusher.startContinuation();
-			m_pusher.drop();
-			compileNewExpr(order[i]);
-		}
+		m_pusher.pushS(0);
+		m_pusher.push(-1, ""); // fix stack
+		m_pusher.startContinuation();
+		m_pusher.drop();
+		compileNewExpr(order[i]);
 	}
 
 	for (int i = static_cast<int>(order.size()) - 1; i >= 1; --i) {
-		if (to<Identifier>(order[i]) || order[i]->annotation().isPure) {
-			// nothing
-		} else {
-			m_pusher.endLogCircuit(op == Token::Or ? LogCircuit::Type::OR : LogCircuit::Type::AND);
-		}
+		m_pusher.endLogCircuit(true, op == Token::Or ? LogCircuit::Type::OR : LogCircuit::Type::AND);
 	}
 }
 
@@ -702,13 +696,13 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 			"DEPTH",
 			"ADDCONST -2",
 			"PICK",
-		}, 0, 1));
+		}, 0, 1, true));
 	} else  if (isIn(_node.memberName(), "isInternal", "isExternal", "isTickTock")) {
 		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
 			"DEPTH",
 			"ADDCONST -5",
 			"PICK",
-		}, 0, 1));
+		}, 0, 1, true));
 		if (_node.memberName() == "isInternal") {
 			m_pusher.push(-1 + 1, "EQINT 0");
 		} else if (_node.memberName() == "isExternal") {
@@ -743,7 +737,7 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 				"	BLKDROP2 8, 1",
 				"}",
 				"IFELSE",
-		}, 0, 1));
+		}, 0, 1, true));
 	} else if (_node.memberName() == "currencies") { // msg.currencies
 		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
 			"DEPTH",
@@ -765,13 +759,13 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 			"	BLKDROP2 4, 1",
 			"}",
 			"IFELSE"
-		}, 0, 1));
+		}, 0, 1, true));
 	} else if (_node.memberName() == "data") {
 		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
 			"DEPTH",
 			"ADDCONST -4",
 			"PICK",
-		}, 0, 1));
+		}, 0, 1, true));
 	} else {
 		cast_error(_node, "Unsupported magic");
 	}
@@ -856,7 +850,7 @@ bool TVMExpressionCompiler::checkForAddressMemberAccess(MemberAccess const &_nod
 			cast_error(_node.expression(), "Only 'address(this).balance' is supported for member balance");
 		}
 		m_pusher.push(+1, "GETPARAM 7");
-		m_pusher.index(0);
+		m_pusher.indexNoexcep(0);
 		return true;
 	}
 	if (_node.memberName() == "currencies") {
@@ -864,19 +858,19 @@ bool TVMExpressionCompiler::checkForAddressMemberAccess(MemberAccess const &_nod
 			cast_error(_node.expression(), "Only 'address(this).currencies' is supported for member currencies");
 		}
 		m_pusher.push(+1, "GETPARAM 7");
-		m_pusher.index(1);
+		m_pusher.indexNoexcep(1);
 		return true;
 	}
 	if (_node.memberName() == "wid") {
 		compileNewExpr(&_node.expression());
 		m_pusher.push(-1 + 1, "PARSEMSGADDR");
-		m_pusher.index(2);
+		m_pusher.indexWithExcep(2);
 		return true;
 	}
 	if (_node.memberName() == "value") {
 		compileNewExpr(&_node.expression());
 		m_pusher.push(-1 + 1, "PARSEMSGADDR");
-		m_pusher.index(3);
+		m_pusher.indexWithExcep(3);
 		m_pusher.push(0, "PLDU 256");
 		return true;
 	}
@@ -890,7 +884,7 @@ void TVMExpressionCompiler::visitMemberAccessArray(MemberAccess const &_node) {
 		if (arrayType->isByteArray()) {
 			m_pusher.byteLengthOfCell();
 		} else {
-			m_pusher.index(0);
+			m_pusher.indexNoexcep(0);
 		}
 	} else {
 		cast_error(_node, "Unsupported member access");
@@ -968,14 +962,14 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 		} else {
 			compileNewExpr(indexAccess.indexExpression()); // index
 			acceptExpr(&indexAccess.baseExpression()); // index array
-			m_pusher.index(1); // index dict
+			m_pusher.indexNoexcep(1); // index dict
 		}
 	} else if (baseType->category() == Type::Category::TvmVector) {
 		acceptExpr(&indexAccess.baseExpression()); // tuple
 		const auto& val = constValue(*indexAccess.indexExpression());
 		if (val.has_value() && val <= 15) {
-			m_pusher.push(-1 + 1, "INDEX 0");
-			m_pusher.push(-1 + 1, "INDEX " + val.value().str());
+			m_pusher.indexWithExcep(0);
+			m_pusher.indexWithExcep(boost::lexical_cast<int>(val.value().str()));
 		} else {
 			acceptExpr(indexAccess.indexExpression()); // vector index
 			m_pusher.pushInt(TvmConst::TvmTupleLen);
@@ -1003,9 +997,9 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 	                 GetDictOperation::GetFromArray);
 }
 
-bool TVMExpressionCompiler::visit2(FunctionCall const &_functionCall) {
+void TVMExpressionCompiler::visit2(FunctionCall const &_functionCall) {
 	FunctionCallCompiler fcc(m_pusher, this, _functionCall, isCurrentResultNeeded());
-	return fcc.compile();
+	fcc.compile();
 }
 
 void TVMExpressionCompiler::visit2(Conditional const &_conditional) {

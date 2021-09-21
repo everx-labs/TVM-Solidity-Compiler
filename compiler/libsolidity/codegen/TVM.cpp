@@ -66,7 +66,7 @@ void TVMCompilerProceedContract(
 		TVMContractCompiler::printFunctionIds(_contract, pragmaHelper);
 	} else {
 		if (generateCode) {
-			TVMContractCompiler::proceedContract(pathToFiles + ".code", _contract, pragmaHelper);
+			TVMContractCompiler::generateCode(pathToFiles + ".code", _contract, pragmaHelper);
 		}
 		if (generateAbi) {
 			TVMContractCompiler::generateABI(pathToFiles + ".abi.json", &_contract, *pragmaDirectives);

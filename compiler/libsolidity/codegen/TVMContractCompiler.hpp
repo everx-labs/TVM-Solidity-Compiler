@@ -49,12 +49,13 @@ public:
 		ContractDefinition const* contract,
 		std::vector<PragmaDirective const *> const& pragmaDirectives
 	);
-	static void proceedContract(
+	static void generateCode(
 		const std::string& fileName,
 		ContractDefinition const& contract,
 		PragmaDirectiveHelper const &pragmaHelper
 	);
 	static Pointer<Contract> generateContractCode(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
+	static void optimizeCode(Pointer<Contract>& c);
 private:
 	static void fillInlineFunctions(TVMCompilerContext& ctx, ContractDefinition const* contract);
 };

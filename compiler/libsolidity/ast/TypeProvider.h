@@ -61,6 +61,7 @@ public:
 
 	/// @returns boolean type.
 	static BoolType const* boolean() noexcept { return &m_boolean; }
+	static NullType const* nullType() noexcept { return &m_nullType; }
 	static TvmCellType const* tvmcell() noexcept { return &m_tvmcell; }
 	static TvmSliceType const* tvmslice() noexcept { return &m_tvmslice; }
 	static TvmBuilderType const* tvmbuilder() noexcept { return &m_tvmbuilder; }
@@ -211,6 +212,7 @@ private:
 	static inline T const* createAndGet(Args&& ... _args);
 
 	static BoolType const m_boolean;
+	static NullType const m_nullType;
 	static TvmCellType const m_tvmcell;
 	static TvmSliceType const m_tvmslice;
 	static TvmBuilderType const m_tvmbuilder;

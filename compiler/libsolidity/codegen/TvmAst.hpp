@@ -42,7 +42,7 @@ namespace solidity::frontend
 
 	class TvmAstNode : private boost::noncopyable {
 	public:
-		virtual ~TvmAstNode() {}
+		virtual ~TvmAstNode() = default;
 		virtual void accept(TvmAstVisitor& _visitor) = 0;
 	};
 
@@ -51,7 +51,7 @@ namespace solidity::frontend
 
 	class Loc : public Inst {
 	public:
-		explicit Loc(const std::string& _file, int _line) : m_file{_file}, m_line{_line} { }
+		explicit Loc(std::string  _file, int _line) : m_file{std::move(_file)}, m_line{_line} { }
 		void accept(TvmAstVisitor& _visitor) override;
 		std::string const& file() const { return m_file; }
 		int line() const { return m_line; }
@@ -74,7 +74,10 @@ namespace solidity::frontend
 
 			BLKSWAP, //  BLKSWAP 1, 1  |
 			REVERSE, //  REVERSE 2, 0  |  REVERSE 3, 0
-			XCHG,    //  XCHG S0 S1    |  XCHG S0 S2
+			XCHG,    //  XCHG S0 S1    |  XCHG S0 S2,
+
+			TUCK,
+			PUXC,
 		};
 		explicit Stack(Opcode opcode, int i = -1, int j = -1, int k = -1);
 		void accept(TvmAstVisitor& _visitor) override;
@@ -89,8 +92,18 @@ namespace solidity::frontend
 		int m_k{-1};
 	};
 
-	// todo gen?
-	class Glob : public Inst {
+	// abstract
+	class Gen : public Inst {
+	public:
+		explicit Gen(bool _isPure) : m_isPure{_isPure} {}
+		virtual int take() const = 0;
+		virtual int ret() const = 0;
+		bool isPure() const { return m_isPure; }
+	private:
+		bool m_isPure{}; // it doesn't throw exception, has no side effects (doesn't change any GLOB vars)
+	};
+
+	class Glob : public Gen {
 	public:
 		enum class Opcode {
 			GetOrGetVar,
@@ -101,25 +114,19 @@ namespace solidity::frontend
 
 			PUSH_C3,
 			POP_C3,
+
+			PUSH_C7,
+			POP_C7,
 		};
-		explicit Glob(Opcode opcode, int index = -1) : m_opcode{opcode}, m_index{index} {}
+		explicit Glob(Opcode opcode, int index = -1);
 		void accept(TvmAstVisitor& _visitor) override;
 		Opcode opcode() const { return m_opcode; }
 		int index() const { return m_index; }
+		int take() const override;
+		int ret() const override;
 	private:
 		Opcode m_opcode{};
 		int m_index{-1};
-	};
-
-	// abstract
-	class Gen : public Inst {
-	public:
-		explicit Gen(bool _isPure) : m_isPure{_isPure} {}
-		virtual int take() const = 0;
-		virtual int ret() const = 0;
-		bool isPure() const { return m_isPure; }
-	private:
-		bool m_isPure{}; // it doesn't throw exception, have no side effects
 	};
 
 	class CodeBlock;
@@ -162,8 +169,8 @@ namespace solidity::frontend
 
 	class HardCode : public Gen {
 	public:
-		explicit HardCode(std::vector<std::string> code, int take, int ret) :
-			Gen{false}, m_code(std::move(code)), m_take{take}, m_ret{ret} {}
+		explicit HardCode(std::vector<std::string> code, int take, int ret, bool _isPure) :
+			Gen{_isPure}, m_code(std::move(code)), m_take{take}, m_ret{ret} {}
 		void accept(TvmAstVisitor& _visitor) override;
 		std::vector<std::string> const& code() const { return m_code; }
 		int take() const override { return m_take; }
@@ -208,19 +215,22 @@ namespace solidity::frontend
 
 	class ReturnOrBreakOrCont : public Inst {
 	public:
-		explicit ReturnOrBreakOrCont(Pointer<CodeBlock> const &body) :
+		explicit ReturnOrBreakOrCont(int _take, Pointer<CodeBlock> const &body) :
+			m_take{_take},
 			m_body{body}
 		{
 		}
 		Pointer<CodeBlock> const &body() const { return m_body; }
 		void accept(TvmAstVisitor& _visitor) override;
+		int take() const { return m_take; }
 	private:
+		int m_take{};
 		Pointer<CodeBlock> m_body;
 	};
 
 	class TvmException : public Inst {
 	public:
-		explicit TvmException(std::string const _opcode, int _take, int _ret) :
+		explicit TvmException(std::string const& _opcode, int _take, int _ret) :
 			m_gen{_opcode, _take, _ret}
 		{
 		}
@@ -254,6 +264,7 @@ namespace solidity::frontend
 		Type type() const  { return m_type; }
 		std::string const &blob() const { return m_blob; }
 		Pointer<PushCellOrSlice> child() const { return m_child; };
+		bool equal(PushCellOrSlice const& another) const;
 	private:
 		Type m_type;
 		std::string m_blob;
@@ -277,7 +288,7 @@ namespace solidity::frontend
 		void accept(TvmAstVisitor& _visitor) override;
 		Type type() const { return m_type; }
 		std::vector<Pointer<TvmAstNode>> const& instructions() const { return m_instructions; }
-		void upd(std::vector<Pointer<TvmAstNode>> instructions) { m_instructions = instructions; }
+		void upd(std::vector<Pointer<TvmAstNode>> instructions) { m_instructions = std::move(instructions); }
 	private:
 		Type m_type;
 		std::vector<Pointer<TvmAstNode>> m_instructions;
@@ -330,23 +341,25 @@ namespace solidity::frontend
 	};
 
 	// Take one value from stack and return one
-	// DUP and DROP in Printer
 	class LogCircuit : public TvmAstNode {
 	public:
 		enum class Type {
 			AND,
 			OR
 		};
-		LogCircuit(Type type, Pointer<CodeBlock> const &body) :
+		LogCircuit(bool _canExpand, Type type, Pointer<CodeBlock> const &body) :
+			m_canExpand{_canExpand},
 			m_type{type},
 			m_body{body}
 		{
 		}
 		void accept(TvmAstVisitor& _visitor) override;
+		bool canExpand() const { return m_canExpand; }
 		Type type() const { return m_type; }
 		Pointer<CodeBlock> const &body() const { return m_body; }
 	private:
-		Type m_type;
+		bool m_canExpand{};
+		Type m_type{};
 		Pointer<CodeBlock> m_body;
 	};
 
@@ -386,7 +399,7 @@ namespace solidity::frontend
 
 	class TvmRepeat : public TvmAstNode {
 	public:
-		TvmRepeat(Pointer<CodeBlock> const &body) : m_body(body) { }
+		explicit TvmRepeat(Pointer<CodeBlock> const &body) : m_body(body) { }
 		void accept(TvmAstVisitor& _visitor) override;
 		Pointer<CodeBlock> const& body() const { return m_body; }
 	private:
@@ -395,7 +408,7 @@ namespace solidity::frontend
 
 	class TvmUntil : public TvmAstNode {
 	public:
-		TvmUntil(Pointer<CodeBlock> const &body) : m_body(body) { }
+		explicit TvmUntil(Pointer<CodeBlock> const &body) : m_body(body) { }
 		void accept(TvmAstVisitor& _visitor) override;
 		Pointer<CodeBlock> const& body() const { return m_body; }
 	private:
@@ -487,6 +500,8 @@ namespace solidity::frontend
 	Pointer<Stack> makeROT();
 	Pointer<Stack> makeROTREV();
 	Pointer<Stack> makeBLKSWAP(int down, int top);
+	Pointer<Stack> makeTUCK();
+	Pointer<Stack> makePUXC(int i, int j);
 	Pointer<TvmIfElse> makeRevert(TvmIfElse const& node);
 	Pointer<TvmCondition> makeRevertCond(TvmCondition const& node);
 
@@ -496,5 +511,7 @@ namespace solidity::frontend
 	std::optional<int> isDrop(Pointer<TvmAstNode> const& node);
 	std::optional<int> isPOP(Pointer<TvmAstNode> const& node);
 	bool isXCHG(Pointer<TvmAstNode> const& node, int i, int j);
+	std::optional<int> isXCHG_S0(Pointer<TvmAstNode> const& node);
+	std::optional<std::pair<int, int>> isREVERSE(Pointer<TvmAstNode> const& node);
 
 }	// end solidity::frontend

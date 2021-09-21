@@ -73,6 +73,8 @@ set(sources
 	codegen/DictOperations.hpp
 	codegen/PeepholeOptimizer.cpp
 	codegen/PeepholeOptimizer.hpp
+	codegen/StackOpcodeSquasher.cpp
+	codegen/StackOpcodeSquasher.hpp
 	codegen/StackOptimizer.cpp
 	codegen/StackOptimizer.hpp
 	codegen/TVM.cpp

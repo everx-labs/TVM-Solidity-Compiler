@@ -78,7 +78,7 @@ protected:
 
 	void acceptExpr(const Expression* expr, bool isResultNeeded = true);
 
-	void visitModifierOrFunctionBlock(Block const& body, bool isFunc);
+	void visitModifierOrFunctionBlock(Block const& body, int argQty, int retQty, int nameRetQty);
 public:
 	void visitFunctionWithModifiers();
 private:
@@ -87,6 +87,7 @@ private:
 	bool visitNode(ASTNode const&) override { solUnimplemented("Internal error: unreachable"); }
 
 	bool visit(VariableDeclarationStatement const& _variableDeclarationStatement) override;
+	void acceptBody(Block const& _block, std::optional<std::tuple<int, int>> functionBlock);
 	bool visit(Block const& _block) override;
 	bool visit(ExpressionStatement const& _expressionStatement) override;
 	bool visit(IfStatement const& _ifStatement) override;

@@ -226,7 +226,8 @@ case $(uname -s) in
                 # All dependencies can be found in portage.
                 # See https://pkgs.alpinelinux.org/
 
-                sudo emerge dev-util/cmake sys-devel/gcc net-misc/curl dev-libs/boost dev-util/boost-build
+                sudo USE="static-libs" emerge  dev-libs/boost
+                sudo emerge dev-util/cmake sys-devel/gcc net-misc/curl dev-util/boost-build
 
                 ;;
 

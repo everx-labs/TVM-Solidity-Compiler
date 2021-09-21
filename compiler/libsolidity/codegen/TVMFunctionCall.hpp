@@ -34,7 +34,7 @@ public:
 		bool isCurrentResultNeeded
 	);
 	void structConstructorCall();
-	bool compile();
+	void compile();
 
 protected:
 	bool checkForMappingOrCurrenciesMethods();
@@ -99,7 +99,7 @@ protected:
 	bool checkRemoteMethodCall(FunctionCall const &_functionCall);
 	void checkExtMsgSend();
 	std::string getDefaultMsgValue();
-	const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
+	static const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
 	void generateExtInboundMsg(
 		bool addSignature,
 		const Expression * destination,

@@ -103,4 +103,20 @@ namespace solidity::frontend
 	public:
 		void endVisit(CodeBlock &_node) override;
 	};
+
+	class DeleterCallX : public TvmAstVisitor {
+	public:
+		bool visit(Function &_node) override;
+	};
+
+	class LogCircuitExpander : public TvmAstVisitor {
+	public:
+		void endVisit(CodeBlock &_node) override;
+	private:
+		bool isPureOperation(Pointer<TvmAstNode> const& op);
+	private:
+		int m_stackSize{};
+		std::vector<Pointer<TvmAstNode>> m_newInst;
+	};
+
 }	// end solidity::frontend

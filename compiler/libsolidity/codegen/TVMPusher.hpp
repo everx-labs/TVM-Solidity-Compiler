@@ -37,10 +37,7 @@ using namespace solidity::util;
 
 namespace solidity::frontend {
 
-class TVMStack : public boost::noncopyable {
-    int m_size{};
-	std::vector<Declaration const*> m_stackSize;
-
+class TVMStack {
 public:
 	TVMStack() = default;
 	int size() const;
@@ -52,6 +49,11 @@ public:
 	int getOffset(int stackPos) const;
 	int getStackSize(Declaration const* name) const;
 	void ensureSize(int savedStackSize, const string& location = "", const ASTNode* node = nullptr) const;
+	void takeLast(int n);
+
+private:
+	int m_size{};
+	std::vector<Declaration const*> m_stackSize;
 };
 
 class TVMCompilerContext {
@@ -60,8 +62,8 @@ public:
 	void initMembers(ContractDefinition const* contract);
 	int getStateVarIndex(VariableDeclaration const *variable) const;
 	std::vector<VariableDeclaration const *> notConstantStateVariables() const;
+	bool tooMuchStateVariables() const;
 	std::vector<Type const *> notConstantStateVariableTypes() const;
-	std::vector<std::string> notConstantStateVariableNames() const;
 	PragmaDirectiveHelper const& pragmaHelper() const;
 	bool hasTimeInAbiHeader() const;
 	bool isStdlib() const;
@@ -125,11 +127,9 @@ public:
 		return ret;
 	}
 
-	void pushInlineFunction(Pointer<CodeBlock> block, int take, int ret);
+	void pushInlineFunction(const Pointer<CodeBlock>& block, int take, int ret);
 	void pollLastRetOpcode();
 	bool tryPollEmptyPushCont();
-	bool cmpLastCmd(const std::string& cmd, int offset = 0);
-	void pollLastOpcode();
 
 	[[nodiscard]]
 	TVMCompilerContext& ctx();
@@ -158,8 +158,8 @@ private:
 public:
 	void endContinuation();
 	void endContinuationFromRef();
-	void endRetOrBreakOrCont();
-	void endLogCircuit(LogCircuit::Type type);
+	void endRetOrBreakOrCont(int _take);
+	void endLogCircuit(bool _canExpand, LogCircuit::Type type);
 
 private:
 	void callRefOrCallX(int take, int ret, SubProgram::Type type);
@@ -175,7 +175,6 @@ private:
 public:
 	void _if();
 	void _ifNot();
-	void ifNotJmp();
 	void ifJmp();
 
 	void ifRef();
@@ -198,7 +197,8 @@ public:
     void pushString(const std::string& str, bool toSlice);
 	void pushLog();
 	void untuple(int n);
-	void index(int index);
+	void indexWithExcep(int index);
+	void indexNoexcep(int index);
 	void setIndex(int index);
 	void setIndexQ(int index);
 	void tuple(int qty);
@@ -208,7 +208,9 @@ public:
 	void pushC4();
 	void popRoot();
 	void pushC3();
+	void pushC7();
 	void popC3();
+	void popC7();
 	void execute(int take, int ret);
 	void setGlob(int index);
 	void setGlob(VariableDeclaration const * vd);
@@ -252,7 +254,7 @@ public:
 	void pushCallOrCallRef(const string& functionName, FunctionType const* ft, const std::optional<std::pair<int, int>>& deltaStack = nullopt);
 	void pushCall(int take, int ret, const std::string& functionName);
 	void drop(int cnt = 1);
-	void blockSwap(int m, int n);
+	void blockSwap(int down, int up);
 	void reverse(int qty, int startIndex);
 	void dropUnder(int droppedCount, int leftCount);
 	void exchange(int i);
@@ -313,7 +315,8 @@ public:
 					const std::function<void(int)> &appendBody,
 					const std::function<void()> &pushSendrawmsgFlag,
 					bool isAwait,
-					size_t callParamsOnStack);
+					size_t callParamsOnStack,
+					const std::function<void()> &appendStateInit);
 
 	enum class MsgType{
 		Internal,
@@ -342,12 +345,15 @@ public:
 	void checkCtorCalled();
 	void checkIfCtorCalled(bool ifFlag);
 	bool hasLock() const { return lockStack > 0; }
+	void add(StackPusher const& pusher);
+	void clear();
+	void takeLast(int n);
 
 private:
 	int lockStack{};
 	TVMStack m_stack2;
 
-	class PusherBlock {
+	class PusherBlock { // TODO delete this
 	public:
 		std::vector<Pointer<TvmAstNode>> opcodes;
 	};

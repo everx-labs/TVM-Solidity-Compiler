@@ -82,7 +82,7 @@ void StructCompiler::createDefaultStruct(bool resultIsBuilder) {
 
 void StructCompiler::pushMember(const std::string &memberName) {
 	// struct
-	pusher->index(getIndex(memberName));
+	pusher->indexNoexcep(getIndex(memberName));
 }
 
 void StructCompiler::setMemberForTuple(const std::string &memberName) {

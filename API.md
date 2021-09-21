@@ -16,11 +16,10 @@ contract development.
   * [TvmSlice](#tvmslice)
     * [\<TvmSlice\>.empty()](#tvmsliceempty)
     * [\<TvmSlice\>.size()](#tvmslicesize)
-    * [\<TvmSlice\>.dataSize()](#tvmslicedatasize)
-    * [\<TvmSlice\>.dataSizeQ()](#tvmslicedatasizeq)
     * [\<TvmSlice\>.bits()](#tvmslicebits)
     * [\<TvmSlice\>.refs()](#tvmslicerefs)
-    * [\<TvmSlice\>.bitsAndRefs()](#tvmslicebitsandrefs)
+    * [\<TvmSlice\>.dataSize()](#tvmslicedatasize)
+    * [\<TvmSlice\>.dataSizeQ()](#tvmslicedatasizeq)
     * [\<TvmSlice\>.depth()](#tvmslicedepth)
     * [\<TvmSlice\>.hasNBits(), \<TvmSlice\>.hasNRefs() and \<TvmSlice\>.hasNBitsAndRefs()](#tvmslicehasnbits-tvmslicehasnrefs-and-tvmslicehasnbitsandrefs)
     * [\<TvmSlice\>.compare()](#tvmslicecompare)
@@ -37,9 +36,9 @@ contract development.
   * [TvmBuilder](#tvmbuilder)
     * [\<TvmBuilder\>.toSlice()](#tvmbuildertoslice)
     * [\<TvmBuilder\>.toCell()](#tvmbuildertocell)
+    * [\<TvmBuilder\>.size()](#tvmbuildersize)
     * [\<TvmBuilder\>.bits()](#tvmbuilderbits)
     * [\<TvmBuilder\>.refs()](#tvmbuilderrefs)
-    * [\<TvmBuilder\>.bitsAndRefs()](#tvmbuilderbitsandrefs)
     * [\<TvmBuilder\>.remBits()](#tvmbuilderrembits)
     * [\<TvmBuilder\>.remRefs()](#tvmbuilderremrefs)
     * [\<TvmBuilder\>.remBitsAndRefs()](#tvmbuilderrembitsandrefs)
@@ -58,6 +57,7 @@ contract development.
     * [\<optional(Type)\>.get()](#optionaltypeget)
     * [\<optional(Type)\>.set()](#optionaltypeset)
     * [\<optional(Type)\>.reset()](#optionaltypereset)
+    * [Keyword `null`](#keyword-null)
 * [TON specific control structures](#ton-specific-control-structures)
   * [Range-based for loop](#range-based-for-loop)
   * [repeat](#repeat)
@@ -183,12 +183,13 @@ contract development.
     * [Deploy contract from contract](#deploy-contract-from-contract)
       * [tvm.insertPubkey()](#tvminsertpubkey)
       * [tvm.buildStateInit()](#tvmbuildstateinit)
+      * [tvm.stateInitHash()](#tvmstateinithash)
       * [tvm.buildEmptyData()](#tvmbuildemptydata)
-      * [tvm.deploy()](#tvmdeploy)
       * [Deploy via new](#deploy-via-new)
         * [`stateInit` option usage](#stateinit-option-usage)
         * [`code` option usage](#code-option-usage)
       * [Another deploy options](#another-deploy-options)
+      * [Deploy via \<address\>.transfer()](#deploy-via-addresstransfer)
       * [New contract address problem](#new-contract-address-problem)
     * [Misc functions from `tvm`](#misc-functions-from-tvm)
       * [tvm.code()](#tvmcode)
@@ -276,7 +277,7 @@ Operators:
 ##### \<TvmCell\>.depth()
 
 ```TVMSolidity
-<TvmCell>.depth() returns(uint64);
+<TvmCell>.depth() returns(uint16);
 ```
 
 Returns the depth of TvmCell **c**. If **c** has no references, then **d** = 0;
@@ -338,6 +339,22 @@ Checks whether a `Slice` is empty (i.e., contains no bits of data and no cell re
 
 Returns number of data bits and references in the slice.
 
+##### \<TvmSlice\>.bits()
+
+```TVMSolidity
+<TvmSlice>.bits() returns (uint16);
+```
+
+Returns number of data bits in the slice.
+
+##### \<TvmSlice\>.refs()
+
+```TVMSolidity
+<TvmSlice>.refs() returns (uint8);
+```
+
+Returns number of references in the slice.
+
 #### \<TvmSlice\>.dataSize()
 
 ```TVMSolidity
@@ -364,34 +381,10 @@ Note that the returned `count of distinct cells` does not take into
 account the cell that contains the slice itself.  
 This function is a wrapper for opcode `SDATASIZEQ` ([TVM][1] - A.11.7).
 
-##### \<TvmSlice\>.bits()
-
-```TVMSolidity
-<TvmSlice>.bits() returns (uint16);
-```
-
-Returns number of data bits in the slice.
-
-##### \<TvmSlice\>.refs()
-
-```TVMSolidity
-<TvmSlice>.refs() returns (uint8);
-```
-
-Returns number of references in the slice.
-
-##### \<TvmSlice\>.bitsAndRefs()
-
-```TVMSolidity
-<TvmSlice>.bitsAndRefs() returns (uint16, uint8);
-```
-
-Returns number of data bits and references in the slice.
-
 ##### \<TvmSlice\>.depth()
 
 ```TVMSolidity
-<TvmSlice>.depth() returns (uint64);
+<TvmSlice>.depth() returns (uint16);
 ```
 
 Returns the depth of the slice. If slice has no references, then 0 is returned,
@@ -545,6 +538,14 @@ Converts the builder into a slice.
 
 Converts the builder into a cell.
 
+##### \<TvmBuilder\>.size()
+
+```TVMSolidity
+<TvmBuilder>.size() returns (uint16 /*bits*/, uint8 /*refs*/);
+```
+
+Returns the number of data bits and references already stored in the builder.
+
 ##### \<TvmBuilder\>.bits()
 
 ```TVMSolidity
@@ -560,14 +561,6 @@ Returns the number of data bits already stored in the builder.
 ```
 
 Returns the number of references already stored in the builder.
-
-##### \<TvmBuilder\>.bitsAndRefs()
-
-```TVMSolidity
-<TvmBuilder>.bitsAndRefs() returns (uint16 /*bits*/, uint8 /*refs*/);
-```
-
-Returns the number of data bits and references already stored in the builder.
 
 ##### \<TvmBuilder\>.remBits()
 
@@ -596,7 +589,7 @@ Returns the number of data bits and references that can still be stored in the b
 ##### \<TvmBuilder\>.depth()
 
 ```TVMSolidity
-<TvmBuilder>.depth() returns (uint64);
+<TvmBuilder>.depth() returns (uint16);
 ```
 
 Returns the depth of the builder. If no cell references are stored
@@ -777,6 +770,16 @@ Replaces the content of the optional with the contents of other.
 ```
 
 Deletes the content of the optional.
+
+##### Keyword `null`
+
+Keyword `null` is a constant that is used to indicate optional type with uninitialized state.
+Example:
+
+```TVMSolidity
+optional(uint) x = 123;
+x = null; // reset value
+```
 
 #### vector(Type)
 
@@ -1414,7 +1417,7 @@ Example:
 ##### \<address\>.transfer()
 
 ```TVMSolidity
-<address>.transfer(uint128 value, bool bounce, uint16 flag, TvmCell body, ExtraCurrencyCollection currencies);
+<address>.transfer(uint128 value, bool bounce, uint16 flag, TvmCell body, ExtraCurrencyCollection currencies, TvmCell stateInit);
 ```
 
 Sends an internal outbound message to defined address. Function parameters:  
@@ -1429,6 +1432,9 @@ doesn't exist or is frozen. Defaults to `true`.
 * `flag` (`uint16`) - sets flag which used to send the internal outbound message. Defaults to `0`.
 * `body` (`TvmCell`) -  body (payload) attached to the internal message. Defaults to an empty
 TvmCell.
+* `stateInit` (`TvmCell`) - represents field `init` of `Message X`.
+See [here](https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb#L148).
+Normally, `stateInit` is used in 2 cases: to deploy the contract and to unfreeze the contract.
 
 All parameters can be omitted, except ``value``.
 
@@ -1455,6 +1461,7 @@ bool bounce = ...;
 uint16 flag = ...;
 TvmCell body = ...;
 ExtraCurrencyCollection c = ...;
+TvmCell stateInit = ...;
 // sequential order of parameters
 addr.transfer(value);
 addr.transfer(value, bounce);
@@ -1464,6 +1471,7 @@ addr.transfer(value, bounce, flag, body, c);
 // using named parameters
 destination.transfer({value: 1 ton, bounce: false, flag: 128, body: cell, currencies: c});
 destination.transfer({bounce: false, value: 1 ton, flag: 128, body: cell});
+destination.transfer({value: 1 ton, bounce: false, stateInit: stateInit});
 ```
 
 See example of usage `address.transfer()`:
@@ -2774,8 +2782,8 @@ tvm.rawConfigParam(uint8 paramNumber) returns (TvmCell cell, bool status);
 ```
 
 Executes TVM instruction "CONFIGPARAM" ([TVM][1] - A.11.4. - F832).
-This command returns the value of the global configuration parameter with
-integer index paramNumber as a cell and a boolean status.
+Returns the value of the global configuration parameter with
+integer index `paramNumber` as a cell and a boolean status.
 
 ##### tvm.rawReserve()
 
@@ -2973,6 +2981,26 @@ contract C {
 
 ```
 
+##### tvm.stateInitHash()
+
+```TVMSolidity
+tvm.stateInitHash(uint256 codeHash, uint256 dataHash, uint16 codeDepth, uint16 dataDepth) returns (uint256);
+```
+
+Calculates hash of the stateInit for given code and data specifications.
+
+Example:
+
+```TVMSolidity
+TvmCell code = ...;
+TvmCell data = ...;
+uint codeHash = tvm.hash(code);
+uint dataHash = tvm.hash(data);
+uint16 codeDepth = code.depth();
+uint16 dataDepth = data.depth();
+uint256 hash = tvm.stateInitHash(codeHash, dataHash, codeDepth, dataDepth);
+```
+
 ##### tvm.buildEmptyData()
 
 ```TVMSolidity
@@ -2981,29 +3009,6 @@ tvm.buildEmptyData(uint256 publicKey) returns (TvmCell);
 
 Generates a persistent storage of the contract that contains only public
 key. **data** can be used to generate StateInit ([TBLKCH][2] - 3.1.7.).
-
-##### tvm.deploy()
-
-```TVMSolidity
-tvm.deploy(TvmCell stateInit, TvmCell payload, uint128 value, int8 wid) returns(address);
-```
-
-Deploys a new contract and returns the address of the deployed contract.
-This function may be useful if you want to write a universal contract that
-can deploy any contract. In another cases, use [Deploy via new](#deploy-via-new).
-Arguments:
-
-* `stateInit` - contract's StateInit.
-* `payload` - encoded internal inbound message. This message should contain the function (constructor) id and encoded parameters of constructor.
-* `value` - funds in nanotons that will be sent to the new contract address.
-* `wid` - workchain id of the new contract address.
-
-`payload` can be generated manually by tvm-linker tool.
-
-See also:
-
-* [Example of usage](https://github.com/tonlabs/samples/blob/master/solidity/11_ContractDeployer.sol)
-* [Step-by-step description how to deploy contracts from the contract here](https://github.com/tonlabs/samples/blob/master/solidity/17_ContractProducer.md).
 
 ##### Deploy via new
 
@@ -3095,6 +3100,14 @@ address newWallet = new SimpleWallet{
     flag: 0
 }(arg0, arg1, ...);
 ```
+
+##### Deploy via \<address\>.transfer()
+
+You can also deploy the contract via [\<address\>.transfer()](#addresstransfer).
+Just set the option `stateInit`.
+
+* [Example of usage](https://github.com/tonlabs/samples/blob/master/solidity/11_ContractDeployer.sol)
+* [Step-by-step description how to deploy contracts from the contract here](https://github.com/tonlabs/samples/blob/master/solidity/17_ContractProducer.md).
 
 ##### New contract address problem
 
@@ -3428,12 +3441,13 @@ tvm.buildIntMsg({
     call: {function, [callbackFunction,] arg0, arg1, arg2, ...},
     bounce: bool,
     currencies: ExtraCurrencyCollection
+    stateInit: TvmCell
 })
 returns (TvmCell);
 ```
 
 Generates an internal outbound message that contains function call. The cell can be used to send a
-message using [tvm.sendrawmsg()](#tvmsendrawmsg). If the `function` is responsible then  
+message using [tvm.sendrawmsg()](#tvmsendrawmsg). If the `function` is responsible then
 `callbackFunction` parameter must be set.
 
 `dest`, `value` and `call` parameters are mandatory. Another parameters can be omitted. See
@@ -3887,7 +3901,7 @@ p.z = -5;
 points[0] = p;
 ```
 
-[1]: https://ton.org/tvm.pdf        "TVM"
-[2]: https://ton.org/tblkch.pdf     "TBLKCH"
+[1]: https://newton-blockchain.github.io/docs/tvm.pdf        "TVM"
+[2]: https://newton-blockchain.github.io/docs/tblkch.pdf     "TBLKCH"
 [3]: https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb "TL-B scheme"
 

@@ -26,8 +26,10 @@ namespace solidity::frontend {
 		explicit Simulator(
 			std::vector<Pointer<TvmAstNode>>::const_iterator _beg,
 			std::vector<Pointer<TvmAstNode>>::const_iterator _end,
-			int _startSize
+			int _startSize,
+			int _segment
 		) :
+			m_segment{_segment},
 			m_stackSize{_startSize}
 		{
 			run(_beg, _end);
@@ -70,6 +72,8 @@ namespace solidity::frontend {
 	protected:
 		bool visitNode(TvmAstNode const&) override;
 		void endVisitNode(TvmAstNode const&) override;
+	private:
+		int rest() const;
 
 	private:
 		bool m_wasSet{};
@@ -77,6 +81,7 @@ namespace solidity::frontend {
 		bool m_isDropped{};
 		bool m_wasReturnBreakContinue{};
 
+		int m_segment{};
 		int m_stackSize{};
 		std::vector<Pointer<TvmAstNode>> m_commands;
 	};

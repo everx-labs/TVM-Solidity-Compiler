@@ -22,7 +22,6 @@
 #include "TVMCommons.hpp"
 #include "TVMConstants.hpp"
 #include "StackOptimizer.hpp"
-#include "TVMPusher.hpp"
 #include "TVMSimulator.hpp"
 
 namespace solidity::frontend {
@@ -89,12 +88,14 @@ bool StackOptimizer::visit(Glob &_node) {
 		case Glob::Opcode::GetOrGetVar:
 		case Glob::Opcode::PUSHROOT:
 		case Glob::Opcode::PUSH_C3:
+		case Glob::Opcode::PUSH_C7:
 			ret = 1;
 			break;
 
 		case Glob::Opcode::SetOrSetVar:
 		case Glob::Opcode::POPROOT:
 		case Glob::Opcode::POP_C3:
+		case Glob::Opcode::POP_C7:
 			take = 1;
 			break;
 	}
@@ -131,6 +132,10 @@ bool StackOptimizer::visit(Stack &_node) {
 		case Stack::Opcode::REVERSE:
 		case Stack::Opcode::XCHG:
 			break;
+
+		case Stack::Opcode::TUCK:
+		case Stack::Opcode::PUXC:
+			solUnimplemented("");
 	}
 	this->delta(delta);
 	return false;
@@ -163,7 +168,7 @@ bool StackOptimizer::visit(SubProgram &_node) {
 	startScope();
 	delta(+ _node.take());
 	_node.block()->accept(*this);
-	solAssert(savedStack - _node.take() + _node.ret() == size(), "");
+//	solAssert(savedStack - _node.take() + _node.ret() == size(), "");
 	endScope();
 
 	delta(_node.ret());
@@ -174,7 +179,7 @@ bool StackOptimizer::visit(SubProgram &_node) {
 bool StackOptimizer::visit(TvmCondition &_node) {
 	int savedStack = size();
 	delta(-1);
-	for (auto body : {_node.trueBody(), _node.falseBody()}) {
+	for (const auto& body : {_node.trueBody(), _node.falseBody()}) {
 		startScope();
 		body->accept(*this);
 		solAssert(savedStack - 1 + _node.ret() == size(), "");
@@ -202,7 +207,7 @@ bool StackOptimizer::visit(LogCircuit &_node) {
 
 bool StackOptimizer::visit(TvmIfElse &_node) {
 	delta(-1);
-	for (auto body : {_node.trueBody(), _node.falseBody()}) {
+	for (const auto& body : {_node.trueBody(), _node.falseBody()}) {
 		if (body) {
 			int savedStack = size();
 			startScope();
@@ -261,8 +266,10 @@ bool StackOptimizer::visit(Contract &_node) {
 			case Function::FunctionType::OnCodeUpgrade:
 			case Function::FunctionType::OnTickTock: {
 				// TODO remove the if
+				// TODO do iter only if done something
 				for (int iter = 0; iter < TvmConst::IterStackOptQty; ++iter) {
 					if (f->name() != "c7_to_c4_for_await") {
+						//std::cout << "new iter" << std::endl;
 						//Printer p{std::cout};
 						//f->accept(p);
 
@@ -287,7 +294,7 @@ bool StackOptimizer::visit(Function &_node) {
 
 	_node.block()->accept(*this);
 
-	solAssert(size() == _node.ret(), "");
+//	solAssert(size() == _node.ret(), "");
 	return false;
 }
 
@@ -310,56 +317,93 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 
 	auto stack = to<Stack>(op.get());
 	bool cmd1IsPUSH= stack && stack->opcode() == Stack::Opcode::PUSH_S;
-	bool cmd1IsGen01 = isPureGen01OrGetGlob(*op);
-	bool cmd1IsSWAP = isSWAP(op);
-	std::optional<std::vector<Pointer<TvmAstNode>>> newCommands;
+	bool ok = false;
+	std::vector<Pointer<TvmAstNode>> commands;
 
 	if (isPOP(op)) {
 		int startStackSize = isPOP(op).value();
-		Simulator sim{instructions.begin() + index + 1, instructions.end(), startStackSize};
+		Simulator sim{instructions.begin() + index + 1, instructions.end(), startStackSize, 1};
 		if (sim.wasSet()) {
-			vector<Pointer<TvmAstNode>> commands;
+			ok = true;
 			commands.emplace_back(makeDROP());
 			commands.insert(commands.end(), instructions.begin() + index + 1, instructions.end());
-			newCommands = commands;
 		} else if (sim.success()) {
-			vector<Pointer<TvmAstNode>> commands;
+			ok = true;
 			commands.emplace_back(makeDROP());
 			commands.insert(commands.end(), instructions.begin() + index + 1, instructions.end());
-			newCommands = commands;
 		}
-	} else if (cmd1IsPUSH || cmd1IsGen01 || cmd1IsSWAP) {
-		int Si{};
-		int startStackSize{};
+	}
 
-		if (cmd1IsPUSH) {
-			Si = stack->i();
-			startStackSize = Si + 2;
-		} else if (cmd1IsGen01) {
-			startStackSize = 1;
-		} else if (cmd1IsSWAP) {
-			startStackSize = 2;
+	if (!ok && (isBLKSWAP(op) || isREVERSE(op) || isXCHG_S0(op))) {
+		int len{};
+		if (isREVERSE(op)) {
+			auto[n, i] = isREVERSE(op).value();
+			len = i + n;
+		} else if (isBLKSWAP(op)) {
+			auto[down, up] = isBLKSWAP(op).value();
+			len = down + up;
+		} else if (isXCHG_S0(op)) {
+			int Si = isXCHG_S0(op).value();
+			len = Si + 1;
 		} else {
 			solUnimplemented("");
 		}
 
+		// try to just ignore this opcode
+		{
+			Simulator sim{instructions.begin() + index + 1, instructions.end(), len, len};
+			if (sim.success()) {
+				ok = true;
+				commands.insert(commands.end(), instructions.begin() + index + 1, instructions.end());
+			}
+		}
+		if (!ok && isSWAP(op)) {
+			int startStackSize = 2;
+			Simulator sim{instructions.begin() + index + 1, instructions.end(), startStackSize, 1};
+			if (sim.success()) {
+				ok = true;
+				commands.emplace_back(makeDROP());
+				commands.insert(commands.end(), sim.commands().begin(), sim.commands().end());
+			}
+		}
+	}
 
-		Simulator sim{instructions.begin() + index + 1, instructions.end(), startStackSize};
-		if (sim.success()) {
-			vector<Pointer<TvmAstNode>> commands;
-			if (cmd1IsPUSH) {
+	if (!ok && cmd1IsPUSH) {
+		int Si = stack->i();
+		int startStackSize = Si + 2;
+
+		// try to delete values
+		if (Si <= scopeSize() && Si > 0) {
+			Simulator sim{instructions.begin() + index + 1, instructions.end(), Si + 1, Si};
+			if (sim.success()) {
+				ok = true;
+				commands.emplace_back(makeDROP(Si));
+				commands.emplace_back(makePUSH(0));
+				commands.insert(commands.end(), sim.commands().begin(), sim.commands().end());
+			}
+		}
+
+		if (!ok) {
+			Simulator sim{instructions.begin() + index + 1, instructions.end(), startStackSize, 1};
+			if (sim.success()) {
+				ok = true;
 				if (Si >= 1)
 					commands.emplace_back(makeBLKSWAP(1, Si));
-			} else if (cmd1IsGen01) {
-			} else if (cmd1IsSWAP) {
-				commands.emplace_back(makeDROP());
-			} else {
-				solUnimplemented("");
+				commands.insert(commands.end(), sim.commands().begin(), sim.commands().end());
 			}
-			commands.insert(commands.end(), sim.commands().begin(), sim.commands().end());
-			newCommands = commands;
 		}
-	} else if (!isDrop(op)) {
+	}
+
+	if (!ok && isPureGen01OrGetGlob(*op)) {
+		int startStackSize = 1;
+		Simulator sim{instructions.begin() + index + 1, instructions.end(), startStackSize, 1};
+		if (sim.success()) {
+			ok = true;
+			commands.insert(commands.end(), sim.commands().begin(), sim.commands().end());
+		}
+	}
+
+	if (!ok && !isDrop(op)) {
 		bool isPrevFlag{};
 		if (index > 0) {
 			Pointer<TvmAstNode> prevOp = instructions.at(index - 1);
@@ -367,40 +411,37 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 		}
 		if (scopeSize() >= 1 && !isPrevFlag) {
 			auto beg = instructions.begin() + index;
-			Simulator sim{beg, instructions.end(), 1};
+			Simulator sim{beg, instructions.end(), 1, 1};
 			if (sim.success()) {
-				vector<Pointer<TvmAstNode>> commands{makeDROP()};
+				ok = true;
+				commands.emplace_back(makeDROP());
 				commands.insert(commands.end(), sim.commands().begin(), sim.commands().end());
-				if (qtyWithoutLoc(commands) <= qtyWithoutLoc(beg, instructions.end())) {
-					newCommands = commands;
-				}
 			}
 		}
-	} else {
+	}
+
+	if (!ok && isDrop(op)) {
 		int n = isDrop(op).value();
 		auto beg = instructions.begin() + index + 1;
 		if (beg != instructions.end() &&
 			scopeSize() >= n + 1
 		) {
-			Simulator sim{beg, instructions.end(), 1};
+			Simulator sim{beg, instructions.end(), 1, 1};
 			if (sim.success()) {
-				vector<Pointer<TvmAstNode>> commands{makeDROP(n + 1)};
+				ok = true;
+				commands.emplace_back(makeDROP(n + 1));
 				commands.insert(commands.end(), sim.commands().begin(), sim.commands().end());
-				if (qtyWithoutLoc(commands) <= qtyWithoutLoc(beg, instructions.end())) {
-					newCommands = commands;
-				}
 			}
 		}
 	}
 
 
-	if (!newCommands) {
+	if (!ok) {
 		return false;
 	}
 
-	std::vector<Pointer<TvmAstNode>> cmds = newCommands.value();
 	instructions.erase(instructions.begin() + index, instructions.end());
-	instructions.insert(instructions.end(), cmds.begin(), cmds.end());
+	instructions.insert(instructions.end(), commands.begin(), commands.end());
 	return true;
 }
 

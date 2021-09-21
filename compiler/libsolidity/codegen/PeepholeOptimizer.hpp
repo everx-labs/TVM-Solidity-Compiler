@@ -23,7 +23,10 @@
 namespace solidity::frontend {
 	class PeepholeOptimizer : public TvmAstVisitor {
 	public:
+		explicit PeepholeOptimizer(bool _withUnpackOpaque) : m_withUnpackOpaque{_withUnpackOpaque} {}
 		void endVisit(CodeBlock &_node) override;
+	private:
+		bool m_withUnpackOpaque;
 	};
 } // end solidity::frontend
 

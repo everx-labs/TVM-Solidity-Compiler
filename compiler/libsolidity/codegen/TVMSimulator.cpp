@@ -17,7 +17,6 @@
  */
 
 #include "TVMSimulator.hpp"
-#include "TVMCommons.hpp"
 
 using namespace solidity::frontend;
 
@@ -39,7 +38,7 @@ void Simulator::run(const std::vector<Pointer<TvmAstNode>>::const_iterator _beg,
 			++iter;
 			break;
 		}
-		solAssert(m_stackSize >= 1, "");
+		solAssert(m_stackSize >= m_segment, "");
 	}
 	if (success()) {
 		for (; iter != _end; ++iter) {
@@ -60,7 +59,7 @@ bool Simulator::visit(DeclRetFlag &/*_node*/) {
 }
 
 bool Simulator::visit(Opaque &_node) {
-	if (m_stackSize <= _node.take()) {
+	if (_node.take() > rest()) {
 		m_unableToConvertOpcode = true;
 	} else {
 		m_stackSize += _node.ret() - _node.take();
@@ -70,11 +69,11 @@ bool Simulator::visit(Opaque &_node) {
 }
 
 bool Simulator::visit(HardCode &_node) {
-	if (m_stackSize <= _node.take()) {
+	if (_node.take() > rest()) {
 		m_unableToConvertOpcode = true;
 	} else {
 		m_stackSize += _node.ret() - _node.take();
-		m_commands.emplace_back(createNode<HardCode>(_node.code(), _node.take(), _node.ret()));
+		m_commands.emplace_back(createNode<HardCode>(_node.code(), _node.take(), _node.ret(), _node.isPure()));
 	}
 	return false;
 }
@@ -91,18 +90,18 @@ bool Simulator::visit(TvmReturn &_node) {
 		case TvmReturn::Type::IFRET:
 		case TvmReturn::Type::IFNOTRET:
 			solUnimplemented("Only in ReturnChecker");
-			//if (m_stackSize == 1) {
-			//m_unableToConvertOpcode = true;
-			//--m_stackSize;
-			break;
 	}
 	m_commands.emplace_back(createNode<TvmReturn>(_node.type()));
 	return false;
 }
 
 bool Simulator::visit(ReturnOrBreakOrCont &_node) {
+	if (_node.take() > rest()) {
+		m_unableToConvertOpcode = true;
+		return false;
+	}
 	m_wasReturnBreakContinue = true;
-	Simulator sim{_node.body()->instructions().begin(), _node.body()->instructions().end(), m_stackSize};
+	Simulator sim{_node.body()->instructions().begin(), _node.body()->instructions().end(), m_stackSize, m_segment};
 	if (sim.m_unableToConvertOpcode) {
 		m_unableToConvertOpcode = true;
 	} else {
@@ -110,23 +109,23 @@ bool Simulator::visit(ReturnOrBreakOrCont &_node) {
 			m_isDropped = true;
 		}
 		auto body = createNode<CodeBlock>(_node.body()->type(), sim.commands());
-		m_commands.emplace_back(createNode<ReturnOrBreakOrCont>(body));
+		m_commands.emplace_back(createNode<ReturnOrBreakOrCont>(_node.take(), body));
 	}
 	return false;
 }
 
 bool Simulator::visit(TvmException &_node) {
-	if (_node.take() < m_stackSize) {
+	if (_node.take() > rest()) {
+		m_unableToConvertOpcode = true;
+	} else {
 		m_stackSize -= _node.take();
 		m_commands.emplace_back(createNode<TvmException>(_node.fullOpcode(), _node.take(), _node.ret()));
-	} else {
-		m_unableToConvertOpcode = true;
 	}
 	return false;
 }
 
 bool Simulator::visit(GenOpcode &_node) {
-	if (m_stackSize <= _node.take()) {
+	if (_node.take() > rest()) {
 		m_unableToConvertOpcode = true;
 	} else {
 		m_stackSize += _node.ret() - _node.take();
@@ -146,13 +145,15 @@ bool Simulator::visit(Glob &_node) {
 		case Glob::Opcode::GetOrGetVar:
 		case Glob::Opcode::PUSHROOT:
 		case Glob::Opcode::PUSH_C3:
+		case Glob::Opcode::PUSH_C7:
 			++m_stackSize;
 			break;
 
 		case Glob::Opcode::SetOrSetVar:
 		case Glob::Opcode::POPROOT:
 		case Glob::Opcode::POP_C3:
-			if (m_stackSize >= 2) {
+		case Glob::Opcode::POP_C7:
+			if (rest() >= 1) {
 				--m_stackSize;
 			} else {
 				m_unableToConvertOpcode = true;
@@ -167,41 +168,42 @@ bool Simulator::visit(Stack &_node) {
 	int i = _node.i();
 	int j = _node.j();
 	int k = _node.k();
-	int firstIndex = m_stackSize - 1;
-	int newi = i < firstIndex ? i : i - 1;
-	int newj = j < firstIndex ? j : j - 1;
-	int newk = k < firstIndex ? k : k - 1;
+	int firstIndex = m_stackSize - 1; // TODO rename
+	int lastIndex = m_stackSize - m_segment; // TODO rename
+	int newi = i < firstIndex ? i : i - m_segment;
+	int newj = j < firstIndex ? j : j - m_segment;
+	int newk = k < firstIndex ? k : k - m_segment;
 	switch (_node.opcode()) {
 		case Stack::Opcode::PUSH_S: {
-			if (i == firstIndex) {
+			if (lastIndex <= i && i <= firstIndex) {
 				m_unableToConvertOpcode = true;
 			} else if (i < firstIndex) {
 				m_commands.emplace_back(createNode<Stack>(_node.opcode(), i));
 				++m_stackSize;
 			} else if (i > firstIndex) {
-				m_commands.emplace_back(createNode<Stack>(_node.opcode(), i - 1));
+				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi));
 				++m_stackSize;
 			}
 			break;
 		}
 		case Stack::Opcode::POP_S: {
-			if (i == 1 && m_stackSize == 2) { // it equals to BLKDROP2 1, 1
+			if (m_segment == 1 && i == 1 && m_stackSize == 2) { // it equals to BLKDROP2 1, 1
 				m_isDropped = true;
-			} else if (m_stackSize == 1) {
+			} else if (rest() == 0) {
 				m_unableToConvertOpcode = true;
-			} else if (i == firstIndex) {
+			} else if (i == firstIndex && m_segment == 1) {
 				m_wasSet = true;
-				--m_stackSize;
+				--m_stackSize; // TODO delete this
 				// don't push to m_commands, just ignore the opcode
-			} else if (i < firstIndex) {
+			} else if (i < lastIndex) {
 				--m_stackSize;
 				m_commands.emplace_back(createNode<Stack>(_node.opcode(), i));
 			} else if (i > firstIndex) {
 				// here _node.i() >= 2
 				--m_stackSize;
-				m_commands.emplace_back(createNode<Stack>(_node.opcode(), i - 1));
+				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi));
 			} else {
-				solUnimplemented("");
+				m_unableToConvertOpcode = true;
 			}
 			break;
 		}
@@ -209,11 +211,13 @@ bool Simulator::visit(Stack &_node) {
 			int n = i;
 			if (m_stackSize <= n) {
 				m_isDropped = true;
-				if (n >= 2)
-					m_commands.emplace_back(makeDROP(n - 1));
-			} else {
+				if (n - m_segment > 0)
+					m_commands.emplace_back(makeDROP(n - m_segment));
+			} else if (rest() >= n) {
 				m_stackSize -= n;
 				m_commands.emplace_back(makeDROP(n));
+			} else {
+				m_unableToConvertOpcode = true;
 			}
 			break;
 		}
@@ -222,19 +226,17 @@ bool Simulator::visit(Stack &_node) {
 			int drop = i;
 			int rest = j;
 			if (rest >= m_stackSize) {
-				if (rest == 1) {
-					m_commands.emplace_back(makeDROP(drop));
-				} else {
-					m_commands.emplace_back(makeBLKDROP2(drop, rest - 1));
-				}
-			} else if (rest + drop >= m_stackSize) {
-				if (drop >= 2) {
-					m_commands.emplace_back(makeBLKDROP2(drop - 1, rest));
+				m_commands.emplace_back(makeBLKDROP2(drop, rest - m_segment));
+			} else if (rest <= this->rest() && rest + drop >= m_stackSize) {
+				if (drop - m_segment > 0) {
+					m_commands.emplace_back(makeBLKDROP2(drop - m_segment, rest));
 				}
 				m_isDropped = true;
-			} else {
+			} else if (rest + drop <= this->rest()) {
 				m_commands.emplace_back(makeBLKDROP2(drop, rest));
 				m_stackSize -= drop;
+			} else {
+				m_unableToConvertOpcode = true;
 			}
 			break;
 		}
@@ -242,11 +244,8 @@ bool Simulator::visit(Stack &_node) {
 		case Stack::Opcode::BLKPUSH: {
 			int n = i;
 			int index = j;
-			int lastIndex = index - n + 1; // include
-			if (
-				index < firstIndex ||
-				(index > firstIndex && lastIndex > firstIndex))
-			{
+			int pushLast = index - n + 1; // include
+			if (std::max(lastIndex, pushLast) > std::min(firstIndex, index)) { // TODO rename
 				m_commands.emplace_back(makeBLKPUSH(n, newj));
 				m_stackSize += n;
 			} else {
@@ -254,47 +253,55 @@ bool Simulator::visit(Stack &_node) {
 			}
 			break;
 		}
+		case Stack::Opcode::REVERSE: {
+			int n = i;
+			int index = j;
+			int pushLast = index + n - 1; // include
+			if (std::max(lastIndex, index) >  std::min(firstIndex, pushLast)) { // TODO rename
+				m_commands.emplace_back(createNode<Stack>(_node.opcode(), i, j));
+			} else {
+				m_unableToConvertOpcode = true;
+			}
+			break;
+		}
 		case Stack::Opcode::BLKSWAP:
-			if (i + j < m_stackSize) {
+			if (i + j <= rest()) {
 				m_commands.emplace_back(makeBLKSWAP(i, j));
 			} else {
 				m_unableToConvertOpcode = true;
 			}
 			break;
 		case Stack::Opcode::XCHG:
-			if (i != firstIndex && j != firstIndex) {
-				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj));
-			} else {
+			if ((lastIndex <= i && i <= firstIndex) ||
+				(lastIndex <= j && j <= firstIndex)) { // it's ok if j==-1
 				m_unableToConvertOpcode = true;
+			} else {
+				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj));
 			}
 			break;
 		case Stack::Opcode::PUSH2_S:
-			if (i != firstIndex && j != firstIndex) {
-				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj));
-			} else {
+			if ((lastIndex <= i && i <= firstIndex) ||
+				(lastIndex <= j && j <= firstIndex)) {
 				m_unableToConvertOpcode = true;
+			} else {
+				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj));
 			}
 			m_stackSize += 2;
 			break;
 		case Stack::Opcode::PUSH3_S:
-			if (i != firstIndex && j != firstIndex && k != firstIndex) {
-				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj, newk));
-			} else {
+			if ((lastIndex <= i && i <= firstIndex) ||
+				(lastIndex <= j && j <= firstIndex) ||
+				(lastIndex <= k && k <= firstIndex)) {
 				m_unableToConvertOpcode = true;
+			} else {
+				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj, newk));
 			}
 			m_stackSize += 3;
 			break;
-		case Stack::Opcode::REVERSE: {
-			int n = i;
-			int startIndex = j;
-			int lastIndex = startIndex + n - 1; // include
-			if (startIndex <= firstIndex && firstIndex <= lastIndex) {
-				m_unableToConvertOpcode = true;
-			} else {
-				m_commands.emplace_back(createNode<Stack>(_node.opcode(), i, j));
-			}
-			break;
-		}
+
+		case Stack::Opcode::TUCK:
+		case Stack::Opcode::PUXC:
+			solUnimplemented("");
 	}
 
 	return false;
@@ -305,10 +312,11 @@ bool Simulator::visit(CodeBlock &/*_node*/) {
 }
 
 bool Simulator::visit(SubProgram &_node) {
-	m_stackSize -= _node.take();
-	if (m_stackSize <= 0) {
+	if (_node.take() > rest()) {
 		m_unableToConvertOpcode = true;
+		return false;
 	}
+	m_stackSize -= _node.take();
 
 	std::optional<Pointer<CodeBlock>> res = trySimulate(*_node.block(), m_stackSize + _node.take(), m_stackSize + _node.ret());
 	if (!res) {
@@ -320,7 +328,7 @@ bool Simulator::visit(SubProgram &_node) {
 }
 
 bool Simulator::visit(TvmCondition &_node) {
-	if (m_stackSize == 1) {
+	if (rest() == 0) {
 		m_unableToConvertOpcode = true;
 		return false;
 	}
@@ -342,7 +350,7 @@ bool Simulator::visit(TvmCondition &_node) {
 }
 
 bool Simulator::visit(LogCircuit &_node) {
-	if (m_stackSize == 1) {
+	if (rest() == 0) {
 		m_unableToConvertOpcode = true;
 		return false;
 	}
@@ -353,12 +361,12 @@ bool Simulator::visit(LogCircuit &_node) {
 		return false;
 	}
 	++m_stackSize;
-	m_commands.emplace_back(createNode<LogCircuit>(_node.type(), res.value()));
+	m_commands.emplace_back(createNode<LogCircuit>(_node.canExpand(), _node.type(), res.value()));
 	return false;
 }
 
 bool Simulator::visit(TvmIfElse &_node) {
-	if (m_stackSize == 1) {
+	if (rest() == 0) {
 		m_unableToConvertOpcode = true;
 		return false;
 	}
@@ -379,7 +387,7 @@ bool Simulator::visit(TvmIfElse &_node) {
 }
 
 bool Simulator::visit(TvmRepeat &_node) {
-	if (m_stackSize == 1) {
+	if (rest() == 0) {
 		m_unableToConvertOpcode = true;
 		return false;
 	}
@@ -395,7 +403,7 @@ bool Simulator::visit(TvmRepeat &_node) {
 }
 
 bool Simulator::visit(TvmUntil &_node) {
-	if (m_stackSize == 1) {
+	if (rest() == 0) {
 		m_unableToConvertOpcode = true;
 		return false;
 	}
@@ -444,7 +452,7 @@ void Simulator::endVisit(CodeBlock &/*_node*/) {
 }
 
 std::optional<Pointer<CodeBlock>> Simulator::trySimulate(CodeBlock const& body, int begStackSize, int endStackSize) {
-	Simulator sim{body.instructions().begin(), body.instructions().end(), begStackSize};
+	Simulator sim{body.instructions().begin(), body.instructions().end(), begStackSize, m_segment};
 	if (sim.m_unableToConvertOpcode || sim.m_wasSet) {
 		m_unableToConvertOpcode = true;
 		return {};
@@ -460,7 +468,7 @@ std::optional<Pointer<CodeBlock>> Simulator::trySimulate(CodeBlock const& body, 
 bool Simulator::isPopAndDrop(Pointer<TvmAstNode> const& a, Pointer<TvmAstNode> const& b) {
 	auto pop = isPOP(a);
 	auto drop = isDrop(b);
-	if (pop && drop && pop.value() == m_stackSize - 1 && pop.value() == drop.value() + 1) {
+	if (m_segment == 1 && pop && drop && pop.value() == m_stackSize - 1 && pop.value() == drop.value() + 1) {
 		m_isDropped = true;
 		m_commands.emplace_back(makeBLKDROP2(drop.value(), 1));
 		return true;
@@ -477,8 +485,13 @@ bool Simulator::success() const {
 
 bool Simulator::visitNode(TvmAstNode const&) {
 	solUnimplemented("");
-	return false;
 }
 
 void Simulator::endVisitNode(TvmAstNode const&) {
+}
+
+int Simulator::rest() const {
+	int r = m_stackSize - m_segment;
+	solAssert(r >= 0, "");
+	return r;
 }

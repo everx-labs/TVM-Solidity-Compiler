@@ -26,6 +26,7 @@ using namespace solidity::frontend;
 using namespace solidity::util;
 
 BoolType const TypeProvider::m_boolean{};
+NullType const TypeProvider::m_nullType{};
 TvmCellType const TypeProvider::m_tvmcell{};
 TvmSliceType const TypeProvider::m_tvmslice{};
 TvmBuilderType const TypeProvider::m_tvmbuilder{};
@@ -344,6 +345,8 @@ TypePointer TypeProvider::forLiteral(Literal const& _literal)
 	case Token::TrueLiteral:
 	case Token::FalseLiteral:
 		return boolean();
+	case Token::NullLiteral:
+		return nullType();
 	case Token::Number:
 		return rationalNumber(_literal);
 	case Token::StringLiteral:
