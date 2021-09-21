@@ -3901,7 +3901,7 @@ p.z = -5;
 points[0] = p;
 ```
 
-[1]: https://newton-blockchain.github.io/docs/tvm.pdf        "TVM"
-[2]: https://newton-blockchain.github.io/docs/tblkch.pdf     "TBLKCH"
+[1]: https://test.ton.org/tvm.pdf        "TVM"
+[2]: https://test.ton.org/tblkch.pdf     "TBLKCH"
 [3]: https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb "TL-B scheme"
 
