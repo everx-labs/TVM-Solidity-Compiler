@@ -371,7 +371,7 @@ This function is a wrapper for opcode `SDATASIZE` ([TVM][1] - A.11.7).
 #### \<TvmSlice\>.dataSizeQ()
 
 ```TVMSolidity
-<TvmSlice>.dataSize(uint n) returns (optional(uint /*cells*/, uint /*bits*/, uint /*refs*/));
+<TvmSlice>.dataSizeQ(uint n) returns (optional(uint /*cells*/, uint /*bits*/, uint /*refs*/));
 ```
 
 Returns the count of distinct cells, data bits in the distinct cells and
@@ -394,7 +394,7 @@ otherwise function result is one plus the maximum of depths of the cells referre
 
 ```TVMSolidity
 <TvmSlice>.hasNBits(uint16 bits) returns (bool);
-<TvmSlice>.hasNRefs(uint8 bits) returns (bool);
+<TvmSlice>.hasNRefs(uint8 refs) returns (bool);
 <TvmSlice>.hasNBitsAndRefs(uint16 bits, uint8 refs) returns (bool);
 ```
 
@@ -466,7 +466,7 @@ Loads a signed integer with the given **bitSize** from the slice.
 ###### \<TvmSlice\>.loadUnsigned()
 
 ```TVMSolidity
-<TvmSlice>.loadSigned(uint16 bitSize) returns (uint);
+<TvmSlice>.loadUnsigned(uint16 bitSize) returns (uint);
 ```
 
 Loads an unsigned integer with the given **bitSize** from the slice.
@@ -679,7 +679,7 @@ Stores an unsigned integer **value** with given **bitSize** in the builder.
 <TvmBuilder>.storeRef(TvmSlice s);
 ```
 
-Stores `TvmBuilder b`/`TvmCell c`/`TvmSlice c` in the reference of the builder.
+Stores `TvmBuilder b`/`TvmCell c`/`TvmSlice s` in the reference of the builder.
 
 ##### \<TvmBuilder\>.storeTons()
 
@@ -1195,7 +1195,7 @@ optional(uint32) b = str.findLast(symbol);
 require(!b.hasValue());
 
 string sub = "111";
-optional(uint32) c = str.find(symbol);
+optional(uint32) c = str.find(sub);
 require(!c.hasValue());
 
 ```
