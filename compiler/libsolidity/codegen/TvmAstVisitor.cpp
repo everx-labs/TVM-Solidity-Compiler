@@ -65,10 +65,16 @@ bool Printer::visit(TvmReturn &_node) {
 		case TvmReturn::Type::RET:
 			m_out << "RET";
 			break;
-			case TvmReturn::Type::IFRET:
+		case TvmReturn::Type::RETALT:
+			m_out << "RETALT";
+			break;
+		case TvmReturn::Type::IFRETALT:
+			m_out << "IFRETALT";
+			break;
+		case TvmReturn::Type::IFRET:
 			m_out << "IFRET";
 			break;
-			case TvmReturn::Type::IFNOTRET:
+		case TvmReturn::Type::IFNOTRET:
 			m_out << "IFNOTRET";
 			break;
 	}
@@ -102,7 +108,13 @@ bool Printer::visit(GenOpcode &_node) {
 	else if (_node.fullOpcode() == "UNTUPLE 3") m_out << "UNTRIPLE";
 	else if (isIn(_node.opcode(), "INDEX_EXCEP", "INDEX_NOEXCEP")) {
 		int index = boost::lexical_cast<int>(_node.arg());
-		if (index <= 15) {
+		if (index == 0) {
+			m_out << "FIRST";
+		} else if (index == 1) {
+			m_out << "SECOND";
+		} else if (index == 2) {
+			m_out << "THIRD";
+		} else if (index <= 15) {
 			m_out << "INDEX " << index;
 		} else {
 			m_out << "PUSHINT " << index << std::endl;
@@ -309,11 +321,21 @@ bool Printer::visit(Stack &_node) {
 					printIndexes();
 				}
 			} else {
-				m_out << "PUSHINT " << bottom << std::endl;
-				tabs();
-				m_out << "PUSHINT " << top << std::endl;
-				tabs();
-				m_out << "BLKSWX";
+				if (bottom == 1) {
+					m_out << "PUSHINT " << top << std::endl;
+					tabs();
+					m_out << "ROLLX";
+				} else if (top == 1) {
+					m_out << "PUSHINT " << bottom << std::endl;
+					tabs();
+					m_out << "ROLLREVX";
+				} else {
+					m_out << "PUSHINT " << bottom << std::endl;
+					tabs();
+					m_out << "PUSHINT " << top << std::endl;
+					tabs();
+					m_out << "BLKSWX";
+				}
 			}
 			break;
 		}
@@ -543,15 +565,31 @@ bool Printer::visit(TvmRepeat &_node) {
 bool Printer::visit(TvmUntil &_node) {
 	_node.body()->accept(*this);
 	tabs();
-	m_out << "UNTIL" << std::endl;
+	if (_node.withBreakOrReturn()) {
+		m_out << "UNTILBRK" << std::endl;
+	} else {
+		m_out << "UNTIL" << std::endl;
+	}
 	return false;
 }
 
 bool Printer::visit(While &_node) {
-	_node.condition()->accept(*this);
+	if (!_node.isInfinite()) {
+		_node.condition()->accept(*this);
+	}
 	_node.body()->accept(*this);
 	tabs();
-	m_out << "WHILE" << std::endl;
+	if (_node.isInfinite()) {
+		if (_node.withBreakOrReturn())
+			m_out << "AGAINBRK" << std::endl;
+		else
+			m_out << "AGAIN" << std::endl;
+	} else {
+		if (_node.withBreakOrReturn())
+			m_out << "WHILEBRK" << std::endl;
+		else
+			m_out << "WHILE" << std::endl;
+	}
 	return false;
 }
 
@@ -695,7 +733,7 @@ void LogCircuitExpander::endVisit(CodeBlock &_node) {
 	std::vector<Pointer<TvmAstNode>> block;
 	for (Pointer<TvmAstNode> const& opcode : _node.instructions()) {
 		auto lc = to<LogCircuit>(opcode.get());
-		if (lc && lc->canExpand()) {
+		if (lc) {
 			m_stackSize = 1;
 			m_newInst = {};
 			bool isPure = true;

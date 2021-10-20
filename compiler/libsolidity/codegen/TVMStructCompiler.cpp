@@ -22,6 +22,8 @@
 #include "TVMABI.hpp"
 
 using namespace solidity::frontend;
+using namespace solidity::util;
+
 
 StructCompiler::StructCompiler(StackPusher *pusher, TupleType const* tuple) :
 	pusher{pusher}

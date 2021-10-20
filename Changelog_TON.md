@@ -1,9 +1,25 @@
+### 0.51.0 (2021-10-15)
+
+Compiler features:
+ * Supported function identifier instead of uint32 for `callbackId` or `onErrorId` in expressions
+`tvm.buildExtMsg(...)` and `ContractName.funcName().extMsg`.
+ * Supported ABI 2.2.
+ * Checked if `stateInit` is valid before deploying.
+ * Supported tvm.buildDataInit()
+
+Breaking change:
+ * Deleted `tvm.buildEmptyData()`. Use `tvm.buildDataInit()`.
+
+Gas optimizations:
+ * Assorted stack optimizations.
+
 ### 0.50.0 (2021-09-21)
 
 Compiler features:
  * Added the option `stateInit` for `tvm.buildIntMsg` and `\<address\>.transfer()`.
  * Added function `tvm.stateInitHash()` to calculate stateInit hash based on code and data cells.
  * Added keyword `null`.
+ * Supported concatenation `string` and `bytesN` types.
 
 Breaking change:
  * Deleted `\<TvmSlice\>.bitsAndRefs()`. Please, use `\<TvmSlice\>.size()`.

@@ -50,9 +50,11 @@ bool StackOptimizer::visit(TvmReturn &_node) {
 	int take{};
 	switch (_node.type()) {
 		case TvmReturn::Type::RET:
+		case TvmReturn::Type::RETALT:
 			break;
-		case TvmReturn::Type::IFRET:
 		case TvmReturn::Type::IFNOTRET:
+		case TvmReturn::Type::IFRET:
+		case TvmReturn::Type::IFRETALT:
 			take = 1;
 			break;
 	}
@@ -277,6 +279,10 @@ bool StackOptimizer::visit(Contract &_node) {
 						f->accept(opt);
 					}
 				}
+				if (f->name() == "setUpdateT3WDetails_internal_macro") {
+					StackOptimizer opt;
+					f->accept(opt);
+				}
 				break;
 			}
 
@@ -370,7 +376,6 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 
 	if (!ok && cmd1IsPUSH) {
 		int Si = stack->i();
-		int startStackSize = Si + 2;
 
 		// try to delete values
 		if (Si <= scopeSize() && Si > 0) {
@@ -384,6 +389,7 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 		}
 
 		if (!ok) {
+			int startStackSize = Si + 2;
 			Simulator sim{instructions.begin() + index + 1, instructions.end(), startStackSize, 1};
 			if (sim.success()) {
 				ok = true;
@@ -466,7 +472,7 @@ int StackOptimizer::scopeSize() {
 	solAssert(!m_stackSize.empty(), "");
 	int n = m_stackSize.size();
 	int scopeSize = m_stackSize.at(n - 1) - (n == 1 ? 0 : m_stackSize.at(n - 2));
-	// Some times 'scopeSize' maybe negative but it's ok because we move some variables.
+	// Sometimes 'scopeSize' maybe negative, but it's ok because we move some variables.
 	// But after each code block we restore stack size.
 	return scopeSize;
 }

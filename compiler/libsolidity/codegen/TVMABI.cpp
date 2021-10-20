@@ -25,6 +25,9 @@
 #include "TVMConstants.hpp"
 
 using namespace solidity::frontend;
+using namespace std;
+using namespace solidity::util;
+using namespace solidity::langutil;
 
 void TVMABI::printFunctionIds(
 	ContractDefinition const& contract,
@@ -95,14 +98,14 @@ void TVMABI::generateABI(
 		case AbiVersion::V1:
 			root["ABI version"] = 1;
 			break;
-		case AbiVersion::V2_1:
+		case AbiVersion::V2_2:
 			root["ABI version"] = 2;
-			root["version"] = "2.1";
+			root["version"] = "2.2";
 			break;
 	}
 
 	// header
-	if (ctx.pragmaHelper().abiVersion() == AbiVersion::V2_1) {
+	if (ctx.pragmaHelper().abiVersion() == AbiVersion::V2_2) {
 		Json::Value header(Json::arrayValue);
 		for (const std::string h : {"pubkey", "time", "expire"}) {
 			if (std::get<0>(pdh.haveHeader(h)) || (h == "time" && ctx.hasTimeInAbiHeader())) {
@@ -178,7 +181,7 @@ void TVMABI::generateABI(
 	switch (ctx.pragmaHelper().abiVersion()) {
 		case AbiVersion::V1:
 			break;
-		case AbiVersion::V2_1: {
+		case AbiVersion::V2_2: {
 			Json::Value fields(Json::arrayValue);
 			std::vector<std::pair<std::string, std::string>> offset{{"_pubkey", "uint256"}};
 			if (ctx.storeTimestampInC4()) {
@@ -693,7 +696,7 @@ void ChainDataDecoder::decodePublicFunctionParameters(const std::vector<Type con
 		case AbiVersion::V1:
 			position = std::make_unique<DecodePositionAbiV1>();
 			break;
-		case AbiVersion::V2_1: {
+		case AbiVersion::V2_2: {
 			position = std::make_unique<DecodePositionAbiV2>(minBits(isResponsible), maxBits(isResponsible), types, false);
 			break;
 		}
@@ -1041,7 +1044,7 @@ uint32_t ChainDataEncoder::calculateFunctionID(
 		case AbiVersion::V1:
 			ss << "v1";
 			break;
-		case AbiVersion::V2_1:
+		case AbiVersion::V2_2:
 			ss << "v2";
 			break;
 	}

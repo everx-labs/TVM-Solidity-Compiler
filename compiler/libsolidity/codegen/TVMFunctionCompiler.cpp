@@ -27,18 +27,11 @@
 #include "TVMFunctionCompiler.hpp"
 #include "TVMConstants.hpp"
 
+using namespace std;
 using namespace solidity::frontend;
 namespace fs = boost::filesystem;
-
-
-ContInfo getInfo(const Statement &statement) {
-	LoopScanner scanner(statement);
-	ContInfo info = scanner.m_info;
-	info.alwaysReturns = doesAlways<Return>(&statement);
-	info.alwaysContinue = doesAlways<Continue>(&statement);
-	info.alwaysBreak = doesAlways<Break>(&statement);
-	return info;
-}
+using namespace solidity::util;
+using namespace solidity::langutil;
 
 TVMFunctionCompiler::TVMFunctionCompiler(StackPusher &pusher, ContractDefinition const *contract) :
 	m_pusher{pusher},
@@ -86,10 +79,43 @@ void TVMFunctionCompiler::endContinuation2(const bool doDrop) {
 	m_pusher.endContinuation();
 }
 
-bool TVMFunctionCompiler::allJmp() const {
-	return std::all_of(m_controlFlowInfo.begin(), m_controlFlowInfo.end(), [](const ControlFlowInfo& info){
-		return info.useJmp;
+bool TVMFunctionCompiler::hasLoop() const {
+	return std::any_of(m_controlFlowInfo.begin(), m_controlFlowInfo.end(), [](const ControlFlowInfo& info){
+		return info.isLoop;
 	});
+}
+
+std::optional<ControlFlowInfo> TVMFunctionCompiler::lastAnalyzeFlag() const {
+	int n = m_controlFlowInfo.size();
+	for (int i = n - 1; i >= 0; --i) {
+		if (m_controlFlowInfo.at(i).doAnalyzeFlag) {
+			return m_controlFlowInfo.at(i);
+		}
+	}
+	return std::nullopt;
+}
+
+std::optional<ControlFlowInfo> TVMFunctionCompiler::lastLoop() const {
+	int n = m_controlFlowInfo.size();
+	for (int i = n - 1; i >= 0; --i) {
+		if (m_controlFlowInfo.at(i).isLoop) {
+			return m_controlFlowInfo.at(i);
+		}
+	}
+	return std::nullopt;
+}
+
+bool TVMFunctionCompiler::lastAnalyzerBeforeLoop() const {
+	int n = m_controlFlowInfo.size();
+	for (int i = n - 1; i >= 0; --i) {
+		if (m_controlFlowInfo.at(i).isLoop) {
+			return false;
+		}
+		if (m_controlFlowInfo.at(i).doAnalyzeFlag) {
+			return true;
+		}
+	}
+	solUnimplemented("");
 }
 
 Pointer<Function>
@@ -819,21 +845,23 @@ bool TVMFunctionCompiler::visit(IfStatement const &_ifStatement) {
 	const int saveStackSize = m_pusher.stackSize();
 
 	// header
-	ContInfo ci = getInfo(_ifStatement);
+	CFAnalyzer ci(_ifStatement);
 	bool canUseJmp = _ifStatement.falseStatement() != nullptr ?
-					 getInfo(_ifStatement.trueStatement()).doThatAlways() &&
-					 getInfo(*_ifStatement.falseStatement()).doThatAlways() :
-					 getInfo(_ifStatement.trueStatement()).doThatAlways();
+					 CFAnalyzer(_ifStatement.trueStatement()).doThatAlways() &&
+					 CFAnalyzer(*_ifStatement.falseStatement()).doThatAlways() :
+					 CFAnalyzer(_ifStatement.trueStatement()).doThatAlways();
+	ControlFlowInfo info{};
+	info.isLoop = false;
 	if (canUseJmp) {
-		ControlFlowInfo info{};
-		info.stackSize = m_pusher.stackSize();
-		info.isLoop = false;
-		info.useJmp = true;
-		m_controlFlowInfo.push_back(info);
+		info.doAnalyzeFlag = false;
 	} else {
-		ControlFlowInfo info = pushControlFlowFlagAndReturnControlFlowInfo(ci, false);
-		m_controlFlowInfo.push_back(info);
+		if (ci.canContinue() || (!hasLoop() && ci.canReturn())) {
+			m_pusher.declRetFlag();
+			info.doAnalyzeFlag = true;
+		}
 	}
+	info.stackSize = m_pusher.stackSize();
+	m_controlFlowInfo.push_back(info);
 
 	// condition
 	acceptExpr(&_ifStatement.condition(), true);
@@ -866,56 +894,36 @@ bool TVMFunctionCompiler::visit(IfStatement const &_ifStatement) {
 
 	m_controlFlowInfo.pop_back();
 
-	if (!canUseJmp) {
-		// bottom
-		if (ci.canReturn || ci.canBreak || ci.canContinue) {
-			m_pusher.startOpaque();
-			if (ci.canReturn) {
-				if (allJmp()) { // no loops, only if-else
-					m_pusher.push(0, "EQINT " + toString(ContInfo::RETURN_FLAG));
-					m_pusher.ifret();
-				} else {
-					m_pusher.pushS(0);
-					m_pusher.ifret();
-					m_pusher.drop();
-				}
-			} else {
-				m_pusher.pushS(0);
-				m_pusher.ifret(); // if case 'break' or 'continue' flag before `if` is dropped
-				m_pusher.drop(); // drop flag before 'if'
-			}
-			m_pusher.endOpaque(1, 0);
+	// bottom
+	if (info.doAnalyzeFlag) {
+		std::optional<ControlFlowInfo> lastAnalyze = lastAnalyzeFlag();
+		m_pusher.startOpaque();
+		if (lastAnalyze.has_value()) {
+			m_pusher.pushS(0);
+			m_pusher.ifret();
+			m_pusher.drop();
+		} else {
+			m_pusher.ifret();
 		}
+		m_pusher.endOpaque(1, 0);
 	}
 	m_pusher.ensureSize(saveStackSize, "");
 
 	return false;
 }
 
-ControlFlowInfo
-TVMFunctionCompiler::pushControlFlowFlagAndReturnControlFlowInfo(ContInfo &ci, bool isLoop) {
-	ControlFlowInfo info {};
-	info.isLoop = isLoop;
-	info.stackSize = -1;
-	if (ci.canReturn || ci.canBreak || ci.canContinue) {
-		m_pusher.declRetFlag();
-	}
-	info.stackSize = m_pusher.stackSize();
-	return info;
-}
-
 void TVMFunctionCompiler::doWhile(WhileStatement const &_whileStatement) {
 	int saveStackSize = m_pusher.stackSize();
 
 	// header
-	ContInfo ci;
+	CFAnalyzer ci;
 	ControlFlowInfo info;
 	std::tie(ci, info) = pushControlFlowFlag(_whileStatement.body());
 
 	// body
 	m_pusher.startContinuation();
 	int ss = m_pusher.stackSize();
-	if (ci.canReturn || ci.canBreak || ci.canContinue) {
+	if (ci.canReturn() || ci.canBreak() || ci.canContinue()) {
 		m_pusher.startContinuation();
 		_whileStatement.body().accept(*this);
 		m_pusher.drop(m_pusher.stackSize() - ss);
@@ -925,10 +933,10 @@ void TVMFunctionCompiler::doWhile(WhileStatement const &_whileStatement) {
 		m_pusher.drop(m_pusher.stackSize() - ss);
 	}
 	// condition
-	if (ci.canBreak || ci.canReturn) {
+	if (ci.canBreak() || ci.canReturn()) {
 		m_pusher.pushS(0);
-		if (ci.canContinue) {
-			m_pusher.push(-1 + 1, "GTINT " + toString(ContInfo::CONTINUE_FLAG));
+		if (ci.canContinue()) {
+			m_pusher.push(-1 + 1, "GTINT " + toString(TvmConst::CONTINUE_FLAG));
 		}
 		m_pusher.pushS(0);
 		m_pusher.push(-2, ""); // fix stack
@@ -938,7 +946,7 @@ void TVMFunctionCompiler::doWhile(WhileStatement const &_whileStatement) {
 		m_pusher.drop();
 		acceptExpr(&_whileStatement.condition(), true);
 		m_pusher.push(0, "NOT");
-		m_pusher.endLogCircuit(!ci.canReturn, LogCircuit::Type::OR);
+		m_pusher.endLogCircuit(LogCircuit::Type::OR);
 	} else {
 		acceptExpr(&_whileStatement.condition(), true);
 		m_pusher.push(0, "NOT");
@@ -946,69 +954,50 @@ void TVMFunctionCompiler::doWhile(WhileStatement const &_whileStatement) {
 	m_pusher.push(-1, ""); // drop condition
 	m_pusher.endContinuation();
 
-	m_pusher.until();
+	m_pusher.until(ci.canBreak() || ci.canReturn());
 
 	m_controlFlowInfo.pop_back();
 
 	// bottom
-	afterLoopCheck(ci, 0);
+	afterLoopCheck(ci, 0, info.doAnalyzeFlag);
 
 	m_pusher.ensureSize(saveStackSize, "");
 }
 
 void
 TVMFunctionCompiler::visitForOrWhileCondition(
-	const ContInfo &ci,
-	const ControlFlowInfo &info,
     const std::function<void()>& pushCondition
 ) {
 	int stackSize = m_pusher.stackSize();
 	m_pusher.startContinuation();
-	if (ci.canBreak || ci.canReturn) {
-		m_pusher.pushS(m_pusher.stackSize() - info.stackSize);
-		m_pusher.push(0, "LESSINT 2");
+	if (pushCondition) {
+		pushCondition();
 		m_pusher.push(-1, ""); // fix stack
-
-		if (pushCondition) {
-			m_pusher.pushS(0);
-
-			m_pusher.startContinuation();
-			m_pusher.drop();
-			pushCondition();
-			m_pusher.endLogCircuit(!ci.canReturn, LogCircuit::Type::AND);
-
-			m_pusher.push(-1, ""); // fix stack
-		}
 	} else {
-		if (pushCondition) {
-			pushCondition();
-			m_pusher.push(-1, ""); // fix stack
-		} else {
-			m_pusher.push(+1, "TRUE");
-			m_pusher.push(-1, ""); // fix stack
-		}
+		m_pusher.push(+1, "TRUE");
+		m_pusher.push(-1, ""); // fix stack
 	}
 	m_pusher.endContinuation();
 	m_pusher.ensureSize(stackSize, "visitForOrWhileCondition");
 }
 
-void TVMFunctionCompiler::afterLoopCheck(const ContInfo& ci, const int& loopVarQty) {
-	if (ci.canReturn) {
+void TVMFunctionCompiler::afterLoopCheck(const CFAnalyzer& ci, const int& loopVarQty, bool _doAnalyzeFlag) {
+	std::optional<ControlFlowInfo> analyzeFlag = lastAnalyzeFlag();
+	std::optional<ControlFlowInfo> loopFlag = lastLoop();
+
+	if (_doAnalyzeFlag) {
 		m_pusher.startOpaque();
-		if (allJmp()) { // no loops, only if-else
-			m_pusher.push(0, "EQINT " + toString(ContInfo::RETURN_FLAG));
-			m_pusher.ifret();
-		} else {
+		if (analyzeFlag.has_value()) {
 			m_pusher.pushS(0);
-			if (ci.canBreak || ci.canContinue) {
-				m_pusher.push(0, "EQINT " + toString(ContInfo::RETURN_FLAG));
-			}
-			m_pusher.ifret();
+		}
+		if (ci.canBreak() || ci.canContinue()) {
+			m_pusher.push(0, "EQINT " + toString(TvmConst::RETURN_FLAG));
+		}
+		loopFlag.has_value() ? m_pusher.ifRetAlt() : m_pusher.ifret();
+		if (analyzeFlag.has_value()) {
 			m_pusher.drop();
 		}
 		m_pusher.endOpaque(1, 0);
-	} else if (ci.canBreak || ci.canContinue) {
-		m_pusher.drop();
 	}
 	m_pusher.drop(loopVarQty);
 }
@@ -1022,7 +1011,7 @@ bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
 	}
 
 	// header
-	ContInfo ci;
+	CFAnalyzer ci;
 	ControlFlowInfo info;
 	std::tie(ci, info) = pushControlFlowFlag(_whileStatement.body());
 
@@ -1039,7 +1028,7 @@ bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
 		std::function<void()> pushCondition = [&]() {
 			acceptExpr(&_whileStatement.condition(), true);
 		};
-		visitForOrWhileCondition(ci, info, pushCondition);
+		visitForOrWhileCondition(pushCondition);
 	}
 
 	m_pusher.ensureSize(saveStackSize, "while condition");
@@ -1053,12 +1042,12 @@ bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
 	if (_whileStatement.loopType() == WhileStatement::LoopType::REPEAT)
 		m_pusher.repeat();
 	else
-		m_pusher._while();
+		m_pusher._while(ci.canBreak() || ci.canReturn());
 
 	m_controlFlowInfo.pop_back();
 
 	// bottom
-	afterLoopCheck(ci, 0);
+	afterLoopCheck(ci, 0, info.doAnalyzeFlag);
 
 	m_pusher.ensureSize(saveStackSizeForWhile, "");
 
@@ -1076,7 +1065,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 	// dict
 	// index
 	// value
-	// [return flag] - optional. If have return/break/continue.
+	// [return flag] - optional. If we have return/break/continue.
 
 	// For mapping:
 	//
@@ -1137,7 +1126,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 	m_pusher.ensureSize(saveStackSize + loopVarQty, "for");
 
 	// header
-	ContInfo ci;
+	CFAnalyzer ci;
 	ControlFlowInfo info;
 	std::tie(ci, info) = pushControlFlowFlag(_forStatement.body());
 
@@ -1171,7 +1160,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 			solUnimplemented("");
 		}
 	};
-	visitForOrWhileCondition(ci, info, pushCondition);
+	visitForOrWhileCondition(pushCondition);
 
 
 	// body
@@ -1240,21 +1229,28 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 	visitBodyOfForLoop(ci, pushStartBody, _forStatement.body(), pushLoopExpression);
 
 	// bottom
-	afterLoopCheck(ci, loopVarQty);
+	afterLoopCheck(ci, loopVarQty, info.doAnalyzeFlag);
 	m_pusher.ensureSize(saveStackSize, "for");
 
 	return false;
 }
 
-std::pair<ContInfo, ControlFlowInfo> TVMFunctionCompiler::pushControlFlowFlag(Statement const& body) {
-	ContInfo ci = getInfo(body);
-	ControlFlowInfo info = pushControlFlowFlagAndReturnControlFlowInfo(ci, true);
+std::pair<CFAnalyzer, ControlFlowInfo> TVMFunctionCompiler::pushControlFlowFlag(Statement const& body) {
+	CFAnalyzer ci(body);
+	ControlFlowInfo info;
+	info.isLoop = true;
+	info.stackSize = -1;
+	if (ci.canReturn()) {
+		m_pusher.declRetFlag();
+		info.doAnalyzeFlag = true;
+	}
+	info.stackSize = m_pusher.stackSize();
 	m_controlFlowInfo.push_back(info);
 	return {ci, info};
 }
 
 void TVMFunctionCompiler::visitBodyOfForLoop(
-	const ContInfo& ci,
+	const CFAnalyzer& ci,
 	const std::function<void()>& pushStartBody,
 	Statement const& body,
 	const std::function<void()>& loopExpression
@@ -1264,33 +1260,26 @@ void TVMFunctionCompiler::visitBodyOfForLoop(
 	if (pushStartBody) {
 		pushStartBody();
 	}
-	if (ci.canReturn || ci.canBreak || ci.canContinue) { // TODO and have loopExpression
+
+	// take loop body
+	if (ci.canContinue()) { // TODO and have loopExpression
 		int ss = m_pusher.stackSize();
 		m_pusher.startContinuation();
 		body.accept(*this);
 		m_pusher.drop(m_pusher.stackSize() - ss);
 		m_pusher.callX(0, 0); // TODO check
-		if (ci.canReturn || ci.canBreak) {
-			solAssert(ContInfo::CONTINUE_FLAG == 1, "");
-			m_pusher.startOpaque();
-			m_pusher.pushS(0);
-			if (ci.canContinue) {
-				m_pusher.push(-1 + 1, "GTINT " + toString(ContInfo::CONTINUE_FLAG));
-			}
-			m_pusher.ifret();
-			m_pusher.endOpaque(1, 1);
-		}
 	} else {
 		int ss = m_pusher.stackSize();
 		body.accept(*this);
 		m_pusher.drop(m_pusher.stackSize() - ss);
 	}
+
 	if (loopExpression) {
 		// TODO optimization: don't pushcont if no loopExpression
 		loopExpression();
 	}
 	m_pusher.endContinuation();
-	m_pusher._while();
+	m_pusher._while(ci.canBreak() || ci.canReturn());
 	m_controlFlowInfo.pop_back();
 }
 
@@ -1333,7 +1322,7 @@ bool TVMFunctionCompiler::visit(ForStatement const &_forStatement) {
 	}
 
 	// header
-	ContInfo ci;
+	CFAnalyzer ci;
 	ControlFlowInfo info;
 	std::tie(ci, info) = pushControlFlowFlag(_forStatement.body());
 
@@ -1344,7 +1333,7 @@ bool TVMFunctionCompiler::visit(ForStatement const &_forStatement) {
 			acceptExpr(_forStatement.condition(), true);
 		};
 	}
-	visitForOrWhileCondition(ci, info, pushCondition);
+	visitForOrWhileCondition(pushCondition);
 
 	// body and loopExpression
 	std::function<void()> pushLoopExpression;
@@ -1356,7 +1345,7 @@ bool TVMFunctionCompiler::visit(ForStatement const &_forStatement) {
 	visitBodyOfForLoop(ci, {}, _forStatement.body(), pushLoopExpression);
 
 	// bottom
-	afterLoopCheck(ci, haveDeclLoopVar);
+	afterLoopCheck(ci, haveDeclLoopVar, info.doAnalyzeFlag);
 	m_pusher.ensureSize(saveStackSize, "for");
 
 	return false;
@@ -1399,48 +1388,63 @@ bool TVMFunctionCompiler::visit(Return const& _return) {
 	}
 	int revertDelta = trashSlots - retCount;
 	m_pusher.dropUnder(trashSlots - retCount, retCount);
-	if (!allJmp()) {
-		m_pusher.pushInt(ContInfo::RETURN_FLAG);
+	if (lastAnalyzeFlag().has_value()) {
+		m_pusher.pushInt(TvmConst::RETURN_FLAG);
 		++flag;
 		--revertDelta;
 		m_pusher.push(revertDelta, ""); // fix stack
 	} else { // all continuation are run by JMPX
 		m_pusher.push(revertDelta, ""); // fix stack
 	}
-	m_pusher.ret();
-	m_pusher.endRetOrBreakOrCont(retCount);
 
-	return false;
-}
 
-void TVMFunctionCompiler::breakOrContinue(int code) {
-	// TODO implement for repeat
-	solAssert(code == 1 || code == 2, "");
-
+	int i{};
 	ControlFlowInfo controlFlowInfo;
-	for (int i = static_cast<int>(m_controlFlowInfo.size()) - 1; ; --i) {
+	for (i = static_cast<int>(m_controlFlowInfo.size()) - 1; i >= 0; --i) {
 		if (m_controlFlowInfo.at(i).isLoop) {
 			controlFlowInfo = m_controlFlowInfo.at(i);
 			break;
 		}
 	}
+	if (i == -1) {
+		m_pusher.ret();
+	} else {
+		m_pusher.retAlt();
+	}
+	m_pusher.endRetOrBreakOrCont(retCount);
 
-	const int sizeDelta = m_pusher.stackSize() - controlFlowInfo.stackSize;
-	m_pusher.startContinuation();
-	m_pusher.drop(sizeDelta + 1);
-	m_pusher.pushInt(code);
-	m_pusher.ret();
-	m_pusher.push(sizeDelta, ""); // fix stack // TODO delete
-	m_pusher.endRetOrBreakOrCont(0);
+	return false;
 }
 
 bool TVMFunctionCompiler::visit(Break const&) {
-	breakOrContinue(ContInfo::BREAK_FLAG);
+	const int sizeDelta = m_pusher.stackSize() - lastLoop().value().stackSize;
+	m_pusher.startContinuation();
+
+	m_pusher.drop(sizeDelta);
+	m_pusher.retAlt();
+
+	m_pusher.push(sizeDelta, ""); // fix stack
+	m_pusher.endRetOrBreakOrCont(0);
+
 	return false;
 }
 
 bool TVMFunctionCompiler::visit(Continue const&) {
-	breakOrContinue(ContInfo::CONTINUE_FLAG);
+	bool hasAnalyzer = lastAnalyzerBeforeLoop();
+	const int sizeDelta = m_pusher.stackSize() - lastLoop().value().stackSize;
+	m_pusher.startContinuation();
+
+	if (hasAnalyzer) {
+		m_pusher.drop(sizeDelta + (lastLoop().value().doAnalyzeFlag ? 1 : 0));
+		m_pusher.pushInt(TvmConst::CONTINUE_FLAG);
+	} else {
+		m_pusher.drop(sizeDelta);
+	}
+
+	m_pusher.ret();
+
+	m_pusher.push(sizeDelta, ""); // fix stack
+	m_pusher.endRetOrBreakOrCont(0);
 	return false;
 }
 
@@ -1484,7 +1488,7 @@ Pointer<Function> TVMFunctionCompiler::generateMainExternal(StackPusher& pusher,
 		case AbiVersion::V1:
 			f = funCompiler.generateMainExternalForAbiV1();
 			break;
-		case AbiVersion::V2_1:
+		case AbiVersion::V2_2:
 			f = funCompiler.generateMainExternalForAbiV2();
 			break;
 		default:

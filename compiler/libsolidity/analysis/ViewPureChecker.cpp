@@ -56,6 +56,10 @@ bool ViewPureChecker::visit(FunctionDefinition const& _funDef)
 	solAssert(!m_currentFunction, "");
 	m_currentFunction = &_funDef;
 	m_bestMutabilityAndLocation = {StateMutability::Pure, _funDef.location()};
+	ContractDefinition const* contr = _funDef.annotation().contract;
+	if (contr->isLibrary() && _funDef.stateMutability() != StateMutability::NonPayable) {
+		m_errorReporter.warning(_funDef.location(), "Library functions must have default mutability. Delete keyword view or pure.");
+	}
 	return true;
 }
 
@@ -64,13 +68,11 @@ void ViewPureChecker::endVisit(FunctionDefinition const& _funDef)
 	solAssert(m_currentFunction == &_funDef, "");
 	if (
 		m_bestMutabilityAndLocation.mutability < _funDef.stateMutability() &&
-		//_funDef.stateMutability() != StateMutability::NonPayable &&
 		_funDef.isImplemented() &&
 		!_funDef.body().statements().empty() &&
 		!_funDef.isConstructor() &&
-		//!_funDef.isFallback() &&
-		//!_funDef.isReceive() &&
-		!_funDef.overrides()
+		!_funDef.overrides() &&
+		!_funDef.annotation().contract->isLibrary()
 	)
 		m_errorReporter.warning(
 			_funDef.location(),
@@ -195,9 +197,17 @@ void ViewPureChecker::endVisit(FunctionCall const& _functionCall) {
 			if (ma) {
 				if (auto libFunction = dynamic_cast<FunctionDefinition const *>(ma->annotation().referencedDeclaration)) {
 					DeclarationAnnotation const &da = libFunction->annotation();
-					if (da.contract->contractKind() == ContractKind::Library) {
+					if (da.contract->isLibrary()) {
 						isLibCall = true;
-						mutability = StateMutability::NonPayable; // TODO: check mutability more detail
+						auto t = ma->expression().annotation().type;
+						if (t->category() == Type::Category::TypeType) {
+							// uint z = MyLib.sum(a, b);
+							mutability = StateMutability::Pure;
+						} else {
+							// TODO: check mutability more detail
+							// a.sum(b) - we can not modify a in function a
+							mutability = isStateVariable(*ma) ? StateMutability::NonPayable : StateMutability::Pure;
+						}
 					}
 				}
 			}
@@ -306,6 +316,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::TVM, "buildExtMsg"},
 			{MagicType::Kind::TVM, "buildIntMsg"},
 			{MagicType::Kind::TVM, "buildStateInit"},
+			{MagicType::Kind::TVM, "buildDataInit"},
 			{MagicType::Kind::TVM, "checkSign"},
 			{MagicType::Kind::TVM, "code"},
 			{MagicType::Kind::TVM, "codeSalt"},

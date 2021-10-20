@@ -183,7 +183,7 @@ namespace solidity::frontend
 
 	class GenOpcode : public Gen {
 	public:
-		explicit GenOpcode(std::string opcode, int take, int ret, bool _isPure = false);
+		explicit GenOpcode(const std::string& opcode, int take, int ret, bool _isPure = false);
 		void accept(TvmAstVisitor& _visitor) override;
 		std::string fullOpcode() const;
 		std::string const &opcode() const { return m_opcode; }
@@ -203,6 +203,8 @@ namespace solidity::frontend
 	public:
 		enum class Type {
 			RET,
+			RETALT,
+			IFRETALT,
 			IFRET,
 			IFNOTRET
 		};
@@ -274,7 +276,7 @@ namespace solidity::frontend
 	class CodeBlock : public Inst {
 	public:
 		enum class Type {
-			None, // TODO split?
+			None,
 			PUSHCONT,
 			PUSHREFCONT,
 		};
@@ -321,7 +323,6 @@ namespace solidity::frontend
 	};
 
 	// e.g.: b || f ? a + b : c / d;
-	// TODO inher from Gen?
 	class TvmCondition : public Inst {
 	public:
 		TvmCondition(Pointer<CodeBlock> const &trueBody, Pointer<CodeBlock> const &falseBody, int ret) :
@@ -347,18 +348,15 @@ namespace solidity::frontend
 			AND,
 			OR
 		};
-		LogCircuit(bool _canExpand, Type type, Pointer<CodeBlock> const &body) :
-			m_canExpand{_canExpand},
+		LogCircuit(Type type, Pointer<CodeBlock> const &body) :
 			m_type{type},
 			m_body{body}
 		{
 		}
 		void accept(TvmAstVisitor& _visitor) override;
-		bool canExpand() const { return m_canExpand; }
 		Type type() const { return m_type; }
 		Pointer<CodeBlock> const &body() const { return m_body; }
 	private:
-		bool m_canExpand{};
 		Type m_type{};
 		Pointer<CodeBlock> m_body;
 	};
@@ -408,22 +406,34 @@ namespace solidity::frontend
 
 	class TvmUntil : public TvmAstNode {
 	public:
-		explicit TvmUntil(Pointer<CodeBlock> const &body) : m_body(body) { }
+		explicit TvmUntil(bool _withBreakOrReturn, Pointer<CodeBlock> const &body) :
+			m_withBreakOrReturn{_withBreakOrReturn},
+			m_body(body) { }
 		void accept(TvmAstVisitor& _visitor) override;
+		bool withBreakOrReturn() const { return m_withBreakOrReturn; }
 		Pointer<CodeBlock> const& body() const { return m_body; }
 	private:
+		bool m_withBreakOrReturn{};
 		Pointer<CodeBlock> m_body;
 	};
 
 	class While : public TvmAstNode {
 	public:
-		While(Pointer<CodeBlock> const &condition, Pointer<CodeBlock> const &body) :
+		While(bool _infinite, bool _withBreakOrReturn, Pointer<CodeBlock> const &condition,
+			  Pointer<CodeBlock> const &body
+	  	) :
+			m_infinite{_infinite},
+			m_withBreakOrReturn{_withBreakOrReturn},
 			m_condition{condition},
 			m_body(body) { }
 		void accept(TvmAstVisitor& _visitor) override;
 		Pointer<CodeBlock> const& condition() const { return m_condition; }
 		Pointer<CodeBlock> const& body() const { return m_body; }
+		bool isInfinite() const { return m_infinite; }
+		bool withBreakOrReturn() const { return m_withBreakOrReturn; }
 	private:
+		bool m_infinite{};
+		bool m_withBreakOrReturn{};
 		Pointer<CodeBlock> m_condition;
 		Pointer<CodeBlock> m_body;
 	};
@@ -488,6 +498,8 @@ namespace solidity::frontend
 	Pointer<Stack> makePUSH2(int i, int j);
 	Pointer<Stack> makePUSH3(int i, int j, int k);
 	Pointer<TvmReturn> makeRET();
+	Pointer<TvmReturn> makeRETALT();
+	Pointer<TvmReturn> makeIFRETALT();
 	Pointer<TvmReturn> makeIFRET();
 	Pointer<TvmReturn> makeIFNOTRET();
 	Pointer<TvmException> makeTHROW(const std::string& cmd);

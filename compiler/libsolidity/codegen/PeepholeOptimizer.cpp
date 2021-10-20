@@ -24,6 +24,9 @@
 #include "TVMPusher.hpp"
 #include "StackOpcodeSquasher.hpp"
 
+using namespace std;
+using namespace solidity::util;
+
 namespace solidity::frontend {
 
 struct Result {
@@ -58,14 +61,14 @@ public:
 	void insert(int idx, const Pointer<TvmAstNode>& node);
 	Result optimizeAt(int idx1) const;
 	Result optimizeAt1(int idx1) const;
-	Result optimizeAt2(Pointer<TvmAstNode> cmd1, Pointer<TvmAstNode> cmd2) const;
-	Result optimizeAt3(Pointer<TvmAstNode> cmd1, Pointer<TvmAstNode> cmd2, Pointer<TvmAstNode> cmd3) const;
-	Result optimizeAt4(Pointer<TvmAstNode> cmd1, Pointer<TvmAstNode> cmd2, Pointer<TvmAstNode> cmd3,
-					   Pointer<TvmAstNode> cmd4) const;
-	Result optimizeAt5(Pointer<TvmAstNode> cmd1, Pointer<TvmAstNode> cmd2, Pointer<TvmAstNode> cmd3,
-					   Pointer<TvmAstNode> cmd4, Pointer<TvmAstNode> cmd5) const;
-	Result optimizeAt6(Pointer<TvmAstNode> cmd1, Pointer<TvmAstNode> cmd2, Pointer<TvmAstNode> cmd3,
-					   Pointer<TvmAstNode> cmd4, Pointer<TvmAstNode> cmd5, Pointer<TvmAstNode> cmd6) const;
+	static Result optimizeAt2(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2) ;
+	static Result optimizeAt3(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, Pointer<TvmAstNode> const& cmd3) ;
+	static Result optimizeAt4(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, Pointer<TvmAstNode> const& cmd3,
+					   Pointer<TvmAstNode> const& cmd4) ;
+	static Result optimizeAt5(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, Pointer<TvmAstNode> const& cmd3,
+					   Pointer<TvmAstNode> const& cmd4, Pointer<TvmAstNode> const& cmd5) ;
+	static Result optimizeAt6(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, Pointer<TvmAstNode> const& cmd3,
+					   Pointer<TvmAstNode> const& cmd4, Pointer<TvmAstNode> const& cmd5, Pointer<TvmAstNode> const& cmd6);
 	Result optimizeAtInf(int idx1) const;
 
 	void updateLinesAndIndex(int idx1, const Result& res);
@@ -92,7 +95,6 @@ public:
 	static bool isExc(Pointer<TvmAstNode> const& node, Args&&... cmd);
 	static bool isRet(Pointer<TvmAstNode> const& node, TvmReturn::Type type);
 	static bool isRot(Pointer<TvmAstNode> const& node);
-	static bool isRotRev(Pointer<TvmAstNode> const& node);
 	static bool isConstAdd(Pointer<TvmAstNode> const& node);
 	static int getAddNum(Pointer<TvmAstNode> const& node);
 	static bool isStack(Pointer<TvmAstNode> const& node, Stack::Opcode op);
@@ -135,12 +137,12 @@ Result PrivatePeepholeOptimizer::optimizeAt(const int idx1) const {
 	int idx5 = nextCommandLine(idx4);
 	int idx6 = nextCommandLine(idx5);
 
-	Pointer<TvmAstNode> cmd1 = get(idx1);
-	Pointer<TvmAstNode> cmd2 = get(idx2);
-	Pointer<TvmAstNode> cmd3 = get(idx3);
-	Pointer<TvmAstNode> cmd4 = get(idx4);
-	Pointer<TvmAstNode> cmd5 = get(idx5);
-	Pointer<TvmAstNode> cmd6 = get(idx6);
+	Pointer<TvmAstNode> const& cmd1 = get(idx1);
+	Pointer<TvmAstNode> const& cmd2 = get(idx2);
+	Pointer<TvmAstNode> const& cmd3 = get(idx3);
+	Pointer<TvmAstNode> const& cmd4 = get(idx4);
+	Pointer<TvmAstNode> const& cmd5 = get(idx5);
+	Pointer<TvmAstNode> const& cmd6 = get(idx6);
 
 	Result res;
 
@@ -176,7 +178,7 @@ Result PrivatePeepholeOptimizer::optimizeAt(const int idx1) const {
 
 Result PrivatePeepholeOptimizer::optimizeAt1(int idx1) const {
 	int idx2 = nextCommandLine(idx1);
-	Pointer<TvmAstNode> cmd1 = get(idx1);
+	Pointer<TvmAstNode> const& cmd1 = get(idx1);
 	auto cmd1IfElse = to<TvmIfElse>(cmd1.get());
 	auto cmd1GenOpcode = to<GenOpcode>(cmd1.get());
 
@@ -226,10 +228,18 @@ Result PrivatePeepholeOptimizer::optimizeAt1(int idx1) const {
 			}
 		}
 	}
+
+	if (auto _while = to<While>(cmd1.get())) {
+		std::vector<Pointer<TvmAstNode>> const& instr = _while->condition()->instructions();
+		if (instr.size() == 1 && is(instr.at(0), "TRUE") && !_while->isInfinite()) {
+			return Result{1, createNode<While>(true, _while->withBreakOrReturn(), _while->condition(), _while->body())};
+		}
+	}
+
 	return Result{};
 }
 
-Result PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> cmd1, Pointer<TvmAstNode> cmd2) const {
+Result PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2) {
 	auto cmd1GenOp = to<GenOpcode>(cmd1.get());
 	auto cmd1Glob = to<Glob>(cmd1.get());
 	auto cmd1Stack = to<Stack>(cmd1.get());
@@ -523,11 +533,6 @@ Result PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> cmd1, Pointer<T
 	{
 		return Result{2};
 	}
-	if (is(cmd1, "PAIR") &&
-		is(cmd2, "UNPAIR"))
-	{
-		return Result{2};
-	}
 	if (cmd1Glob && cmd1Glob->opcode() == Glob::Opcode::SetOrSetVar &&
 		cmd2Glob && cmd2Glob->opcode() == Glob::Opcode::GetOrGetVar &&
 		cmd1Glob->index() == cmd2Glob->index()
@@ -778,8 +783,8 @@ Result PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> cmd1, Pointer<T
 	return Result{};
 }
 
-Result PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> cmd1, Pointer<TvmAstNode> cmd2,
-											 Pointer<TvmAstNode> cmd3) const {
+Result PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2,
+											 Pointer<TvmAstNode> const& cmd3) {
 	auto cmd3GenOpcode = to<GenOpcode>(cmd3.get());
 
 	if (isNIP(cmd2) && isNIP(cmd3)) {
@@ -799,7 +804,7 @@ Result PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> cmd1, Pointer<T
 	// PUSH Sx
 	// PUSH Sy
 	if (isSWAP(cmd3)) {
-		// use pure becouse we change order of commands
+		// use pure because we change order of commands
 		bool ok1 = isPUSH(cmd1) || isPureGen01OrGetGlob(*cmd1);
 		bool ok2 = isPUSH(cmd2) || isPureGen01OrGetGlob(*cmd2);
 		if (ok1 && ok2) {
@@ -988,11 +993,23 @@ Result PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> cmd1, Pointer<T
 		return Result{3, gen("NEWC"), gen("STZERO")};
 	}
 
+	if (
+		isBLKSWAP(cmd1) &&
+		isPureGen01OrGetGlob(*cmd2) &&
+		isBLKSWAP(cmd3)
+	) {
+		auto [bottom1, top1] = isBLKSWAP(cmd1).value();
+		auto [bottom3, top3] = isBLKSWAP(cmd3).value();
+		if (bottom1 == 1 && bottom3 == 1 && top3 == 1) {
+			return Result{3, cmd2, makeBLKSWAP(bottom1, top1 + 1)};
+		}
+	}
+
 	return Result{};
 }
 
-Result PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> cmd1, Pointer<TvmAstNode> cmd2,
-											 Pointer<TvmAstNode> cmd3, Pointer<TvmAstNode> cmd4) const {
+Result PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2,
+											 Pointer<TvmAstNode> const& cmd3, Pointer<TvmAstNode> const& cmd4) {
 	if (isPUSHINT(cmd1) && isPUSHINT(cmd3)) {
 		// TODO: consider INC/DEC as well
 		if (isAddOrSub(cmd2) && isAddOrSub(cmd4)) {
@@ -1137,9 +1154,9 @@ Result PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> cmd1, Pointer<T
 	return Result{};
 }
 
-Result PrivatePeepholeOptimizer::optimizeAt5(Pointer<TvmAstNode> cmd1, Pointer<TvmAstNode> cmd2,
-											 Pointer<TvmAstNode> cmd3, Pointer<TvmAstNode> cmd4,
-											 Pointer<TvmAstNode> cmd5) const {
+Result PrivatePeepholeOptimizer::optimizeAt5(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2,
+											 Pointer<TvmAstNode> const& cmd3, Pointer<TvmAstNode> const& cmd4,
+											 Pointer<TvmAstNode> const& cmd5) {
 	if (isPUSHINT(cmd1) &&
 		is(cmd2, "PUSHSLICE") &&
 		is(cmd3, "NEWC") &&
@@ -1172,9 +1189,9 @@ Result PrivatePeepholeOptimizer::optimizeAt5(Pointer<TvmAstNode> cmd1, Pointer<T
 	return Result{};
 }
 
-Result PrivatePeepholeOptimizer::optimizeAt6(Pointer<TvmAstNode> cmd1, Pointer<TvmAstNode> cmd2,
-											 Pointer<TvmAstNode> cmd3, Pointer<TvmAstNode> cmd4,
-											 Pointer<TvmAstNode> cmd5, Pointer<TvmAstNode> cmd6) const {
+Result PrivatePeepholeOptimizer::optimizeAt6(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2,
+											 Pointer<TvmAstNode> const& cmd3, Pointer<TvmAstNode> const& cmd4,
+											 Pointer<TvmAstNode> const& cmd5, Pointer<TvmAstNode> const& cmd6) {
 
 	if (
 		is(cmd1, "PUSHSLICE") &&
@@ -1199,7 +1216,7 @@ Result PrivatePeepholeOptimizer::optimizeAt6(Pointer<TvmAstNode> cmd1, Pointer<T
 }
 
 Result PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
-	Pointer<TvmAstNode> cmd1 = get(idx1);
+	Pointer<TvmAstNode> const& cmd1 = get(idx1);
 	int idx2 = nextCommandLine(idx1);
 
 	// squash DROPs
@@ -1355,6 +1372,7 @@ Result PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 		}
 	}
 
+	// squash stack opcodes
 	{
 		StackState bestState{};
 		int bestQty{};
@@ -1387,6 +1405,96 @@ Result PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 		}
 	}
 
+	// squash permutation of pure operations
+	{
+		// pure gen, get glob, push Si
+		// BLKSWAP, REVERSE, XCHG
+		std::deque<std::pair<Pointer<TvmAstNode>, int>> opcodes;
+		bool removed = false;
+		int cnt = 0;
+
+		for (int ii = idx1; ii != -1; ii = nextCommandLine(ii)) {
+			TvmAstNode const* op = get(ii).get();
+			auto stack = to<Stack>(op);
+			if (isPureGen01OrGetGlob(*op)) {
+				opcodes.emplace_front(get(ii), opcodes.size());
+				++cnt;
+			} else if (stack) {
+				int i = stack->i();
+				int j = stack->j();
+				int n = opcodes.size();
+				bool ok = true;
+				switch (stack->opcode()) {
+					case Stack::Opcode::BLKSWAP: {
+						if (i + j <= n) {
+							std::reverse(opcodes.begin() + j, opcodes.begin() + j + i);
+							std::reverse(opcodes.begin() , opcodes.begin() + j);
+							std::reverse(opcodes.begin(), opcodes.begin() + j + i);
+							removed = true;
+							++cnt;
+						} else {
+							ok = false;
+						}
+						break;
+					}
+					case Stack::Opcode::REVERSE: {
+						if (j < n && j + i <= n) {
+							std::reverse(opcodes.begin() + j, opcodes.begin() + j + i);
+							removed = true;
+							++cnt;
+						} else {
+							ok = false;
+						}
+						break;
+					}
+					case Stack::Opcode::XCHG: {
+						if (i < n && j < n) {
+							swap(opcodes[i], opcodes[j]);
+							removed = true;
+							++cnt;
+						} else {
+							ok = false;
+						}
+						break;
+					}
+					case Stack::Opcode::PUSH_S: {
+						if (i >= n) {
+							opcodes.emplace_front(get(ii), opcodes.size());
+							++cnt;
+						} else {
+							ok = false;
+						}
+						break;
+					}
+					default:
+						ok = false;
+						break;
+				}
+				if (!ok) {
+					break;
+				}
+			} else {
+				break;
+			}
+		}
+
+		if (removed) {
+			vector<Pointer<TvmAstNode>> res;
+			res.reserve(opcodes.size());
+			for (auto const& [opcode, stackSize]  : opcodes | boost::adaptors::reversed) {
+				if (isPUSH(opcode)) {
+					int index = getPushIndex(opcode);
+					int newStackSize = res.size();
+					int newIndex = index - stackSize + newStackSize;
+					res.emplace_back(makePUSH(newIndex));
+				} else {
+					res.emplace_back(opcode);
+				}
+			}
+			return Result{cnt, res};
+		}
+	}
+
 	return Result{};
 }
 
@@ -1412,9 +1520,9 @@ Result PrivatePeepholeOptimizer::unsquash(bool _withUnpackOpaque, const int idx1
 Result PrivatePeepholeOptimizer::squashPush(const int idx1) const {
 	int idx2 = nextCommandLine(idx1);
 	int idx3 = nextCommandLine(idx2);
-	Pointer<TvmAstNode> cmd1 = get(idx1);
-	Pointer<TvmAstNode> cmd2 = get(idx2);
-	Pointer<TvmAstNode> cmd3 = get(idx3);
+	Pointer<TvmAstNode> const& cmd1 = get(idx1);
+	Pointer<TvmAstNode> const& cmd2 = get(idx2);
+	Pointer<TvmAstNode> const& cmd3 = get(idx3);
 	auto cmd1GenOpcode = to<GenOpcode>(cmd1.get());
 	auto cmd1PushCellOrSlice = to<PushCellOrSlice>(cmd1.get());
 
@@ -1663,10 +1771,6 @@ bool PrivatePeepholeOptimizer::isRet(Pointer<TvmAstNode> const& node, TvmReturn:
 
 bool PrivatePeepholeOptimizer::isRot(Pointer<TvmAstNode> const& node) {
 	return isBLKSWAP(node) && std::make_pair(1, 2) == isBLKSWAP(node).value();
-}
-
-bool PrivatePeepholeOptimizer::isRotRev(Pointer<TvmAstNode> const& node) {
-	return isBLKSWAP(node) && std::make_pair(2, 1) == isBLKSWAP(node).value();
 }
 
 bool PrivatePeepholeOptimizer::isConstAdd(Pointer<TvmAstNode> const& node) {

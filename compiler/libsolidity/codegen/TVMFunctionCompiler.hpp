@@ -42,7 +42,7 @@ public:
 	static Pointer<Function> generateC4ToC7(StackPusher& pusher);
 	static Pointer<Function> generateC4ToC7WithInitMemory(StackPusher& pusher);
 	[[nodiscard]]
-	static Pointer<Function> generateMacro(StackPusher& pusher, FunctionDefinition const* function, const std::optional<std::string>& forceName = nullopt);
+	static Pointer<Function> generateMacro(StackPusher& pusher, FunctionDefinition const* function, const std::optional<std::string>& forceName = std::nullopt);
 	static Pointer<Function> generateMainExternal(StackPusher& pusher, ContractDefinition const *contract);
 	static Pointer<Function> generateMainInternal(StackPusher& pusher, ContractDefinition const *contract);
 	static Pointer<Function> generateCheckResume(StackPusher& pusher);
@@ -70,8 +70,10 @@ protected:
 	ast_vec<ModifierInvocation> functionModifiers();
 	void endContinuation2(bool doDrop);
 
-	[[nodiscard]]
-	bool allJmp() const;
+	bool hasLoop() const;
+	std::optional<ControlFlowInfo> lastAnalyzeFlag() const;
+	std::optional<ControlFlowInfo> lastLoop() const;
+	bool lastAnalyzerBeforeLoop() const;
 
 	void emitOnPublicFunctionReturn();
 	void pushDefaultParameters(const ast_vec<VariableDeclaration>& returnParameters);
@@ -82,8 +84,8 @@ protected:
 public:
 	void visitFunctionWithModifiers();
 private:
-	void visitForOrWhileCondition(const ContInfo& ci, const ControlFlowInfo& info, const std::function<void()>& pushCondition);
-	void afterLoopCheck(const ContInfo& ci, const int& loopVarQty);
+	void visitForOrWhileCondition(const std::function<void()>& pushCondition);
+	void afterLoopCheck(const CFAnalyzer& ci, const int& loopVarQty, bool _doAnalyzeFlag);
 	bool visitNode(ASTNode const&) override { solUnimplemented("Internal error: unreachable"); }
 
 	bool visit(VariableDeclarationStatement const& _variableDeclarationStatement) override;
@@ -93,9 +95,9 @@ private:
 	bool visit(IfStatement const& _ifStatement) override;
 	bool visit(WhileStatement const& _whileStatement) override;
 	bool visit(ForEachStatement const& _forStatement) override;
-	std::pair<ContInfo, ControlFlowInfo> pushControlFlowFlag(Statement const& body);
+	std::pair<CFAnalyzer, ControlFlowInfo> pushControlFlowFlag(Statement const& body);
 	void visitBodyOfForLoop(
-		const ContInfo& ci,
+		const CFAnalyzer& ci,
 		const std::function<void()>& pushStartBody,
 		Statement const& body,
 		const std::function<void()>& loopExpression
@@ -107,9 +109,7 @@ private:
 	bool visit(EmitStatement const& _emit) override;
 	bool visit(PlaceholderStatement const& /*_node*/) override;
 
-	ControlFlowInfo pushControlFlowFlagAndReturnControlFlowInfo(ContInfo &ci, bool isLoop);
 	void doWhile(WhileStatement const& _whileStatement);
-	void breakOrContinue(int code);
 
 	void setGlobSenderAddressIfNeed();
 	void setCtorFlag();
@@ -140,4 +140,4 @@ private:
 	const bool m_pushArgs{};
 };
 
-}	// end solidity::frontend
+} // end solidity::frontend

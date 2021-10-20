@@ -33,7 +33,7 @@ public:
 		PragmaDirectiveHelper const& pragmaHelper
 	 );
 	static void generateABI(ContractDefinition const* contract,
-							std::vector<PragmaDirective const *> const& pragmaDirectives, std::ostream* out = &cout);
+							std::vector<PragmaDirective const *> const& pragmaDirectives, std::ostream* out = &std::cout);
 private:
 	static std::vector<const FunctionDefinition *> publicFunctions(ContractDefinition const& contract);
 	static void printData(const Json::Value& json, std::ostream* out);
@@ -87,7 +87,7 @@ private:
 
 class DecodePositionAbiV2 : public DecodePosition {
 public:
-	DecodePositionAbiV2(int minBits, int maxBits, const vector<Type const *>& types, bool fastDecode, int usedRefs = 0);
+	DecodePositionAbiV2(int minBits, int maxBits, const std::vector<Type const *>& types, bool fastDecode, int usedRefs = 0);
 	Algo updateStateAndGetLoadAlgo(Type const* type) override;
 
 private:

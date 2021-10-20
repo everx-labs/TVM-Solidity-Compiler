@@ -32,6 +32,7 @@
 namespace solidity::langutil
 {
 class ErrorReporter;
+struct SourceLocation;
 }
 
 namespace solidity::frontend
@@ -90,6 +91,11 @@ private:
 		const std::function<bool(const std::string&)>& hasName,
 		const std::function<int(const std::string&)>& findName
 	);
+	void typeCheckTVMBuildDataInit(
+		FunctionCall const& _functionCall,
+		const std::function<bool(const std::string&)>& hasName,
+		const std::function<int(const std::string&)>& findName
+	);
 
 	void typeCheckCallBack(FunctionType const* remoteFunction, Expression const& option);
 	TypePointers checkSliceDecode(FunctionCall const& _functionCall);
@@ -104,7 +110,8 @@ private:
 	/// Performs type checks on function call and struct ctor FunctionCall nodes (except for kind ABIDecode).
 	void typeCheckFunctionCall(
 		FunctionCall const& _functionCall,
-		FunctionTypePointer _functionType
+		FunctionTypePointer _functionType,
+		std::set<std::string> _ignoreOptions = {}
 	);
 
 	void typeCheckFallbackFunction(FunctionDefinition const& _function);
@@ -117,7 +124,8 @@ private:
 	/// Performs general number and type checks of arguments against function call and struct ctor FunctionCall node parameters.
 	void typeCheckFunctionGeneralChecks(
 		FunctionCall const& _functionCall,
-		FunctionTypePointer _functionType
+		FunctionTypePointer _functionType,
+		std::set<std::string> _ignoreOptions = {}
 	);
 
 	/// Performs general checks and checks specific to ABI encode functions
@@ -138,6 +146,13 @@ private:
 		FunctionCall const& _functionCall,
 		bool ignoreCallBack
 	);
+	void checkBuildExtMsg(FunctionCall const& _functionCall);
+	void checkRemoteAndCallBackFunctions(
+		FunctionDefinition const* calleeDefinition,
+		FunctionDefinition const* callbackFunc,
+		langutil::SourceLocation const& _location
+	);
+	void checkOnErrorId(FunctionDefinition const* errorFunction, langutil::SourceLocation const& _location);
 
 
 	void endVisit(InheritanceSpecifier const& _inheritance) override;
@@ -145,9 +160,9 @@ private:
 	bool visit(StructDefinition const& _struct) override;
 public:
 	bool isBadAbiType(
-		solidity::langutil::SourceLocation const& origVarLoc,
+		langutil::SourceLocation const& origVarLoc,
 		Type const* curType,
-		solidity::langutil::SourceLocation const& curVarLoc,
+		langutil::SourceLocation const& curVarLoc,
 		std::set<StructDefinition const*>& usedStructs,
 		bool doPrintErr
 	);

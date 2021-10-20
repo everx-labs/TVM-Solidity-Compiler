@@ -543,12 +543,7 @@ public:
 	Category category() const override { return Category::StringLiteral; }
 
 	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
-	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override
-	{
-		if (_operator == Token::Add || TokenTraits::isCompareOp(_operator))
-			return Type::commonType(this, _other);
-		return nullptr;
-	}
+	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
 
 	std::string richIdentifier() const override;
 	bool operator==(Type const& _other) const override;
@@ -1239,6 +1234,7 @@ public:
 		MathSign, ///< math.sign()
 
 		TVMAccept, ///< tvm.accept()
+		TVMBuildDataInit, ///< tvm.buildDataInit()
 		TVMBuildExtMsg, ///< tvm.buildExtMsg()
 		TVMBuildIntMsg, ///< tvm.buildIntMsg()
 		TVMBuildStateInit, ///< tvm.buildStateInit()

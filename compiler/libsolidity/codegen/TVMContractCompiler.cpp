@@ -33,6 +33,8 @@
 #include "PeepholeOptimizer.hpp"
 
 using namespace solidity::frontend;
+using namespace std;
+using namespace solidity::util;
 
 TVMConstructorCompiler::TVMConstructorCompiler(StackPusher &pusher) : m_pusher{pusher} {
 
@@ -319,13 +321,13 @@ TVMContractCompiler::generateContractCode(
 		{
 			{
 				StackPusher pusher{&ctx};
-				Pointer<Function> f = pusher.generateC7ToT4Macro();
+				Pointer<Function> f = pusher.generateC7ToT4Macro(false);
 				functions.emplace_back(f);
 			}
 			{
 				StackPusher pusher{&ctx};
 				if (ctx.usage().hasAwaitCall()) {
-					Pointer<Function> f = pusher.generateC7ToT4MacroForAwait();
+					Pointer<Function> f = pusher.generateC7ToT4Macro(true);
 					functions.emplace_back(f);
 				}
 			}
@@ -483,7 +485,7 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 		TVMFunctionCompiler::generateFunctionWithModifiers(pusher, function, true);
 		const std::string name = functionName(function);
 
-		Pointer<CodeBlock> body = pusher.getBlock(); // // TODO opt here?
+		Pointer<CodeBlock> body = pusher.getBlock(); // TODO opt here?
 		ctx.addInlineFunction(name, body);
 	}
 }

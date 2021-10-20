@@ -20,6 +20,9 @@
 #include "TVMExpressionCompiler.hpp"
 #include "TVMConstants.hpp"
 
+using namespace solidity;
+using namespace solidity::frontend;
+using namespace solidity::util;
 
 DictOperation::DictOperation(StackPusher& pusher, Type const& keyType, Type const& valueType) :
 		pusher{pusher},

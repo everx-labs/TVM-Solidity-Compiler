@@ -26,7 +26,9 @@
 #include <boost/algorithm/string.hpp>
 #include <libsolidity/ast/TypeProvider.h>
 
+using namespace std;
 using namespace solidity::frontend;
+using namespace solidity::util;
 
 FunctionCallCompiler::FunctionCallCompiler(StackPusher &m_pusher, TVMExpressionCompiler *exprCompiler,
 											FunctionCall const& _functionCall, bool isCurrentResultNeeded) :
@@ -36,7 +38,8 @@ FunctionCallCompiler::FunctionCallCompiler(StackPusher &m_pusher, TVMExpressionC
 		m_arguments{_functionCall.arguments()},
 		m_funcType{to<FunctionType>(m_functionCall.expression().annotation().type)},
 		m_retType{m_functionCall.annotation().type},
-		m_isCurrentResultNeeded{isCurrentResultNeeded}
+		m_isCurrentResultNeeded{isCurrentResultNeeded},
+		m_names{m_functionCall.names()}
 {
 }
 
@@ -47,7 +50,7 @@ void FunctionCallCompiler::structConstructorCall() {
 		pushExprAndConvert(m_arguments.at(index).get(), targetType);
 	};
 	StructCompiler structCompiler{&m_pusher, &structType};
-	structCompiler.structConstructor(m_functionCall.names(), pushParam);
+	structCompiler.structConstructor(m_names, pushParam);
 }
 
 void FunctionCallCompiler::compile() {
@@ -89,6 +92,8 @@ void FunctionCallCompiler::compile() {
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "tvm") {
 				if (m_funcType->kind() == FunctionType::Kind::TVMBuildIntMsg) {
 					tvmBuildIntMsg();
+				} else if (m_funcType->kind() == FunctionType::Kind::TVMBuildDataInit) {
+					tvmBuildDataInit();
 				} else if (m_funcType->kind() == FunctionType::Kind::TVMBuildExtMsg) {
 					tvmBuildMsgMethod();
 				} else if (
@@ -365,12 +370,10 @@ bool FunctionCallCompiler::libraryCall(MemberAccess const& ma) {
 
 std::function<void()> FunctionCallCompiler::generateDataSection(
 	const std::function<void()>& pushKey,
-	bool & hasVars,
 	Expression const* vars,
-	bool & isNew,
-	const ASTPointer<Expression const>& contr
+	ContractType const* ct
 ) {
-	return [pushKey, this, hasVars, vars, isNew, contr]() {
+	return [pushKey, this, vars, ct]() {
 		// creat dict with variable values
 		m_pusher.push(+1, "NEWDICT");
 		// stake: builder dict
@@ -386,18 +389,7 @@ std::function<void()> FunctionCallCompiler::generateDataSection(
 		// stack: value key dict
 		m_pusher.setDict(getKeyTypeOfC4(), *valueType, dataType);
 		// stack: dict'
-		if (hasVars) {
-			const Type * type;
-			if (!isNew) {
-				type = contr->annotation().type;
-				auto tt = dynamic_cast<const TypeType*>(type);
-				type = tt->actualType();
-			} else {
-				auto functionOptions = to<FunctionCallOptions>(&m_functionCall.expression());
-				auto newExpr = to<NewExpression>(&functionOptions->expression());
-				type = newExpr->typeName().annotation().type;
-			}
-			auto ct = dynamic_cast<const ContractType*>(type);
+		if (vars) {
 			std::vector<PragmaDirective const *> _pragmaDirectives;
 			PragmaDirectiveHelper pragmaHelper{_pragmaDirectives};
 			TVMCompilerContext cc{&ct->contractDefinition(), pragmaHelper};
@@ -530,7 +522,7 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 			false // Function isn't responsible. It's answer of responsible function
 		);
 		m_pusher.pushInt(callbackFunctionId.value());
-		m_pusher.setGlob(8); // TODO
+		m_pusher.setGlob(TvmConst::C7::AwaitAnswerId);
 	}
 
 	pushArgs(true);
@@ -638,6 +630,21 @@ const FunctionDefinition* FunctionCallCompiler::getRemoteFunctionDefinition(cons
 		cast_error(*memberAccess, "Unsupported remote function call.");
 	}
 	return f;
+}
+
+void FunctionCallCompiler::acceptExprOrPushFunctionId(Expression const* onerrorid) {
+	if (CallableDeclaration const* cd = getFunctionDeclarationOrConstructor(onerrorid, true)) {
+		auto fd = to<FunctionDefinition>(cd);
+		int funId = ChainDataEncoder{&m_pusher}.
+					calculateFunctionIDWithReason(fd, ReasonOfOutboundMessage::RemoteCallInternal);
+		m_pusher.pushInt(funId);
+		return ;
+	}
+
+	auto t = to<IntegerType>(onerrorid->annotation().type->mobileType());
+	solAssert(t && !t->isSigned() && t->numBits() <= 32, "");
+
+	acceptExpr(onerrorid);
 }
 
 void FunctionCallCompiler::generateExtInboundMsg(
@@ -776,8 +783,8 @@ void FunctionCallCompiler::generateExtInboundMsg(
 	if (signBoxHandle != nullptr)
 		acceptExpr(signBoxHandle);
 	acceptExpr(abiVer);
-	acceptExpr(onerrorid);
-	acceptExpr(callbackid);
+	acceptExprOrPushFunctionId(onerrorid);
+	acceptExprOrPushFunctionId(callbackid);
 	m_pusher.push(+1, "NEWC");
 	// stack: [signBoxHandle] abiVer onerrorid callbackid builder
 	m_pusher.push(0, "STSLICECONST x6_"); // header 01
@@ -840,6 +847,8 @@ void FunctionCallCompiler::generateExtInboundMsg(
 		appendStateInit = [&]() {
 			m_pusher.stones(1);
 			acceptExpr(stateInit);
+			m_pusher.pushS(0);
+			checkStateInit();
 			m_pusher.push(-1, "STREFR");
 		};
 
@@ -857,9 +866,8 @@ void FunctionCallCompiler::tvmBuildIntMsg() {
 	int bounceArg = -1;
 	int callArg = -1;
 	int stateInit = -1;
-	const std::vector<ASTPointer<ASTString>>& names = m_functionCall.names();
 	for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
-		switch (str2int(names[arg]->c_str())) {
+		switch (str2int(m_names[arg]->c_str())) {
 			case str2int("dest"):
 				destArg = arg;
 				break;
@@ -940,6 +948,8 @@ void FunctionCallCompiler::tvmBuildIntMsg() {
 			// Either StateInit ^StateInit
 			m_pusher.push(-1 + 1, "STONE"); // ^StateInit
 			pushArgAndConvert(stateInit, "stateInit");
+			m_pusher.pushS(0);
+			checkStateInit();
 			m_pusher.push(-2 + 1, "STREFR");
 		};
 	}
@@ -951,6 +961,55 @@ void FunctionCallCompiler::tvmBuildIntMsg() {
 		appendStateInit,
 		StackPusher::MsgType::Internal
 	);
+
+	solAssert(m_pusher.stackSize() == stackSize + 1, "");
+}
+
+void FunctionCallCompiler::tvmBuildDataInit() {
+	const int stackSize = m_pusher.stackSize();
+	int keyArg = -1;
+	int varArg = -1;
+	int contrArg = -1;
+	if (m_names.empty()) {
+		if (m_arguments.size() >= 1) {
+			keyArg = 0;
+		}
+	} else {
+		for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
+			switch (str2int(m_names[arg]->c_str())) {
+				case str2int("varInit"):
+					varArg = arg;
+					break;
+				case str2int("pubkey"):
+					keyArg = arg;
+					break;
+				case str2int("contr"):
+					contrArg = arg;
+					break;
+				default:
+					solUnimplemented("");
+			}
+		}
+	}
+	auto pushKey = [this, keyArg]() {
+		if (keyArg == -1) {
+			m_pusher.pushInt(0);
+		} else {
+			pushArgAndConvert(keyArg, "pubkey");
+		}
+	};
+	ContractType const* ct{};
+	if (varArg != -1) {
+		Type const* type = m_arguments[contrArg]->annotation().type;
+		auto tt = dynamic_cast<const TypeType*>(type);
+		type = tt->actualType();
+		ct = to<ContractType>(type);
+	}
+	generateDataSection(
+		pushKey,
+		varArg != -1 ? m_arguments[varArg].get() : nullptr,
+		ct
+	)();
 
 	solAssert(m_pusher.stackSize() == stackSize + 1, "");
 }
@@ -967,10 +1026,9 @@ void FunctionCallCompiler::tvmBuildMsgMethod() {
 	int onerrorArg = -1;
 	int stateArg = -1;
 	int signHandlerArg = -1;
-	if (!m_functionCall.names().empty()) {
-		const std::vector<ASTPointer<ASTString>>& names = m_functionCall.names();
+	if (!m_names.empty()) {
 		for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
-			switch (str2int(names[arg]->c_str())) {
+			switch (str2int(m_names[arg]->c_str())) {
 				case str2int("dest"):
 					destArg = arg;
 					break;
@@ -1044,11 +1102,9 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 		int codeArg = -1;
 		int dataArg = -1;
 		int depthArg = -1;
-		bool hasVars;
-		bool isNew = false;
+		bool hasVars{};
 		std::map<StateInitMembers, std::function<void()>> exprs;
-		const std::vector<ASTPointer<ASTString>>& names = m_functionCall.names();
-		if (names.empty()) {
+		if (m_names.empty()) {
 			solAssert(m_arguments.size() == 2 || m_arguments.size() == 3, "");
 			exprs[StateInitMembers::Code] = [&](){
 				pushArgAndConvert(0);
@@ -1062,28 +1118,26 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 				};
 			}
 		} else {
-
-
 			bool dataIsSet = false;
 			// string("code"), string("data"), string("splitDepth"), string("varInit"), string("pubkey")
 			for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
-				switch (str2int(names[arg]->c_str())) {
+				switch (str2int(m_names[arg]->c_str())) {
 					case str2int("code"):
 						codeArg = arg;
-						exprs[StateInitMembers::Code] = [this, codeArg, name = *names.at(arg)](){
+						exprs[StateInitMembers::Code] = [this, codeArg, name = *m_names.at(arg)](){
 							pushArgAndConvert(codeArg, name);
 						};
 						break;
 					case str2int("data"):
 						dataArg = arg;
-						exprs[StateInitMembers::Data] = [this, dataArg, name = *names.at(arg)](){
+						exprs[StateInitMembers::Data] = [this, dataArg, name = *m_names.at(arg)](){
 							pushArgAndConvert(dataArg, name);
 						};
 						dataIsSet = true;
 						break;
 					case str2int("splitDepth"):
 						depthArg = arg;
-						exprs[StateInitMembers::SplitDepth] = [this, depthArg, name = *names.at(arg)](){
+						exprs[StateInitMembers::SplitDepth] = [this, depthArg, name = *m_names.at(arg)](){
 							pushArgAndConvert(depthArg, name);
 						};
 						break;
@@ -1107,28 +1161,21 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 					}
 				};
 				hasVars = (varArg != -1);
-				exprs[StateInitMembers::Data] = generateDataSection(pushKey, hasVars,
+				ContractType const* ct{};
+				if (hasVars) {
+					Type const* type{};
+					type = m_arguments[contrArg]->annotation().type;
+					auto tt = dynamic_cast<const TypeType *>(type);
+					type = tt->actualType();
+					ct = to<ContractType>(type);
+				}
+				exprs[StateInitMembers::Data] = generateDataSection(pushKey,
 																	hasVars ? m_arguments[varArg].get() : nullptr,
-																	isNew,
-																	hasVars ? m_arguments[contrArg] : nullptr);
+																	ct);
 			}
 		}
 
 		buildStateInit(exprs);
-		return true;
-	}
-
-	if (_node.memberName() == "buildEmptyData") {
-		pushArgs(); // push public key
-		m_pusher.push(+1, "NEWC");
-		m_pusher.push(-1, "STU 256");
-		m_pusher.pushInt(0);
-		m_pusher.push(+1, "NEWDICT");
-		m_pusher.pushInt(64);
-		m_pusher.push(-3, "DICTUSETB");
-		m_pusher.push(+1, "NEWC");
-		m_pusher.push(-2 + 1, "STDICT");
-		m_pusher.push(0, "ENDC");
 		return true;
 	}
 
@@ -1649,17 +1696,17 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 		// stack: arr value
 		const DataType& dataType = m_pusher.prepareValueForDictOperations(&key, arrayBaseType, isValueBuilder); // arr value'
 		m_pusher.exchange(1); // value' arr
-		m_pusher.push(-1 + 2, "UNPAIR");  // value' size dict
+		m_pusher.push(-1 + 2, "UNTUPLE 2");  // value' size dict
 		m_pusher.pushS(1); // value' size dict size
 		m_pusher.push(0, "INC"); // value' size dict newSize
 		m_pusher.blockSwap(3, 1); // newSize value' size dict
 		m_pusher.setDict(key, *arrayBaseType, dataType); // newSize dict'
-		m_pusher.push(-2 + 1, "PAIR");  // arr
+		m_pusher.push(-2 + 1, "TUPLE 2");  // arr
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
 	} else if (_node.memberName() == "pop") {
 		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, true, nullptr);
 		// arr
-		m_pusher.push(-1 + 2, "UNPAIR"); // size dict
+		m_pusher.push(-1 + 2, "UNTUPLE 2"); // size dict
 		m_pusher.pushS(1); // size dict size
 		m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::PopFromEmptyArray)); // size dict
 		m_pusher.exchange(1); // dict size
@@ -1669,7 +1716,7 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 		m_pusher.pushInt(TvmConst::ArrayKeyLength); // newSize newSize dict 32
 		m_pusher.push(-3 + 2, "DICTUDEL"); // newSize dict ?
 		m_pusher.drop(1);  // newSize dict
-		m_pusher.push(-2 + 1, "PAIR");  // arr
+		m_pusher.push(-2 + 1, "TUPLE 2");  // arr
 		m_exprCompiler->collectLValue(lValueInfo, true, false);
 	} else if (_node.memberName() == "append") {
 		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, true, nullptr);
@@ -1749,7 +1796,6 @@ void FunctionCallCompiler::cellMethods(MemberAccess const &_node) {
 
 void FunctionCallCompiler::addressMethod() {
 	auto _node = to<MemberAccess>(&m_functionCall.expression());
-	const std::vector<ASTPointer<ASTString>>& names = m_functionCall.names();
 	if (_node->memberName() == "transfer") { // addr.transfer(...)
 		std::map<int, Expression const *> exprs;
 		std::map<int, std::string> constParams{{TvmConst::int_msg_info::ihr_disabled, "1"}, {TvmConst::int_msg_info::bounce, "1"}};
@@ -1781,6 +1827,8 @@ void FunctionCallCompiler::addressMethod() {
 				// Either StateInit ^StateInit
 				m_pusher.push(-1 + 1, "STONE"); // ^StateInit
 				acceptExpr(expr);
+				m_pusher.pushS(0);
+				checkStateInit();
 				m_pusher.push(-2 + 1, "STREFR");
 			};
 		};
@@ -1788,10 +1836,10 @@ void FunctionCallCompiler::addressMethod() {
 		exprs[TvmConst::int_msg_info::dest] = &_node->expression();
 
 		int argumentQty = static_cast<int>(m_arguments.size());
-		if (!m_functionCall.names().empty() || argumentQty == 0) {
+		if (!m_names.empty() || argumentQty == 0) {
 			// string("value"), string("bounce"), string("flag"), string("body"), string("currencies")
 			for (int arg = 0; arg < argumentQty; ++arg) {
-				switch (str2int(names[arg]->c_str())) {
+				switch (str2int(m_names[arg]->c_str())) {
 					case str2int("value"):
 						setValue(m_arguments[arg].get());
 						break;
@@ -1871,7 +1919,7 @@ void FunctionCallCompiler::addressMethod() {
 		// t = (2, u, x, s); check t[0] == 2 and t[1] is null
 		m_pusher.push(-1 + 1, "PARSEMSGADDR");
 		m_pusher.pushS(0);
-		m_pusher.push(-1 + 1, "FIRST");
+		m_pusher.push(-1 + 1, "INDEX_NOEXCEP 0");
 		m_pusher.push(-1 + 1, "EQINT 2"); // t tag==2
 
 		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
@@ -2975,12 +3023,11 @@ bool FunctionCallCompiler::createNewContract() {
 
 		Expression const* varInit = findOption("varInit");
 		bool hasVars = varInit != nullptr;
-		bool isNew = true;
+		ContractType const* ct = to<ContractType>(newExpr->typeName().annotation().type);
 		stateInitExprs[StateInitMembers::Data] = generateDataSection(
-			pushKey, hasVars,
+			pushKey,
 			hasVars ? varInit : nullptr,
-			isNew,
-			nullptr
+			ct
 		);
 
 		stateInitExprs[StateInitMembers::Code] = [&]() {
@@ -3135,7 +3182,9 @@ void FunctionCallCompiler::deployNewContract(
 
 
 	std::function<void()> appendStateInit = [&]() {
-		m_pusher.stones(1);
+		m_pusher.stones(1); // stateInit builder
+		m_pusher.pushS(1);
+		checkStateInit();
 		m_pusher.push(-1, "STREF");
 	};
 
@@ -3155,6 +3204,46 @@ void FunctionCallCompiler::deployNewContract(
 		isDestBuilder
 	);
 	// stack: destAddress
+}
+
+void FunctionCallCompiler::checkStateInit() {
+	// _ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
+	//  code:(Maybe ^Cell) data:(Maybe ^Cell)
+	//  library:(HashmapE 256 SimpleLib) = StateInit;
+
+	m_pusher.startContinuation();
+	m_pusher.push(0, "CTOS");
+
+	// split_depth:(Maybe (## 5))
+	m_pusher.push(+1, "LDI 1");
+	m_pusher.exchange(1);
+	m_pusher.push(-1, ""); // fix stack: drop condition
+	m_pusher.startContinuation();
+	m_pusher.push(+1, "LDI 5");
+	m_pusher.dropUnder(1, 1);
+	m_pusher.endContinuation();
+	m_pusher._if();
+
+	// special:(Maybe TickTock)
+	m_pusher.push(+1, "LDI 1");
+	m_pusher.exchange(1);
+	m_pusher.push(-1, ""); // fix stack: drop condition
+	m_pusher.startContinuation();
+	// tick_tock$_ tick:Bool tock:Bool = TickTock;
+	m_pusher.push(+1, "LDI 2");
+	m_pusher.dropUnder(1, 1);
+	m_pusher.endContinuation();
+	m_pusher._if();
+
+	// code:(Maybe ^Cell) data:(Maybe ^Cell)
+	// library:(HashmapE 256 SimpleLib)
+	m_pusher.push(+1, "LDOPTREF");
+	m_pusher.push(+1, "LDOPTREF");
+	m_pusher.push(+1, "LDDICT");
+	m_pusher.push(-1, "ENDS");
+	m_pusher.drop(3);
+
+	m_pusher.callRef(1, 0);
 }
 
 bool FunctionCallCompiler::checkNewExpression() {
@@ -3207,7 +3296,7 @@ bool FunctionCallCompiler::checkNewExpression() {
 	m_pusher.drop();  // dict size
 
 	m_pusher.exchange(1);
-	m_pusher.push(-2 + 1, "PAIR");
+	m_pusher.push(-2 + 1, "TUPLE 2");
 
 	solAssert(size + 1 == m_pusher.stackSize(), "");
 	return true;
@@ -3359,7 +3448,7 @@ void FunctionCallCompiler::cellBitRefQty(bool forCell) {
 		m_pusher.pushAsym("SDATASIZEQ");
 
 	m_pusher.startContinuation();
-	m_pusher.push(-3 + 1, "TRIPLE");
+	m_pusher.push(-3 + 1, "TUPLE 3");
 	m_pusher.endContinuation();
 
 	m_pusher.startContinuation();
