@@ -77,7 +77,7 @@ public:
 	bool hasResponsibleFunction() const { return m_hasResponsibleFunction; }
 	bool hasAwaitCall() const { return m_hasAwaitCall; }
 	bool hasTvmCode() const { return m_hasTvmCode; }
-	set<FunctionDefinition const *> const& awaitFunctions() const { return m_awaitFunctions; }
+	std::set<FunctionDefinition const *> const& awaitFunctions() const { return m_awaitFunctions; }
 
 private:
 	bool m_hasMsgPubkey{};
@@ -89,69 +89,86 @@ private:
 	std::set<FunctionDefinition const*> m_awaitFunctions;
 };
 
-class LoopScanner: public ASTConstVisitor
-{
-public:
-	explicit LoopScanner(const ASTNode& node) {
-		node.accept(*this);
-		solAssert(m_loopDepth == 0, "");
-	}
-
-private:
-	bool startLoop() {
-		m_loopDepth++;
+template <typename T>
+static bool doesAlways(const Statement* st) {
+	auto rec = [] (const Statement* s) {
+		return doesAlways<T>(s);
+	};
+	if (to<T>(st))
 		return true;
+
+	if (
+		to<Assignment>(st) ||
+		to<Break>(st) ||
+		to<Continue>(st) ||
+		to<EmitStatement>(st) ||
+		to<ExpressionStatement>(st) ||
+		to<ForEachStatement>(st) ||
+		to<ForStatement>(st) ||
+		to<PlaceholderStatement>(st) ||
+		to<Return>(st) ||
+		to<VariableDeclarationStatement>(st) ||
+		to<WhileStatement>(st)
+	)
+		return false;
+	if (auto block = to<Block>(st)) {
+		return std::any_of(block->statements().begin(), block->statements().end(), [&](const auto& s){
+			return rec(s.get());
+		});
 	}
-
-protected:
-
-	bool visit(ForEachStatement const&) override {
-		return startLoop();
+	if (auto ifStatement = to<IfStatement>(st)) {
+		if (!ifStatement->falseStatement())
+			return false;
+		return rec(&ifStatement->trueStatement()) && rec(ifStatement->falseStatement());
 	}
-
-	bool visit(WhileStatement const&) override {
-		return startLoop();
-	}
-
-	bool visit(ForStatement const&) override {
-		return startLoop();
-	}
-
-	void endVisit(ForEachStatement const&) override {
-		m_loopDepth--;
-	}
-
-	void endVisit(WhileStatement const&) override {
-		m_loopDepth--;
-	}
-
-	void endVisit(ForStatement const&) override {
-		m_loopDepth--;
-	}
-
-	void endVisit(Return const&) override {
-		m_info.canReturn = true;
-	}
-
-	void endVisit(Break const&) override {
-		if (m_loopDepth == 0)
-			m_info.canBreak = true;
-	}
-
-	void endVisit(Continue const&) override {
-		if (m_loopDepth == 0)
-			m_info.canContinue = true;
-	}
-
-private:
-	int m_loopDepth = 0;
-
-public:
-	ContInfo m_info;
-};
-
+	solUnimplemented( std::string("Unsupported statement type: ") + typeid(*st).name());
 }
 
-LocationReturn notNeedsPushContWhenInlining(Block const &_block);
+class CFAnalyzer: public ASTConstVisitor
+{
+public:
+	CFAnalyzer() = default;
+	explicit CFAnalyzer(const Statement& node);
 
-bool withPrelocatedRetValues(FunctionDefinition const* f);
+	bool doThatAlways() const {
+		return m_alwaysReturns || m_alwaysBreak || m_alwaysContinue;
+	}
+
+	bool mayDoThat() const {
+		return m_canReturn || m_canBreak || m_canContinue;
+	}
+
+private:
+	bool startLoop();
+
+protected:
+	bool visit(ForEachStatement const&) override;
+	bool visit(WhileStatement const&) override;
+	bool visit(ForStatement const&) override;
+	void endVisit(ForEachStatement const&) override;
+	void endVisit(WhileStatement const&) override;
+	void endVisit(ForStatement const&) override;
+	void endVisit(Return const&) override;
+	void endVisit(Break const&) override;
+	void endVisit(Continue const&) override;
+
+public:
+	bool canReturn() const { return m_canReturn; }
+	bool canBreak() const { return m_canBreak; }
+	bool canContinue() const { return m_canContinue; }
+
+private:
+	int m_loopDepth{};
+	bool m_canReturn{};
+	bool m_canBreak{};
+	bool m_canContinue{};
+	bool m_alwaysReturns{};
+	bool m_alwaysBreak{};
+	bool m_alwaysContinue{};
+};
+
+} // end namespace solidity::frontend
+
+solidity::frontend::LocationReturn notNeedsPushContWhenInlining(solidity::frontend::Block const &_block);
+
+bool withPrelocatedRetValues(solidity::frontend::FunctionDefinition const* f);

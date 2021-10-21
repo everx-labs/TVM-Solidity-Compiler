@@ -20,8 +20,11 @@
 
 #include "TVM.h"
 #include "TVMCommons.hpp"
-#include "TVMPusher.hpp"
 #include "TVMConstants.hpp"
+
+using namespace std;
+using namespace solidity::langutil;
+using namespace solidity::util;
 
 namespace solidity::frontend {
 
@@ -42,19 +45,9 @@ std::string functionName(FunctionDefinition const *_function) {
 	return _function->name();
 }
 
-bool ends_with(const string &str, const string &suffix) {
-	if (suffix.size() > str.size())
-		return false;
-	return 0 == str.compare(str.size()-suffix.size(), suffix.size(), suffix);
-}
-
 void cast_error(const ASTNode &node, const string &error_message) {
 	GlobalParams::g_errorReporter->fatalParserError(node.location(), error_message);
 	BOOST_THROW_EXCEPTION(FatalError()); // never throw, just for [[noreturn]]
-}
-
-void cast_warning(const ASTNode &node, const string &error_message) {
-	GlobalParams::g_errorReporter->warning(node.location(), error_message);
 }
 
 void fatal_error(const string &error_message) {
@@ -250,7 +243,7 @@ bool isSuper(Expression const *expr) {
 }
 
 bool isMacro(const std::string &functionName) {
-	return ends_with(functionName, "_macro");
+	return boost::ends_with(functionName, "_macro");
 }
 
 bool isAddressThis(const FunctionCall *funCall) {
@@ -282,14 +275,20 @@ vector<FunctionDefinition const *> getContractFunctions(ContractDefinition const
 	return result;
 }
 
-CallableDeclaration const* getFunctionDeclarationOrConstructor(Expression const* expr) {
+CallableDeclaration const* getFunctionDeclarationOrConstructor(Expression const* expr, bool quiet) {
 	auto f = to<FunctionType>(expr->annotation().type);
 	if (f) {
 		return to<CallableDeclaration>(&f->declaration());
 	}
 	auto tt = dynamic_cast<const TypeType*>(expr->annotation().type);
+	if (quiet && !tt) {
+		return nullptr;
+	}
 	solAssert(tt, "");
 	auto contractType = dynamic_cast<const ContractType*>(tt->actualType());
+	if (quiet && !contractType) {
+		return nullptr;
+	}
 	solAssert(contractType, "");
 	return contractType->contractDefinition().constructor(); // null if no constructor
 }

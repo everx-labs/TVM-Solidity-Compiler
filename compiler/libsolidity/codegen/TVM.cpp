@@ -20,6 +20,7 @@
 #include "TVM.h"
 #include "TVMContractCompiler.hpp"
 
+using namespace std;
 using namespace solidity::frontend;
 
 solidity::langutil::ErrorReporter* GlobalParams::g_errorReporter{};

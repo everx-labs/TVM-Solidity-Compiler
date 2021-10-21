@@ -279,17 +279,68 @@ LocationReturn notNeedsPushContWhenInlining(const Block &_block) {
 
 	ast_vec<Statement> statements = _block.statements();
 
-	LoopScanner bodyScanner{_block};
-	if (!bodyScanner.m_info.canReturn) {
+	CFAnalyzer bodyScanner{_block};
+	if (!bodyScanner.canReturn()) {
 		return LocationReturn::noReturn;
 	}
 
 	for (std::vector<int>::size_type i = 0; i + 1 < statements.size(); ++i) {
-		LoopScanner scanner{*statements[i].get()};
-		if (scanner.m_info.canReturn) {
+		CFAnalyzer scanner{*statements[i].get()};
+		if (scanner.canReturn()) {
 			return LocationReturn::Anywhere;
 		}
 	}
 	bool isLastStatementReturn = to<Return>(statements.back().get()) != nullptr;
 	return isLastStatementReturn ? LocationReturn::Last : LocationReturn::Anywhere;
+}
+
+CFAnalyzer::CFAnalyzer(Statement const &node) {
+	node.accept(*this);
+	solAssert(m_loopDepth == 0, "");
+	m_alwaysReturns = doesAlways<Return>(&node);
+	m_alwaysContinue = doesAlways<Continue>(&node);
+	m_alwaysBreak = doesAlways<Break>(&node);
+}
+
+bool CFAnalyzer::startLoop() {
+	m_loopDepth++;
+	return true;
+}
+
+bool CFAnalyzer::visit(ForEachStatement const &) {
+	return startLoop();
+}
+
+bool CFAnalyzer::visit(WhileStatement const &) {
+	return startLoop();
+}
+
+bool CFAnalyzer::visit(ForStatement const &) {
+	return startLoop();
+}
+
+void CFAnalyzer::endVisit(ForEachStatement const &) {
+	m_loopDepth--;
+}
+
+void CFAnalyzer::endVisit(WhileStatement const &) {
+	m_loopDepth--;
+}
+
+void CFAnalyzer::endVisit(ForStatement const &) {
+	m_loopDepth--;
+}
+
+void CFAnalyzer::endVisit(Return const &) {
+	m_canReturn = true;
+}
+
+void CFAnalyzer::endVisit(Break const &) {
+	if (m_loopDepth == 0)
+		m_canBreak = true;
+}
+
+void CFAnalyzer::endVisit(Continue const &) {
+	if (m_loopDepth == 0)
+		m_canContinue = true;
 }

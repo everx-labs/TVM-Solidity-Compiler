@@ -35,12 +35,6 @@
 
 #include "TvmAst.hpp"
 
-using namespace std;
-using namespace solidity;
-using namespace solidity::frontend;
-using namespace langutil;
-using namespace solidity::util;
-
 #define DBG(x) cout << (x) << endl;
 
 namespace solidity::frontend {
@@ -59,45 +53,7 @@ constexpr uint64_t str2int(const char* str, int i = 0) {
 	return !str[i] ? 5381 : (str2int(str, i+1) * 33) ^ str[i];
 }
 
-bool ends_with(const string& str, const string& suffix);
-
 std::string functionName(FunctionDefinition const* _function);
-
-
-template <typename T>
-static bool doesAlways(const Statement* st) {
-	auto rec = [] (const Statement* s) {
-		return doesAlways<T>(s);
-	};
-	if (to<T>(st))
-		return true;
-
-	if (
-		to<Assignment>(st) ||
-		to<Break>(st) ||
-		to<Continue>(st) ||
-		to<EmitStatement>(st) ||
-		to<ExpressionStatement>(st) ||
-		to<ForEachStatement>(st) ||
-		to<ForStatement>(st) ||
-		to<PlaceholderStatement>(st) ||
-		to<Return>(st) ||
-		to<VariableDeclarationStatement>(st) ||
-		to<WhileStatement>(st)
-	)
-		return false;
-	if (auto block = to<Block>(st)) {
-		return std::any_of(block->statements().begin(), block->statements().end(), [&](const auto& s){
-			return rec(s.get());
-		});
-	}
-	if (auto ifStatement = to<IfStatement>(st)) {
-		if (!ifStatement->falseStatement())
-			return false;
-		return rec(&ifStatement->trueStatement()) && rec(ifStatement->falseStatement());
-	}
-	solUnimplemented( string("Unsupported statement type: ") + typeid(*st).name());
-}
 
 bool isAddressOrContractType(const Type* type);
 bool isUsualArray(const Type* type);
@@ -198,14 +154,14 @@ IntegerType getKeyTypeOfArray();
 std::tuple<Type const*, Type const*>
 dictKeyValue(Type const* type);
 
-string storeIntegralOrAddress(const Type* type, bool reverse);
+std::string storeIntegralOrAddress(const Type* type, bool reverse);
 
-vector<ContractDefinition const*> getContractsChain(ContractDefinition const* contract);
+std::vector<ContractDefinition const*> getContractsChain(ContractDefinition const* contract);
 
-vector<std::pair<FunctionDefinition const*, ContractDefinition const*>>
+std::vector<std::pair<FunctionDefinition const*, ContractDefinition const*>>
 getContractFunctionPairs(ContractDefinition const* contract);
 
-const FunctionDefinition* getFunction(ContractDefinition const* contract, const string& functionName);
+const FunctionDefinition* getFunction(ContractDefinition const* contract, const std::string& functionName);
 
 bool isSuper(Expression const* expr);
 
@@ -214,23 +170,21 @@ bool isMacro(const std::string& functionName);
 bool isAddressThis(const FunctionCall* funCall);
 
 // List of all function but constructors with a given name
-vector<FunctionDefinition const*> getContractFunctions(ContractDefinition const* contract, const string& funcName);
+std::vector<FunctionDefinition const*> getContractFunctions(ContractDefinition const* contract, const std::string& funcName);
 
 const ContractDefinition* getSuperContract(const ContractDefinition* currentContract,
 										   const ContractDefinition* mainContract,
-										   const string& fname);
+										   const std::string& fname);
 
 [[noreturn]]
-void cast_error(const ASTNode& node, const string& error_message);
-
-void cast_warning(const ASTNode& node, const string& error_message);
+void cast_error(const ASTNode& node, const std::string& error_message);
 
 [[noreturn]]
-void fatal_error(const string &error_message);
+void fatal_error(const std::string &error_message);
 
 enum class AbiVersion {
 	V1,
-	V2_1
+	V2_2
 };
 
 class PragmaDirectiveHelper {
@@ -252,7 +206,7 @@ public:
 	}
 
 	AbiVersion abiVersion() const {
-		return std::get<0>(haveHeader("v1"))? AbiVersion::V1 : AbiVersion::V2_1;
+		return std::get<0>(haveHeader("v1"))? AbiVersion::V1 : AbiVersion::V2_2;
 	}
 
 	std::tuple<bool, PragmaDirective const *> haveHeader(const std::string& str) const {
@@ -319,7 +273,7 @@ getParams(const ast_vec<T>& params, size_t offset = 0) {
 	return std::make_pair(types, nodes);
 }
 
-CallableDeclaration const * getFunctionDeclarationOrConstructor(Expression const* expr);
+CallableDeclaration const * getFunctionDeclarationOrConstructor(Expression const* expr, bool quiet = false);
 
 bool isEmptyFunction(FunctionDefinition const* f);
 
@@ -331,29 +285,8 @@ enum class LocationReturn {
 
 struct ControlFlowInfo {
 	int stackSize {-1};
+	bool doAnalyzeFlag {false};
 	bool isLoop {false};
-	bool useJmp {false};
-};
-
-struct ContInfo {
-	static constexpr int CONTINUE_FLAG = 1;
-	static constexpr int BREAK_FLAG = 2;
-	static constexpr int RETURN_FLAG = 4;
-
-	bool canReturn{};
-	bool canBreak{};
-	bool canContinue{};
-	bool alwaysReturns{};
-	bool alwaysBreak{};
-	bool alwaysContinue{};
-
-	bool doThatAlways() const {
-		return alwaysReturns || alwaysBreak || alwaysContinue;
-	}
-
-	bool mayDoThat() const {
-		return canReturn || canBreak || canContinue;
-	}
 };
 
 LocationReturn notNeedsPushContWhenInlining(Block const& _block);
@@ -408,7 +341,7 @@ enum class GetDictOperation {
 enum class SetDictOperation { Set, Replace, Add };
 
 struct LValueInfo {
-	explicit LValueInfo() {}
+	explicit LValueInfo() = default;
 	explicit LValueInfo(Type const* rightType) :
 			rightType{rightType} {
 	}
@@ -422,7 +355,7 @@ int integerLog2(int value);
 std::string stringToBytes(const std::string& str);
 std::set<CallableDeclaration const*> getAllBaseFunctions(CallableDeclaration const* f);
 bool isLoc(Pointer<TvmAstNode> const& node);
-vector<string> split(const string &s, char sep = '\n');
+std::vector<std::string> split(const std::string &s, char sep = '\n');
 int strToInt(const std::string& str);
 int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>>::const_iterator beg,
 				  std::vector<Pointer<TvmAstNode>>::const_iterator end);

@@ -24,7 +24,10 @@
 #include "TVMStructCompiler.hpp"
 #include "TVMConstants.hpp"
 
+using namespace std;
+using namespace solidity;
 using namespace solidity::frontend;
+using namespace solidity::util;
 
 TVMExpressionCompiler::TVMExpressionCompiler(StackPusher &pusher) :
 		m_pusher{pusher},
@@ -196,7 +199,7 @@ void TVMExpressionCompiler::visit2(Literal const &_node) {
 				case AbiVersion::V1:
 					visitStringLiteralAbiV1(_node);
 					break;
-				case AbiVersion::V2_1:
+				case AbiVersion::V2_2:
 					visitStringLiteralAbiV2(_node);
 					break;
 				default:
@@ -224,7 +227,7 @@ void TVMExpressionCompiler::visit2(TupleExpression const &_tupleExpression) {
 			m_pusher.rot(); // totalSize value' index dict
 			m_pusher.setDict(key, *arrayBaseType, dataType); // totalSize dict
 		}
-		m_pusher.push(-2 + 1, "PAIR");
+		m_pusher.push(-2 + 1, "TUPLE 2");
 	} else {
 		for (const auto &comp : _tupleExpression.components()) {
 			compileNewExpr(comp.get());
@@ -512,7 +515,7 @@ void TVMExpressionCompiler::visitLogicalShortCircuiting(BinaryOperation const &_
 	}
 
 	for (int i = static_cast<int>(order.size()) - 1; i >= 1; --i) {
-		m_pusher.endLogCircuit(true, op == Token::Or ? LogCircuit::Type::OR : LogCircuit::Type::AND);
+		m_pusher.endLogCircuit(op == Token::Or ? LogCircuit::Type::OR : LogCircuit::Type::AND);
 	}
 }
 
@@ -540,7 +543,7 @@ void TVMExpressionCompiler::visit2(BinaryOperation const &_binaryOperation) {
 		m_pusher.hardConvert(rightTargetType, rt);
 	};
 
-	if (isString(lt) && isString(rt)) {
+	if (isString(commonType)) {
 		visitBinaryOperationForString(acceptLeft, acceptRight, op);
 		return;
 	}
@@ -983,18 +986,28 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 			m_pusher.push(-2 + 1, "INDEXVAR");
 		}
 		return;
-	} else {
+	} else if (baseType->category() == Type::Category::FixedBytes) {
+		acceptExpr(&indexAccess.baseExpression()); // integer
+		auto fbt = to<FixedBytesType>(getType(&indexAccess.baseExpression()));
+		m_pusher.pushInt(static_cast<int>(fbt->storageBytes()) - 1);
+		acceptExpr(indexAccess.indexExpression()); // integer byte_len byte_index
+		m_pusher.push(-1, "SUB");
+		m_pusher.push(0, "MULCONST 8");
+		m_pusher.push(-1, "RSHIFT");
+		m_pusher.push(0, "MODPOW2 8");
+		return;
+	}	else {
 		pushIndexAndConvert(indexAccess); // index
 		m_pusher.prepareKeyForDictOperations(indexAccess.indexExpression()->annotation().type, false);
 		acceptExpr(&indexAccess.baseExpression()); // index dict
 	}
 
 	m_pusher.getDict(*StackPusher::parseIndexType(baseType),
-	                 *StackPusher::parseValueType(indexAccess),
-	                 baseType->category() == Type::Category::Mapping ||
-	                 baseType->category() == Type::Category::ExtraCurrencyCollection ?
-	                 GetDictOperation::GetFromMapping :
-	                 GetDictOperation::GetFromArray);
+					 *StackPusher::parseValueType(indexAccess),
+					 baseType->category() == Type::Category::Mapping ||
+					 baseType->category() == Type::Category::ExtraCurrencyCollection ?
+					 GetDictOperation::GetFromMapping :
+					 GetDictOperation::GetFromArray);
 }
 
 void TVMExpressionCompiler::visit2(FunctionCall const &_functionCall) {
@@ -1105,7 +1118,7 @@ TVMExpressionCompiler::expandLValue(
 				// index dict1 dict2
 			} else if (index->baseExpression().annotation().type->category() == Type::Category::Array) {
 				// array
-				m_pusher.push(-1 + 2, "UNPAIR"); // size dict
+				m_pusher.push(-1 + 2, "UNTUPLE 2"); // size dict
 				compileNewExpr(index->indexExpression()); // size dict index
 				m_pusher.exchange(1); // size index dict
 				m_pusher.pushS2(1, 2); // size index dict index size
@@ -1207,7 +1220,7 @@ TVMExpressionCompiler::collectLValue(
 					m_pusher.setDict(*keyType, *valueDictType, dataType); // size dict'
 				}
 
-				m_pusher.push(-2 + 1, "PAIR");
+				m_pusher.push(-2 + 1, "TUPLE 2");
 			} else {
 				solUnimplemented("");
 			}
@@ -1226,46 +1239,6 @@ TVMExpressionCompiler::collectLValue(
 }
 
 
-class TVMExpressionAnalyzer : private ASTConstVisitor
-{
-public:
-	explicit TVMExpressionAnalyzer(const Expression& expr) {
-		expr.accept(*this);
-	}
-
-	bool hasSideEffects() const {
-		return m_hasSideEffects;
-	}
-
-private:
-	bool visit(Assignment const&) override {
-		m_hasSideEffects = true;
-		return true;
-	}
-
-	bool visit(UnaryOperation const& _node) override {
-		switch (_node.getOperator()) {
-			case Token::Inc:
-			case Token::Dec:
-			case Token::Delete:
-				m_hasSideEffects = true;
-				break;
-			default:
-				break;
-		}
-		return true;
-	}
-
-	bool visit(FunctionCall const&) override {
-		// TODO: check if it is indeed function (e.g. not structure) and
-		//       is neither Pure nor View
-		m_hasSideEffects = true;
-		return true;
-	}
-
-	bool m_hasSideEffects = false;
-};
-
 bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 	const auto& lhs = _assignment.leftHandSide();
 	const auto& rhs = _assignment.rightHandSide();
@@ -1278,24 +1251,17 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 			m_pusher.hardConvert(getType(&lhs), getType(&rhs));
 			return false;
 		};
-		bool hasNoSideEffects =
-			!TVMExpressionAnalyzer(lhs).hasSideEffects() &&
-			!TVMExpressionAnalyzer(rhs).hasSideEffects();
-		if (!isCurrentResultNeeded() && hasNoSideEffects) {
-			const LValueInfo lValueInfo = expandLValue(&lhs, false, true, getType(&rhs));
-			bool valueIsBuilder = push_rhs();
-			collectLValue(lValueInfo, true, valueIsBuilder);
+		const int saveStackSize0 = m_pusher.stackSize();
+		bool valueIsBuilder = push_rhs();
+		const int saveStackSize = m_pusher.stackSize();
+		const LValueInfo lValueInfo = expandLValue(&lhs, false, true, getType(&rhs));
+		if (isCurrentResultNeeded()) {
+			solAssert(saveStackSize - saveStackSize0 == 1, "");
+			m_pusher.pushS(m_pusher.stackSize() - saveStackSize);
 		} else {
-			bool valueIsBuilder = push_rhs();
-			const int saveStackSize = m_pusher.stackSize();
-			const LValueInfo lValueInfo = expandLValue(&lhs, false, true, getType(&rhs));
-			if (isCurrentResultNeeded()) {
-				m_pusher.pushS(m_pusher.stackSize() - saveStackSize);
-			} else {
-				m_pusher.blockSwap(1, m_pusher.stackSize() - saveStackSize);
-			}
-			collectLValue(lValueInfo, true, valueIsBuilder);
+			m_pusher.blockSwap(saveStackSize - saveStackSize0, m_pusher.stackSize() - saveStackSize);
 		}
+		collectLValue(lValueInfo, true, valueIsBuilder);
 	} else {
 		TypePointer const& commonType = lhs.annotation().type;
 		compileNewExpr(&rhs); // r
@@ -1306,7 +1272,7 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 		const int expandedLValueSize = m_pusher.stackSize() - saveStackSize - 1;
 		m_pusher.blockSwap(1, expandedLValueSize + 1); // expanded... l r
 
-		if (isString(getType(&lhs)) && isString(getType(&rhs))) {
+		if (isString(commonType)) {
 			m_pusher.pushMacroCallInCallRef(2, 1, "concatenateStrings_macro");
 		} else {
 			visitMathBinaryOperation(binOp, commonType, nullptr, nullopt);

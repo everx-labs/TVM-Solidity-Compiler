@@ -27,6 +27,7 @@
 #include <liblangutil/Exceptions.h>
 
 using namespace solidity::frontend;
+using namespace std;
 
 void Loc::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
@@ -104,7 +105,7 @@ void HardCode::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
 }
 
-GenOpcode::GenOpcode(std::string opcode, int take, int ret, bool _isPure) : Gen{_isPure},  m_take{take}, m_ret{ret} {
+GenOpcode::GenOpcode(const std::string& opcode, int take, int ret, bool _isPure) : Gen{_isPure},  m_take{take}, m_ret{ret} {
 	vector<string> lines = split(opcode, ';');
 	solAssert(lines.size() <= 2, "");
 
@@ -190,7 +191,7 @@ std::string CodeBlock::toString(CodeBlock::Type t) {
 void CodeBlock::accept(TvmAstVisitor& _visitor) {
 	if (_visitor.visit(*this))
 	{
-		for (Pointer<TvmAstNode> node : m_instructions) {
+		for (const Pointer<TvmAstNode>& node : m_instructions) {
 			node->accept(_visitor);
 		}
 	}
@@ -367,7 +368,6 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"DICTEMPTY", {1, 1, true}},
 		{"ENDC", {1, 1}},
 		{"EQINT", {1, 1, true}},
-		{"FIRST", {1, 1}}, // TODO delete
 		{"FITS", {1, 1}},
 		{"GTINT", {1, 1, true}},
 		{"HASHCU", {1, 1, true}},
@@ -401,7 +401,6 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"SBITS", {1, 1, true}},
 		{"SDEMPTY", {1, 1, true}},
 		{"SDEPTH", {1, 1}},
-		{"SECOND", {1, 1}}, // TODO delete
 		{"SEMPTY", {1, 1, true}},
 		{"SGN", {1, 1, true}},
 		{"SHA256U", {1, 1, true}},
@@ -410,7 +409,6 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"STRDUMP", {1, 1}},
 		{"STSLICECONST", {1, 1}},
 		{"STZERO", {1, 1}},
-		{"THIRD", {1, 1}}, // TODO delete
 		{"TLEN", {1, 1}},
 		{"UBITSIZE", {1, 1}},
 		{"UFITS", {1, 1}},
@@ -431,7 +429,6 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"REWRITESTDADDR", {1, 2}},
 		{"SBITREFS", {1, 2, true}},
 		{"TPOP", {1, 2}},
-		{"UNPAIR", {1, 2}},
 
 		{"RAWRESERVE", {2, 0}},
 		{"SENDRAWMSG", {2, 0}},
@@ -454,7 +451,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"MUL", {2, 1}},
 		{"NEQ", {2, 1, true}},
 		{"OR", {2, 1, true}},
-		{"PAIR", {2, 1, true}},
+		{"PLDUX", {2, 1}},
 		{"SCHKBITSQ", {2, 1, true}},
 		{"SCHKREFSQ", {2, 1, true}},
 		{"SDEQ", {2, 1, true}},
@@ -506,7 +503,6 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"SETINDEXVARQ", {3, 1}},
 		{"SSKIPFIRST", {3, 1}},
 		{"STUX", {3, 1}},
-		{"TRIPLE", {3, 1}},
 
 		{"DICTDEL", {3, 2}},
 		{"DICTIDEL", {3, 2}},
@@ -585,6 +581,14 @@ Pointer<Stack> makePUSH3(int i, int j, int k) {
 
 Pointer<TvmReturn> makeRET() {
 	return createNode<TvmReturn>(TvmReturn::Type::RET);
+}
+
+Pointer<TvmReturn> makeRETALT() {
+	return createNode<TvmReturn>(TvmReturn::Type::RETALT);
+}
+
+Pointer<TvmReturn> makeIFRETALT() {
+	return createNode<TvmReturn>(TvmReturn::Type::IFRETALT);
 }
 
 Pointer<TvmReturn> makeIFRET() {
@@ -670,6 +674,7 @@ Pointer<Stack> makeROTREV() {
 }
 
 Pointer<Stack> makeBLKSWAP(int down, int top) {
+	solAssert(down >= 1 && top >= 1, "");
 	return createNode<Stack>(Stack::Opcode::BLKSWAP, down, top);
 }
 

@@ -49,6 +49,7 @@ protected:
 	bool libraryCall(MemberAccess const& ma);
 	bool checkForTvmDeployMethods(MemberAccess const& _node, Type::Category category);
 	void tvmBuildIntMsg();
+	void tvmBuildDataInit();
 	void tvmBuildMsgMethod();
 	void sliceMethods(MemberAccess const& _node);
 	void arrayMethods(MemberAccess const& _node);
@@ -80,6 +81,7 @@ protected:
 		const std::function<void()>& pushSendrawmsgFlag,
 		const int argQty
 	);
+	void checkStateInit();
 
 	enum StateInitMembers {
 		SplitDepth,
@@ -91,15 +93,14 @@ protected:
 	void buildStateInit(std::map<StateInitMembers, std::function<void()>> exprs);
 	std::function<void()> generateDataSection(
 		const std::function<void()>& pushKey,
-		bool &hasVars,
 		Expression const* vars,
-		bool &isNew,
-		const ASTPointer<const Expression>& contr
+		ContractType const* ct
 	);
 	bool checkRemoteMethodCall(FunctionCall const &_functionCall);
 	void checkExtMsgSend();
 	std::string getDefaultMsgValue();
 	static const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
+	void acceptExprOrPushFunctionId(Expression const* onerrorid);
 	void generateExtInboundMsg(
 		bool addSignature,
 		const Expression * destination,
@@ -131,6 +132,7 @@ private:
 	FunctionType const* m_funcType{};
 	Type const* m_retType{};
 	bool m_isCurrentResultNeeded{};
+	std::vector<ASTPointer<ASTString>> const& m_names;
 };
 
 }	// solidity

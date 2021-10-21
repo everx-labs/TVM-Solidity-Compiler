@@ -60,7 +60,7 @@ bool Simulator::visit(DeclRetFlag &/*_node*/) {
 
 bool Simulator::visit(Opaque &_node) {
 	if (_node.take() > rest()) {
-		m_unableToConvertOpcode = true;
+		unableToConvertOpcode();
 	} else {
 		m_stackSize += _node.ret() - _node.take();
 		m_commands.emplace_back(createNode<Opaque>(_node.block(), _node.take(), _node.ret(), _node.isPure()));
@@ -70,7 +70,7 @@ bool Simulator::visit(Opaque &_node) {
 
 bool Simulator::visit(HardCode &_node) {
 	if (_node.take() > rest()) {
-		m_unableToConvertOpcode = true;
+		unableToConvertOpcode();
 	} else {
 		m_stackSize += _node.ret() - _node.take();
 		m_commands.emplace_back(createNode<HardCode>(_node.code(), _node.take(), _node.ret(), _node.isPure()));
@@ -86,9 +86,11 @@ bool Simulator::visit(Loc &_node) {
 bool Simulator::visit(TvmReturn &_node) {
 	switch (_node.type()) {
 		case TvmReturn::Type::RET:
+		case TvmReturn::Type::RETALT:
 			break;
 		case TvmReturn::Type::IFRET:
 		case TvmReturn::Type::IFNOTRET:
+		case TvmReturn::Type::IFRETALT:
 			solUnimplemented("Only in ReturnChecker");
 	}
 	m_commands.emplace_back(createNode<TvmReturn>(_node.type()));
@@ -97,17 +99,17 @@ bool Simulator::visit(TvmReturn &_node) {
 
 bool Simulator::visit(ReturnOrBreakOrCont &_node) {
 	if (_node.take() > rest()) {
-		m_unableToConvertOpcode = true;
+		unableToConvertOpcode();
 		return false;
 	}
 	m_wasReturnBreakContinue = true;
 	Simulator sim{_node.body()->instructions().begin(), _node.body()->instructions().end(), m_stackSize, m_segment};
-	if (sim.m_unableToConvertOpcode) {
-		m_unableToConvertOpcode = true;
+	if (sim.m_unableToConvertOpcode || !sim.m_isDropped) {
+		// check if value has been dropped because in otherwise, this value is from scope that hasn't been dropped
+		unableToConvertOpcode();
 	} else {
-		if (sim.m_isDropped) {
-			m_isDropped = true;
-		}
+		solAssert(sim.m_isDropped, "");
+		m_isDropped = true;
 		auto body = createNode<CodeBlock>(_node.body()->type(), sim.commands());
 		m_commands.emplace_back(createNode<ReturnOrBreakOrCont>(_node.take(), body));
 	}
@@ -116,7 +118,7 @@ bool Simulator::visit(ReturnOrBreakOrCont &_node) {
 
 bool Simulator::visit(TvmException &_node) {
 	if (_node.take() > rest()) {
-		m_unableToConvertOpcode = true;
+		unableToConvertOpcode();
 	} else {
 		m_stackSize -= _node.take();
 		m_commands.emplace_back(createNode<TvmException>(_node.fullOpcode(), _node.take(), _node.ret()));
@@ -126,7 +128,7 @@ bool Simulator::visit(TvmException &_node) {
 
 bool Simulator::visit(GenOpcode &_node) {
 	if (_node.take() > rest()) {
-		m_unableToConvertOpcode = true;
+		unableToConvertOpcode();
 	} else {
 		m_stackSize += _node.ret() - _node.take();
 		m_commands.emplace_back(createNode<GenOpcode>(_node.fullOpcode(), _node.take(), _node.ret(), _node.isPure()));
@@ -156,7 +158,7 @@ bool Simulator::visit(Glob &_node) {
 			if (rest() >= 1) {
 				--m_stackSize;
 			} else {
-				m_unableToConvertOpcode = true;
+				unableToConvertOpcode();
 			}
 			break;
 	}
@@ -176,7 +178,7 @@ bool Simulator::visit(Stack &_node) {
 	switch (_node.opcode()) {
 		case Stack::Opcode::PUSH_S: {
 			if (lastIndex <= i && i <= firstIndex) {
-				m_unableToConvertOpcode = true;
+				unableToConvertOpcode();
 			} else if (i < firstIndex) {
 				m_commands.emplace_back(createNode<Stack>(_node.opcode(), i));
 				++m_stackSize;
@@ -190,7 +192,7 @@ bool Simulator::visit(Stack &_node) {
 			if (m_segment == 1 && i == 1 && m_stackSize == 2) { // it equals to BLKDROP2 1, 1
 				m_isDropped = true;
 			} else if (rest() == 0) {
-				m_unableToConvertOpcode = true;
+				unableToConvertOpcode();
 			} else if (i == firstIndex && m_segment == 1) {
 				m_wasSet = true;
 				--m_stackSize; // TODO delete this
@@ -203,7 +205,7 @@ bool Simulator::visit(Stack &_node) {
 				--m_stackSize;
 				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi));
 			} else {
-				m_unableToConvertOpcode = true;
+				unableToConvertOpcode();
 			}
 			break;
 		}
@@ -217,7 +219,7 @@ bool Simulator::visit(Stack &_node) {
 				m_stackSize -= n;
 				m_commands.emplace_back(makeDROP(n));
 			} else {
-				m_unableToConvertOpcode = true;
+				unableToConvertOpcode();
 			}
 			break;
 		}
@@ -236,7 +238,7 @@ bool Simulator::visit(Stack &_node) {
 				m_commands.emplace_back(makeBLKDROP2(drop, rest));
 				m_stackSize -= drop;
 			} else {
-				m_unableToConvertOpcode = true;
+				unableToConvertOpcode();
 			}
 			break;
 		}
@@ -249,7 +251,7 @@ bool Simulator::visit(Stack &_node) {
 				m_commands.emplace_back(makeBLKPUSH(n, newj));
 				m_stackSize += n;
 			} else {
-				m_unableToConvertOpcode = true;
+				unableToConvertOpcode();
 			}
 			break;
 		}
@@ -257,24 +259,29 @@ bool Simulator::visit(Stack &_node) {
 			int n = i;
 			int index = j;
 			int pushLast = index + n - 1; // include
-			if (std::max(lastIndex, index) >  std::min(firstIndex, pushLast)) { // TODO rename
+			if (std::max(lastIndex, index) > std::min(firstIndex, pushLast)) { // TODO rename
 				m_commands.emplace_back(createNode<Stack>(_node.opcode(), i, j));
 			} else {
-				m_unableToConvertOpcode = true;
+				unableToConvertOpcode();
 			}
 			break;
 		}
 		case Stack::Opcode::BLKSWAP:
 			if (i + j <= rest()) {
 				m_commands.emplace_back(makeBLKSWAP(i, j));
+			} else if (j >= m_stackSize) {
+				if (j - i >= 1) {
+					m_commands.emplace_back(makeBLKSWAP(i, j - i));
+				}
+				m_stackSize += i;
 			} else {
-				m_unableToConvertOpcode = true;
+				unableToConvertOpcode();
 			}
 			break;
 		case Stack::Opcode::XCHG:
 			if ((lastIndex <= i && i <= firstIndex) ||
 				(lastIndex <= j && j <= firstIndex)) { // it's ok if j==-1
-				m_unableToConvertOpcode = true;
+				unableToConvertOpcode();
 			} else {
 				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj));
 			}
@@ -282,7 +289,7 @@ bool Simulator::visit(Stack &_node) {
 		case Stack::Opcode::PUSH2_S:
 			if ((lastIndex <= i && i <= firstIndex) ||
 				(lastIndex <= j && j <= firstIndex)) {
-				m_unableToConvertOpcode = true;
+				unableToConvertOpcode();
 			} else {
 				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj));
 			}
@@ -292,7 +299,7 @@ bool Simulator::visit(Stack &_node) {
 			if ((lastIndex <= i && i <= firstIndex) ||
 				(lastIndex <= j && j <= firstIndex) ||
 				(lastIndex <= k && k <= firstIndex)) {
-				m_unableToConvertOpcode = true;
+				unableToConvertOpcode();
 			} else {
 				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj, newk));
 			}
@@ -313,7 +320,7 @@ bool Simulator::visit(CodeBlock &/*_node*/) {
 
 bool Simulator::visit(SubProgram &_node) {
 	if (_node.take() > rest()) {
-		m_unableToConvertOpcode = true;
+		unableToConvertOpcode();
 		return false;
 	}
 	m_stackSize -= _node.take();
@@ -329,7 +336,7 @@ bool Simulator::visit(SubProgram &_node) {
 
 bool Simulator::visit(TvmCondition &_node) {
 	if (rest() == 0) {
-		m_unableToConvertOpcode = true;
+		unableToConvertOpcode();
 		return false;
 	}
 	--m_stackSize;
@@ -351,7 +358,7 @@ bool Simulator::visit(TvmCondition &_node) {
 
 bool Simulator::visit(LogCircuit &_node) {
 	if (rest() == 0) {
-		m_unableToConvertOpcode = true;
+		unableToConvertOpcode();
 		return false;
 	}
 	m_stackSize -= 2;
@@ -361,13 +368,13 @@ bool Simulator::visit(LogCircuit &_node) {
 		return false;
 	}
 	++m_stackSize;
-	m_commands.emplace_back(createNode<LogCircuit>(_node.canExpand(), _node.type(), res.value()));
+	m_commands.emplace_back(createNode<LogCircuit>(_node.type(), res.value()));
 	return false;
 }
 
 bool Simulator::visit(TvmIfElse &_node) {
 	if (rest() == 0) {
-		m_unableToConvertOpcode = true;
+		unableToConvertOpcode();
 		return false;
 	}
 	--m_stackSize;
@@ -388,7 +395,7 @@ bool Simulator::visit(TvmIfElse &_node) {
 
 bool Simulator::visit(TvmRepeat &_node) {
 	if (rest() == 0) {
-		m_unableToConvertOpcode = true;
+		unableToConvertOpcode();
 		return false;
 	}
 	--m_stackSize;
@@ -404,7 +411,7 @@ bool Simulator::visit(TvmRepeat &_node) {
 
 bool Simulator::visit(TvmUntil &_node) {
 	if (rest() == 0) {
-		m_unableToConvertOpcode = true;
+		unableToConvertOpcode();
 		return false;
 	}
 
@@ -412,7 +419,7 @@ bool Simulator::visit(TvmUntil &_node) {
 	if (!res) {
 		return false;
 	}
-	m_commands.emplace_back(createNode<TvmUntil>(res.value()));
+	m_commands.emplace_back(createNode<TvmUntil>(_node.withBreakOrReturn(), res.value()));
 	return false;
 }
 
@@ -435,7 +442,7 @@ bool Simulator::visit(While &_node) {
 		}
 		body = res.value();
 	}
-	m_commands.emplace_back(createNode<While>(condition, body));
+	m_commands.emplace_back(createNode<While>(_node.isInfinite(), _node.withBreakOrReturn(), condition, body));
 	return false;
 }
 
@@ -454,11 +461,11 @@ void Simulator::endVisit(CodeBlock &/*_node*/) {
 std::optional<Pointer<CodeBlock>> Simulator::trySimulate(CodeBlock const& body, int begStackSize, int endStackSize) {
 	Simulator sim{body.instructions().begin(), body.instructions().end(), begStackSize, m_segment};
 	if (sim.m_unableToConvertOpcode || sim.m_wasSet) {
-		m_unableToConvertOpcode = true;
+		unableToConvertOpcode();
 		return {};
 	}
 	if (sim.m_isDropped && !sim.m_wasReturnBreakContinue) {
-		m_unableToConvertOpcode = true;
+		unableToConvertOpcode();
 		return {};
 	}
 	solAssert(sim.m_wasReturnBreakContinue || sim.m_stackSize == endStackSize, "");

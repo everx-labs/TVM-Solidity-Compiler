@@ -29,12 +29,6 @@
 #include "TvmAst.hpp"
 #include "TVMAnalyzer.hpp"
 
-using namespace std;
-using namespace solidity;
-using namespace solidity::frontend;
-using namespace langutil;
-using namespace solidity::util;
-
 namespace solidity::frontend {
 
 class TVMStack {
@@ -48,7 +42,7 @@ public:
 	int getOffset(Declaration const* name) const;
 	int getOffset(int stackPos) const;
 	int getStackSize(Declaration const* name) const;
-	void ensureSize(int savedStackSize, const string& location = "", const ASTNode* node = nullptr) const;
+	void ensureSize(int savedStackSize, const std::string& location = "", const ASTNode* node = nullptr) const;
 	void takeLast(int n);
 
 private:
@@ -67,9 +61,9 @@ public:
 	PragmaDirectiveHelper const& pragmaHelper() const;
 	bool hasTimeInAbiHeader() const;
 	bool isStdlib() const;
-	string getFunctionInternalName(FunctionDefinition const* _function, bool calledByPoint = true) const;
-	static string getLibFunctionName(FunctionDefinition const* _function, bool withObject) ;
-	static string getFunctionExternalName(FunctionDefinition const* _function);
+	std::string getFunctionInternalName(FunctionDefinition const* _function, bool calledByPoint = true) const;
+	static std::string getLibFunctionName(FunctionDefinition const* _function, bool withObject) ;
+	static std::string getFunctionExternalName(FunctionDefinition const* _function);
 	const ContractDefinition* getContract() const;
 	bool ignoreIntegerOverflow() const;
 	FunctionDefinition const* afterSignatureCheck() const;
@@ -123,7 +117,7 @@ public:
 
 	Pointer<CodeBlock> getBlock() const {
 		solAssert(m_instructions.size() == 1, "");
-		auto ret = createNode<CodeBlock>(CodeBlock::Type::None, m_instructions.back().opcodes);
+		auto ret = createNode<CodeBlock>(CodeBlock::Type::None, m_instructions.back());
 		return ret;
 	}
 
@@ -138,18 +132,18 @@ private:
 	void change(int take, int ret);
 public:
 	int stackSize() const;
-	void ensureSize(int savedStackSize, const string &location = "", const ASTNode* node = nullptr);
+	void ensureSize(int savedStackSize, const std::string &location = "", const ASTNode* node = nullptr);
 	void startOpaque();
 	void endOpaque(int take, int ret, bool isPure = false);
 	void declRetFlag();
 private:
-	static Pointer<AsymGen> asym(const string& cmd);
+	static Pointer<AsymGen> asym(const std::string& cmd);
 public:
 	void push(Pointer<Stack> opcode);
 	void push(Pointer<AsymGen> opcode);
 	void push(Pointer<HardCode> opcode);
 	void pushAsym(std::string const& opcode);
-	void push(int stackDiff, const string& cmd);
+	void push(int stackDiff, const std::string& cmd);
 	void pushCellOrSlice(Pointer<PushCellOrSlice> opcode);
 
 	void startContinuation();
@@ -159,7 +153,7 @@ public:
 	void endContinuation();
 	void endContinuationFromRef();
 	void endRetOrBreakOrCont(int _take);
-	void endLogCircuit(bool _canExpand, LogCircuit::Type type);
+	void endLogCircuit(LogCircuit::Type type);
 
 private:
 	void callRefOrCallX(int take, int ret, SubProgram::Type type);
@@ -183,12 +177,14 @@ public:
 	void ifNotJmpRef();
 
 private:
-	void repeatOrUntil(bool isRepeat);
+	void repeatOrUntil(std::optional<bool> withBreakOrReturn, bool isRepeat);
 public:
 	void repeat();
-	void until();
-	void _while();
+	void until(bool withBreakOrReturn);
+	void _while(bool _withBreakOrReturn);
 	void ret();
+	void retAlt();
+	void ifRetAlt();
 	void ifret();
 	void _throw(std::string cmd);
 
@@ -231,8 +227,7 @@ public:
 
 	void store(const Type *type, bool reverse);
 	void pushZeroAddress();
-	Pointer<Function> generateC7ToT4Macro();
-	Pointer<Function> generateC7ToT4MacroForAwait();
+	Pointer<Function> generateC7ToT4Macro(bool forAwait);
 
 	// TODO move to formatter
 	static void addBinaryNumberToString(std::string &s, bigint value, int bitlen = 256);
@@ -240,7 +235,6 @@ public:
 	static std::string toBitString(const std::string& slice);
 	static std::vector<std::string> unitSlices(const std::string& sliceA, const std::string& sliceB);
 	static std::vector<std::string> unitBitString(const std::string& bitStringA, const std::string& bitStringB);
-	static std::string tonsToBinaryString(Literal const* literal);
 	static std::string tonsToBinaryString(const u256& value);
 	static std::string tonsToBinaryString(bigint value);
 	static std::string boolToBinaryString(bool value);
@@ -250,8 +244,8 @@ public:
 	void hardConvert(Type const *leftType, Type const *rightType);
 	void checkFit(Type const *type);
 	void pushParameter(std::vector<ASTPointer<VariableDeclaration>> const& params);
-	void pushMacroCallInCallRef(int take, int ret, const string& fname);
-	void pushCallOrCallRef(const string& functionName, FunctionType const* ft, const std::optional<std::pair<int, int>>& deltaStack = nullopt);
+	void pushMacroCallInCallRef(int take, int ret, const std::string& fname);
+	void pushCallOrCallRef(const std::string& functionName, FunctionType const* ft, const std::optional<std::pair<int, int>>& deltaStack = std::nullopt);
 	void pushCall(int take, int ret, const std::string& functionName);
 	void drop(int cnt = 1);
 	void blockSwap(int down, int up);
@@ -304,7 +298,7 @@ public:
 	void getDict(
 		const Type& keyType,
 		const Type& valueType,
-		const GetDictOperation op,
+		GetDictOperation op,
   		const DataType& dataType = DataType::Slice
 	);
 
@@ -351,15 +345,9 @@ public:
 
 private:
 	int lockStack{};
-	TVMStack m_stack2;
-
-	class PusherBlock { // TODO delete this
-	public:
-		std::vector<Pointer<TvmAstNode>> opcodes;
-	};
-
-	std::vector<PusherBlock> m_instructions;
-	TVMCompilerContext* m_ctx;
+	TVMStack m_stack{};
+	std::vector<std::vector<Pointer<TvmAstNode>>> m_instructions{};
+	TVMCompilerContext* m_ctx{};
 }; // end StackPusher
 
 } // end solidity::frontend

@@ -35,8 +35,8 @@ namespace solidity::frontend {
 			run(_beg, _end);
 		}
 	private:
-		void run(const std::vector<Pointer<TvmAstNode>>::const_iterator _beg,
-				 const std::vector<Pointer<TvmAstNode>>::const_iterator _end);
+		void run(std::vector<Pointer<TvmAstNode>>::const_iterator _beg,
+				 std::vector<Pointer<TvmAstNode>>::const_iterator _end);
 	public:
 		bool visit(AsymGen &_node) override;
 		bool visit(DeclRetFlag &_node) override;
@@ -72,8 +72,12 @@ namespace solidity::frontend {
 	protected:
 		bool visitNode(TvmAstNode const&) override;
 		void endVisitNode(TvmAstNode const&) override;
+
 	private:
 		int rest() const;
+		void unableToConvertOpcode() {
+			m_unableToConvertOpcode = true;
+		}
 
 	private:
 		bool m_wasSet{};

@@ -52,6 +52,13 @@ using namespace solidity::frontend;
 namespace
 {
 
+bool isStringOrStrLiteral(Type const &type) {
+	if (dynamic_cast<StringLiteralType const*>(&type))
+		return true;
+	auto array = dynamic_cast<ArrayType const*>(&type);
+	return array && array->isString();
+}
+
 /// Check whether (_base ** _exp) fits into 4096 bits.
 bool fitsPrecisionExp(bigint const& _base, bigint const& _exp)
 {
@@ -1340,7 +1347,7 @@ BoolResult StringLiteralType::isImplicitlyConvertibleTo(Type const& _convertTo) 
 
 	if (auto fixedBytes = dynamic_cast<FixedBytesType const*>(&_convertTo))
 		return size_t(fixedBytes->numBytes()) >= m_value.size();
-	else if (auto arrayType = dynamic_cast<ArrayType const*>(&_convertTo))
+	if (auto arrayType = dynamic_cast<ArrayType const*>(&_convertTo))
 		return
 			arrayType->isByteArray() && !(arrayType->isString() && !isValidUTF8());
 	else
@@ -1379,6 +1386,18 @@ TypePointer StringLiteralType::mobileType() const
 bool StringLiteralType::isValidUTF8() const
 {
 	return util::validateUTF8(m_value);
+}
+
+TypeResult StringLiteralType::binaryOperatorResult(Token _operator, Type const *_other) const {
+	if (_operator == Token::Add &&
+		(_other->category() == Type::Category::FixedBytes || isStringOrStrLiteral(*_other))
+	) {
+		// We don't return Type::commonType() because Type::commonType(bytesN, string_literal) == bytesN
+		return TypeProvider::array(true);
+	}
+	if (TokenTraits::isCompareOp(_operator))
+		return Type::commonType(this, _other);
+	return nullptr;
 }
 
 FixedBytesType::FixedBytesType(unsigned _bytes): m_bytes(_bytes)
@@ -1421,6 +1440,11 @@ TypeResult FixedBytesType::unaryOperatorResult(Token _operator) const
 
 TypeResult FixedBytesType::binaryOperatorResult(Token _operator, Type const* _other) const
 {
+	if (_operator == Token::Add && isStringOrStrLiteral(*_other))
+	{
+		return TypeProvider::array(true);
+	}
+
 	if (TokenTraits::isShiftOp(_operator))
 	{
 		if (isValidShiftAndAmountType(_operator, *_other))
@@ -1578,8 +1602,16 @@ ArrayType::ArrayType(bool _isString):
 
 TypeResult ArrayType::binaryOperatorResult(Token _operator, const Type *_other) const
 {
-	if (isString() && (_operator == Token::Add || TokenTraits::isCompareOp(_operator)))
-		return Type::commonType(this, _other);
+	if (isString()) {
+		if (_operator == Token::Add &&
+			(_other->category() == Type::Category::FixedBytes || isStringOrStrLiteral(*_other))
+		) {
+			return TypeProvider::array(true);
+		}
+		if (TokenTraits::isCompareOp(_operator)) {
+			return Type::commonType(this, _other);
+		}
+	}
 	if (isByteArray() && _operator == Token::Equal)
 		return Type::commonType(this, _other);
 	return nullptr;
@@ -2808,6 +2840,7 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMBuildExtMsg: id += "tvmbuildextmsg"; break;
 	case Kind::TVMBuildIntMsg: id += "tvmbuildintmsg"; break;
 	case Kind::TVMBuildStateInit: id += "tvmbuildstateinit"; break;
+	case Kind::TVMBuildDataInit: id += "tvmbuilddatainit"; break;
 
 	case Kind::TVMBuilderMethods: id += "tvmbuildermethods"; break;
 	case Kind::TVMBuilderStore: id += "tvmbuilderstore"; break;
@@ -4024,13 +4057,17 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				true, StateMutability::Pure
 		));
 
-		members.emplace_back("buildEmptyData", TypeProvider::function(
-				TypePointers{TypeProvider::uint256()},
-				TypePointers{TypeProvider::tvmcell()},
-				strings{{}},
-				strings{{}},
-				FunctionType::Kind::TVMDeploy,
-				false, StateMutability::Pure
+		members.emplace_back("buildDataInit", TypeProvider::function(
+			{
+				TypeProvider::uint256(),
+				TypeProvider::initializerList(),
+				//TypeProvider::contract(...) it's commented because we should set the concrete contract
+			},
+			{TypeProvider::tvmcell()},
+			{"pubkey", "varInit"},
+			{{}},
+			FunctionType::Kind::TVMBuildDataInit,
+			true, StateMutability::Pure
 		));
 
 		members.emplace_back("insertPubkey", TypeProvider::function(

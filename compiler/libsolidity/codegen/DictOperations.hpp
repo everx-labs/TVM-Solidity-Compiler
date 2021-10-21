@@ -25,13 +25,6 @@
 
 #include "TVMCommons.hpp"
 
-using namespace std;
-using namespace solidity;
-using namespace solidity::frontend;
-using namespace langutil;
-using namespace solidity::util;
-
-
 namespace solidity::frontend {
 
 class StackPusher;
