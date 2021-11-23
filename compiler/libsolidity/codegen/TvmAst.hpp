@@ -40,7 +40,7 @@ namespace solidity::frontend
 		return std::make_shared<NodeType>(std::forward<Args>(_args)...);
 	}
 
-	class TvmAstNode : private boost::noncopyable {
+	class TvmAstNode : private boost::noncopyable, public std::enable_shared_from_this<TvmAstNode> {
 	public:
 		virtual ~TvmAstNode() = default;
 		virtual void accept(TvmAstVisitor& _visitor) = 0;
@@ -138,7 +138,6 @@ namespace solidity::frontend
 
 	class Opaque : public Gen {
 	public:
-		// TODO set for all Opaque correct pure
 		explicit Opaque(Pointer<CodeBlock> _block, int take, int ret, bool isPure) :
 			Gen{isPure}, m_block(std::move(_block)), m_take{take}, m_ret{ret} {}
 		void accept(TvmAstVisitor& _visitor) override;
@@ -201,18 +200,15 @@ namespace solidity::frontend
 
 	class TvmReturn : public Inst {
 	public:
-		enum class Type {
-			RET,
-			RETALT,
-			IFRETALT,
-			IFRET,
-			IFNOTRET
-		};
-		explicit TvmReturn(Type _type) : m_type{_type} { }
+		TvmReturn(bool _withIf, bool _withNot, bool _withAlt);
 		void accept(TvmAstVisitor& _visitor) override;
-		Type type() const { return m_type; }
+		bool withIf() const { return m_withIf; }
+		bool withNot() const { return m_withNot; }
+		bool withAlt() const { return m_withAlt; }
 	private:
-		Type m_type;
+		bool m_withIf{};
+		bool m_withNot{};
+		bool m_withAlt{};
 	};
 
 	class ReturnOrBreakOrCont : public Inst {
@@ -230,6 +226,7 @@ namespace solidity::frontend
 		Pointer<CodeBlock> m_body;
 	};
 
+	// TODO add bool flags
 	class TvmException : public Inst {
 	public:
 		explicit TvmException(std::string const& _opcode, int _take, int _ret) :
@@ -249,6 +246,7 @@ namespace solidity::frontend
 	class PushCellOrSlice : public Gen {
 	public:
 		enum class Type {
+			PUSHREF_COMPUTE,
 			PUSHREF,
 			PUSHREFSLICE,
 			CELL
@@ -275,6 +273,7 @@ namespace solidity::frontend
 
 	class CodeBlock : public Inst {
 	public:
+		// TODO delete these types
 		enum class Type {
 			None,
 			PUSHCONT,
@@ -298,15 +297,11 @@ namespace solidity::frontend
 
 	class SubProgram : public Gen {
 	public:
-		enum class Type {
-			CALLREF,
-			CALLX,
-		};
-		SubProgram(int take, int ret, Type _type, Pointer<CodeBlock> const &_block) :
+		SubProgram(int take, int ret, bool _isJmp, Pointer<CodeBlock> const &_block) :
 			Gen{false},
 			m_take{take},
 			m_ret{ret},
-			m_type{_type},
+			m_isJmp{_isJmp},
 			m_block{_block}
 		{
 		}
@@ -314,11 +309,11 @@ namespace solidity::frontend
 		int take() const override { return  m_take; }
 		int ret() const override { return m_ret; }
 		Pointer<CodeBlock> const &block() const { return m_block; }
-		Type type() const { return m_type; }
+		bool isJmp() const { return m_isJmp; }
 	private:
 		int m_take{};
 		int m_ret{};
-		Type m_type{};
+		bool m_isJmp{};
 		Pointer<CodeBlock> m_block;
 	};
 
@@ -363,44 +358,33 @@ namespace solidity::frontend
 
 	class TvmIfElse : public TvmAstNode {
 	public:
-		enum class Type {
-			IF,
-			IFNOT,
-
-			IFREF,
-			IFNOTREF,
-
-			IFJMP,
-			IFNOTJMP,
-
-			IFJMPREF,
-			IFNOTJMPREF,
-
-			IFELSE,
-			IFELSE_WITH_JMP,
-		};
-		TvmIfElse(Type type, Pointer<CodeBlock> const &trueBody, Pointer<CodeBlock> const &falseBody = nullptr) :
-			m_type{type},
-			m_trueBody(trueBody),
-			m_falseBody(falseBody)
-		{
-		}
+		TvmIfElse(bool _withNot, bool _withJmp,
+				  Pointer<CodeBlock> const &trueBody,
+				  Pointer<CodeBlock> const &falseBody = nullptr);
 		void accept(TvmAstVisitor& _visitor) override;
-		Type type() const { return m_type; }
+		bool withNot() const { return m_withNot; }
+		bool withJmp() const { return m_withJmp; }
 		Pointer<CodeBlock> const& trueBody() const { return m_trueBody; }
 		Pointer<CodeBlock> const& falseBody() const { return m_falseBody; }
 	private:
-		Type m_type;
+		bool m_withNot{};
+		bool m_withJmp{};
 		Pointer<CodeBlock> m_trueBody;
 		Pointer<CodeBlock> m_falseBody; // nullptr for if-statement
 	};
 
 	class TvmRepeat : public TvmAstNode {
 	public:
-		explicit TvmRepeat(Pointer<CodeBlock> const &body) : m_body(body) { }
+		explicit TvmRepeat(bool _withBreakOrReturn, Pointer<CodeBlock> const &body) :
+			m_withBreakOrReturn{_withBreakOrReturn},
+			m_body(body)
+		{
+		}
 		void accept(TvmAstVisitor& _visitor) override;
+		bool withBreakOrReturn() const { return m_withBreakOrReturn; }
 		Pointer<CodeBlock> const& body() const { return m_body; }
 	private:
+		bool m_withBreakOrReturn{};
 		Pointer<CodeBlock> m_body;
 	};
 
@@ -438,7 +422,6 @@ namespace solidity::frontend
 		Pointer<CodeBlock> m_body;
 	};
 
-	// TODO inher from gen?
 	class Function : public TvmAstNode {
 	public:
 		enum class FunctionType {
@@ -505,9 +488,10 @@ namespace solidity::frontend
 	Pointer<TvmException> makeTHROW(const std::string& cmd);
 	Pointer<Stack> makeXCH_S(int i);
 	Pointer<Stack> makeXCH_S_S(int i, int j);
+	Pointer<Glob> makeGetGlob(int i);
 	Pointer<Glob> makeSetGlob(int i);
 	Pointer<Stack> makeBLKDROP2(int droppedCount, int leftCount);
-	Pointer<PushCellOrSlice> makePUSHREF(std::string const& data = "");
+	Pointer<PushCellOrSlice> makePUSHREF(std::string data = "");
 	Pointer<Stack> makeREVERSE(int i, int j);
 	Pointer<Stack> makeROT();
 	Pointer<Stack> makeROTREV();

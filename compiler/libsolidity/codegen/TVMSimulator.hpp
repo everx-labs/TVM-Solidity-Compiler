@@ -67,7 +67,11 @@ namespace solidity::frontend {
 
 		bool success() const;
 		bool wasSet() const { return m_wasSet; }
+		bool wasMoved() const { return m_wasMoved; }
 		std::vector<Pointer<TvmAstNode>> const& commands() const { return m_commands; }
+		std::vector<Pointer<TvmAstNode>>::const_iterator getIter() const { return m_iter; }
+		std::set<int> setGlobIndexes() const { return m_setGlobs; }
+		bool wasCall() const { return m_wasCall; }
 
 	protected:
 		bool visitNode(TvmAstNode const&) override;
@@ -81,13 +85,17 @@ namespace solidity::frontend {
 
 	private:
 		bool m_wasSet{};
+		bool m_wasMoved{};
 		bool m_unableToConvertOpcode{};
 		bool m_isDropped{};
 		bool m_wasReturnBreakContinue{};
 
-		int m_segment{};
+		int const m_segment{};
 		int m_stackSize{};
 		std::vector<Pointer<TvmAstNode>> m_commands;
+		std::vector<Pointer<TvmAstNode>>::const_iterator m_iter{};
+		std::set<int> m_setGlobs;
+		bool m_wasCall{};
 	};
 } // end solidity::frontend
 

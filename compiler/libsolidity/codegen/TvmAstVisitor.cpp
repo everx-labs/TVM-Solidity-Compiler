@@ -61,22 +61,15 @@ bool Printer::visit(Loc &_node) {
 
 bool Printer::visit(TvmReturn &_node) {
 	tabs();
-	switch (_node.type()) {
-		case TvmReturn::Type::RET:
-			m_out << "RET";
-			break;
-		case TvmReturn::Type::RETALT:
-			m_out << "RETALT";
-			break;
-		case TvmReturn::Type::IFRETALT:
-			m_out << "IFRETALT";
-			break;
-		case TvmReturn::Type::IFRET:
-			m_out << "IFRET";
-			break;
-		case TvmReturn::Type::IFNOTRET:
-			m_out << "IFNOTRET";
-			break;
+	if (_node.withIf()) {
+		m_out << "IF";
+	}
+	if (_node.withNot()) {
+		m_out << "NOT";
+	}
+	m_out << "RET";
+	if (_node.withAlt()) {
+		m_out << "ALT";
 	}
 	endL();
 	return false;
@@ -131,6 +124,11 @@ bool Printer::visit(GenOpcode &_node) {
 bool Printer::visit(PushCellOrSlice &_node) {
 	tabs();
 	switch (_node.type()) {
+		case PushCellOrSlice::Type::PUSHREF_COMPUTE:
+			m_out << "PUSHREF" << std::endl;
+			tabs();
+			m_out << ".compute $" << _node.blob() << "$" << std::endl;
+			return false;
 		case PushCellOrSlice::Type::PUSHREF:
 			m_out << "PUSHREF {";
 			break;
@@ -424,33 +422,40 @@ bool Printer::visit(CodeBlock &_node) {
 }
 
 bool Printer::visit(SubProgram &_node) {
-	tabs();
-	switch (_node.type()) {
-		case SubProgram::Type::CALLX:
-			m_out << "PUSHCONT";
-			break;
-		case SubProgram::Type::CALLREF:
-			m_out << "CALLREF";
-			break;
-	}
-	m_out << " {" << std::endl;
+	switch (_node.block()->type()) {
+		case CodeBlock::Type::None:
+			solUnimplemented("");
+		case CodeBlock::Type::PUSHCONT:
+			_node.block()->accept(*this);
 
-	++m_tab;
-	_node.block()->accept(*this);
-	--m_tab;
-
-	tabs();
-	m_out << "}" << std::endl;
-
-	switch (_node.type()) {
-		case SubProgram::Type::CALLX:
 			tabs();
-			m_out << "CALLX" << std::endl;
+			if (_node.isJmp()) {
+				m_out << "JMPX";
+			} else {
+				m_out << "CALLX";
+			}
+			endL();
+
 			break;
-		default:
+		case CodeBlock::Type::PUSHREFCONT:
+			tabs();
+			if (_node.isJmp()) {
+				m_out << "JMPREF {";
+			} else {
+				m_out << "CALLREF {";
+			}
+			endL();
+
+			++m_tab;
+			for (Pointer<TvmAstNode> const& i : _node.block()->instructions()) {
+				i->accept(*this);
+			}
+			--m_tab;
+
+			tabs();
+			m_out << "}" << std::endl;
 			break;
 	}
-
 	return false;
 }
 
@@ -488,77 +493,70 @@ bool Printer::visit(LogCircuit &_node) {
 }
 
 bool Printer::visit(TvmIfElse &_node) {
-	if (isIn(_node.type(),
-			 TvmIfElse::Type::IFREF,
-			 TvmIfElse::Type::IFNOTREF,
-			 TvmIfElse::Type::IFJMPREF,
-			 TvmIfElse::Type::IFNOTJMPREF)
-	) {
-		tabs();
-		switch (_node.type()) {
-			case TvmIfElse::Type::IFREF:
-				m_out << "IFREF";
-				break;
-			case TvmIfElse::Type::IFNOTREF:
-				m_out << "IFNOTREF";
-				break;
-			case TvmIfElse::Type::IFJMPREF:
-				m_out << "IFJMPREF";
-				break;
-			case TvmIfElse::Type::IFNOTJMPREF:
-				m_out << "IFNOTJMPREF";
-				break;
-			default:
+	if (_node.falseBody() == nullptr) {
+		switch (_node.trueBody()->type()) {
+			case CodeBlock::Type::None:
 				solUnimplemented("");
+				break;
+			case CodeBlock::Type::PUSHCONT:
+				_node.trueBody()->accept(*this);
+
+				tabs();
+				m_out << "IF";
+				if (_node.withNot())
+					m_out << "NOT";
+				if (_node.withJmp())
+					m_out << "JMP";
+				endL();
+
+				break;
+			case CodeBlock::Type::PUSHREFCONT:
+				tabs();
+				m_out << "IF";
+				if (_node.withNot())
+					m_out << "NOT";
+				if (_node.withJmp())
+					m_out << "JMP";
+				m_out << "REF {";
+				endL();
+
+				++m_tab;
+				for (Pointer<TvmAstNode> const& i : _node.trueBody()->instructions()) {
+					i->accept(*this);
+				}
+				--m_tab;
+
+				tabs();
+				m_out << "}" << std::endl;
+				break;
 		}
-		m_out << " {" << std::endl;
-		++m_tab;
-		for (Pointer<TvmAstNode> const& i : _node.trueBody()->instructions()) {
-			i->accept(*this);
-		}
-		--m_tab;
-		tabs();
-		m_out << "}" << std::endl;
 	} else {
 		_node.trueBody()->accept(*this);
-		if (_node.falseBody()) {
-			_node.falseBody()->accept(*this);
-		}
-		tabs();
-		switch (_node.type()) {
-			case TvmIfElse::Type::IF:
-				m_out << "IF";
-				break;
-			case TvmIfElse::Type::IFNOT:
-				m_out << "IFNOT";
-				break;
-			case TvmIfElse::Type::IFJMP:
-				m_out << "IFJMP";
-				break;
-			case TvmIfElse::Type::IFNOTJMP:
-				m_out << "IFNOTJMP";
-				break;
-			case TvmIfElse::Type::IFELSE:
-				m_out << "IFELSE";
-				break;
-			case TvmIfElse::Type::IFELSE_WITH_JMP:
-				m_out << "CONDSEL" << std::endl;
-				tabs();
-				m_out << "JMPX";
-				break;
-			default:
-				solUnimplemented("");
-		}
-		m_out << std::endl;
-	}
+		_node.falseBody()->accept(*this);
+		if (_node.withNot())
+			solUnimplemented("");
 
+		tabs();
+		if (_node.withJmp()) {
+			m_out << "CONDSEL" << std::endl;
+			tabs();
+			m_out << "JMPX";
+		} else {
+			m_out << "IFELSE";
+		}
+		endL();
+	}
 	return false;
 }
 
 bool Printer::visit(TvmRepeat &_node) {
 	_node.body()->accept(*this);
 	tabs();
-	m_out << "REPEAT" << std::endl;
+	if (_node.withBreakOrReturn()) {
+		m_out << "REPEATBRK" << std::endl;
+	} else {
+		m_out << "REPEAT" << std::endl;
+	}
 	return false;
 }
 

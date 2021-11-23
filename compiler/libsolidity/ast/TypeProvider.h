@@ -96,11 +96,10 @@ public:
 			return m_int257.get();
 		}
 
-		solAssert((_bits % 8) == 0, "");
 		if (_modifier == IntegerType::Modifier::Unsigned)
-			return m_uintM.at(_bits / 8 - 1).get();
+			return m_uintM.at(_bits - 1).get();
 		else
-			return m_intM.at(_bits / 8 - 1).get();
+			return m_intM.at(_bits - 1).get();
 	}
 	static IntegerType const* uint(unsigned _bits) { return integer(_bits, IntegerType::Modifier::Unsigned); }
 
@@ -232,8 +231,8 @@ private:
 	static InitializerListType const m_initializerList;
 	static CallListType const m_callList;
 	static std::unique_ptr<IntegerType> const m_int257;
-	static std::array<std::unique_ptr<IntegerType>, 32> const m_intM;
-	static std::array<std::unique_ptr<IntegerType>, 32> const m_uintM;
+	static std::array<std::unique_ptr<IntegerType>, 256> const m_intM;
+	static std::array<std::unique_ptr<IntegerType>, 256> const m_uintM;
 	static std::array<std::unique_ptr<FixedBytesType>, 32> const m_bytesM;
 	static std::array<std::unique_ptr<MagicType>, 7> const m_magics;        ///< MagicType's except MetaType
 

@@ -74,7 +74,7 @@ void TVMABI::printFunctionIds(
 			<< (lastName == func ? "" : ",")
 			<< endl;
 	}
-	cout << "}";
+	cout << "}" << endl;
 }
 
 void TVMABI::generateABI(
@@ -824,7 +824,7 @@ void ChainDataDecoder::loadq(const DecodePosition::Algo algo, const std::string 
 			loadNextSlice();
 			pusher->push(-1 + 2, opcode);
 			pusher->endContinuation();
-			pusher->_ifNot();
+			pusher->ifNot();
 			pusher->endOpaque(1, 2);
 		}
 	}

@@ -479,105 +479,107 @@ std::pair<bool, bool> CompilerStack::compile()
 	if (m_hasError)
 		BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("Called compile with errors."));
 
-	ContractDefinition const *targetContract{};
-	std::vector<PragmaDirective const *> targetPragmaDirectives;
+	if (m_generateAbi || m_generateCode) {
+		ContractDefinition const *targetContract{};
+		std::vector<PragmaDirective const *> targetPragmaDirectives;
 
-	for (Source const* source: m_sourceOrder) {
+		for (Source const *source: m_sourceOrder) {
 
-		if (source->ast->annotation().path != m_inputFile) {
-			continue;
-		}
-
-
-		std::vector<PragmaDirective const *> pragmaDirectives = getPragmaDirectives(source);
-		for (auto pragma: pragmaDirectives) {
-			if (pragma->parameter()) {
-				TypeChecker typeChecker(m_evmVersion, m_errorReporter);
-				typeChecker.checkTypeRequirements(*pragma->parameter().get());
-			}
-		}
-
-		std::vector<ContractDefinition const *> contracts;
-		for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
-			if (auto contract = dynamic_cast<ContractDefinition const *>(node.get())) {
-				contracts.push_back(contract);
-			}
-		}
-
-
-		for (ContractDefinition const *contract : contracts) {
-			if (contract->isLibrary()) {
-				continue ;
+			if (source->ast->annotation().path != m_inputFile) {
+				continue;
 			}
 
-			if (!m_mainContract.empty()) {
-				if (contract->name() == m_mainContract) {
-					if (m_generateCode && !contract->canBeDeployed()) {
-						m_errorReporter.typeError(
-								contract->location(),
-								"The desired contract isn't deployable (it has not public constructor or it's abstract or it's interface or it's library)."
-						);
-						return {false, didCompileSomething};
-					}
-					targetContract = contract;
-					targetPragmaDirectives = pragmaDirectives;
-				}
-			} else {
-				if (m_generateAbi && !m_generateCode) {
-					if (targetContract != nullptr) {
-						m_errorReporter.typeError(
-								targetContract->location(),
-								SecondarySourceLocation().append("Previous contract:",
-																 contract->location()),
-								"Source file contains at least two contracts/interfaces."
-								" Consider adding the option --contract in compiler command line to select the desired contract/interface."
-						);
-						return {false, didCompileSomething};
-					}
-					targetContract = contract;
-					targetPragmaDirectives = pragmaDirectives;
-				} else if (contract->canBeDeployed()) {
-					if (targetContract != nullptr) {
-						m_errorReporter.typeError(
-								targetContract->location(),
-								SecondarySourceLocation().append("Previous deployable contract:",
-																 contract->location()),
-								"Source file contains at least two deployable contracts."
-								" Consider adding the option --contract in compiler command line to select the desired contract."
-						);
-						return {false, didCompileSomething};
-					}
-					targetContract = contract;
-					targetPragmaDirectives = pragmaDirectives;
+
+			std::vector<PragmaDirective const *> pragmaDirectives = getPragmaDirectives(source);
+			for (auto pragma: pragmaDirectives) {
+				if (pragma->parameter()) {
+					TypeChecker typeChecker(m_evmVersion, m_errorReporter);
+					typeChecker.checkTypeRequirements(*pragma->parameter().get());
 				}
 			}
+
+			std::vector<ContractDefinition const *> contracts;
+			for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
+				if (auto contract = dynamic_cast<ContractDefinition const *>(node.get())) {
+					contracts.push_back(contract);
+				}
+			}
+
+
+			for (ContractDefinition const *contract: contracts) {
+				if (contract->isLibrary()) {
+					continue;
+				}
+
+				if (!m_mainContract.empty()) {
+					if (contract->name() == m_mainContract) {
+						if (m_generateCode && !contract->canBeDeployed()) {
+							m_errorReporter.typeError(
+									contract->location(),
+									"The desired contract isn't deployable (it has not public constructor or it's abstract or it's interface or it's library)."
+							);
+							return {false, didCompileSomething};
+						}
+						targetContract = contract;
+						targetPragmaDirectives = pragmaDirectives;
+					}
+				} else {
+					if (m_generateAbi && !m_generateCode) {
+						if (targetContract != nullptr) {
+							m_errorReporter.typeError(
+									targetContract->location(),
+									SecondarySourceLocation().append("Previous contract:",
+																	 contract->location()),
+									"Source file contains at least two contracts/interfaces."
+									" Consider adding the option --contract in compiler command line to select the desired contract/interface."
+							);
+							return {false, didCompileSomething};
+						}
+						targetContract = contract;
+						targetPragmaDirectives = pragmaDirectives;
+					} else if (contract->canBeDeployed()) {
+						if (targetContract != nullptr) {
+							m_errorReporter.typeError(
+									targetContract->location(),
+									SecondarySourceLocation().append("Previous deployable contract:",
+																	 contract->location()),
+									"Source file contains at least two deployable contracts."
+									" Consider adding the option --contract in compiler command line to select the desired contract."
+							);
+							return {false, didCompileSomething};
+						}
+						targetContract = contract;
+						targetPragmaDirectives = pragmaDirectives;
+					}
+				}
+			}
 		}
-	}
 
-	if (!m_mainContract.empty() && targetContract == nullptr) {
-		m_errorReporter.typeError(
-				SourceLocation(),
-				"Source file doesn't contain the desired contract \"" + m_mainContract + "\"."
-		);
-		return {false, didCompileSomething};
-	}
-
-	if (targetContract != nullptr) {
-		try {
-			TVMCompilerProceedContract(
-				&m_errorReporter,
-				*targetContract,
-				&targetPragmaDirectives,
-				m_generateAbi,
-				m_generateCode,
-				m_inputFile,
-				m_folder,
-				m_file_prefix,
-				m_doPrintFunctionIds
+		if (!m_mainContract.empty() && targetContract == nullptr) {
+			m_errorReporter.typeError(
+					SourceLocation(),
+					"Source file doesn't contain the desired contract \"" + m_mainContract + "\"."
 			);
-			didCompileSomething = true;
-		} catch (FatalError const &) {
 			return {false, didCompileSomething};
+		}
+
+		if (targetContract != nullptr) {
+			try {
+				TVMCompilerProceedContract(
+						&m_errorReporter,
+						*targetContract,
+						&targetPragmaDirectives,
+						m_generateAbi,
+						m_generateCode,
+						m_inputFile,
+						m_folder,
+						m_file_prefix,
+						m_doPrintFunctionIds
+				);
+				didCompileSomething = true;
+			} catch (FatalError const &) {
+				return {false, didCompileSomething};
+			}
 		}
 	}
 

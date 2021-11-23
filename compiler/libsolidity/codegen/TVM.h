@@ -27,6 +27,12 @@ public:
     static solidity::langutil::ErrorReporter* g_errorReporter;
 };
 
+std::string getPathToFiles(
+	const std::string& solFileName,
+	const std::string& outputFolder,
+	const std::string& filePrefix
+);
+
 void TVMCompilerProceedContract(
 	solidity::langutil::ErrorReporter* errorReporter,
 	solidity::frontend::ContractDefinition const& _contract,

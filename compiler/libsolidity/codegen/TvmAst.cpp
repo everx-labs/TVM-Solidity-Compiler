@@ -133,6 +133,14 @@ std::string GenOpcode::fullOpcode() const {
 	return ret;
 }
 
+TvmReturn::TvmReturn(bool _withIf, bool _withNot, bool _withAlt) :
+	m_withIf{_withIf},
+	m_withNot{_withNot},
+	m_withAlt{_withAlt}
+{
+	solAssert((m_withNot && m_withIf) || !m_withNot, "");
+}
+
 void TvmReturn::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
 }
@@ -218,6 +226,16 @@ void LogCircuit::accept(TvmAstVisitor& _visitor) {
 	{
 		m_body->accept(_visitor);
 	}
+}
+
+TvmIfElse::TvmIfElse(bool _withNot, bool _withJmp, Pointer<CodeBlock> const &trueBody,
+					 Pointer<CodeBlock> const &falseBody) :
+		m_withNot{_withNot},
+		m_withJmp{_withJmp},
+		m_trueBody(trueBody),
+		m_falseBody(falseBody)
+{
+	solAssert((m_withNot && falseBody == nullptr) || !m_withNot, "");
 }
 
 void TvmIfElse::accept(TvmAstVisitor& _visitor) {
@@ -349,6 +367,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"ADDRAND", {1, 0}},
 		{"ENDS", {1, 0}},
 		{"SETCODE", {1, 0}},
+		{"SETGASLIMIT", {1, 0}},
 		{"SETRAND", {1, 0}},
 
 		{"ABS", {1, 1}},
@@ -580,23 +599,23 @@ Pointer<Stack> makePUSH3(int i, int j, int k) {
 }
 
 Pointer<TvmReturn> makeRET() {
-	return createNode<TvmReturn>(TvmReturn::Type::RET);
+	return createNode<TvmReturn>(false, false, false);
 }
 
 Pointer<TvmReturn> makeRETALT() {
-	return createNode<TvmReturn>(TvmReturn::Type::RETALT);
+	return createNode<TvmReturn>(false, false, true);
 }
 
 Pointer<TvmReturn> makeIFRETALT() {
-	return createNode<TvmReturn>(TvmReturn::Type::IFRETALT);
+	return createNode<TvmReturn>(true, false, true);
 }
 
 Pointer<TvmReturn> makeIFRET() {
-	return createNode<TvmReturn>(TvmReturn::Type::IFRET);
+	return createNode<TvmReturn>(true, false, false);
 }
 
 Pointer<TvmReturn> makeIFNOTRET() {
-	return createNode<TvmReturn>(TvmReturn::Type::IFNOTRET);
+	return createNode<TvmReturn>(true, true, false);
 }
 
 Pointer<TvmException> makeTHROW(const std::string& cmd) {
@@ -639,6 +658,10 @@ Pointer<Stack> makeXCH_S_S(int i, int j) {
 	return createNode<Stack>(Stack::Opcode::XCHG, i, j);
 }
 
+Pointer<Glob> makeGetGlob(int i) {
+	return createNode<Glob>(Glob::Opcode::GetOrGetVar, i);
+}
+
 Pointer<Glob> makeSetGlob(int i) {
 	return createNode<Glob>(Glob::Opcode::SetOrSetVar, i);
 }
@@ -655,7 +678,10 @@ Pointer<Stack> makeBLKDROP2(int droppedCount, int leftCount) {
 	return createNode<Stack>(Stack::Opcode::BLKDROP2, droppedCount, leftCount);
 }
 
-Pointer<PushCellOrSlice> makePUSHREF(std::string const& data) {
+Pointer<PushCellOrSlice> makePUSHREF(std::string data) {
+	if (!data.empty()) {
+		data = ".blob " + data;
+	}
 	return createNode<PushCellOrSlice>(PushCellOrSlice::Type::PUSHREF, data, nullptr);
 }
 
@@ -683,33 +709,16 @@ Pointer<Stack> makeTUCK() {
 }
 
 Pointer<Stack> makePUXC(int i, int j) {
+	solAssert(0 <= i && i <= 15, "");
+	solAssert(-1 <= j && j <= 14, "");
 	return createNode<Stack>(Stack::Opcode::PUXC, i, j);
 }
 
 Pointer<TvmIfElse> makeRevert(TvmIfElse const& node) {
-	switch (node.type()) {
-		case TvmIfElse::Type::IF:
-			return createNode<TvmIfElse>(TvmIfElse::Type::IFNOT, node.trueBody());
-		case TvmIfElse::Type::IFNOT:
-			return createNode<TvmIfElse>(TvmIfElse::Type::IF, node.trueBody());
-		case TvmIfElse::Type::IFJMP:
-			return createNode<TvmIfElse>(TvmIfElse::Type::IFNOTJMP, node.trueBody());
-		case TvmIfElse::Type::IFNOTJMP:
-			return createNode<TvmIfElse>(TvmIfElse::Type::IFJMP, node.trueBody());
-		case TvmIfElse::Type::IFELSE:
-			return createNode<TvmIfElse>(TvmIfElse::Type::IFELSE, node.falseBody(), node.trueBody());
-		case TvmIfElse::Type::IFELSE_WITH_JMP:
-			return createNode<TvmIfElse>(TvmIfElse::Type::IFELSE_WITH_JMP, node.falseBody(), node.trueBody());
-		case TvmIfElse::Type::IFREF:
-			return createNode<TvmIfElse>(TvmIfElse::Type::IFNOTREF, node.falseBody(), node.trueBody());
-		case TvmIfElse::Type::IFNOTREF:
-			return createNode<TvmIfElse>(TvmIfElse::Type::IFREF, node.falseBody(), node.trueBody());
-		case TvmIfElse::Type::IFJMPREF:
-			return createNode<TvmIfElse>(TvmIfElse::Type::IFNOTJMPREF, node.falseBody(), node.trueBody());
-		case TvmIfElse::Type::IFNOTJMPREF:
-			return createNode<TvmIfElse>(TvmIfElse::Type::IFJMPREF, node.falseBody(), node.trueBody());
+	if (node.falseBody() == nullptr) {
+		return createNode<TvmIfElse>(!node.withNot(), node.withJmp(), node.trueBody(), node.falseBody());
 	}
-	solUnimplemented("");
+	return createNode<TvmIfElse>(node.withNot(), node.withJmp(), node.falseBody(), node.trueBody());
 }
 
 Pointer<TvmCondition> makeRevertCond(TvmCondition const& node) {

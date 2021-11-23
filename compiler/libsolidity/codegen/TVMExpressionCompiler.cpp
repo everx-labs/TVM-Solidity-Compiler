@@ -18,16 +18,19 @@
 
 #include  <boost/core/ignore_unused.hpp>
 
+#include <liblangutil/SourceReferenceExtractor.h>
+
 #include "DictOperations.hpp"
+#include "TVMConstants.hpp"
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCall.hpp"
 #include "TVMStructCompiler.hpp"
-#include "TVMConstants.hpp"
 
-using namespace std;
-using namespace solidity;
 using namespace solidity::frontend;
+using namespace solidity::langutil;
 using namespace solidity::util;
+using namespace solidity;
+using namespace std;
 
 TVMExpressionCompiler::TVMExpressionCompiler(StackPusher &pusher) :
 		m_pusher{pusher},
@@ -213,26 +216,79 @@ void TVMExpressionCompiler::visit2(Literal const &_node) {
 }
 
 void TVMExpressionCompiler::visit2(TupleExpression const &_tupleExpression) {
+	vector<ASTPointer<Expression>> const& components = _tupleExpression.components();
 	if (_tupleExpression.isInlineArray()) {
-		m_pusher.pushInt(_tupleExpression.components().size());
-		m_pusher.push(+1, "NEWDICT");
-		Type const* type = _tupleExpression.annotation().type;
-		for (int i = 0; i < static_cast<int>(_tupleExpression.components().size()); ++i) {
-			const IntegerType key = getKeyTypeOfArray();
-			auto arrayBaseType = to<ArrayType>(type)->baseType();
+		int n = components.size();
+		if (_tupleExpression.annotation().isPure) {
+			const int stackSize = m_pusher.stackSize();
+			SourceReference sr = SourceReferenceExtractor::extract(&_tupleExpression.location());
+			const std::string computeName = "inline_array_line_" +
+					toString(sr.position.line) + "_column_" + toString(sr.position.column) + "_ast_id_" +
+					toString(_tupleExpression.id());
 
-			compileNewExpr(_tupleExpression.components().at(i).get()); // totalSize dict value
-			const DataType& dataType = m_pusher.prepareValueForDictOperations(&key, arrayBaseType, false); // totalSize dict value'
-			m_pusher.pushInt(i); // totalSize dict value' index
-			m_pusher.rot(); // totalSize value' index dict
-			m_pusher.setDict(key, *arrayBaseType, dataType); // totalSize dict
+			m_pusher << "PUSHINT " + toString(n);
+			m_pusher.compureConstCell(computeName);
+			m_pusher << "TUPLE 2";
+
+			m_pusher.ctx().addConstArray(computeName, &_tupleExpression);
+			solAssert(stackSize + 1 == m_pusher.stackSize(), "");
+		} else {
+			visitHonest(_tupleExpression, false);
 		}
-		m_pusher.push(-2 + 1, "TUPLE 2");
 	} else {
-		for (const auto &comp : _tupleExpression.components()) {
+		for (const auto &comp : components) {
 			compileNewExpr(comp.get());
 		}
 	}
+}
+
+void TVMExpressionCompiler::visitHonest(TupleExpression const& _tupleExpression, bool onlyDict) {
+	const int stackSize = m_pusher.stackSize();
+	vector<ASTPointer<Expression>> const& components = _tupleExpression.components();
+	int n = components.size();
+
+	Type const* tupleType = _tupleExpression.annotation().type;
+	auto arrayBaseType = to<ArrayType>(tupleType)->baseType();
+	const IntegerType arrayKeyType = getKeyTypeOfArray();
+
+	for (ASTPointer<Expression> const& expr : components | boost::adaptors::reversed) {
+		compileNewExpr(expr.get());
+	}
+	// values...
+	m_pusher.pushInt(0);
+	// values... index
+	m_pusher.push(+1, "NEWDICT");
+	// values... index dict
+	m_pusher.pushInt(n);
+	// values... index dict totalSize
+
+	m_pusher.startOpaque();
+	m_pusher.startContinuation();
+	// values... index dict
+	m_pusher.rot();
+	// values... index dict valueI
+	const DataType& dataType = m_pusher.prepareValueForDictOperations(&arrayKeyType, arrayBaseType, false);
+	// values... index dict valueI'
+	m_pusher.pushS(2);
+	// values... index dict valueI' index
+	m_pusher.push(0, "INC");
+	// values... index dict valueI' index++
+	m_pusher.exchange(3);
+	// values... index++ dict valueI' index
+	m_pusher.rot();
+	// values... index++ valueI' index dict
+	m_pusher.setDict(arrayKeyType, *arrayBaseType, dataType);
+	// values... index++ dict
+	m_pusher.endContinuation();
+	m_pusher.repeat(false);
+	m_pusher.endOpaque(n + 3, 2);
+
+	// index++ dict
+	if (onlyDict)
+		m_pusher.dropUnder(1, 1);
+	else
+		m_pusher.push(-2 + 1, "TUPLE 2");
+	solAssert(stackSize + 1 == m_pusher.stackSize(), "");
 }
 
 bool TVMExpressionCompiler::tryPushConstant(Identifier const &_identifier) {
@@ -953,14 +1009,14 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 			m_pusher.push(0, "PLDREF");
 			m_pusher.push(0, "CTOS");
 			m_pusher.endContinuation();
-			m_pusher.repeat();
+			m_pusher.repeat(false);
 			m_pusher.push(-1, ""); // fix stack
 			// rest slice
 			m_pusher.exchange(1); // slice rest
 			m_pusher.push(-1 + 1, "MULCONST 8");
 			m_pusher.push(-2 + 1, "SDSKIPFIRST");
 			m_pusher.push(-1 + 1, "PLDU 8");
-			m_pusher.callRef(2, 1);
+			m_pusher.pushRefContAndCallX(2, 1);
 			return;
 		} else {
 			compileNewExpr(indexAccess.indexExpression()); // index
@@ -1011,12 +1067,11 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 }
 
 void TVMExpressionCompiler::visit2(FunctionCall const &_functionCall) {
-	FunctionCallCompiler fcc(m_pusher, this, _functionCall, isCurrentResultNeeded());
+	FunctionCallCompiler fcc(m_pusher, _functionCall, isCurrentResultNeeded());
 	fcc.compile();
 }
 
 void TVMExpressionCompiler::visit2(Conditional const &_conditional) {
-	// TODO make TvmAstNode inher from Gen
 	const int stackSize = m_pusher.stackSize();
 
 	const int paramQty = returnParamQty(_conditional.trueExpression());

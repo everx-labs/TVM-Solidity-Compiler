@@ -202,7 +202,7 @@ void GetFromDict::checkExist() {
 	pusher.startOpaque();
 	pusher.pushAsym("NULLSWAPIFNOT");
 	pusher.dropUnder(1, 1);
-	pusher.endOpaque(1, 1);
+	pusher.endOpaque(1, 1, true);
 }
 
 DictSet::DictSet(StackPusher &pusher, const Type &keyType, const Type &valueType, const DataType &dataType,

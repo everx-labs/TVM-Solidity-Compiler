@@ -29,7 +29,6 @@ class FunctionCallCompiler {
 public:
 	FunctionCallCompiler(
 		StackPusher& m_pusher,
-		TVMExpressionCompiler* exprCompiler,
 		FunctionCall const& _functionCall,
 		bool isCurrentResultNeeded
 	);
@@ -71,6 +70,10 @@ protected:
 	bool checkSolidityUnits();
 	bool checkLocalFunctionOrLibCallOrFuncVarCall();
 	bool checkNewExpression();
+	void creatArrayWithDefaultValue();
+public:
+	void honestArrayCreation(bool onlyDict);
+protected:
 	bool createNewContract();
 	void deployNewContract(
 		const std::variant<int8_t, std::function<void()>>& wid,
@@ -113,7 +116,7 @@ protected:
 		const Expression *stateInit,
         const Expression *signBoxHandle,
 		const CallableDeclaration *functionDefinition,
-		const ast_vec<Expression const> arguments
+		const ast_vec<Expression const>& arguments
 	);
 
 
@@ -124,9 +127,10 @@ protected:
 	void compileLog();
 	Expression const* findOption(const std::string& name);
 	void cellBitRefQty(bool forCell = true);
+
 private:
 	StackPusher& m_pusher;
-	TVMExpressionCompiler* const m_exprCompiler{};
+	TVMExpressionCompiler m_exprCompiler;
 	FunctionCall const& m_functionCall;
 	std::vector<ASTPointer<Expression const>> m_arguments;
 	FunctionType const* m_funcType{};

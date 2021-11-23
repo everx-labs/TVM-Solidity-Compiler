@@ -32,7 +32,6 @@ bool StackOptimizer::visit(DeclRetFlag &/*_node*/) {
 }
 
 bool StackOptimizer::visit(Opaque &_node) {
-	// TODO visit me
 	delta(- _node.take() + _node.ret());
 	return false;
 }
@@ -48,15 +47,8 @@ bool StackOptimizer::visit(Loc &/*_node*/) {
 
 bool StackOptimizer::visit(TvmReturn &_node) {
 	int take{};
-	switch (_node.type()) {
-		case TvmReturn::Type::RET:
-		case TvmReturn::Type::RETALT:
-			break;
-		case TvmReturn::Type::IFNOTRET:
-		case TvmReturn::Type::IFRET:
-		case TvmReturn::Type::IFRETALT:
-			take = 1;
-			break;
+	if (_node.withIf()) {
+		take = 1;
 	}
 	delta(-take);
 	return false;
@@ -137,7 +129,8 @@ bool StackOptimizer::visit(Stack &_node) {
 
 		case Stack::Opcode::TUCK:
 		case Stack::Opcode::PUXC:
-			solUnimplemented("");
+			delta = 1;
+			break;
 	}
 	this->delta(delta);
 	return false;
@@ -148,6 +141,7 @@ bool StackOptimizer::visit(CodeBlock &_node) {
 
 	for (size_t i = 0; i < instructions.size(); ) {
 		if (successfullyUpdate(i, instructions)) {
+			m_didSome = true;
 			// do nothing
 			//_node.upd(instructions);
 			//std::cout << "<<<" << std::endl;
@@ -260,47 +254,41 @@ bool StackOptimizer::visit(While &_node) {
 	return false;
 }
 
-bool StackOptimizer::visit(Contract &_node) {
-	for (Pointer<Function>& f : _node.functions()) {
-		switch (f->type()) {
-			case Function::FunctionType::PrivateFunction:
-			case Function::FunctionType::Macro:
-			case Function::FunctionType::OnCodeUpgrade:
-			case Function::FunctionType::OnTickTock: {
-				// TODO remove the if
-				// TODO do iter only if done something
+bool StackOptimizer::visit(Function &f) {
+	switch (f.type()) {
+		case Function::FunctionType::PrivateFunction:
+		case Function::FunctionType::Macro:
+		case Function::FunctionType::OnCodeUpgrade:
+		case Function::FunctionType::OnTickTock: {
+			if (f.name() != "c7_to_c4_for_await") {
 				for (int iter = 0; iter < TvmConst::IterStackOptQty; ++iter) {
-					if (f->name() != "c7_to_c4_for_await") {
-						//std::cout << "new iter" << std::endl;
-						//Printer p{std::cout};
-						//f->accept(p);
+					//std::cout << "new iter" << std::endl;
+					//Printer p{std::cout};
+					//f->accept(p);
 
-						StackOptimizer opt;
-						f->accept(opt);
-					}
+					m_didSome = false;
+					m_stackSize.clear();
+					initStack(f.take());
+					f.block()->accept(*this);
+					if (!m_didSome)
+						break;
 				}
-				if (f->name() == "setUpdateT3WDetails_internal_macro") {
-					StackOptimizer opt;
-					f->accept(opt);
-				}
-				break;
 			}
-
-			case Function::FunctionType::MacroGetter:
-			case Function::FunctionType::MainInternal:
-			case Function::FunctionType::MainExternal:
-				break;
+			break;
 		}
+
+		case Function::FunctionType::MacroGetter:
+		case Function::FunctionType::MainInternal:
+		case Function::FunctionType::MainExternal:
+			break;
 	}
 	return false;
 }
 
-bool StackOptimizer::visit(Function &_node) {
-	initStack(_node.take());
-
-	_node.block()->accept(*this);
-
-//	solAssert(size() == _node.ret(), "");
+bool StackOptimizer::visit(Contract &_node) {
+	for (Pointer<Function> &f: _node.functions()) {
+		f->accept(*this);
+	}
 	return false;
 }
 
@@ -326,7 +314,39 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 	bool ok = false;
 	std::vector<Pointer<TvmAstNode>> commands;
 
-	if (isPOP(op)) {
+	// gen(0,1) / GETGLOB
+	// ...
+	// BLKSWAP N, 1
+	// =>
+	// ...
+	// gen(0, 1)
+	if (auto gen = to<Gen>(op.get());
+		gen && gen->isPure() && std::make_pair(gen->take(), gen->ret()) == std::make_pair(0, 1)
+	) {
+		Simulator sim{instructions.begin() + index + 1, instructions.end(), 1, 1};
+		bool good = true;
+		{
+			auto glob = to<Glob>(op.get());
+			if (glob) {
+				good = glob->opcode() == Glob::Opcode::GetOrGetVar &&
+						sim.setGlobIndexes().count(glob->index()) == 0 &&
+						!sim.wasCall();
+			}
+		}
+		if (good && sim.wasMoved() && !sim.wasSet()) {
+			ok = true;
+			commands.insert(commands.end(), sim.commands().begin(), sim.commands().end()); // TODO!!!!!
+			commands.emplace_back(op);
+			for (auto iter = sim.getIter();
+				iter != instructions.end();
+				++iter
+			) {
+				commands.emplace_back(*iter);
+			}
+		}
+	}
+
+	if (!ok && isPOP(op)) {
 		int startStackSize = isPOP(op).value();
 		Simulator sim{instructions.begin() + index + 1, instructions.end(), startStackSize, 1};
 		if (sim.wasSet()) {

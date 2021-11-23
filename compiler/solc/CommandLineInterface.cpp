@@ -33,6 +33,7 @@
 #include <libsolidity/interface/CompilerStack.h>
 #include <libsolidity/interface/StandardCompiler.h>
 #include <libsolidity/interface/DebugSettings.h>
+#include <libsolidity/codegen/TVM.h>
 
 #include <liblangutil/Exceptions.h>
 #include <liblangutil/Scanner.h>
@@ -275,12 +276,12 @@ Allowed options)",
 		(
 			(g_argSetContract + ",c").c_str(),
 			po::value<string>()->value_name("contractName"),
-			"Sets contract name from the source file to be compiled."
+			"Set contract name from the source file to be compiled."
 		)
 		(
 			(g_argFile + ",f").c_str(),
 			po::value<string>()->value_name("prefixName"),
-			"Set prefix of names of output files (*.code and *abi.json)."
+			"Set prefix of names of output files (*.code, *abi.json and *.ast.json)."
 		)
 		;
 	po::options_description outputComponents("Output Components");
@@ -530,12 +531,22 @@ void CommandLineInterface::handleAst(string const& _argStr)
 
 		bool legacyFormat = !m_args.count(g_argAstCompactJson);
 
-//		sout() << title << endl << endl;
+		string solFileName = m_args[g_argInputFile].as<string>();
+		string folder = !m_args[g_argOutputDir].empty() ? m_args[g_argOutputDir].as<string>() : "";
+		string filePref = !m_args[g_argFile].empty() ? m_args[g_argFile].as<string>() : "";
+		string targetFile = getPathToFiles(solFileName, folder, filePref) + ".ast.json";
+		std::ofstream out(targetFile);
+		if (!out) {
+			serr() << "Can't create the file.";
+			std::exit(1);
+		}
+		out << title << endl << endl;
 		for (auto const& sourceCode: m_sourceCodes)
 		{
-//			sout() << endl << "======= " << sourceCode.first << " =======" << endl;
-			ASTJsonConverter(legacyFormat, m_compiler->sourceIndices()).print(sout(), m_compiler->ast(sourceCode.first));
+			out << endl << "======= " << sourceCode.first << " =======" << endl;
+			ASTJsonConverter(legacyFormat, m_compiler->sourceIndices()).print(out, m_compiler->ast(sourceCode.first));
 		}
+		g_hasOutput = true;
 	}
 }
 

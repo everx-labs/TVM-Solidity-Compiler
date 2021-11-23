@@ -10,7 +10,7 @@ include(EthPolicy)
 eth_policy()
 
 # project name and version should be set after cmake_policy CMP0048
-set(PROJECT_VERSION "0.51.0")
+set(PROJECT_VERSION "0.52.0")
 project(solidity VERSION ${PROJECT_VERSION} LANGUAGES C CXX)
 
 include(TestBigEndian)
@@ -20,6 +20,7 @@ if (IS_BIG_ENDIAN)
 endif()
 
 option(SOLC_LINK_STATIC "Link solc executable statically on supported platforms" OFF)
+option(WITH_TESTS "Run solc tests" OFF)
 
 # Setup cccache.
 include(EthCcache)
@@ -53,6 +54,10 @@ add_subdirectory(libsolutil)
 add_subdirectory(liblangutil)
 add_subdirectory(libsolidity)
 add_subdirectory(libsolc)
+if (WITH_TESTS)
+	add_subdirectory(test2)
+endif()
+
 
 if (NOT EMSCRIPTEN)
 	add_subdirectory(solc)
