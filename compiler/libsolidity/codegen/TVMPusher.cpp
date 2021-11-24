@@ -25,6 +25,7 @@
 #include "TVMConstants.hpp"
 
 #include <boost/range/adaptor/map.hpp>
+#include <utility>
 
 using namespace solidity::frontend;
 using namespace solidity::util;
@@ -453,7 +454,7 @@ void StackPusher::recoverKeyAndValueAfterDictOperation(
 				}
 				preload(valueType);
 				if (pushCallRef) {
-					callRef(1, 1);
+					pushRefContAndCallX(1, 1);
 				}
 				break;
 			}
@@ -480,7 +481,7 @@ void StackPusher::recoverKeyAndValueAfterDictOperation(
 			}
 			preloadValue();
 			if (pushRefCont) {
-				callRef(1, 1);
+				pushRefContAndCallX(1, 1);
 			}
 			break;
 		case DecodeType::DecodeValueOrPushDefault: {
@@ -494,7 +495,7 @@ void StackPusher::recoverKeyAndValueAfterDictOperation(
 			pushRefCont ? endContinuationFromRef() : endContinuation();
 
 			if (hasEmptyPushCont)
-				_ifNot();
+				ifNot();
 			else
 				ifElse();
 			break;
@@ -538,7 +539,7 @@ void StackPusher::recoverKeyAndValueAfterDictOperation(
 			checkOnMappingOrOptional();
 			endContinuation();
 
-			_ifNot();
+			ifNot();
 			break;
 		}
 	}
@@ -571,7 +572,7 @@ void StackPusher::pollLastRetOpcode() {
 	solAssert(!instructions.empty(), "");
 	auto ret = to<TvmReturn>(instructions.back().get());
 	solAssert(ret, "");
-	solAssert(ret->type() == TvmReturn::Type::RET, "");
+	solAssert(!ret->withIf() && !ret->withAlt(), "");
 	instructions.pop_back();
 
 	opcodes.erase(opcodes.begin() + begPos);
@@ -649,8 +650,8 @@ StackPusher::asym(const string& cmd) {
 		for (std::string key : {"", "I", "U"}) {
 			for (std::string op : {"MIN", "MAX"}) {
 				for (std::string suf : {"", "REF"}) {
-					std::string candidat = "DICT" + key + "REM" + op + suf;
-					if (candidat == cmd) {
+					std::string candidate = "DICT" + key + "REM" + op + suf;
+					if (candidate == cmd) {
 						return true;
 					}
 				}
@@ -663,8 +664,8 @@ StackPusher::asym(const string& cmd) {
 		for (std::string key : {"", "I", "U"}) {
 			for (std::string op : {"SETGET", "ADDGET", "REPLACEGET"}) {
 				for (std::string suf : {"", "REF", "B"}) {
-					std::string candidat = "DICT" + key + op + suf;
-					if (candidat == cmd) {
+					std::string candidate = "DICT" + key + op + suf;
+					if (candidate == cmd) {
 						return true;
 					}
 				}
@@ -702,7 +703,6 @@ StackPusher::asym(const string& cmd) {
 
 	else if (dictRem()) { opcode = createNode<AsymGen>(cmd, 2, 2, 3); }
 
-	// TODO use function generator
 	else if (f("DICTGET")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
 	else if (f("DICTIGET")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
 	else if (f("DICTUGET")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
@@ -729,17 +729,17 @@ StackPusher::asym(const string& cmd) {
 	return opcode;
 }
 
-void StackPusher::push(Pointer<Stack> opcode) {
+void StackPusher::push(const Pointer<Stack>& opcode) {
 	m_instructions.back().push_back(opcode);
 }
 
-void StackPusher::push(Pointer<AsymGen> opcode) {
+void StackPusher::push(const Pointer<AsymGen>& opcode) {
 	// no stack changing
 	solAssert(lockStack >= 0, "");
 	m_instructions.back().push_back(opcode);
 }
 
-void StackPusher::push(Pointer<HardCode> opcode) {
+void StackPusher::push(const Pointer<HardCode>& opcode) {
 	m_instructions.back().push_back(opcode);
 	change(opcode->take(), opcode->ret());
 }
@@ -750,19 +750,28 @@ void StackPusher::pushAsym(std::string const& opcode) {
 	m_instructions.back().push_back(node);
 }
 
-void StackPusher::push(int stackDiff, const string &cmd) {
-	if (cmd.empty()) {
-		change(stackDiff); // TODO delete
-		return;
-	}
+StackPusher& StackPusher::operator<<(std::string const& opcode) {
+	push(opcode);
+	return *this;
+}
 
+void StackPusher::push(std::string const& cmd) {
 	Pointer<GenOpcode> opcode = gen(cmd);
-	solAssert(stackDiff == -opcode->take() + opcode->ret(), "stackDiff == -opcode->take() + opcode->ret() " + cmd);
 	change(opcode->take(), opcode->ret());
 	m_instructions.back().push_back(opcode);
 }
 
-void StackPusher::pushCellOrSlice(Pointer<PushCellOrSlice> opcode) {
+void StackPusher::push(int stackDiff, const string &cmd) {
+	if (cmd.empty()) {
+		change(stackDiff);
+		return;
+	}
+	Pointer<GenOpcode> opcode = gen(cmd);
+	solAssert(stackDiff == -opcode->take() + opcode->ret(), "stackDiff == -opcode->take() + opcode->ret() " + cmd);
+	push(cmd);
+}
+
+void StackPusher::pushCellOrSlice(const Pointer<PushCellOrSlice>& opcode) {
 	solAssert(!m_instructions.empty(), "");
 	m_instructions.back().push_back(opcode);
 	change(0, 1);
@@ -809,22 +818,22 @@ void StackPusher::endLogCircuit(LogCircuit::Type type) {
 	m_instructions.back().push_back(lc);
 }
 
-void StackPusher::callRefOrCallX(int take, int ret, SubProgram::Type type) {
+void StackPusher::callRefOrCallX(int take, int ret, bool _isJmp, CodeBlock::Type _blockType) {
 	solAssert(!m_instructions.empty(), "");
 	std::vector<Pointer<TvmAstNode>> block = m_instructions.back();
 	m_instructions.pop_back();
-	auto b = createNode<CodeBlock>(CodeBlock::Type::None, block);
-	auto subProg = createNode<SubProgram>(take, ret, type, b);
+	auto b = createNode<CodeBlock>(_blockType, block);
+	auto subProg = createNode<SubProgram>(take, ret, _isJmp, b);
 	solAssert(!m_instructions.empty(), "");
 	m_instructions.back().push_back(subProg);
 }
 
-void StackPusher::callRef(int take, int ret) {
-	callRefOrCallX(take, ret, SubProgram::Type::CALLREF);
+void StackPusher::pushRefContAndCallX(int take, int ret) {
+	callRefOrCallX(take, ret, false, CodeBlock::Type::PUSHREFCONT);
 }
 
-void StackPusher::callX(int take, int ret) {
-	callRefOrCallX(take, ret, SubProgram::Type::CALLX);
+void StackPusher::pushContAndCallX(int take, int ret) {
+	callRefOrCallX(take, ret, false, CodeBlock::Type::PUSHCONT);
 }
 
 void StackPusher::ifElse(bool withJmp) {
@@ -835,8 +844,7 @@ void StackPusher::ifElse(bool withJmp) {
 	auto trueBlock = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	solAssert(trueBlock != nullptr, "");
 	m_instructions.back().pop_back();
-	TvmIfElse::Type type = withJmp ? TvmIfElse::Type::IFELSE_WITH_JMP : TvmIfElse::Type::IFELSE;
-	auto b = createNode<TvmIfElse>(type, trueBlock, falseBlock);
+	auto b = createNode<TvmIfElse>(false, withJmp, trueBlock, falseBlock);
 	m_instructions.back().push_back(b);
 }
 
@@ -853,48 +861,33 @@ void StackPusher::pushConditional(int ret) {
 	push(ret, "");
 }
 
-void StackPusher::if_or_ifnot(TvmIfElse::Type t) {
-	solAssert(m_instructions.back().size() >= 1, "");
+void StackPusher::if_or_ifNot(bool _withNot, bool _withJmp) {
+	solAssert(!m_instructions.back().empty(), "");
 	auto trueBlock = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	solAssert(trueBlock, "");
 	m_instructions.back().pop_back();
-	auto b = createNode<TvmIfElse>(t, trueBlock);
+	auto b = createNode<TvmIfElse>(_withNot, _withJmp, trueBlock);
 	m_instructions.back().push_back(b);
 }
 
 void StackPusher::_if() {
-	if_or_ifnot(TvmIfElse::Type::IF);
+	if_or_ifNot(false, false);
 }
 
-void StackPusher::_ifNot() {
-	if_or_ifnot(TvmIfElse::Type::IFNOT);
+void StackPusher::ifNot() {
+	if_or_ifNot(true, false);
 }
 
 void StackPusher::ifJmp() {
-	if_or_ifnot(TvmIfElse::Type::IFJMP);
+	if_or_ifNot(false, true);
 }
 
-void StackPusher::ifRef() {
-	endContinuation();
-	if_or_ifnot(TvmIfElse::Type::IFREF);
+void StackPusher::ifNotJmp() {
+	if_or_ifNot(true, true);
 }
 
-void StackPusher::ifNotRef() {
-	endContinuation();
-	if_or_ifnot(TvmIfElse::Type::IFNOTREF);
-}
-
-void StackPusher::ifJmpRef() {
-	endContinuation();
-	if_or_ifnot(TvmIfElse::Type::IFJMPREF);
-}
-void StackPusher::ifNotJmpRef() {
-	endContinuation();
-	if_or_ifnot(TvmIfElse::Type::IFNOTJMPREF);
-}
-
-void StackPusher::repeatOrUntil(std::optional<bool> withBreakOrReturn, bool isRepeat) {
-	solAssert(m_instructions.back().size() >= 1, "");
+void StackPusher::repeatOrUntil(bool withBreakOrReturn, bool isRepeat) {
+	solAssert(!m_instructions.back().empty(), "");
 
 	auto loopBody = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	m_instructions.back().pop_back();
@@ -902,16 +895,15 @@ void StackPusher::repeatOrUntil(std::optional<bool> withBreakOrReturn, bool isRe
 
 	Pointer<TvmAstNode> b;
 	if (isRepeat) {
-		solAssert(!withBreakOrReturn.has_value(), "");
-		b = createNode<TvmRepeat>(loopBody);
+		b = createNode<TvmRepeat>(withBreakOrReturn, loopBody);
 	} else {
-		b = createNode<TvmUntil>(withBreakOrReturn.value(), loopBody);
+		b = createNode<TvmUntil>(withBreakOrReturn, loopBody);
 	}
 	m_instructions.back().push_back(b);
 }
 
-void StackPusher::repeat() {
-	repeatOrUntil(std::nullopt, true);
+void StackPusher::repeat(bool withBreakOrReturn) {
+	repeatOrUntil(withBreakOrReturn, true);
 }
 
 void StackPusher::until(bool withBreakOrReturn) {
@@ -951,7 +943,7 @@ void StackPusher::ifret() {
 	change(1, 0);
 }
 
-void StackPusher::_throw(std::string cmd) {
+void StackPusher::_throw(const std::string& cmd) {
 	auto opcode = makeTHROW(cmd);
 	m_instructions.back().push_back(opcode);
 	change(opcode->take(), opcode->ret());
@@ -1034,12 +1026,12 @@ void StackPusher::getGlob(VariableDeclaration const *vd) {
 
 void StackPusher::getGlob(int index) {
 	solAssert(index >= 0, "");
-	Pointer<Inst> opcode = createNode<Glob>(Glob::Opcode::GetOrGetVar, index);
+	Pointer<Inst> opcode = makeGetGlob(index);
 	change(+1);
 	m_instructions.back().push_back(opcode);
 }
 
-void StackPusher::pushC4() {
+void StackPusher::pushRoot() {
 	Pointer<Inst> opcode = createNode<Glob>(Glob::Opcode::PUSHROOT);
 	change(+1);
 	m_instructions.back().push_back(opcode);
@@ -1163,7 +1155,7 @@ bool StackPusher::fastLoad(const Type* type) {
 			endContinuation();
 			push(-1, ""); // fix stack
 			if (!hasLock()) {
-				solAssert(saveStakeSize == getStack().size(), "");
+				solAssert(saveStakeSize == stackSize(), "");
 			}
 
 			startContinuation();
@@ -1172,13 +1164,13 @@ bool StackPusher::fastLoad(const Type* type) {
 			endContinuation();
 			push(-1, ""); // fix stack
 			if (!hasLock()) {
-				solAssert(saveStakeSize == getStack().size(), "");
+				solAssert(saveStakeSize == stackSize(), "");
 			}
 
 			ifElse();
 			push(+1, ""); // fix stack
 			if (!hasLock()) {
-				solAssert(saveStakeSize + 1 == getStack().size(), "");
+				solAssert(saveStakeSize + 1 == stackSize(), "");
 			}
 			endOpaque(1, 2);
 
@@ -1353,7 +1345,7 @@ void StackPusher::store(
 			stzeroes(1);  // builder'
 			endContinuation();
 			push(+1, ""); // fix stack
-			getStack().ensureSize(stackSize);
+			ensureSize(stackSize);
 
 			startContinuation();
 			// builder value
@@ -1387,7 +1379,7 @@ void StackPusher::store(
 			ensureSize(stackSize);
 
 			ifElse();
-			endOpaque(2, 1, false);
+			endOpaque(2, 1);
 			break;
 		}
 		case Type::Category::TvmCell:
@@ -1712,7 +1704,7 @@ void StackPusher::hardConvert(Type const *leftType, Type const *rightType) {
 		endContinuation();
 		ifElse();
 		endOpaque(1, 1);
-		callRef(1, 1);
+		pushRefContAndCallX(1, 1);
 	};
 
 	auto fixedBytesFromStringLiteral = [this](FixedBytesType const* l, StringLiteralType const* r) {
@@ -1951,7 +1943,7 @@ void StackPusher::pushParameter(std::vector<ASTPointer<VariableDeclaration>> con
 void StackPusher::pushMacroCallInCallRef(int take, int ret, const string& functionName) {
 	startContinuation();
 	pushCall(take, ret, functionName);
-	callRef(take, ret);
+	pushRefContAndCallX(take, ret);
 }
 
 void StackPusher::pushCallOrCallRef(
@@ -1989,8 +1981,12 @@ void StackPusher::pushCall(int take, int ret, const std::string& functionName) {
 	m_instructions.back().push_back(opcode);
 }
 
+void StackPusher::compureConstCell(std::string const& expName) {
+	pushCellOrSlice(createNode<PushCellOrSlice>(PushCellOrSlice::Type::PUSHREF_COMPUTE, expName, nullptr));
+}
+
 void StackPusher::drop(int cnt) {
-	// TODO add assert cnt >= 0
+	solAssert(cnt >= 0, "");
 	if (cnt >= 1) {
 		auto opcode = makeDROP(cnt);
 		push(-cnt, "");
@@ -2560,7 +2556,7 @@ std::vector<std::pair<VariableDeclaration const*, int>> TVMCompilerContext::getS
 
 void TVMCompilerContext::addInlineFunction(const std::string& name, Pointer<CodeBlock> body) {
 	solAssert(m_inlinedFunctions.count(name) == 0, "");
-	m_inlinedFunctions[name] = body;
+	m_inlinedFunctions[name] = std::move(body);
 }
 
 Pointer<CodeBlock> TVMCompilerContext::getInlinedFunction(const std::string& name) {
@@ -2744,10 +2740,11 @@ void StackPusher::checkCtorCalled() {
 void StackPusher::checkIfCtorCalled(bool ifFlag) {
 	startContinuation();
 	checkCtorCalled();
+	endContinuationFromRef();
 	if (ifFlag) {
-		ifJmpRef();
+		ifJmp();
 	} else {
-		ifNotJmpRef();
+		ifNotJmp();
 	}
 }
 

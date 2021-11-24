@@ -522,7 +522,7 @@ IntegerType::IntegerType(unsigned _bits, IntegerType::Modifier _modifier):
 
 	} else {
 		solAssert(
-				m_bits > 0 && m_bits <= 256 && m_bits % 8 == 0,
+				m_bits > 0 && m_bits <= 256,
 				"Invalid bit number for integer type: " + util::toString(m_bits)
 		);
 	}
@@ -2329,7 +2329,7 @@ MemberList::MemberMap StructType::nativeMembers(ContractDefinition const*) const
 			types,
 			strings{},
 			strings{types.size()},
-			FunctionType::Kind::TVMBuilderMethods, // TODO rename
+			FunctionType::Kind::StructUnpack,
 			false, StateMutability::Pure
 	));
 	return members;
@@ -2811,6 +2811,8 @@ string FunctionType::richIdentifier() const
 	string id = "t_function_";
 	switch (m_kind)
 	{
+	case Kind::StructUnpack: id += "structunpack"; break;
+
 	case Kind::OptionalGet: id += "optionalmethod"; break;
 	case Kind::OptionalHasValue: id += "optionalhasvalue"; break;
 	case Kind::OptionalReset: id += "optionalreset"; break;
@@ -2872,6 +2874,7 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMSendMsg: id += "tvmsendmsg"; break;
 	case Kind::TVMSetcode: id += "tvmsetcode"; break;
 	case Kind::TVMSetCodeSalt: id += "tvmsetcodesalt"; break;
+	case Kind::TVMSetGasLimit: id += "tvmsetgaslimit"; break;
 	case Kind::TVMSetPubkey: id += "tvmsetpubkey"; break;
 	case Kind::TVMSetReplayProtTime: id += "tvmsetreplayprottime"; break;
 
@@ -3853,6 +3856,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"log", TypeProvider::function(strings{"string"}, strings{}, FunctionType::Kind::LogTVM, false, StateMutability::Pure)},
 			{"exit", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit, false, StateMutability::Pure)},
 			{"exit1", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit1, false, StateMutability::Pure)},
+			{"setGasLimit", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetGasLimit, false, StateMutability::Pure)},
 
 			// for stdlib
 			{"replayProtTime", TypeProvider::function({}, {"uint64"}, FunctionType::Kind::TVMReplayProtTime, false, StateMutability::Pure)},

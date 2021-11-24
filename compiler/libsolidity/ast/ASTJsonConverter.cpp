@@ -941,6 +941,8 @@ string ASTJsonConverter::literalTokenKind(Token _token)
 	case Token::TrueLiteral:
 	case Token::FalseLiteral:
 		return "bool";
+	case Token::NullLiteral:
+		return "optional";
 	default:
 		solAssert(false, "Unknown kind of literal token.");
 	}

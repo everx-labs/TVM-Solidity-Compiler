@@ -22,8 +22,42 @@
 
 using namespace std;
 using namespace solidity::frontend;
+using namespace solidity::langutil;
 
 solidity::langutil::ErrorReporter* GlobalParams::g_errorReporter{};
+
+std::string getPathToFiles(
+	const std::string& solFileName,
+	const std::string& outputFolder,
+	const std::string& filePrefix
+) {
+	std::string pathToFiles;
+
+	if (filePrefix.empty()) {
+		pathToFiles = boost::filesystem::path{solFileName}.stem().string();
+	} else {
+		pathToFiles = filePrefix;
+		boost::filesystem::path p(filePrefix);
+		if (filePrefix != p.filename()) {
+			std::cerr << "Error: Option -f takes basename of output file(s)." << std::endl <<
+						"\"" << filePrefix << "\" looks like a path. Use option -o to set an output directory.";
+			std::exit(1);
+		}
+	}
+
+	if (!outputFolder.empty()) {
+		namespace fs = boost::filesystem;
+		boost::system::error_code ec;
+		fs::path dir = fs::weakly_canonical(outputFolder);
+		fs::create_directories(dir, ec);
+		if (ec) {
+			std::cerr << "Problem with directory \"" + outputFolder + "\": " + ec.message();
+			std::exit(1);
+		}
+		pathToFiles = (fs::path(dir) / pathToFiles).string();
+	}
+	return pathToFiles;
+}
 
 void TVMCompilerProceedContract(
     solidity::langutil::ErrorReporter* errorReporter,
@@ -37,30 +71,7 @@ void TVMCompilerProceedContract(
 	bool doPrintFunctionIds
 ) {
     GlobalParams::g_errorReporter = errorReporter;
-	std::string pathToFiles;
-
-	if (filePrefix.empty()) {
-		pathToFiles = boost::filesystem::path{solFileName}.stem().string();
-	} else {
-		pathToFiles = filePrefix;
-		boost::filesystem::path p(filePrefix);
-		if (filePrefix != p.filename()) {
-			fatal_error(string{} + "Option -f takes basename of output file(s).\n" +
-				"\"" + filePrefix + "\" looks like a path. Use option -o to set an output directory.");
-		}
-	}
-
-	if (!outputFolder.empty()) {
-		namespace fs = boost::filesystem;
-		boost::system::error_code ec;
-		fs::path dir = fs::weakly_canonical(outputFolder);
-		fs::create_directories(dir, ec);
-		if (ec) {
-			errorReporter->fatalTypeError(_contract.location(), "Problem with directory \"" + outputFolder + "\": " + ec.message());
-			return;
-		}
-		pathToFiles = (fs::path(dir) / pathToFiles).string();
-    }
+	std::string pathToFiles = getPathToFiles(solFileName, outputFolder, filePrefix);
 
 	PragmaDirectiveHelper pragmaHelper{*pragmaDirectives};
 	if (doPrintFunctionIds) {

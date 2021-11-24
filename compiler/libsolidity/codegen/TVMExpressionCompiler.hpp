@@ -46,6 +46,9 @@ protected:
 	void visitStringLiteralAbiV2(Literal const& _node);
 	void visit2(Literal const& _node);
 	void visit2(TupleExpression const& _tupleExpression);
+public:
+	void visitHonest(TupleExpression const& _tupleExpression, bool onlyDict);
+protected:
 	bool tryPushConstant(Identifier const& _identifier);
 	bool pushLocalOrStateVariable(Identifier const& _identifier);
 

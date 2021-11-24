@@ -1183,6 +1183,8 @@ public:
 		TVMSliceCompare, ///< slice.compare()
 		TVMSliceHas, ///< slice.hasXXX()
 
+		StructUnpack, ///< <struct>.unpack()
+
 		TVMBuilderMethods, ///< builder.*()
 		TVMBuilderStore, ///< builder.store(...)
 
@@ -1258,6 +1260,7 @@ public:
 		TVMSendMsg, ///< tvm.sendMsg()
 		TVMSetcode, ///< tvm.setcode()
 		TVMSetCodeSalt, ///< tvm.setCodeSalt()
+		TVMSetGasLimit, ///< tvm.setGasLimit()
 		TVMSetPubkey, ///< tvm.setPubkey()
 		TVMSetReplayProtTime, ///< tvm.setReplayProtTime()
 

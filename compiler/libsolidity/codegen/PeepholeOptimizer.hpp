@@ -26,7 +26,7 @@ namespace solidity::frontend {
 		explicit PeepholeOptimizer(bool _withUnpackOpaque) : m_withUnpackOpaque{_withUnpackOpaque} {}
 		void endVisit(CodeBlock &_node) override;
 	private:
-		bool m_withUnpackOpaque;
+		bool m_withUnpackOpaque{};
 	};
 } // end solidity::frontend
 

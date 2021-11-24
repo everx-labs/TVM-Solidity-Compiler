@@ -90,7 +90,14 @@ public:
 	bool isBaseFunction(CallableDeclaration const* d) const;
 	ContactsUsageScanner const& usage() const { return m_usage; }
 
+	void addConstArray(std::string const& name, TupleExpression const* arr) { m_constArrays.emplace(name, arr); }
+	std::set<std::pair<std::string, TupleExpression const*>> const& constArrays() const { return m_constArrays; }
+
+	void addNewArray(std::string const& name, FunctionCall const* arr) { m_newArray.emplace(name, arr); }
+	std::set<std::pair<std::string, FunctionCall const*>> const& newArrays() const { return m_newArray; }
+
 private:
+	// TODO split to several classes
 	ContractDefinition const* m_contract{};
 	bool ignoreIntOverflow{};
 	PragmaDirectiveHelper const& m_pragmaHelper;
@@ -109,6 +116,9 @@ private:
 	bool m_isOnBounceGenerated{};
     std::set<CallableDeclaration const*> m_baseFunctions;
     ContactsUsageScanner m_usage;
+
+	std::set<std::pair<std::string, TupleExpression const*>> m_constArrays;
+	std::set<std::pair<std::string, FunctionCall const*>> m_newArray;
 };
 
 class StackPusher {
@@ -139,12 +149,14 @@ public:
 private:
 	static Pointer<AsymGen> asym(const std::string& cmd);
 public:
-	void push(Pointer<Stack> opcode);
-	void push(Pointer<AsymGen> opcode);
-	void push(Pointer<HardCode> opcode);
+	void push(const Pointer<Stack>& opcode);
+	void push(const Pointer<AsymGen>& opcode);
+	void push(const Pointer<HardCode>& opcode);
 	void pushAsym(std::string const& opcode);
+	StackPusher& operator<<(std::string const& opcode);
+	void push(std::string const& opcode);
 	void push(int stackDiff, const std::string& cmd);
-	void pushCellOrSlice(Pointer<PushCellOrSlice> opcode);
+	void pushCellOrSlice(const Pointer<PushCellOrSlice>& opcode);
 
 	void startContinuation();
 private:
@@ -156,37 +168,33 @@ public:
 	void endLogCircuit(LogCircuit::Type type);
 
 private:
-	void callRefOrCallX(int take, int ret, SubProgram::Type type);
+	void callRefOrCallX(int take, int ret, bool _isJmp, CodeBlock::Type _blockType);
 public:
-	void callRef(int take, int ret);
-	void callX(int take, int ret);
+	void pushRefContAndCallX(int take, int ret);
+	void pushContAndCallX(int take, int ret);
 
 
 	void ifElse(bool useJmp = false);
 	void pushConditional(int ret);
 private:
-	void if_or_ifnot(TvmIfElse::Type);
+	void if_or_ifNot(bool _withNot, bool _withJmp);
 public:
 	void _if();
-	void _ifNot();
+	void ifNot();
 	void ifJmp();
-
-	void ifRef();
-	void ifNotRef();
-	void ifJmpRef();
-	void ifNotJmpRef();
+	void ifNotJmp();
 
 private:
-	void repeatOrUntil(std::optional<bool> withBreakOrReturn, bool isRepeat);
+	void repeatOrUntil(bool withBreakOrReturn, bool isRepeat);
 public:
-	void repeat();
+	void repeat(bool _withBreakOrReturn);
 	void until(bool withBreakOrReturn);
 	void _while(bool _withBreakOrReturn);
 	void ret();
 	void retAlt();
 	void ifRetAlt();
 	void ifret();
-	void _throw(std::string cmd);
+	void _throw(const std::string& cmd);
 
 	TVMStack& getStack();
 	void pushLoc(const std::string& file, int line);
@@ -201,7 +209,7 @@ public:
 	void resetAllStateVars();
 	void getGlob(VariableDeclaration const * vd);
 	void getGlob(int index);
-	void pushC4();
+	void pushRoot();
 	void popRoot();
 	void pushC3();
 	void pushC7();
@@ -247,6 +255,7 @@ public:
 	void pushMacroCallInCallRef(int take, int ret, const std::string& fname);
 	void pushCallOrCallRef(const std::string& functionName, FunctionType const* ft, const std::optional<std::pair<int, int>>& deltaStack = std::nullopt);
 	void pushCall(int take, int ret, const std::string& functionName);
+	void compureConstCell(std::string const& expName);
 	void drop(int cnt = 1);
 	void blockSwap(int down, int up);
 	void reverse(int qty, int startIndex);

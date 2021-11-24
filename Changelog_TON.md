@@ -1,3 +1,20 @@
+### 0.52.0 (2021-11-15)
+
+Compiler features:
+ * Supported `continue`/`break`/`return` inside of `repeat(n) { /*...*/ }` block.
+ * Supported `uintX` in steps of `1`: `uint1`, `uint2`, `uint3` ... `uint256`.
+ * Supported `intX` in steps of `1`: `int1`, `int2`, `int3` ... `int256`.
+ * Supported `tvm.setGasLimit(uint)`.
+ * Supported constant arrays, e.g. `uint[] public constant fib = [uint(2), 3, 5, 8, 12, 20, 32];`.
+
+Breaking change:
+ * Changed `stoi()` return type to `optional(int)`. 
+ * Output AST JSON to the file instead of standard output.
+
+Gas optimizations:
+ * Optimized gas consumption of `view` and `pure` functions.
+ * Assorted stack optimizations.
+
 ### 0.51.0 (2021-10-15)
 
 Compiler features:
@@ -5,7 +22,7 @@ Compiler features:
 `tvm.buildExtMsg(...)` and `ContractName.funcName().extMsg`.
  * Supported ABI 2.2.
  * Checked if `stateInit` is valid before deploying.
- * Supported tvm.buildDataInit()
+ * Supported tvm.buildDataInit().
 
 Breaking change:
  * Deleted `tvm.buildEmptyData()`. Use `tvm.buildDataInit()`.

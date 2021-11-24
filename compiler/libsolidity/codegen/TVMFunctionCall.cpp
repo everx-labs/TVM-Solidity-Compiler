@@ -16,30 +16,36 @@
  * Function call compiler for TVM
  */
 
-#include "DictOperations.hpp"
-#include "TVMFunctionCall.hpp"
-#include "TVMExpressionCompiler.hpp"
-#include "TVMStructCompiler.hpp"
-#include "TVMABI.hpp"
-#include "TVMConstants.hpp"
-
 #include <boost/algorithm/string.hpp>
+
+#include <liblangutil/SourceReferenceExtractor.h>
 #include <libsolidity/ast/TypeProvider.h>
 
-using namespace std;
-using namespace solidity::frontend;
-using namespace solidity::util;
+#include "DictOperations.hpp"
+#include "TVMABI.hpp"
+#include "TVMConstants.hpp"
+#include "TVMExpressionCompiler.hpp"
+#include "TVMFunctionCall.hpp"
+#include "TVMStructCompiler.hpp"
 
-FunctionCallCompiler::FunctionCallCompiler(StackPusher &m_pusher, TVMExpressionCompiler *exprCompiler,
-											FunctionCall const& _functionCall, bool isCurrentResultNeeded) :
-		m_pusher{m_pusher},
-		m_exprCompiler{exprCompiler},
-		m_functionCall{_functionCall},
-		m_arguments{_functionCall.arguments()},
-		m_funcType{to<FunctionType>(m_functionCall.expression().annotation().type)},
-		m_retType{m_functionCall.annotation().type},
-		m_isCurrentResultNeeded{isCurrentResultNeeded},
-		m_names{m_functionCall.names()}
+using namespace solidity::frontend;
+using namespace solidity::langutil;
+using namespace solidity::util;
+using namespace std;
+
+FunctionCallCompiler::FunctionCallCompiler(
+	StackPusher &m_pusher,
+	FunctionCall const& _functionCall,
+	bool isCurrentResultNeeded
+) :
+	m_pusher{m_pusher},
+	m_exprCompiler{m_pusher},
+	m_functionCall{_functionCall},
+	m_arguments{_functionCall.arguments()},
+	m_funcType{to<FunctionType>(m_functionCall.expression().annotation().type)},
+	m_retType{m_functionCall.annotation().type},
+	m_isCurrentResultNeeded{isCurrentResultNeeded},
+	m_names{m_functionCall.names()}
 {
 }
 
@@ -192,7 +198,7 @@ void FunctionCallCompiler::mappingGetSet() {
 	} else if (isIn(memberName, "replace", "add", "getSet", "getAdd", "getReplace")) {
 		const int stackSize = m_pusher.stackSize();
 		auto ma = to<MemberAccess>(&m_functionCall.expression());
-		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&ma->expression(), true, true, nullptr); // lValue... map
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&ma->expression(), true, true, nullptr); // lValue... map
 		pushArgAndConvert(1); // lValue... map value
 		const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueType, false); // lValue... map value'
 		pushArgAndConvert(0); // mapLValue... map value key
@@ -225,7 +231,7 @@ void FunctionCallCompiler::mappingGetSet() {
 		}
 		const int cntOfValuesOnStack = m_pusher.stackSize() - stackSize;  // mapLValue... map optValue
 		m_pusher.blockSwap(cntOfValuesOnStack - 1, 1); // optValue mapLValue... map
-		m_exprCompiler->collectLValue(lValueInfo, true, false); // optValue
+		m_exprCompiler.collectLValue(lValueInfo, true, false); // optValue
 	} else {
 		solUnimplemented("");
 	}
@@ -347,7 +353,7 @@ bool FunctionCallCompiler::libraryCall(MemberAccess const& ma) {
 				// using MathLib for uint;
 				// a.add(b);
 				const int stakeSize0 = m_pusher.stackSize();
-				const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&ma.expression(), true, true, nullptr);
+				const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&ma.expression(), true, true, nullptr);
 				const int stakeSize1 = m_pusher.stackSize();
 				const int lValueQty = stakeSize1 - stakeSize0;
 
@@ -360,7 +366,7 @@ bool FunctionCallCompiler::libraryCall(MemberAccess const& ma) {
 
 				m_pusher.blockSwap(lValueQty, retQty);
 
-				m_exprCompiler->collectLValue(lValueInfo, true, false);
+				m_exprCompiler.collectLValue(lValueInfo, true, false);
 			}
 			return true;
 		}
@@ -570,7 +576,7 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 		vector<Type const*> types = getParams(functionDefinition->returnParameters()).first;
 		decoder.decodePublicFunctionParameters(types, false);
 		m_pusher.push(-1, ""); // fix stack
-		m_pusher.callRef(0, 0);
+		m_pusher.pushRefContAndCallX(0, 0);
 		m_pusher.endOpaque(1, types.size()); // take one parameter - it's dest address
 	}
 	return true;
@@ -659,7 +665,7 @@ void FunctionCallCompiler::generateExtInboundMsg(
 	const Expression *stateInit,
 	const Expression *signBoxHandle,
 	const CallableDeclaration *functionDefinition,
-	const ast_vec<Expression const> arguments
+	const ast_vec<Expression const>& arguments
 ) {
 	const int stackSize = m_pusher.stackSize();
 
@@ -971,7 +977,7 @@ void FunctionCallCompiler::tvmBuildDataInit() {
 	int varArg = -1;
 	int contrArg = -1;
 	if (m_names.empty()) {
-		if (m_arguments.size() >= 1) {
+		if (!m_arguments.empty()) {
 			keyArg = 0;
 		}
 	} else {
@@ -1237,7 +1243,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		m_pusher.push(-1 + 1, "SDEPTH");
 	} else if (_node.memberName() == "decode") {
 		const int stackSize = m_pusher.stackSize();
-		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true,
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true,
 																   _node.expression().annotation().isLValue,
 																   nullptr);
 		TypePointers targetTypes;
@@ -1250,13 +1256,13 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		std::unique_ptr<DecodePosition> pos = std::make_unique<DecodePositionFromOneSlice>();
 		decode.decodeParameters(targetTypes, *pos, false);
 
-		m_exprCompiler->collectLValue(lValueInfo, true, false);
+		m_exprCompiler.collectLValue(lValueInfo, true, false);
 		solAssert(stackSize + static_cast<int>(targetTypes.size()) == m_pusher.stackSize(), "");
 	} else if (_node.memberName() == "decodeFunctionParams") {
 		const int saveStackSize = m_pusher.stackSize();
 		CallableDeclaration const* functionDefinition = getFunctionDeclarationOrConstructor(m_arguments.at(0).get());
 		const LValueInfo lValueInfo =
-				m_exprCompiler->expandLValue(&_node.expression(), true,
+				m_exprCompiler.expandLValue(&_node.expression(), true,
 											 _node.expression().annotation().isLValue, nullptr);
 		// lvalue.. slice
 		if (functionDefinition) {
@@ -1277,10 +1283,10 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 
 			m_pusher.push(+1, "PUSHSLICE x8_");
 		}
-		m_exprCompiler->collectLValue(lValueInfo, true, false);
+		m_exprCompiler.collectLValue(lValueInfo, true, false);
 	} else if (boost::starts_with(_node.memberName(), "load")) {
 		const LValueInfo lValueInfo =
-				m_exprCompiler->expandLValue(&_node.expression(), true, _node.expression().annotation().isLValue,
+				m_exprCompiler.expandLValue(&_node.expression(), true, _node.expression().annotation().isLValue,
 											 nullptr);
 		if (_node.memberName() == "loadRefAsSlice") {
 			m_pusher.push(-1 + 2, "LDREFRTOS");
@@ -1320,10 +1326,10 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 			solUnimplemented("");
 		}
 
-		m_exprCompiler->collectLValue(lValueInfo, true, false);
+		m_exprCompiler.collectLValue(lValueInfo, true, false);
 	} else if (_node.memberName() == "skip") {
 		const LValueInfo lValueInfo =
-				m_exprCompiler->expandLValue(&_node.expression(), true,
+				m_exprCompiler.expandLValue(&_node.expression(), true,
 											 _node.expression().annotation().isLValue, nullptr);
 		if (m_arguments.size() == 1) {
 			pushArgAndConvert(0);
@@ -1333,7 +1339,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 			pushArgAndConvert(1);
 			m_pusher.push(-3+1, "SSKIPFIRST");
 		}
-		m_exprCompiler->collectLValue(lValueInfo, true, false);
+		m_exprCompiler.collectLValue(lValueInfo, true, false);
 	} else {
 		solUnimplemented("");
 	}
@@ -1345,7 +1351,7 @@ bool FunctionCallCompiler::checkForTvmVectorMethods(MemberAccess const &_node, T
 		return false;
 
 	if (_node.memberName() == "push") {
-		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, true, nullptr);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true, nullptr);
 		acceptExpr(m_arguments[0].get());
 
 		//start callref
@@ -1373,7 +1379,7 @@ bool FunctionCallCompiler::checkForTvmVectorMethods(MemberAccess const &_node, T
 		m_pusher.push(-1, "TPUSH");
 		m_pusher.tuple(0);
 		m_pusher.endContinuation();
-		m_pusher._ifNot();
+		m_pusher.ifNot();
 		// new_el vector' tuple
 		m_pusher.endContinuation();
 
@@ -1394,15 +1400,15 @@ bool FunctionCallCompiler::checkForTvmVectorMethods(MemberAccess const &_node, T
 		m_pusher.endOpaque(2, 1);
 
 		// end callref
-		m_pusher.callRef(2, 1);
+		m_pusher.pushRefContAndCallX(2, 1);
 
-		m_exprCompiler->collectLValue(lValueInfo, true, false);
+		m_exprCompiler.collectLValue(lValueInfo, true, false);
 		return true;
 	}
 
 	if (_node.memberName() == "pop") {
 		const int stackSize = m_pusher.stackSize();
-		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, true, nullptr);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true, nullptr);
 		const int stackChange = m_pusher.stackSize() - stackSize;
 
 		//start callref
@@ -1440,9 +1446,9 @@ bool FunctionCallCompiler::checkForTvmVectorMethods(MemberAccess const &_node, T
 		m_pusher.endOpaque(1, 2);
 
 		// end callref
-		m_pusher.callRef(1, 2);
+		m_pusher.pushRefContAndCallX(1, 2);
 
-		m_exprCompiler->collectLValue(lValueInfo, true, false);
+		m_exprCompiler.collectLValue(lValueInfo, true, false);
 		// last_el
 		return true;
 	}
@@ -1484,10 +1490,10 @@ bool FunctionCallCompiler::checkForTvmVectorMethods(MemberAccess const &_node, T
 
 		m_pusher.ifElse();
 
-		m_pusher.endOpaque(1, 1);
+		m_pusher.endOpaque(1, 1, true);
 
 		// end callref
-		m_pusher.callRef(1, 1);
+		m_pusher.pushRefContAndCallX(1, 1);
 		return true;
 	}
 
@@ -1506,7 +1512,7 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 		return false;
 
 	if (boost::starts_with(_node.memberName(), "store")) {
-		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, true, nullptr);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true, nullptr);
 
 		if (_node.memberName() == "storeOnes") {
 			pushArgs();
@@ -1574,7 +1580,7 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 			solUnimplemented("");
 		}
 
-		m_exprCompiler->collectLValue(lValueInfo, true, false);
+		m_exprCompiler.collectLValue(lValueInfo, true, false);
 		return true;
 	}
 
@@ -1682,7 +1688,7 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 		pushArgAndConvert(0);
 		cellBitRefQty();
 	} else if (_node.memberName() == "push") {
-		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, true, nullptr);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true, nullptr);
 		auto arrayBaseType = to<ArrayType>(getType(&_node.expression()))->baseType();
 		const IntegerType key = getKeyTypeOfArray();
 		bool isValueBuilder{};
@@ -1702,9 +1708,9 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 		m_pusher.blockSwap(3, 1); // newSize value' size dict
 		m_pusher.setDict(key, *arrayBaseType, dataType); // newSize dict'
 		m_pusher.push(-2 + 1, "TUPLE 2");  // arr
-		m_exprCompiler->collectLValue(lValueInfo, true, false);
+		m_exprCompiler.collectLValue(lValueInfo, true, false);
 	} else if (_node.memberName() == "pop") {
-		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, true, nullptr);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true, nullptr);
 		// arr
 		m_pusher.push(-1 + 2, "UNTUPLE 2"); // size dict
 		m_pusher.pushS(1); // size dict size
@@ -1717,12 +1723,12 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 		m_pusher.push(-3 + 2, "DICTUDEL"); // newSize dict ?
 		m_pusher.drop(1);  // newSize dict
 		m_pusher.push(-2 + 1, "TUPLE 2");  // arr
-		m_exprCompiler->collectLValue(lValueInfo, true, false);
+		m_exprCompiler.collectLValue(lValueInfo, true, false);
 	} else if (_node.memberName() == "append") {
-		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), true, true, nullptr);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true, nullptr);
 		pushArgAndConvert(0);
 		m_pusher.pushMacroCallInCallRef(2, 1, "concatenateStrings_macro");
-		m_exprCompiler->collectLValue(lValueInfo, true, false);
+		m_exprCompiler.collectLValue(lValueInfo, true, false);
 	} else {
 		solUnimplemented("");
 	}
@@ -1753,21 +1759,21 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 	}
 
 	if (_node.memberName() == "set") {
-		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), false, true, nullptr);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), false, true, nullptr);
 		pushArgs();
 		if (m_arguments.size() >= 2) {
 			m_pusher.tuple(m_arguments.size());
 		} else if (optValueAsTuple(m_arguments.at(0)->annotation().type)) {
 			m_pusher.tuple(1);
 		}
-		m_exprCompiler->collectLValue(lValueInfo, true, false);
+		m_exprCompiler.collectLValue(lValueInfo, true, false);
 		return true;
 	}
 
 	if (_node.memberName() == "reset") {
-		const LValueInfo lValueInfo = m_exprCompiler->expandLValue(&_node.expression(), false, true, nullptr);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), false, true, nullptr);
 		m_pusher.pushDefaultValue(optional);
-		m_exprCompiler->collectLValue(lValueInfo, true, false);
+		m_exprCompiler.collectLValue(lValueInfo, true, false);
 		return true;
 	}
 
@@ -1949,7 +1955,7 @@ bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_n
 		m_pusher.pushCellOrSlice(createNode<PushCellOrSlice>(PushCellOrSlice::Type::PUSHREF, "", nullptr));
 		m_pusher.exchange(1);
 		m_pusher.endContinuation();
-		m_pusher._ifNot();
+		m_pusher.ifNot();
 		m_pusher.endOpaque(1, 2);
 		solAssert(stackSize + 2 == m_pusher.stackSize(), "");
 		return true;
@@ -2257,7 +2263,7 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		m_pusher.popC3();
 		solAssert(stackSize == m_pusher.stackSize(), "");
 	} else if (_node.memberName() == "getData") { // tvm.getData
-		m_pusher.pushC4();
+		m_pusher.pushRoot();
 	} else if (_node.memberName() == "setData") { // tvm.setData
 		pushArgs();
 		m_pusher.popRoot();
@@ -2324,7 +2330,8 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 
 		m_pusher.startContinuation();
 		m_pusher.pushMacroCallInCallRef(0, 0, "c7_to_c4");
-		m_pusher.ifNotRef();
+		m_pusher.endContinuationFromRef();
+		m_pusher.ifNot();
 
 		if (_node.memberName() == "exit")
 			m_pusher._throw("THROW 0");
@@ -2493,6 +2500,9 @@ CALLREF {
 		m_pusher.setGlob(TvmConst::C7::ReplayProtTime);
 	} else if (_node.memberName() == "replayProtInterval") {
 		m_pusher.pushInt(TvmConst::Message::ReplayProtection::Interval);
+	} else if (_node.memberName() == "setGasLimit") {
+		pushArgs();
+		m_pusher.push(-1, "SETGASLIMIT");
 	} else {
 		return false;
 	}
@@ -2953,7 +2963,7 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 		}
 		case FunctionType::Kind::Stoi: {
 			pushArgAndConvert(0);
-			m_pusher.pushMacroCallInCallRef(1, 2, "__stoi_macro");
+			m_pusher.pushMacroCallInCallRef(1, 1, "__stoi_macro");
 			return true;
 		}
 		default:
@@ -3023,7 +3033,7 @@ bool FunctionCallCompiler::createNewContract() {
 
 		Expression const* varInit = findOption("varInit");
 		bool hasVars = varInit != nullptr;
-		ContractType const* ct = to<ContractType>(newExpr->typeName().annotation().type);
+		auto ct = to<ContractType>(newExpr->typeName().annotation().type);
 		stateInitExprs[StateInitMembers::Data] = generateDataSection(
 			pushKey,
 			hasVars ? varInit : nullptr,
@@ -3243,11 +3253,10 @@ void FunctionCallCompiler::checkStateInit() {
 	m_pusher.push(-1, "ENDS");
 	m_pusher.drop(3);
 
-	m_pusher.callRef(1, 0);
+	m_pusher.pushRefContAndCallX(1, 0);
 }
 
 bool FunctionCallCompiler::checkNewExpression() {
-
 	if (to<FunctionCallOptions>(&m_functionCall.expression())) {
 		return createNewContract();
 	}
@@ -3260,46 +3269,70 @@ bool FunctionCallCompiler::checkNewExpression() {
 		cast_error(m_functionCall, R"(Unsupported contract creating. Use call options: "stateInit", "value", "flag")");
 	}
 
-	int size = m_pusher.stackSize();
+	creatArrayWithDefaultValue();
+	return true;
+}
 
-	m_pusher.push(+1, "NEWDICT"); // dict
-	pushArgAndConvert(0); // dict size
-	m_pusher.pushS(0); // dict size sizeIter
+void FunctionCallCompiler::creatArrayWithDefaultValue() {
+	std::optional<bigint> num = TVMExpressionCompiler::constValue(*m_arguments.at(0));
+	if (num.has_value() && num.value() == 0) {
+		auto arrayType = to<ArrayType>(m_functionCall.annotation().type);
+		m_pusher.pushDefaultValue(arrayType, false);
+		return ;
+	}
 
+	if (m_functionCall.annotation().isPure) {
+		pushArgs();
+		SourceReference sr = SourceReferenceExtractor::extract(&m_functionCall.location());
+		const std::string computeName = "new_array_line_" +
+										toString(sr.position.line) + "_column_" + toString(sr.position.column) + "_ast_id_" +
+										toString(m_functionCall.id());
+		m_pusher.compureConstCell(computeName);
+		m_pusher << "TUPLE 2";
+		m_pusher.ctx().addNewArray(computeName, &m_functionCall);
+		return ;
+	}
 
-	auto arrayType = to<ArrayType>(resultType);
+	honestArrayCreation(false);
+}
+
+void FunctionCallCompiler::honestArrayCreation(bool onlyDict) {
+	const int stackSize = m_pusher.stackSize();
+	auto arrayType = to<ArrayType>(m_functionCall.annotation().type);
 	const IntegerType key = getKeyTypeOfArray();
 	Type const* arrayBaseType = arrayType->baseType();
 
-	// TODO optimize if size is constant and size == 0 or size == 1
-	m_pusher.pushS(0); // dict size sizeIter size
-	solAssert(size + 4 == m_pusher.stackSize(), "");
+	pushArgAndConvert(0); // N
+	m_pusher.pushDefaultValue(arrayBaseType, true); // N value
+	DataType const& dataType = m_pusher.prepareValueForDictOperations(&key, arrayBaseType, true);
+	m_pusher.pushInt(0);   // N value iter
+	m_pusher << "NEWDICT"; // N value iter dict
+	m_pusher.pushS(3);     // N value iter dict N
+
+	solAssert(stackSize + 5 == m_pusher.stackSize(), "");
 	m_pusher.push(-1, ""); // fix stack: drop replay iterator
-	solAssert(size + 3 == m_pusher.stackSize(), "");
+	solAssert(stackSize + 4 == m_pusher.stackSize(), "");
 	{
-		// dict size sizeIter
+		// N value iter dict
 		m_pusher.startContinuation();
-		m_pusher.push(0, "DEC"); // dict size sizeIter'
-		solAssert(size + 3 == m_pusher.stackSize(), "");
-		m_pusher.pushDefaultValue(arrayBaseType, true); // dict size sizeIter' value
-		solAssert(size + 4 == m_pusher.stackSize(), "");
-		// TODO optimize. Locate default value on stack (don't create default value in each iteration)
-		DataType const& dataType = m_pusher.prepareValueForDictOperations(&key, arrayBaseType, true); // dict size sizeIter' value
-		m_pusher.pushS2(1, 3); // dict size sizeIter' value sizeIter' dict
-		m_pusher.setDict(key, *arrayType->baseType(), dataType); // dict size sizeIter' dict'
-		m_pusher.popS(3); // dict' size sizeIter'
+		m_pusher.pushS(2);    // N value iter dict value
+		m_pusher.pushS(2);    // N value iter dict value iter
+		m_pusher << "INC";    // N value iter dict value iter++
+		m_pusher.exchange(3); // N value iter++ dict value iter
+		m_pusher.rot();       // N value iter++ value iter dict
+		m_pusher.setDict(key, *arrayType->baseType(), dataType); // N value iter++ dict'
 		m_pusher.endContinuation();
 	}
-	m_pusher.repeat();
-	// dict size 0
-	solAssert(size + 3 == m_pusher.stackSize(), "");
-	m_pusher.drop();  // dict size
-
-	m_pusher.exchange(1);
-	m_pusher.push(-2 + 1, "TUPLE 2");
-
-	solAssert(size + 1 == m_pusher.stackSize(), "");
-	return true;
+	m_pusher.repeat(false);
+	solAssert(stackSize + 4 == m_pusher.stackSize(), "");
+	// N value iter dict
+	if (onlyDict) {
+		m_pusher.dropUnder(3, 1); // dict
+	} else {
+		m_pusher.dropUnder(2, 1); // N dict
+		m_pusher << "TUPLE 2";
+	}
+	solAssert(stackSize + 1 == m_pusher.stackSize(), "");
 }
 
 bool FunctionCallCompiler::structMethodCall() {
@@ -3411,7 +3444,7 @@ void FunctionCallCompiler::pushExprAndConvert(const Expression *expr, Type const
 }
 
 void FunctionCallCompiler::acceptExpr(const Expression *expr) {
-	m_exprCompiler->compileNewExpr(expr);
+	m_exprCompiler.compileNewExpr(expr);
 }
 
 void FunctionCallCompiler::compileLog()
@@ -3457,5 +3490,5 @@ void FunctionCallCompiler::cellBitRefQty(bool forCell) {
 
 	m_pusher.ifElse();
 
-	m_pusher.endOpaque(2, 1);
+	m_pusher.endOpaque(2, 1, true);
 }

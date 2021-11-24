@@ -793,8 +793,8 @@ bool TypeChecker::visit(VariableDeclaration const& _variable)
 		if (!_variable.type()->isValueType())
 		{
 			bool allowed = false;
-			if (auto arrayType = dynamic_cast<ArrayType const*>(_variable.type()))
-				allowed = arrayType->isByteArray();
+			if (dynamic_cast<ArrayType const*>(_variable.type()))
+				allowed = true;
 			if (!allowed)
 				m_errorReporter.typeError(_variable.location(), "Constants of non-value type not yet implemented.");
 		}

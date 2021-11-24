@@ -23,15 +23,17 @@
 #include "DictOperations.hpp"
 #include "TVMABI.hpp"
 #include "TVMAnalyzer.hpp"
-#include "TVMExpressionCompiler.hpp"
-#include "TVMFunctionCompiler.hpp"
 #include "TVMConstants.hpp"
+#include "TVMExpressionCompiler.hpp"
+#include "TVMFunctionCall.hpp"
+#include "TVMFunctionCompiler.hpp"
 
-using namespace std;
 using namespace solidity::frontend;
-namespace fs = boost::filesystem;
-using namespace solidity::util;
 using namespace solidity::langutil;
+using namespace solidity::util;
+using namespace std;
+
+namespace fs = boost::filesystem;
 
 TVMFunctionCompiler::TVMFunctionCompiler(StackPusher &pusher, ContractDefinition const *contract) :
 	m_pusher{pusher},
@@ -118,9 +120,32 @@ bool TVMFunctionCompiler::lastAnalyzerBeforeLoop() const {
 	solUnimplemented("");
 }
 
+Pointer<Function> TVMFunctionCompiler::updateOnlyTime(TVMCompilerContext& ctx) {
+	StackPusher pusher{&ctx};
+	pusher.pushRoot();
+	pusher  << "CTOS"
+			<< "LDU 256"
+			<< "LDU 64";
+	pusher.dropUnder(1, 1);
+	pusher.getGlob(TvmConst::C7::ReplayProtTime);
+	// pubkey rest time
+	pusher.rot(); // rest time pubkey
+	pusher  << "NEWC" // rest time pubkey builder
+			<< "STU 256"
+			<< "STU 64"
+			<< "STSLICE"
+			<< "ENDC";
+	pusher.popRoot();
+
+	Pointer<CodeBlock> block = pusher.getBlock();
+	auto f = createNode<Function>(0, 0, "upd_only_time_in_c4", Function::FunctionType::Macro, block);
+	return f;
+}
+
 Pointer<Function>
-TVMFunctionCompiler::generateC4ToC7(StackPusher& pusher) {
-	pusher.pushC4();
+TVMFunctionCompiler::generateC4ToC7(TVMCompilerContext& ctx) {
+	StackPusher pusher{&ctx};
+	pusher.pushRoot();
 	pusher.push(-1 + 1, "CTOS");
 	pusher.push(-1 + 2, "LDU 256      ; pubkey c4");
 	if (pusher.ctx().storeTimestampInC4()) {
@@ -172,10 +197,11 @@ TVMFunctionCompiler::generateC4ToC7(StackPusher& pusher) {
 }
 
 Pointer<Function>
-TVMFunctionCompiler::generateC4ToC7WithInitMemory(StackPusher& pusher) {
+TVMFunctionCompiler::generateC4ToC7WithInitMemory(TVMCompilerContext& ctx) {
+	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, pusher.ctx().getContract()};
 
-	pusher.pushC4();
+	pusher.pushRoot();
 	pusher.push(-1 + 1, "CTOS");
 	pusher.push(-1 + 1, "SBITS");
 	pusher.push(-1 + 1, "GTINT 1");
@@ -186,7 +212,7 @@ TVMFunctionCompiler::generateC4ToC7WithInitMemory(StackPusher& pusher) {
 
 	pusher.startContinuation();
 	pusher.pushInt(0);
-	pusher.pushC4();
+	pusher.pushRoot();
 	pusher.push(0, "CTOS");
 	pusher.push(0, "PLDDICT   ; D");
 
@@ -242,11 +268,27 @@ TVMFunctionCompiler::generateC4ToC7WithInitMemory(StackPusher& pusher) {
 }
 
 Pointer<Function>
+TVMFunctionCompiler::generateNewArrays(TVMCompilerContext& ctx, std::string const& name, FunctionCall const* arr) {
+	StackPusher pusher{&ctx};
+	FunctionCallCompiler{pusher, *arr, true}.honestArrayCreation(true);
+	return createNode<Function>(0, 0, name, Function::FunctionType::Macro, pusher.getBlock());
+}
+
+Pointer<Function>
+TVMFunctionCompiler::generateConstArrays(TVMCompilerContext& ctx, std::string const& name, TupleExpression const* arr) {
+	StackPusher pusher{&ctx};
+	solAssert(arr->isInlineArray(), "");
+	TVMExpressionCompiler{pusher}.visitHonest(*arr, true);
+	return createNode<Function>(0, 0, name, Function::FunctionType::Macro, pusher.getBlock());
+}
+
+Pointer<Function>
 TVMFunctionCompiler::generateMacro(
-	StackPusher& pusher,
+	TVMCompilerContext& ctx,
 	FunctionDefinition const* function,
 	const std::optional<std::string>& forceName
 ) {
+	StackPusher pusher{&ctx};
 	std::string name = forceName.has_value() ? forceName.value() : function->name();
 	TVMFunctionCompiler funCompiler{pusher, 0, function, false, true, 0};
     funCompiler.pushLocation(*function);
@@ -258,7 +300,8 @@ TVMFunctionCompiler::generateMacro(
 }
 
 Pointer<Function>
-TVMFunctionCompiler::generateOnCodeUpgrade(StackPusher& pusher, FunctionDefinition const* function) {
+TVMFunctionCompiler::generateOnCodeUpgrade(TVMCompilerContext& ctx, FunctionDefinition const* function) {
+	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, 0, function, false, true, 0};
 	funCompiler.visitFunctionWithModifiers();
 
@@ -270,7 +313,8 @@ TVMFunctionCompiler::generateOnCodeUpgrade(StackPusher& pusher, FunctionDefiniti
 }
 
 Pointer<Function>
-TVMFunctionCompiler::generateOnTickTock(StackPusher& pusher, FunctionDefinition const* function) {
+TVMFunctionCompiler::generateOnTickTock(TVMCompilerContext& ctx, FunctionDefinition const* function) {
+	StackPusher pusher{&ctx};
 	pusher.startOpaque();
 	pusher.pushInt(-2);
 	pusher.endOpaque(0, 0); // hide -2 from optimizer, because it may be used in msg.isTickTock
@@ -310,13 +354,14 @@ void TVMFunctionCompiler::decodeFunctionParams(bool isResponsible) {
 }
 
 Pointer<Function>
-TVMFunctionCompiler::generatePublicFunction(StackPusher& pusher, FunctionDefinition const* function) {
+TVMFunctionCompiler::generatePublicFunction(TVMCompilerContext& ctx, FunctionDefinition const* function) {
 	/* stack:
 	 * transaction data (see internal or external main)
 	 * function result
 	 * [send int/ext msg]
 	 */
 
+	StackPusher pusher{&ctx};
 	std::string name = function->name();
 	Function::FunctionType type = Function::FunctionType::Macro;
 	Pointer<CodeBlock> block;
@@ -352,7 +397,7 @@ TVMFunctionCompiler::generatePublicFunction(StackPusher& pusher, FunctionDefinit
 
 	pusher.ensureSize(0, "");
 
-	funCompiler.pushC7ToC4IfNeed();
+	funCompiler.updC4IfItNeeds();
 	// set flag meaning function is called
 	pusher._throw("THROW 0");
 
@@ -411,7 +456,8 @@ TVMFunctionCompiler::generateGetter(StackPusher &pusher, VariableDeclaration con
 }
 
 Pointer<Function>
-TVMFunctionCompiler::generatePublicFunctionSelector(StackPusher& pusher, ContractDefinition const *contract) {
+TVMFunctionCompiler::generatePublicFunctionSelector(TVMCompilerContext& ctx, ContractDefinition const *contract) {
+	StackPusher pusher{&ctx};
 	const std::vector<std::pair<uint32_t, std::string>>& functions = pusher.ctx().getPublicFunctions();
 	TVMFunctionCompiler compiler{pusher, contract};
 	compiler.buildPublicFunctionSelector(functions, 0, functions.size());
@@ -419,17 +465,19 @@ TVMFunctionCompiler::generatePublicFunctionSelector(StackPusher& pusher, Contrac
 }
 
 Pointer<Function>
-TVMFunctionCompiler::generatePrivateFunction(StackPusher& pusher, const std::string& name) {
+TVMFunctionCompiler::generatePrivateFunction(TVMCompilerContext& ctx, const std::string& name) {
+	StackPusher pusher{&ctx};
 	const std::string macroName = name + "_macro";
 	pusher.pushCall(0, 0, macroName);
 	return createNode<Function>(0, 0, name, Function::FunctionType::PrivateFunction, pusher.getBlock());
 }
 
 Pointer<Function> TVMFunctionCompiler::generateLibraryFunction(
-	StackPusher& pusher,
+	TVMCompilerContext& ctx,
 	FunctionDefinition const* function,
 	const std::string& name
 ) {
+	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, 0, function, true, true, 0};
 	const std::string macroName = name + "_macro";
 	pusher.pushCall(0, 0, macroName);
@@ -437,10 +485,11 @@ Pointer<Function> TVMFunctionCompiler::generateLibraryFunction(
 }
 
 Pointer<Function> TVMFunctionCompiler::generateLibraryFunctionMacro(
-		StackPusher& pusher,
-		FunctionDefinition const* function,
-		const std::string& name
+	TVMCompilerContext& ctx,
+	FunctionDefinition const* function,
+	const std::string& name
 ) {
+	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, 0, function, true, true, 0};
 	funCompiler.visitFunctionWithModifiers();
 	int take = function->parameters().size();
@@ -448,29 +497,30 @@ Pointer<Function> TVMFunctionCompiler::generateLibraryFunctionMacro(
 	return createNode<Function>(take, ret + 1, name, Function::FunctionType::Macro, pusher.getBlock());
 }
 
-Pointer<Function> TVMFunctionCompiler::generateReceive(StackPusher& pusher, FunctionDefinition const* function) {
-	return generateReceiveOrFallbackOrOnBounce(pusher, function, "receive_macro", 0);
+Pointer<Function> TVMFunctionCompiler::generateReceive(TVMCompilerContext& ctx, FunctionDefinition const* function) {
+	return generateReceiveOrFallbackOrOnBounce(ctx, function, "receive_macro", 0);
 }
 
-Pointer<Function> TVMFunctionCompiler::generateFallback(StackPusher& pusher, FunctionDefinition const* function) {
-	return generateReceiveOrFallbackOrOnBounce(pusher, function, "fallback_macro", 0);
+Pointer<Function> TVMFunctionCompiler::generateFallback(TVMCompilerContext& ctx, FunctionDefinition const* function) {
+	return generateReceiveOrFallbackOrOnBounce(ctx, function, "fallback_macro", 0);
 }
 
-Pointer<Function> TVMFunctionCompiler::generateOnBounce(StackPusher &pusher, const FunctionDefinition *function) {
-	return generateReceiveOrFallbackOrOnBounce(pusher, function, "on_bounce_macro", 1);
+Pointer<Function> TVMFunctionCompiler::generateOnBounce(TVMCompilerContext& ctx, const FunctionDefinition *function) {
+	return generateReceiveOrFallbackOrOnBounce(ctx, function, "on_bounce_macro", 1);
 }
 
 Pointer<Function> TVMFunctionCompiler::generateReceiveOrFallbackOrOnBounce(
-	StackPusher& pusher,
+	TVMCompilerContext& ctx,
 	FunctionDefinition const* function,
 	const std::string& name,
 	int take
 ) {
+	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, 0, function, false, true, 0};
 	pusher.checkCtorCalled();
 	funCompiler.pushC4ToC7IfNeed();
 	funCompiler.visitFunctionWithModifiers();
-	funCompiler.pushC7ToC4IfNeed();
+	funCompiler.updC4IfItNeeds();
 	return createNode<Function>(take, 0, name, Function::FunctionType::Macro, pusher.getBlock());
 }
 
@@ -608,7 +658,7 @@ void TVMFunctionCompiler::visitModifierOrFunctionBlock(Block const &body, int ar
 			++retQty;
 			solAssert(argQty > 0, "");
 		}
-		m_pusher.callX(argQty, retQty);
+		m_pusher.pushContAndCallX(argQty, retQty);
         pushLocation(*m_function, true);
 	}
 }
@@ -927,7 +977,7 @@ void TVMFunctionCompiler::doWhile(WhileStatement const &_whileStatement) {
 		m_pusher.startContinuation();
 		_whileStatement.body().accept(*this);
 		m_pusher.drop(m_pusher.stackSize() - ss);
-		m_pusher.callX(0, 0); // TODO check
+		m_pusher.pushContAndCallX(0, 0); // TODO check
 	} else {
 		_whileStatement.body().accept(*this);
 		m_pusher.drop(m_pusher.stackSize() - ss);
@@ -1019,9 +1069,6 @@ bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
 
 	// condition
 	if (_whileStatement.loopType() == WhileStatement::LoopType::REPEAT) {
-		if (ci.mayDoThat()) {
-			cast_error(_whileStatement, "Using 'break', 'continue' or 'return' is not supported yet.");
-		}
 		acceptExpr(&_whileStatement.condition());
 		m_pusher.push(-1, "");
 	} else {
@@ -1040,7 +1087,7 @@ bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
 	m_pusher.endContinuation();
 
 	if (_whileStatement.loopType() == WhileStatement::LoopType::REPEAT)
-		m_pusher.repeat();
+		m_pusher.repeat(ci.canBreak() || ci.canReturn());
 	else
 		m_pusher._while(ci.canBreak() || ci.canReturn());
 
@@ -1183,7 +1230,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 				m_pusher.push(-1 + 2, "LDU 8");
 				m_pusher.push(-2, ""); // fix stack
 				m_pusher.endContinuation();
-				m_pusher._ifNot();
+				m_pusher.ifNot();
 				m_pusher.endOpaque(1, 2);
 
 				solAssert(ss + 2 == m_pusher.stackSize(), "");
@@ -1267,7 +1314,7 @@ void TVMFunctionCompiler::visitBodyOfForLoop(
 		m_pusher.startContinuation();
 		body.accept(*this);
 		m_pusher.drop(m_pusher.stackSize() - ss);
-		m_pusher.callX(0, 0); // TODO check
+		m_pusher.pushContAndCallX(0, 0); // TODO check
 	} else {
 		int ss = m_pusher.stackSize();
 		body.accept(*this);
@@ -1275,7 +1322,6 @@ void TVMFunctionCompiler::visitBodyOfForLoop(
 	}
 
 	if (loopExpression) {
-		// TODO optimization: don't pushcont if no loopExpression
 		loopExpression();
 	}
 	m_pusher.endContinuation();
@@ -1481,7 +1527,8 @@ bool TVMFunctionCompiler::visit(EmitStatement const &_emit) {
 	return false;
 }
 
-Pointer<Function> TVMFunctionCompiler::generateMainExternal(StackPusher& pusher, ContractDefinition const *contract) {
+Pointer<Function> TVMFunctionCompiler::generateMainExternal(TVMCompilerContext& ctx, ContractDefinition const *contract) {
+	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, contract};
 	Pointer<Function> f;
 	switch (pusher.ctx().pragmaHelper().abiVersion()) {
@@ -1505,7 +1552,7 @@ void TVMFunctionCompiler::setGlobSenderAddressIfNeed() {
 }
 
 void TVMFunctionCompiler::setCtorFlag() {
-	m_pusher.pushC4();
+	m_pusher.pushRoot();
 	m_pusher.push(0, "CTOS");
 	m_pusher.push(0, "SBITS");
 	m_pusher.push(0, "NEQINT 1");
@@ -1675,20 +1722,21 @@ void TVMFunctionCompiler::callPublicFunctionOrFallback() {
 		m_pusher.drop(2);
 		m_pusher.startContinuation();
 		m_pusher.pushCall(0, 0, "fallback_macro");
-		m_pusher.callRef(0, 0);
+		m_pusher.pushRefContAndCallX(0, 0);
 	} else {
 		m_pusher._throw("THROW " + toString(TvmConst::RuntimeException::NoFallback));
 	}
 }
 
 Pointer<Function>
-TVMFunctionCompiler::generateMainInternal(StackPusher& pusher, ContractDefinition const *contract) {
+TVMFunctionCompiler::generateMainInternal(TVMCompilerContext& ctx, ContractDefinition const *contract) {
 	// int_msg_info$0  ihr_disabled:Bool  bounce:Bool(#1)  bounced:Bool
 	//                 src:MsgAddress  dest:MsgAddressInt(#4)
 	//                 value:CurrencyCollection(#5,#6)  ihr_fee:Grams  fwd_fee:Grams
 	//                 created_lt:uint64  created_at:uint32
 	//                 = CommonMsgInfoRelaxed;
 
+	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, contract};
 	funCompiler.setCtorFlag();
 
@@ -1733,7 +1781,8 @@ TVMFunctionCompiler::generateMainInternal(StackPusher& pusher, ContractDefinitio
 		pusher.push(-1 + 2, "LDSLICE 32");
 		pusher.dropUnder(1, 1);
 		pusher.pushCall(0, 0, "on_bounce_macro");
-		pusher.ifJmpRef();
+		pusher.endContinuationFromRef();
+		pusher.ifJmp();
 	} else {
 		pusher.ifret();
 	}
@@ -1746,7 +1795,8 @@ TVMFunctionCompiler::generateMainInternal(StackPusher& pusher, ContractDefinitio
 	return createNode<Function>(0, 0, "main_internal", Function::FunctionType::MainInternal, pusher.getBlock());
 }
 
-Pointer<Function> TVMFunctionCompiler::generateCheckResume(StackPusher &pusher) {
+Pointer<Function> TVMFunctionCompiler::generateCheckResume(TVMCompilerContext& ctx) {
+	StackPusher pusher{&ctx};
 	// TODO: unite check resume and c4_to_c7 for not to parse c4 2 times
 	std::string code = R"(PUSHROOT
 CTOS
@@ -1800,21 +1850,34 @@ void TVMFunctionCompiler::pushC4ToC7IfNeed() {
 		m_pusher.push(-1, ""); // fix stack
 		m_pusher.startContinuation();
 		m_pusher.pushCall(0, 0, "c4_to_c7");
-		m_pusher.ifRef();
+		m_pusher.endContinuationFromRef();
+		m_pusher._if();
 	}
 }
 
-void TVMFunctionCompiler::pushC7ToC4IfNeed() {
+void TVMFunctionCompiler::updC4IfItNeeds() {
 	// c7_to_c4 if need
-//	solAssert(m_pusher.stackSize() == 0, "");
+	//	solAssert(m_pusher.stackSize() == 0, "");
 	if (m_function->stateMutability() == StateMutability::NonPayable) {
 		m_pusher.pushMacroCallInCallRef(0, 0, "c7_to_c4");
 	} else {
 		// if it's external message than save values for replay protection
-		m_pusher.pushS(0);
-		m_pusher.startContinuation();
-		m_pusher.pushCall(0, 0, "c7_to_c4");
-		m_pusher.ifRef();
+		if (m_pusher.ctx().afterSignatureCheck() == nullptr &&
+			m_pusher.ctx().hasTimeInAbiHeader() &&
+			m_pusher.ctx().notConstantStateVariables().size() >= 2 // just optimization
+		) {
+			m_pusher.pushS(0);
+			m_pusher.startContinuation();
+			m_pusher.pushCall(0, 0, "upd_only_time_in_c4");
+			m_pusher.endContinuationFromRef();
+			m_pusher._if();
+		} else {
+			m_pusher.pushS(0);
+			m_pusher.startContinuation();
+			m_pusher.pushCall(0, 0, "c7_to_c4");
+			m_pusher.endContinuationFromRef();
+			m_pusher._if();
+		}
 	}
 }
 
@@ -1828,7 +1891,7 @@ void TVMFunctionCompiler::pushReceiveOrFallback() {
 			m_pusher.pushMacroCallInCallRef(0, 0, "fallback_macro");
 			m_pusher._throw("THROW 0");
 			m_pusher.endContinuation();
-			m_pusher._ifNot();
+			m_pusher.ifNot();
 		} else {
 			m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::NoFallback) + " ; funcId body'");
 		}
@@ -1859,10 +1922,11 @@ void TVMFunctionCompiler::pushReceiveOrFallback() {
 			m_pusher._if();
 		}
 		m_pusher.endContinuation();
-		m_pusher._ifNot();
+		m_pusher.ifNot();
 		m_pusher.startContinuation();
 		m_pusher.pushCall(0, 0, "receive_macro");
-		m_pusher.ifJmpRef();
+		m_pusher.endContinuationFromRef();
+		m_pusher.ifJmp();
 	} else {
 		m_pusher.pushS(1);
 		m_pusher.push(0, "SEMPTY     ; isEmpty");
@@ -1900,7 +1964,8 @@ void TVMFunctionCompiler::buildPublicFunctionSelector(
 		m_pusher.push(-1, ""); // fix stack
 		m_pusher.startContinuation();
 		m_pusher.pushCall(0, 0, name);
-		m_pusher.ifJmpRef();
+		m_pusher.endContinuationFromRef();
+		m_pusher.ifJmp();
 	};
 
 	// stack: functionID
@@ -1921,7 +1986,8 @@ void TVMFunctionCompiler::buildPublicFunctionSelector(
 				m_pusher.push(-2 + 1, "LEQ");
 				m_pusher.startContinuation();
 				buildPublicFunctionSelector(functions, i, j);
-				m_pusher.ifJmpRef();
+				m_pusher.endContinuationFromRef();
+				m_pusher.ifJmp();
 			}
 		}
 	}

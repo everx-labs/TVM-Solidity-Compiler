@@ -39,30 +39,33 @@ private:
 	);
 
 public:
-	static Pointer<Function> generateC4ToC7(StackPusher& pusher);
-	static Pointer<Function> generateC4ToC7WithInitMemory(StackPusher& pusher);
+	static Pointer<Function> updateOnlyTime(TVMCompilerContext& ctx);
+	static Pointer<Function> generateC4ToC7(TVMCompilerContext& ctx);
+	static Pointer<Function> generateC4ToC7WithInitMemory(TVMCompilerContext& ctx);
 	[[nodiscard]]
-	static Pointer<Function> generateMacro(StackPusher& pusher, FunctionDefinition const* function, const std::optional<std::string>& forceName = std::nullopt);
-	static Pointer<Function> generateMainExternal(StackPusher& pusher, ContractDefinition const *contract);
-	static Pointer<Function> generateMainInternal(StackPusher& pusher, ContractDefinition const *contract);
-	static Pointer<Function> generateCheckResume(StackPusher& pusher);
-	static Pointer<Function> generateOnCodeUpgrade(StackPusher& pusher, FunctionDefinition const* function);
-	static Pointer<Function> generateOnTickTock(StackPusher& pusher, FunctionDefinition const* function);
-	static Pointer<Function> generatePrivateFunction(StackPusher& pusher, const std::string& name);
-	static Pointer<Function> generateLibraryFunction(StackPusher& pusher, FunctionDefinition const* function, const std::string& name);
-	static Pointer<Function> generateLibraryFunctionMacro(StackPusher& pusher, FunctionDefinition const* function, const std::string& name);
-	static Pointer<Function> generateReceive(StackPusher& pusher, FunctionDefinition const* function);
-	static Pointer<Function> generateFallback(StackPusher& pusher, FunctionDefinition const* function);
-	static Pointer<Function> generateOnBounce(StackPusher& pusher, FunctionDefinition const* function);
-	static Pointer<Function> generatePublicFunction(StackPusher& pusher, FunctionDefinition const* function);
+	static Pointer<Function> generateNewArrays(TVMCompilerContext& ctx, std::string const& name, FunctionCall const* arr);
+	static Pointer<Function> generateConstArrays(TVMCompilerContext& ctx, std::string const& name, TupleExpression const* arr);
+	static Pointer<Function> generateMacro(TVMCompilerContext& ctx, FunctionDefinition const* function, const std::optional<std::string>& forceName = std::nullopt);
+	static Pointer<Function> generateMainExternal(TVMCompilerContext& ctx, ContractDefinition const *contract);
+	static Pointer<Function> generateMainInternal(TVMCompilerContext& ctx, ContractDefinition const *contract);
+	static Pointer<Function> generateCheckResume(TVMCompilerContext& ctx);
+	static Pointer<Function> generateOnCodeUpgrade(TVMCompilerContext& ctx, FunctionDefinition const* function);
+	static Pointer<Function> generateOnTickTock(TVMCompilerContext& ctx, FunctionDefinition const* function);
+	static Pointer<Function> generatePrivateFunction(TVMCompilerContext& ctx, const std::string& name);
+	static Pointer<Function> generateLibraryFunction(TVMCompilerContext& ctx, FunctionDefinition const* function, const std::string& name);
+	static Pointer<Function> generateLibraryFunctionMacro(TVMCompilerContext& ctx, FunctionDefinition const* function, const std::string& name);
+	static Pointer<Function> generateReceive(TVMCompilerContext& ctx, FunctionDefinition const* function);
+	static Pointer<Function> generateFallback(TVMCompilerContext& ctx, FunctionDefinition const* function);
+	static Pointer<Function> generateOnBounce(TVMCompilerContext& ctx, FunctionDefinition const* function);
+	static Pointer<Function> generatePublicFunction(TVMCompilerContext& ctx, FunctionDefinition const* function);
 	static void generateFunctionWithModifiers(StackPusher& pusher, FunctionDefinition const* function, bool pushArgs);
 	static Pointer<Function> generateGetter(StackPusher& pusher, VariableDeclaration const* vd);
-	static Pointer<Function> generatePublicFunctionSelector(StackPusher& pusher, ContractDefinition const *contract);
+	static Pointer<Function> generatePublicFunctionSelector(TVMCompilerContext& pusher, ContractDefinition const *contract);
 	void decodeFunctionParams(bool hasCallback);
 
 protected:
 	static Pointer<Function> generateReceiveOrFallbackOrOnBounce(
-		StackPusher& pusher,
+		TVMCompilerContext& ctx,
 		FunctionDefinition const* function,
 		const std::string& name,
 		int take
@@ -122,7 +125,7 @@ private:
 	void expire();
 	void callPublicFunctionOrFallback();
 	void pushC4ToC7IfNeed();
-	void pushC7ToC4IfNeed();
+	void updC4IfItNeeds();
 	void pushReceiveOrFallback();
 
 	void buildPublicFunctionSelector(const std::vector<std::pair<uint32_t, std::string>>& functions, int left, int right);

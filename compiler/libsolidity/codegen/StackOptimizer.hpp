@@ -18,12 +18,11 @@
 
 #pragma once
 
-#include "TvmAstVisitor.hpp"
+#include <libsolidity/codegen/TvmAstVisitor.hpp>
 
 namespace solidity::frontend {
 	class StackOptimizer : public TvmAstVisitor {
 	public:
-//		bool visit(AsymGen &_node) override;
 		bool visit(DeclRetFlag &_node) override;
 		bool visit(Opaque &_node) override;
 		bool visit(HardCode &_node) override;
@@ -58,6 +57,7 @@ namespace solidity::frontend {
 		void startScope();
 		void endScope();
 	private:
+		bool m_didSome{};
 		std::vector<int> m_stackSize;
 	};
 } // end solidity::frontend
