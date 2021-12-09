@@ -27,6 +27,7 @@
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCall.hpp"
 #include "TVMFunctionCompiler.hpp"
+#include "TVMStructCompiler.hpp"
 
 using namespace solidity::frontend;
 using namespace solidity::langutil;
@@ -163,8 +164,9 @@ TVMFunctionCompiler::generateC4ToC7(TVMCompilerContext& ctx) {
 		std::vector<Type const *> stateVarTypes = pusher.ctx().notConstantStateVariableTypes();
 		const int ss = pusher.stackSize();
 		ChainDataDecoder decoder{&pusher};
-		decoder.decodeData(stateVarTypes, pusher.ctx().getOffsetC4(), true,
-						   pusher.ctx().usage().hasAwaitCall() ? 1 : 0);
+		decoder.decodeData(pusher.ctx().getOffsetC4(),
+						   pusher.ctx().usage().hasAwaitCall() ? 1 : 0,
+						   stateVarTypes);
 
 		const int varQty = stateVarTypes.size();
 		if (pusher.ctx().tooMuchStateVariables()) {
@@ -268,6 +270,21 @@ TVMFunctionCompiler::generateC4ToC7WithInitMemory(TVMCompilerContext& ctx) {
 }
 
 Pointer<Function>
+TVMFunctionCompiler::generateBuildTuple(TVMCompilerContext& ctx, std::string const& name, std::vector<Type const*> types) {
+	StackPusher pusher{&ctx};
+	int n = types.size();
+	std::vector<std::string> names(n);
+	for (Type const* t : types) {
+		pusher.pushDefaultValue(t);
+	}
+	pusher.tuple(n);
+	StructCompiler sc{&pusher, types, names};
+	sc.tupleToBuilder();
+	pusher << "ENDC";
+	return createNode<Function>(0, 0, name, Function::FunctionType::Macro, pusher.getBlock());
+}
+
+Pointer<Function>
 TVMFunctionCompiler::generateNewArrays(TVMCompilerContext& ctx, std::string const& name, FunctionCall const* arr) {
 	StackPusher pusher{&ctx};
 	FunctionCallCompiler{pusher, *arr, true}.honestArrayCreation(true);
@@ -340,11 +357,11 @@ TVMFunctionCompiler::generateOnTickTock(TVMCompilerContext& ctx, FunctionDefinit
 	return createNode<Function>(0, 0, "onTickTock", Function::FunctionType::OnTickTock, pusher.getBlock());
 }
 
-void TVMFunctionCompiler::decodeFunctionParams(bool isResponsible) {
+void TVMFunctionCompiler::decodeFunctionParamsAndInitVars(bool isResponsible) {
 	// decode function params
 	// stack: arguments-in-slice
 	vector<Type const*> types = getParams(m_function->parameters()).first;
-	ChainDataDecoder{&m_pusher}.decodePublicFunctionParameters(types, isResponsible);
+	ChainDataDecoder{&m_pusher}.decodeFunctionParameters(types, isResponsible);
 	// stack: transaction_id arguments...
 	m_pusher.getStack().change(-static_cast<int>(m_function->parameters().size()));
 	for (const ASTPointer<VariableDeclaration>& variable: m_function->parameters()) {
@@ -384,12 +401,14 @@ TVMFunctionCompiler::generatePublicFunction(TVMCompilerContext& ctx, FunctionDef
 		pusher.setGlob(TvmConst::C7::ReturnParams); // slice
 		solAssert(saveStakeSize == pusher.stackSize(), "");
 	}
-	funCompiler.decodeFunctionParams(isResponsible);
+	funCompiler.decodeFunctionParamsAndInitVars(isResponsible);
     funCompiler.pushLocation(*function, true);
 
 	int paramQty = function->parameters().size();
 	int retQty = function->returnParameters().size();
-	pusher.pushMacroCallInCallRef(paramQty, retQty, pusher.ctx().getFunctionInternalName(function) + "_macro");
+	// stack: selector, arg0, arg1, arg2 ...
+	// +1 because function may use selector
+	pusher.pushMacroCallInCallRef(paramQty + 1, retQty + 1, pusher.ctx().getFunctionInternalName(function) + "_macro");
 
 	solAssert(pusher.stackSize() == retQty, "");
 	// emit
@@ -402,8 +421,9 @@ TVMFunctionCompiler::generatePublicFunction(TVMCompilerContext& ctx, FunctionDef
 	pusher._throw("THROW 0");
 
 	block = pusher.getBlock();
-	// takes functionId, returns nothing
-	return createNode<Function>(2, 0, name, type, block);
+	// takes selector, sliceWithBody, functionId
+	// returns nothing
+	return createNode<Function>(3, 0, name, type, block);
 }
 
 void TVMFunctionCompiler::generateFunctionWithModifiers(
@@ -1531,16 +1551,7 @@ Pointer<Function> TVMFunctionCompiler::generateMainExternal(TVMCompilerContext& 
 	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, contract};
 	Pointer<Function> f;
-	switch (pusher.ctx().pragmaHelper().abiVersion()) {
-		case AbiVersion::V1:
-			f = funCompiler.generateMainExternalForAbiV1();
-			break;
-		case AbiVersion::V2_2:
-			f = funCompiler.generateMainExternalForAbiV2();
-			break;
-		default:
-			solUnimplemented("");
-	}
+	f = funCompiler.generateMainExternalForAbiV2();
 	return f;
 }
 
@@ -1557,46 +1568,6 @@ void TVMFunctionCompiler::setCtorFlag() {
 	m_pusher.push(0, "SBITS");
 	m_pusher.push(0, "NEQINT 1");
 	m_pusher.setGlob(TvmConst::C7::ConstructorFlag);
-}
-
-Pointer<Function> TVMFunctionCompiler::generateMainExternalForAbiV1() {
-	// contract_balance msg_balance msg_cell origin_msg_body_slice
-	setCtorFlag();
-	setGlobSenderAddressIfNeed();
-
-	m_pusher.pushS(1);
-	m_pusher.push(+1, "LDREFRTOS  ; msgBodySlice signSlice");
-	m_pusher.pushS(0);
-	m_pusher.push(0, "SDEMPTY    ; msgBodySlice signSlice isSignSliceEmpty");
-	m_pusher.startContinuation();
-	m_pusher.drop();
-	m_pusher.endContinuation();
-	m_pusher.startContinuation();
-	m_pusher.pushS(0);
-	m_pusher.pushInt(512);
-	m_pusher.push(-2 + 1, "SDSKIPFIRST  ; msgBodySlice signSlice signSlice'");
-	m_pusher.push(+0, "PLDU 256     ; msgBodySlice signSlice pubKey");
-	m_pusher.pushS(2);
-	m_pusher.push(0, "HASHSU       ; msgBodySlice signSlice pubKey msgHash");
-	m_pusher.pushS2(2, 1);
-	m_pusher.push(-3 + 1, "CHKSIGNU     ; msgBodySlice signSlice pubKey isSigned");
-	m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::BadSignature) + "; msgBodySlice signSlice pubKey");
-	m_pusher.setGlob(TvmConst::C7::MsgPubkey);
-	m_pusher.drop();
-	m_pusher.endContinuation();
-	m_pusher.ifElse();
-
-	m_pusher.pushMacroCallInCallRef(0, 0, "c4_to_c7_with_init_storage");
-
-	m_pusher.push(+1, "LDU 32                         ; functionId msgSlice");
-	m_pusher.push(+1, "LDU 64                         ; functionId timestamp msgSlice");
-	m_pusher.exchange(1);
-	m_pusher.pushCall(1, 0, "replay_protection_macro");
-	m_pusher.exchange(1); // msgSlice functionId
-
-	callPublicFunctionOrFallback();
-
-	return createNode<Function>(0, 0, "main_external", Function::FunctionType::MainExternal, m_pusher.getBlock());
 }
 
 Pointer<Function>

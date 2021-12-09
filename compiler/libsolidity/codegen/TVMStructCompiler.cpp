@@ -30,8 +30,8 @@ StructCompiler::StructCompiler(StackPusher *pusher, TupleType const* tuple) :
 {
 	int i = 0;
 	for (auto t :tuple->components()) {
-		memberNames.push_back(toString(i++));
-		memberTypes.push_back(t);
+		m_names.push_back(toString(i++));
+		m_types.push_back(t);
 	}
 }
 
@@ -61,25 +61,41 @@ StructCompiler::StructCompiler(StackPusher *pusher, StructType const *structType
 
 StructCompiler::StructCompiler(
 	StackPusher *pusher,
-	const std::vector<Type const*>& memberTypes,
-	const std::vector<std::string>& memberNames
+	const std::vector<Type const*>& m_types,
+	const std::vector<std::string>& m_names
 ) :
-	memberNames{memberNames},
-	memberTypes{memberTypes},
+	m_names{m_names},
+	m_types{m_types},
 	pusher{pusher}
 {
 
 }
 
-void StructCompiler::createDefaultStruct(bool resultIsBuilder) {
-	for (Type const* type : memberTypes) {
-		pusher->pushDefaultValue(type, false);
+void StructCompiler::createDefaultStruct() {
+	for (Type const *type: m_types) {
+		pusher->pushDefaultValue(type);
 	}
-	pusher->tuple(memberTypes.size());
-	if (resultIsBuilder) {
-		// TODO generate builder without default value
-		tupleToBuilder();
+	pusher->tuple(m_types.size());
+}
+
+void StructCompiler::createDefaultStructAsCell() {
+	createDefaultStruct(false);
+}
+
+void StructCompiler::createDefaultStructAsSlice() {
+	createDefaultStruct(true);
+}
+
+void StructCompiler::createDefaultStruct(bool asSlice) {
+	std::string name = "default_tuple_builder";
+	for (Type const* t : m_types) {
+		name += "_" + t->identifier();
 	}
+	if (asSlice)
+		pusher->compureConstSlice(name);
+	else
+		pusher->compureConstCell(name);
+	pusher->ctx().addBuildTuple(name, m_types);
 }
 
 void StructCompiler::pushMember(const std::string &memberName) {
@@ -97,17 +113,17 @@ void StructCompiler::structConstructor(
 ) {
 	if (names.empty()) {
 		int i{};
-		for (const Type *type : memberTypes) {
+		for (const Type *type : m_types) {
 			if (type->category() == Type::Category::Mapping) {
-				pusher->pushDefaultValue(type, false);
+				pusher->pushDefaultValue(type);
 			} else {
 				pushParam(i++, type);
 			}
 		}
 	} else {
 		int i = 0;
-		for (const Type *type : memberTypes) {
-			const std::string& memberName = memberNames.at(i);
+		for (const Type *type : m_types) {
+			const std::string& memberName = m_names.at(i);
 			auto it = std::find_if(names.begin(), names.end(), [&](const ASTPointer<ASTString>& name){
 				return memberName == *name;
 			});
@@ -122,7 +138,7 @@ void StructCompiler::structConstructor(
 		}
 	}
 
-	pusher->tuple(memberTypes.size());
+	pusher->tuple(m_types.size());
 }
 
 void StructCompiler::tupleToBuilder() {
@@ -131,7 +147,7 @@ void StructCompiler::tupleToBuilder() {
 
 	pusher->startContinuation();
 
-	const int n = memberNames.size();
+	const int n = m_names.size();
 	pusher->untuple(n);
 	if (n >= 2) {
 		pusher->reverse(n, 0);
@@ -139,8 +155,8 @@ void StructCompiler::tupleToBuilder() {
 	pusher->push(+1, "NEWC");
 
 	ChainDataEncoder encoder{pusher};
-	EncodePosition position{0, memberTypes};
-	encoder.encodeParameters(memberTypes, position);
+	DecodePositionAbiV2 position{0, 0, m_types};
+	encoder.encodeParameters(m_types, position);
 	pusher->pushRefContAndCallX(1, 1);
 	// stack: builder
 	const int curSize = pusher->stackSize();
@@ -152,14 +168,14 @@ void StructCompiler::convertSliceToTuple() {
 	const int ss = pusher->stackSize();
 
 	ChainDataDecoder decoder{pusher};
-	decoder.decodeData(memberTypes, 0, false);
-	pusher->tuple(memberTypes.size());
+	decoder.decodeData(0, 0, m_types);
+	pusher->tuple(m_types.size());
 
 	solAssert(ss == pusher->stackSize(), "");
 }
 
 int StructCompiler::getIndex(const std::string& name) {
-	int index = std::find(memberNames.begin(), memberNames.end(), name) - memberNames.begin();
-	solAssert(index != static_cast<int>(memberNames.size()), "");
+	int index = std::find(m_names.begin(), m_names.end(), name) - m_names.begin();
+	solAssert(index != static_cast<int>(m_names.size()), "");
 	return index;
 }

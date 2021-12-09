@@ -72,6 +72,10 @@ void ElementaryTypeNameToken::assertDetails(Token _baseType, unsigned const& _fi
 			"No elementary type " + string(TokenTraits::toString(_baseType)) + to_string(_first) + "x" + to_string(_second) + "."
 		);
 	}
+	else if (_baseType == Token::VarUintM || _baseType == Token::VarIntM)
+	{
+		solAssert(_first == 16 || _first == 32, "");
+	}
 	else
 		solAssert(_first == 0 && _second == 0, "Unexpected size arguments");
 
@@ -161,7 +165,16 @@ tuple<Token, unsigned int, unsigned int> fromIdentifierOrKeyword(string const& _
 		auto positionX = find_if_not(positionM, _literal.end(), ::isdigit);
 		int m = parseSize(positionM, positionX);
 		Token keyword = keywordByName(baseType);
-		if (keyword == Token::Bytes)
+
+
+		if (keyword == Token::VarUint || keyword == Token::VarInt) {
+			if (m == 16 || m == 32) {
+				if (keyword == Token::VarUint)
+					return make_tuple(Token::VarUintM, m, 0);
+				return make_tuple(Token::VarIntM, m, 0);
+			}
+		}
+		else if (keyword == Token::Bytes)
 		{
 			if (0 < m && m <= 32 && positionX == _literal.end())
 				return make_tuple(Token::BytesM, m, 0);

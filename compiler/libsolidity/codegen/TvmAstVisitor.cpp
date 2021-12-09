@@ -86,7 +86,10 @@ bool Printer::visit(ReturnOrBreakOrCont &_node) {
 
 bool Printer::visit(TvmException &_node) {
 	tabs();
-	m_out << _node.fullOpcode() << std::endl;
+	m_out << _node.opcode();
+	if (!_node.arg().empty())
+		m_out << " " << _node.arg();
+	m_out << std::endl;
 	return false;
 }
 
@@ -126,6 +129,11 @@ bool Printer::visit(PushCellOrSlice &_node) {
 	switch (_node.type()) {
 		case PushCellOrSlice::Type::PUSHREF_COMPUTE:
 			m_out << "PUSHREF" << std::endl;
+			tabs();
+			m_out << ".compute $" << _node.blob() << "$" << std::endl;
+			return false;
+		case PushCellOrSlice::Type::PUSHREFSLICE_COMPUTE:
+			m_out << "PUSHREFSLICE" << std::endl;
 			tabs();
 			m_out << ".compute $" << _node.blob() << "$" << std::endl;
 			return false;
@@ -531,20 +539,38 @@ bool Printer::visit(TvmIfElse &_node) {
 				break;
 		}
 	} else {
-		_node.trueBody()->accept(*this);
-		_node.falseBody()->accept(*this);
-		if (_node.withNot())
-			solUnimplemented("");
-
-		tabs();
-		if (_node.withJmp()) {
-			m_out << "CONDSEL" << std::endl;
-			tabs();
-			m_out << "JMPX";
+		if (_node.trueBody()->type() == CodeBlock::Type::PUSHREFCONT &&
+			_node.falseBody()->type() == CodeBlock::Type::PUSHREFCONT
+		) {
+			m_out << "IFREFELSEREF" << std::endl;
+			for (Pointer<CodeBlock> const& body : {_node.trueBody(), _node.falseBody()}) {
+				m_out << "{" << std::endl;
+				++m_tab;
+				for (Pointer<TvmAstNode> const &n: body->instructions()) {
+					n->accept(*this);
+				}
+				--m_tab;
+				m_out << "}" << std::endl;
+			}
+		} else  if (_node.trueBody()->type() == CodeBlock::Type::PUSHREFCONT) {
+			_node.falseBody()->accept(*this);
+			m_out << "IFREFELSE {" << std::endl;
+			++m_tab;
+			for (Pointer<TvmAstNode> const& n : _node.trueBody()->instructions()) {
+				n->accept(*this);
+			}
+			--m_tab;
+			m_out << "}" << std::endl;
 		} else {
+			_node.trueBody()->accept(*this);
+			_node.falseBody()->accept(*this);
+			if (_node.withNot())
+				solUnimplemented("");
+
+			tabs();
 			m_out << "IFELSE";
+			endL();
 		}
-		endL();
 	}
 	return false;
 }
@@ -693,14 +719,19 @@ bool LocSquasher::visit(CodeBlock &_node) {
 }
 
 void DeleterAfterRet::endVisit(CodeBlock &_node) {
-	bool findRet{};
+	bool didFind{};
 	std::vector<Pointer<TvmAstNode>> newInstrs;
 	for (Pointer<TvmAstNode> const& opcode : _node.instructions()) {
-		if (!findRet && to<ReturnOrBreakOrCont>(opcode.get())) {
-			findRet = true;
+		auto ret = to<ReturnOrBreakOrCont>(opcode.get());
+		auto ifElse = to<TvmIfElse>(opcode.get());
+		bool ifElseWithJmp = ifElse && ifElse->falseBody() != nullptr && ifElse->withJmp();
+		auto _throw = to<TvmException>(opcode.get());
+		bool th = _throw && !_throw->withIf();
+		if (!didFind && (ret || ifElseWithJmp || th)) {
+			didFind = true;
 			newInstrs.emplace_back(opcode);
 		} else {
-			if (!findRet || to<Loc>(opcode.get())) {
+			if (!didFind || to<Loc>(opcode.get())) {
 				newInstrs.emplace_back(opcode);
 			}
 		}
@@ -812,3 +843,4 @@ bool LogCircuitExpander::isPureOperation(Pointer<TvmAstNode> const& op) {
 
 	return false;
 }
+ 

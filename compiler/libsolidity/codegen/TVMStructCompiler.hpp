@@ -36,7 +36,12 @@ public:
 		const std::vector<Type const*>& memberTypes,
 		const std::vector<std::string>& memberNames
 	);
-	void createDefaultStruct(bool resultIsBuilder = false);
+	void createDefaultStruct();
+	void createDefaultStructAsCell();
+	void createDefaultStructAsSlice();
+private:
+	void createDefaultStruct(bool asSlice);
+public:
 	void pushMember(const std::string &memberName);
 	void setMemberForTuple(const std::string &memberName);
 	// MyStruct(1, 2, 4) or MyStruct({x: 1, y: 2, z: 4})
@@ -48,8 +53,8 @@ private:
 	int getIndex(const std::string& name);
 
 private:
-	std::vector<std::string> memberNames;
-	std::vector<Type const*> memberTypes;
+	std::vector<std::string> m_names;
+	std::vector<Type const*> m_types;
 	StackPusher *pusher{};
 }; // end StructCompiler
 } // end solidity::frontend

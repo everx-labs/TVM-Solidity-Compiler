@@ -51,8 +51,7 @@ struct Result {
 
 class PrivatePeepholeOptimizer {
 public:
-	explicit PrivatePeepholeOptimizer(std::vector<Pointer<TvmAstNode>> instructions, bool _withUnpackOpaque) :
-		m_withUnpackOpaque{_withUnpackOpaque},
+	explicit PrivatePeepholeOptimizer(std::vector<Pointer<TvmAstNode>> instructions) :
 		m_instructions{std::move(instructions)}
 	{
 	}
@@ -103,7 +102,6 @@ public:
 	static int getAddNum(Pointer<TvmAstNode> const& node);
 	static bool isStack(Pointer<TvmAstNode> const& node, Stack::Opcode op);
 private:
-	bool m_withUnpackOpaque{};
 	std::vector<Pointer<TvmAstNode>> m_instructions{};
 };
 
@@ -232,6 +230,121 @@ Result PrivatePeepholeOptimizer::optimizeAt1(int idx1) const {
 					return Result{1, makeTHROW("THROWIFNOT " + _throw->arg())};
 				return Result{1, makeTHROW("THROWIF " + _throw->arg())};
 			}
+		}
+	}
+
+	// PUSH[REF]CONT { RETALT } IF[NOT][JMP] => IFRETALT
+	if (cmd1IfElse && cmd1IfElse->falseBody() == nullptr) {
+		std::vector<Pointer<TvmAstNode>> const& inst = cmd1IfElse->trueBody()->instructions();
+		if (qtyWithoutLoc(inst) == 1) {
+			Pointer<TvmAstNode> pos;
+			for (const auto& x : inst) if (!to<Loc>(x.get())) pos = x;
+			auto ret = to<TvmReturn>(pos.get());
+			if (ret && !ret->withIf() && ret->withAlt()) {
+				if (cmd1IfElse->withNot())
+					return Result{1, makeIFNOTRET()};
+				return Result{1, makeIFRETALT()};
+			}
+		}
+	}
+
+	// PUSH[REF]CONT { RETALT } JMP/CALLX => RETALT
+	if (cmd1Sub) {
+		std::vector<Pointer<TvmAstNode>> const& inst = cmd1Sub->block()->instructions();
+		if (qtyWithoutLoc(inst) == 1) {
+			Pointer<TvmAstNode> pos;
+			for (const auto& x : inst) if (!to<Loc>(x.get())) pos = x;
+			auto ret = to<TvmReturn>(pos.get());
+			if (ret && !ret->withIf() && ret->withAlt()) {
+				return Result{1, makeRETALT()};
+			}
+		}
+	}
+
+	// PUSHCONT {
+	//  LDU 256
+	//	ENDS
+	// }
+	// PUSHCONT {
+	//	LDU 256
+	//	ENDS
+	// }
+	// IFELSE
+	// =>
+	// DROP
+	// PUSHCONT {
+	//	LDU 256
+	//	ENDS
+	// }
+	// CALLX
+	if (cmd1IfElse && cmd1IfElse->falseBody() != nullptr) {
+		std::vector<Pointer<TvmAstNode>> const& t = cmd1IfElse->trueBody()->instructions();
+		std::vector<Pointer<TvmAstNode>> const& f = cmd1IfElse->falseBody()->instructions();
+		if (t.size() == f.size()) {
+			bool eq = true;
+			int n = f.size();
+			for (int i = 0; i < n; ++i) {
+				eq &= *t.at(i) == *f.at(i);
+			}
+			if (eq) {
+				auto subProg = createNode<SubProgram>(0, 0, false, cmd1IfElse->trueBody());
+				return Result{1, makeDROP(), subProg};
+			}
+		}
+	}
+
+	// PUSHCONT {
+	//   ...
+	//   Z
+	// }
+	// PUSHCONT {
+	//   ...
+	//   Z
+	// }
+	// IFELSE
+	// =>
+	// PUSHCONT {
+	//   ...
+	// }
+	// PUSHCONT {
+	//   ...
+	// }
+	// IFELSE
+	// Z
+	if (cmd1IfElse && cmd1IfElse->falseBody() != nullptr) {
+		std::vector<Pointer<TvmAstNode>> const& t = cmd1IfElse->trueBody()->instructions();
+		std::vector<Pointer<TvmAstNode>> const& f = cmd1IfElse->falseBody()->instructions();
+		if (t.size() > 0 &&
+			f.size() > 0 &&
+			*t.back() == *f.back() &&
+			!cmd1IfElse->withJmp() &&
+			cmd1IfElse->trueBody()->type() == CodeBlock::Type::PUSHCONT &&
+			cmd1IfElse->falseBody()->type() == CodeBlock::Type::PUSHCONT
+		) {
+			auto tt = createNode<CodeBlock>(CodeBlock::Type::PUSHCONT, std::vector<Pointer<TvmAstNode>>(t.begin(), t.end() - 1));
+			auto ff = createNode<CodeBlock>(CodeBlock::Type::PUSHCONT, std::vector<Pointer<TvmAstNode>>(f.begin(), f.end() - 1));
+			auto ifElse2 = createNode<TvmIfElse>(cmd1IfElse->withNot(), false, tt, ff);
+			return Result{1, ifElse2, t.back()};
+		}
+	}
+	// PUSHCONT {
+	//   ...
+	// }
+	// PUSHCONT {
+	// }
+	// IFELSE
+	// =>
+	// PUSHCONT {
+	//   ...
+	// }
+	// IF
+	if (cmd1IfElse && cmd1IfElse->falseBody() != nullptr) {
+		std::vector<Pointer<TvmAstNode>> const& f = cmd1IfElse->falseBody()->instructions();
+		if (qtyWithoutLoc(f) == 0 &&
+			!cmd1IfElse->withJmp()
+		) {
+			auto ifElse2 = createNode<TvmIfElse>(cmd1IfElse->withNot(), false, cmd1IfElse->trueBody());
+			return Result{1, ifElse2};
 		}
 	}
 
@@ -764,27 +877,6 @@ Result PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> const& cmd1, Po
 		isXCHG(cmd2, 1, 2)
 	) {
 		return Result{2, makeBLKSWAP(1, 1), cmd1};
-	}
-
-	// TODO delete, fix in stackOpt
-	// Note: breaking stack
-	// DUP
-	// IFREF { CALL $c7_to_c4$ / $upd_only_time_in_c4$ }
-	// =>
-	// IFREF { CALL $c7_to_c4$ / $upd_only_time_in_c4$ }
-	if (m_withUnpackOpaque && isPUSH(cmd1)) {
-		if (auto ifRef = to<TvmIfElse>(cmd2.get());
-			ifRef && !ifRef->withJmp() && !ifRef->withNot() && ifRef->falseBody() == nullptr
-		) {
-			std::vector<Pointer<TvmAstNode>> const &cmds = ifRef->trueBody()->instructions();
-			if (cmds.size() == 1) {
-				if (auto gen = to<GenOpcode>(cmds.at(0).get())) {
-					if (isIn(gen->fullOpcode(), "CALL $c7_to_c4$", "CALL $upd_only_time_in_c4$")) {
-						return Result{2, cmd2};
-					}
-				}
-			}
-		}
 	}
 
 	// DUP
@@ -1960,7 +2052,7 @@ bool PrivatePeepholeOptimizer::isCommutative(Pointer<TvmAstNode> const& node) {
 void PeepholeOptimizer::endVisit(CodeBlock &_node) {
 	std::vector<Pointer<TvmAstNode>> instructions = _node.instructions();
 
-	PrivatePeepholeOptimizer optimizer{instructions, m_withUnpackOpaque};
+	PrivatePeepholeOptimizer optimizer{instructions};
 	optimizer.optimize([&](int index){
 		return optimizer.unsquash(m_withUnpackOpaque, index);
 	});

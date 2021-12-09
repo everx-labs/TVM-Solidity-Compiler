@@ -100,7 +100,7 @@ Pointer<Function> TVMConstructorCompiler::generateConstructors() {
 	} else {
 		take = constructor->parameters().size();
 		vector<Type const*> types = getParams(constructor->parameters()).first;
-		ChainDataDecoder{&m_pusher}.decodePublicFunctionParameters(types, false);
+		ChainDataDecoder{&m_pusher}.decodeFunctionParameters(types, false);
 		m_pusher.getStack().change(-static_cast<int>(constructor->parameters().size()));
 		for (const ASTPointer<VariableDeclaration>& variable: constructor->parameters()) {
 			auto name = variable->name();
@@ -376,6 +376,10 @@ TVMContractCompiler::generateContractCode(
 
 	for (const auto&[name, arr] : ctx.newArrays()) {
 		functions.emplace_back(TVMFunctionCompiler::generateNewArrays(ctx, name, arr));
+	}
+
+	for (const auto&[name, types] : ctx.buildTuple()) {
+		functions.emplace_back(TVMFunctionCompiler::generateBuildTuple(ctx, name, types));
 	}
 
 	if (!ctx.isStdlib()) {

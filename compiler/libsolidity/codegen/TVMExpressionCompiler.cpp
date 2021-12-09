@@ -149,40 +149,6 @@ bool TVMExpressionCompiler::isCurrentResultNeeded() const {
 	return m_expressionDepth >= 1 || m_isResultNeeded;
 }
 
-void TVMExpressionCompiler::visitStringLiteralAbiV1(Literal const &_node) {
-	const std::string &str = _node.value();
-	const int size = str.size();
-	const int saveStackSize = m_pusher.stackSize();
-	if (size == 0) {
-		m_pusher.push(+1, "NEWC");
-		m_pusher.push(-1 + 1, "ENDC");
-	} else {
-		const int step = TvmConst::CellBitLength / 8; // 127
-		int builderQty = 0;
-		int cntBlock = (size + step - 1) / step;
-		for (int start = size - cntBlock * step; start < size; start += step, ++builderQty) {
-			std::string slice = stringToBytes(str.substr(max(0, start), step));
-			if (slice.size() > 124) {
-				m_pusher.push(+1, "NEWC");
-				m_pusher.push(+1, "PUSHSLICE x" + slice.substr(0, 2 * (127 - 124)));
-				m_pusher.push(-1, "STSLICER");
-				m_pusher.push(+1, "PUSHSLICE x" + slice.substr(2 * (127 - 124)));
-				m_pusher.push(-1, "STSLICER");
-			} else {
-				m_pusher.push(+1, "PUSHSLICE x" + slice);
-				m_pusher.push(+1, "NEWC");
-				m_pusher.push(-1, "STSLICE");
-			}
-		}
-		--builderQty;
-		while (builderQty --> 0) {
-			m_pusher.push(-1, "STBREFR");
-		}
-		m_pusher.push(0, "ENDC");
-	}
-	m_pusher.ensureSize(saveStackSize + 1, "");
-}
-
 void TVMExpressionCompiler::visitStringLiteralAbiV2(Literal const &_node) {
 	const std::string &str = _node.value();
     m_pusher.pushString(str, false);
@@ -198,16 +164,7 @@ void TVMExpressionCompiler::visit2(Literal const &_node) {
 			m_pusher.push(+1, "NULL");
 			break;
 		case Type::Category::StringLiteral: {
-			switch (m_pusher.ctx().pragmaHelper().abiVersion()) {
-				case AbiVersion::V1:
-					visitStringLiteralAbiV1(_node);
-					break;
-				case AbiVersion::V2_2:
-					visitStringLiteralAbiV2(_node);
-					break;
-				default:
-					solUnimplemented("");
-			}
+			visitStringLiteralAbiV2(_node);
 			break;
 		}
 		default:
@@ -267,7 +224,7 @@ void TVMExpressionCompiler::visitHonest(TupleExpression const& _tupleExpression,
 	// values... index dict
 	m_pusher.rot();
 	// values... index dict valueI
-	const DataType& dataType = m_pusher.prepareValueForDictOperations(&arrayKeyType, arrayBaseType, false);
+	const DataType& dataType = m_pusher.prepareValueForDictOperations(&arrayKeyType, arrayBaseType);
 	// values... index dict valueI'
 	m_pusher.pushS(2);
 	// values... index dict valueI' index
@@ -1257,7 +1214,7 @@ TVMExpressionCompiler::collectLValue(
 					// index dict value
 					TypePointer const keyType = StackPusher::parseIndexType(indexAccess->baseExpression().annotation().type);
 					TypePointer const valueDictType = StackPusher::parseValueType(*indexAccess);
-					const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueDictType, false);
+					const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueDictType);
 					m_pusher.rotRev(); // value index dict
 					m_pusher.setDict(*keyType, *valueDictType, dataType); // dict'
 				}
@@ -1270,7 +1227,7 @@ TVMExpressionCompiler::collectLValue(
 					// size index dict value
 					TypePointer const keyType = StackPusher::parseIndexType(indexAccess->baseExpression().annotation().type);
 					auto valueDictType = getType(indexAccess);
-					const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueDictType, false);
+					const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueDictType);
 					m_pusher.rotRev(); // size value index dict
 					m_pusher.setDict(*keyType, *valueDictType, dataType); // size dict'
 				}

@@ -154,8 +154,6 @@ IntegerType getKeyTypeOfArray();
 std::tuple<Type const*, Type const*>
 dictKeyValue(Type const* type);
 
-std::string storeIntegralOrAddress(const Type* type, bool reverse);
-
 std::vector<ContractDefinition const*> getContractsChain(ContractDefinition const* contract);
 
 std::vector<std::pair<FunctionDefinition const*, ContractDefinition const*>>
@@ -182,11 +180,6 @@ void cast_error(const ASTNode& node, const std::string& error_message);
 [[noreturn]]
 void fatal_error(const std::string &error_message);
 
-enum class AbiVersion {
-	V1,
-	V2_2
-};
-
 class PragmaDirectiveHelper {
 public:
 	explicit PragmaDirectiveHelper(std::vector<PragmaDirective const *> const& _pragmaDirectives) :
@@ -203,10 +196,6 @@ public:
 
 	bool haveExpire() const {
 		return std::get<0>(haveHeader("expire"));
-	}
-
-	AbiVersion abiVersion() const {
-		return std::get<0>(haveHeader("v1"))? AbiVersion::V1 : AbiVersion::V2_2;
 	}
 
 	std::tuple<bool, PragmaDirective const *> haveHeader(const std::string& str) const {
@@ -241,9 +230,7 @@ private:
 
 
 struct ABITypeSize {
-	int minBits = -1;
 	int maxBits = -1;
-	int minRefs = -1;
 	int maxRefs = -1;
 
 	explicit ABITypeSize(Type const* type);
@@ -351,7 +338,6 @@ struct LValueInfo {
 };
 
 DictValueType toDictValueType(const Type::Category& category);
-int integerLog2(int value);
 std::string stringToBytes(const std::string& str);
 std::set<CallableDeclaration const*> getAllBaseFunctions(CallableDeclaration const* f);
 bool isLoc(Pointer<TvmAstNode> const& node);

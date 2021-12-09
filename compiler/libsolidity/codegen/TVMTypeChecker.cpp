@@ -29,29 +29,10 @@ using namespace solidity::langutil;
 using namespace solidity::util;
 using namespace std;
 
-TVMTypeChecker::TVMTypeChecker(
-	langutil::ErrorReporter& _errorReporter,
-    std::vector<PragmaDirective const *> const &pragmaDirectives
-) :
-	m_errorReporter{_errorReporter},
-	pragmaDirectives{pragmaDirectives}
+TVMTypeChecker::TVMTypeChecker(langutil::ErrorReporter& _errorReporter) :
+	m_errorReporter{_errorReporter}
 {
-	checkPragma();
-}
 
-void TVMTypeChecker::checkPragma() {
-	PragmaDirectiveHelper pragmaHelper{pragmaDirectives};
-
-	if (pragmaHelper.abiVersion() == AbiVersion::V1) {
-		for (const std::string s : {"expire", "time", "pubkey"}) {
-			auto [have, astNode] = pragmaHelper.haveHeader(s);
-			if (have) {
-				m_errorReporter.fatalDeclarationError(
-					astNode->location(),
-			 		R"("pragma AbiHeader v1" are not compatible with "pragma AbiHeader expire", "pragma AbiHeader time" and "pragma AbiHeader pubkey")");
-			}
-		}
-	}
 }
 
 void TVMTypeChecker::checkOverrideAndOverload() {

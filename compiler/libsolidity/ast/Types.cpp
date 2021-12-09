@@ -539,7 +539,16 @@ BoolResult IntegerType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 		return true;
 	}
 
-	if (_convertTo.category() == category())
+	if (_convertTo.category() == Category::VarInteger){
+		IntegerType const& convertTo = dynamic_cast<VarInteger const&>(_convertTo).asIntegerType();
+		if (convertTo.m_bits < m_bits)
+			return false;
+		else if (isSigned())
+			return convertTo.isSigned();
+		else
+			return !convertTo.isSigned() || convertTo.m_bits > m_bits;
+	}
+	else if (_convertTo.category() == category())
 	{
 		IntegerType const& convertTo = dynamic_cast<IntegerType const&>(_convertTo);
 		if (convertTo.m_bits < m_bits)
@@ -561,6 +570,7 @@ BoolResult IntegerType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 BoolResult IntegerType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 {
 	return _convertTo.category() == category() ||
+		_convertTo.category() == Category::VarInteger ||
 		_convertTo.category() == Category::Address ||
 		_convertTo.category() == Category::Contract ||
 		_convertTo.category() == Category::Enum ||
@@ -687,7 +697,9 @@ BoolResult FixedPointType::isImplicitlyConvertibleTo(Type const& _convertTo) con
 
 BoolResult FixedPointType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 {
-	return _convertTo.category() == category() || _convertTo.category() == Category::Integer;
+	return _convertTo.category() == category() ||
+			_convertTo.category() == Category::Integer ||
+			_convertTo.category() == Category::VarInteger;
 }
 
 TypeResult FixedPointType::unaryOperatorResult(Token _operator) const
@@ -875,31 +887,42 @@ tuple<bool, rational> RationalNumberType::isValidLiteral(Literal const& _literal
 		case Literal::SubDenomination::None:
 		case Literal::SubDenomination::Nano:
 		case Literal::SubDenomination::Nanoton:
+		case Literal::SubDenomination::Nanoever:
 		case Literal::SubDenomination::NTon:
 		case Literal::SubDenomination::Second:
 			break;
 		case Literal::SubDenomination::Micro:
 		case Literal::SubDenomination::Microton:
+		case Literal::SubDenomination::Microever:
 			value *= bigint("1000");
 			break;
 		case Literal::SubDenomination::Milli:
 		case Literal::SubDenomination::Milliton:
+		case Literal::SubDenomination::Milliever:
 			value *= bigint("1000000");
 			break;
 		case Literal::SubDenomination::Ton:
+		case Literal::SubDenomination::Ever:
 		case Literal::SubDenomination::SmallTon:
+		case Literal::SubDenomination::SmallEver:
 			value *= bigint("1000000000");
 			break;
 		case Literal::SubDenomination::Kiloton:
+		case Literal::SubDenomination::Kiloever:
 		case Literal::SubDenomination::KTon:
+		case Literal::SubDenomination::KEver:
 			value *= bigint("1000000000000");
 			break;
 		case Literal::SubDenomination::Megaton:
+		case Literal::SubDenomination::Megaever:
 		case Literal::SubDenomination::MTon:
+		case Literal::SubDenomination::MEver:
 			value *= bigint("1000000000000000");
 			break;
 		case Literal::SubDenomination::Gigaton:
+		case Literal::SubDenomination::Gigaever:
 		case Literal::SubDenomination::GTon:
+		case Literal::SubDenomination::GEver:
 			value *= bigint("1000000000000000000");
 			break;
 		case Literal::SubDenomination::Minute:
@@ -931,6 +954,13 @@ BoolResult RationalNumberType::isImplicitlyConvertibleTo(Type const& _convertTo)
 
 	switch (_convertTo.category())
 	{
+	case Category::VarInteger:
+	{
+		if (isFractional())
+			return false;
+		IntegerType const& targetType = dynamic_cast<VarInteger const&>(_convertTo).asIntegerType();
+		return fitsIntegerType(m_value.numerator(), targetType);
+	}
 	case Category::Integer:
 	{
 		if (isFractional())
@@ -4906,6 +4936,32 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ContractDefinition *) 
 	return members;
 }
 
+BoolResult VarInteger::isImplicitlyConvertibleTo(Type const& _convertTo) const {
+	return m_int.isImplicitlyConvertibleTo(_convertTo);
+}
+
+BoolResult VarInteger::isExplicitlyConvertibleTo(Type const& _convertTo) const {
+	return m_int.isExplicitlyConvertibleTo(_convertTo);
+}
+
+TypeResult VarInteger::binaryOperatorResult(Token _operator, Type const* _other) const {
+	return m_int.binaryOperatorResult(_operator, _other);
+}
+
+std::string VarInteger::toString(bool) const {
+	return std::string{} + "var" + (m_int.isSigned()? "Int" : "Uint") + std::to_string(m_n);
+}
+
+int VarInteger::maxBitSizeInCell() const {
+	if (m_n == 16) {
+		return 4 + (15 * 8);
+	}
+	if (m_n == 32) {
+		return 5 + (31 * 8);
+	}
+	solUnimplemented("");
+}
+
 IntegerType const* ExtraCurrencyCollectionType::keyType() const {
 	return TypeProvider::uint(32);
 }
@@ -4915,7 +4971,7 @@ IntegerType const* ExtraCurrencyCollectionType::valueType() const {
 }
 
 VarInteger const* ExtraCurrencyCollectionType::realValueType() const {
-	return TypeProvider::varInteger();
+	return TypeProvider::varInteger(32, IntegerType::Modifier::Unsigned);
 }
 
 MemberList::MemberMap ExtraCurrencyCollectionType::nativeMembers(ContractDefinition const *) const {

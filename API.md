@@ -58,12 +58,18 @@ contract development.
     * [\<optional(Type)\>.set()](#optionaltypeset)
     * [\<optional(Type)\>.reset()](#optionaltypereset)
     * [Keyword `null`](#keyword-null)
+  * [vector(Type)](#vectortype)
+    * [\<vector(Type)\>.push(Type)](#vectortypepushtype)
+    * [\<vector(Type)\>.pop()](#vectortypepop)
+    * [\<vector(Type)\>.length()](#vectortypelength)
+    * [\<vector(Type)\>.empty()](#vectortypeempty)
 * [TON specific control structures](#ton-specific-control-structures)
   * [Range-based for loop](#range-based-for-loop)
   * [repeat](#repeat)
 * [Changes and extensions in Solidity types](#changes-and-extensions-in-solidity-types)
   * [Integers](#integers)
     * [bitSize() and uBitSize()](#bitsize-and-ubitsize)
+  * [varInt and varUint](#varint-and-varuint)
   * [struct](#struct)
     * [\<struct\>.unpack()](#structunpack)
   * [Arrays](#arrays)
@@ -282,6 +288,21 @@ uint a11 = 1 megaton; // a11 == 1 000 000 000 000 000 (1e15)
 uint a12 = 1 MTon; // a12 == 1 000 000 000 000 000 (1e15)
 uint a13 = 1 gigaton; // a13 == 1 000 000 000 000 000 000 (1e18)
 uint a14 = 1 GTon; // a14 == 1 000 000 000 000 000 000 (1e18)
+
+uint a0 = 1 nano; // a0 == 1 == 1e-9 ever
+uint a1 = 1 nanoever; // a1 == 1 == 1e-9 ever
+uint a3 = 1 ever; // a3 == 1 000 000 000 (1e9)
+uint a4 = 1 Ever; // a4 == 1 000 000 000 (1e9)
+uint a5 = 1 micro; // a5 == 1 000 == 1e-6 ever
+uint a6 = 1 microever; // a6 == 1 000 == 1e-6 ever
+uint a7 = 1 milli; // a7 == 1 000 000 == 1e-3 ever
+uint a8 = 1 milliever; // a8 == 1 000 000 == 1e-3 ever
+uint a9 = 1 kiloever; // a9 == 1 000 000 000 000 (1e12) == 1e3 ever
+uint a10 = 1 kEver; // a10 == 1 000 000 000 000 (1e12) == 1e3 ever
+uint a11 = 1 megaever; // a11 == 1 000 000 000 000 000 (1e15) == 1e6 ever
+uint a12 = 1 MEver; // a12 == 1 000 000 000 000 000 (1e15) == 1e6 ever
+uint a13 = 1 gigaever; // a13 == 1 000 000 000 000 000 000 (1e18) == 1e9 ever
+uint a14 = 1 GEver; // a14 == 1 000 000 000 000 000 000 (1e18) == 1e9 ever
 ```
 
 #### TvmCell
@@ -511,10 +532,10 @@ Loads the first `length` bits and `refs` references from the `TvmSlice` into a s
 ###### \<TvmSlice\>.decodeFunctionParams()
 
 ```TVMSolidity
-// Decode parameters of the public function which doesn't return values
+// Decode parameters of the public/external function without "responsible" attribute
 <TvmSlice>.decodeFunctionParams(functionName) returns (TypeA /*a*/, TypeB /*b*/, ...);
 
-// Decode parameters of the public function which returns values
+// Decode parameters of the public/external function  with "responsible" attribute
 <TvmSlice>.decodeFunctionParams(functionName) returns (uint32 callbackFunctionId, TypeA /*a*/, TypeB /*b*/, ...);
 
 // Decode constructor parameters
@@ -988,6 +1009,21 @@ uint16 s = uBitSize(1); // s == 1
 uint16 s = uBitSize(0); // s == 0
 ```
 
+#### varInt and varUint
+
+`varInt`/`varInt16`/`varInt32`/`varUint`/`varUint16`/`varUint32` are kinds of [Integer](#integers)  
+types. But they are serialized/deserialized according to [their TLB schemes](https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb#L112).  
+These schemes are effective if you want to store or send integers, and they usually have small size.
+Use these types only if you are sure.  
+`varInt` is equal to `varInt32`, `varInt32` - `int248` , `varInt16` - `int120`.  
+`varUint` is equal to `varUint32`, `varUint32` - `uint248` , `varUint16` - `uint120`.  
+Example:
+
+```TVMSolidity
+mapping(uint => varInt) m_map; // use `varInt` as mapping value only if values have small size 
+m_map[10] = 15;
+```
+
 #### struct
 
 ##### \<struct\>.unpack()
@@ -1161,7 +1197,7 @@ bytes byteArray = "1234";
 bytes4 bb = byteArray;
 ```
 
-`bytes` can be converted to `bytesN` which causes **N** * 8 bits being loaded from the cell and saved to variable.
+`bytes` can be converted to `bytesN`.
 If `bytes` object has less than **N** bytes, extra bytes are padded with zero bits.
 
 #### string
@@ -1302,8 +1338,8 @@ stoi(string inputStr) returns (optional(int) /*result*/);
 ```
 
 Converts a `string` into an integer. If `string` starts with '0x' it will be converted from a hexadecimal format,
-otherwise it is meant to be number in decimal format. Function returns the optional value containing integer,
-which can be empty in case of illegal characters in the string.
+otherwise it is meant to be number in decimal format. Function returns the integer in case of success.
+Otherwise, returns `null`.
 
 Warning: this function consumes too much gas, that's why it's better not to use it onchain.
 Example:
@@ -1488,7 +1524,7 @@ an empty set.
 (only at the computing phase, not at the action phase!) then funds will be returned. Otherwise, (flag isn't
 set or transaction terminated successfully) the address accepts the funds even if the account
 doesn't exist or is frozen. Defaults to `true`.
-* `flag` (`uint16`) - flag which used to send the internal outbound message. Defaults to `0`.
+* `flag` (`uint16`) - flag that used to send the internal outbound message. Defaults to `0`.
 * `body` (`TvmCell`) -  body (payload) attached to the internal message. Defaults to an empty
 TvmCell.
 * `stateInit` (`TvmCell`) - represents field `init` of `Message X`. If `stateInit` has a wrong
@@ -1547,7 +1583,7 @@ below `\<map\>` defines the object of `mapping(KeyType => ValueType)` type.
 
 Address, bytes, string, bool, contract, enum, fixed bytes, integer and struct types can
 be used as a `KeyType`. Struct type can be used as `KeyType` only if it contains only
-integer, boolean, fixed bytes or enum types and fits ~1023 bit. Example of mapping which
+integer, boolean, fixed bytes or enum types and fits ~1023 bit. Example of mapping that
 has a struct as a `KeyType`:
 
 ```TVMSolidity
@@ -2252,13 +2288,13 @@ onTickTock(bool isTock) external {
 executed after [tvm.setcode()](#tvmsetcode) function call. In this function
 [tvm.resetStorage()](#tvmresetstorage) should be called if the set of state
 variables is changed in the new version of the contract. This function implicitly
-calls [tvm.commit()](#tvmcommit). Return from the `onCodeUpgrade` function
+calls [tvm.commit()](#tvmcommit). `onCodeUpgrade` function does not return value. `onCodeUpgrade` function
 finishes TVM execution with exit code 0.
 
 Prototype:
 
 ```TVMSolidity
-function onCodeUpgrade() private {
+function onCodeUpgrade(...) private {
     /*...*/
 }
 ```
@@ -2267,6 +2303,29 @@ See example of how to upgrade code of the contract:
 
 * [old contract](https://github.com/tonlabs/samples/blob/master/solidity/12_BadContract.sol)
 * [new contract](https://github.com/tonlabs/samples/blob/master/solidity/12_NewVersion.sol)
+
+It's good to pass `TvmCell cell` to the public function that calls `onCodeUpgrade(TvmCell cell, ...)`
+function. `TvmCell cell` may contain some data that may be useful for the new contract.
+
+```TVMSolidity
+// old contract
+// Public function that changes the code and takes some cell
+function updateCode(TvmCell newcode, TvmCell cell) public pure checkPubkeyAndAccept {
+    tvm.setcode(newcode);
+    tvm.setCurrentCode(newcode);
+    // pass cell to new contract
+    onCodeUpgrade(cell);
+}
+
+function onCodeUpgrade(TvmCell cell) private pure {
+}
+
+
+// new contract
+function onCodeUpgrade(TvmCell cell) private pure {
+    // new code can use cell that was passed from the old version of the contract 
+}
+```
 
 #### afterSignatureCheck
 
@@ -2406,12 +2465,12 @@ emit SomethingIsReceived(10, 15, 25); // dest address == addr_none
 #### return
 
 If public/external function is called by an external message then `return` statement generates an
-external message which has destination address set to the source address of the inbound external
+external message that has destination address set to the source address of the inbound external
 message. All options in the return statement are ignored.  
-If public/external function is called by an internal message and the function is marked as responsible,
+If public/external function is called by an internal message and the function is marked as `responsible`,
 then an internal message is generated.  
 And if public/external function is called by internal message and the function isn't marked as
-responsible then return statement has no effect.  
+`responsible` then return statement has no effect.  
 `value`, `bounce`, `flag` and `currencies` options are used to create the message. Some options can
 be omitted. See [\<address\>.transfer()](#addresstransfer) where these options and their default
 values are described.
@@ -2433,8 +2492,8 @@ function f(uint n) public responsible pure {
 
 ### External function calls
 
-TON Solidity compiler allows specifying different parameters of the outbound internal message which
-is sent via external function call. Note, that all external function calls are asynchronous, so
+TON Solidity compiler allows specifying different parameters of the outbound internal message that
+is sent via external function call. Note, all external function calls are asynchronous, so
 callee function will be called after termination of the current transaction.  
 `value`, `currencies`, `bounce` or `flag` options can be set. See [\<address\>.transfer()](#addresstransfer)
 where these options are described.  
@@ -2445,9 +2504,9 @@ This callback function will be called by another contract. Remote function will 
 values as function arguments for the callback function. That's why types of return values of the
 callee function must be equal to function arguments of the callback function.  
 If the function marked as `responsible` then field `answerId` appears in the list of input parameters of the
-function in `*abi.json` file.
+function in `*abi.json` file. `answerId` is function id that will be called.
 
-Example of the external call of the function which returns nothing:
+Example of the external call of the function that returns nothing:
 
 ```TVMSolidity
 interface IContract {
@@ -2468,7 +2527,7 @@ contract Caller {
 }
 ```
 
-Example of the external call of the function which returns some values:
+Example of the external call of the function that returns some values:
 
 ```TVMSolidity
 contract RemoteContract {
@@ -2493,7 +2552,7 @@ contract Caller {
 }
 ```
 
-`*.abi.json` for responsible function `getCost`:
+`*.abi.json` for `responsible` function `getCost`:
 
 ```json
 {
@@ -2509,6 +2568,7 @@ contract Caller {
 ```
 
 See also:
+ * Example of callback usage: [24_SquareProvider](https://github.com/tonlabs/samples/blob/master/solidity/24_SquareProvider.sol)
  * Example of callback usage: [4.1_CentralBank](https://github.com/tonlabs/samples/blob/master/solidity/4.1_CentralBank.sol)
 and [4.1_CurrencyExchange.sol](https://github.com/tonlabs/samples/blob/master/solidity/4.1_CurrencyExchange.sol)
  * [return](#return)
@@ -2688,7 +2748,7 @@ tvm.accept();
 
 Executes TVM instruction "ACCEPT" ([TVM][1] - A.11.2).
 This instruction sets current gas limit to its maximal allowed value.
-This action is required to process external messages, which bring no value.
+This action is required to process external messages that bring no value.
 
 See example of how to use this function:
 
@@ -2745,7 +2805,7 @@ Same as [tvm.commit()](#tvmcommit) but doesn't copy the state variables from c7 
 for opcode `COMMIT`. See [TVM][1].
 
 **Note**: Don't use `tvm.rawCommit()` after `tvm.accept()` in processing external messages because
-you don't save from c7 to c4 the hidden state variable `timestamp`, which is used for replay protection.
+you don't save from c7 to c4 the hidden state variable `timestamp` that is used for replay protection.
 
 ##### tvm.getData()
 
@@ -2886,13 +2946,13 @@ tvm.rawReserve(uint value, uint8 flag);
 tvm.rawReserve(uint value, ExtraCurrencyCollection currency, uint8 flag);
 ```
 
-Creates an output action which reserves **reserve** nanotons. It is roughly equivalent to
+Creates an output action that reserves **reserve** nanotons. It is roughly equivalent to
 create an outbound message carrying **reserve** nanotons to oneself, so that the subsequent output
 actions would not be able to spend more money than the remainder. It's a wrapper for opcodes
 "RAWRESERVE" and "RAWRESERVEX". See [TVM][1].
 
 Les's denote:
- * `original_balance` is balance of the contract before the computing phase, which is equal to balance
+ * `original_balance` is balance of the contract before the computing phase that is equal to balance
 of the contract before the transaction minus storage fee. Note: `original_balance` doesn't include
 `msg.value` and `original_balance` is not equal to `address(this).balance`.
  * `remaining_balance` is contract's current remaining balance at the action phase after some handled
@@ -2947,7 +3007,7 @@ tvm.hash(TvmSlice data) returns (uint256);
 Executes TVM instruction "HASHCU" or "HASHSU" ([TVM][1] - A.11.6. - F900).
 It computes the representation hash of a given argument and returns
 it as a 256-bit unsigned integer. For `string` and `bytes` it computes
-hash of the tree of cells, which contains data, but not data itself.
+hash of the tree of cells that contains data but not data itself.
 See [sha256](#sha256) to count hash of data.
 
 Example:
@@ -3373,7 +3433,7 @@ tvm.encodeBody(contract, arg0, arg1, arg2, ...) returns (TvmCell);
 ```
 
 Constructs a message body for the function call. Body can be used as a payload for  [\<address\>.transfer()](#addresstransfer).
-If the **function** is responsible, **callbackFunction** must be set.
+If the **function** is `responsible`, **callbackFunction** must be set.
 
 Example:
 
@@ -3568,7 +3628,7 @@ returns (TvmCell);
 ```
 
 Generates an internal outbound message that contains a function call. The result `TvmCell` can be used to send a
-message using [tvm.sendrawmsg()](#tvmsendrawmsg). If the `function` is responsible then
+message using [tvm.sendrawmsg()](#tvmsendrawmsg). If the `function` is `responsible` then
 `callbackFunction` parameter must be set.
 
 `dest`, `value` and `call` parameters are mandatory. Another parameters can be omitted. See
@@ -3968,7 +4028,7 @@ Solidity runtime error codes:
 * **55** - See [tvm.insertPubkey()](#tvminsertpubkey).
 * **57** - External inbound message is expired. See `expire` in [pragma AbiHeader](#pragma-abiheader).
 * **58** - External inbound message has no signature but has public key. See `pubkey` in [pragma AbiHeader](#pragma-abiheader).
-* **60** - Inbound message has wrong function id. In the contract there are no functions with such function id and there is no fallback function which could handle the message. See [fallback](#fallback).
+* **60** - Inbound message has wrong function id. In the contract there are no functions with such function id and there is no fallback function that could handle the message. See [fallback](#fallback).
 * **61** - Deploying `StateInit` has no public key in `data` field.
 * **62** - Reserved for internal usage.
 * **63** - See [\<optional(Type)\>.get()](#optionaltypeget).

@@ -231,17 +231,7 @@ bool StaticAnalyzer::visit(MemberAccess const& _memberAccess)
 		auto const* expr = &_memberAccess.expression();
 		while (expr)
 		{
-			if (auto id = dynamic_cast<Identifier const*>(expr))
-			{
-				if (id->name() == "this")
-					m_errorReporter.warning(
-						id->location(),
-						"\"this\" used in constructor. "
-						"Note that external functions of a contract "
-						"cannot be called while it is being constructed.");
-				break;
-			}
-			else if (auto tuple = dynamic_cast<TupleExpression const*>(expr))
+			if (auto tuple = dynamic_cast<TupleExpression const*>(expr))
 			{
 				if (tuple->components().size() == 1)
 					expr = tuple->components().front().get();

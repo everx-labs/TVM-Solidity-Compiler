@@ -220,6 +220,17 @@ namespace solidity::langutil
 	K(SubMTon, "MTon", 0)                                              \
 	K(SubGigaton, "gigaton", 0)                                        \
 	K(SubGTon, "GTon", 0)                                              \
+	K(SubNanoever, "nanoever", 0)                                      \
+	K(SubMicroever, "microever", 0)                                    \
+	K(SubMilliever, "milliever", 0)                                    \
+	K(SubEver, "Ever", 0)                                              \
+	K(SubSmallEver, "ever", 0)                                         \
+	K(SubKiloever, "kiloever", 0)                                      \
+	K(SubKEver, "kEver", 0)                                            \
+	K(SubMegaever, "megaever", 0)                                      \
+	K(SubMEver, "MEver", 0)                                            \
+	K(SubGigaever, "gigaever", 0)                                      \
+	K(SubGEver, "GEver", 0)                                            \
 	K(SubSecond, "seconds", 0)                                         \
 	K(SubMinute, "minutes", 0)                                         \
 	K(SubHour, "hours", 0)                                             \
@@ -245,6 +256,10 @@ namespace solidity::langutil
 	T(BytesM, "bytesM", 0)                                             \
 	T(FixedMxN, "fixedMxN", 0)                                         \
 	T(UFixedMxN, "ufixedMxN", 0)                                       \
+	K(VarInt, "varInt", 0)                                             \
+	T(VarIntM, "varIntM", 0)                                           \
+	K(VarUint, "varUint", 0)                                           \
+	T(VarUintM, "varUintM", 0)                                         \
 	T(TypesEnd, nullptr, 0) /* used as type enum end marker */         \
 	\
 	/* Literals */                                                     \
@@ -340,7 +355,7 @@ namespace TokenTraits
 			|| op == Token::Pure || op == Token::View || op == Token::Payable;
 	}
 
-	constexpr bool isTonSubdenomination(Token op) { return (Token::SubNano <= op && op <= Token::SubGTon); }
+	constexpr bool isTonSubdenomination(Token op) { return (Token::SubNano <= op && op <= Token::SubGEver); }
 	constexpr bool isTimeSubdenomination(Token op) { return op == Token::SubSecond || op == Token::SubMinute || op == Token::SubHour || op == Token::SubDay || op == Token::SubWeek || op == Token::SubYear; }
 	constexpr bool isReservedKeyword(Token op) { return (Token::After <= op && op <= Token::Unchecked); }
 

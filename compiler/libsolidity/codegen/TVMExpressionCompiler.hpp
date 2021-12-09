@@ -42,7 +42,6 @@ public:
 protected:
 	bool acceptExpr(const Expression* expr);
 	bool isCurrentResultNeeded() const;
-	void visitStringLiteralAbiV1(Literal const& _node);
 	void visitStringLiteralAbiV2(Literal const& _node);
 	void visit2(Literal const& _node);
 	void visit2(TupleExpression const& _tupleExpression);

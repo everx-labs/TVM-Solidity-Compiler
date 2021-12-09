@@ -96,6 +96,11 @@ public:
 	void addNewArray(std::string const& name, FunctionCall const* arr) { m_newArray.emplace(name, arr); }
 	std::set<std::pair<std::string, FunctionCall const*>> const& newArrays() const { return m_newArray; }
 
+	void addBuildTuple(std::string const& name, std::vector<Type const*> types) {
+		m_tuples.emplace(name, types);
+	}
+	std::map<std::string, std::vector<Type const*>> const& buildTuple() const { return m_tuples; }
+
 private:
 	// TODO split to several classes
 	ContractDefinition const* m_contract{};
@@ -119,6 +124,7 @@ private:
 
 	std::set<std::pair<std::string, TupleExpression const*>> m_constArrays;
 	std::set<std::pair<std::string, FunctionCall const*>> m_newArray;
+	std::map<std::string, std::vector<Type const*>> m_tuples;
 };
 
 class StackPusher {
@@ -256,6 +262,7 @@ public:
 	void pushCallOrCallRef(const std::string& functionName, FunctionType const* ft, const std::optional<std::pair<int, int>>& deltaStack = std::nullopt);
 	void pushCall(int take, int ret, const std::string& functionName);
 	void compureConstCell(std::string const& expName);
+	void compureConstSlice(std::string const& expName);
 	void drop(int cnt = 1);
 	void blockSwap(int down, int up);
 	void reverse(int qty, int startIndex);
@@ -274,7 +281,9 @@ public:
 	[[nodiscard]]
 	int maxBitLengthOfDictValue(Type const* type);
 	[[nodiscard]]
-	DataType prepareValueForDictOperations(Type const* keyType, Type const* dictValueType, bool isValueBuilder);
+	DataType prepareValueForDictOperations(Type const* keyType, Type const* valueType);
+	[[nodiscard]]
+	DataType pushDefaultValueForDict(Type const* keyType, Type const* valueType);
 	bool doesDictStoreValueInRef(Type const* keyType, Type const* valueType);
 
 	enum class DecodeType {
@@ -312,7 +321,7 @@ public:
 	);
 
 	void pushNull();
-	void pushDefaultValue(Type const* type, bool isResultBuilder = false);
+	void pushDefaultValue(Type const* type);
 	void sendIntMsg(const std::map<int, const Expression *> &exprs,
 					const std::map<int, std::string> &constParams,
 					const std::function<void(int)> &appendBody,

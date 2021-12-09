@@ -196,19 +196,6 @@ dictKeyValue(Type const* type) {
 	return {keyType, valueType};
 }
 
-string storeIntegralOrAddress(const Type *type, bool reverse) {
-	if (isAddressOrContractType(type))
-		return reverse ? "STSLICER" : "STSLICE";
-	auto ti = TypeInfo(type);
-	if (ti.isNumeric) {
-		string cmd = ti.isSigned? "STI" : "STU";
-		if (reverse) cmd = cmd + "R";
-		solAssert(cmd != "STU 267", "");
-		return cmd + " " + toString(ti.numBits);
-	}
-	solUnimplemented("Unsupported param type " + type->toString());
-}
-
 vector<ContractDefinition const *> getContractsChain(ContractDefinition const *contract) {
 	vector<FunctionDefinition const*> result;
 	auto contracts = contract->annotation().linearizedBaseContracts;
@@ -372,12 +359,6 @@ DictValueType toDictValueType(const Type::Category& category) {
 	}
 }
 
-int integerLog2(int x) {
-	return (x != 0)
-		   ? static_cast<int>(std::ceil(std::log(x) / std::log(2) + 1e-7))
-		   : 1;
-}
-
 std::string stringToBytes(const std::string& str) {
 	std::string slice;
 	for (char index : str) {
@@ -402,80 +383,57 @@ std::set<CallableDeclaration const*> getAllBaseFunctions(CallableDeclaration con
 
 ABITypeSize::ABITypeSize(const Type *type) {
 	if (isAddressOrContractType(type)){
-		minBits = AddressInfo::minBitLength();
 		maxBits = AddressInfo::maxBitLength();
-		minRefs = 0;
 		maxRefs = 0;
 	} else if (isIntegralType(type)) {
 		TypeInfo ti{type};
 		solAssert(ti.isNumeric, "");
-		minBits = ti.numBits;
 		maxBits = ti.numBits;
-		minRefs = 0;
+		maxRefs = 0;
+	} else if (auto varInt = to<VarInteger>(type)) {
+		maxBits = varInt->maxBitSizeInCell();
 		maxRefs = 0;
 	} else if (auto arrayType = to<ArrayType>(type)) {
 		if (arrayType->isByteArray()) {
-			minBits = 0;
 			maxBits = 0;
-			minRefs = 1;
 			maxRefs = 1;
 		} else {
-			minBits = 32 + 1;
 			maxBits = 32 + 1;
-			minRefs = 0;
 			maxRefs = 1;
 		}
 	} else if (to<TvmCellType>(type)) {
-		minBits = 0;
 		maxBits = 0;
-		minRefs = 1;
 		maxRefs = 1;
 	} else if (auto opt = to<OptionalType>(type)) {
 		if (isSmallOptional(opt)) {
 			ABITypeSize size{opt->valueType()};
-			minBits = 1 + size.minBits;
 			maxBits = 1 + size.maxBits;
-			minRefs = size.minRefs;
 			maxRefs = size.maxRefs;
 		} else {
-			minBits = 1;
 			maxBits = 1;
-			minRefs = 0;
 			maxRefs = 1;
 		}
 	} else if (auto st = to<StructType>(type)) {
-		minBits = 0;
 		maxBits = 0;
-		minRefs = 0;
 		maxRefs = 0;
 		for (auto t : st->structDefinition().members()) {
 			ABITypeSize size{t->type()};
-			minBits += size.minBits;
 			maxBits += size.maxBits;
-			minRefs += size.minRefs;
 			maxRefs += size.maxRefs;
 		}
 	} else if (auto tup = to<TupleType>(type)) {
-		minBits = 0;
 		maxBits = 0;
-		minRefs = 0;
 		maxRefs = 0;
 		for (auto t : tup->components()) {
 			ABITypeSize size{t};
-			minBits += size.minBits;
 			maxBits += size.maxBits;
-			minRefs += size.minRefs;
 			maxRefs += size.maxRefs;
 		}
 	} else if (to<MappingType>(type)) {
-		minBits = 1;
 		maxBits = 1;
-		minRefs = 0;
 		maxRefs = 1;
 	} else if (to<FunctionType>(type)) {
-		minBits = 32;
 		maxBits = 32;
-		minRefs = 0;
 		maxRefs = 0;
 	} else {
 		solUnimplemented("Undefined type: " + type->toString());

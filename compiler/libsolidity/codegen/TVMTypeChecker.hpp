@@ -21,13 +21,9 @@ namespace solidity::frontend {
 
 class TVMTypeChecker : public ASTConstVisitor {
 public:
-	explicit TVMTypeChecker(
-		langutil::ErrorReporter& _errorReporter,
-		std::vector<PragmaDirective const *> const& pragmaDirectives
-	);
+	explicit TVMTypeChecker(langutil::ErrorReporter& _errorReporter);
 
 private:
-	void checkPragma();
 	void checkOverrideAndOverload();
 	void check_onCodeUpgrade(FunctionDefinition const& f);
 
@@ -44,7 +40,6 @@ public:
 private:
 	langutil::ErrorReporter& m_errorReporter;
 	ContractDefinition const* contractDefinition{};
-	std::vector<PragmaDirective const *> const& pragmaDirectives;
 };
 
 }

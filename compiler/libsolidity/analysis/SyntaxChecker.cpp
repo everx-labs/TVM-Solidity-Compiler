@@ -139,8 +139,8 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 	else if (_pragma.literals()[0] == "AbiHeader")
 	{
 		if (_pragma.literals().size() != 2 ||
-				(_pragma.literals()[1] != "time" && _pragma.literals()[1] != "pubkey" && _pragma.literals()[1] != "expire" && _pragma.literals()[1] != "v1")) {
-			m_errorReporter.syntaxError(_pragma.location(), "Correct format: pragma AbiHeader [time|pubkey|expire|v1]");
+				(_pragma.literals()[1] != "time" && _pragma.literals()[1] != "pubkey" && _pragma.literals()[1] != "expire")) {
+			m_errorReporter.syntaxError(_pragma.location(), "Correct format: pragma AbiHeader [time|pubkey|expire]");
 		}
 	}
 	else if (_pragma.literals()[0] == "ignoreIntOverflow")

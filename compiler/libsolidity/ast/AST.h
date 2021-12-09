@@ -2234,6 +2234,7 @@ public:
 	enum class SubDenomination
 	{
 		None = static_cast<int>(Token::Illegal),
+
 		Nano = static_cast<int>(Token::SubNano),
 		NTon = static_cast<int>(Token::SubNTon),
 		Nanoton = static_cast<int>(Token::SubNanoton),
@@ -2249,6 +2250,19 @@ public:
 		MTon = static_cast<int>(Token::SubMTon),
 		Gigaton = static_cast<int>(Token::SubGigaton),
 		GTon = static_cast<int>(Token::SubGTon),
+
+		Nanoever = static_cast<int>(Token::SubNanoever),
+		Microever = static_cast<int>(Token::SubMicroever),
+		Milliever = static_cast<int>(Token::SubMilliever),
+		Ever = static_cast<int>(Token::SubEver),
+		SmallEver = static_cast<int>(Token::SubSmallEver),
+		Kiloever = static_cast<int>(Token::SubKiloever),
+		KEver = static_cast<int>(Token::SubKEver),
+		Megaever = static_cast<int>(Token::SubMegaever),
+		MEver = static_cast<int>(Token::SubMEver),
+		Gigaever = static_cast<int>(Token::SubGigaever),
+		GEver = static_cast<int>(Token::SubGEver),
+
 		Second = static_cast<int>(Token::SubSecond),
 		Minute = static_cast<int>(Token::SubMinute),
 		Hour = static_cast<int>(Token::SubHour),

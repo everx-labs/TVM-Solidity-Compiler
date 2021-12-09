@@ -43,7 +43,6 @@ unique_ptr<ArrayType> TypeProvider::m_stringMemory;
 
 TupleType const TypeProvider::m_emptyTuple{};
 AddressType const TypeProvider::m_address{};
-VarInteger const TypeProvider::m_varInteger{};
 InitializerListType const TypeProvider::m_initializerList{};
 CallListType const TypeProvider::m_callList{};
 
@@ -657,6 +656,7 @@ void TypeProvider::reset()
 	instance().m_stringLiteralTypes.clear();
 	instance().m_ufixedMxN.clear();
 	instance().m_fixedMxN.clear();
+	instance().m_varInterger.clear();
 }
 
 template <typename T, typename... Args>
@@ -678,6 +678,14 @@ Type const* TypeProvider::fromElementaryTypeName(ElementaryTypeNameToken const& 
 
 	switch (_type.token())
 	{
+	case Token::VarUint:
+		return varInteger(32, IntegerType::Modifier::Unsigned);
+	case Token::VarUintM:
+		return varInteger(m, IntegerType::Modifier::Unsigned);
+	case Token::VarInt:
+		return varInteger(32, IntegerType::Modifier::Signed);
+	case Token::VarIntM:
+		return varInteger(m, IntegerType::Modifier::Signed);
 	case Token::IntM:
 		return integer(m, IntegerType::Modifier::Signed);
 	case Token::UIntM:
@@ -835,6 +843,19 @@ StringLiteralType const* TypeProvider::stringLiteral(string const& literal)
 		return i->second.get();
 	else
 		return instance().m_stringLiteralTypes.emplace(literal, make_unique<StringLiteralType>(literal)).first->second.get();
+}
+
+VarInteger const* TypeProvider::varInteger(unsigned m, IntegerType::Modifier _modifier) {
+	auto& map = instance().m_varInterger;
+	auto i = map.find(make_pair(m, _modifier));
+	if (i != map.end())
+		return i->second.get();
+
+	return map.emplace(
+			make_pair(m, _modifier),
+			make_unique<VarInteger>(m, _modifier)
+	).first->second.get();
+
 }
 
 FixedPointType const* TypeProvider::fixedPoint(unsigned m, unsigned n, FixedPointType::Modifier _modifier)

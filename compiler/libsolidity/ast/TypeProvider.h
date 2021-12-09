@@ -85,10 +85,8 @@ public:
 	static ArraySliceType const* arraySlice(ArrayType const& _arrayType);
 
 	static AddressType const* address() noexcept { return &m_address; }
-	static VarInteger const* varInteger() noexcept { return &m_varInteger; }
 	static InitializerListType const* initializerList() noexcept { return &m_initializerList; }
 	static CallListType const* callList() noexcept { return &m_callList; }
-
 
 	static IntegerType const* integer(unsigned _bits, IntegerType::Modifier _modifier)
 	{
@@ -101,10 +99,12 @@ public:
 		else
 			return m_intM.at(_bits - 1).get();
 	}
+
 	static IntegerType const* uint(unsigned _bits) { return integer(_bits, IntegerType::Modifier::Unsigned); }
 
 	static IntegerType const* uint256() { return uint(256); }
 
+	static VarInteger const* varInteger(unsigned m, IntegerType::Modifier _modifier);
 	static FixedPointType const* fixedPoint(unsigned m, unsigned n, FixedPointType::Modifier _modifier);
 
 	static StringLiteralType const* stringLiteral(std::string const& literal);
@@ -227,7 +227,6 @@ private:
 
 	static TupleType const m_emptyTuple;
 	static AddressType const m_address;
-	static VarInteger const m_varInteger;
 	static InitializerListType const m_initializerList;
 	static CallListType const m_callList;
 	static std::unique_ptr<IntegerType> const m_int257;
@@ -236,6 +235,7 @@ private:
 	static std::array<std::unique_ptr<FixedBytesType>, 32> const m_bytesM;
 	static std::array<std::unique_ptr<MagicType>, 7> const m_magics;        ///< MagicType's except MetaType
 
+	std::map<std::pair<unsigned, IntegerType::Modifier>, std::unique_ptr<VarInteger>> m_varInterger{};
 	std::map<std::pair<unsigned, unsigned>, std::unique_ptr<FixedPointType>> m_ufixedMxN{};
 	std::map<std::pair<unsigned, unsigned>, std::unique_ptr<FixedPointType>> m_fixedMxN{};
 	std::map<std::string, std::unique_ptr<StringLiteralType>> m_stringLiteralTypes{};
