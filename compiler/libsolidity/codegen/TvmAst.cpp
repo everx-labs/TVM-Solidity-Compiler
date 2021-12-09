@@ -41,6 +41,11 @@ void Stack::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
 }
 
+bool Stack::operator==(TvmAstNode const& _node) const {
+	auto st = to<Stack>(&_node);
+	return st && m_opcode == st->m_opcode;
+}
+
 Glob::Glob(Glob::Opcode opcode, int index) :
 	Gen{isIn(opcode, Glob::Opcode::GetOrGetVar, Glob::Opcode::PUSHROOT, Glob::Opcode::PUSH_C3)},
 	m_opcode{opcode},
@@ -133,6 +138,11 @@ std::string GenOpcode::fullOpcode() const {
 	return ret;
 }
 
+bool GenOpcode::operator==(TvmAstNode const& _node) const {
+	auto gen = to<GenOpcode>(&_node);
+	return gen && std::tie(m_opcode, m_arg) == std::tie(gen->m_opcode, gen->m_arg);
+}
+
 TvmReturn::TvmReturn(bool _withIf, bool _withNot, bool _withAlt) :
 	m_withIf{_withIf},
 	m_withNot{_withNot},
@@ -154,6 +164,29 @@ void ReturnOrBreakOrCont::accept(TvmAstVisitor& _visitor) {
 
 void TvmException::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
+}
+
+bool TvmException::operator==(TvmAstNode const& _node) const {
+	auto ex = to<TvmException>(&_node);
+	return ex && std::tie(m_arg, m_any, m_if, m_not, m_param) ==
+		std::tie(ex->m_arg, ex->m_any, ex->m_if, ex->m_not, ex->m_param);
+}
+
+std::string TvmException::opcode() const {
+	std::string str = "THROW";
+	if (m_arg) str += "ARG";
+	if (m_any) str += "ANY";
+	if (m_if) str += "IF";
+	if (m_not) str += "NOT";
+	return str;
+}
+
+int TvmException::take() const {
+	int res = 0;
+	if (m_arg) ++res;
+	if (m_any) ++res;
+	if (m_if) ++res;
+	return res;
 }
 
 void PushCellOrSlice::accept(TvmAstVisitor& _visitor) {
@@ -444,6 +477,9 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"LDREFRTOS", {1, 2}},
 		{"LDSLICE", {1, 2}},
 		{"LDU", {1, 2}},
+		{"LDVARINT16", {1, 2}},
+		{"LDVARINT32", {1, 2}},
+		{"LDVARUINT16", {1, 2}},
 		{"LDVARUINT32", {1, 2}},
 		{"REWRITESTDADDR", {1, 2}},
 		{"SBITREFS", {1, 2, true}},
@@ -494,6 +530,9 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"STSLICER", {2, 1}},
 		{"STU", {2, 1}},
 		{"STUR", {2, 1}},
+		{"STVARINT16", {2, 1}},
+		{"STVARINT32", {2, 1}},
+		{"STVARUINT16", {2, 1}},
 		{"STVARUINT32", {2, 1}},
 		{"STZEROES", {2, 1}},
 		{"SUB", {2, 1}},
@@ -626,27 +665,24 @@ Pointer<TvmException> makeTHROW(const std::string& cmd) {
 		iss >> op >> param;
 	}
 
-	auto f = [&](const std::string& pattert) {
-		return op == pattert;
+	auto skip = [](std::string& str, const std::string& pattern) -> bool {
+		if (boost::starts_with(str, pattern)) {
+			str = str.substr(pattern.size());
+			return true;
+		}
+		return false;
 	};
 
-	Pointer<TvmException> opcode;
-	if (f("THROW")) { opcode = createNode<TvmException>(cmd, 0, 0); }
-	else if (f("THROWANY")) { opcode = createNode<TvmException>(cmd, 1, 0); } // ??? it returns 2 params
-	else if (f("THROWANYIF")) { opcode = createNode<TvmException>(cmd, 2, 0); }
-	else if (f("THROWANYIFNOT")) { opcode = createNode<TvmException>(cmd, 2, 0); }
-	else if (f("THROWARG")) { opcode = createNode<TvmException>(cmd, 1, 0); } // ??? it returns 2 params
-	else if (f("THROWARGANY")) { opcode = createNode<TvmException>(cmd, 2, 0); }
-	else if (f("THROWARGANYIF")) { opcode = createNode<TvmException>(cmd, 3, 0); }
-	else if (f("THROWARGANYIFNOT")) { opcode = createNode<TvmException>(cmd, 3, 0); }
-	else if (f("THROWARGIF")) { opcode = createNode<TvmException>(cmd, 2, 0); }
-	else if (f("THROWARGIFNOT")) { opcode = createNode<TvmException>(cmd, 2, 0); }
-	else if (f("THROWIF")) { opcode = createNode<TvmException>(cmd, 1, 0); }
-	else if (f("THROWIFNOT")) { opcode = createNode<TvmException>(cmd, 1, 0); }
-	else  {
-		solUnimplemented("");
-	}
-	return opcode;
+
+
+	solAssert(skip(op, "THROW"), "");
+	bool _arg = skip(op, "ARG");
+	bool _any = skip(op, "ANY");
+	bool _if = skip(op, "IF");
+	bool _not = skip(op, "NOT");
+	solAssert(op.empty(), "");
+
+	return createNode<TvmException>(_arg, _any, _if, _not, param);
 }
 
 Pointer<Stack> makeXCH_S(int i) {

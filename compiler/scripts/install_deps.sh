@@ -111,8 +111,6 @@ case $(uname -s) in
         brew install curl
         if [ "$CI" = true ]; then
             brew upgrade cmake
-        else
-            brew upgrade
         fi
 
         ;;

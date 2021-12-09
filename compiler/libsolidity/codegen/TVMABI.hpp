@@ -54,58 +54,29 @@ private:
 
 class DecodePosition : private boost::noncopyable {
 public:
-	enum Algo {JustLoad, LoadNextCell, CheckBits, CheckRefs, CheckBitsAndRefs, Unknown};
 	virtual ~DecodePosition() = default;
-	virtual Algo updateStateAndGetLoadAlgo(Type const* type) = 0;
+	virtual bool loadNextCell(Type const* type) = 0;
 };
-
-class DecodePositionAbiV1 : public DecodePosition {
-	bool isPositionValid;
-	int minRestSliceBits;
-	int maxRestSliceBits;
-	int minUsedRef;
-	int maxUsedRef;
-
-public:
-	DecodePositionAbiV1();
-	Algo updateStateAndGetLoadAlgo(Type const* type) override;
-};
-
-class Position {
-public:
-	Position(int usedBits, int usedRefs);
-	void update(const int bits, const int refs);
-	void loadRef();
-	int cellNumber() const;
-
-private:
-	int idCell{};
-	int usedBits{};
-	int usedRefs{};
-};
-
 
 class DecodePositionAbiV2 : public DecodePosition {
 public:
-	DecodePositionAbiV2(int minBits, int maxBits, const std::vector<Type const *>& types, bool fastDecode, int usedRefs = 0);
-	Algo updateStateAndGetLoadAlgo(Type const* type) override;
-
+	DecodePositionAbiV2(int _bitOffset, int _refOffset, const std::vector<Type const *>& _types);
+	bool loadNextCell(Type const* type) override;
+	int countOfCreatedBuilders() const;
 private:
 	void initTypes(Type const* type);
 
 private:
-	Position minPos;
-	Position maxPos;
-	std::vector<Type const*> types;
-	int curTypeIndex = -1;
-	int lastRefType = -1;
-	bool fastDecode{};
+	int m_curTypeIndex{};
+	std::vector<Type const*> m_types;
+	std::vector<bool> m_doLoadNextCell;
+	int m_countOfCreatedBuilders{};
 };
 
 class DecodePositionFromOneSlice : public DecodePosition {
 public:
-	Algo updateStateAndGetLoadAlgo(Type const* /*type*/) override {
-		return Algo::JustLoad;
+	bool loadNextCell(Type const* /*type*/) override {
+		return false;
 	}
 };
 
@@ -116,8 +87,9 @@ private:
 	int maxBits(bool hasCallback);
 	static int minBits(bool hasCallback);
 public:
-	void decodePublicFunctionParameters(const std::vector<Type const*>& types, bool isResponsible);
-	void decodeData(const std::vector<Type const*>& types, int offset, bool _fastLoad, int usedRefs = 0);
+	void decodePublicFunctionParameters(const std::vector<Type const*>& types, bool isResponsible, bool isInternal);
+	void decodeFunctionParameters(const std::vector<Type const*>& types, bool isResponsible);
+	void decodeData(int offset, int usedRefs, const std::vector<Type const*>& types);
 	void decodeParameters(
 		const std::vector<Type const*>& types,
 		DecodePosition& position,
@@ -125,15 +97,10 @@ public:
 	);
 private:
 	void loadNextSlice();
-	void checkBitsAndLoadNextSlice();
-	void checkRefsAndLoadNextSlice();
-	void checkBitsAndRefsAndLoadNextSlice();
-	void loadNextSliceIfNeed(const DecodePosition::Algo algo, bool isRefType);
-	void loadq(const DecodePosition::Algo algo, const std::string& opcodeq, const std::string& opcode);
+	void loadNextSliceIfNeed(bool doLoadNextSlice);
 	void decodeParameter(Type const* type, DecodePosition* position);
 private:
 	StackPusher *pusher{};
-	bool fastLoad{};
 };
 
 
@@ -143,25 +110,6 @@ enum class ReasonOfOutboundMessage {
 	EmitEventExternal,
 	FunctionReturnExternal,
 	RemoteCallInternal
-};
-
-class EncodePosition : private boost::noncopyable {
-	int restSliceBits{};
-	int restFef{};
-	int qtyOfCreatedBuilders{};
-	std::vector<Type const *> types;
-	int currentIndex{};
-	std::vector<bool> isNeedNewCell;
-	int lastRefType{};
-
-public:
-	explicit EncodePosition(int bits, const std::vector<Type const *> &types, int refs = 0);
-	bool needNewCell(Type const* type);
-private:
-	bool updateState(int i);
-	void init(Type const* t);
-public:
-	int countOfCreatedBuilders() const;
 };
 
 class ChainDataEncoder : private boost::noncopyable {
@@ -200,12 +148,12 @@ public:
 		const std::vector<VariableDeclaration const*> &params,
 		const std::variant<uint32_t, std::function<void()>>& functionId,
 		const std::optional<uint32_t>& callbackFunctionId,
-		EncodePosition &position
+		DecodePositionAbiV2 &position
 	);
 
 	void encodeParameters(
 		const std::vector<Type const*>& types,
-		EncodePosition& position
+		DecodePositionAbiV2& position
 	);
 
 private:

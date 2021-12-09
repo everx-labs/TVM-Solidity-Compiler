@@ -116,6 +116,9 @@ bool Simulator::visit(TvmException &_node) {
 	} else {
 		m_stackSize -= _node.take();
 		m_commands.emplace_back(_node.shared_from_this());
+		if (!_node.withIf()) {
+			m_isDropped = true;
+		}
 	}
 	return false;
 }
@@ -344,12 +347,12 @@ bool Simulator::visit(SubProgram &_node) {
 	}
 	m_stackSize -= _node.take();
 
-	std::optional<Pointer<CodeBlock>> res = trySimulate(*_node.block(), m_stackSize + _node.take(), m_stackSize + _node.ret());
+	auto res = trySimulate(*_node.block(), m_stackSize + _node.take(), m_stackSize + _node.ret());
 	if (!res) {
 		return false;
 	}
 	m_stackSize += _node.ret();
-	m_commands.emplace_back(createNode<SubProgram>(_node.take(), _node.ret(), _node.isJmp(), res.value()));
+	m_commands.emplace_back(createNode<SubProgram>(_node.take(), _node.ret(), _node.isJmp(), res.value().first));
 	return false;
 }
 
@@ -363,11 +366,11 @@ bool Simulator::visit(TvmCondition &_node) {
 	std::array<Pointer<CodeBlock>, 2> bodies = {_node.trueBody(), _node.falseBody()};
 	for (Pointer<CodeBlock>& body : bodies) {
 		if (body) {
-			std::optional<Pointer<CodeBlock>> res = trySimulate(*body, m_stackSize, m_stackSize + _node.ret());
+			auto res = trySimulate(*body, m_stackSize, m_stackSize + _node.ret());
 			if (!res) {
 				return false;
 			}
-			body = res.value();
+			body = res.value().first;
 		}
 	}
 	m_stackSize += _node.ret();
@@ -382,12 +385,12 @@ bool Simulator::visit(LogCircuit &_node) {
 	}
 	m_stackSize -= 2;
 
-	std::optional<Pointer<CodeBlock>> res = trySimulate(*_node.body(), m_stackSize + 1, m_stackSize + 1);
+	auto res = trySimulate(*_node.body(), m_stackSize + 1, m_stackSize + 1);
 	if (!res) {
 		return false;
 	}
 	++m_stackSize;
-	m_commands.emplace_back(createNode<LogCircuit>(_node.type(), res.value()));
+	m_commands.emplace_back(createNode<LogCircuit>(_node.type(), res.value().first));
 	return false;
 }
 
@@ -398,15 +401,20 @@ bool Simulator::visit(TvmIfElse &_node) {
 	}
 	--m_stackSize;
 
+	bool wasDroped = true;
 	std::array<Pointer<CodeBlock>, 2> bodies = {_node.trueBody(), _node.falseBody()};
 	for (Pointer<CodeBlock>& body : bodies) {
 		if (body) {
-			std::optional<Pointer<CodeBlock>> res = trySimulate(*body, m_stackSize, m_stackSize);
+			std::optional<std::pair<Pointer<CodeBlock>, bool>> res = trySimulate(*body, m_stackSize, m_stackSize);
 			if (!res) {
 				return false;
 			}
-			body = res.value();
+			body = res.value().first;
+			wasDroped &= res.value().second;
 		}
+	}
+	if (_node.falseBody() != nullptr && wasDroped) {
+		m_isDropped = true;
 	}
 	m_commands.emplace_back(createNode<TvmIfElse>(_node.withNot(), _node.withJmp(), bodies.at(0), bodies.at(1)));
 	return false;
@@ -419,12 +427,12 @@ bool Simulator::visit(TvmRepeat &_node) {
 	}
 	--m_stackSize;
 
-	std::optional<Pointer<CodeBlock>> res = trySimulate(*_node.body(), m_stackSize, m_stackSize);
+	auto res = trySimulate(*_node.body(), m_stackSize, m_stackSize);
 	if (!res) {
 		return false;
 	}
 
-	m_commands.emplace_back(createNode<TvmRepeat>(_node.withBreakOrReturn(), res.value()));
+	m_commands.emplace_back(createNode<TvmRepeat>(_node.withBreakOrReturn(), res.value().first));
 	return false;
 }
 
@@ -434,11 +442,11 @@ bool Simulator::visit(TvmUntil &_node) {
 		return false;
 	}
 
-	std::optional<Pointer<CodeBlock>> res = trySimulate(*_node.body(), m_stackSize, m_stackSize + 1);
+	auto res = trySimulate(*_node.body(), m_stackSize, m_stackSize + 1);
 	if (!res) {
 		return false;
 	}
-	m_commands.emplace_back(createNode<TvmUntil>(_node.withBreakOrReturn(), res.value()));
+	m_commands.emplace_back(createNode<TvmUntil>(_node.withBreakOrReturn(), res.value().first));
 	return false;
 }
 
@@ -446,20 +454,20 @@ bool Simulator::visit(While &_node) {
 	// condition
 	Pointer<CodeBlock> condition = _node.condition();
 	{
-		std::optional<Pointer<CodeBlock>> res = trySimulate(*condition, m_stackSize, m_stackSize + 1);
+		auto res = trySimulate(*condition, m_stackSize, m_stackSize + 1);
 		if (!res) {
 			return false;
 		}
-		condition = res.value();
+		condition = res.value().first;
 	}
 	// body
 	Pointer<CodeBlock> body = _node.body();
 	{
-		std::optional<Pointer<CodeBlock>> res = trySimulate(*body, m_stackSize, m_stackSize);
+		auto res = trySimulate(*body, m_stackSize, m_stackSize);
 		if (!res) {
 			return false;
 		}
-		body = res.value();
+		body = res.value().first;
 	}
 	m_commands.emplace_back(createNode<While>(_node.isInfinite(), _node.withBreakOrReturn(), condition, body));
 	return false;
@@ -477,7 +485,8 @@ void Simulator::endVisit(CodeBlock &/*_node*/) {
 
 }
 
-std::optional<Pointer<CodeBlock>> Simulator::trySimulate(CodeBlock const& body, int begStackSize, int endStackSize) {
+std::optional<std::pair<Pointer<CodeBlock>, bool>>
+Simulator::trySimulate(CodeBlock const& body, int begStackSize, int /*endStackSize*/) {
 	Simulator sim{body.instructions().begin(), body.instructions().end(), begStackSize, m_segment};
 	if (sim.m_unableToConvertOpcode || sim.m_wasSet) {
 		unableToConvertOpcode();
@@ -487,8 +496,8 @@ std::optional<Pointer<CodeBlock>> Simulator::trySimulate(CodeBlock const& body, 
 		unableToConvertOpcode();
 		return {};
 	}
-	solAssert(sim.m_wasReturnBreakContinue || sim.m_stackSize == endStackSize, "");
-	return createNode<CodeBlock>(body.type(), sim.commands());
+	// solAssert(sim.m_wasReturnBreakContinue || sim.m_stackSize == endStackSize, "");
+	return {{createNode<CodeBlock>(body.type(), sim.commands()), sim.m_isDropped && sim.m_wasReturnBreakContinue}};
 }
 
 bool Simulator::isPopAndDrop(Pointer<TvmAstNode> const& a, Pointer<TvmAstNode> const& b) {

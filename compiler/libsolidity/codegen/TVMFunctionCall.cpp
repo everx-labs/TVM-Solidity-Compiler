@@ -200,7 +200,7 @@ void FunctionCallCompiler::mappingGetSet() {
 		auto ma = to<MemberAccess>(&m_functionCall.expression());
 		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&ma->expression(), true, true, nullptr); // lValue... map
 		pushArgAndConvert(1); // lValue... map value
-		const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueType, false); // lValue... map value'
+		const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueType); // lValue... map value'
 		pushArgAndConvert(0); // mapLValue... map value key
 		m_pusher.prepareKeyForDictOperations(keyType, false);
 		m_pusher.rot(); // mapLValue... value key map
@@ -388,7 +388,7 @@ std::function<void()> FunctionCallCompiler::generateDataSection(
 		TypePointer valueType = TypeProvider::uint256();
 
 		pushKey();
-		const DataType& dataType = m_pusher.prepareValueForDictOperations(&keyType, valueType, false);
+		const DataType& dataType = m_pusher.prepareValueForDictOperations(&keyType, valueType);
 		m_pusher.pushInt(0); // index of pubkey
 		// stack: dict value key
 		m_pusher.rot();
@@ -411,7 +411,7 @@ std::function<void()> FunctionCallCompiler::generateDataSection(
 				const auto &[varDecl, varIndex] = getDeclAndIndex(*name);
 				valueType = varDecl->type();
 				pushExprAndConvert(initVars->options().at(i).get(), valueType); // stack: dict value
-				const DataType& dataType2 = m_pusher.prepareValueForDictOperations(&keyType, valueType, false);
+				const DataType& dataType2 = m_pusher.prepareValueForDictOperations(&keyType, valueType);
 				m_pusher.pushInt(varIndex);
 				// stack: dict value key
 				m_pusher.rot();
@@ -574,7 +574,7 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 		// decode returned vars
 		ChainDataDecoder decoder{&m_pusher};
 		vector<Type const*> types = getParams(functionDefinition->returnParameters()).first;
-		decoder.decodePublicFunctionParameters(types, false);
+		decoder.decodePublicFunctionParameters(types, false, true);
 		m_pusher.push(-1, ""); // fix stack
 		m_pusher.pushRefContAndCallX(0, 0);
 		m_pusher.endOpaque(1, types.size()); // take one parameter - it's dest address
@@ -761,7 +761,7 @@ void FunctionCallCompiler::generateExtInboundMsg(
 		std::vector<Type const*> types;
 		types = getParams(params).first;
 		builderSize += 32;
-		std::unique_ptr<EncodePosition> position = std::make_unique<EncodePosition>(builderSize, types);
+		DecodePositionAbiV2 position{builderSize, 0, types};
 		uint32_t functionId;
 		std::optional<uint32_t> callbackFunctionId;
 		ChainDataEncoder encoder{&m_pusher};
@@ -776,7 +776,7 @@ void FunctionCallCompiler::generateExtInboundMsg(
 			functionId = encoder.calculateConstructorFunctionID();
 		}
 
-		ChainDataEncoder{&m_pusher}.createMsgBody(params, functionId, callbackFunctionId, *position);
+		ChainDataEncoder{&m_pusher}.createMsgBody(params, functionId, callbackFunctionId, position);
 
 		m_pusher.push(-1, "STBREFR");
 	};
@@ -1253,8 +1253,8 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 			targetTypes = TypePointers{m_retType};
 
 		ChainDataDecoder decode{&m_pusher};
-		std::unique_ptr<DecodePosition> pos = std::make_unique<DecodePositionFromOneSlice>();
-		decode.decodeParameters(targetTypes, *pos, false);
+		DecodePositionFromOneSlice pos;
+		decode.decodeParameters(targetTypes, pos, false);
 
 		m_exprCompiler.collectLValue(lValueInfo, true, false);
 		solAssert(stackSize + static_cast<int>(targetTypes.size()) == m_pusher.stackSize(), "");
@@ -1275,7 +1275,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 			ChainDataDecoder decoder{&m_pusher};
 
 			vector<Type const*> types = getParams(functionDefinition->parameters()).first;
-			decoder.decodePublicFunctionParameters(types, isResponsible);
+			decoder.decodePublicFunctionParameters(types, isResponsible, true);
 
 			const int saveStackSize2 = m_pusher.stackSize();
 			const int paramQty = functionDefinition->parameters().size() + (isResponsible ? 1 : 0);
@@ -1691,16 +1691,14 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true, nullptr);
 		auto arrayBaseType = to<ArrayType>(getType(&_node.expression()))->baseType();
 		const IntegerType key = getKeyTypeOfArray();
-		bool isValueBuilder{};
+		DataType dataType;
 		if (m_arguments.empty()) {
-			isValueBuilder = true;
-			m_pusher.pushDefaultValue(arrayBaseType, true);
+			dataType = m_pusher.pushDefaultValueForDict(&key, arrayBaseType);
 		} else {
-			isValueBuilder = false;
 			pushArgs();
+			dataType = m_pusher.prepareValueForDictOperations(&key, arrayBaseType); // arr value'
 		}
 		// stack: arr value
-		const DataType& dataType = m_pusher.prepareValueForDictOperations(&key, arrayBaseType, isValueBuilder); // arr value'
 		m_pusher.exchange(1); // value' arr
 		m_pusher.push(-1 + 2, "UNTUPLE 2");  // value' size dict
 		m_pusher.pushS(1); // value' size dict size
@@ -2306,7 +2304,7 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 			}
 			const ast_vec<VariableDeclaration> &parameters = callDef->parameters();
 			std::vector<Type const *> types = getParams(parameters).first;
-			EncodePosition position{32, types};
+			DecodePositionAbiV2 position{32, 0, types};
 			for (int i = m_arguments.size() - 1; i >= 1 + shift; --i) {
 				acceptExpr(m_arguments.at(i).get());
 			}
@@ -2329,7 +2327,7 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		m_pusher.push(-1, ""); // fix stack
 
 		m_pusher.startContinuation();
-		m_pusher.pushMacroCallInCallRef(0, 0, "c7_to_c4");
+		m_pusher.pushCall(0, 0, "c7_to_c4");
 		m_pusher.endContinuationFromRef();
 		m_pusher.ifNot();
 
@@ -3277,7 +3275,7 @@ void FunctionCallCompiler::creatArrayWithDefaultValue() {
 	std::optional<bigint> num = TVMExpressionCompiler::constValue(*m_arguments.at(0));
 	if (num.has_value() && num.value() == 0) {
 		auto arrayType = to<ArrayType>(m_functionCall.annotation().type);
-		m_pusher.pushDefaultValue(arrayType, false);
+		m_pusher.pushDefaultValue(arrayType);
 		return ;
 	}
 
@@ -3303,8 +3301,7 @@ void FunctionCallCompiler::honestArrayCreation(bool onlyDict) {
 	Type const* arrayBaseType = arrayType->baseType();
 
 	pushArgAndConvert(0); // N
-	m_pusher.pushDefaultValue(arrayBaseType, true); // N value
-	DataType const& dataType = m_pusher.prepareValueForDictOperations(&key, arrayBaseType, true);
+	DataType const& dataType = m_pusher.pushDefaultValueForDict(&key, arrayBaseType); // N value
 	m_pusher.pushInt(0);   // N value iter
 	m_pusher << "NEWDICT"; // N value iter dict
 	m_pusher.pushS(3);     // N value iter dict N

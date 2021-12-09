@@ -1,3 +1,12 @@
+### 0.53.0 (2021-12-09)
+
+Compiler features:
+ * Supported `varInt`/`varInt16`/`varInt32` and `varUint`/`varUint16`/`varUint32` types.
+ * Supported `ever` units.
+
+Gas optimizations:
+ * Assorted stack optimizations.
+
 ### 0.52.0 (2021-11-15)
 
 Compiler features:

@@ -706,18 +706,23 @@ public:
 class VarInteger: public Type
 {
 public:
-	explicit VarInteger(int n = 16) : m_n{n} {} // 128 bit number
+	explicit VarInteger(unsigned n, IntegerType::Modifier _modifier) : m_n(n), m_int{(n-1)*8, _modifier} {}
+	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
+	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
 	Category category() const override { return Category::VarInteger; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_varinteger"; }
-	TypeResult binaryOperatorResult(Token /*_operator*/, Type const* /*_other*/) const override { return nullptr; }
-	std::string toString(bool) const override { return "VarInteger"; }
+	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
+	std::string toString(bool) const override;
 
 	TypePointer encodingType() const override { return this; }
 	TypeResult interfaceType(bool) const override { return this; }
-	int getNumber() const { return m_n; }
+	int maxBitSizeInCell() const;
+	IntegerType const& asIntegerType() const { return m_int; }
+	int n() const { return m_n; }
 private:
-	int m_n;
+	int m_n{};
+	IntegerType m_int;
 };
 
 /**

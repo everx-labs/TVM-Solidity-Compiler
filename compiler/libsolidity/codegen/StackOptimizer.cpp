@@ -143,10 +143,6 @@ bool StackOptimizer::visit(CodeBlock &_node) {
 		if (successfullyUpdate(i, instructions)) {
 			m_didSome = true;
 			// do nothing
-			//_node.upd(instructions);
-			//std::cout << "<<<" << std::endl;
-			//Printer p{std::cout};
-			//_node.accept(p);
 		} else {
 			Pointer<TvmAstNode> const& op = instructions.at(i);
 			op->accept(*this);
@@ -164,7 +160,6 @@ bool StackOptimizer::visit(SubProgram &_node) {
 	startScope();
 	delta(+ _node.take());
 	_node.block()->accept(*this);
-//	solAssert(savedStack - _node.take() + _node.ret() == size(), "");
 	endScope();
 
 	delta(_node.ret());
@@ -262,10 +257,6 @@ bool StackOptimizer::visit(Function &f) {
 		case Function::FunctionType::OnTickTock: {
 			if (f.name() != "c7_to_c4_for_await") {
 				for (int iter = 0; iter < TvmConst::IterStackOptQty; ++iter) {
-					//std::cout << "new iter" << std::endl;
-					//Printer p{std::cout};
-					//f->accept(p);
-
 					m_didSome = false;
 					m_stackSize.clear();
 					initStack(f.take());

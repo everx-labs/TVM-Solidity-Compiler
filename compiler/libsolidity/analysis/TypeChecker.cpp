@@ -658,6 +658,7 @@ bool TypeChecker::isBadAbiType(
 		case Type::Category::FixedBytes:
 		case Type::Category::Integer:
 		case Type::Category::TvmCell:
+		case Type::Category::VarInteger:
 			break;
 
 		default: {

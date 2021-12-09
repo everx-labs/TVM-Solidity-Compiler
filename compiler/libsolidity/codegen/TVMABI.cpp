@@ -15,6 +15,8 @@
  * @date 2019
  */
 
+#include <boost/algorithm/string.hpp>
+
 #include "libsolutil/picosha2.h"
 #include <libsolidity/ast/TypeProvider.h>
 #include <libsolidity/analysis/TypeChecker.h>
@@ -94,18 +96,11 @@ void TVMABI::generateABI(
 	std::set<std::string> used;
 
 	Json::Value root(Json::objectValue);
-	switch (ctx.pragmaHelper().abiVersion()) {
-		case AbiVersion::V1:
-			root["ABI version"] = 1;
-			break;
-		case AbiVersion::V2_2:
-			root["ABI version"] = 2;
-			root["version"] = "2.2";
-			break;
-	}
+	root["ABI version"] = 2;
+	root["version"] = "2.2";
 
 	// header
-	if (ctx.pragmaHelper().abiVersion() == AbiVersion::V2_2) {
+	{
 		Json::Value header(Json::arrayValue);
 		for (const std::string h : {"pubkey", "time", "expire"}) {
 			if (std::get<0>(pdh.haveHeader(h)) || (h == "time" && ctx.hasTimeInAbiHeader())) {
@@ -178,34 +173,29 @@ void TVMABI::generateABI(
 	}
 
 	// fields
-	switch (ctx.pragmaHelper().abiVersion()) {
-		case AbiVersion::V1:
-			break;
-		case AbiVersion::V2_2: {
-			Json::Value fields(Json::arrayValue);
-			std::vector<std::pair<std::string, std::string>> offset{{"_pubkey", "uint256"}};
-			if (ctx.storeTimestampInC4()) {
-				offset.emplace_back("_timestamp", "uint64");
-			}
-			offset.emplace_back("_constructorFlag", "bool");
-			if (ctx.usage().hasAwaitCall()) {
-				offset.emplace_back("_await", "optional(cell)");
-			}
-
-			for (const auto& [name, type] : offset) {
-				Json::Value field(Json::objectValue);
-				field["name"] = name;
-				field["type"] = type;
-				fields.append(field);
-			}
-
-			for (VariableDeclaration const* stateVar : ctx.notConstantStateVariables()) {
-				Json::Value cur = setupNameTypeComponents(stateVar->name(), stateVar->type());
-				fields.append(cur);
-			}
-			root["fields"] = fields;
-			break;
+	{
+		Json::Value fields(Json::arrayValue);
+		std::vector<std::pair<std::string, std::string>> offset{{"_pubkey", "uint256"}};
+		if (ctx.storeTimestampInC4()) {
+			offset.emplace_back("_timestamp", "uint64");
 		}
+		offset.emplace_back("_constructorFlag", "bool");
+		if (ctx.usage().hasAwaitCall()) {
+			offset.emplace_back("_await", "optional(cell)");
+		}
+
+		for (const auto& [name, type] : offset) {
+			Json::Value field(Json::objectValue);
+			field["name"] = name;
+			field["type"] = type;
+			fields.append(field);
+		}
+
+		for (VariableDeclaration const* stateVar : ctx.notConstantStateVariables()) {
+			Json::Value cur = setupNameTypeComponents(stateVar->name(), stateVar->type());
+			fields.append(cur);
+		}
+		root["fields"] = fields;
 	}
 
 //	Json::StreamWriterBuilder builder;
@@ -424,6 +414,10 @@ Json::Value TVMABI::setupNameTypeComponents(const string &name, const Type *type
 		TypeInfo ti(type);
 		if (category == Type::Category::Address || category == Type::Category::Contract) {
 			typeName = "address";
+		} else if (category == Type::Category::VarInteger) {
+			auto varInt = to<VarInteger>(type);
+			typeName = varInt->toString(false);
+			boost::algorithm::to_lower(typeName);
 		} else if (ti.isNumeric) {
 			if (to<BoolType>(type)) {
 				typeName = "bool";
@@ -514,91 +508,40 @@ Json::Value TVMABI::setupTupleComponents(const TupleType* type) {
 	return components;
 }
 
-DecodePositionAbiV1::DecodePositionAbiV1() :
-		isPositionValid{true},
-		minRestSliceBits{TvmConst::CellBitLength - TvmConst::Message::functionIdLength - TvmConst::Message::timestampLength},
-		maxRestSliceBits{TvmConst::CellBitLength - TvmConst::Message::functionIdLength},
-		minUsedRef{0},
-		maxUsedRef{1}
-{
-
-}
-
-DecodePosition::Algo DecodePositionAbiV1::updateStateAndGetLoadAlgo(Type const *type) {
-	ABITypeSize size(type);
-	solAssert(0 <= size.minRefs && size.minRefs <= 1, "");
-	solAssert(0 <= size.maxRefs && size.maxRefs <= 1, "");
-	solAssert(0 <= size.minBits && size.minBits <= size.maxBits, "");
-
-	if (!isPositionValid) {
-		return Unknown;
-	}
-
-	minRestSliceBits -= size.maxBits;
-	maxRestSliceBits -= size.minBits;
-	minUsedRef += size.minRefs;
-	maxUsedRef += size.maxRefs;
-
-	if (minRestSliceBits < 0 && maxRestSliceBits >= 0) {
-		isPositionValid = false;
-		return Unknown;
-	}
-
-	if (maxUsedRef == 4 && maxUsedRef != minUsedRef) {
-		isPositionValid = false;
-		return Unknown;
-	}
-
-	if (minRestSliceBits < 0 || maxUsedRef == 4) {
-		minRestSliceBits = TvmConst::CellBitLength - size.maxBits;
-		maxRestSliceBits = TvmConst::CellBitLength - size.minBits;
-		minUsedRef = size.minRefs;
-		maxUsedRef = size.maxRefs;
-		return LoadNextCell;
-	}
-
-	return JustLoad;
-}
-
-Position::Position(int usedBits, int usedRefs) : usedBits{usedBits}, usedRefs{usedRefs} {
-
-}
-
-void Position::update(const int bits, const int refs) {
-	usedBits += bits;
-	usedRefs += refs;
-	if ((bits > 0 && usedBits > TvmConst::CellBitLength) || (refs > 0 && usedRefs >= 4)) {
-		usedBits = bits;
-		usedRefs = refs;
-		++idCell;
-	}
-}
-
-void Position::loadRef() {
-	++usedRefs;
-	if (usedRefs == 4) {
-		usedBits = 0;
-		usedRefs = 1;
-		++idCell;
-	}
-	solAssert(usedRefs <= 3, "");
-}
-
-int Position::cellNumber() const {
-	return idCell;
-}
-
-DecodePositionAbiV2::DecodePositionAbiV2(int minBits, int maxBits, const vector<Type const *>& _types, bool fastDecode, int usedRefs) :
-		minPos{minBits, 0},
-		maxPos{maxBits, usedRefs},
-		fastDecode{fastDecode} {
+DecodePositionAbiV2::DecodePositionAbiV2(int _bitOffset, int _refOffset, const std::vector<Type const *>& _types) {
 	for (const auto & type : _types) {
 		initTypes(type);
 	}
-	for (int i = 0; i < static_cast<int>(types.size()); ++i) {
-		Type const* t = types.at(i);
-		if (isRefType(t)) {
-			lastRefType = i;
+
+	int bits = _bitOffset;
+	int refs = _refOffset;
+	int n = m_types.size();
+	m_doLoadNextCell = std::vector<bool>(n);
+	std::vector<int> sufBits(n + 1);
+	std::vector<int> sufRefs(n + 1);
+	for (int i = n - 1; 0 <= i; --i) {
+		ABITypeSize size{m_types.at(i)};
+		sufBits[i] = sufBits[i + 1] + size.maxBits;
+		sufRefs[i] = sufRefs[i + 1] + size.maxRefs;
+	}
+	m_countOfCreatedBuilders = 0;
+	for (int i = 0; i < n; ++i) {
+		ABITypeSize size{m_types.at(i)};
+		if (bits + sufBits[i] <= TvmConst::CellBitLength && refs + sufRefs[i] <= 4) {
+			m_doLoadNextCell[i] = false;
+			bits += size.maxBits;
+			refs += size.maxRefs;
+			solAssert(bits <= TvmConst::CellBitLength && refs <= 4, "");
+		} else {
+			bits += size.maxBits;
+			refs += size.maxRefs;
+			if (bits >= TvmConst::CellBitLength || refs >= 4) {
+				m_doLoadNextCell[i] = true;
+				bits = size.maxBits;
+				refs = size.maxRefs;
+				++m_countOfCreatedBuilders;
+			}
+			solAssert(bits <= TvmConst::CellBitLength && refs <= 3, "");
 		}
 	}
 }
@@ -610,63 +553,20 @@ void DecodePositionAbiV2::initTypes(Type const* type) {
 			initTypes(m->type());
 		}
 	} else {
-		types.push_back(type);
+		m_types.push_back(type);
 	}
 }
 
-DecodePosition::Algo DecodePositionAbiV2::updateStateAndGetLoadAlgo(Type const *type) {
-	++curTypeIndex;
-	solAssert(type->toString() == types[curTypeIndex]->toString(), "");
+bool DecodePositionAbiV2::loadNextCell(Type const *type) {
+	int i = m_curTypeIndex;
+	++m_curTypeIndex;
+	solAssert(type->toString() == m_types[i]->toString(), "");
 	ABITypeSize size{type};
-	solAssert(0 <= size.minRefs && size.minRefs <= 1, "");
-	solAssert(0 <= size.maxRefs && size.maxRefs <= 1, "");
-	solAssert(0 <= size.minBits && size.minBits <= size.maxBits, "");
+	return m_doLoadNextCell.at(i);
+}
 
-	if (curTypeIndex == lastRefType) {
-		if (curTypeIndex + 1 == static_cast<int>(types.size())) {
-			minPos.loadRef();
-			maxPos.loadRef();
-			return JustLoad;
-		} else {
-			int prevMinCellNumber = minPos.cellNumber();
-			int prevMaxCellNumber = maxPos.cellNumber();
-			minPos.loadRef();
-			maxPos.loadRef();
-			if (fastDecode) {
-				return prevMaxCellNumber == maxPos.cellNumber() ? JustLoad : LoadNextCell;
-			}
-			if (prevMinCellNumber == minPos.cellNumber() && minPos.cellNumber() == maxPos.cellNumber()) {
-				return JustLoad;
-			}
-			return CheckBitsAndRefs;
-		}
-	}
-
-	int prevMinCellNumber = minPos.cellNumber();
-	int prevMaxCellNumber = maxPos.cellNumber();
-	minPos.update(size.minBits, size.minRefs);
-	maxPos.update(size.maxBits, size.maxRefs);
-
-	if (fastDecode) {
-		return prevMaxCellNumber == maxPos.cellNumber() ? JustLoad : LoadNextCell;
-	}
-
-	if (prevMinCellNumber == minPos.cellNumber() && minPos.cellNumber() == maxPos.cellNumber()) {
-		return JustLoad;
-	}
-
-	if (prevMinCellNumber == prevMaxCellNumber &&
-		prevMinCellNumber + 1 == minPos.cellNumber() &&
-		minPos.cellNumber() == maxPos.cellNumber()) {
-		return LoadNextCell;
-	}
-
-	if ((type->category() == Type::Category::Array && to<ArrayType>(type)->isByteArray()) ||
-		type->category() == Type::Category::TvmCell) {
-		return CheckRefs;
-	}
-
-	return CheckBits;
+int DecodePositionAbiV2::countOfCreatedBuilders() const {
+	return m_countOfCreatedBuilders;
 }
 
 ChainDataDecoder::ChainDataDecoder(StackPusher *pusher) :
@@ -689,28 +589,40 @@ int ChainDataDecoder::minBits(bool isResponsible) {
 	return 32 + (isResponsible ? 32 : 0);
 }
 
-void ChainDataDecoder::decodePublicFunctionParameters(const std::vector<Type const*>& types, bool isResponsible) {
-	fastLoad = false;
-	std::unique_ptr<DecodePosition> position;
-	switch (pusher->ctx().pragmaHelper().abiVersion()) {
-		case AbiVersion::V1:
-			position = std::make_unique<DecodePositionAbiV1>();
-			break;
-		case AbiVersion::V2_2: {
-			position = std::make_unique<DecodePositionAbiV2>(minBits(isResponsible), maxBits(isResponsible), types, false);
-			break;
-		}
-		default:
-			solUnimplemented("");
+void ChainDataDecoder::decodePublicFunctionParameters(
+	const std::vector<Type const*>& types,
+	bool isResponsible,
+	bool isInternal
+) {
+	if (isInternal) {
+		DecodePositionAbiV2 position{minBits(isResponsible), 0, types};
+		decodeParameters(types, position, true);
+	} else {
+		DecodePositionAbiV2 position{maxBits(isResponsible), 0, types};
+		decodeParameters(types, position, true);
 	}
-	decodeParameters(types, *position, true);
 }
 
-void ChainDataDecoder::decodeData(const std::vector<Type const*>& types, int offset, bool _fastLoad, int usedRefs) {
-	fastLoad = _fastLoad;
-	std::unique_ptr<DecodePosition> position;
-	position = std::make_unique<DecodePositionAbiV2>(offset, offset, types, fastLoad, usedRefs);
-	decodeParameters(types, *position, true);
+void ChainDataDecoder::decodeFunctionParameters(const std::vector<Type const*>& types, bool isResponsible) {
+	pusher->startOpaque();
+	pusher->pushS(1);
+	pusher->push(-1, ""); // fix stack
+
+	pusher->startContinuation();
+	decodePublicFunctionParameters(types, isResponsible, false);
+	pusher->endContinuation();
+
+	pusher->startContinuation();
+	decodePublicFunctionParameters(types, isResponsible, true);
+	pusher->endContinuation();
+
+	pusher->ifElse();
+	pusher->endOpaque(1, types.size());
+}
+
+void ChainDataDecoder::decodeData(int offset, int usedRefs, const std::vector<Type const*>& types) {
+	DecodePositionAbiV2 position{offset, usedRefs, types};
+	decodeParameters(types, position, true);
 }
 
 void ChainDataDecoder::decodeParameters(
@@ -740,100 +652,16 @@ void ChainDataDecoder::loadNextSlice() {
 	pusher->push(-1 + 1, "CTOS");
 }
 
-void ChainDataDecoder::checkBitsAndLoadNextSlice() {
-	pusher->startOpaque();
-	pusher->pushS(0);
-	pusher->push(-1 + 1, "SDEMPTY");
-	pusher->startContinuation();
-	pusher->push(-1 + 2, "LDREF");
-	pusher->push(-1, "ENDS");
-	pusher->push(-1 + 1, "CTOS");
-	pusher->endContinuation();
-	pusher->_if();
-	pusher->endOpaque(1, 1);
-}
-
-void ChainDataDecoder::checkRefsAndLoadNextSlice() {
-	pusher->startOpaque();
-	pusher->pushS(0);
-	pusher->push(-1 + 1, "SREFS");
-	pusher->push(-1 + 1, "EQINT 1");
-	pusher->startContinuation();
-	pusher->push(-1 + 2, "LDREF");
-	pusher->push(-1, "ENDS");
-	pusher->push(-1 + 1, "CTOS");
-	pusher->endContinuation();
-	pusher->_if();
-	pusher->endOpaque(1, 1);
-}
-
-void ChainDataDecoder::checkBitsAndRefsAndLoadNextSlice() {
-	// check that bits==0 and ref==1
-	pusher->startOpaque();
-	pusher->pushS(0);
-	pusher->push(-1 + 2, "SBITREFS");
-	pusher->push(-1 + 1, "EQINT 1");
-	pusher->exchange(1);
-	pusher->push(-1 + 1, "EQINT 0");
-	pusher->push(-2 + 1, "AND");
-	pusher->startContinuation();
-	pusher->push(-1 + 2, "LDREF");
-	pusher->push(-1, "ENDS");
-	pusher->push(-1 + 1, "CTOS");
-	pusher->endContinuation();
-	pusher->_if();
-	pusher->endOpaque(1, 1);
-}
-
-void ChainDataDecoder::loadNextSliceIfNeed(const DecodePosition::Algo algo, bool isRefType) {
-	switch (algo) {
-		case DecodePosition::JustLoad:
-			break;
-		case DecodePosition::LoadNextCell:
-			loadNextSlice();
-			break;
-		case DecodePosition::CheckBits:
-			checkBitsAndLoadNextSlice();
-			break;
-		case DecodePosition::CheckRefs:
-			checkRefsAndLoadNextSlice();
-			break;
-		case DecodePosition::CheckBitsAndRefs:
-			checkBitsAndRefsAndLoadNextSlice();
-			break;
-		case DecodePosition::Unknown:
-			if (isRefType) {
-				solUnimplemented("Too much refs types");
-			}
-			checkBitsAndLoadNextSlice();
-			break;
-	}
-}
-
-void ChainDataDecoder::loadq(const DecodePosition::Algo algo, const std::string &opcodeq, const std::string &opcode) {
-	if (algo == DecodePosition::Algo::JustLoad) {
-		pusher->push(+1, opcode);
-	} else {
-		if (fastLoad) {
-			loadNextSlice();
-			pusher->push(+1, opcode);
-		} else {
-			pusher->startOpaque();
-			pusher->pushAsym(opcodeq);
-			pusher->startContinuation();
-			loadNextSlice();
-			pusher->push(-1 + 2, opcode);
-			pusher->endContinuation();
-			pusher->ifNot();
-			pusher->endOpaque(1, 2);
-		}
+void ChainDataDecoder::loadNextSliceIfNeed(bool doLoadNextSlice) {
+	if (doLoadNextSlice) {
+		loadNextSlice();
 	}
 }
 
 void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition* position) {
 	const Type::Category category = type->category();
 	if (to<TvmCellType>(type)) {
-		loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type), true);
+		loadNextSliceIfNeed(position->loadNextCell(type));
 		pusher->push(+1, "LDREF");
 	} else if (auto structType = to<StructType>(type)) {
 		ast_vec<VariableDeclaration> const& members = structType->structDefinition().members();
@@ -846,103 +674,37 @@ void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition* positio
 		pusher->tuple(memberQty); // slice struct
 		pusher->exchange(1); // ... struct slice
 	} else if (category == Type::Category::Address || category == Type::Category::Contract) {
-		DecodePosition::Algo algo = position->updateStateAndGetLoadAlgo(type);
-		loadq(algo, "LDMSGADDRQ", "LDMSGADDR");
+		loadNextSliceIfNeed(position->loadNextCell(type));
+		pusher->load(type, false);
 	} else if (isIntegralType(type)) {
 		TypeInfo ti{type};
 		solAssert(ti.isNumeric, "");
-		DecodePosition::Algo algo = position->updateStateAndGetLoadAlgo(type);
-		loadq(algo,
-			  (ti.isSigned ? "LDIQ " : "LDUQ ") + toString(ti.numBits),
-			  (ti.isSigned ? "LDI " : "LDU ") + toString(ti.numBits));
+		loadNextSliceIfNeed(position->loadNextCell(type));
+		pusher->load(type, false);
 		if (auto enumType = to<EnumType>(type)) {
 			pusher->pushS(1);
 			pusher->pushInt(enumType->enumDefinition().members().size());
 			pusher->push(-1, "GEQ");
 			pusher->_throw("THROWIF " + toString(TvmConst::RuntimeException::WrongValueOfEnum));
 		}
-	} else if (auto arrayType = to<ArrayType>(type)) {
-		if (arrayType->isByteArray()) {
-			loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type), true);
-			pusher->push(+1, "LDREF");
-		} else {
-			loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type), false);
-			pusher->load(type, false);
-		}
+	} else if (to<ArrayType>(type)) {
+		loadNextSliceIfNeed(position->loadNextCell(type));
+		pusher->load(type, false);
 	} else if (to<MappingType>(type)) {
-		DecodePosition::Algo algo = position->updateStateAndGetLoadAlgo(type);
-		loadq(algo, "LDDICTQ", "LDDICT");
+		loadNextSliceIfNeed(position->loadNextCell(type));
+		pusher->load(type, false);
 	} else if (to<OptionalType>(type)) {
-		loadNextSliceIfNeed(position->updateStateAndGetLoadAlgo(type), false);
+		loadNextSliceIfNeed(position->loadNextCell(type));
 		pusher->load(type, false);
 	} else if (to<FunctionType>(type)) {
-		DecodePosition::Algo algo = position->updateStateAndGetLoadAlgo(type);
-		loadq(algo, "LDUQ 32", "LDU 32");
+		loadNextSliceIfNeed(position->loadNextCell(type));
+		pusher->load(type, false);
+	} else if (to<VarInteger>(type)) {
+		loadNextSliceIfNeed(position->loadNextCell(type));
+		pusher->load(type, false);
 	} else {
 		solUnimplemented("Unsupported parameter type for decoding: " + type->toString());
 	}
-}
-
-EncodePosition::EncodePosition(int bits, const std::vector<Type const *> &_types, int refs) :
-		restSliceBits{TvmConst::CellBitLength - bits},
-		restFef{4 - refs},
-		qtyOfCreatedBuilders{0} {
-
-	for (Type const * t : _types) {
-		init(t);
-	}
-
-	for (int i = 0; i < static_cast<int>(types.size()); ++i) {
-		Type const* t = types[i];
-		if (isRefType(t)) {
-			lastRefType = i;
-		}
-	}
-
-	for (int i = 0; i < static_cast<int>(types.size()); ++i) {
-		isNeedNewCell.push_back(updateState(i));
-	}
-}
-
-bool EncodePosition::needNewCell(Type const *type) {
-	solAssert(*type == *types[currentIndex], "");
-	return isNeedNewCell[currentIndex++];
-}
-
-bool EncodePosition::updateState(int i) {
-	ABITypeSize size(types[i]);
-	solAssert(0 <= size.maxRefs && size.maxRefs <= 1, "");
-
-	restSliceBits -= size.maxBits;
-	restFef -= size.maxRefs;
-	solAssert(restFef >= 0, "");
-
-	if (i == lastRefType && restFef == 0 && i + 1 == static_cast<int>(types.size())) {
-		return false;
-	}
-
-	if (restSliceBits < 0 || restFef == 0) {
-		restSliceBits =  TvmConst::CellBitLength - size.maxBits;
-		restFef = 4 - size.maxRefs;
-		++qtyOfCreatedBuilders;
-		return true;
-	}
-	return false;
-}
-
-void EncodePosition::init(Type const* t) {
-	if (t->category() == Type::Category::Struct) {
-		auto members = to<StructType>(t)->structDefinition().members();
-		for (const auto &m : members) {
-			init(m->type());
-		}
-	} else {
-		types.push_back(t);
-	}
-}
-
-int EncodePosition::countOfCreatedBuilders() const {
-	return qtyOfCreatedBuilders;
 }
 
 void ChainDataEncoder::createDefaultConstructorMsgBodyAndAppendToBuilder(const int bitSizeBuilder)
@@ -1014,10 +776,6 @@ uint32_t ChainDataEncoder::calculateFunctionID(
 	std::stringstream ss;
 	ss << name << "(";
 	bool comma = false;
-	if (pusher->ctx().pragmaHelper().abiVersion() == AbiVersion::V1) {
-		ss << "time";
-		comma = true;
-	}
 	for (const auto& type : inputs) {
 		std::string typestr = toStringForCalcFuncID(type);
 		solAssert(!typestr.empty(), "Wrong type in remote function params.");
@@ -1040,14 +798,7 @@ uint32_t ChainDataEncoder::calculateFunctionID(
 		}
 		ss << ")";
 	}
-	switch (pusher->ctx().pragmaHelper().abiVersion()) {
-		case AbiVersion::V1:
-			ss << "v1";
-			break;
-		case AbiVersion::V2_2:
-			ss << "v2";
-			break;
-	}
+	ss << "v2";
 
 	std::string str = ss.str();
 	bytes hash = picosha2::hash256(bytes(
@@ -1134,14 +885,14 @@ void ChainDataEncoder::createMsgBodyAndAppendToBuilder(
 
 	std::vector<Type const*> types = getParams(params).first;
 	const int callbackLength = callbackFunctionId.has_value() ? 32 : 0;
-	std::unique_ptr<EncodePosition> position = std::make_unique<EncodePosition>(bitSizeBuilder + 32 + callbackLength, types);
+	std::unique_ptr<DecodePositionAbiV2> position = std::make_unique<DecodePositionAbiV2>(bitSizeBuilder + 32 + callbackLength, 0, types);
 	const bool doAppend = position->countOfCreatedBuilders() == 0;
 	doAppend ? pusher->stzeroes(1) : pusher->stones(1);
 	if (params.size() >= 2 && !reversedArgs) {
 		pusher->reverse(params.size(), 1);
 	}
 	if (!doAppend) {
-		position = std::make_unique<EncodePosition>(32 + callbackLength, types);
+		position = std::make_unique<DecodePositionAbiV2>(32 + callbackLength, 0, types);
 		pusher->blockSwap(params.size(), 1); // msgBuilder, arg[n-1], ..., arg[1], arg[0]
 		pusher->push(+1, "NEWC"); // msgBuilder, arg[n-1], ..., arg[1], arg[0], builder
 	}
@@ -1164,7 +915,7 @@ void ChainDataEncoder::createMsgBody(
 		const std::vector<VariableDeclaration const*> &params,
 		const std::variant<uint32_t, std::function<void()>>& functionId,
 		const std::optional<uint32_t>& callbackFunctionId,
-		EncodePosition &position
+		DecodePositionAbiV2 &position
 ) {
 	std::vector<Type const*> types;
 	std::vector<ASTNode const*> nodes;
@@ -1192,7 +943,7 @@ void ChainDataEncoder::createMsgBody(
 // Target: create and append to msgBuilder the message body
 void ChainDataEncoder::encodeParameters(
 	const std::vector<Type const *> & _types,
-	EncodePosition &position
+	DecodePositionAbiV2 &position
 ) {
 	// builder must be situated on top stack
 	std::vector<Type const *> typesOnStack{_types.rbegin(), _types.rend()};
@@ -1210,7 +961,7 @@ void ChainDataEncoder::encodeParameters(
 				typesOnStack.push_back(m->type());
 			}
 		} else {
-			if (position.needNewCell(type)) {
+			if (position.loadNextCell(type)) {
 				// arg[n-1], ..., arg[1], arg[0], builder
 				pusher->blockSwap(argQty, 1);
 				pusher->push(+1, "NEWC");

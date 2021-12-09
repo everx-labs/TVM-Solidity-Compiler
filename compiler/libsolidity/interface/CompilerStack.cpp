@@ -412,9 +412,7 @@ bool CompilerStack::analyze()
 		{
 
 			for (Source const* source: m_sourceOrder) {
-
-				std::vector<PragmaDirective const *> pragmaDirectives = getPragmaDirectives(source);
-				TVMTypeChecker checker(m_errorReporter, pragmaDirectives);
+				TVMTypeChecker checker(m_errorReporter);
 				source->ast->accept(checker);
 				if (m_errorReporter.hasErrors()) {
 					noErrors = false;
