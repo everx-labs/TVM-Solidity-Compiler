@@ -4032,7 +4032,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				strings{string("dest"),			// mandatory
 						string("call"),			// mandatory
 						string("callbackId"),	// mandatory
-						string("abiVer"),		// mandatory
+						string("abiVer"),		// must be deleted
 						string("onErrorId"),	    // mandatory
 						string("signBoxHandle"),	// can be omitted
 						string("time"),			// can be omitted

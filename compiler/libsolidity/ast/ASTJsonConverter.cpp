@@ -182,9 +182,13 @@ void ASTJsonConverter::appendExpressionAttributes(
 	_attributes += exprAttributes;
 }
 
-void ASTJsonConverter::print(ostream& _stream, ASTNode const& _node)
+void ASTJsonConverter::print(ostream& _stream, ASTNode const& _node, const std::string& ident)
 {
-	_stream << util::jsonPrettyPrint(toJson(_node));
+	std::stringstream ss(util::jsonPrettyPrint(toJson(_node)));
+	std::string line;
+	while (std::getline(ss, line)) {
+		_stream << ident << line << endl;
+	}
 }
 
 Json::Value&& ASTJsonConverter::toJson(ASTNode const& _node)

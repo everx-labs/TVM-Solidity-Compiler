@@ -428,6 +428,7 @@ TypePointers TypeChecker::checkSliceDecode(FunctionCall const& _functionCall)
 				case Type::Category::Optional:
 				case Type::Category::Struct:
 				case Type::Category::Enum:
+				case Type::Category::VarInteger:
 					break;
 
 				default:
@@ -2626,7 +2627,6 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 					R"("callback" option can't be set for await call.)"
 					);
 		auto callbackId = getId("callbackId");
-		auto abiVer = getId("abiVer");
 		auto onErrorId = getId("onErrorId");
 		auto expressionFunctionType = dynamic_cast<FunctionType const*>(type(functionCallOpt->expression()));
 		if (!_functionCall.isExtMsg() && callback == -1 &&
@@ -2635,10 +2635,10 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 			checkNeedCallback(expressionFunctionType, *functionCallOpt);
 		}
 		if (isExternalInboundMessage &&
-		(callbackId == -1 || abiVer == -1 || onErrorId == -1)) {
+		(callbackId == -1 || onErrorId == -1)) {
 			m_errorReporter.typeError(
 					functionCallOpt->location(),
-					R"("callbackId", "onErrorId" and "abiVer" options must be set.)"
+					R"("callbackId" and "onErrorId" options must be set.)"
 			);
 		}
 
@@ -2806,7 +2806,7 @@ void TypeChecker::checkBuildExtMsg(FunctionCall const& _functionCall) {
 	};
 
 
-	for (const std::string name: {"dest", "call", "callbackId", "abiVer", "onErrorId"}) {
+	for (const std::string name: {"dest", "call", "callbackId", "onErrorId"}) {
 		int index = findName(name);
 		if (index == -1){
 			m_errorReporter.fatalTypeError(
@@ -3650,7 +3650,6 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	int setSign = -1;
 	int setExpire = -1;
 	int setTime = -1;
-	int setAbi = -1;
 	int setOnError = -1;
     int setSignHandler = -1;
 
@@ -3723,8 +3722,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(32)));
 			setCheckOption(setSignHandler, "signBoxHandle", i);
 		} else if (name == "abiVer") {
-			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(8)));
-			setCheckOption(setAbi, "abiVer", i);
+			m_errorReporter.warning(options.at(i)->location(), "It has no effect. Delete \"abiVer\" option.");
 		} else if (name == "stateInit") {
 			expectType(*options[i], *TypeProvider::optional(TypeProvider::tvmcell()));
 			setCheckOption(setStateInit, "stateInit", i);

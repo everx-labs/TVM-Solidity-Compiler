@@ -56,6 +56,7 @@ namespace TvmConst {
 		namespace ReplayProtection {
 			const int Interval = 30 * 60 * 1000; // 30 min = 30 * 60 * 1000 millisecond;
 		}
+		const int MajorAbiVersion = 2;
 	}
 	const int CellBitLength = 1023;
 	const int ArrayKeyLength = 32;

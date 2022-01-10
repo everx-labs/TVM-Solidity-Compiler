@@ -595,7 +595,6 @@ void FunctionCallCompiler::checkExtMsgSend() {
 	Expression const* expire = findOption("expire");
 	Expression const* time = findOption("time");
 	Expression const* callbackid = findOption("callbackId");
-	Expression const* abiVer = findOption("abiVer");
 	Expression const* onerrorid = findOption("onErrorId");
 	Expression const* stateInit = findOption("stateInit");
 	Expression const* signBoxHandle = findOption("signBoxHandle");
@@ -606,7 +605,7 @@ void FunctionCallCompiler::checkExtMsgSend() {
 	Expression const* destination = &memberAccess->expression();
 
 	generateExtInboundMsg(addSignature, destination, pubkey, expire, time, callbackid,
-						  abiVer, onerrorid, stateInit, signBoxHandle, functionDefinition, m_arguments);
+						  onerrorid, stateInit, signBoxHandle, functionDefinition, m_arguments);
 	m_pusher.pushInt(TvmConst::SENDRAWMSG::DefaultFlag);
 	m_pusher.sendrawmsg();
 }
@@ -660,7 +659,6 @@ void FunctionCallCompiler::generateExtInboundMsg(
 	const Expression *expire,
 	const Expression *time,
 	const Expression *callbackid,
-	const Expression *abiVer,
 	const Expression *onerrorid,
 	const Expression *stateInit,
 	const Expression *signBoxHandle,
@@ -691,12 +689,11 @@ void FunctionCallCompiler::generateExtInboundMsg(
 		}
 
 		m_pusher.push(+1, "NEWC");
+		builderSize += 1 + 512;
 		if (addSignature) {
-			builderSize += 513;
 			m_pusher.stones(1);
 			m_pusher.stzeroes(512);	// Signature
 		} else {
-			builderSize += 1;
 			m_pusher.stzeroes(1);	// Signature
 		}
 
@@ -708,7 +705,7 @@ void FunctionCallCompiler::generateExtInboundMsg(
 
 		if (pubkey != nullptr) {
 			// pubkey is set
-			builderSize += addSignature ? 257 : 1;
+			builderSize += 1 + 256;
 			// pubkey is optional, check whether it presents
 			acceptExpr(pubkey);
 
@@ -788,7 +785,7 @@ void FunctionCallCompiler::generateExtInboundMsg(
 	// generate payload to store it as a src address with addr_extern type
 	if (signBoxHandle != nullptr)
 		acceptExpr(signBoxHandle);
-	acceptExpr(abiVer);
+	m_pusher << "PUSHINT " + toString(TvmConst::Message::MajorAbiVersion);
 	acceptExprOrPushFunctionId(onerrorid);
 	acceptExprOrPushFunctionId(callbackid);
 	m_pusher.push(+1, "NEWC");
@@ -1027,7 +1024,6 @@ void FunctionCallCompiler::tvmBuildMsgMethod() {
 	int expireArg = -1;
 	int pubkeyArg = -1;
 	int signArg = -1;
-	int abiArg = -1;
 	int callbackArg = -1;
 	int onerrorArg = -1;
 	int stateArg = -1;
@@ -1054,7 +1050,6 @@ void FunctionCallCompiler::tvmBuildMsgMethod() {
 					signArg = arg;
 					break;
 				case str2int("abiVer"):
-					abiArg = arg;
 					break;
 				case str2int("callbackId"):
 					callbackArg = arg;
@@ -1088,7 +1083,6 @@ void FunctionCallCompiler::tvmBuildMsgMethod() {
 										  (expireArg != -1) ? m_arguments[expireArg].get() : nullptr,
 										  (timeArg != -1) ? m_arguments[timeArg].get() : nullptr,
 										  m_arguments[callbackArg].get(),
-										  m_arguments[abiArg].get(),
 										  m_arguments[onerrorArg].get(),
 										  (stateArg != -1) ? m_arguments[stateArg].get() : nullptr,
 										  (signHandlerArg != -1) ? m_arguments[signHandlerArg].get() : nullptr,

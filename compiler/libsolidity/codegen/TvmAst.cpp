@@ -33,6 +33,11 @@ void Loc::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
 }
 
+bool Loc::operator==(TvmAstNode const& node) const {
+	auto n = to<Loc>(&node);
+	return n && std::tie(m_file, m_line) == std::tie(n->m_file, n->m_line);
+}
+
 Stack::Stack(Stack::Opcode opcode, int i, int j, int k) : m_opcode{opcode}, m_i{i}, m_j{j}, m_k{k}
 {
 }
@@ -55,6 +60,11 @@ Glob::Glob(Glob::Opcode opcode, int index) :
 
 void Glob::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
+}
+
+bool Glob::operator==(TvmAstNode const&node) const {
+	auto g = to<Glob>(&node);
+	return g && std::tie(m_opcode, m_index) == std::tie(g->m_opcode, g->m_index);
 }
 
 int Glob::take() const {
@@ -95,6 +105,11 @@ void DeclRetFlag::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
 }
 
+bool DeclRetFlag::operator==(TvmAstNode const& node) const {
+	auto d = to<DeclRetFlag>(&node);
+	return d;
+}
+
 void Opaque::accept(TvmAstVisitor& _visitor) {
 	if (_visitor.visit(*this))
 	{
@@ -102,12 +117,28 @@ void Opaque::accept(TvmAstVisitor& _visitor) {
 	}
 }
 
+bool Opaque::operator==(TvmAstNode const& _node) const {
+	auto op = to<Opaque>(&_node);
+	return op && std::tie(*m_block.get(), m_take, m_ret) == std::tie(*op->m_block.get(), op->m_take, op->m_ret);
+}
+
 void AsymGen::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
 }
 
+bool AsymGen::operator==(TvmAstNode const& _node) const {
+	auto a = to<AsymGen>(&_node);
+	return a && std::tie(opcode(), m_take, m_retMin, m_retMax) ==
+				std::tie(a->opcode(), a->m_take, a->m_retMin, a->m_retMax);
+}
+
 void HardCode::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
+}
+
+bool HardCode::operator==(TvmAstNode const& _node) const {
+	auto g = to<HardCode>(&_node);
+	return g && std::tie(m_code, m_take, m_ret) == std::tie(g->m_code, g->m_take, g->m_ret);
 }
 
 GenOpcode::GenOpcode(const std::string& opcode, int take, int ret, bool _isPure) : Gen{_isPure},  m_take{take}, m_ret{ret} {
@@ -155,11 +186,21 @@ void TvmReturn::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
 }
 
+bool TvmReturn::operator==(TvmAstNode const& _node) const {
+	auto t = to<TvmReturn>(&_node);
+	return t && std::tie(m_withIf, m_withNot, m_withAlt) == std::tie(t->m_withIf, t->m_withNot, t->m_withAlt);
+}
+
 void ReturnOrBreakOrCont::accept(TvmAstVisitor& _visitor) {
 	if (_visitor.visit(*this))
 	{
 		m_body->accept(_visitor);
 	}
+}
+
+bool ReturnOrBreakOrCont::operator==(TvmAstNode const& _node) const {
+	auto r = to<ReturnOrBreakOrCont>(&_node);
+	return r && std::tie(m_take, *m_body.get()) == std::tie(r->m_take, *r->m_body.get());
 }
 
 void TvmException::accept(TvmAstVisitor& _visitor) {
@@ -196,6 +237,19 @@ void PushCellOrSlice::accept(TvmAstVisitor& _visitor) {
 			m_child->accept(_visitor);
 		}
 	}
+}
+
+bool PushCellOrSlice::operator==(TvmAstNode const& _node) const {
+	auto p = to<PushCellOrSlice>(&_node);
+	if (p && std::tie(m_type, m_blob) == std::tie(p->m_type, p->m_blob)) {
+		if (m_child == nullptr && p->m_child == nullptr) {
+			return true;
+		}
+		if (m_child != nullptr && p->m_child != nullptr) {
+			return *m_child.get() == *p->m_child.get();
+		}
+	}
+	return false;
 }
 
 bool PushCellOrSlice::equal(PushCellOrSlice const& another) const {
@@ -239,11 +293,29 @@ void CodeBlock::accept(TvmAstVisitor& _visitor) {
 	_visitor.endVisit(*this);
 }
 
+bool CodeBlock::operator==(TvmAstNode const& _node) const {
+	auto c = to<CodeBlock>(&_node);
+	return c && std::tie(m_type, m_instructions) == std::tie(c->m_type, c->m_instructions);
+}
+
 void SubProgram::accept(TvmAstVisitor &_visitor) {
 	if (_visitor.visit(*this))
 	{
 		m_block->accept(_visitor);
 	}
+}
+
+bool SubProgram::operator==(TvmAstNode const& _node) const {
+	auto s = to<SubProgram>(&_node);
+	if (s && std::tie(m_take, m_ret, m_isJmp) == std::tie(s->m_take, s->m_ret, s->m_isJmp)) {
+		if (m_block == nullptr && s->m_block == nullptr) {
+			return true;
+		}
+		if (m_block != nullptr && s->m_block != nullptr) {
+			return *m_block.get() == *s->m_block.get();
+		}
+	}
+	return false;
 }
 
 void TvmCondition::accept(TvmAstVisitor& _visitor) {
@@ -254,11 +326,22 @@ void TvmCondition::accept(TvmAstVisitor& _visitor) {
 	}
 }
 
+bool TvmCondition::operator==(TvmAstNode const& _node) const {
+	auto c = to<TvmCondition>(&_node);
+	return c && std::tie(*mTrueBody.get(), *mFalseBody.get(), m_ret) ==
+				std::tie(*c->mTrueBody.get(), *c->mFalseBody.get(), c->m_ret);
+}
+
 void LogCircuit::accept(TvmAstVisitor& _visitor) {
 	if (_visitor.visit(*this))
 	{
 		m_body->accept(_visitor);
 	}
+}
+
+bool LogCircuit::operator==(TvmAstNode const& _node) const {
+	auto l = to<LogCircuit>(&_node);
+	return l && std::tie(m_type, *m_body.get()) == std::tie(l->m_type, *l->m_body.get());
 }
 
 TvmIfElse::TvmIfElse(bool _withNot, bool _withJmp, Pointer<CodeBlock> const &trueBody,

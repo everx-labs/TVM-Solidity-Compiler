@@ -56,7 +56,7 @@ public:
 		std::map<std::string, unsigned> _sourceIndices = std::map<std::string, unsigned>()
 	);
 	/// Output the json representation of the AST to _stream.
-	void print(std::ostream& _stream, ASTNode const& _node);
+	void print(std::ostream& _stream, ASTNode const& _node, const std::string& ident = "");
 	Json::Value&& toJson(ASTNode const& _node);
 	template <class T>
 	Json::Value toJson(std::vector<ASTPointer<T>> const& _nodes)
