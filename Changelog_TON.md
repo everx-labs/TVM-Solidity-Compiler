@@ -1,3 +1,12 @@
+### 0.54.0 (2021-12-30)
+
+Bugfixes:
+ * Fix issue when it was impossible to import 2 files from each other.
+
+Breaking change:
+ * Output AST JSON as pure json without `====` separators or something else.
+ * Deleted option "abiVer" from `tvm.buildExtMsg()` and sending external inbound message for debots.
+
 ### 0.53.0 (2021-12-09)
 
 Compiler features:

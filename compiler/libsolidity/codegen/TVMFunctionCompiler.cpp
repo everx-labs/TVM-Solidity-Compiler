@@ -1239,7 +1239,6 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 				m_pusher.pushS(m_pusher.stackSize() - saveStackSize - 1);
 				// stack: cell value [flag] cell
 
-				// TODO make LogCircuit
 				m_pusher.startOpaque();
 				m_pusher.pushAsym("LDUQ 8");
 				m_pusher.push(+1, ""); // fix stack

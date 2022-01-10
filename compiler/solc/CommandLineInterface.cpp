@@ -229,8 +229,8 @@ bool CommandLineInterface::readInputFilesAndConfigureRemappings()
 					}
 				}
 
-				m_sourceCodes[infile.generic_string()] = readFileAsString(infile.string());
 				path = boost::filesystem::canonical(infile).string();
+				m_sourceCodes[path] = readFileAsString(infile.string());
 			}
 			m_allowedDirectories.push_back(boost::filesystem::path(path).remove_filename());
 		}
@@ -438,6 +438,7 @@ bool CommandLineInterface::processInput()
 			m_compiler->printFunctionIds();
 
 		string fileName = m_args[g_argInputFile].as<string>();
+		fileName = boost::filesystem::canonical(fileName).string();
 		m_compiler->setInputFile(fileName);
 
 		bool successful = true;
@@ -540,12 +541,17 @@ void CommandLineInterface::handleAst(string const& _argStr)
 			serr() << "Can't create the file.";
 			std::exit(1);
 		}
-		out << title << endl << endl;
+		out << "[" << endl;
+		size_t i = 0;
 		for (auto const& sourceCode: m_sourceCodes)
 		{
-			out << endl << "======= " << sourceCode.first << " =======" << endl;
-			ASTJsonConverter(legacyFormat, m_compiler->sourceIndices()).print(out, m_compiler->ast(sourceCode.first));
+			ASTJsonConverter(legacyFormat, m_compiler->sourceIndices()).print(out, m_compiler->ast(sourceCode.first), "  ");
+			if (i + 1 != m_sourceCodes.size())
+				out << "," << endl;
+			++i;
 		}
+		out << endl;
+		out << "]" << endl;
 		g_hasOutput = true;
 	}
 }

@@ -252,6 +252,9 @@ bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
 							"Using uint32 type as argument is deprecated. Use function identifier (ContractName.functionName or functionName) instead.");
 					}
 				}
+				if (int index = findName("abiVer"); index != -1) {
+					m_errorReporter.warning(arguments.at(index)->location(), "It has no effect. Delete \"abiVer\" option.");
+				}
 				break;
 			}
 			default:

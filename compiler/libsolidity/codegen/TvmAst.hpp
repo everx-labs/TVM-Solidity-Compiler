@@ -54,7 +54,7 @@ namespace solidity::frontend
 	public:
 		explicit Loc(std::string  _file, int _line) : m_file{std::move(_file)}, m_line{_line} { }
 		void accept(TvmAstVisitor& _visitor) override;
-		bool operator==(TvmAstNode const&) const override { return false; } // TODO
+		bool operator==(TvmAstNode const& n) const override;
 		std::string const& file() const { return m_file; }
 		int line() const { return m_line; }
 	private:
@@ -123,7 +123,7 @@ namespace solidity::frontend
 		};
 		explicit Glob(Opcode opcode, int index = -1);
 		void accept(TvmAstVisitor& _visitor) override;
-		bool operator==(TvmAstNode const&) const override { return false; } // TODO
+		bool operator==(TvmAstNode const&) const override;
 		Opcode opcode() const { return m_opcode; }
 		int index() const { return m_index; }
 		int take() const override;
@@ -138,7 +138,7 @@ namespace solidity::frontend
 	class DeclRetFlag : public Inst {
 	public:
 		void accept(TvmAstVisitor& _visitor) override;
-		bool operator==(TvmAstNode const&) const override { return false; } // TODO
+		bool operator==(TvmAstNode const&) const override;
 	};
 
 	class Opaque : public Gen {
@@ -146,7 +146,7 @@ namespace solidity::frontend
 		explicit Opaque(Pointer<CodeBlock> _block, int take, int ret, bool isPure) :
 			Gen{isPure}, m_block(std::move(_block)), m_take{take}, m_ret{ret} {}
 		void accept(TvmAstVisitor& _visitor) override;
-		bool operator==(TvmAstNode const&) const override { return false; } // TODO
+		bool operator==(TvmAstNode const&) const override;
 		Pointer<CodeBlock> const& block() const { return m_block; }
 		int take() const override { return m_take; }
 		int ret() const override { return m_ret; }
@@ -161,7 +161,7 @@ namespace solidity::frontend
 		explicit AsymGen(std::string opcode, int take, int retMin, int retMax) :
 				m_opcode(std::move(opcode)), m_take{take}, m_retMin{retMin}, m_retMax{retMax} {}
 		void accept(TvmAstVisitor& _visitor) override;
-		bool operator==(TvmAstNode const&) const override { return false; } // TODO
+		bool operator==(TvmAstNode const&) const override;
 		std::string const& opcode() const { return m_opcode; }
 		int take() const { return m_take; }
 		int retMin() const { return m_retMin; }
@@ -178,7 +178,7 @@ namespace solidity::frontend
 		explicit HardCode(std::vector<std::string> code, int take, int ret, bool _isPure) :
 			Gen{_isPure}, m_code(std::move(code)), m_take{take}, m_ret{ret} {}
 		void accept(TvmAstVisitor& _visitor) override;
-		bool operator==(TvmAstNode const&) const override { return false; } // TODO
+		bool operator==(TvmAstNode const&) const override;
 		std::vector<std::string> const& code() const { return m_code; }
 		int take() const override { return m_take; }
 		int ret() const override { return m_ret; }
@@ -211,7 +211,7 @@ namespace solidity::frontend
 	public:
 		TvmReturn(bool _withIf, bool _withNot, bool _withAlt);
 		void accept(TvmAstVisitor& _visitor) override;
-		bool operator==(TvmAstNode const&) const override { return false; } // TODO
+		bool operator==(TvmAstNode const&) const override;
 		bool withIf() const { return m_withIf; }
 		bool withNot() const { return m_withNot; }
 		bool withAlt() const { return m_withAlt; }
@@ -230,7 +230,7 @@ namespace solidity::frontend
 		}
 		Pointer<CodeBlock> const &body() const { return m_body; }
 		void accept(TvmAstVisitor& _visitor) override;
-		bool operator==(TvmAstNode const&) const override { return false; } // TODO
+		bool operator==(TvmAstNode const&) const override;
 		int take() const { return m_take; }
 	private:
 		int m_take{};
@@ -281,7 +281,7 @@ namespace solidity::frontend
 		{
 		}
 		void accept(TvmAstVisitor& _visitor) override;
-		bool operator==(TvmAstNode const&) const override { return false; } // TODO
+		bool operator==(TvmAstNode const&) const override;
 		int take() const override { return 0; }
 		int ret() const override { return 1; }
 		Type type() const  { return m_type; }
@@ -296,7 +296,6 @@ namespace solidity::frontend
 
 	class CodeBlock : public Inst {
 	public:
-		// TODO delete these types
 		enum class Type {
 			None,
 			PUSHCONT,
@@ -310,7 +309,7 @@ namespace solidity::frontend
 			}
 		}
 		void accept(TvmAstVisitor& _visitor) override;
-		bool operator==(TvmAstNode const&) const override { return false; } // TODO
+		bool operator==(TvmAstNode const&) const override;
 		Type type() const { return m_type; }
 		std::vector<Pointer<TvmAstNode>> const& instructions() const { return m_instructions; }
 		void upd(std::vector<Pointer<TvmAstNode>> instructions) { m_instructions = std::move(instructions); }
@@ -330,7 +329,7 @@ namespace solidity::frontend
 		{
 		}
 		void accept(TvmAstVisitor &_visitor) override;
-		bool operator==(TvmAstNode const&) const override { return false; } // TODO
+		bool operator==(TvmAstNode const&) const override;
 		int take() const override { return  m_take; }
 		int ret() const override { return m_ret; }
 		Pointer<CodeBlock> const &block() const { return m_block; }
@@ -353,7 +352,7 @@ namespace solidity::frontend
 		}
 		int ret() const { return m_ret; }
 		void accept(TvmAstVisitor& _visitor) override;
-		bool operator==(TvmAstNode const&) const override { return false; } // TODO
+		bool operator==(TvmAstNode const&) const override;
 		Pointer<CodeBlock> const &trueBody() const { return mTrueBody; }
 		Pointer<CodeBlock> const &falseBody() const { return mFalseBody; }
 	private:
@@ -375,7 +374,7 @@ namespace solidity::frontend
 		{
 		}
 		void accept(TvmAstVisitor& _visitor) override;
-		bool operator==(TvmAstNode const&) const override { return false; } // TODO
+		bool operator==(TvmAstNode const&) const override;
 		Type type() const { return m_type; }
 		Pointer<CodeBlock> const &body() const { return m_body; }
 	private:

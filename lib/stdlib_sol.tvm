@@ -23,12 +23,10 @@ PUSHCONT {
 	SWAP
 	STSLICECONST 1
 	STU 32
-	.loc stdlib.sol, 0
 }
 PUSHCONT {
 	.loc stdlib.sol, 23
 	STSLICECONST 0
-	.loc stdlib.sol, 0
 }
 IFELSE
 .loc stdlib.sol, 27
@@ -47,12 +45,10 @@ PUSHCONT {
 	XCHG S2
 	STI 1
 	STI 1
-	.loc stdlib.sol, 0
 }
 PUSHCONT {
 	.loc stdlib.sol, 32
 	STSLICECONST 0
-	.loc stdlib.sol, 0
 }
 IFELSE
 .loc stdlib.sol, 36
@@ -228,8 +224,6 @@ PUSHCONT {
 		.loc stdlib.sol, 87
 		OVER
 		DEC
-		POP S2
-		.loc stdlib.sol, 0
 	}
 	PUSHCONT {
 		.loc stdlib.sol, 89
@@ -239,10 +233,9 @@ PUSHCONT {
 		.loc stdlib.sol, 90
 		OVER
 		RSHIFT 1
-		POP S2
-		.loc stdlib.sol, 0
 	}
 	IFELSE
+	POP S2
 	.loc stdlib.sol, 0
 }
 WHILE
@@ -562,7 +555,6 @@ PUSHCONT {
 			.loc stdlib.sol, 0
 		}
 		IFNOT
-		.loc stdlib.sol, 0
 	}
 	PUSHCONT {
 		.loc stdlib.sol, 148
@@ -623,11 +615,10 @@ PUSHCONT {
 		PUSH S5
 		ADD
 		POP S5
-		.loc stdlib.sol, 0
 	}
 	IFELSE
-	DROP
 	.loc stdlib.sol, 0
+	DROP
 }
 IF
 .loc stdlib.sol, 159
@@ -664,7 +655,6 @@ PUSHCONT {
 		.loc stdlib.sol, 0
 	}
 	REPEAT
-	.loc stdlib.sol, 0
 }
 PUSHCONT {
 	.loc stdlib.sol, 165
@@ -758,7 +748,6 @@ PUSHCONT {
 		.loc stdlib.sol, 0
 	}
 	REPEAT
-	.loc stdlib.sol, 0
 }
 IFELSE
 .loc stdlib.sol, 177
@@ -785,13 +774,6 @@ OVER
 BREMBITS
 .loc stdlib.sol, 184
 GTINT 8
-PUSHCONT {
-	.loc stdlib.sol, 185
-	OVER
-	STSLICECONST x3a
-	POP S2
-	.loc stdlib.sol, 0
-}
 PUSHCONT {
 	.loc stdlib.sol, 187
 	BLKPUSH 2, 2
@@ -824,12 +806,11 @@ PUSHCONT {
 	NEWC
 	POP S2
 	.loc stdlib.sol, 189
-	OVER
-	STSLICECONST x3a
-	POP S2
-	.loc stdlib.sol, 0
 }
-IFELSE
+IFNOT
+OVER
+STSLICECONST x3a
+POP S2
 .loc stdlib.sol, 191
 PUSHINT 64
 TRUE
@@ -876,13 +857,6 @@ BREMBITS
 .loc stdlib.sol, 199
 GTINT 8
 PUSHCONT {
-	.loc stdlib.sol, 200
-	PUSH S2
-	STSLICECONST x2e
-	POP S3
-	.loc stdlib.sol, 0
-}
-PUSHCONT {
 	.loc stdlib.sol, 202
 	OVER2
 	CALLREF {
@@ -914,12 +888,11 @@ PUSHCONT {
 	NEWC
 	POP S3
 	.loc stdlib.sol, 204
-	PUSH S2
-	STSLICECONST x2e
-	POP S3
-	.loc stdlib.sol, 0
 }
-IFELSE
+IFNOT
+PUSH S2
+STSLICECONST x2e
+POP S3
 .loc stdlib.sol, 206
 SWAP
 TRUE
@@ -1154,7 +1127,6 @@ PUSHCONT {
 			.loc stdlib.sol, 0
 		}
 		IFNOT
-		.loc stdlib.sol, 0
 	}
 	PUSHCONT {
 		.loc stdlib.sol, 247
@@ -1215,11 +1187,10 @@ PUSHCONT {
 		PUSH S5
 		ADD
 		POP S5
-		.loc stdlib.sol, 0
 	}
 	IFELSE
-	DROP
 	.loc stdlib.sol, 0
+	DROP
 }
 IF
 .loc stdlib.sol, 258
@@ -1253,11 +1224,6 @@ PUSHCONT {
 			.loc stdlib.sol, 262
 			PUSH S7
 			PUSHINT 48
-			PUSH S2
-			ADD
-			STUR 8
-			POP S8
-			.loc stdlib.sol, 0
 		}
 		PUSHCONT {
 			.loc stdlib.sol, 264
@@ -1269,18 +1235,16 @@ PUSHCONT {
 				PUSHINT 55
 			}
 			IFELSE
-			PUSH S2
-			ADD
-			STUR 8
-			POP S8
-			.loc stdlib.sol, 0
 		}
 		IFELSE
-		DROP
+		PUSH S2
+		ADD
+		STUR 8
+		POP S8
 		.loc stdlib.sol, 0
+		DROP
 	}
 	REPEAT
-	.loc stdlib.sol, 0
 }
 PUSHCONT {
 	.loc stdlib.sol, 267
@@ -1310,11 +1274,6 @@ PUSHCONT {
 			.loc stdlib.sol, 270
 			PUSH S7
 			PUSHINT 48
-			PUSH S2
-			ADD
-			STUR 8
-			POP S8
-			.loc stdlib.sol, 0
 		}
 		PUSHCONT {
 			.loc stdlib.sol, 272
@@ -1326,15 +1285,14 @@ PUSHCONT {
 				PUSHINT 55
 			}
 			IFELSE
-			PUSH S2
-			ADD
-			STUR 8
-			POP S8
-			.loc stdlib.sol, 0
 		}
 		IFELSE
-		DROP
+		PUSH S2
+		ADD
+		STUR 8
+		POP S8
 		.loc stdlib.sol, 0
+		DROP
 	}
 	REPEAT
 	.loc stdlib.sol, 274
@@ -1395,11 +1353,6 @@ PUSHCONT {
 			.loc stdlib.sol, 279
 			PUSH S7
 			PUSHINT 48
-			PUSH S2
-			ADD
-			STUR 8
-			POP S8
-			.loc stdlib.sol, 0
 		}
 		PUSHCONT {
 			.loc stdlib.sol, 281
@@ -1411,18 +1364,16 @@ PUSHCONT {
 				PUSHINT 55
 			}
 			IFELSE
-			PUSH S2
-			ADD
-			STUR 8
-			POP S8
-			.loc stdlib.sol, 0
 		}
 		IFELSE
-		DROP
+		PUSH S2
+		ADD
+		STUR 8
+		POP S8
 		.loc stdlib.sol, 0
+		DROP
 	}
 	REPEAT
-	.loc stdlib.sol, 0
 }
 IFELSE
 .loc stdlib.sol, 284
@@ -1458,13 +1409,6 @@ DROP
 OVER
 LEQ
 .loc stdlib.sol, 293
-PUSHCONT {
-	.loc stdlib.sol, 294
-	PUSH2 S1, S2
-	STSLICE
-	POP S3
-	.loc stdlib.sol, 0
-}
 PUSHCONT {
 	.loc stdlib.sol, 296
 	DUP2
@@ -1505,14 +1449,11 @@ PUSHCONT {
 	NEWC
 	POP S3
 	.loc stdlib.sol, 300
-	PUSH2 S1, S2
-	STSLICE
-	POP S3
-	.loc stdlib.sol, 0
 }
-IFELSE
-.loc stdlib.sol, 302
-DROP2
+IFNOT
+PUSH2 S1, S2
+STSLICE
+BLKDROP2 3, 1
 .loc stdlib.sol, 0
 
 .globl	assembleList
@@ -1866,7 +1807,6 @@ PUSHCONT {
 	DUP
 	FITS 256
 	POP S2
-	.loc stdlib.sol, 0
 }
 PUSHCONT {
 	OVER
@@ -1881,7 +1821,6 @@ PUSHCONT {
 		.loc stdlib.sol, 0
 	}
 	IF
-	.loc stdlib.sol, 0
 }
 IFELSE
 .loc stdlib.sol, 391
