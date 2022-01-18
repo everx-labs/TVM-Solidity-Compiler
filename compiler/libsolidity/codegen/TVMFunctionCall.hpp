@@ -62,6 +62,7 @@ protected:
 	void msgFunction(MemberAccess const& _node);
 	void rndFunction(MemberAccess const& _node);
 	bool checkForTvmFunction(MemberAccess const& _node);
+	void abiFunction();
 	void mathFunction(MemberAccess const& _node);
 	bool checkBaseContractCall(MemberAccess const& _node, Type::Category category);
 	bool checkAddressThis();
@@ -119,7 +120,7 @@ protected:
 	);
 
 
-	void pushArgs(bool reversed = false);
+	void pushArgs(bool reversed = false, bool doConvert = true);
 	void pushArgAndConvert(int index, const std::string& name = "");
 	void pushExprAndConvert(const Expression* expr, Type const* targetType);
 	void acceptExpr(const Expression* expr);

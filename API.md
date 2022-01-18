@@ -71,6 +71,7 @@ contract development.
     * [bitSize() and uBitSize()](#bitsize-and-ubitsize)
   * [varInt and varUint](#varint-and-varuint)
   * [struct](#struct)
+    * [struct constructor](#struct-constructor)
     * [\<struct\>.unpack()](#structunpack)
   * [Arrays](#arrays)
     * [Array literals](#array-literals)
@@ -116,6 +117,7 @@ contract development.
       * [\<address\>.unpack()](#addressunpack)
       * [\<address\>.transfer()](#addresstransfer)
   * [mapping](#mapping)
+    * [Keyword `emptyMap`](#keyword-emptymap)
     * [\<mapping\>.operator[]](#mappingoperator)
     * [\<mapping\>.at()](#mappingat)
     * [\<mapping\>.min() and \<mapping\>.max()](#mappingmin-and-mappingmax)
@@ -236,6 +238,8 @@ contract development.
     * [rnd.getSeed](#rndgetseed)
     * [rnd.setSeed](#rndsetseed)
     * [rnd.shuffle](#rndshuffle)
+  * [**abi** namespace](#abi-namespace)
+    * [abi.encode(), abi.decode()](#abiencode-abidecode)
   * [Exponentiation](#exponentiation)
   * [selfdestruct](#selfdestruct)
   * [sha256](#sha256)
@@ -1026,6 +1030,28 @@ m_map[10] = 15;
 
 #### struct
 
+Structs are custom defined types that can group several variables.
+
+##### struct constructor
+
+```TVMSolidity
+struct Stakes {
+    uint total;
+    mapping(uint => uint) stakes;
+}
+
+// create struct with default values of its members
+Stakes stakes;
+
+// create struct using parameters
+mapping(uint => uint) values;
+values[100] = 200;
+Stakes stakes = Stakes(200, values);
+
+// create struct using named parameters
+Stakes stakes = Stakes({stakes: values, total: 200});
+```
+
 ##### \<struct\>.unpack()
 
 ```TVMSolidity
@@ -1617,6 +1643,24 @@ See example of how to work with mappings:
 
 * [database](https://github.com/tonlabs/samples/blob/master/solidity/13_BankCollector.sol)
 * [client](https://github.com/tonlabs/samples/blob/master/solidity/13_BankCollectorClient.sol)
+
+##### Keyword `emptyMap`
+
+Keyword `emptyMap` is a constant that is used to indicate a mapping of arbitrary type without values.
+
+Example:
+
+```TVMSolidity
+struct Stakes {
+    uint total;
+    mapping(uint => uint) stakes;
+}
+
+// create struct with empty mapping `stakes`
+Stakes stakes = Stakes({stakes: emptyMap, total: 200});
+```
+
+
 
 ##### \<mapping\>.operator[]
 
@@ -3927,6 +3971,34 @@ uint256 someNumber = ...;
 rnd.shuffle(someNumber);
 // (2)
 rnd.shuffle();
+```
+
+#### abi namespace
+
+##### abi.encode(), abi.decode()
+
+```TVMSolidity
+(1)
+abi.encode(TypeA a, TypeB b, ...) returns (TvmCell /*cell*/);
+(2)
+abi.decode(TvmCell cell, (TypeA, TypeB, ...)) returns (TypeA /*a*/, TypeB /*b*/, ...);
+```
+
+`abi.encode` creates `cell` from the values.  
+`abi.decode` decodes the `cell` and returns the values. Note: all types must be set in `abi.decode`.
+Otherwise, `abi.decode` throws an exception.
+
+Example:
+
+```TVMSolidity
+// pack the values to the cell
+TvmCell cell = abi.encode(uint(1), uint(2), uint(3), uint(4));
+// unpack the cell
+(uint a, uint b, uint c, uint d) = abi.decode(cell, (uint, uint, uint, uint));
+// a == 1
+// b == 2
+// c == 3
+// d == 4
 ```
 
 #### Exponentiation

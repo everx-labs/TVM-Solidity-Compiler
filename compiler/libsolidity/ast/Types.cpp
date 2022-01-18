@@ -2401,7 +2401,7 @@ FunctionTypePointer StructType::constructorType() const
 	strings paramNames;
 	for (auto const& member: members(nullptr))
 	{
-		if (!member.type->canLiveOutsideStorage() || member.type->category() == Category::Mapping)
+		if (!member.type->canLiveOutsideStorage())
 			continue;
 		paramNames.push_back(member.name);
 		paramTypes.push_back(TypeProvider::withLocationIfReference(member.type));
@@ -3560,9 +3560,12 @@ BoolResult OptionalType::isImplicitlyConvertibleTo(Type const& _other) const
 	if (Type::isImplicitlyConvertibleTo(_other))
 		return true;
 
-	auto optOther = dynamic_cast<OptionalType const*>(&_other);
-	if (optOther != nullptr && isImplicitlyConvertibleTo(*optOther->valueType()))
-		return true;
+	if (auto optOther = dynamic_cast<OptionalType const*>(&_other)) {
+		if (isImplicitlyConvertibleTo(*optOther->valueType()))
+			return true;
+		if (valueType()->isImplicitlyConvertibleTo(*optOther->valueType()))
+			return true;
+	}
 	bool r = *this == _other;
 	return r;
 }
@@ -3624,10 +3627,7 @@ TypeResult OptionalType::unaryOperatorResult(Token _operator) const {
 
 BoolResult NullType::isImplicitlyConvertibleTo(Type const& _other) const {
 	auto opt = dynamic_cast<OptionalType const*>(&_other);
-	if (opt) {
-		return true;
-	}
-	return false;
+	return opt;
 }
 
 std::string NullType::richIdentifier() const {
@@ -3644,6 +3644,27 @@ std::string NullType::toString(bool /*_short*/) const {
 
 std::string NullType::canonicalName() const {
 	return "null";
+}
+
+BoolResult EmptyMapType::isImplicitlyConvertibleTo(Type const& _other) const {
+	auto map  = dynamic_cast<MappingType const*>(&_other);
+	return map;
+}
+
+std::string EmptyMapType::richIdentifier() const {
+	return "emptyMap";
+}
+
+bool EmptyMapType::operator==(Type const& _other) const {
+	return _other.category() == category();
+}
+
+std::string EmptyMapType::toString(bool /*_short*/) const {
+	return "emptyMap";
+}
+
+std::string EmptyMapType::canonicalName() const {
+	return "emptyMap";
 }
 
 string TypeType::richIdentifier() const
@@ -4268,9 +4289,9 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 		return MemberList::MemberMap({
 			{"encode", TypeProvider::function(
 				TypePointers{},
-				TypePointers{TypeProvider::array()},
+				TypePointers{TypeProvider::tvmcell()},
 				strings{},
-				strings{1, ""},
+				strings{{}},
 				FunctionType::Kind::ABIEncode,
 				true,
 				StateMutability::Pure

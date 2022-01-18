@@ -163,10 +163,12 @@ void TVMExpressionCompiler::visit2(Literal const &_node) {
 		case Type::Category::Null:
 			m_pusher.push(+1, "NULL");
 			break;
-		case Type::Category::StringLiteral: {
+		case Type::Category::EmpyMap:
+			m_pusher.push(+1, "NEWDICT");
+			break;
+		case Type::Category::StringLiteral:
 			visitStringLiteralAbiV2(_node);
 			break;
-		}
 		default:
 			cast_error(_node, string("Unsupported type ") + type->canonicalName());
 	}
@@ -300,7 +302,7 @@ void TVMExpressionCompiler::compileUnaryOperation(
 	Type const* resType = _node.annotation().type;
 	LValueInfo lValueInfo;
 	if (isCurrentResultNeeded()) {
-		lValueInfo = expandLValue(&_node.subExpression(), true, true, nullptr);
+		lValueInfo = expandLValue(&_node.subExpression(), true, true);
 		const int expandedLValueSize = m_pusher.stackSize() - saveStackSize - 1;
 		solAssert(expandedLValueSize >= 0, "");
 		if (isPrefixOperation) {
@@ -318,7 +320,7 @@ void TVMExpressionCompiler::compileUnaryOperation(
 			}
 		}
 	} else {
-		lValueInfo = expandLValue(&_node.subExpression(), true, true, nullptr);
+		lValueInfo = expandLValue(&_node.subExpression(), true, true);
 		m_pusher.push(0, tvmUnaryOperation);
 	}
 
@@ -329,7 +331,7 @@ void TVMExpressionCompiler::compileUnaryOperation(
 }
 
 void TVMExpressionCompiler::compileUnaryDelete(UnaryOperation const &node) {
-	const LValueInfo lValueInfo = expandLValue(&node.subExpression(), false, true, nullptr);
+	const LValueInfo lValueInfo = expandLValue(&node.subExpression(), false, true);
 	Expression const* lastExpr = lValueInfo.expressions.back();
 	Type const* exprType = node.subExpression().annotation().type;
 	if (to<Identifier>(lastExpr)) {
@@ -1063,10 +1065,9 @@ LValueInfo
 TVMExpressionCompiler::expandLValue(
 	Expression const *const _expr,
 	const bool withExpandLastValue,
-	bool isLValue,
-	Type const* rightType
+	bool isLValue
 ) {
-	LValueInfo lValueInfo {rightType};
+	LValueInfo lValueInfo {};
 
 	Expression const* expr = _expr;
 	while (true) {
@@ -1184,12 +1185,6 @@ TVMExpressionCompiler::collectLValue(
 
 	const int n = static_cast<int>(lValueInfo.expressions.size());
 
-	if (haveValueOnStackTop) {
-		if (auto tuple = to<TupleType>(lValueInfo.rightType)) {
-			m_pusher.tuple(tuple->components().size());
-		}
-	}
-
 	for (int i = n - 1; i >= 0; i--) {
 		const bool isLast = (i + 1) == static_cast<int>(lValueInfo.expressions.size());
 
@@ -1266,7 +1261,7 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 		const int saveStackSize0 = m_pusher.stackSize();
 		bool valueIsBuilder = push_rhs();
 		const int saveStackSize = m_pusher.stackSize();
-		const LValueInfo lValueInfo = expandLValue(&lhs, false, true, getType(&rhs));
+		const LValueInfo lValueInfo = expandLValue(&lhs, false, true);
 		if (isCurrentResultNeeded()) {
 			solAssert(saveStackSize - saveStackSize0 == 1, "");
 			m_pusher.pushS(m_pusher.stackSize() - saveStackSize);
@@ -1279,7 +1274,7 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 		compileNewExpr(&rhs); // r
 		m_pusher.hardConvert(commonType, rhs.annotation().type);
 		const int saveStackSize = m_pusher.stackSize();
-		const LValueInfo lValueInfo = expandLValue(&lhs, true, true, nullptr); // r expanded... l
+		const LValueInfo lValueInfo = expandLValue(&lhs, true, true); // r expanded... l
 		m_pusher.hardConvert(commonType, lhs.annotation().type);
 		const int expandedLValueSize = m_pusher.stackSize() - saveStackSize - 1;
 		m_pusher.blockSwap(1, expandedLValueSize + 1); // expanded... l r
@@ -1325,7 +1320,7 @@ bool TVMExpressionCompiler::tryAssignTuple(Assignment const &_assignment) {
 				m_pusher.hardConvert(leftComp->annotation().type, rhs.annotation().type);
 			}
 			const int stackSizeForValue = m_pusher.stackSize();
-			const LValueInfo lValueInfo = expandLValue(leftComp.get(), false, true, nullptr);
+			const LValueInfo lValueInfo = expandLValue(leftComp.get(), false, true);
 			const int stackSize = m_pusher.stackSize();
 			const int expandLValueSize = stackSize - stackSizeForValue;
 			if (expandLValueSize > 0) {

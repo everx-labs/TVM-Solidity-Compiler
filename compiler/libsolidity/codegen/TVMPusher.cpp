@@ -46,8 +46,9 @@ void StackPusher::pushLoc(const std::string& file, int line) {
 
 void StackPusher::pushString(const std::string& _str, bool toSlice) {
 	std::string hexStr = stringToBytes(_str); // 2 * len(_str) == len(hexStr). One symbol to 2 hex digits
+	solAssert(hexStr.length() % 2 == 0, "");
 	if (4 * hexStr.length() <= TvmConst::MaxPushSliceBitLength && toSlice) {
-		push(+1, "PUSHSLICE x" + hexStr);
+		pushSlice("x" + hexStr);
 		return ;
 	}
 
@@ -60,7 +61,7 @@ void StackPusher::pushString(const std::string& _str, bool toSlice) {
 	int start = 0;
 	do {
 		std::string slice = hexStr.substr(start, std::min(symbolQty, length - start));
-		data.emplace_back(type, ".blob x" + slice);
+		data.emplace_back(type, "x" + slice);
 		start += symbolQty;
 		++builderQty;
 		type = PushCellOrSlice::Type::CELL;
@@ -351,7 +352,7 @@ DataType StackPusher::pushDefaultValueForDict(Type const* keyType, Type const* v
 
 		case DictValueType::ExtraCurrencyCollection:
 		case DictValueType::Mapping: {
-			*this << "PUSHSLICE x4_";
+			pushSlice("x4_");
 			value = DataType::Slice;
 			break;
 		}
@@ -835,6 +836,12 @@ void StackPusher::push(int stackDiff, const string &cmd) {
 void StackPusher::pushCellOrSlice(const Pointer<PushCellOrSlice>& opcode) {
 	solAssert(!m_instructions.empty(), "");
 	m_instructions.back().push_back(opcode);
+	change(0, 1);
+}
+
+void StackPusher::pushSlice(std::string const& data) {
+	solAssert(!m_instructions.empty(), "");
+	m_instructions.back().push_back(genPushSlice(data));
 	change(0, 1);
 }
 
@@ -1544,137 +1551,7 @@ void StackPusher::store(
 }
 
 void StackPusher::pushZeroAddress() {
-	push(+1, "PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_");
-}
-
-void StackPusher::addBinaryNumberToString(std::string &s, bigint value, int bitlen) {
-	solAssert(value >= 0, "");
-	for (int i = 0; i < bitlen; ++i) {
-		s += value % 2 == 0? "0" : "1";
-		value /= 2;
-	}
-	std::reverse(s.rbegin(), s.rbegin() + bitlen);
-}
-
-std::string StackPusher::binaryStringToSlice(const std::string &_s) {
-	std::string s = _s;
-	bool haveCompletionTag = false;
-	if (s.size() % 4 != 0) {
-		haveCompletionTag = true;
-		s += "1";
-		s += std::string((4 - s.size() % 4) % 4, '0');
-	}
-	std::string ans;
-	for (int i = 0; i < static_cast<int>(s.length()); i += 4) {
-		int x = stoi(s.substr(i, 4), nullptr, 2);
-		std::stringstream sstream;
-		sstream << std::hex << x;
-		ans += sstream.str();
-	}
-	if (haveCompletionTag) {
-		ans += "_";
-	}
-	return ans;
-}
-
-std::string StackPusher::toBitString(const std::string& slice) {
-	std::string bitString;
-	if (slice.at(0) == 'x') {
-		for (std::size_t i = 1; i < slice.size(); ++i) {
-			if (i + 2 == slice.size() && slice[i + 1] == '_') {
-				size_t pos{};
-				int value = std::stoi(slice.substr(i, 1), &pos, 16);
-				solAssert(pos == 1, "");
-				int bitLen = 4;
-				while (true) {
-					bool isOne = value % 2 == 1;
-					--bitLen;
-					value /= 2;
-					if (isOne) {
-						break;
-					}
-				}
-				StackPusher::addBinaryNumberToString(bitString, value, bitLen);
-				break;
-			}
-			size_t pos{};
-			auto sss = slice.substr(i, 1);
-			int value = std::stoi(sss, &pos, 16);
-			solAssert(pos == 1, "");
-			StackPusher::addBinaryNumberToString(bitString, value, 4);
-		}
-	} else {
-		if (isIn(slice, "0", "1")) {
-			return slice;
-		}
-		solUnimplemented("");
-	}
-	return bitString;
-}
-
-std::vector<std::string> StackPusher::unitSlices(const std::string& sliceA, const std::string& sliceB) {
-	return unitBitString(toBitString(sliceA), toBitString(sliceB));
-}
-
-std::vector<std::string> StackPusher::unitBitString(const std::string& bitStringA, const std::string& bitStringB) {
-	const std::string& bitString = bitStringA + bitStringB;
-	std::vector<std::string> opcodes;
-	for (int i = 0; i < static_cast<int>(bitString.length()); i += 4 * TvmConst::MaxPushSliceBitLength) {
-		opcodes.push_back(bitString.substr(i, std::min(4 * TvmConst::MaxPushSliceBitLength, static_cast<int>(bitString.length()) - i)));
-	}
-	for (std::string& opcode : opcodes) {
-		opcode = "x" + StackPusher::binaryStringToSlice(opcode);
-	}
-	return opcodes;
-}
-
-std::string StackPusher::tonsToBinaryString(const u256& value) {
-	return tonsToBinaryString(bigint(value));
-}
-
-std::string StackPusher::tonsToBinaryString(bigint value) {
-	std::string s;
-	int len = 256;
-	for (int i = 0; i < 256; ++i) {
-		if (value == 0) {
-			len = i;
-			break;
-		}
-		s += value % 2 == 0? "0" : "1";
-		value /= 2;
-	}
-	solAssert(len < 120, "Ton value should fit 120 bit");
-	while (len % 8 != 0) {
-		s += "0";
-		len++;
-	}
-	std::reverse(s.rbegin(), s.rbegin() + len);
-	len = len/8;
-	std::string res;
-	for (int i = 0; i < 4; ++i) {
-		res += len % 2 == 0? "0" : "1";
-		len /= 2;
-	}
-	std::reverse(res.rbegin(), res.rbegin() + 4);
-	return res + s;
-}
-
-std::string StackPusher::boolToBinaryString(bool value) {
-	return value ? "1" : "0";
-}
-
-std::string StackPusher::literalToSliceAddress(Literal const *literal, bool pushSlice) {
-	Type const* type = literal->annotation().type;
-	u256 value = type->literalValue(literal);
-//		addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt;
-	std::string s;
-	s += "10";
-	s += "0";
-	s += std::string(8, '0');
-	addBinaryNumberToString(s, value);
-	if (pushSlice)
-		push(+1, "PUSHSLICE x" + binaryStringToSlice(s));
-	return s;
+	pushSlice("x8000000000000000000000000000000000000000000000000000000000000000001_");
 }
 
 bigint StackPusher::pow10(int power) {
@@ -1686,11 +1563,19 @@ bigint StackPusher::pow10(int power) {
 }
 
 void StackPusher::hardConvert(Type const *leftType, Type const *rightType) {
-	// case opt(T) = T
-	if (leftType->category() == Type::Category::Optional && *leftType != *rightType) {
+	// opt(opt(opt(opt(T)))) = T;
+	// opt(opt(opt(opt(T0, T1, T2)))) = (T0, T1, T2);
+	int lQty = optTypeQty(leftType);
+	int rQty = optTypeQty(rightType);
+	solAssert(lQty >= rQty, "");
+	if (lQty > rQty) {
 		auto l = to<OptionalType>(leftType);
 		hardConvert(l->valueType(), rightType);
-		if (optValueAsTuple(l->valueType())) {
+		if (l->valueType()->category() == Type::Category::Tuple){
+			// optional(uint, uint) q = (1, 2);
+			auto tt = to<TupleType>(l->valueType());
+			tuple(tt->components().size());
+		} else if (optValueAsTuple(l->valueType())) {
 			tuple(1);
 		}
 		return;
@@ -1945,6 +1830,41 @@ void StackPusher::hardConvert(Type const *leftType, Type const *rightType) {
 			break;
 		}
 
+		case Type::Category::Optional: {
+			auto r = to<OptionalType>(rightType);
+			switch (leftType->category()) {
+				case Type::Category::Optional: {
+					auto l = to<OptionalType>(leftType);
+					startOpaque();
+
+					pushS(0);
+					*this << "ISNULL";
+					push(-1, ""); // fix stack
+
+					startContinuation();
+					if (optValueAsTuple(l->valueType())) {
+						untuple(1);
+					} else if (auto tt = to<TupleType>(l->valueType())) {
+						untuple(tt->components().size());
+					}
+					hardConvert(l->valueType(), r->valueType());
+					if (optValueAsTuple(l->valueType())) {
+						tuple(1);
+					} else if (auto tt = to<TupleType>(l->valueType())) {
+						tuple(tt->components().size());
+					}
+					endContinuation();
+					ifNot();
+
+					endOpaque(1, 1, true);
+					break;
+				}
+				default:
+					break;
+			}
+			break;
+		}
+
 		case Type::Category::Address:
 		case Type::Category::Bool:
 		case Type::Category::Contract:
@@ -1952,13 +1872,13 @@ void StackPusher::hardConvert(Type const *leftType, Type const *rightType) {
 		case Type::Category::ExtraCurrencyCollection:
 		case Type::Category::Function:
 		case Type::Category::Mapping:
-		case Type::Category::Optional: // TODO !!!
 		case Type::Category::TvmVector:
 		case Type::Category::Struct:
 		case Type::Category::TvmBuilder:
 		case Type::Category::TvmCell:
 		case Type::Category::TvmSlice:
 		case Type::Category::Null:
+		case Type::Category::EmpyMap:
 			break;
 
 		case Type::Category::Tuple: {
@@ -2296,11 +2216,11 @@ void StackPusher::appendToBuilder(const std::string &bitString) {
 	if (count == bitString.size()) {
 		stzeroes(count);
 	} else {
-		const std::string hex = binaryStringToSlice(bitString);
+		const std::string hex = StrUtils::binaryStringToSlice(bitString);
 		if (hex.length() * 4 <= 8 * 7 + 1) {
 			push(0, "STSLICECONST x" + hex);
 		} else {
-			push(+1, "PUSHSLICE x" + binaryStringToSlice(bitString));
+			pushSlice("x" + StrUtils::binaryStringToSlice(bitString));
 			push(-1, "STSLICER");
 		}
 	}
@@ -2705,6 +2625,10 @@ void StackPusher::pushNull() {
 	push(+1, "NULL");
 }
 
+void StackPusher::pushEmptyCell() {
+	pushCellOrSlice(createNode<PushCellOrSlice>(PushCellOrSlice::Type::PUSHREF, "", nullptr));
+}
+
 void StackPusher::pushDefaultValue(Type const* type) {
 	startOpaque();
 	Type::Category cat = type->category();
@@ -2724,7 +2648,7 @@ void StackPusher::pushDefaultValue(Type const* type) {
 		case Type::Category::Array:
 		case Type::Category::TvmCell:
 			if (cat == Type::Category::TvmCell || to<ArrayType>(type)->isByteArray()) {
-				pushCellOrSlice(createNode<PushCellOrSlice>(PushCellOrSlice::Type::PUSHREF, "", nullptr));
+				pushEmptyCell();
 				break;
 			}
 			pushInt(0);
@@ -2742,7 +2666,7 @@ void StackPusher::pushDefaultValue(Type const* type) {
 			break;
 		}
 		case Type::Category::TvmSlice:
-			push(+1, "PUSHSLICE x8_");
+			pushSlice("x8_");
 			break;
 		case Type::Category::TvmBuilder:
 			push(+1, "NEWC");

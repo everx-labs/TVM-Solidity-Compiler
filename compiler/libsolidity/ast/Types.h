@@ -162,7 +162,9 @@ public:
 		Mapping, TypeType, Modifier, Magic, Module,
 		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection, TvmVector,
 		VarInteger, InitializerList, CallList, // <-- variables of that types can't be declared in solidity contract
-		Optional, Null
+		Optional,
+		Null, // null
+		EmpyMap // emptyMap
 	};
 
 	/// @returns a pointer to _a or _b if the other is implicitly convertible to it or nullptr otherwise
@@ -1583,6 +1585,21 @@ class NullType: public Type
 {
 public:
 	Category category() const override { return Category::Null; }
+	BoolResult isImplicitlyConvertibleTo(Type const& _other) const override;
+	std::string richIdentifier() const override;
+	bool operator==(Type const& _other) const override;
+	std::string toString(bool _short) const override;
+	std::string canonicalName() const override;
+	TypeResult interfaceType(bool) const override { return this; }
+	bool canLiveOutsideStorage() const override { return true; }
+	TypeResult binaryOperatorResult(Token, Type const*) const override { return nullptr; }
+	bool hasSimpleZeroValueInMemory() const override { solAssert(false, ""); }
+};
+
+class EmptyMapType: public Type
+{
+public:
+	Category category() const override { return Category::EmpyMap; }
 	BoolResult isImplicitlyConvertibleTo(Type const& _other) const override;
 	std::string richIdentifier() const override;
 	bool operator==(Type const& _other) const override;

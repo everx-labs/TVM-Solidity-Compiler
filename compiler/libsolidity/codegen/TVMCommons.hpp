@@ -62,6 +62,7 @@ bool isString(const Type* type);
 bool isSlice(const Type* type);
 bool isSmallOptional(OptionalType const* type);
 bool optValueAsTuple(Type const* optValueType);
+int optTypeQty(Type const* type);
 
 struct AddressInfo {
 
@@ -328,13 +329,8 @@ enum class GetDictOperation {
 enum class SetDictOperation { Set, Replace, Add };
 
 struct LValueInfo {
-	explicit LValueInfo() = default;
-	explicit LValueInfo(Type const* rightType) :
-			rightType{rightType} {
-	}
 	std::vector<Expression const*> expressions;
 	bool doesntNeedToCollect = false;
-	Type const* rightType{};
 };
 
 DictValueType toDictValueType(const Type::Category& category);
@@ -346,5 +342,17 @@ int strToInt(const std::string& str);
 int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>>::const_iterator beg,
 				  std::vector<Pointer<TvmAstNode>>::const_iterator end);
 int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>> const& arr);
+
+namespace StrUtils {
+	std::string toBitString(bigint value, int bitlen = 256);
+	std::string binaryStringToSlice(const std::string & s);
+	std::string toBitString(const std::string& slice);
+	std::optional<std::string> unitSlices(const std::string& sliceA, const std::string& sliceB);
+	std::optional<std::string> unitBitStringToHex(const std::string& bitStringA, const std::string& bitStringB);
+	std::string tonsToBinaryString(const u256& value);
+	std::string tonsToBinaryString(bigint value);
+	std::string boolToBinaryString(bool value);
+	std::string literalToSliceAddress(Literal const* literal);
+}
 
 } // end solidity::frontend

@@ -116,6 +116,8 @@ void FunctionCallCompiler::compile() {
 				rndFunction(*ma);
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "msg") {
 				msgFunction(*ma);
+			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "abi") {
+				abiFunction();
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "math") {
 				mathFunction(*ma);
 			} else if (category == Type::Category::Address) {
@@ -198,7 +200,7 @@ void FunctionCallCompiler::mappingGetSet() {
 	} else if (isIn(memberName, "replace", "add", "getSet", "getAdd", "getReplace")) {
 		const int stackSize = m_pusher.stackSize();
 		auto ma = to<MemberAccess>(&m_functionCall.expression());
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&ma->expression(), true, true, nullptr); // lValue... map
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&ma->expression(), true, true); // lValue... map
 		pushArgAndConvert(1); // lValue... map value
 		const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueType); // lValue... map value'
 		pushArgAndConvert(0); // mapLValue... map value key
@@ -297,9 +299,9 @@ void FunctionCallCompiler::typeTypeMethods(MemberAccess const &_node) {
 		const auto& len = TVMExpressionCompiler::constValue(*m_arguments.at(1));
 		if (num.has_value() && len.has_value()) {
 			std::string addr = "01";
-			StackPusher::addBinaryNumberToString(addr, u256(len.value()), 9);
-			StackPusher::addBinaryNumberToString(addr, u256(num.value()), int(len.value()));
-			m_pusher.push(+1, "PUSHSLICE x" + StackPusher::binaryStringToSlice(addr));
+			addr += StrUtils::toBitString(u256(len.value()), 9);
+			addr += StrUtils::toBitString(u256(num.value()), int(len.value()));
+			m_pusher.pushSlice("x" + StrUtils::binaryStringToSlice(addr));
 		} else {
 			pushArgs();
 			m_pusher.pushS(0); // numb cntBit cntBit
@@ -312,15 +314,15 @@ void FunctionCallCompiler::typeTypeMethods(MemberAccess const &_node) {
 			m_pusher.push(0, "CTOS"); // extAddress
 		}
 	} else if (_node.memberName() == "makeAddrNone") {
-		m_pusher.push(+1, "PUSHSLICE x2_");
+		m_pusher.pushSlice("x2_");
 	} else if (_node.memberName() == "makeAddrStd") {
 		const auto& wid = TVMExpressionCompiler::constValue(*m_arguments.at(0));
 		const auto& val = TVMExpressionCompiler::constValue(*m_arguments.at(1));
 		if (wid.has_value() && val.has_value()) {
 			std::string addr = "100";
-			StackPusher::addBinaryNumberToString(addr, u256(wid.value()), 8);
-			StackPusher::addBinaryNumberToString(addr, u256(val.value()), 256);
-			m_pusher.push(+1, "PUSHSLICE x" + StackPusher::binaryStringToSlice(addr));
+			addr += StrUtils::toBitString(u256(wid.value()), 8);
+			addr += StrUtils::toBitString(u256(val.value()), 256);
+			m_pusher.pushSlice("x" + StrUtils::binaryStringToSlice(addr));
 		} else {
 			pushArgs(true);
 			m_pusher.push(+1, "NEWC");
@@ -353,7 +355,7 @@ bool FunctionCallCompiler::libraryCall(MemberAccess const& ma) {
 				// using MathLib for uint;
 				// a.add(b);
 				const int stakeSize0 = m_pusher.stackSize();
-				const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&ma.expression(), true, true, nullptr);
+				const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&ma.expression(), true, true);
 				const int stakeSize1 = m_pusher.stackSize();
 				const int lValueQty = stakeSize1 - stakeSize0;
 
@@ -470,7 +472,7 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 		if (Expression const* valueExpr = findOption("value")) {
 			const auto& value = TVMExpressionCompiler::constValue(*valueExpr);
 			if (value.has_value()) {
-				constParams[TvmConst::int_msg_info::tons] = StackPusher::tonsToBinaryString(u256(value.value()));
+				constParams[TvmConst::int_msg_info::tons] = StrUtils::tonsToBinaryString(u256(value.value()));
 			} else {
 				exprs[TvmConst::int_msg_info::tons] = valueExpr;
 			}
@@ -613,13 +615,13 @@ void FunctionCallCompiler::checkExtMsgSend() {
 std::string FunctionCallCompiler::getDefaultMsgValue() {
 	const auto expr = m_pusher.ctx().pragmaHelper().haveMsgValue();
 	if (!expr) {
-		return StackPusher::tonsToBinaryString(u256{TvmConst::Message::DefaultMsgValue});
+		return StrUtils::tonsToBinaryString(u256{TvmConst::Message::DefaultMsgValue});
 	}
 	const auto& val = TVMExpressionCompiler::constValue(*expr);
 	if (!val.has_value()) {
 		cast_error(*expr, "Default value should be compile time expression of number type");
 	}
-	return StackPusher::tonsToBinaryString(val.value());
+	return StrUtils::tonsToBinaryString(val.value());
 }
 
 const FunctionDefinition* FunctionCallCompiler::getRemoteFunctionDefinition(const MemberAccess* memberAccess) {
@@ -935,9 +937,9 @@ void FunctionCallCompiler::tvmBuildIntMsg() {
 			std::optional<bigint> value = TVMExpressionCompiler::constValue(*m_arguments.at(argIndex));
 			std::optional<bool> flag = TVMExpressionCompiler::constBool(*m_arguments.at(argIndex));
 			if (value) {
-				constParams[id] = StackPusher::tonsToBinaryString(*value);
+				constParams[id] = StrUtils::tonsToBinaryString(*value);
 			} else if (flag) {
-				constParams[id] = StackPusher::boolToBinaryString(*flag);
+				constParams[id] = StrUtils::boolToBinaryString(*flag);
 			} else {
 				pushArgAndConvert(argIndex, name);
 				isParamOnStack.insert(id);
@@ -1238,8 +1240,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 	} else if (_node.memberName() == "decode") {
 		const int stackSize = m_pusher.stackSize();
 		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true,
-																   _node.expression().annotation().isLValue,
-																   nullptr);
+																   _node.expression().annotation().isLValue);
 		TypePointers targetTypes;
 		if (auto const* targetTupleType = dynamic_cast<TupleType const*>(m_retType))
 			targetTypes = targetTupleType->components();
@@ -1257,7 +1258,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		CallableDeclaration const* functionDefinition = getFunctionDeclarationOrConstructor(m_arguments.at(0).get());
 		const LValueInfo lValueInfo =
 				m_exprCompiler.expandLValue(&_node.expression(), true,
-											 _node.expression().annotation().isLValue, nullptr);
+											 _node.expression().annotation().isLValue);
 		// lvalue.. slice
 		if (functionDefinition) {
 			auto fd = to<FunctionDefinition>(functionDefinition);
@@ -1275,13 +1276,12 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 			const int paramQty = functionDefinition->parameters().size() + (isResponsible ? 1 : 0);
 			m_pusher.blockSwap(saveStackSize2 - saveStackSize - paramQty, paramQty);
 
-			m_pusher.push(+1, "PUSHSLICE x8_");
+			m_pusher.pushSlice("x8_");
 		}
 		m_exprCompiler.collectLValue(lValueInfo, true, false);
 	} else if (boost::starts_with(_node.memberName(), "load")) {
 		const LValueInfo lValueInfo =
-				m_exprCompiler.expandLValue(&_node.expression(), true, _node.expression().annotation().isLValue,
-											 nullptr);
+				m_exprCompiler.expandLValue(&_node.expression(), true, _node.expression().annotation().isLValue);
 		if (_node.memberName() == "loadRefAsSlice") {
 			m_pusher.push(-1 + 2, "LDREFRTOS");
 			m_pusher.exchange(1);
@@ -1324,7 +1324,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 	} else if (_node.memberName() == "skip") {
 		const LValueInfo lValueInfo =
 				m_exprCompiler.expandLValue(&_node.expression(), true,
-											 _node.expression().annotation().isLValue, nullptr);
+											 _node.expression().annotation().isLValue);
 		if (m_arguments.size() == 1) {
 			pushArgAndConvert(0);
 			m_pusher.push(-2+1, "SDSKIPFIRST");
@@ -1345,7 +1345,7 @@ bool FunctionCallCompiler::checkForTvmVectorMethods(MemberAccess const &_node, T
 		return false;
 
 	if (_node.memberName() == "push") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true, nullptr);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true);
 		acceptExpr(m_arguments[0].get());
 
 		//start callref
@@ -1402,7 +1402,7 @@ bool FunctionCallCompiler::checkForTvmVectorMethods(MemberAccess const &_node, T
 
 	if (_node.memberName() == "pop") {
 		const int stackSize = m_pusher.stackSize();
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true, nullptr);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true);
 		const int stackChange = m_pusher.stackSize() - stackSize;
 
 		//start callref
@@ -1506,7 +1506,7 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 		return false;
 
 	if (boost::starts_with(_node.memberName(), "store")) {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true, nullptr);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true);
 
 		if (_node.memberName() == "storeOnes") {
 			pushArgs();
@@ -1682,7 +1682,7 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 		pushArgAndConvert(0);
 		cellBitRefQty();
 	} else if (_node.memberName() == "push") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true, nullptr);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true);
 		auto arrayBaseType = to<ArrayType>(getType(&_node.expression()))->baseType();
 		const IntegerType key = getKeyTypeOfArray();
 		DataType dataType;
@@ -1702,7 +1702,7 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 		m_pusher.push(-2 + 1, "TUPLE 2");  // arr
 		m_exprCompiler.collectLValue(lValueInfo, true, false);
 	} else if (_node.memberName() == "pop") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true, nullptr);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true);
 		// arr
 		m_pusher.push(-1 + 2, "UNTUPLE 2"); // size dict
 		m_pusher.pushS(1); // size dict size
@@ -1717,7 +1717,7 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 		m_pusher.push(-2 + 1, "TUPLE 2");  // arr
 		m_exprCompiler.collectLValue(lValueInfo, true, false);
 	} else if (_node.memberName() == "append") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true, nullptr);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true, true);
 		pushArgAndConvert(0);
 		m_pusher.pushMacroCallInCallRef(2, 1, "concatenateStrings_macro");
 		m_exprCompiler.collectLValue(lValueInfo, true, false);
@@ -1751,19 +1751,25 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 	}
 
 	if (_node.memberName() == "set") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), false, true, nullptr);
-		pushArgs();
+		Type const* rightType{};
 		if (m_arguments.size() >= 2) {
-			m_pusher.tuple(m_arguments.size());
-		} else if (optValueAsTuple(m_arguments.at(0)->annotation().type)) {
-			m_pusher.tuple(1);
+			vector<Type const*> types;
+			for (ASTPointer<Expression const> const& arg : m_arguments) {
+				types.push_back(getType(arg.get()));
+			}
+			rightType = TypeProvider::tuple(types);
+		} else {
+			rightType = getType(m_arguments.at(0).get());
 		}
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), false, true);
+		pushArgs(false, false);
+		m_pusher.hardConvert(getType(&_node.expression()), rightType);
 		m_exprCompiler.collectLValue(lValueInfo, true, false);
 		return true;
 	}
 
 	if (_node.memberName() == "reset") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), false, true, nullptr);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), false, true);
 		m_pusher.pushDefaultValue(optional);
 		m_exprCompiler.collectLValue(lValueInfo, true, false);
 		return true;
@@ -1804,7 +1810,7 @@ void FunctionCallCompiler::addressMethod() {
 		auto setValue = [&](Expression const* expr) {
 			const auto& value = TVMExpressionCompiler::constValue(*expr);
 			if (value.has_value()) {
-				constParams[TvmConst::int_msg_info::tons] = StackPusher::tonsToBinaryString(u256(value.value()));
+				constParams[TvmConst::int_msg_info::tons] = StrUtils::tonsToBinaryString(u256(value.value()));
 			} else {
 				exprs[TvmConst::int_msg_info::tons] = expr;
 			}
@@ -1900,11 +1906,11 @@ void FunctionCallCompiler::addressMethod() {
 		m_pusher.push(-2 + 1, "SDEQ");
 	} else if (_node->memberName() == "isExternZero") {
 		acceptExpr(&_node->expression());
-		m_pusher.push(+1, "PUSHSLICE x401_");
+		m_pusher.pushSlice("x401_");
 		m_pusher.push(-2 + 1, "SDEQ");
 	} else if (_node->memberName() == "isNone") {
 		acceptExpr(&_node->expression());
-		m_pusher.push(+1, "PUSHSLICE x2_");
+		m_pusher.pushSlice("x2_");
 		m_pusher.push(-2 + 1, "SDEQ");
 	} else if (_node->memberName() == "unpack") {
 		acceptExpr(&_node->expression());
@@ -1944,7 +1950,7 @@ bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_n
 		m_pusher.pushAsym("CONFIGPARAM");
 		m_pusher.pushS(0);
 		m_pusher.startContinuation();
-		m_pusher.pushCellOrSlice(createNode<PushCellOrSlice>(PushCellOrSlice::Type::PUSHREF, "", nullptr));
+		m_pusher.pushEmptyCell();
 		m_pusher.exchange(1);
 		m_pusher.endContinuation();
 		m_pusher.ifNot();
@@ -2238,7 +2244,7 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 
 		m_pusher.push(0, "CTOS");
 		m_pusher.pushS(0);
-		m_pusher.push(+1, "PUSHSLICE x" + TvmConst::Selector::RootCodeCell());
+		m_pusher.pushSlice("x" + TvmConst::Selector::RootCodeCell());
 		m_pusher.push(-2 + 1, "SDEQ");
 
 		m_pusher.startOpaque();
@@ -2501,6 +2507,50 @@ CALLREF {
 	return true;
 }
 
+void FunctionCallCompiler::abiFunction() {
+	switch (m_funcType->kind()) {
+		case FunctionType::Kind::ABIEncode: {
+			std::vector<Type const *> types;
+			for (ASTPointer<Expression const> const& arg : m_arguments) {
+				types.emplace_back(arg->annotation().type->mobileType());
+			}
+			DecodePositionAbiV2 position{0, 0, types};
+
+			for (ASTPointer<Expression const> const& arg : m_arguments | boost::adaptors::reversed) {
+				acceptExpr(arg.get());
+			}
+			m_pusher << "NEWC";
+			ChainDataEncoder encoder{&m_pusher};
+			encoder.encodeParameters(types, position);
+			m_pusher << "ENDC";
+			break;
+		}
+		case FunctionType::Kind::ABIDecode: {
+			std::vector<Type const*> types;
+			auto te = to<TupleExpression>(m_arguments.at(1).get());
+			if (te) {
+				for (const ASTPointer<Expression>& e : te->components()) {
+					auto const* argTypeType = dynamic_cast<TypeType const*>(e->annotation().type);
+					TypePointer actualType = argTypeType->actualType();
+					types.emplace_back(actualType);
+				}
+			} else {
+				auto const* argTypeType = dynamic_cast<TypeType const*>(m_arguments.at(1)->annotation().type);
+				TypePointer actualType = argTypeType->actualType();
+				types.emplace_back(actualType);
+			}
+
+			acceptExpr(m_arguments.at(0).get());
+			m_pusher << "CTOS";
+			ChainDataDecoder decoder{&m_pusher};
+			decoder.decodeData(0, 0, types);
+			break;
+		}
+		default:
+			solUnimplemented("");
+	}
+}
+
 void FunctionCallCompiler::mathFunction(const MemberAccess &_node) {
 	auto retTuple = to<TupleType>(m_retType);
 	if (_node.memberName() == "max") {
@@ -2608,7 +2658,7 @@ void FunctionCallCompiler::typeConversion() {
 			case Type::Category::Integer: {
 				auto literal = to<Literal>(m_arguments[0].get());
 				if (literal) {
-					m_pusher.literalToSliceAddress(literal);
+					m_pusher.pushSlice("x" + StrUtils::binaryStringToSlice(StrUtils::literalToSliceAddress(literal)));
 				} else {
 					acceptExpr(m_arguments.at(0).get()); // it's correct
 					m_pusher.push(+1, "NEWC");
@@ -2700,8 +2750,7 @@ bool FunctionCallCompiler::checkLocalFunctionOrLibCall(const Identifier *identif
 }
 
 bool FunctionCallCompiler::checkSolidityUnits() {
-	auto funcType = to<FunctionType>(m_functionCall.expression().annotation().type);
-	if (funcType == nullptr) {
+	if (m_funcType == nullptr) {
 		return false;
 	}
 
@@ -2720,7 +2769,7 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 		return {};
 	};
 
-	switch (funcType->kind()) {
+	switch (m_funcType->kind()) {
 		case FunctionType::Kind::GasToValue: {
 			pushArgs();
 			m_pusher.pushMacroCallInCallRef(2, 1, "__gasToTon_macro");
@@ -2756,7 +2805,7 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 		case FunctionType::Kind::Selfdestruct: { // "selfdestruct"
 			const std::map<int, std::string> constParams{
 					{TvmConst::int_msg_info::ihr_disabled, "1"},
-					{TvmConst::int_msg_info::tons,         StackPusher::tonsToBinaryString(u256(0))},
+					{TvmConst::int_msg_info::tons,         StrUtils::tonsToBinaryString(u256(0))},
 					{TvmConst::int_msg_info::bounce,       "0"},
 			};
 			m_pusher.sendIntMsg(
@@ -3132,7 +3181,7 @@ void FunctionCallCompiler::deployNewContract(
 	std::map<int, std::string> constParams = {{TvmConst::int_msg_info::ihr_disabled, "1"}};
 
 	if (pushBounce.index() == 0) {
-		constParams[TvmConst::int_msg_info::bounce] = StackPusher::boolToBinaryString(std::get<0>(pushBounce));
+		constParams[TvmConst::int_msg_info::bounce] = StrUtils::boolToBinaryString(std::get<0>(pushBounce));
 	} else if (pushBounce.index() == 1) {
 		exprs[TvmConst::int_msg_info::bounce] = std::get<1>(pushBounce);
 	}
@@ -3148,9 +3197,9 @@ void FunctionCallCompiler::deployNewContract(
 	if (wid.index() == 0) {
 		int8_t w = std::get<0>(wid);
 		std::string binWID = "100";
-		StackPusher::addBinaryNumberToString(binWID, u256(w), 8);
+		binWID += StrUtils::toBitString(u256(w), 8);
 		m_pusher.push(+1, "NEWC");
-		m_pusher.push(-1 + 1, "STSLICECONST x" + StackPusher::binaryStringToSlice(binWID));
+		m_pusher.push(-1 + 1, "STSLICECONST x" + StrUtils::binaryStringToSlice(binWID));
 	} else {
 		std::get<1>(wid)();
 		m_pusher.push(+1, "NEWC");
@@ -3170,7 +3219,7 @@ void FunctionCallCompiler::deployNewContract(
 	int destAddressStack = m_pusher.stackSize() - 1 - argQty;
 
 	if (value.index() == 0) {
-		constParams[TvmConst::int_msg_info::tons] = StackPusher::tonsToBinaryString(std::get<0>(value));
+		constParams[TvmConst::int_msg_info::tons] = StrUtils::tonsToBinaryString(std::get<0>(value));
 	} else {
 		exprs[TvmConst::int_msg_info::tons] = [&](){
 			std::get<1>(value)();
@@ -3379,16 +3428,18 @@ void FunctionCallCompiler::buildStateInit(std::map<StateInitMembers, std::functi
 }
 
 
-void FunctionCallCompiler::pushArgs(bool reversed) {
+void FunctionCallCompiler::pushArgs(bool reversed, bool doConvert) {
 	auto func = [&](const ASTPointer<const Expression> &e, int i) {
 		acceptExpr(e.get());
-		Type const* targetType{};
-		if (m_funcType->parameterTypes().empty()) {
-			targetType = m_functionCall.annotation().arguments->targetTypes.at(i);
-		} else {
-			targetType = m_funcType->parameterTypes().at(i);
+		if (doConvert) {
+			Type const *targetType{};
+			if (m_funcType->parameterTypes().empty()) {
+				targetType = m_functionCall.annotation().arguments->targetTypes.at(i);
+			} else {
+				targetType = m_funcType->parameterTypes().at(i);
+			}
+			m_pusher.hardConvert(targetType, e->annotation().type);
 		}
-		m_pusher.hardConvert(targetType, e->annotation().type);
 	};
 
 	if (reversed) {

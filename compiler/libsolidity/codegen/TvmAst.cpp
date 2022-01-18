@@ -24,6 +24,8 @@
 #include "TvmAst.hpp"
 #include "TvmAstVisitor.hpp"
 #include "TVMCommons.hpp"
+#include "TVMPusher.hpp"
+#include "TVMConstants.hpp"
 #include <liblangutil/Exceptions.h>
 
 using namespace solidity::frontend;
@@ -48,7 +50,7 @@ void Stack::accept(TvmAstVisitor& _visitor) {
 
 bool Stack::operator==(TvmAstNode const& _node) const {
 	auto st = to<Stack>(&_node);
-	return st && m_opcode == st->m_opcode;
+	return st && std::tie(m_opcode, m_i, m_j, m_k) == std::tie(st->m_opcode, st->m_i, st->m_j, st->m_k);
 }
 
 Glob::Glob(Glob::Opcode opcode, int index) :
@@ -475,7 +477,6 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"NULL", {0, 1, true}},
 		{"PUSHINT", {0, 1, true}},
 		{"PUSHPOW2DEC", {0, 1, true}},
-		{"PUSHSLICE", {0, 1, true}},
 		{"RANDSEED", {0, 1, true}},
 		{"RANDU256", {0, 1}},
 		{"TRUE", {0, 1, true}},
@@ -685,6 +686,20 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 	return opcode;
 }
 
+Pointer<PushCellOrSlice> genPushSlice(const std::string& data) {
+	if (StrUtils::toBitString(data).length() <= TvmConst::MaxPushSliceBitLength)
+		return createNode<PushCellOrSlice>(
+				PushCellOrSlice::Type::PUSHSLICE,
+				data,
+				nullptr
+		);
+	return createNode<PushCellOrSlice>(
+		PushCellOrSlice::Type::PUSHREFSLICE,
+		data,
+		nullptr
+	);
+}
+
 Pointer<Stack> makeDROP(int cnt) {
 	solAssert(cnt >= 1, "");
 	return createNode<Stack>(Stack::Opcode::DROP, cnt);
@@ -798,9 +813,6 @@ Pointer<Stack> makeBLKDROP2(int droppedCount, int leftCount) {
 }
 
 Pointer<PushCellOrSlice> makePUSHREF(std::string data) {
-	if (!data.empty()) {
-		data = ".blob " + data;
-	}
 	return createNode<PushCellOrSlice>(PushCellOrSlice::Type::PUSHREF, data, nullptr);
 }
 
@@ -972,6 +984,13 @@ std::optional<std::pair<int, int>> isREVERSE(Pointer<TvmAstNode> const& node) {
 				break;
 		}
 	}
+	return {};
+}
+
+Pointer<PushCellOrSlice> isPlainPushSlice(Pointer<TvmAstNode> const& node) {
+	auto p = dynamic_pointer_cast<PushCellOrSlice>(node);
+	if (p && p->child() == nullptr)
+		return p;
 	return {};
 }
 

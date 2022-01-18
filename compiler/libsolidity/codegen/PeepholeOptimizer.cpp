@@ -699,13 +699,19 @@ Result PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> const& cmd1, Po
 	if (is(cmd1, "STSLICECONST") &&
 		is(cmd2, "STSLICECONST")
 	) {
-		std::vector<std::string> opcodes = StackPusher::unitSlices(arg(cmd1), arg(cmd2));
-		if (opcodes.size() == 1 && StackPusher::toBitString(opcodes[0]).length() <= TvmConst::MaxSTSLICECONST) {
-			return Result{2, gen("STSLICECONST " + opcodes[0])};
-		}
+		std::optional<std::string> slice = StrUtils::unitSlices(arg(cmd1), arg(cmd2));
+		if (slice.has_value() && StrUtils::toBitString(*slice).length() <= TvmConst::MaxSTSLICECONST)
+			return Result{2, gen("STSLICECONST " + *slice)};
+		return Result{2, genPushSlice(*slice), gen("STSLICER")};
 	}
 	if (is(cmd1, "TUPLE") &&
 		is(cmd2, "UNTUPLE") &&
+		fetchInt(cmd1) == fetchInt(cmd2))
+	{
+		return Result{2};
+	}
+	if (is(cmd1, "UNTUPLE") &&
+		is(cmd2, "TUPLE") &&
 		fetchInt(cmd1) == fetchInt(cmd2))
 	{
 		return Result{2};
@@ -839,11 +845,10 @@ Result PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> const& cmd1, Po
 	}
 	if (
 		isPUSHINT(cmd1) &&
-		is(cmd2, "STUR") && fetchInt(cmd2) <= 8
+		is(cmd2, "STUR") && fetchInt(cmd2) <= 8 // TODO DELETE
 	) {
-		std::string s;
-		StackPusher::addBinaryNumberToString(s, pushintValue(cmd1), fetchInt(cmd2));
-		s = StackPusher::binaryStringToSlice(s);
+		std::string s = StrUtils::toBitString(pushintValue(cmd1), fetchInt(cmd2));
+		s = StrUtils::binaryStringToSlice(s);
 		return Result{2, gen("STSLICECONST x" + s)};
 	}
 
@@ -969,6 +974,13 @@ Result PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> const& cmd1, Po
 		return Result{2, makeTHROW("THROW " + cmd2Exc->arg())};
 	}
 
+	if (cmd1GenOp && cmd1GenOp->isPure() &&
+		std::make_pair(cmd1GenOp->take(), cmd1GenOp->ret()) == std::make_pair(1, 1) &&
+		isDrop(cmd2)
+	) {
+		return Result{2, cmd2};
+	}
+
 	return Result{};
 }
 
@@ -983,6 +995,20 @@ Result PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> const& cmd1, Po
 		if (isSimpleCommand(cmd1, 0, 1)) {
 			return Result{3, makeDROP(2), cmd1};
 		}
+	}
+
+	// PUSHINT ?
+	// NEWC
+	// STU y
+	// TODO add bool and STI
+	if (
+		isPUSHINT(cmd1) &&
+		is(cmd2, "NEWC") &&
+		is(cmd3, "STU") && fetchInt(cmd3) <= 8 // TODO DELETE
+	) {
+		std::string s = StrUtils::toBitString(pushintValue(cmd1), fetchInt(cmd3));
+		s = StrUtils::binaryStringToSlice(s);
+		return Result{3, gen("NEWC"), gen("STSLICECONST x" + s)};
 	}
 
 	// NEW
@@ -1027,36 +1053,32 @@ Result PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> const& cmd1, Po
 							   gen("PUSHINT " + toString(pushintValue(cmd1) + 1)),
 							   gen("STZEROES")};
 	}
-	if (is(cmd1, "PUSHSLICE") &&
+	if (isPlainPushSlice(cmd1) &&
 		is(cmd2, "STSLICER") &&
 		is(cmd3, "STSLICECONST")) {
-		std::vector<std::string> opcodes = StackPusher::unitSlices(arg(cmd1), arg(cmd3));
-		if (opcodes.size() == 1) {
-			return Result{3,
-								   gen("PUSHSLICE " + opcodes[0]),
-								   gen("STSLICER")};
+		std::optional<std::string> slice = StrUtils::unitSlices(isPlainPushSlice(cmd1)->blob(), arg(cmd3));
+		if (slice.has_value()) {
+			return Result{3, genPushSlice(*slice), gen("STSLICER")};
 		}
 	}
 	if (is(cmd1, "STSLICECONST") &&
-		is(cmd2, "PUSHSLICE") &&
+		isPlainPushSlice(cmd2) &&
 		is(cmd3, "STSLICER")) {
-		std::vector<std::string> opcodes = StackPusher::unitSlices(arg(cmd1), arg(cmd2));
-		if (opcodes.size() == 1) {
-			return Result{3,
-						  gen("PUSHSLICE " + opcodes[0]),
-						  gen("STSLICER")};
+		std::optional<std::string> slice = StrUtils::unitSlices(arg(cmd1), isPlainPushSlice(cmd2)->blob());
+		if (slice.has_value()) {
+			return Result{3, genPushSlice(*slice), gen("STSLICER")};
 		}
 	}
 	if (isPUSHINT(cmd1) &&
 		is(cmd2, "STZEROES") &&
 		is(cmd3, "STSLICECONST") && arg(cmd3).length() > 1) {
 		std::string::size_type intValue = static_cast<std::string::size_type>(pushintValue(cmd1));
-		std::vector<std::string> opcodes = StackPusher::unitBitString(std::string(intValue, '0'),
-											StackPusher::toBitString(arg(cmd3)));
-		if (opcodes.size() == 1) {
-			return Result{3,
-								   gen("PUSHSLICE " + opcodes[0]),
-								   gen("STSLICER")};
+		std::optional<std::string> slice = StrUtils::unitBitStringToHex(
+			std::string(intValue, '0'),
+			StrUtils::toBitString(arg(cmd3))
+		);
+		if (slice.has_value()) {
+			return Result{3, genPushSlice(*slice), gen("STSLICER")};
 		}
 	}
 	if (isPUSHINT(cmd1) &&
@@ -1202,28 +1224,29 @@ Result PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> const& cmd1, Po
 			return Result{4, gen("PUSHINT " + toString(sum)), gen("ADD")};
 		}
 	}
-		if (is(cmd1, "PUSHSLICE") &&
-			is(cmd2, "NEWC") &&
-			is(cmd3, "STSLICE") &&
-			is(cmd4, "STSLICECONST")) {
-		std::vector<std::string> opcodes = StackPusher::unitSlices(arg(cmd1), arg(cmd4));
-		if (opcodes.size() == 1) {
+	if (isPlainPushSlice(cmd1) &&
+		is(cmd2, "NEWC") &&
+		is(cmd3, "STSLICE") &&
+		is(cmd4, "STSLICECONST")
+	) {
+		std::optional<std::string> slice = StrUtils::unitSlices(isPlainPushSlice(cmd1)->blob(), arg(cmd4));
+		if (slice.has_value()) {
 			return Result{4,
-								   gen("PUSHSLICE " + opcodes[0]),
-								   gen("NEWC"),
-								   gen("STSLICE")};
+						   genPushSlice(*slice),
+						   gen("NEWC"),
+						   gen("STSLICE")};
 		}
 	}
-	if (is(cmd1, "PUSHSLICE") &&
+	if (isPlainPushSlice(cmd1) &&
 		is(cmd2, "NEWC") &&
 		is(cmd3, "STSLICECONST") &&
 		is(cmd4, "STSLICE")) {
-		std::vector<std::string> opcodes = StackPusher::unitSlices(arg(cmd3), arg(cmd1));
-		if (opcodes.size() == 1) {
+		std::optional<std::string> slice = StrUtils::unitSlices(arg(cmd3), isPlainPushSlice(cmd1)->blob());
+		if (slice.has_value()) {
 			return Result{4,
-								   gen("PUSHSLICE " + opcodes[0]),
-								   gen("NEWC"),
-								   gen("STSLICE")};
+						  genPushSlice(*slice),
+						   gen("NEWC"),
+						   gen("STSLICE")};
 		}
 	}
 	// ADDCONST/INC/DEC
@@ -1248,27 +1271,27 @@ Result PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> const& cmd1, Po
 		is(cmd2, "NEWC") &&
 		is(cmd3, "STSLICECONST") &&
 		is(cmd4, "STU")) {
-		std::string bitStr = StackPusher::toBitString(arg(cmd3));
-		StackPusher::addBinaryNumberToString(bitStr, pushintValue(cmd1), fetchInt(cmd4));
-		std::vector<std::string> slices = StackPusher::unitBitString(bitStr, "");
-		if (slices.size() == 1) {
+		std::string bitStr = StrUtils::toBitString(arg(cmd3)) +
+			StrUtils::toBitString(pushintValue(cmd1), fetchInt(cmd4));
+		std::optional<std::string> slice = StrUtils::unitBitStringToHex(bitStr, "");
+		if (slice.has_value()) {
 			return Result{4,
-				gen("PUSHSLICE " + slices.at(0)),
+			  genPushSlice(*slice),
 				gen("NEWC"),
 				gen("STSLICE")};
 		}
 	}
-	if (is(cmd1, "PUSHSLICE") &&
+	if (isPlainPushSlice(cmd1) &&
 		is(cmd2, "NEWC") &&
 		is(cmd3, "STSLICE") &&
 		(is(cmd4, "STONE") || is(cmd4, "STZERO"))
 	) {
-		std::string bitStr = StackPusher::toBitString(arg(cmd1));
+		std::string bitStr = StrUtils::toBitString(isPlainPushSlice(cmd1)->blob());
 		bitStr += is(cmd4, "STONE") ? "1" : "0";
-		std::vector<std::string> slices = StackPusher::unitBitString(bitStr, "");
-		if (slices.size() == 1) {
+		std::optional<std::string> slice = StrUtils::unitBitStringToHex(bitStr, "");
+		if (slice.has_value()) {
 			return Result{4,
-						  gen("PUSHSLICE " + slices.at(0)),
+						  genPushSlice(*slice),
 						  gen("NEWC"),
 						  gen("STSLICE")
 			};
@@ -1318,12 +1341,12 @@ Result PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> const& cmd1, Po
 		}
 	}
 	if (
-		is(cmd1, "PUSHSLICE") &&
+		isPlainPushSlice(cmd1) &&
 		is(cmd2, "NEWC") &&
 		is(cmd3, "STSLICE") &&
 		is(cmd4, "ENDC")
 	) {
-		return Result{4, makePUSHREF(arg(cmd1))};
+		return Result{4, makePUSHREF(isPlainPushSlice(cmd1)->blob())};
 	}
 	if (isPUSHINT(cmd1) && isPUSHINT(cmd1) && pushintValue(cmd1) == 0 &&
 		is(cmd2, "STUR") &&
@@ -1344,12 +1367,12 @@ Result PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> const& cmd1, Po
 	// PUSHCELL
 	// STREFR
 	if (
-		is(cmd1, "PUSHSLICE") &&
+		isPlainPushSlice(cmd1) &&
 		is(cmd2, "NEWC") &&
 		is(cmd3, "STSLICE") &&
 		is(cmd4, "STBREFR")
 	) {
-		return Result{4, makePUSHREF(arg(cmd1)), gen("STREFR")};
+		return Result{4, makePUSHREF(isPlainPushSlice(cmd1)->blob()), gen("STREFR")};
 	}
 
 	return Result{};
@@ -1358,33 +1381,38 @@ Result PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> const& cmd1, Po
 Result PrivatePeepholeOptimizer::optimizeAt5(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2,
 											 Pointer<TvmAstNode> const& cmd3, Pointer<TvmAstNode> const& cmd4,
 											 Pointer<TvmAstNode> const& cmd5) {
+	// PUSHINT ?
+	// PUSHSLICE ?
+	// NEWC ?
+	// STSLICE ?
+	// STU ?
 	if (isPUSHINT(cmd1) &&
-		is(cmd2, "PUSHSLICE") &&
+		isPlainPushSlice(cmd2) &&
 		is(cmd3, "NEWC") &&
 		is(cmd4, "STSLICE") &&
 		is(cmd5, "STU")
 	) {
-		std::string bitStr = StackPusher::toBitString(arg(cmd2));
-		StackPusher::addBinaryNumberToString(bitStr, pushintValue(cmd1), fetchInt(cmd5));
-		std::vector<std::string> slices = StackPusher::unitBitString(bitStr, "");
-		if (slices.size() == 1) {
+		std::string bitStr = StrUtils::toBitString(isPlainPushSlice(cmd2)->blob()) +
+			StrUtils::toBitString(pushintValue(cmd1), fetchInt(cmd5));
+		std::optional<std::string> slice = StrUtils::unitBitStringToHex(bitStr, "");
+		if (slice.has_value()) {
 			return Result{5,
-					gen("PUSHSLICE " + slices.at(0)),
+					  genPushSlice(*slice),
 					gen("NEWC"),
 					gen("STSLICE")};
 		}
 	}
-	if (is(cmd1, "PUSHSLICE") &&
+	if (isPlainPushSlice(cmd1) &&
 		is(cmd2, "NEWC") &&
 		is(cmd3, "STSLICE") &&
-		is(cmd4, "PUSHSLICE") &&
+		isPlainPushSlice(cmd4) &&
 		is(cmd5, "STSLICER")) {
-		std::vector<std::string> opcodes = StackPusher::unitSlices(arg(cmd1), arg(cmd4));
-		if (opcodes.size() == 1) {
+		std::optional<std::string> slice = StrUtils::unitSlices(isPlainPushSlice(cmd1)->blob(), isPlainPushSlice(cmd4)->blob());
+		if (slice.has_value()) {
 			return Result{5,
-								   gen("PUSHSLICE " + opcodes[0]),
-								   gen("NEWC"),
-								   gen("STSLICE")};
+						  genPushSlice(*slice),
+						   gen("NEWC"),
+						   gen("STSLICE")};
 		}
 	}
 	return Result{};
@@ -1395,19 +1423,19 @@ Result PrivatePeepholeOptimizer::optimizeAt6(Pointer<TvmAstNode> const& cmd1, Po
 											 Pointer<TvmAstNode> const& cmd5, Pointer<TvmAstNode> const& cmd6) {
 
 	if (
-		is(cmd1, "PUSHSLICE") &&
+		isPlainPushSlice(cmd1) &&
 		is(cmd2, "NEWC") &&
 		is(cmd3, "STSLICE") &&
 		is(cmd4, "NEWC") &&
 		is(cmd5, "STSLICECONST") &&
 		is(cmd6, "STB")
 	) {
-		std::string str1 = StackPusher::toBitString(arg(cmd1));
-		std::string str5 = StackPusher::toBitString(arg(cmd5));
-		std::vector<std::string> slices = StackPusher::unitBitString(str5, str1);
-		if (slices.size() == 1) {
+		std::string str1 = StrUtils::toBitString(isPlainPushSlice(cmd1)->blob());
+		std::string str5 = StrUtils::toBitString(arg(cmd5));
+		std::optional<std::string> slice = StrUtils::unitBitStringToHex(str5, str1);
+		if (slice.has_value()) {
 			return Result{6,
-						  gen("PUSHSLICE " + slices.at(0)),
+						  genPushSlice(*slice),
 						  gen("NEWC"),
 						  gen("STSLICE")
 			};
@@ -1538,9 +1566,9 @@ Result PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 			i = nextCommandLine(i);
 		}
 		if (qty >= 2) {
-			std::vector<std::string> slices = StackPusher::unitBitString(bits, "");
-			solAssert(slices.size() == 1, "");
-			return Result{qty, gen("STSLICECONST " + slices.at(0))};
+			std::optional<std::string> slice = StrUtils::unitBitStringToHex(bits, "");
+			solAssert(slice.has_value(), "");
+			return Result{qty, gen("STSLICECONST " + *slice)};
 		}
 	}
 
