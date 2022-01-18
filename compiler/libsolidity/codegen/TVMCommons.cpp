@@ -103,6 +103,11 @@ bool optValueAsTuple(Type const* optValueType) {
 	return isIn(optValueType->category(), Type::Category::Mapping, Type::Category::Optional);
 }
 
+int optTypeQty(Type const* type) {
+	auto optValueType = to<OptionalType>(type);
+	return optValueType ? 1 + optTypeQty(optValueType->valueType()) : 0;
+}
+
 int bitsForEnum(size_t val_count) {
 	int bytes = 0;
 	val_count--;
@@ -475,6 +480,131 @@ int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>>::const_iterator beg,
 
 int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>> const& arr) {
 	return qtyWithoutLoc(arr.begin(), arr.end());
+}
+
+std::string StrUtils::toBitString(bigint value, int bitlen) {
+	solAssert(value >= 0, "");
+	std::string s;
+	for (int i = 0; i < bitlen; ++i) {
+		s += value % 2 == 0? "0" : "1";
+		value /= 2;
+	}
+	std::reverse(s.rbegin(), s.rbegin() + bitlen);
+	return s;
+}
+
+std::string StrUtils::binaryStringToSlice(const std::string &_s) {
+	std::string s = _s;
+	bool haveCompletionTag = false;
+	if (s.size() % 4 != 0) {
+		haveCompletionTag = true;
+		s += "1";
+		s += std::string((4 - s.size() % 4) % 4, '0');
+	}
+	std::string ans;
+	for (int i = 0; i < static_cast<int>(s.length()); i += 4) {
+		int x = stoi(s.substr(i, 4), nullptr, 2);
+		std::stringstream sstream;
+		sstream << std::hex << x;
+		ans += sstream.str();
+	}
+	if (haveCompletionTag) {
+		ans += "_";
+	}
+	return ans;
+}
+
+std::string StrUtils::toBitString(const std::string& slice) {
+	std::string bitString;
+	if (slice.at(0) == 'x') {
+		for (std::size_t i = 1; i < slice.size(); ++i) {
+			if (i + 2 == slice.size() && slice[i + 1] == '_') {
+				size_t pos{};
+				int value = std::stoi(slice.substr(i, 1), &pos, 16);
+				solAssert(pos == 1, "");
+				int bitLen = 4;
+				while (true) {
+					bool isOne = value % 2 == 1;
+					--bitLen;
+					value /= 2;
+					if (isOne) {
+						break;
+					}
+				}
+				bitString += StrUtils::toBitString(value, bitLen);
+				break;
+			}
+			size_t pos{};
+			auto sss = slice.substr(i, 1);
+			int value = std::stoi(sss, &pos, 16);
+			solAssert(pos == 1, "");
+			bitString += StrUtils::toBitString(value, 4);
+		}
+	} else {
+		if (isIn(slice, "0", "1")) {
+			return slice;
+		}
+		solUnimplemented("");
+	}
+	return bitString;
+}
+
+std::optional<std::string> StrUtils::unitSlices(const std::string& sliceA, const std::string& sliceB) {
+	return unitBitStringToHex(toBitString(sliceA), toBitString(sliceB));
+}
+
+std::optional<std::string> StrUtils::unitBitStringToHex(const std::string& bitStringA, const std::string& bitStringB) {
+	const std::string& bitString = bitStringA + bitStringB;
+	if (bitString.length() > TvmConst::CellBitLength)
+		return std::nullopt;
+	return {"x" + StrUtils::binaryStringToSlice(bitString)};
+}
+
+std::string StrUtils::tonsToBinaryString(const u256& value) {
+	return tonsToBinaryString(bigint(value));
+}
+
+std::string StrUtils::tonsToBinaryString(bigint value) {
+	std::string s;
+	int len = 256;
+	for (int i = 0; i < 256; ++i) {
+		if (value == 0) {
+			len = i;
+			break;
+		}
+		s += value % 2 == 0? "0" : "1";
+		value /= 2;
+	}
+	solAssert(len < 120, "Ton value should fit 120 bit");
+	while (len % 8 != 0) {
+		s += "0";
+		len++;
+	}
+	std::reverse(s.rbegin(), s.rbegin() + len);
+	len = len/8;
+	std::string res;
+	for (int i = 0; i < 4; ++i) {
+		res += len % 2 == 0? "0" : "1";
+		len /= 2;
+	}
+	std::reverse(res.rbegin(), res.rbegin() + 4);
+	return res + s;
+}
+
+std::string StrUtils::boolToBinaryString(bool value) {
+	return value ? "1" : "0";
+}
+
+std::string StrUtils::literalToSliceAddress(Literal const* literal) {
+	Type const *type = literal->annotation().type;
+	u256 value = type->literalValue(literal);
+	// addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt;
+	std::string s;
+	s += "10";
+	s += "0";
+	s += std::string(8, '0');
+	s += StrUtils::toBitString(value);
+	return s;
 }
 
 } // end namespace solidity::frontend

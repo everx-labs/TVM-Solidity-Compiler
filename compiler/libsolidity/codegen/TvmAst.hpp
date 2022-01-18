@@ -271,7 +271,8 @@ namespace solidity::frontend
 			PUSHREFSLICE_COMPUTE,
 			PUSHREF,
 			PUSHREFSLICE,
-			CELL
+			CELL,
+			PUSHSLICE
 		};
 		PushCellOrSlice(Type type, std::string blob, Pointer<PushCellOrSlice> child) :
 			Gen{true}, // we don't execute data
@@ -506,6 +507,7 @@ namespace solidity::frontend
 	};
 
 	Pointer<GenOpcode> gen(const std::string& cmd);
+	Pointer<PushCellOrSlice> genPushSlice(const std::string& data);
 	Pointer<Stack> makeDROP(int cnt = 1);
 	Pointer<Stack> makePOP(int i);
 	Pointer<Stack> makeBLKPUSH(int qty, int index);
@@ -541,5 +543,6 @@ namespace solidity::frontend
 	bool isXCHG(Pointer<TvmAstNode> const& node, int i, int j);
 	std::optional<int> isXCHG_S0(Pointer<TvmAstNode> const& node);
 	std::optional<std::pair<int, int>> isREVERSE(Pointer<TvmAstNode> const& node);
+	Pointer<PushCellOrSlice> isPlainPushSlice(Pointer<TvmAstNode> const& node);
 
 }	// end solidity::frontend

@@ -1999,6 +1999,7 @@ ASTPointer<Expression> Parser::parsePrimaryExpression()
 	case Token::TrueLiteral:
 	case Token::FalseLiteral:
 	case Token::NullLiteral:
+	case Token::EmptyMap:
 		nodeFactory.markEndPosition();
 		expression = nodeFactory.createNode<Literal>(token, getLiteralAndAdvance());
 		break;

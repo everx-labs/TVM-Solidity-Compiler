@@ -399,13 +399,8 @@ void TypeChecker::typeCheckCallBack(FunctionType const* remoteFunction, Expressi
 	checkRemoteAndCallBackFunctions(calleeDefinition, callbackFunc, option.location());
 }
 
-TypePointers TypeChecker::checkSliceDecode(FunctionCall const& _functionCall)
+TypePointers TypeChecker::checkSliceDecode(std::vector<ASTPointer<Expression const>> const& arguments)
 {
-	vector<ASTPointer<Expression const>> arguments = _functionCall.arguments();
-	if (arguments.empty()) {
-		m_errorReporter.fatalTypeError(_functionCall.location(), "Expected at least one argument.");
-	}
-
 	TypePointers components;
 	for (auto const& typeArgument: arguments) {
 		solAssert(typeArgument, "");
@@ -1411,13 +1406,16 @@ bool TypeChecker::visit(VariableDeclarationStatement const& _statement)
 	// the variable declaration(s).
 
 	_statement.initialValue()->accept(*this);
-	TypePointers valueTypes;
-	if (auto tupleType = dynamic_cast<TupleType const*>(type(*_statement.initialValue())))
-		valueTypes = tupleType->components();
-	else
-		valueTypes = TypePointers{type(*_statement.initialValue())};
-
 	vector<ASTPointer<VariableDeclaration>> const& variables = _statement.declarations();
+	TypePointers valueTypes;
+	if (auto tupleType = dynamic_cast<TupleType const*>(type(*_statement.initialValue()))) {
+		valueTypes = tupleType->components();
+		if (valueTypes.size() != variables.size())
+			valueTypes = TypePointers{tupleType};
+	} else {
+		valueTypes = TypePointers{type(*_statement.initialValue())};
+	}
+
 	if (variables.empty())
 		// We already have an error for this in the SyntaxChecker.
 		solAssert(m_errorReporter.hasErrors(), "");
@@ -3155,21 +3153,34 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		{
 			case FunctionType::Kind::ABIDecode:
 			{
-				bool const abiEncoderV2 =
-					m_scope->sourceUnit().annotation().experimentalFeatures.count(
-						ExperimentalFeature::ABIEncoderV2
-					);
-				returnTypes = typeCheckABIDecodeAndRetrieveReturnType(_functionCall, abiEncoderV2);
+				if (arguments.size() != 2) {
+					m_errorReporter.fatalTypeError(_functionCall.location(), "Expected two arguments.");
+				}
+				expectType(*arguments.at(0), *TypeProvider::tvmcell());
+				ASTPointer<Expression const> arg1 = arguments.at(1);
+				ASTPointer<TupleExpression const> te = dynamic_pointer_cast<TupleExpression const>(arg1);
+				std::vector<ASTPointer<Expression const>> arguments;
+				if (te) {
+					for (const ASTPointer<Expression>& e : te->components()) {
+						arguments.emplace_back(e);
+					}
+				} else {
+					arguments.emplace_back(arg1);
+				}
+				returnTypes = checkSliceDecode(arguments);
+				break;
+			}
+			case FunctionType::Kind::TVMSliceDecode:
+			{
+				if (arguments.empty()) {
+					m_errorReporter.fatalTypeError(_functionCall.location(), "Expected at least one argument.");
+				}
+				returnTypes = checkSliceDecode(_functionCall.arguments());
 				break;
 			}
 			case FunctionType::Kind::TVMConfigParam:
 			{
 				returnTypes = getReturnTypesForTVMConfig(_functionCall);
-				break;
-			}
-			case FunctionType::Kind::TVMSliceDecode:
-			{
-				returnTypes = checkSliceDecode(_functionCall);
 				break;
 			}
 			case FunctionType::Kind::DecodeFunctionParams:
@@ -3277,13 +3288,16 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				returnTypes.push_back(arguments.at(0)->annotation().type->mobileType());
 				break;
 			}
+			case FunctionType::Kind::ABIEncode:
 			case FunctionType::Kind::TVMBuilderStore:
+			{
 				if (arguments.empty()) {
 					m_errorReporter.fatalTypeError(_functionCall.location(), "Expected at least one argument.");
 				}
 				typeCheckTvmEncodeFunctions(_functionCall);
+				returnTypes = functionType->returnParameterTypes();
 				break;
-			case FunctionType::Kind::ABIEncode:
+			}
 			case FunctionType::Kind::ABIEncodePacked:
 			case FunctionType::Kind::ABIEncodeWithSelector:
 			case FunctionType::Kind::ABIEncodeWithSignature:

@@ -793,12 +793,12 @@ void TVMFunctionCompiler::acceptExpr(const Expression *expr, const bool isResult
 bool TVMFunctionCompiler::visit(VariableDeclarationStatement const &_variableDeclarationStatement) {
 	const int saveStackSize = m_pusher.stackSize();
 	int bad = 0;
-	ast_vec<VariableDeclaration> decls = _variableDeclarationStatement.declarations();
-	int n = decls.size();
+	ast_vec<VariableDeclaration> variables = _variableDeclarationStatement.declarations();
+	int varQty = variables.size();
 	auto deleteUnnamedVars = [&](std::vector<bool> const& hasName) {
-		int n = hasName.size();
+		int nameQty = hasName.size();
 		int top = 0;
-		for (int i = n - 1; 0 <= i; --i) {
+		for (int i = nameQty - 1; 0 <= i; --i) {
 			if (!hasName.at(i)) {
 				m_pusher.dropUnder(1, top);
 			} else {
@@ -809,13 +809,13 @@ bool TVMFunctionCompiler::visit(VariableDeclarationStatement const &_variableDec
 
 
 	if (auto init = _variableDeclarationStatement.initialValue()) {
-		auto tupleExpression = to<TupleExpression>(init);
-		if (tupleExpression && !tupleExpression->isInlineArray()) {
-			ast_vec<Expression> const&  tuple = tupleExpression->components();
+		auto te = to<TupleExpression>(init);
+		if (te && !te->isInlineArray() && varQty == int(te->components().size())) {
+			ast_vec<Expression> const&  tuple = te->components();
 			for (std::size_t i = 0; i < tuple.size(); ++i) {
 				acceptExpr(tuple[i].get());
-				if (decls.at(i) != nullptr) {
-					m_pusher.hardConvert(decls.at(i)->type(), tuple.at(i)->annotation().type);
+				if (variables.at(i) != nullptr) {
+					m_pusher.hardConvert(variables.at(i)->type(), tuple.at(i)->annotation().type);
 				} else {
 					++bad;
 					m_pusher.drop();
@@ -823,37 +823,37 @@ bool TVMFunctionCompiler::visit(VariableDeclarationStatement const &_variableDec
 			}
 		} else {
 			acceptExpr(init);
-			if (n == 1) {
-				m_pusher.hardConvert(decls.at(0)->type(), init->annotation().type);
+			if (varQty == 1) {
+				m_pusher.hardConvert(variables.at(0)->type(), init->annotation().type);
 			} else {
 				auto tuple = to<TupleType>(init->annotation().type);
-				std::vector<bool> hasName(n);
-				for (int i = n - 1; i >= 0; --i) {
-					if (decls.at(i) != nullptr) {
-						m_pusher.hardConvert(decls.at(i)->type(), tuple->components().at(i));
+				std::vector<bool> hasName(varQty);
+				for (int i = varQty - 1; i >= 0; --i) {
+					if (variables.at(i) != nullptr) {
+						m_pusher.hardConvert(variables.at(i)->type(), tuple->components().at(i));
 						hasName[i] = true;
 					} else {
 						++bad;
 						hasName[i] = false;
 					}
-					m_pusher.blockSwap(n - 1, 1);
+					m_pusher.blockSwap(varQty - 1, 1);
 				}
 				deleteUnnamedVars(hasName);
 			}
 		}
 	} else {
-		for (const auto& decl : decls) {
+		for (const auto& decl : variables) {
 			m_pusher.pushDefaultValue(decl->type());
 		}
 	}
 
-	m_pusher.getStack().change(-n + bad);
-	for (const ASTPointer<VariableDeclaration>& d : decls) {
+	m_pusher.getStack().change(-varQty + bad);
+	for (const ASTPointer<VariableDeclaration>& d : variables) {
 		if (d != nullptr) {
 	 		m_pusher.getStack().add(d.get(), true);
 		}
 	}
-	m_pusher.ensureSize(saveStackSize + n - bad, "VariableDeclarationStatement", &_variableDeclarationStatement);
+	m_pusher.ensureSize(saveStackSize + varQty - bad, "VariableDeclarationStatement", &_variableDeclarationStatement);
 	return false;
 }
 
@@ -1556,7 +1556,7 @@ Pointer<Function> TVMFunctionCompiler::generateMainExternal(TVMCompilerContext& 
 
 void TVMFunctionCompiler::setGlobSenderAddressIfNeed() {
 	if (m_pusher.ctx().usage().hasMsgSender()) {
-		m_pusher.push(+1, "PUSHSLICE x8000000000000000000000000000000000000000000000000000000000000000001_");
+		m_pusher.pushSlice("x8000000000000000000000000000000000000000000000000000000000000000001_");
 		m_pusher.setGlob(TvmConst::C7::SenderAddress);
 	}
 }

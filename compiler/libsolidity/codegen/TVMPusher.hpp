@@ -162,7 +162,10 @@ public:
 	StackPusher& operator<<(std::string const& opcode);
 	void push(std::string const& opcode);
 	void push(int stackDiff, const std::string& cmd);
+private:
 	void pushCellOrSlice(const Pointer<PushCellOrSlice>& opcode);
+public:
+	void pushSlice(std::string const& data);
 
 	void startContinuation();
 private:
@@ -243,16 +246,6 @@ public:
 	void pushZeroAddress();
 	Pointer<Function> generateC7ToT4Macro(bool forAwait);
 
-	// TODO move to formatter
-	static void addBinaryNumberToString(std::string &s, bigint value, int bitlen = 256);
-	static std::string binaryStringToSlice(const std::string & s);
-	static std::string toBitString(const std::string& slice);
-	static std::vector<std::string> unitSlices(const std::string& sliceA, const std::string& sliceB);
-	static std::vector<std::string> unitBitString(const std::string& bitStringA, const std::string& bitStringB);
-	static std::string tonsToBinaryString(const u256& value);
-	static std::string tonsToBinaryString(bigint value);
-	static std::string boolToBinaryString(bool value);
-	std::string literalToSliceAddress(Literal const* literal, bool pushSlice = true);
 	static bigint pow10(int power);
 
 	void hardConvert(Type const *leftType, Type const *rightType);
@@ -321,6 +314,7 @@ public:
 	);
 
 	void pushNull();
+	void pushEmptyCell();
 	void pushDefaultValue(Type const* type);
 	void sendIntMsg(const std::map<int, const Expression *> &exprs,
 					const std::map<int, std::string> &constParams,

@@ -1,3 +1,17 @@
+### 0.55.0 (2022-01-18)
+
+Compiler features:
+ * Supported `abi.encode()`/`abi.decode()`.
+ * Supported keyword `emptyMap`.
+
+Breaking change:
+ * Supported `mapping`'s in constructor of structures.
+
+Bugfix:
+ * Fixed issue with optional type that caused compilation fail.
+ * Fixed issue with implicit conversion of optional types.
+ * Fixed issue with optimizer.
+
 ### 0.54.0 (2021-12-30)
 
 Bugfixes:

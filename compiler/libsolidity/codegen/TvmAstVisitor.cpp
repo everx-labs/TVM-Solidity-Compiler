@@ -137,6 +137,10 @@ bool Printer::visit(PushCellOrSlice &_node) {
 			tabs();
 			m_out << ".compute $" << _node.blob() << "$" << std::endl;
 			return false;
+		case PushCellOrSlice::Type::PUSHSLICE:
+			m_out << "PUSHSLICE " << _node.blob() << std::endl;
+			return false;
+
 		case PushCellOrSlice::Type::PUSHREF:
 			m_out << "PUSHREF {";
 			break;
@@ -152,7 +156,7 @@ bool Printer::visit(PushCellOrSlice &_node) {
 	++m_tab;
 	if (!_node.blob().empty()) {
 		tabs();
-		m_out << _node.blob() << std::endl;
+		m_out << ".blob " << _node.blob() << std::endl;
 	}
 	if (_node.child()) {
 		_node.child()->accept(*this);

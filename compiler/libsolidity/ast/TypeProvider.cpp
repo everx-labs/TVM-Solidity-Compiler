@@ -27,6 +27,7 @@ using namespace solidity::util;
 
 BoolType const TypeProvider::m_boolean{};
 NullType const TypeProvider::m_nullType{};
+EmptyMapType const TypeProvider::m_emptyMapType{};
 TvmCellType const TypeProvider::m_tvmcell{};
 TvmSliceType const TypeProvider::m_tvmslice{};
 TvmBuilderType const TypeProvider::m_tvmbuilder{};
@@ -807,6 +808,8 @@ TypePointer TypeProvider::forLiteral(Literal const& _literal)
 		return boolean();
 	case Token::NullLiteral:
 		return nullType();
+	case Token::EmptyMap:
+		return emptyMapType();
 	case Token::Number:
 		return rationalNumber(_literal);
 	case Token::StringLiteral:

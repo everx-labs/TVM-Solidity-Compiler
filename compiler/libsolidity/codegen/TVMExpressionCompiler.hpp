@@ -32,10 +32,9 @@ public:
 	static int returnParamQty(Expression const& _e);
 
 	LValueInfo expandLValue(
-			Expression const* const _expr,
-			const bool withExpandLastValue,
-			bool isLValue,
-			Type const* rightType
+		Expression const* const _expr,
+		const bool withExpandLastValue,
+		bool isLValue
 	);
 	void collectLValue(const LValueInfo &lValueInfo, bool haveValueOnStackTop, bool isValueBuilder);
 

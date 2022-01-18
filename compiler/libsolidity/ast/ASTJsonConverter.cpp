@@ -945,6 +945,8 @@ string ASTJsonConverter::literalTokenKind(Token _token)
 	case Token::TrueLiteral:
 	case Token::FalseLiteral:
 		return "bool";
+	case Token::EmptyMap:
+		return "mapping";
 	case Token::NullLiteral:
 		return "optional";
 	default:

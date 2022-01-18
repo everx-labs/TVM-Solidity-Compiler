@@ -293,6 +293,7 @@ namespace solidity::langutil
 	K(Match, "match", 0)                                               \
 	K(Mutable, "mutable", 0)                                           \
 	K(NullLiteral, "null", 0)                                          \
+	K(EmptyMap, "emptyMap", 0)                                         \
 	K(Of, "of", 0)                                                     \
 	K(Partial, "partial", 0)                                           \
 	K(Promise, "promise", 0)                                           \

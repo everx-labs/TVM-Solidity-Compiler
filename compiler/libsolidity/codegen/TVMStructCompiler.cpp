@@ -114,11 +114,7 @@ void StructCompiler::structConstructor(
 	if (names.empty()) {
 		int i{};
 		for (const Type *type : m_types) {
-			if (type->category() == Type::Category::Mapping) {
-				pusher->pushDefaultValue(type);
-			} else {
-				pushParam(i++, type);
-			}
+			pushParam(i++, type);
 		}
 	} else {
 		int i = 0;
@@ -127,13 +123,8 @@ void StructCompiler::structConstructor(
 			auto it = std::find_if(names.begin(), names.end(), [&](const ASTPointer<ASTString>& name){
 				return memberName == *name;
 			});
-			if (type->category() == Type::Category::Mapping) {
-				solAssert(it == names.end(), "");
-				pusher->pushDefaultValue(type);
-			} else {
-				int index = it - names.begin();
-				pushParam(index, type);
-			}
+			int index = it - names.begin();
+			pushParam(index, type);
 			++i;
 		}
 	}
