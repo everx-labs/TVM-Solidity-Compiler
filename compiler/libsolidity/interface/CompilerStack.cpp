@@ -902,18 +902,28 @@ StringMap CompilerStack::loadMissingSources(SourceUnit const& _ast, std::string 
 				}
 				import_path = imp_path.string();
 			} else {
-				imp_path = boost::filesystem::path(_sourcePath).remove_filename() / imp_path;
+				auto baseDir = src_dir;
+				auto exists = boost::filesystem::exists(baseDir / imp_path);
+
+				// Find suitable import base directory
+				auto includePath = m_includePaths.begin();
+				while (!exists && includePath != m_includePaths.end()) {
+					baseDir = boost::filesystem::path(*(includePath++));
+					exists = boost::filesystem::exists(baseDir / imp_path);
+				}
+
+				if (!exists) {
+					m_errorReporter.parserError(
+						import->location(),
+						string("Source \"" + import_path + "\" doesn't exist.")
+					);
+					continue;
+				}
+
+				src_dir = baseDir;
 			}
 
-			if (!boost::filesystem::exists(imp_path)) {
-				m_errorReporter.parserError(
-					import->location(),
-					string("Source \"" + import_path + "\" doesn't exist.")
-				);
-				continue;
-			}
-			string importPath = boost::filesystem::canonical(import_path,
-				boost::filesystem::path(_sourcePath).remove_filename()).string();
+			string importPath = boost::filesystem::canonical(import_path, src_dir).string();
 
 			// The current value of `path` is the absolute path as seen from this source file.
 			// We first have to apply remappings before we can store the actual absolute path
@@ -926,7 +936,7 @@ StringMap CompilerStack::loadMissingSources(SourceUnit const& _ast, std::string 
 			ReadCallback::Result result{false, string("File not supplied initially.")};
 			if (m_readFile) {
 				if (!boost::filesystem::path(importPath).is_absolute())
-					importPath = (boost::filesystem::path(_sourcePath).remove_filename() / importPath).string();
+					importPath = (src_dir / importPath).string();
 				result = m_readFile(ReadCallback::kindString(ReadCallback::Kind::ReadFile), importPath);
 			}
 			if (result.success)
