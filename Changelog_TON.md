@@ -1,3 +1,11 @@
+### 0.56.0 (2022-01-24)
+
+Code size optimization.
+Assorted peephole stack optimizations.
+
+Bugfix:
+ * Fixed issue with using recursion in libraries that causes tvm-linker fault.
+
 ### 0.55.0 (2022-01-18)
 
 Compiler features:

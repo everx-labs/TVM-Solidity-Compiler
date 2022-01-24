@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2020 TON DEV SOLUTIONS LTD.
+ * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -1381,9 +1381,35 @@ Result PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> const& cmd1, Po
 Result PrivatePeepholeOptimizer::optimizeAt5(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2,
 											 Pointer<TvmAstNode> const& cmd3, Pointer<TvmAstNode> const& cmd4,
 											 Pointer<TvmAstNode> const& cmd5) {
+	// PUSHSLICE A
+	// PUSHSLICE B
+	// NEWC
+	// STSLICE
+	// STSLICE
+	// =>
+	// PUSHSLICE BA
+	// NEWC
+	// STSLICE
+	if (isPlainPushSlice(cmd1) &&
+		isPlainPushSlice(cmd2) &&
+		is(cmd3, "NEWC") &&
+		is(cmd4, "STSLICE") &&
+		is(cmd5, "STSLICE")
+	) {
+		std::string bitStr = StrUtils::toBitString(isPlainPushSlice(cmd2)->blob()) +
+							 StrUtils::toBitString(isPlainPushSlice(cmd1)->blob());
+		std::optional<std::string> slice = StrUtils::unitBitStringToHex(bitStr, "");
+		if (slice.has_value()) {
+			return Result{5,
+						  genPushSlice(*slice),
+						  gen("NEWC"),
+						  gen("STSLICE")};
+		}
+	}
+
 	// PUSHINT ?
 	// PUSHSLICE ?
-	// NEWC ?
+	// NEWC
 	// STSLICE ?
 	// STU ?
 	if (isPUSHINT(cmd1) &&
@@ -1784,7 +1810,8 @@ Result PrivatePeepholeOptimizer::squashPush(const int idx1) const {
 	Pointer<TvmAstNode> const& cmd1 = get(idx1);
 	Pointer<TvmAstNode> const& cmd2 = get(idx2);
 	Pointer<TvmAstNode> const& cmd3 = get(idx3);
-	auto cmd1GenOpcode = to<GenOpcode>(cmd1.get());
+//	auto cmd1GenOpcode = to<GenOpcode>(cmd1.get());
+	auto cmd1Gen = to<Gen>(cmd1.get());
 	auto cmd1PushCellOrSlice = to<PushCellOrSlice>(cmd1.get());
 
 	if (isPUSH(cmd1) && isPUSH(cmd2)) {
@@ -1816,15 +1843,13 @@ Result PrivatePeepholeOptimizer::squashPush(const int idx1) const {
 		}
 	}
 
-	// squash PUSHINT, NEWDICT, NILL, FALSE, TRUE, etc
-	if (cmd1GenOpcode && cmd1GenOpcode->take() == 0 && cmd1GenOpcode->ret() == 1 && cmd1GenOpcode->isPure()) {
+	// squash PUSHINT, NEWDICT, NILL, FALSE, TRUE, (PUSHINT 0 NEWDICT PAIR) etc
+	if (cmd1Gen && cmd1Gen->take() == 0 && cmd1Gen->ret() == 1 && cmd1Gen->isPure()) {
 		int i = idx1;
 		int n = 0;
 		while (true) {
-			auto cmdI = to<GenOpcode>(get(i).get());
-			if  (cmdI &&
-				std::tie(cmd1GenOpcode->opcode(), cmd1GenOpcode->arg()) == std::tie(cmdI->opcode(), cmdI->arg()))
-			{
+			auto cmdI = to<Gen>(get(i).get());
+			if  (cmdI && *cmd1Gen == *cmdI) {
 				n++;
 				i = nextCommandLine(i);
 			} else {

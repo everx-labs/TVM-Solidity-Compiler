@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2021 TON DEV SOLUTIONS LTD.
+ * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -21,6 +21,9 @@
 
 #include <libsolidity/interface/Version.h>
 
+#include "PeepholeOptimizer.hpp"
+#include "SizeOptimizer.hpp"
+#include "StackOptimizer.hpp"
 #include "TVMABI.hpp"
 #include "TvmAst.hpp"
 #include "TvmAstVisitor.hpp"
@@ -29,8 +32,6 @@
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCompiler.hpp"
 #include "TVMInlineFunctionChecker.hpp"
-#include "StackOptimizer.hpp"
-#include "PeepholeOptimizer.hpp"
 
 using namespace solidity::frontend;
 using namespace std;
@@ -295,6 +296,8 @@ TVMContractCompiler::generateContractCode(
 					functions.push_back(TVMFunctionCompiler::generateMacro(ctx, _function, macroName));
 				}
 			}
+
+			ctx.setCurrentFunction(nullptr);
 		}
 	}
 
@@ -349,6 +352,7 @@ TVMContractCompiler::generateContractCode(
 			continue;
 		}
 		usedFunctions[function] = true;
+		ctx.setCurrentFunction(function);
 
 		if (!function->modifiers().empty()) {
 			cast_error(*function->modifiers().at(0).get(),
@@ -368,6 +372,7 @@ TVMContractCompiler::generateContractCode(
 		const std::string name = TVMCompilerContext::getLibFunctionName(function, false);
 		functions.emplace_back(TVMFunctionCompiler::generatePrivateFunction(ctx, name));
 		functions.emplace_back(TVMFunctionCompiler::generateMacro(ctx, function, name + "_macro"));
+		ctx.setCurrentFunction(nullptr);
 	}
 
 	for (const auto&[name, arr] : ctx.constArrays()) {
@@ -427,6 +432,9 @@ void TVMContractCompiler::optimizeCode(Pointer<Contract>& c) {
 
 	LocSquasher sq = LocSquasher{};
 	c->accept(sq);
+
+	SizeOptimizer so{};
+	so.optimize(c);
 }
 
 void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractDefinition const *contract) {

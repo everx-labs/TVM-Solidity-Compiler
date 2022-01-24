@@ -12,21 +12,18 @@
  */
 /**
  * @author TON Labs <connect@tonlabs.io>
- * @date 2021
- * Peephole optimizer
+ * @date 2022
+ * Size optimizer
  */
 
 #pragma once
 
-#include "TvmAstVisitor.hpp"
+#include <libsolidity/codegen/TvmAstVisitor.hpp>
 
 namespace solidity::frontend {
-	class PeepholeOptimizer : public TvmAstVisitor {
+	class SizeOptimizer : public TvmAstVisitor {
 	public:
-		explicit PeepholeOptimizer(bool _withUnpackOpaque) : m_withUnpackOpaque{_withUnpackOpaque} {}
-		void endVisit(CodeBlock &_node) override;
-	private:
-		bool m_withUnpackOpaque{};
+		void optimize(Pointer<Contract>& c);
 	};
 } // end solidity::frontend
 

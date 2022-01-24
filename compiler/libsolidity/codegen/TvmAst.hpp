@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2021 TON DEV SOLUTIONS LTD.
+ * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -47,7 +47,7 @@ namespace solidity::frontend
 		virtual bool operator==(TvmAstNode const& _node) const = 0;
 	};
 
-	class Inst : public TvmAstNode {
+	class Inst : public TvmAstNode { // TODO delete ?
 	};
 
 	class Loc : public Inst {
@@ -283,12 +283,14 @@ namespace solidity::frontend
 		}
 		void accept(TvmAstVisitor& _visitor) override;
 		bool operator==(TvmAstNode const&) const override;
+		bool operator<(TvmAstNode const&) const;
 		int take() const override { return 0; }
 		int ret() const override { return 1; }
 		Type type() const  { return m_type; }
 		std::string const &blob() const { return m_blob; }
 		Pointer<PushCellOrSlice> child() const { return m_child; };
 		bool equal(PushCellOrSlice const& another) const;
+		void updToRef();
 	private:
 		Type m_type;
 		std::string m_blob;
@@ -544,5 +546,7 @@ namespace solidity::frontend
 	std::optional<int> isXCHG_S0(Pointer<TvmAstNode> const& node);
 	std::optional<std::pair<int, int>> isREVERSE(Pointer<TvmAstNode> const& node);
 	Pointer<PushCellOrSlice> isPlainPushSlice(Pointer<TvmAstNode> const& node);
+
+	int getRootBitSize(PushCellOrSlice const &_node);
 
 }	// end solidity::frontend
