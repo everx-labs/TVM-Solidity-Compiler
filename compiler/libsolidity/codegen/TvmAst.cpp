@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2021 TON DEV SOLUTIONS LTD.
+ * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -254,6 +254,16 @@ bool PushCellOrSlice::operator==(TvmAstNode const& _node) const {
 	return false;
 }
 
+bool PushCellOrSlice::operator<(TvmAstNode const& _node) const {
+	auto p = to<PushCellOrSlice>(&_node);
+	if ((m_child == nullptr) ^ (p->m_child == nullptr)) {
+		return m_child < p->m_child;
+	}
+	if (m_child == nullptr)
+		return std::tie(m_type, m_blob) < std::tie(p->m_type, p->m_blob);
+	return std::tie(m_type, m_blob, *m_child) < std::tie(p->m_type, p->m_blob, *p->m_child);
+}
+
 bool PushCellOrSlice::equal(PushCellOrSlice const& another) const {
 	PushCellOrSlice const* a = this;
 	PushCellOrSlice const* b = &another;
@@ -271,6 +281,11 @@ bool PushCellOrSlice::equal(PushCellOrSlice const& another) const {
 		b = b->m_child.get();
 	}
 	solUnimplemented("");
+}
+
+void PushCellOrSlice::updToRef() {
+	solAssert(m_type == Type::PUSHSLICE, "");
+	m_type = Type::PUSHREFSLICE;
 }
 
 std::string CodeBlock::toString(CodeBlock::Type t) {
@@ -297,7 +312,15 @@ void CodeBlock::accept(TvmAstVisitor& _visitor) {
 
 bool CodeBlock::operator==(TvmAstNode const& _node) const {
 	auto c = to<CodeBlock>(&_node);
-	return c && std::tie(m_type, m_instructions) == std::tie(c->m_type, c->m_instructions);
+	if (c && m_type == c->m_type && m_instructions.size() == c->m_instructions.size()) {
+		for (size_t i = 0; i < m_instructions.size(); ++i) {
+			if (!(*m_instructions.at(i) == *c->m_instructions.at(i))) {
+				return false;
+			}
+		}
+		return true;
+	}
+	return false;
 }
 
 void SubProgram::accept(TvmAstVisitor &_visitor) {
@@ -992,6 +1015,11 @@ Pointer<PushCellOrSlice> isPlainPushSlice(Pointer<TvmAstNode> const& node) {
 	if (p && p->child() == nullptr)
 		return p;
 	return {};
+}
+
+int getRootBitSize(PushCellOrSlice const &_node) {
+	int size = StrUtils::toBitString(_node.blob()).length();
+	return size;
 }
 
 } // end solidity::frontend

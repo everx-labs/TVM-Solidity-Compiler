@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2021 TON DEV SOLUTIONS LTD.
+ * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -230,19 +230,21 @@ TVMFunctionCompiler::generateC4ToC7WithInitMemory(TVMCompilerContext& ctx) {
 	for (VariableDeclaration const* v : pusher.ctx().notConstantStateVariables()) {
 		if (v->isStatic()) {
 			pusher.pushInt(TvmConst::C4::PersistenceMembersStartIndex + shift++); // dict vars... index dict
-			pusher.pushS(1 + (tooMuchStateVars ? varQty : 0)); // dict vars... index dict
+			pusher.pushS(1 + varQty); // dict vars... index dict
 			pusher.getDict(getKeyTypeOfC4(), *v->type(), GetDictOperation::GetFromMapping);
 		} else {
 			pusher.pushDefaultValue(v->type());
 		}
 		++varQty;
-		if (!tooMuchStateVars) {
-			pusher.setGlob(v);
-		}
 	}
 	if (tooMuchStateVars) {
 		pusher.tuple(varQty);
 		pusher.popC7();
+	} else {
+		auto x = pusher.ctx().notConstantStateVariables(); // move
+		for (VariableDeclaration const* v : x | boost::adaptors::reversed) {
+			pusher.setGlob(v);
+		}
 	}
 
 	pusher.pushInt(64);
