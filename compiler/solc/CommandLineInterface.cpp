@@ -99,6 +99,7 @@ static string const g_strAstJson = "ast-json";
 static string const g_strAstCompactJson = "ast-compact-json";
 static string const g_strHelp = "help";
 static string const g_strInputFile = "input-file";
+static string const g_strIncludePath = "include-path";
 static string const g_strLicense = "license";
 static string const g_strNatspecDev = "devdoc";
 static string const g_strNatspecUser = "userdoc";
@@ -283,6 +284,14 @@ Allowed options)",
 			po::value<string>()->value_name("prefixName"),
 			"Set prefix of names of output files (*.code, *abi.json and *.ast.json)."
 		)
+		(
+			(g_strIncludePath + ",i").c_str(),
+			po::value<vector<string>>()->value_name("path/to/dir"),
+			"Make an additional source directory available to the default import callback. "
+			"Use this option if you want to import contracts, whose location is not fixed in relation "
+			"to your main source tree, e.g. third-party libraries installed using a package manager. "
+			"Can be used multiple times. "
+		)
 		;
 	po::options_description outputComponents("Output Components");
 	outputComponents.add_options()
@@ -440,6 +449,19 @@ bool CommandLineInterface::processInput()
 		string fileName = m_args[g_argInputFile].as<string>();
 		fileName = boost::filesystem::canonical(fileName).string();
 		m_compiler->setInputFile(fileName);
+
+		if (m_args.count(g_strIncludePath) > 0)
+		{
+			for (string const& includePath: m_args[g_strIncludePath].as<vector<string>>())
+			{
+				if (includePath.empty())
+				{
+					serr() << "Empty values are not allowed in --" << g_strIncludePath << "." << endl;
+					return false;
+				}
+				m_compiler->addIncludePath(includePath);
+			}
+		}
 
 		bool successful = true;
 		bool didCompileSomething = false;

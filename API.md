@@ -177,6 +177,7 @@ contract development.
     * [msg.isInternal, msg.isExternal and msg.isTickTock](#msgisinternal-msgisexternal-and-msgisticktock)
     * [msg.createdAt](#msgcreatedat)
     * [msg.data](#msgdata)
+    * [msg.hasStateInit](#msghasstateinit)
   * [**tvm** namespace](#tvm-namespace)
     * [TVM instructions](#tvm-instructions)
       * [tvm.accept()](#tvmaccept)
@@ -2738,7 +2739,7 @@ uint8 refs = b.refs(); // refs == 1
 ##### msg.sender
 
 ```TVMSolidity
-msg.sender returns (address);
+msg.sender (address)
 ```
 
 Returns:
@@ -2750,7 +2751,7 @@ Returns:
 ##### msg.value
 
 ```TVMSolidity
-msg.value returns (uint128);
+msg.value (uint128)
 ```
 
 Returns:
@@ -2762,7 +2763,7 @@ Returns:
 ##### msg.currencies
 
 ```TVMSolidity
-msg.currencies returns (ExtraCurrencyCollection);
+msg.currencies (ExtraCurrencyCollection)
 ```
 
 Collections of arbitrary currencies contained in the balance of
@@ -2784,7 +2785,7 @@ Returns flag whether the contract is called by internal message, external messag
 ##### msg.createdAt
 
 ```TVMSolidity
-msg.createdAt returns (uint32);
+msg.createdAt (uint32)
 ```
 
 Returns the field **created_at** of the external inbound message.
@@ -2792,10 +2793,19 @@ Returns the field **created_at** of the external inbound message.
 ##### msg.data
 
 ```TVMSolidity
-msg.data returns (TvmSlice);
+msg.data (TvmSlice)
 ```
 
 Returns the payload of an inbound message.
+
+##### msg.hasStateInit
+
+```TVMSolidity
+msg.hasStateInit (bool)
+```
+
+Whether the internal/external inbound message contains field `stateInit`.
+Returns undefined value for tick/tock transaction. See [TL-B scheme][3] of `Message X`.
 
 #### **tvm** namespace
 

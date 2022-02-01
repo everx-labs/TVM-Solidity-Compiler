@@ -1,3 +1,14 @@
+### 0.57.0 (2022-02-01)
+
+Compiler features:
+ * Added `--include-path` option to support import from different folders.
+ * Supported `msg.hasStateInit`.
+
+Bugfix:
+ * Fixed `<string>.substr()`, `bytes[x:y]` that threw an exception if the length is equal to `127`,
+`2*127`, `3*127`..., `startIndex` is equal to `string`/`bytes` length and length of substring is
+equal to zero.
+
 ### 0.56.0 (2022-01-24)
 
 Code size optimization.

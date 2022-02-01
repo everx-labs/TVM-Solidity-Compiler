@@ -294,6 +294,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::Math, "muldivr"},
 			{MagicType::Kind::Math, "sign"},
 			{MagicType::Kind::Message, "createdAt"},
+			{MagicType::Kind::Message, "hasStateInit"},
 			{MagicType::Kind::Message, "currencies"},
 			{MagicType::Kind::Message, "data"},
 			{MagicType::Kind::Message, "isExternal"},

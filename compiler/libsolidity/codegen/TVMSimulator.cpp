@@ -352,7 +352,7 @@ bool Simulator::visit(SubProgram &_node) {
 		return false;
 	}
 	m_stackSize += _node.ret();
-	m_commands.emplace_back(createNode<SubProgram>(_node.take(), _node.ret(), _node.isJmp(), res.value().first));
+	m_commands.emplace_back(createNode<SubProgram>(_node.take(), _node.ret(), _node.isJmp(), res.value().first, _node.isPure()));
 	return false;
 }
 

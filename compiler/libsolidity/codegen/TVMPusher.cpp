@@ -516,7 +516,7 @@ void StackPusher::recoverKeyAndValueAfterDictOperation(
 				}
 				preload(valueType);
 				if (pushCallRef) {
-					pushRefContAndCallX(1, 1);
+					pushRefContAndCallX(1, 1, false);
 				}
 				break;
 			}
@@ -543,7 +543,7 @@ void StackPusher::recoverKeyAndValueAfterDictOperation(
 			}
 			preloadValue();
 			if (pushRefCont) {
-				pushRefContAndCallX(1, 1);
+				pushRefContAndCallX(1, 1, false);
 			}
 			break;
 		case DecodeType::DecodeValueOrPushDefault: {
@@ -886,22 +886,22 @@ void StackPusher::endLogCircuit(LogCircuit::Type type) {
 	m_instructions.back().push_back(lc);
 }
 
-void StackPusher::callRefOrCallX(int take, int ret, bool _isJmp, CodeBlock::Type _blockType) {
+void StackPusher::callRefOrCallX(int take, int ret, bool _isJmp, CodeBlock::Type _blockType, bool isPure) {
 	solAssert(!m_instructions.empty(), "");
 	std::vector<Pointer<TvmAstNode>> block = m_instructions.back();
 	m_instructions.pop_back();
 	auto b = createNode<CodeBlock>(_blockType, block);
-	auto subProg = createNode<SubProgram>(take, ret, _isJmp, b);
+	auto subProg = createNode<SubProgram>(take, ret, _isJmp, b, isPure);
 	solAssert(!m_instructions.empty(), "");
 	m_instructions.back().push_back(subProg);
 }
 
-void StackPusher::pushRefContAndCallX(int take, int ret) {
-	callRefOrCallX(take, ret, false, CodeBlock::Type::PUSHREFCONT);
+void StackPusher::pushRefContAndCallX(int take, int ret, bool isPure) {
+	callRefOrCallX(take, ret, false, CodeBlock::Type::PUSHREFCONT, isPure);
 }
 
-void StackPusher::pushContAndCallX(int take, int ret) {
-	callRefOrCallX(take, ret, false, CodeBlock::Type::PUSHCONT);
+void StackPusher::pushContAndCallX(int take, int ret, bool isPure) {
+	callRefOrCallX(take, ret, false, CodeBlock::Type::PUSHCONT, isPure);
 }
 
 void StackPusher::ifElse(bool withJmp) {
@@ -1094,19 +1094,19 @@ void StackPusher::getGlob(VariableDeclaration const *vd) {
 
 void StackPusher::getGlob(int index) {
 	solAssert(index >= 0, "");
-	Pointer<Inst> opcode = makeGetGlob(index);
+	Pointer<TvmAstNode> opcode = makeGetGlob(index);
 	change(+1);
 	m_instructions.back().push_back(opcode);
 }
 
 void StackPusher::pushRoot() {
-	Pointer<Inst> opcode = createNode<Glob>(Glob::Opcode::PUSHROOT);
+	Pointer<TvmAstNode> opcode = createNode<Glob>(Glob::Opcode::PUSHROOT);
 	change(+1);
 	m_instructions.back().push_back(opcode);
 }
 
 void StackPusher::popRoot() {
-	Pointer<Inst> opcode = createNode<Glob>(Glob::Opcode::POPROOT);
+	Pointer<TvmAstNode> opcode = createNode<Glob>(Glob::Opcode::POPROOT);
 	change(-1);
 	m_instructions.back().push_back(opcode);
 }
@@ -1142,7 +1142,7 @@ void StackPusher::execute(int take, int ret) {
 }
 
 void StackPusher::setGlob(int index) {
-	Pointer<Inst> opcode = makeSetGlob(index);
+	Pointer<TvmAstNode> opcode = makeSetGlob(index);
 	change(-1);
 	m_instructions.back().push_back(opcode);
 }
@@ -1669,7 +1669,7 @@ void StackPusher::hardConvert(Type const *leftType, Type const *rightType) {
 		endContinuation();
 		ifElse();
 		endOpaque(1, 1);
-		pushRefContAndCallX(1, 1);
+		pushRefContAndCallX(1, 1, false);
 	};
 
 	auto fixedBytesFromStringLiteral = [this](FixedBytesType const* l, StringLiteralType const* r) {
@@ -1954,7 +1954,7 @@ void StackPusher::pushParameter(std::vector<ASTPointer<VariableDeclaration>> con
 void StackPusher::pushMacroCallInCallRef(int take, int ret, const string& functionName) {
 	startContinuation();
 	pushCall(take, ret, functionName);
-	pushRefContAndCallX(take, ret);
+	pushRefContAndCallX(take, ret, false);
 }
 
 void StackPusher::pushCallOrCallRef(

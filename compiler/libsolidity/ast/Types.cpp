@@ -3882,6 +3882,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"sender", TypeProvider::address()},
 			{"pubkey", TypeProvider::function(strings(), strings{"uint"}, FunctionType::Kind::MsgPubkey, false, StateMutability::Pure)},
 			{"createdAt", TypeProvider::uint(32)},
+			{"hasStateInit", TypeProvider::boolean()},
 			{"gas", TypeProvider::uint256()},
 			{"value", TypeProvider::uint(128)},
 			{"data", TypeProvider::tvmslice()},
