@@ -867,6 +867,14 @@ string const& CompilerStack::Source::ipfsUrl() const
 StringMap CompilerStack::loadMissingSources(SourceUnit const& _ast, std::string const& _sourcePath)
 {
 	solAssert(m_stackState < ParsingPerformed, "");
+	std::sort(m_includePaths.begin(), m_includePaths.end());
+	m_includePaths.erase(std::unique(m_includePaths.begin(), m_includePaths.end()), m_includePaths.end());
+	auto main_src_dir = boost::filesystem::path(_sourcePath).remove_filename();
+	std::for_each(m_includePaths.begin(), m_includePaths.end(), [&main_src_dir](std::string &path) {
+		auto b_path = boost::filesystem::path(path);
+		if (!b_path.is_absolute())
+			path = boost::filesystem::canonical(boost::filesystem::path(path), main_src_dir).string();
+	});
 	StringMap newSources;
 	for (auto const& node: _ast.nodes())
 		if (ImportDirective const* import = dynamic_cast<ImportDirective*>(node.get()))
@@ -902,18 +910,39 @@ StringMap CompilerStack::loadMissingSources(SourceUnit const& _ast, std::string 
 				}
 				import_path = imp_path.string();
 			} else {
-				imp_path = boost::filesystem::path(_sourcePath).remove_filename() / imp_path;
-			}
+				auto baseDir = src_dir;
+				std::vector<boost::filesystem::path> existing_paths;
+				if (boost::filesystem::exists(baseDir / imp_path))
+					existing_paths.push_back(baseDir);
 
-			if (!boost::filesystem::exists(imp_path)) {
-				m_errorReporter.parserError(
-					import->location(),
-					string("Source \"" + import_path + "\" doesn't exist.")
-				);
-				continue;
+				// Find suitable import base directory
+				for (std::string const& includePath : m_includePaths) {
+					baseDir = boost::filesystem::path(includePath);
+					if (baseDir == src_dir)
+						continue;
+					if (boost::filesystem::exists(baseDir / imp_path)) {
+						existing_paths.push_back(baseDir);
+					}
+				}
+				if (existing_paths.empty()) {
+					m_errorReporter.parserError(
+							import->location(),
+							string("Source \"" + import_path + "\" doesn't exist.")
+					);
+					continue;
+				} else if (existing_paths.size() >= 2) {
+					std::string list = "List of paths: \n";
+					for (auto path: existing_paths) {
+						list += path.string() + "\n";
+					}
+					m_errorReporter.parserError(
+							import->location(),
+							string("Source \"" + import_path + "\" can be imported from more than one directory.").append(list)
+					);
+				}
+				src_dir = existing_paths.back();
 			}
-			string importPath = boost::filesystem::canonical(import_path,
-				boost::filesystem::path(_sourcePath).remove_filename()).string();
+			string importPath = boost::filesystem::canonical(import_path, src_dir).string();
 
 			// The current value of `path` is the absolute path as seen from this source file.
 			// We first have to apply remappings before we can store the actual absolute path
@@ -926,7 +955,7 @@ StringMap CompilerStack::loadMissingSources(SourceUnit const& _ast, std::string 
 			ReadCallback::Result result{false, string("File not supplied initially.")};
 			if (m_readFile) {
 				if (!boost::filesystem::path(importPath).is_absolute())
-					importPath = (boost::filesystem::path(_sourcePath).remove_filename() / importPath).string();
+					importPath = (src_dir / importPath).string();
 				result = m_readFile(ReadCallback::kindString(ReadCallback::Kind::ReadFile), importPath);
 			}
 			if (result.success)

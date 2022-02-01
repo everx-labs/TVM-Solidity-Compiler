@@ -177,10 +177,10 @@ public:
 	void endLogCircuit(LogCircuit::Type type);
 
 private:
-	void callRefOrCallX(int take, int ret, bool _isJmp, CodeBlock::Type _blockType);
+	void callRefOrCallX(int take, int ret, bool _isJmp, CodeBlock::Type _blockType, bool isPure);
 public:
-	void pushRefContAndCallX(int take, int ret);
-	void pushContAndCallX(int take, int ret);
+	void pushRefContAndCallX(int take, int ret, bool isPure);
+	void pushContAndCallX(int take, int ret, bool isPure);
 
 
 	void ifElse(bool useJmp = false);

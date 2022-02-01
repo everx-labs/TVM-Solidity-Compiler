@@ -195,6 +195,10 @@ public:
 		m_inputFile = inputFile;
 	}
 
+	void addIncludePath(const std::string& inputPath) {
+		m_includePaths.push_back(inputPath);
+	}
+
 	void printFunctionIds() {
 		m_doPrintFunctionIds = true;
 	}
@@ -481,6 +485,7 @@ private:
 	std::string m_folder;
 	std::string m_file_prefix;
 	std::string m_inputFile;
+	std::vector<std::string> m_includePaths;
 	bool m_forceUpdate = false;
 	bool m_doPrintFunctionIds = false;
 };

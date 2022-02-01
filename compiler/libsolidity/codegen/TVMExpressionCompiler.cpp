@@ -731,6 +731,7 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 			solUnimplemented("");
 		}
 	} else  if (_node.memberName() == "createdAt") { // msg.createdAt
+		m_pusher.startContinuation();
 		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
 				"DEPTH",
 				"ADDCONST -5",
@@ -756,7 +757,48 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 				"}",
 				"IFELSE",
 		}, 0, 1, true));
+		m_pusher.pushRefContAndCallX(0, 1, true);
+	} else  if (_node.memberName() == "hasStateInit") { // msg.hasStateInit
+		m_pusher.startContinuation();
+		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
+				"DEPTH",
+				"ADDCONST -3",
+				"PICK",
+				"CTOS",
+				"DEPTH",
+				"ADDCONST -5",
+				"PICK",
+				"PUSHCONT {",
+					// ext_in_msg_info$10 src:MsgAddressExt dest:MsgAddressInt
+					//  import_fee:Grams = CommonMsgInfo;
+				"	LDU 2",
+				"	LDMSGADDR",
+				"	LDMSGADDR",
+				"	LDGRAMS",
+				"	PLDI 1",
+				"	BLKDROP2 4, 1",
+				"}",
+				"PUSHCONT {",
+					// int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+					//  src:MsgAddressInt dest:MsgAddressInt
+					//  value:CurrencyCollection ihr_fee:Grams fwd_fee:Grams
+					//  created_lt:uint64 created_at:uint32 = CommonMsgInfo;
+				"	LDU 4",
+				"	LDMSGADDR",
+				"	LDMSGADDR",
+				"	LDGRAMS",
+				"	LDDICT",
+				"	LDGRAMS",
+				"	LDGRAMS",
+				"	LDU 96",
+				"	PLDI 1",
+				"	BLKDROP2 8, 1",
+				"}",
+				"IFELSE",
+		}, 0, 1, true));
+		m_pusher.pushRefContAndCallX(0, 1, true);
 	} else if (_node.memberName() == "currencies") { // msg.currencies
+		m_pusher.startContinuation();
 		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
 			"DEPTH",
 			"ADDCONST -5",
@@ -778,6 +820,7 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 			"}",
 			"IFELSE"
 		}, 0, 1, true));
+		m_pusher.pushRefContAndCallX(0, 1, true);
 	} else if (_node.memberName() == "data") {
 		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
 			"DEPTH",
@@ -975,7 +1018,7 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 			m_pusher.push(-1 + 1, "MULCONST 8");
 			m_pusher.push(-2 + 1, "SDSKIPFIRST");
 			m_pusher.push(-1 + 1, "PLDU 8");
-			m_pusher.pushRefContAndCallX(2, 1);
+			m_pusher.pushRefContAndCallX(2, 1, false);
 			return;
 		} else {
 			compileNewExpr(indexAccess.indexExpression()); // index

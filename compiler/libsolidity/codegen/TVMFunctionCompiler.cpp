@@ -680,7 +680,7 @@ void TVMFunctionCompiler::visitModifierOrFunctionBlock(Block const &body, int ar
 			++retQty;
 			solAssert(argQty > 0, "");
 		}
-		m_pusher.pushContAndCallX(argQty, retQty);
+		m_pusher.pushContAndCallX(argQty, retQty, false);
         pushLocation(*m_function, true);
 	}
 }
@@ -999,7 +999,7 @@ void TVMFunctionCompiler::doWhile(WhileStatement const &_whileStatement) {
 		m_pusher.startContinuation();
 		_whileStatement.body().accept(*this);
 		m_pusher.drop(m_pusher.stackSize() - ss);
-		m_pusher.pushContAndCallX(0, 0); // TODO check
+		m_pusher.pushContAndCallX(0, 0, false); // TODO check
 	} else {
 		_whileStatement.body().accept(*this);
 		m_pusher.drop(m_pusher.stackSize() - ss);
@@ -1335,7 +1335,7 @@ void TVMFunctionCompiler::visitBodyOfForLoop(
 		m_pusher.startContinuation();
 		body.accept(*this);
 		m_pusher.drop(m_pusher.stackSize() - ss);
-		m_pusher.pushContAndCallX(0, 0); // TODO check
+		m_pusher.pushContAndCallX(0, 0, false); // TODO check
 	} else {
 		int ss = m_pusher.stackSize();
 		body.accept(*this);
@@ -1694,7 +1694,7 @@ void TVMFunctionCompiler::callPublicFunctionOrFallback() {
 		m_pusher.drop(2);
 		m_pusher.startContinuation();
 		m_pusher.pushCall(0, 0, "fallback_macro");
-		m_pusher.pushRefContAndCallX(0, 0);
+		m_pusher.pushRefContAndCallX(0, 0, false);
 	} else {
 		m_pusher._throw("THROW " + toString(TvmConst::RuntimeException::NoFallback));
 	}

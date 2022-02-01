@@ -265,6 +265,7 @@ CallableDeclaration const * getFunctionDeclarationOrConstructor(Expression const
 
 bool isEmptyFunction(FunctionDefinition const* f);
 
+// TODO delete
 enum class LocationReturn {
 	noReturn,
 	Last,

@@ -173,6 +173,14 @@ std::string GenOpcode::fullOpcode() const {
 
 bool GenOpcode::operator==(TvmAstNode const& _node) const {
 	auto gen = to<GenOpcode>(&_node);
+	if (gen) {
+		if (
+			(isIn(fullOpcode(), "TRUE", "PUSHINT -1") && isIn(gen->fullOpcode(), "TRUE", "PUSHINT -1")) ||
+			(isIn(fullOpcode(), "FALSE", "PUSHINT 0") && isIn(gen->fullOpcode(), "FALSE", "PUSHINT 0"))
+		) {
+			return true;
+		}
+	}
 	return gen && std::tie(m_opcode, m_arg) == std::tie(gen->m_opcode, gen->m_arg);
 }
 
@@ -879,15 +887,9 @@ Pointer<TvmCondition> makeRevertCond(TvmCondition const& node) {
 	return createNode<TvmCondition>(node.falseBody(), node.trueBody(), node.ret());
 }
 
-bool isPureGen01OrGetGlob(TvmAstNode const& node) {
-	if (auto gen = to<Gen>(&node)) {
-		return gen->isPure() && std::make_pair(gen->take(), gen->ret()) == std::make_pair(0, 1);
-	}
-	auto gl = to<Glob>(&node);
-	if (gl && gl->opcode() == Glob::Opcode::GetOrGetVar) {
-		return true;
-	}
-	return false;
+bool isPureGen01(TvmAstNode const& node) {
+	auto gen = to<Gen>(&node);
+	return gen && gen->isPure() && gen->take() == 0 && gen->ret() == 1;
 }
 
 bool isSWAP(Pointer<TvmAstNode> const& node) {
@@ -903,18 +905,18 @@ std::optional<std::pair<int, int>> isBLKSWAP(Pointer<TvmAstNode> const& node) {
 		switch (stack->opcode()) {
 			case Stack::Opcode::BLKSWAP:
 				return {{i, j}};
-				case Stack::Opcode::XCHG: {
-					if (i == 0 && j == 1)
-						return {{1, 1}};
-					break;
-				}
-				case Stack::Opcode::REVERSE: {
-					if (i == 2 && j == 0)
-						return {{1, 1}};
-					break;
-				}
-				default:
-					break;
+			case Stack::Opcode::XCHG: {
+				if (i == 0 && j == 1)
+					return {{1, 1}};
+				break;
+			}
+			case Stack::Opcode::REVERSE: {
+				if (i == 2 && j == 0)
+					return {{1, 1}};
+				break;
+			}
+			default:
+				break;
 		}
 	}
 	return {};
@@ -945,6 +947,23 @@ std::optional<int> isPOP(Pointer<TvmAstNode> const& node) {
 			break;
 		default:
 			break;
+		}
+	}
+	return {};
+}
+
+std::optional<std::pair<int, int>> isBLKPUSH(Pointer<TvmAstNode> const& node) {
+	auto stack = to<Stack>(node.get());
+	if (stack) {
+		switch (stack->opcode()) {
+			case Stack::Opcode::BLKPUSH:
+				return {{stack->i(), stack->j()}};
+			case Stack::Opcode::PUSH_S:
+				if (stack->i() == 0)
+					return {{1, 0}};
+				break;
+			default:
+				break;
 		}
 	}
 	return {};

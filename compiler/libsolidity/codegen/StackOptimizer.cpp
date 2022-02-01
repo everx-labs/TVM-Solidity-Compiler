@@ -411,7 +411,7 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 		}
 	}
 
-	if (!ok && isPureGen01OrGetGlob(*op)) {
+	if (!ok && isPureGen01(*op)) {
 		int startStackSize = 1;
 		Simulator sim{instructions.begin() + index + 1, instructions.end(), startStackSize, 1};
 		if (sim.success()) {

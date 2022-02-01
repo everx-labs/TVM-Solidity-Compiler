@@ -47,10 +47,7 @@ namespace solidity::frontend
 		virtual bool operator==(TvmAstNode const& _node) const = 0;
 	};
 
-	class Inst : public TvmAstNode { // TODO delete ?
-	};
-
-	class Loc : public Inst {
+	class Loc : public TvmAstNode {
 	public:
 		explicit Loc(std::string  _file, int _line) : m_file{std::move(_file)}, m_line{_line} { }
 		void accept(TvmAstVisitor& _visitor) override;
@@ -62,7 +59,7 @@ namespace solidity::frontend
 		int m_line;
 	};
 
-	class Stack : public Inst {
+	class Stack : public TvmAstNode {
 	public:
 		enum class Opcode {
 			DROP,
@@ -96,7 +93,7 @@ namespace solidity::frontend
 	};
 
 	// abstract
-	class Gen : public Inst {
+	class Gen : public TvmAstNode {
 	public:
 		explicit Gen(bool _isPure) : m_isPure{_isPure} {}
 		virtual int take() const = 0;
@@ -135,7 +132,7 @@ namespace solidity::frontend
 
 	class CodeBlock;
 
-	class DeclRetFlag : public Inst {
+	class DeclRetFlag : public TvmAstNode {
 	public:
 		void accept(TvmAstVisitor& _visitor) override;
 		bool operator==(TvmAstNode const&) const override;
@@ -156,7 +153,7 @@ namespace solidity::frontend
 		int m_ret{};
 	};
 
-	class AsymGen : public Inst {
+	class AsymGen : public TvmAstNode {
 	public:
 		explicit AsymGen(std::string opcode, int take, int retMin, int retMax) :
 				m_opcode(std::move(opcode)), m_take{take}, m_retMin{retMin}, m_retMax{retMax} {}
@@ -207,7 +204,7 @@ namespace solidity::frontend
 		int m_ret;
 	};
 
-	class TvmReturn : public Inst {
+	class TvmReturn : public TvmAstNode {
 	public:
 		TvmReturn(bool _withIf, bool _withNot, bool _withAlt);
 		void accept(TvmAstVisitor& _visitor) override;
@@ -221,7 +218,7 @@ namespace solidity::frontend
 		bool m_withAlt{};
 	};
 
-	class ReturnOrBreakOrCont : public Inst {
+	class ReturnOrBreakOrCont : public TvmAstNode {
 	public:
 		explicit ReturnOrBreakOrCont(int _take, Pointer<CodeBlock> const &body) :
 			m_take{_take},
@@ -237,7 +234,7 @@ namespace solidity::frontend
 		Pointer<CodeBlock> m_body;
 	};
 
-	class TvmException : public Inst {
+	class TvmException : public TvmAstNode {
 	public:
 		explicit TvmException(bool _arg, bool _any, bool _if, bool _not, const std::string& _param) :
 			m_arg{_arg},
@@ -289,7 +286,7 @@ namespace solidity::frontend
 		Type type() const  { return m_type; }
 		std::string const &blob() const { return m_blob; }
 		Pointer<PushCellOrSlice> child() const { return m_child; };
-		bool equal(PushCellOrSlice const& another) const;
+		bool equal(PushCellOrSlice const& another) const; // TODO delete
 		void updToRef();
 	private:
 		Type m_type;
@@ -297,7 +294,7 @@ namespace solidity::frontend
 		Pointer<PushCellOrSlice> m_child;
 	};
 
-	class CodeBlock : public Inst {
+	class CodeBlock : public TvmAstNode {
 	public:
 		enum class Type {
 			None,
@@ -323,8 +320,8 @@ namespace solidity::frontend
 
 	class SubProgram : public Gen {
 	public:
-		SubProgram(int take, int ret, bool _isJmp, Pointer<CodeBlock> const &_block) :
-			Gen{false},
+		SubProgram(int take, int ret, bool _isJmp, Pointer<CodeBlock> const &_block, bool isPure) :
+			Gen{isPure},
 			m_take{take},
 			m_ret{ret},
 			m_isJmp{_isJmp},
@@ -345,7 +342,7 @@ namespace solidity::frontend
 	};
 
 	// e.g.: b || f ? a + b : c / d;
-	class TvmCondition : public Inst {
+	class TvmCondition : public TvmAstNode {
 	public:
 		TvmCondition(Pointer<CodeBlock> const &trueBody, Pointer<CodeBlock> const &falseBody, int ret) :
 			mTrueBody{trueBody},
@@ -537,11 +534,12 @@ namespace solidity::frontend
 	Pointer<TvmIfElse> makeRevert(TvmIfElse const& node);
 	Pointer<TvmCondition> makeRevertCond(TvmCondition const& node);
 
-	bool isPureGen01OrGetGlob(TvmAstNode const& node);
+	bool isPureGen01(TvmAstNode const& node);
 	bool isSWAP(Pointer<TvmAstNode> const& node);
 	std::optional<std::pair<int, int>> isBLKSWAP(Pointer<TvmAstNode> const& node);
 	std::optional<int> isDrop(Pointer<TvmAstNode> const& node);
 	std::optional<int> isPOP(Pointer<TvmAstNode> const& node);
+	std::optional<std::pair<int, int>> isBLKPUSH(Pointer<TvmAstNode> const& node);
 	bool isXCHG(Pointer<TvmAstNode> const& node, int i, int j);
 	std::optional<int> isXCHG_S0(Pointer<TvmAstNode> const& node);
 	std::optional<std::pair<int, int>> isREVERSE(Pointer<TvmAstNode> const& node);

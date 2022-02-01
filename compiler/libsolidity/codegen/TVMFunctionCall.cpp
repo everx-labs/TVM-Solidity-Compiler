@@ -578,7 +578,7 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 		vector<Type const*> types = getParams(functionDefinition->returnParameters()).first;
 		decoder.decodePublicFunctionParameters(types, false, true);
 		m_pusher.push(-1, ""); // fix stack
-		m_pusher.pushRefContAndCallX(0, 0);
+		m_pusher.pushRefContAndCallX(0, 0, false);
 		m_pusher.endOpaque(1, types.size()); // take one parameter - it's dest address
 	}
 	return true;
@@ -1394,7 +1394,7 @@ bool FunctionCallCompiler::checkForTvmVectorMethods(MemberAccess const &_node, T
 		m_pusher.endOpaque(2, 1);
 
 		// end callref
-		m_pusher.pushRefContAndCallX(2, 1);
+		m_pusher.pushRefContAndCallX(2, 1, false);
 
 		m_exprCompiler.collectLValue(lValueInfo, true, false);
 		return true;
@@ -1440,7 +1440,7 @@ bool FunctionCallCompiler::checkForTvmVectorMethods(MemberAccess const &_node, T
 		m_pusher.endOpaque(1, 2);
 
 		// end callref
-		m_pusher.pushRefContAndCallX(1, 2);
+		m_pusher.pushRefContAndCallX(1, 2, false);
 
 		m_exprCompiler.collectLValue(lValueInfo, true, false);
 		// last_el
@@ -1487,7 +1487,7 @@ bool FunctionCallCompiler::checkForTvmVectorMethods(MemberAccess const &_node, T
 		m_pusher.endOpaque(1, 1, true);
 
 		// end callref
-		m_pusher.pushRefContAndCallX(1, 1);
+		m_pusher.pushRefContAndCallX(1, 1, false);
 		return true;
 	}
 
@@ -3294,7 +3294,7 @@ void FunctionCallCompiler::checkStateInit() {
 	m_pusher.push(-1, "ENDS");
 	m_pusher.drop(3);
 
-	m_pusher.pushRefContAndCallX(1, 0);
+	m_pusher.pushRefContAndCallX(1, 0, false);
 }
 
 bool FunctionCallCompiler::checkNewExpression() {

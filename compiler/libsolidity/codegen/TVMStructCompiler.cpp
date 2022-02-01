@@ -148,7 +148,7 @@ void StructCompiler::tupleToBuilder() {
 	ChainDataEncoder encoder{pusher};
 	DecodePositionAbiV2 position{0, 0, m_types};
 	encoder.encodeParameters(m_types, position);
-	pusher->pushRefContAndCallX(1, 1);
+	pusher->pushRefContAndCallX(1, 1, false);
 	// stack: builder
 	const int curSize = pusher->stackSize();
 
