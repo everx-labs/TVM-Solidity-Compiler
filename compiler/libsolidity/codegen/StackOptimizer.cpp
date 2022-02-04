@@ -399,6 +399,11 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 			}
 		}
 
+		// PUSH Si
+		// ... S[i] isn't used anymore
+		// =>
+		// ROLL i
+		// ...
 		if (!ok) {
 			int startStackSize = Si + 2;
 			Simulator sim{instructions.begin() + index + 1, instructions.end(), startStackSize, 1};

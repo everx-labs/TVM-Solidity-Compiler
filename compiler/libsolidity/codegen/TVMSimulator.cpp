@@ -496,6 +496,8 @@ Simulator::trySimulate(CodeBlock const& body, int begStackSize, int /*endStackSi
 		unableToConvertOpcode();
 		return {};
 	}
+	m_setGlobs.insert(sim.m_setGlobs.begin(), sim.m_setGlobs.end());
+	m_wasCall |= sim.m_wasCall;
 	// solAssert(sim.m_wasReturnBreakContinue || sim.m_stackSize == endStackSize, "");
 	return {{createNode<CodeBlock>(body.type(), sim.commands()), sim.m_isDropped && sim.m_wasReturnBreakContinue}};
 }

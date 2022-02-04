@@ -1,3 +1,8 @@
+### 0.57.1 (2022-02-04)
+
+Bugfixes:  
+ * Code optimizator: fix bug that caused swapping some opcodes.
+
 ### 0.57.0 (2022-02-01)
 
 Compiler features:
