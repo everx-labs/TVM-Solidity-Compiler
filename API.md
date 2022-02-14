@@ -2081,7 +2081,7 @@ pragma AbiHeader expire;
 
 Defines headers that are used in external messages:
 
-* `pubkey` (`uint256`) - optional public key that the message can be signed with.
+* `pubkey` (`uint256`) - optional public key that can be used to verify the signature of the message.
 * `time` (`uint64`)  - local time when message was created. Used for replay protection.
 * `expire` (`uint32`) - time when the message should be meant as expired.
 
