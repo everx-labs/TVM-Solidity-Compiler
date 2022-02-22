@@ -418,16 +418,19 @@ void TVMContractCompiler::optimizeCode(Pointer<Contract>& c) {
 	StackOptimizer opt;
 	c->accept(opt);
 
-	PeepholeOptimizer peepHole{false};
+	PeepholeOptimizer peepHole{false, false};
 	c->accept(peepHole);
 
 	opt = StackOptimizer{};
 	c->accept(opt);
 
-	peepHole = PeepholeOptimizer{false};
+	peepHole = PeepholeOptimizer{false, false};
 	c->accept(peepHole);
 
-	peepHole = PeepholeOptimizer{true};
+	peepHole = PeepholeOptimizer{true, false};
+	c->accept(peepHole);
+
+	peepHole = PeepholeOptimizer{true, true};
 	c->accept(peepHole);
 
 	LocSquasher sq = LocSquasher{};

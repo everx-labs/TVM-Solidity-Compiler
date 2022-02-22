@@ -1,3 +1,7 @@
+### 0.57.2 (2022-02-22)
+
+Assorted peephole stack optimizations.
+
 ### 0.57.1 (2022-02-04)
 
 Bugfixes:  

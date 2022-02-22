@@ -351,20 +351,6 @@ bool SubProgram::operator==(TvmAstNode const& _node) const {
 	return false;
 }
 
-void TvmCondition::accept(TvmAstVisitor& _visitor) {
-	if (_visitor.visit(*this))
-	{
-		mTrueBody->accept(_visitor);
-		mFalseBody->accept(_visitor);
-	}
-}
-
-bool TvmCondition::operator==(TvmAstNode const& _node) const {
-	auto c = to<TvmCondition>(&_node);
-	return c && std::tie(*mTrueBody.get(), *mFalseBody.get(), m_ret) ==
-				std::tie(*c->mTrueBody.get(), *c->mFalseBody.get(), c->m_ret);
-}
-
 void LogCircuit::accept(TvmAstVisitor& _visitor) {
 	if (_visitor.visit(*this))
 	{
@@ -378,11 +364,13 @@ bool LogCircuit::operator==(TvmAstNode const& _node) const {
 }
 
 TvmIfElse::TvmIfElse(bool _withNot, bool _withJmp, Pointer<CodeBlock> const &trueBody,
-					 Pointer<CodeBlock> const &falseBody) :
-		m_withNot{_withNot},
+					 Pointer<CodeBlock> const &falseBody, int ret) :
+		Gen{false},
+	 	m_withNot{_withNot},
 		m_withJmp{_withJmp},
 		m_trueBody(trueBody),
-		m_falseBody(falseBody)
+		m_falseBody(falseBody),
+		m_ret{ret}
 {
 	solAssert((m_withNot && falseBody == nullptr) || !m_withNot, "");
 }
@@ -668,6 +656,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 
 		{"CHKSIGNS", {3, 1}},
 		{"CHKSIGNU", {3, 1}},
+		{"CONDSEL", {3, 1}},
 		{"MULDIV", {3, 1}},
 		{"MULDIVC", {3, 1}},
 		{"MULDIVR", {3, 1}},
@@ -876,15 +865,11 @@ Pointer<Stack> makePUXC(int i, int j) {
 	return createNode<Stack>(Stack::Opcode::PUXC, i, j);
 }
 
-Pointer<TvmIfElse> makeRevert(TvmIfElse const& node) {
+Pointer<TvmIfElse> flipIfElse(TvmIfElse const& node) {
 	if (node.falseBody() == nullptr) {
-		return createNode<TvmIfElse>(!node.withNot(), node.withJmp(), node.trueBody(), node.falseBody());
+		return createNode<TvmIfElse>(!node.withNot(), node.withJmp(), node.trueBody(), node.falseBody(), node.ret());
 	}
-	return createNode<TvmIfElse>(node.withNot(), node.withJmp(), node.falseBody(), node.trueBody());
-}
-
-Pointer<TvmCondition> makeRevertCond(TvmCondition const& node) {
-	return createNode<TvmCondition>(node.falseBody(), node.trueBody(), node.ret());
+	return createNode<TvmIfElse>(node.withNot(), node.withJmp(), node.falseBody(), node.trueBody(), node.ret());
 }
 
 bool isPureGen01(TvmAstNode const& node) {
