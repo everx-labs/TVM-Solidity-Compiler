@@ -356,28 +356,6 @@ bool Simulator::visit(SubProgram &_node) {
 	return false;
 }
 
-bool Simulator::visit(TvmCondition &_node) {
-	if (rest() == 0) {
-		unableToConvertOpcode();
-		return false;
-	}
-	--m_stackSize;
-
-	std::array<Pointer<CodeBlock>, 2> bodies = {_node.trueBody(), _node.falseBody()};
-	for (Pointer<CodeBlock>& body : bodies) {
-		if (body) {
-			auto res = trySimulate(*body, m_stackSize, m_stackSize + _node.ret());
-			if (!res) {
-				return false;
-			}
-			body = res.value().first;
-		}
-	}
-	m_stackSize += _node.ret();
-	m_commands.emplace_back(createNode<TvmCondition>(bodies.at(0), bodies.at(1), _node.ret()));
-	return false;
-}
-
 bool Simulator::visit(LogCircuit &_node) {
 	if (rest() == 0) {
 		unableToConvertOpcode();
@@ -416,7 +394,8 @@ bool Simulator::visit(TvmIfElse &_node) {
 	if (_node.falseBody() != nullptr && wasDroped) {
 		m_isDropped = true;
 	}
-	m_commands.emplace_back(createNode<TvmIfElse>(_node.withNot(), _node.withJmp(), bodies.at(0), bodies.at(1)));
+	m_stackSize += _node.ret();
+	m_commands.emplace_back(createNode<TvmIfElse>(_node.withNot(), _node.withJmp(), bodies.at(0), bodies.at(1), _node.ret()));
 	return false;
 }
 

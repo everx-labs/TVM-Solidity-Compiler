@@ -44,7 +44,6 @@ namespace solidity::frontend
 		virtual bool visit(Stack &_node) { return visitNode(_node); }
 		virtual bool visit(CodeBlock &_node) { return visitNode(_node); }
 		virtual bool visit(SubProgram &_node) { return visitNode(_node); }
-		virtual bool visit(TvmCondition &_node) { return visitNode(_node); }
 		virtual bool visit(LogCircuit &_node) { return visitNode(_node); }
 		virtual bool visit(TvmIfElse &_node) { return visitNode(_node); }
 		virtual bool visit(TvmRepeat &_node) { return visitNode(_node); }
@@ -76,7 +75,6 @@ namespace solidity::frontend
 		bool visit(Stack &_node) override;
 		bool visit(CodeBlock &_node) override;
 		bool visit(SubProgram &_node) override;
-		bool visit(TvmCondition &_node) override;
 		bool visit(LogCircuit &_node) override;
 		bool visit(TvmIfElse &_node) override;
 		bool visit(TvmRepeat &_node) override;

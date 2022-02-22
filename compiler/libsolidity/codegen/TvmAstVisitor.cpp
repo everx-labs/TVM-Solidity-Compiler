@@ -471,14 +471,6 @@ bool Printer::visit(SubProgram &_node) {
 	return false;
 }
 
-bool Printer::visit(TvmCondition &_node)  {
-	_node.trueBody()->accept(*this);
-	_node.falseBody()->accept(*this);
-	tabs();
-	m_out << "IFELSE" << std::endl;
-	return false;
-}
-
 bool Printer::visit(LogCircuit &_node) {
 	tabs();
 	m_out << "PUSHCONT {" << std::endl;
@@ -561,6 +553,15 @@ bool Printer::visit(TvmIfElse &_node) {
 			m_out << "IFREFELSE {" << std::endl;
 			++m_tab;
 			for (Pointer<TvmAstNode> const& n : _node.trueBody()->instructions()) {
+				n->accept(*this);
+			}
+			--m_tab;
+			m_out << "}" << std::endl;
+		} else  if (_node.falseBody()->type() == CodeBlock::Type::PUSHREFCONT) {
+			_node.trueBody()->accept(*this);
+			m_out << "IFELSEREF {" << std::endl;
+			++m_tab;
+			for (Pointer<TvmAstNode> const& n : _node.falseBody()->instructions()) {
 				n->accept(*this);
 			}
 			--m_tab;

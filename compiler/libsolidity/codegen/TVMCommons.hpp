@@ -354,6 +354,8 @@ namespace StrUtils {
 	std::string tonsToBinaryString(bigint value);
 	std::string boolToBinaryString(bool value);
 	std::string literalToSliceAddress(Literal const* literal);
+	bigint toBigint(const std::string& binStr);
+	std::string toBinString(bigint num);
 }
 
 } // end solidity::frontend

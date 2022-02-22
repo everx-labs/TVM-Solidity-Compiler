@@ -607,4 +607,25 @@ std::string StrUtils::literalToSliceAddress(Literal const* literal) {
 	return s;
 }
 
+bigint StrUtils::toBigint(const std::string& binStr) {
+	bigint res;
+	for (char ch : binStr) {
+		res <<= 1;
+		if (ch == '1')
+			++res;
+	}
+	return res;
+}
+
+std::string StrUtils::toBinString(bigint num) {
+	solAssert(num >= 0, "");
+	std::string res;
+	while (num != 0) {
+		res += num % 2 == 0 ? "0" : "1";
+		num /= 2;
+	}
+	std::reverse(res.begin(), res.end());
+	return res;
+}
+
 } // end namespace solidity::frontend

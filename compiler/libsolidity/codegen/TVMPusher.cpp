@@ -912,7 +912,7 @@ void StackPusher::ifElse(bool withJmp) {
 	auto trueBlock = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	solAssert(trueBlock != nullptr, "");
 	m_instructions.back().pop_back();
-	auto b = createNode<TvmIfElse>(false, withJmp, trueBlock, falseBlock);
+	auto b = createNode<TvmIfElse>(false, withJmp, trueBlock, falseBlock, 0);
 	m_instructions.back().push_back(b);
 }
 
@@ -924,7 +924,7 @@ void StackPusher::pushConditional(int ret) {
 	auto trueBlock = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	solAssert(trueBlock != nullptr, "");
 	m_instructions.back().pop_back();
-	auto b = createNode<TvmCondition>(trueBlock, falseBlock, ret);
+	auto b = createNode<TvmIfElse>(false, false, trueBlock, falseBlock, ret);
 	m_instructions.back().push_back(b);
 	push(ret, "");
 }
@@ -934,7 +934,7 @@ void StackPusher::if_or_ifNot(bool _withNot, bool _withJmp) {
 	auto trueBlock = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	solAssert(trueBlock, "");
 	m_instructions.back().pop_back();
-	auto b = createNode<TvmIfElse>(_withNot, _withJmp, trueBlock);
+	auto b = createNode<TvmIfElse>(_withNot, _withJmp, trueBlock, nullptr, 0);
 	m_instructions.back().push_back(b);
 }
 

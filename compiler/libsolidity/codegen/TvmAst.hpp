@@ -200,8 +200,8 @@ namespace solidity::frontend
 		std::string m_opcode;
 		std::string m_arg;
 		std::string m_comment;
-		int m_take;
-		int m_ret;
+		int m_take{};
+		int m_ret{};
 	};
 
 	class TvmReturn : public TvmAstNode {
@@ -313,6 +313,7 @@ namespace solidity::frontend
 		Type type() const { return m_type; }
 		std::vector<Pointer<TvmAstNode>> const& instructions() const { return m_instructions; }
 		void upd(std::vector<Pointer<TvmAstNode>> instructions) { m_instructions = std::move(instructions); }
+		void updType(Type type) { m_type = type; }
 	private:
 		Type m_type;
 		std::vector<Pointer<TvmAstNode>> m_instructions;
@@ -341,26 +342,6 @@ namespace solidity::frontend
 		Pointer<CodeBlock> m_block;
 	};
 
-	// e.g.: b || f ? a + b : c / d;
-	class TvmCondition : public TvmAstNode {
-	public:
-		TvmCondition(Pointer<CodeBlock> const &trueBody, Pointer<CodeBlock> const &falseBody, int ret) :
-			mTrueBody{trueBody},
-			mFalseBody{falseBody},
-			m_ret{ret}
-		{
-		}
-		int ret() const { return m_ret; }
-		void accept(TvmAstVisitor& _visitor) override;
-		bool operator==(TvmAstNode const&) const override;
-		Pointer<CodeBlock> const &trueBody() const { return mTrueBody; }
-		Pointer<CodeBlock> const &falseBody() const { return mFalseBody; }
-	private:
-		Pointer<CodeBlock> mTrueBody;
-		Pointer<CodeBlock> mFalseBody;
-		int m_ret{};
-	};
-
 	// Take one value from stack and return one
 	class LogCircuit : public TvmAstNode {
 	public:
@@ -382,22 +363,26 @@ namespace solidity::frontend
 		Pointer<CodeBlock> m_body;
 	};
 
-	class TvmIfElse : public TvmAstNode {
+	class TvmIfElse : public Gen {
 	public:
 		TvmIfElse(bool _withNot, bool _withJmp,
 				  Pointer<CodeBlock> const &trueBody,
-				  Pointer<CodeBlock> const &falseBody = nullptr);
+				  Pointer<CodeBlock> const &falseBody,
+				  int ret);
 		void accept(TvmAstVisitor& _visitor) override;
 		bool operator==(TvmAstNode const&) const override { return false; } // TODO
 		bool withNot() const { return m_withNot; }
 		bool withJmp() const { return m_withJmp; }
 		Pointer<CodeBlock> const& trueBody() const { return m_trueBody; }
 		Pointer<CodeBlock> const& falseBody() const { return m_falseBody; }
+		int take() const override { return  0; }
+		int ret() const override { return m_ret; }
 	private:
 		bool m_withNot{};
 		bool m_withJmp{};
 		Pointer<CodeBlock> m_trueBody;
 		Pointer<CodeBlock> m_falseBody; // nullptr for if-statement
+		int m_ret{};
 	};
 
 	class TvmRepeat : public TvmAstNode {
@@ -479,10 +464,10 @@ namespace solidity::frontend
 		FunctionType type() const { return m_type; }
 		Pointer<CodeBlock> const& block() const { return m_block; }
 	private:
-		int m_take;
-		int m_ret;
+		int m_take{};
+		int m_ret{};
 		std::string m_name;
-		FunctionType m_type;
+		FunctionType m_type{};
 		Pointer<CodeBlock> m_block;
 	};
 
@@ -531,8 +516,7 @@ namespace solidity::frontend
 	Pointer<Stack> makeBLKSWAP(int down, int top);
 	Pointer<Stack> makeTUCK();
 	Pointer<Stack> makePUXC(int i, int j);
-	Pointer<TvmIfElse> makeRevert(TvmIfElse const& node);
-	Pointer<TvmCondition> makeRevertCond(TvmCondition const& node);
+	Pointer<TvmIfElse> flipIfElse(TvmIfElse const& node);
 
 	bool isPureGen01(TvmAstNode const& node);
 	bool isSWAP(Pointer<TvmAstNode> const& node);

@@ -167,20 +167,6 @@ bool StackOptimizer::visit(SubProgram &_node) {
 	return false;
 }
 
-bool StackOptimizer::visit(TvmCondition &_node) {
-	int savedStack = size();
-	delta(-1);
-	for (const auto& body : {_node.trueBody(), _node.falseBody()}) {
-		startScope();
-		body->accept(*this);
-		solAssert(savedStack - 1 + _node.ret() == size(), "");
-		endScope();
-	}
-	delta(_node.ret());
-	solAssert(savedStack - 1 + _node.ret() == size(), "");
-	return false;
-}
-
 bool StackOptimizer::visit(LogCircuit &_node) {
 	int savedStack = size();
 	delta(-2);
@@ -207,6 +193,7 @@ bool StackOptimizer::visit(TvmIfElse &_node) {
 			solAssert(savedStack == size(), "");
 		}
 	}
+	delta(_node.ret());
 	return false;
 }
 
