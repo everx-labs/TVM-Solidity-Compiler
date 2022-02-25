@@ -1,3 +1,10 @@
+### 0.57.3 (2022-02-25)
+
+Bugfixes:
+ * Code size optimizator: fix bug that caused compilation error.
+ * Fix bug that caused compilation error if some arguments of `store[Unsigned|signed]` were not
+constants.
+
 ### 0.57.2 (2022-02-22)
 
 Assorted peephole stack optimizations.
