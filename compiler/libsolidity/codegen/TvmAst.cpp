@@ -292,7 +292,6 @@ bool PushCellOrSlice::equal(PushCellOrSlice const& another) const {
 }
 
 void PushCellOrSlice::updToRef() {
-	solAssert(m_type == Type::PUSHSLICE, "");
 	m_type = Type::PUSHREFSLICE;
 }
 
@@ -664,7 +663,9 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"SETINDEXVAR", {3, 1}},
 		{"SETINDEXVARQ", {3, 1}},
 		{"SSKIPFIRST", {3, 1}},
+		{"STIXR", {3, 1}},
 		{"STUX", {3, 1}},
+		{"STUXR", {3, 1}},
 
 		{"DICTDEL", {3, 2}},
 		{"DICTIDEL", {3, 2}},
