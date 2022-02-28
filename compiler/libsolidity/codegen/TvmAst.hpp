@@ -503,6 +503,7 @@ namespace solidity::frontend
 	Pointer<TvmReturn> makeIFRETALT();
 	Pointer<TvmReturn> makeIFRET();
 	Pointer<TvmReturn> makeIFNOTRET();
+	Pointer<TvmReturn> makeIFNOTRETALT();
 	Pointer<TvmException> makeTHROW(const std::string& cmd);
 	Pointer<Stack> makeXCH_S(int i);
 	Pointer<Stack> makeXCH_S_S(int i, int j);

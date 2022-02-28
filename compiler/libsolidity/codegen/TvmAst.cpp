@@ -776,6 +776,10 @@ Pointer<TvmReturn> makeIFNOTRET() {
 	return createNode<TvmReturn>(true, true, false);
 }
 
+Pointer<TvmReturn> makeIFNOTRETALT() {
+	return createNode<TvmReturn>(true, true, true);
+}
+
 Pointer<TvmException> makeTHROW(const std::string& cmd) {
 	std::string op;
 	std::string param;

@@ -275,7 +275,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt1(Pointer<TvmAstNode> 
 			auto ret = to<TvmReturn>(pos.get());
 			if (ret && !ret->withIf() && ret->withAlt()) {
 				if (cmd1IfElse->withNot())
-					return Result{1, makeIFNOTRET()};
+					return Result{1, makeIFNOTRETALT()};
 				return Result{1, makeIFRETALT()};
 			}
 		}
