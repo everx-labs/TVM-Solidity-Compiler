@@ -1,3 +1,9 @@
+### 0.58.0 (2022-02-28)
+
+Bugfixes:
+ * Peephole optimizator: fix bug that caused infinitive loops.
+ * Type checker: fix bug that caused compilation fail if you define a recursive struct.
+
 ### 0.57.3 (2022-02-25)
 
 Bugfixes:

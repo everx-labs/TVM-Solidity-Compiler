@@ -348,9 +348,8 @@ bool CompilerStack::analyze()
 		for (Source const* source: m_sourceOrder)
 			if (source->ast)
 				for (ASTPointer<ASTNode> const& node: source->ast->nodes())
-					if (ContractDefinition* contract = dynamic_cast<ContractDefinition*>(node.get()))
-						if (!typeChecker.checkTypeRequirements(*contract))
-							noErrors = false;
+					if (!typeChecker.checkTypeRequirements(*node))
+						noErrors = false;
 
 		if (noErrors)
 		{
