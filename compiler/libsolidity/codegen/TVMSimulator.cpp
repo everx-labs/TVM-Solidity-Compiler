@@ -260,7 +260,11 @@ bool Simulator::visit(Stack &_node) {
 			int minUpReverseIndex = j;
 			int maxDownReverseIndex = minUpReverseIndex + n - 1; // include
 			if (std::max(minUpIndex, minUpReverseIndex) > std::min(maxDownIndex, maxDownReverseIndex)) {
-				m_commands.emplace_back(_node.shared_from_this());
+				if (maxDownIndex < minUpReverseIndex) {
+					m_commands.emplace_back(makeREVERSE(n, j - m_segment));
+				} else {
+					m_commands.emplace_back(_node.shared_from_this());
+				}
 			} else {
 				unableToConvertOpcode();
 			}
