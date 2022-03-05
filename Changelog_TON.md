@@ -1,13 +1,18 @@
+### 0.58.1 (2022-03-01)
+
+Bugfixes:
+ * Optimizer: fix bug that caused generating bad code.
+
 ### 0.58.0 (2022-02-28)
 
 Bugfixes:
- * Peephole optimizator: fix bug that caused infinitive loops.
+ * Peephole optimizer: fix bug that caused infinitive loops.
  * Type checker: fix bug that caused compilation fail if you define a recursive struct.
 
 ### 0.57.3 (2022-02-25)
 
 Bugfixes:
- * Code size optimizator: fix bug that caused compilation error.
+ * Code size optimizer: fix bug that caused compilation error.
  * Fix bug that caused compilation error if some arguments of `store[Unsigned|signed]` were not
 constants.
 
@@ -18,7 +23,7 @@ Assorted peephole stack optimizations.
 ### 0.57.1 (2022-02-04)
 
 Bugfixes:  
- * Code optimizator: fix bug that caused swapping some opcodes.
+ * Code optimizer: fix bug that caused swapping some opcodes.
 
 ### 0.57.0 (2022-02-01)
 
