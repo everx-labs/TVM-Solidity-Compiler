@@ -1,3 +1,8 @@
+### 0.58.2 (2022-03-10)
+
+Bugfixes:
+ * Type checker: fix wrong conversion from `byte1[]` to `bytes`.
+
 ### 0.58.1 (2022-03-01)
 
 Bugfixes:
