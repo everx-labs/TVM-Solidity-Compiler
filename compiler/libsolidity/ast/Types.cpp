@@ -1664,8 +1664,8 @@ BoolResult ArrayType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 	if (_convertTo.category() != category())
 		return false;
 	auto& convertTo = dynamic_cast<ArrayType const&>(_convertTo);
-	if (isByteArray() || isString())
-		return convertTo.isByteArray() || convertTo.isString();
+	if (isByteArray() ^ convertTo.isByteArray())
+		return false;
 	Type const* t0 = baseType();
 	Type const* t1 = convertTo.baseType();
 	while (dynamic_cast<ArrayType const*>(t0) && dynamic_cast<ArrayType const*>(t1)) {
