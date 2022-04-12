@@ -503,6 +503,8 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 	}
 
 	if (isSWAP(cmd1)) {
+		if (is(cmd2, "STU")) return Result{2, gen("STUR " + arg(cmd2))};
+		if (is(cmd2, "STSLICE")) return Result{2, gen("STSLICER")};
 		if (is(cmd2, "SUB")) return Result{2, gen("SUBR")};
 		if (is(cmd2, "SUBR")) return Result{2, gen("SUB")};
 		if (isCommutative(cmd2)) return Result{1};
@@ -1480,8 +1482,13 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 				bitString += StrUtils::toBitString(arg(c1));
 				++opcodeQty;
 				i = j;
-			} else if (c2 && isPUSHINT(c1) && pushintValue(c1) >= 0 && is(c2, "STUR")) {
-				// TODO handle STI
+			} else if (c2 && isPUSHINT(c1) && is(c2, "STUR")) {
+				bigint num = pushintValue(c1);
+				int len = fetchInt(c2);
+				bitString += StrUtils::toBitString(num, len);
+				opcodeQty += 2;
+				i = nextCommandLine(j);
+			} else if (c2 && isPUSHINT(c1) && is(c2, "STIR")) {
 				bigint num = pushintValue(c1);
 				int len = fetchInt(c2);
 				bitString += StrUtils::toBitString(num, len);

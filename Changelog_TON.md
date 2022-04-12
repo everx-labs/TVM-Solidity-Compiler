@@ -1,3 +1,16 @@
+### 0.59.0 (2022-04-12)
+
+Compiler features:
+ * Supported `<TvmSlice>.decodeStateVars(...)`.
+ * Added `tvm.initCodeHash`.
+
+Bugfixes:
+ * Fixed `rawReserve()` mutability to pure.
+ * Fixed issue with explicit conversion in return statement.
+
+Delete warnings about options `callbackId`, `onErrorId`.
+Use `pragma ever-solidity` instead of `pragma ton-solidity`.
+
 ### 0.58.2 (2022-03-10)
 
 Bugfixes:

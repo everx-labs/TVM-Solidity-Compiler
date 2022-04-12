@@ -34,7 +34,6 @@ public:
 	bool visit(ContractDefinition const& ) override;
 	bool visit(IndexRangeAccess const& ) override;
 	bool visit(FunctionCall const& _functionCall) override;
-	bool visit(FunctionCallOptions const& _functionCallOptions) override;
 	void endVisit(ContractDefinition const& ) override;
 
 private:

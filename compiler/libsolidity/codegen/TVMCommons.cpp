@@ -208,6 +208,19 @@ vector<ContractDefinition const *> getContractsChain(ContractDefinition const *c
 	return contracts;
 }
 
+std::vector<VariableDeclaration const *> notConstantStateVariables(ContractDefinition const* _contract) {
+	std::vector<VariableDeclaration const *> variableDeclarations;
+	std::vector<ContractDefinition const *> mainChain = getContractsChain(_contract);
+	for (ContractDefinition const * contract: mainChain) {
+		for (VariableDeclaration const *variable: contract->stateVariables()) {
+			if (!variable->isConstant()) {
+				variableDeclarations.push_back(variable);
+			}
+		}
+	}
+	return variableDeclarations;
+}
+
 vector<std::pair<FunctionDefinition const *, ContractDefinition const *>>
 getContractFunctionPairs(ContractDefinition const *contract) {
 	vector<pair<FunctionDefinition const*, ContractDefinition const*>> result;
@@ -483,10 +496,12 @@ int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>> const& arr) {
 }
 
 std::string StrUtils::toBitString(bigint value, int bitlen) {
-	solAssert(value >= 0, "");
+	if (value < 0) {
+		value = pow(bigint(2), bitlen) + value;
+	}
 	std::string s;
 	for (int i = 0; i < bitlen; ++i) {
-		s += value % 2 == 0? "0" : "1";
+		s += value % 2 == 0 ? "0" : "1";
 		value /= 2;
 	}
 	std::reverse(s.rbegin(), s.rbegin() + bitlen);

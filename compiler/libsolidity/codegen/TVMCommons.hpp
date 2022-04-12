@@ -156,6 +156,7 @@ std::tuple<Type const*, Type const*>
 dictKeyValue(Type const* type);
 
 std::vector<ContractDefinition const*> getContractsChain(ContractDefinition const* contract);
+std::vector<VariableDeclaration const *> notConstantStateVariables(ContractDefinition const* contract);
 
 std::vector<std::pair<FunctionDefinition const*, ContractDefinition const*>>
 getContractFunctionPairs(ContractDefinition const* contract);

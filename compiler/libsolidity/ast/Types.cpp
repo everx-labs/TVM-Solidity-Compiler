@@ -2852,6 +2852,7 @@ string FunctionType::richIdentifier() const
 	case Kind::StringSubstr: id += "stringsubstr"; break;
 
 	case Kind::DecodeFunctionParams: id += "tvmslicedecodefunctionparams"; break;
+	case Kind::TVMSliceDecodeStateVars: id += "tvmslicedecodestatevars"; break;
 	case Kind::TVMSliceEmpty: id += "tvmsliceempty"; break;
 	case Kind::TVMSliceDataSize: id += "tvmslicedatasize"; break;
 	case Kind::TVMSliceDecode: id += "tvmslicedecode"; break;
@@ -2894,6 +2895,7 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMExit: id += "tvmexit"; break;
 	case Kind::TVMFunctionId: id += "tvmfunctionid"; break;
 	case Kind::TVMHash: id += "tvmhash"; break;
+	case Kind::TVMInitCodeHash: id += "tvminitcodehash"; break;
 	case Kind::TVMLoadRef: id += "tvmloadref"; break;
 	case Kind::TVMLoadSlice: id += "tvmloadslice"; break;
 	case Kind::TVMPubkey: id += "tvmpubkey"; break;
@@ -3909,6 +3911,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"exit", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit, false, StateMutability::Pure)},
 			{"exit1", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit1, false, StateMutability::Pure)},
 			{"setGasLimit", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetGasLimit, false, StateMutability::Pure)},
+			{"initCodeHash", TypeProvider::function({}, {"uint256"}, FunctionType::Kind::TVMInitCodeHash, false, StateMutability::Pure)},
 
 			// for stdlib
 			{"replayProtTime", TypeProvider::function({}, {"uint64"}, FunctionType::Kind::TVMReplayProtTime, false, StateMutability::Pure)},
@@ -4502,6 +4505,16 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) co
 			strings{},
 			strings{},
 			FunctionType::Kind::DecodeFunctionParams,
+			true,
+			StateMutability::Pure
+	));
+
+	members.emplace_back("decodeStateVars", TypeProvider::function(
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::TVMSliceDecodeStateVars,
 			true,
 			StateMutability::Pure
 	));

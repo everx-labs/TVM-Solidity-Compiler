@@ -1438,6 +1438,26 @@ bool TVMFunctionCompiler::visit(Return const& _return) {
 	auto expr = _return.expression();
 	if (expr) {
 		acceptExpr(expr);
+
+		int retQty = m_function->returnParameters().size();
+		std::vector<Type const*> givenTypes;
+		if (auto tuple = to<TupleType>(expr->annotation().type)) {
+			solAssert(retQty == int(tuple->components().size()), "");
+			for (int i = 0; i < retQty; ++i) {
+				givenTypes.emplace_back(tuple->components().at(i));
+			}
+		} else {
+			givenTypes.emplace_back(expr->annotation().type);
+		}
+
+		for (int i = retQty - 1; i >= 0; --i) {
+			Type const* leftType = m_function->returnParameters().at(i)->type();
+			Type const* rightType = givenTypes.at(i);
+			m_pusher.hardConvert(leftType, rightType);
+			if (retQty >= 2) {
+				m_pusher.blockSwap(retQty - 1, 1);
+			}
+		}
 	}
 
 	int retCount = 0;

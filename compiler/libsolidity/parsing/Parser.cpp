@@ -186,7 +186,7 @@ ASTPointer<PragmaDirective> Parser::parsePragmaDirective()
 		SemVerVersion recommendedVersion{string(VersionString)};
 		std::string errorString =
 				"It's deprecated."
-				" Consider adding \"pragma ton-solidity ^" +
+				" Consider adding \"pragma ever-solidity ^" +
 				to_string(recommendedVersion.major()) +
 				string(".") +
 				to_string(recommendedVersion.minor()) +
