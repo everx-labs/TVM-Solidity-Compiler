@@ -243,15 +243,6 @@ bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
 										   });
 					return it == argumentNames.end()  ? -1 : it - argumentNames.begin();
 				};
-				for (std::string name : {"callbackId", "onErrorId"}) {
-					int index = findName(name);
-					Type const* type = arguments.at(index)->annotation().type->mobileType();
-					if (type->category() == Type::Category::Integer) {
-						m_errorReporter.warning(
-							arguments.at(index)->location(),
-							"Using uint32 type as argument is deprecated. Use function identifier (ContractName.functionName or functionName) instead.");
-					}
-				}
 				if (int index = findName("abiVer"); index != -1) {
 					m_errorReporter.warning(arguments.at(index)->location(), "It has no effect. Delete \"abiVer\" option.");
 				}
@@ -259,22 +250,6 @@ bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
 			}
 			default:
 				break;
-		}
-	}
-	return true;
-}
-
-bool TVMTypeChecker::visit(FunctionCallOptions const& _functionCallOptions) {
-	const vector<ASTPointer<const Expression>> &options = _functionCallOptions.options();
-	auto names = _functionCallOptions.names();
-	for (size_t i = 0; i < names.size(); ++i) {
-		if (isIn(*names.at(i), "callbackId", "onErrorId")) {
-			Type const* type = options.at(i)->annotation().type->mobileType();
-			if (type->category() == Type::Category::Integer) {
-				m_errorReporter.warning(
-						options.at(i)->location(),
-						"Using uint32 type as argument is deprecated. Use function identifier (ContractName.functionName or functionName) instead.");
-			}
 		}
 	}
 	return true;

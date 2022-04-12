@@ -32,6 +32,7 @@ contract development.
       * [\<TvmSlice\>.loadTons()](#tvmsliceloadtons)
       * [\<TvmSlice\>.loadSlice()](#tvmsliceloadslice)
       * [\<TvmSlice\>.decodeFunctionParams()](#tvmslicedecodefunctionparams)
+      * [\<TvmSlice\>.decodeStateVars()](#tvmslicedecodestatevars)
       * [\<TvmSlice\>.skip()](#tvmsliceskip)
   * [TvmBuilder](#tvmbuilder)
     * [\<TvmBuilder\>.toSlice()](#tvmbuildertoslice)
@@ -192,6 +193,7 @@ contract development.
       * [tvm.configParam()](#tvmconfigparam)
       * [tvm.rawConfigParam()](#tvmrawconfigparam)
       * [tvm.rawReserve()](#tvmrawreserve)
+      * [tvm.initCodeHash()](#tvminitcodehash)
     * [Hashing and cryptography](#hashing-and-cryptography)
       * [tvm.hash()](#tvmhash)
       * [tvm.checkSign()](#tvmchecksign)
@@ -555,6 +557,46 @@ Decodes parameters of the function or constructor (if contract type is provided)
 See example of how to use **onBounce** function:
 
 * [onBounceHandler](https://github.com/tonlabs/samples/blob/master/solidity/16_onBounceHandler.sol)
+
+###### \<TvmSlice\>.decodeStateVars()
+
+```TVMSolidity
+<TvmSlice>.decodeStateVars(ContractName) returns (uint256 /*pubkey*/, uint64 /*timestamp*/, bool /*constructorFlag*/, Type1 /*var1*/, Type2 /*var2*/, ...);
+```
+
+Decode state variables from `slice` that is obtained from the field `data` of `stateInit`
+
+Example:
+
+```
+contract A {
+	uint a = 111;
+	uint b = 22;
+	uint c = 3;
+	uint d = 44;
+	address e = address(12);
+	address f;
+}
+
+contract B {
+	function f(TvmCell data) public pure {
+		TvmSlice s = data.toSlice();
+		(uint256 pubkey, uint64 timestamp, bool flag,
+			uint a, uint b, uint c, uint d, address e, address f) = s.decodeStateVars(A);
+			
+		// pubkey - pubkey of the contract A
+		// timestamp - timestamp that used for replay protection
+		// flag - always equals to true
+		// a == 111
+		// b == 22
+		// c == 3
+		// d == 44
+		// e == address(12)
+		// f == address(0)
+		// s.empty()
+	}
+}
+```
 
 ###### \<TvmSlice\>.skip()
 
@@ -2124,6 +2166,8 @@ pragma msgValue 10_000_000_123;
 
 You can decode state variables using tonos-cli. See `tonos-cli decode account --help`.
 
+See also: [\<TvmSlice\>.decodeStateVars()](#tvmslicedecodestatevars).
+
 #### Keyword `constant`
 
 For `constant` variables, the value has to be a compile time constant and this value is
@@ -3066,6 +3110,14 @@ tvm.rawReserve(1 ton, 4 + 8);
 ```
 
 See also: [23_rawReserve.sol](https://github.com/tonlabs/samples/blob/master/solidity/23_rawReserve.sol)
+
+##### tvm.initCodeHash()
+
+```TVMSolidity
+tvm.initCodeHash() returns (uint256 hash)
+```
+
+Returns the initial code hash that contract had when it was deployed.
 
 ##### Hashing and cryptography
 

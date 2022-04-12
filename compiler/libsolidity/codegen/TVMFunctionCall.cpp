@@ -1334,6 +1334,28 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 			m_pusher.push(-3+1, "SSKIPFIRST");
 		}
 		m_exprCompiler.collectLValue(lValueInfo, true, false);
+	} else if (_node.memberName() == "decodeStateVars") {
+		const int saveStackSize = m_pusher.stackSize();
+
+		std::vector<Type const*> stateVarTypes;
+
+		auto retTuple = to<TupleType>(m_retType);
+		for (TypePointer const type : retTuple->components()) {
+			stateVarTypes.push_back(type);
+		}
+
+
+		const LValueInfo lValueInfo =
+				m_exprCompiler.expandLValue(&_node.expression(), true,
+											_node.expression().annotation().isLValue);
+		// lvalue.. slice
+		ChainDataDecoder decoder{&m_pusher};
+		decoder.decodeData(0, 0, stateVarTypes);
+		const int saveStackSize2 = m_pusher.stackSize();
+		const int paramQty = stateVarTypes.size();
+		m_pusher.blockSwap(saveStackSize2 - saveStackSize - paramQty, paramQty);
+		m_pusher.pushSlice("x8_");
+		m_exprCompiler.collectLValue(lValueInfo, true, false);
 	} else {
 		solUnimplemented("");
 	}
@@ -2501,6 +2523,8 @@ CALLREF {
 	} else if (_node.memberName() == "setGasLimit") {
 		pushArgs();
 		m_pusher.push(-1, "SETGASLIMIT");
+	} else if (_node.memberName() == "initCodeHash") {
+		m_pusher << "INITCODEHASH";
 	} else {
 		return false;
 	}

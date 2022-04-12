@@ -57,7 +57,7 @@ void SyntaxChecker::endVisit(SourceUnit const& _sourceUnit)
 		SemVerVersion recommendedVersion{string(VersionString)};
 		if (!recommendedVersion.isPrerelease())
 			errorString +=
-				" Consider adding \"pragma ton-solidity ^" +
+				" Consider adding \"pragma ever-solidity ^" +
 				to_string(recommendedVersion.major()) +
 				string(".") +
 				to_string(recommendedVersion.minor()) +
@@ -76,7 +76,10 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 	solAssert(!_pragma.tokens().empty(), "");
 	solAssert(_pragma.tokens().size() == _pragma.literals().size(), "");
 	if (_pragma.tokens()[0] != Token::Identifier &&
-		!(_pragma.tokens().size() >= 3 && _pragma.tokens()[0] == Token::SubSmallTon && _pragma.tokens()[1] == Token::Sub && _pragma.tokens()[2] == Token::Identifier)
+		!(
+			(_pragma.tokens().size() >= 3 && _pragma.tokens()[0] == Token::SubSmallTon && _pragma.tokens()[1] == Token::Sub && _pragma.tokens()[2] == Token::Identifier) ||
+			(_pragma.tokens().size() >= 3 && _pragma.tokens()[0] == Token::SubSmallEver && _pragma.tokens()[1] == Token::Sub && _pragma.tokens()[2] == Token::Identifier)
+		)
 	)
 		m_errorReporter.syntaxError(_pragma.location(), "Invalid pragma \"" + _pragma.literals()[0] + "\"");
 	else if (_pragma.literals()[0] == "experimental")
@@ -115,7 +118,7 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 	{
 
 	}
-	else if (_pragma.literals()[0] == "ton") // ton-solidity
+	else if (_pragma.literals()[0] == "ever" || _pragma.literals()[0] == "ton") // ever-solidity
 	{
 		if (m_versionPragma.has_value()) {
 			m_errorReporter.fatalTypeError(

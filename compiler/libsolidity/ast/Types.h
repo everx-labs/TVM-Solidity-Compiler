@@ -1180,6 +1180,7 @@ public:
 		TVMDataSizeQ, ///< cell.dataSizeQ()
 
 		DecodeFunctionParams, ///< slice.decodeFunctionParams(function_name)
+		TVMSliceDecodeStateVars, ///< slice.decodeStateVars(contract_name)
 		TVMLoadRef, ///< slice.loadRef()
 		TVMLoadSlice, ///< slice.loadSlice()
 		TVMSliceEmpty, ///< slice.empty()
@@ -1259,6 +1260,7 @@ public:
 		TVMExit1, ///< tvm.exit1()
 		TVMFunctionId, ///< tvm.functionId(function_name)
 		TVMHash, ///< tvm.hash()
+		TVMInitCodeHash, ///< tvm.initCodeHash()
 		TVMPubkey, ///< tvm.pubkey()
 		TVMRawConfigParam, ///< tvm.rawConfigParam()
 		TVMReplayProtInterval, ///< tvm.replayProtInterval()

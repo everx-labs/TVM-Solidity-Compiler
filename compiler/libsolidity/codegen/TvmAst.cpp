@@ -486,6 +486,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"BLOCKLT", {0, 1, true}},
 		{"FALSE", {0, 1, true}},
 		{"GETPARAM", {0, 1, true}},
+		{"INITCODEHASH", {0, 1, true}},
 		{"LTIME", {0, 1, true}},
 		{"MYADDR", {0, 1, true}},
 		{"NEWC", {0, 1, true}},

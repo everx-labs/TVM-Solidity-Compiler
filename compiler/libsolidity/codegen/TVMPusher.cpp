@@ -2444,16 +2444,7 @@ int TVMCompilerContext::getStateVarIndex(VariableDeclaration const *variable) co
 }
 
 std::vector<VariableDeclaration const *> TVMCompilerContext::notConstantStateVariables() const {
-	std::vector<VariableDeclaration const*> variableDeclarations;
-	std::vector<ContractDefinition const*> mainChain = getContractsChain(getContract());
-	for (ContractDefinition const* contract : mainChain) {
-		for (VariableDeclaration const *variable: contract->stateVariables()) {
-			if (!variable->isConstant()) {
-				variableDeclarations.push_back(variable);
-			}
-		}
-	}
-	return variableDeclarations;
+	return ::notConstantStateVariables(getContract());
 }
 
 bool TVMCompilerContext::tooMuchStateVariables() const {

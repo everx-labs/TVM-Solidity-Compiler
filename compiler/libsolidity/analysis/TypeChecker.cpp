@@ -3200,6 +3200,32 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 						returnTypes.push_back(vd->type());
 					}
 				}
+
+				break;
+			}
+			case FunctionType::Kind::TVMSliceDecodeStateVars:
+			{
+				if (arguments.size() != 1) {
+					m_errorReporter.fatalTypeError(
+							_functionCall.location(),
+							string("Expected one argument.")
+					);
+				}
+				ContractType const* ct = getContractType(arguments.front().get());
+				if (ct == nullptr) {
+					m_errorReporter.fatalTypeError(
+							arguments.front()->location(), // TODO move
+							"Expected contract type."
+					);
+				}
+
+				std::vector<VariableDeclaration const *> stateVars = ::notConstantStateVariables(&ct->contractDefinition());
+				returnTypes.push_back(TypeProvider::uint256()); // pubkey
+				returnTypes.push_back(TypeProvider::uint(64)); // timestamp
+				returnTypes.push_back(TypeProvider::boolean()); // constructor flag
+				for (VariableDeclaration const * v : stateVars) {
+					returnTypes.push_back(v->type());
+				}
 				break;
 			}
 			case FunctionType::Kind::RndNext:
@@ -3339,13 +3365,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 					} else {
 						auto arg0Type = arguments[0]->annotation().type;
 						if (keyType->category() == Type::Category::Integer) {
-							auto category = arg0Type->category();
-							if (category != Type::Category::Integer && category != Type::Category::RationalNumber) {
-								m_errorReporter.fatalTypeError(
-										_functionCall.location(),
-										"Expected an integer type."
-								);
-							}
+							checkArgNumAndIsInteger(arguments, 1, std::equal_to<>(), "Expected one argument.");
 						} else if (!arg0Type->isImplicitlyConvertibleTo(*keyType)) {
 							auto errorMsg = "Type " +
 											arg0Type->toString() +
