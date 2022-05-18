@@ -138,7 +138,7 @@ CALL $__tonToGas_macro$
 .macro __tonToGas_macro
 .loc stdlib.sol, 67
 SWAP
-PUSHINT 65536
+PUSHPOW2 16
 ROT
 CALLREF {
 	CALL $__gasGasPrice_macro$
@@ -155,7 +155,7 @@ CALL $__gasToTon_macro$
 CALLREF {
 	CALL $__gasGasPrice_macro$
 }
-PUSHINT 65536
+PUSHPOW2 16
 MULDIVC
 .loc stdlib.sol, 0
 
@@ -259,7 +259,7 @@ PUSHCONT {
 			TPOP
 			DUP
 			TLEN
-			PUSHINT 255
+			PUSHPOW2DEC 8
 			SUB
 			PUSHCONT {
 				TPUSH
@@ -303,7 +303,7 @@ PUSHCONT {
 			TPOP
 			DUP
 			TLEN
-			PUSHINT 255
+			PUSHPOW2DEC 8
 			SUB
 			PUSHCONT {
 				TPUSH
@@ -367,7 +367,7 @@ PUSHCONT {
 			TPOP
 			DUP
 			TLEN
-			PUSHINT 255
+			PUSHPOW2DEC 8
 			SUB
 			PUSHCONT {
 				TPUSH
@@ -425,7 +425,7 @@ PUSHCONT {
 			TPOP
 			DUP
 			TLEN
-			PUSHINT 255
+			PUSHPOW2DEC 8
 			SUB
 			PUSHCONT {
 				TPUSH
@@ -465,7 +465,7 @@ CALLREF {
 	DUP
 	PUSHCONT {
 		DEC
-		PUSHINT 255
+		PUSHPOW2DEC 8
 		MUL
 		SWAP
 		LAST
@@ -521,7 +521,7 @@ PUSHCONT {
 					TPOP
 					DUP
 					TLEN
-					PUSHINT 255
+					PUSHPOW2DEC 8
 					SUB
 					PUSHCONT {
 						TPUSH
@@ -569,7 +569,7 @@ PUSHCONT {
 				TPOP
 				DUP
 				TLEN
-				PUSHINT 255
+				PUSHPOW2DEC 8
 				SUB
 				PUSHCONT {
 					TPUSH
@@ -689,7 +689,7 @@ PUSHCONT {
 			TPOP
 			DUP
 			TLEN
-			PUSHINT 255
+			PUSHPOW2DEC 8
 			SUB
 			PUSHCONT {
 				TPUSH
@@ -777,7 +777,7 @@ PUSHCONT {
 			TPOP
 			DUP
 			TLEN
-			PUSHINT 255
+			PUSHPOW2DEC 8
 			SUB
 			PUSHCONT {
 				TPUSH
@@ -859,7 +859,7 @@ PUSHCONT {
 			TPOP
 			DUP
 			TLEN
-			PUSHINT 255
+			PUSHPOW2DEC 8
 			SUB
 			PUSHCONT {
 				TPUSH
@@ -935,7 +935,7 @@ PUSHCONT {
 			TPOP
 			DUP
 			TLEN
-			PUSHINT 255
+			PUSHPOW2DEC 8
 			SUB
 			PUSHCONT {
 				TPUSH
@@ -993,7 +993,7 @@ PUSHCONT {
 			TPOP
 			DUP
 			TLEN
-			PUSHINT 255
+			PUSHPOW2DEC 8
 			SUB
 			PUSHCONT {
 				TPUSH
@@ -1033,7 +1033,7 @@ CALLREF {
 	DUP
 	PUSHCONT {
 		DEC
-		PUSHINT 255
+		PUSHPOW2DEC 8
 		MUL
 		SWAP
 		LAST
@@ -1089,7 +1089,7 @@ PUSHCONT {
 					TPOP
 					DUP
 					TLEN
-					PUSHINT 255
+					PUSHPOW2DEC 8
 					SUB
 					PUSHCONT {
 						TPUSH
@@ -1137,7 +1137,7 @@ PUSHCONT {
 				TPOP
 				DUP
 				TLEN
-				PUSHINT 255
+				PUSHPOW2DEC 8
 				SUB
 				PUSHCONT {
 					TPUSH
@@ -1285,7 +1285,7 @@ PUSHCONT {
 			TPOP
 			DUP
 			TLEN
-			PUSHINT 255
+			PUSHPOW2DEC 8
 			SUB
 			PUSHCONT {
 				TPUSH
@@ -1404,7 +1404,7 @@ PUSHCONT {
 			TPOP
 			DUP
 			TLEN
-			PUSHINT 255
+			PUSHPOW2DEC 8
 			SUB
 			PUSHCONT {
 				TPUSH
@@ -1738,7 +1738,7 @@ PUSHCONT {
 			TPOP
 			DUP
 			TLEN
-			PUSHINT 255
+			PUSHPOW2DEC 8
 			SUB
 			PUSHCONT {
 				TPUSH
@@ -1770,7 +1770,7 @@ CALL $bytes_substr_macro$
 .macro bytes_substr_macro
 .loc stdlib.sol, 385
 PUSH S3
-PUSHINT 4294967295
+PUSHPOW2DEC 32
 CDATASIZE
 DROP
 NIP
@@ -1812,7 +1812,7 @@ CALL $__substr_macro$
 .macro __substr_macro
 .loc stdlib.sol, 396
 PUSH S2
-PUSHINT 4294967295
+PUSHPOW2DEC 32
 CDATASIZE
 DROP
 NIP
@@ -1940,7 +1940,7 @@ PUSHCONT {
 					TPOP
 					DUP
 					TLEN
-					PUSHINT 255
+					PUSHPOW2DEC 8
 					SUB
 					PUSHCONT {
 						TPUSH
@@ -2222,13 +2222,13 @@ PUSH S2
 CTOS
 .loc stdlib.sol, 517
 DUP
-PUSHINT 4294967295
+PUSHPOW2DEC 32
 SDATASIZE
 DROP
 NIP
 .loc stdlib.sol, 518
 PUSH S2
-PUSHINT 4294967295
+PUSHPOW2DEC 32
 SDATASIZE
 DROP
 NIP

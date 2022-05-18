@@ -96,47 +96,6 @@ bool TVMExpressionCompiler::acceptExpr(const Expression *expr) {
 	return doDropResultIfNeeded;
 }
 
-std::optional<bigint> TVMExpressionCompiler::constValue(const Expression &_e) {
-	auto f = [](VariableDeclaration const*  vd) -> std::optional<bigint> {
-		if (vd != nullptr && vd->isConstant() && vd->value() != nullptr) {
-			return constValue(*vd->value());
-		}
-		return {};
-	};
-
-	if (_e.annotation().isPure) {
-		if (auto ident = to<Identifier>(&_e)) {
-			IdentifierAnnotation &identifierAnnotation = ident->annotation();
-			const auto *vd = to<VariableDeclaration>(identifierAnnotation.referencedDeclaration);
-			return f(vd);
-		} else if (_e.annotation().type->category() == Type::Category::RationalNumber) {
-			auto number = dynamic_cast<RationalNumberType const *>(_e.annotation().type);
-			solAssert(number, "");
-			bigint val = number->value();
-			return val;
-		}
-	} else {
-		// MyLibName.const_variable
-		auto memberAccess = to<MemberAccess>(&_e);
-		if (memberAccess) {
-			auto identifier = to<Identifier>(&memberAccess->expression());
-			if (identifier && identifier->annotation().type->category() == Type::Category::TypeType) {
-				auto vd = to<VariableDeclaration>(memberAccess->annotation().referencedDeclaration);
-				return f(vd);
-			}
-		}
-	}
-	return {};
-}
-
-std::optional<bool> TVMExpressionCompiler::constBool(Expression const& _e) {
-	auto l = to<Literal>(&_e);
-	if (l != nullptr && isIn(l->token(), Token::TrueLiteral, Token::FalseLiteral)) {
-		return l->token() == Token::TrueLiteral;
-	}
-	return {};
-}
-
 int TVMExpressionCompiler::returnParamQty(Expression const& _e) {
 	if (auto t = to<TupleType>(getType(&_e))) {
 		return t->components().size();
@@ -161,7 +120,7 @@ void TVMExpressionCompiler::visit2(Literal const &_node) {
 			m_pusher.push(+1, _node.token() == Token::TrueLiteral? "TRUE" : "FALSE");
 			break;
 		case Type::Category::Null:
-			m_pusher.push(+1, "NULL");
+			m_pusher.pushNull();
 			break;
 		case Type::Category::EmpyMap:
 			m_pusher.push(+1, "NEWDICT");
@@ -208,7 +167,7 @@ void TVMExpressionCompiler::visitHonest(TupleExpression const& _tupleExpression,
 
 	Type const* tupleType = _tupleExpression.annotation().type;
 	auto arrayBaseType = to<ArrayType>(tupleType)->baseType();
-	const IntegerType arrayKeyType = getKeyTypeOfArray();
+	IntegerType const& arrayKeyType = getArrayKeyType();
 
 	for (ASTPointer<Expression> const& expr : components | boost::adaptors::reversed) {
 		compileNewExpr(expr.get());
@@ -354,7 +313,7 @@ void TVMExpressionCompiler::compileUnaryDelete(UnaryOperation const &node) {
 			m_pusher.pushS(1);                            // ... index dict index
             TypePointer const dictKey = StackPusher::parseIndexType(indexAccess->baseExpression().annotation().type);
 			m_pusher.exchange(1);                                // ... index index' dict
-			m_pusher.pushInt(lengthOfDictKey(dictKey)); // ..index index dict nbits
+			m_pusher.pushInt(dictKeyLength(dictKey)); // ..index index dict nbits
 			m_pusher.push(-3 + 2, "DICT" + typeToDictChar(dictKey) + "DEL");  // ... index dict' {-1,0}
 			m_pusher.drop();                               // ... index dict'
 			collectLValue(lValueInfo, false, false); // lValueInfo.isValueBuilder is ignored
@@ -586,7 +545,7 @@ void TVMExpressionCompiler::visit2(BinaryOperation const &_binaryOperation) {
 	if (op == Token::SHR) cast_error(_binaryOperation, "Unsupported operation >>>");
 	if (op == Token::Comma) cast_error(_binaryOperation, "Unsupported operation ,");
 
-	const auto& val = constValue(_binaryOperation.rightExpression());
+	const auto& val = ExprUtils::constValue(_binaryOperation.rightExpression());
 	std::optional<bigint> rightValue;
 	if (val.has_value())
 		rightValue = val;
@@ -1027,7 +986,7 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 		}
 	} else if (baseType->category() == Type::Category::TvmVector) {
 		acceptExpr(&indexAccess.baseExpression()); // tuple
-		const auto& val = constValue(*indexAccess.indexExpression());
+		const auto& val = ExprUtils::constValue(*indexAccess.indexExpression());
 		if (val.has_value() && val <= 15) {
 			m_pusher.indexWithExcep(0);
 			m_pusher.indexWithExcep(boost::lexical_cast<int>(val.value().str()));
@@ -1390,7 +1349,7 @@ void TVMExpressionCompiler::visit2(Assignment const &_assignment) {
 
 
 bool TVMExpressionCompiler::fold_constants(const Expression *expr) {
-	const auto& val = constValue(*expr);
+	const auto& val = ExprUtils::constValue(*expr);
 	if (val.has_value()) {
 		m_pusher.push(+1, "PUSHINT " + val.value().str());
 		return true;

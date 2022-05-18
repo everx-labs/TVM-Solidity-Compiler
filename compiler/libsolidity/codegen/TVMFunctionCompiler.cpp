@@ -349,6 +349,7 @@ TVMFunctionCompiler::generateOnTickTock(TVMCompilerContext& ctx, FunctionDefinit
 	}
 
 	TVMFunctionCompiler funCompiler{pusher, 0, function, false, false, 0};
+	funCompiler.setCopyleft();
 	funCompiler.setGlobSenderAddressIfNeed();
 	funCompiler.visitFunctionWithModifiers();
 
@@ -1005,24 +1006,8 @@ void TVMFunctionCompiler::doWhile(WhileStatement const &_whileStatement) {
 		m_pusher.drop(m_pusher.stackSize() - ss);
 	}
 	// condition
-	if (ci.canBreak() || ci.canReturn()) {
-		m_pusher.pushS(0);
-		if (ci.canContinue()) {
-			m_pusher.push(-1 + 1, "GTINT " + toString(TvmConst::CONTINUE_FLAG));
-		}
-		m_pusher.pushS(0);
-		m_pusher.push(-2, ""); // fix stack
-
-		m_pusher.startContinuation();
-		m_pusher.push(+1, ""); // fix stack
-		m_pusher.drop();
-		acceptExpr(&_whileStatement.condition(), true);
-		m_pusher.push(0, "NOT");
-		m_pusher.endLogCircuit(LogCircuit::Type::OR);
-	} else {
-		acceptExpr(&_whileStatement.condition(), true);
-		m_pusher.push(0, "NOT");
-	}
+	acceptExpr(&_whileStatement.condition(), true);
+	m_pusher.push(0, "NOT");
 	m_pusher.push(-1, ""); // drop condition
 	m_pusher.endContinuation();
 
@@ -1212,7 +1197,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 				m_pusher.pushS(m_pusher.stackSize() - saveStackSize - 2); // stack: dict index value [flag] index
 				m_pusher.pushS(
 						m_pusher.stackSize() - saveStackSize - 1); // stack: dict index value [flag] index dict
-				m_pusher.getDict(getKeyTypeOfArray(), *arrayType->baseType(), GetDictOperation::Fetch);
+				m_pusher.getDict(getArrayKeyType(), *arrayType->baseType(), GetDictOperation::Fetch);
 				// stack: dict index value [flag] newValue
 				m_pusher.pushS(0); // stack: dict index value [flag] newValue newValue
 				m_pusher.popS(
@@ -1280,7 +1265,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 			// stack: dict minKey(private) minKey(pub) value [flag]
 			m_pusher.pushS(m_pusher.stackSize() - saveStackSize - 2); // stack: dict minKey(private) minKey(pub) value [flag] minKey
 			m_pusher.pushS(m_pusher.stackSize() - saveStackSize - 1); // stack: dict minKey(private) minKey(pub) value [flag] minKey dict
-			m_pusher.pushInt(lengthOfDictKey(mappingType->keyType()));      // stack: dict minKey(private) minKey(pub) value [flag] minKey dict nbits
+			m_pusher.pushInt(dictKeyLength(mappingType->keyType()));  // stack: dict minKey(private) minKey(pub) value [flag] minKey dict nbits
 
 			DictPrevNext dictPrevNext{m_pusher, *mappingType->keyType(), *mappingType->valueType(), "next"};
 			dictPrevNext.prevNext(true);
@@ -1571,8 +1556,7 @@ bool TVMFunctionCompiler::visit(EmitStatement const &_emit) {
 Pointer<Function> TVMFunctionCompiler::generateMainExternal(TVMCompilerContext& ctx, ContractDefinition const *contract) {
 	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, contract};
-	Pointer<Function> f;
-	f = funCompiler.generateMainExternalForAbiV2();
+	Pointer<Function> f = funCompiler.generateMainExternalForAbiV2();
 	return f;
 }
 
@@ -1591,6 +1575,18 @@ void TVMFunctionCompiler::setCtorFlag() {
 	m_pusher.setGlob(TvmConst::C7::ConstructorFlag);
 }
 
+void TVMFunctionCompiler::setCopyleft() {
+	const std::optional<std::vector<ASTPointer<Expression>>> copyleft = m_pusher.ctx().pragmaHelper().hasCopyleft();
+	if (copyleft.has_value()) {
+		const std::optional<bigint>& addr = ExprUtils::constValue(*copyleft.value().at(1));
+		const std::optional<bigint>& type = ExprUtils::constValue(*copyleft.value().at(0));
+		const std::string addrSlice = "x" + StrUtils::binaryStringToSlice(StrUtils::toBitString(addr.value(), 256));
+		m_pusher.pushSlice(addrSlice);
+		m_pusher.pushInt(type.value());
+		m_pusher << "COPYLEFT";
+	}
+}
+
 Pointer<Function>
 TVMFunctionCompiler::generateMainExternalForAbiV2() {
 //		stack:
@@ -1600,6 +1596,7 @@ TVMFunctionCompiler::generateMainExternalForAbiV2() {
 //		msg_body_slice
 //		transaction_id = -1
 
+	setCopyleft();
 	setCtorFlag();
 	setGlobSenderAddressIfNeed();
 
@@ -1615,7 +1612,7 @@ TVMFunctionCompiler::generateMainExternalForAbiV2() {
 		m_pusher.pushInlineFunction(block, 2, 1);
 	} else {
 		defaultReplayProtection();
-		if (m_pusher.ctx().pragmaHelper().haveExpire()) {
+		if (m_pusher.ctx().pragmaHelper().hasExpire()) {
 			expire();
 		}
 	}
@@ -1631,10 +1628,10 @@ TVMFunctionCompiler::generateMainExternalForAbiV2() {
 void TVMFunctionCompiler::pushMsgPubkey() {
 	// signatureSlice msgSlice hashMsgSlice
 
-	if (m_pusher.ctx().pragmaHelper().havePubkey()) {
+	if (m_pusher.ctx().pragmaHelper().hasPubkey()) {
 		m_pusher.exchange(1);
-		m_pusher.push(+1, "LDU 1 ; signatureSlice hashMsgSlice havePubkey msgSlice");
-		m_pusher.exchange(1); // signatureSlice hashMsgSlice msgSlice havePubkey
+		m_pusher.push(+1, "LDU 1 ; signatureSlice hashMsgSlice hasPubkey msgSlice");
+		m_pusher.exchange(1); // signatureSlice hashMsgSlice msgSlice hasPubkey
 
 		m_pusher.startContinuation();
 		m_pusher.push(+1, "LDU 256       ; signatureSlice hashMsgSlice pubkey msgSlice");
@@ -1679,10 +1676,10 @@ void TVMFunctionCompiler::checkSignatureAndReadPublicKey() {
 	m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::BadSignature) + " ; msgSlice");
 	m_pusher.endContinuation();
 
-	if (m_pusher.ctx().pragmaHelper().havePubkey()) {
+	if (m_pusher.ctx().pragmaHelper().hasPubkey()) {
 		// External inbound message have not signature but have public key
 		m_pusher.startContinuation();
-		m_pusher.push(+1, "LDU 1      ; havePubkey msgSlice");
+		m_pusher.push(+1, "LDU 1      ; hasPubkey msgSlice");
 		m_pusher.exchange(1);
 		m_pusher._throw("THROWIF " + toString(TvmConst::RuntimeException::MessageHasNoSignButHasPubkey) + " ; msgSlice");
 		m_pusher.endContinuation();
@@ -1730,6 +1727,8 @@ TVMFunctionCompiler::generateMainInternal(TVMCompilerContext& ctx, ContractDefin
 
 	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, contract};
+
+	funCompiler.setCopyleft();
 	funCompiler.setCtorFlag();
 
 	pusher.pushS(2);

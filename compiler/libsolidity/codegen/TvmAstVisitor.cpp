@@ -113,10 +113,13 @@ bool Printer::visit(GenOpcode &_node) {
 		} else if (index <= 15) {
 			m_out << "INDEX " << index;
 		} else {
-			m_out << "PUSHINT " << index << std::endl;
+			printPushInt(index);
+			m_out << std::endl;
 			tabs();
 			m_out << "INDEXVAR";
 		}
+	} else if (_node.opcode() == "PUSHINT") {
+		printPushInt(_node.arg(), _node.comment());
 	} else {
 		m_out << _node.fullOpcode();
 	}
@@ -175,7 +178,8 @@ bool Printer::visit(Glob &_node) {
 			if (1 <= _node.index() && _node.index() <= 31) {
 				m_out << "GETGLOB " << _node.index();
 			} else {
-				m_out << "PUSHINT " << _node.index() << std::endl;
+				printPushInt(_node.index());
+				m_out << std::endl;
 				tabs();
 				m_out << "GETGLOBVAR";
 			}
@@ -184,7 +188,8 @@ bool Printer::visit(Glob &_node) {
 			if (1 <= _node.index() && _node.index() <= 31) {
 				m_out << "SETGLOB " << _node.index();
 			} else {
-				m_out << "PUSHINT " << _node.index() << std::endl;
+				printPushInt(_node.index());
+				m_out << std::endl;
 				tabs();
 				m_out << "SETGLOBVAR";
 			}
@@ -244,7 +249,8 @@ bool Printer::visit(Stack &_node) {
 			m_out << "BLKDROP";
 			printIndexes();
 		} else {
-			m_out << "PUSHINT " + std::to_string(n) << std::endl;
+			printPushInt(n);
+			m_out << std::endl;
 			tabs();
 			m_out << "DROPX";
 		}
@@ -279,9 +285,11 @@ bool Printer::visit(Stack &_node) {
 		}
 		case Stack::Opcode::BLKDROP2:
 			if (i > 15 || j > 15) {
-				m_out << "PUSHINT " << i << std::endl;
+				printPushInt(i);
+				m_out << std::endl;
 				tabs();
-				m_out << "PUSHINT " << j << std::endl;
+				printPushInt(j);
+				m_out << std::endl;
 				tabs();
 				m_out << "BLKSWX" << std::endl;
 				tabs();
@@ -332,17 +340,21 @@ bool Printer::visit(Stack &_node) {
 				}
 			} else {
 				if (bottom == 1) {
-					m_out << "PUSHINT " << top << std::endl;
+					printPushInt(top);
+					m_out << std::endl;
 					tabs();
 					m_out << "ROLLX";
 				} else if (top == 1) {
-					m_out << "PUSHINT " << bottom << std::endl;
+					printPushInt(bottom);
+					m_out << std::endl;
 					tabs();
 					m_out << "ROLLREVX";
 				} else {
-					m_out << "PUSHINT " << bottom << std::endl;
+					printPushInt(bottom);
+					m_out << std::endl;
 					tabs();
-					m_out << "PUSHINT " << top << std::endl;
+					printPushInt(top);
+					m_out << std::endl;
 					tabs();
 					m_out << "BLKSWX";
 				}
@@ -359,9 +371,11 @@ bool Printer::visit(Stack &_node) {
 				m_out << "REVERSE";
 				printIndexes();
 			} else {
-				m_out << "PUSHINT " << i << std::endl;
+				printPushInt(i);
+				m_out << std::endl;
 				tabs();
-				m_out << "PUSHINT " << j << std::endl;
+				printPushInt(j);
+				m_out << std::endl;
 				tabs();
 				m_out << "REVX";
 			}
@@ -680,6 +694,58 @@ void Printer::endL() {
 void Printer::tabs() {
 	solAssert(m_tab >= 0, "");
 	m_out << std::string(m_tab, '\t');
+}
+
+void Printer::printPushInt(std::string const& str, std::string const& comment) {
+	static std::map<bigint, int> power2;
+	static std::map<bigint, int> power2Dec;
+	static std::map<bigint, int> power2Neg;
+	if (power2.empty()) {
+		bigint p2 = 128;
+		for (int p = 7; p <= 256; ++p) {
+			power2[p2] = p;
+			p2 *= 2;
+		}
+	}
+	if (power2Dec.empty()) {
+		bigint p2 = 256;
+		for (int p = 8; p <= 256; ++p) {
+			power2Dec[p2 - 1] = p;
+			p2 *= 2;
+		}
+	}
+	if (power2Neg.empty()) {
+		bigint p2 = 256;
+		for (int p = 8; p <= 256; ++p) {
+			power2Neg[-p2] = p;
+			p2 *= 2;
+		}
+	}
+
+	bool didPrint = false;
+	if (str.at(0) != '$') {
+		bigint val = bigint{str};
+		if (power2.count(val)) {
+			m_out << "PUSHPOW2 " << power2.at(val);
+			didPrint = true;
+		} else if (power2Dec.count(val)) {
+			m_out << "PUSHPOW2DEC " << power2Dec.at(val);
+			didPrint = true;
+		} else if (power2Neg.count(val)) {
+			m_out << "PUSHNEGPOW2 " << power2Neg.at(val);
+			didPrint = true;
+		}
+	}
+	if (!didPrint) {
+		m_out << "PUSHINT " << str;
+		if (!comment.empty()) {
+			m_out << " " << comment;
+		}
+	}
+}
+
+void Printer::printPushInt(int i) {
+	printPushInt(std::to_string(i));
 }
 
 bool LocSquasher::visit(CodeBlock &_node) {

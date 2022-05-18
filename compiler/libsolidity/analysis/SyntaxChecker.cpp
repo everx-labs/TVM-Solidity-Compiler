@@ -85,6 +85,11 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 	else if (_pragma.literals()[0] == "experimental")
 	{
 		solAssert(m_sourceUnit, "");
+
+		if (_pragma.literals().size() >= 2) {
+			m_errorReporter.warning(_pragma.location(), "Has no effect. Delete this.");
+		}
+
 		vector<string> literals(_pragma.literals().begin() + 1, _pragma.literals().end());
 		if (literals.empty())
 			m_errorReporter.syntaxError(
@@ -109,14 +114,23 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 			{
 				auto feature = ExperimentalFeatureNames.at(literal);
 				m_sourceUnit->annotation().experimentalFeatures.insert(feature);
-//				if (!ExperimentalFeatureWithoutWarning.count(feature))
-//					m_errorReporter.warning(_pragma.location(), "Experimental features are turned on. Do not use experimental features on live deployments.");
 			}
 		}
 	}
 	else if (_pragma.literals()[0] == "solidity")
 	{
-
+		SemVerVersion recommendedVersion{string(VersionString)};
+		std::string errorString =
+				"It's deprecated."
+				" Consider adding \"pragma ever-solidity ^" +
+				to_string(recommendedVersion.major()) +
+				string(".") +
+				to_string(recommendedVersion.minor()) +
+				string(".") +
+				to_string(recommendedVersion.patch()) +
+				string(";\"") +
+				" to set a version of the compiler.";
+		m_errorReporter.warning(_pragma.location(), errorString);
 	}
 	else if (_pragma.literals()[0] == "ever" || _pragma.literals()[0] == "ton") // ever-solidity
 	{
@@ -155,10 +169,21 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 		if (m_msgValuePragmaFound) {
 			m_errorReporter.syntaxError(_pragma.location(), "msgValue pragma shouldn't be specified more than once.");
 		}
-		if (_pragma.parameter() == nullptr) {
+		if (_pragma.parameter().empty()) {
 			m_errorReporter.syntaxError(_pragma.location(), "Correct format: pragma msgValue <value_in_nanotons>");
 		}
 		m_msgValuePragmaFound = true;
+	}
+	else if (_pragma.literals()[0] == "copyleft")
+	{
+		if (m_FirstCopyleft) {
+			m_errorReporter.declarationError(
+				_pragma.location(),
+				SecondarySourceLocation().append("The previous declaration is here:", *m_FirstCopyleft),
+				"Pragma already defined."
+			);
+		}
+		m_FirstCopyleft = &_pragma.location();
 	}
 	else
 		m_errorReporter.syntaxError(_pragma.location(), "Unknown pragma \"" + _pragma.literals()[0] + "\"");

@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <optional>
 #include <memory>
 #include <vector>
 
@@ -87,6 +88,8 @@ namespace solidity::frontend
 	private:
 		void endL();
 		void tabs();
+		void printPushInt(std::string const& arg, std::string const& comment = "");
+		void printPushInt(int i);
 	private:
 		std::ostream& m_out;
 		int m_tab{};

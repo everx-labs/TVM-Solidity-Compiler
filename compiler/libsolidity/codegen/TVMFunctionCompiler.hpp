@@ -116,6 +116,7 @@ private:
 
 	void setGlobSenderAddressIfNeed();
 	void setCtorFlag();
+	void setCopyleft();
 	Pointer<Function> generateMainExternalForAbiV2();
 
 	void pushMsgPubkey();

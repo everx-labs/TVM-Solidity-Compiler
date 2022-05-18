@@ -36,11 +36,13 @@ public:
 	void compile();
 
 protected:
+	static void arrayPush(StackPusher& pusher, Type const* arrayBaseType, DataType dataType);
 	bool checkForMappingOrCurrenciesMethods();
 	void mappingDelMinOrMax(bool isDelMin);
 	void mappingGetSet();
 	void mappingMinMaxMethod(bool isMin);
 	void mappingPrevNextMethods();
+	void mappingKeysOrValues(bool areKeys);
 	void mappingEmpty();
 	bool structMethodCall();
 	void superFunctionCall(MemberAccess const& _node);

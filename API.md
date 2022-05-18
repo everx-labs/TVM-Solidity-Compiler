@@ -25,6 +25,7 @@ contract development.
     * [\<TvmSlice\>.compare()](#tvmslicecompare)
     * [TvmSlice load primitives](#tvmslice-load-primitives)
       * [\<TvmSlice\>.decode()](#tvmslicedecode)
+      * [\<TvmSlice\>.decodeQ()](#tvmslicedecodeq)
       * [\<TvmSlice\>.loadRef()](#tvmsliceloadref)
       * [\<TvmSlice\>.loadRefAsSlice()](#tvmsliceloadrefasslice)
       * [\<TvmSlice\>.loadSigned()](#tvmsliceloadsigned)
@@ -78,6 +79,7 @@ contract development.
     * [Array literals](#array-literals)
     * [Creating new arrays](#creating-new-arrays)
     * [\<array\>.empty()](#arrayempty)
+  * [bytesN](#bytesn)
   * [bytes](#bytes)
     * [\<bytes\>.empty()](#bytesempty)
     * [\<bytes\>.operator[]](#bytesoperator)
@@ -133,6 +135,7 @@ contract development.
     * [\<mapping\>.getSet()](#mappinggetset)
     * [\<mapping\>.getAdd()](#mappinggetadd)
     * [\<mapping\>.getReplace()](#mappinggetreplace)
+    * [\<mapping\>.keys() \<mapping\>.values()](#mappingkeys-mappingvalues)
   * [Fixed point number](#fixed-point-number)
   * [Function type](#function-type)
   * [require, revert](#require-revert)
@@ -143,6 +146,7 @@ contract development.
     * [Function call via object](#function-call-via-object)
 * [Pragmas](#pragmas)
   * [pragma ton-solidity](#pragma-ton-solidity)
+  * [pragma copyleft](#pragma-copyleft)
   * [pragma ignoreIntOverflow](#pragma-ignoreintoverflow)
   * [pragma AbiHeader](#pragma-abiheader)
   * [pragma msgValue](#pragma-msgvalue)
@@ -475,10 +479,10 @@ or skip first two bits.
 <TvmSlice>.decode(TypeA, TypeB, ...) returns (TypeA /*a*/, TypeB /*b*/, ...);
 ```
 
+Sequentially decodes values of the specified types from the `TvmSlice`.
 Supported types: `uintN`, `intN`, `bytesN`, `bool`, `ufixedMxN`, `fixedMxN`, `address`, `contract`,
-`TvmCell`, `bytes`, `string`, `mapping`, `ExtraCurrencyCollection`, `array`, `optional` and `struct`.
-
-Loads given types from the `TvmSlice`. Example:
+`TvmCell`, `bytes`, `string`, `mapping`, `ExtraCurrencyCollection`, `array`, `optional` and 
+`struct`.  Example:
 
 ```TVMSolidity
 TvmSlice slice = ...;
@@ -488,6 +492,26 @@ TvmSlice slice = ...;
 
 See also: [\<TvmBuilder\>.store()](#tvmbuilderstore).
 **Note**: if all the argument types can't be decoded from the slice a cell underflow [exception](#tvm-exception-codes) is thrown.
+
+###### \<TvmSlice\>.decodeQ()
+
+```TVMSolidity
+<TvmSlice>.decodeQ(TypeA, TypeB, ...) returns (optional(TypeA, TypeB, ...));
+```
+
+Sequentially decodes values of the specified types from the `TvmSlice` 
+if the `TvmSlice` holds sufficient data for all specified types. Otherwise, returns `null`.
+
+Supported types: `uintN`, `intN`, `bytesN`, `bool`, `ufixedMxN`, `fixedMxN`, `address`, `contract`,
+`TvmCell`, `bytes`, `string`, `mapping`, `ExtraCurrencyCollection`, and `array`.
+
+```TVMSolidity
+TvmSlice slice = ...;
+optional(uint) a = slice.decode(uint);
+optional(uint8, uint16) b = slice.decode(uint8, uint16);
+```
+
+See also: [\<TvmBuilder\>.store()](#tvmbuilderstore).
 
 ###### \<TvmSlice\>.loadRef()
 
@@ -1165,6 +1189,15 @@ uint[] arr;
 bool b = arr.empty(); // b == true
 arr.push(...);
 bool b = arr.empty(); // b == false
+```
+
+#### bytesN
+
+Variables of the `bytesN` types can be explicitly converted to `bytes`. Note: it costs ~500 gas.
+
+```TVMSolidity
+bytes3 b3 = 0x112233;
+bytes b = bytes(b3);
 ```
 
 #### bytes
@@ -1878,6 +1911,29 @@ Operators:
 * Math operations: [math.min(), math.max()](#mathmin-mathmax), [math.minmax()](#mathminmax),
 [math.abs()](#mathabs), [math.divr(), math.divc()](#mathdivr-mathdivc)
 
+#### \<mapping\>.keys() \<mapping\>.values()
+
+```TVMSolidity
+(1)
+<map>.keys() returns (KeyType[]);
+(2)
+<map>.values() returns (ValuesType[]);
+```
+
+(1) Returns all mapping's keys/values.
+(2) Returns all values of the mapping as an array.
+Note: these functions iterate over the whole mapping, thus the cost is proportional to the 
+mapping's size.
+
+```TVMSolidity
+mapping(uint16 => uint8) map;
+map[11] = 10;
+map[22] = 20;
+map[33] = 30;
+uint16[] keys = map.keys(); // keys == [11, 22, 33] 
+uint8[] values = map.values(); // values == [10, 20, 30] 
+```
+
 #### Function type
 
 Function types are the types of functions. Variables of function type can be assigned from functions
@@ -2104,6 +2160,27 @@ pragma ton-solidity >= 0.35.5 < 0.35.7; // Check if the compiler version is equa
 ```
 
 Used to restrict source file compilation to the particular compiler versions.
+
+#### pragma-copyleft
+
+```TVMSolidity
+pragma copyleft <type>, <wallet_address>; 
+```
+
+It is an experimental feature available only in certain blockchain deployments.
+
+Parameters: 
+ * `<type>` (`uint8`) - copyleft type. 
+ * `<wallet_address>` (`uint256`) - author's wallet address in masterchain.
+
+If contract has the `copyleft` pragma, it means that after each transaction some part of validator's fee
+is transferred to `<wallet_address>` according to the `<type>` rule.
+
+For example:
+
+```TVMSolidity
+pragma copyleft 0, 0x2cfbdc31c9c4478b61472c72615182e9567595b857b1bba9e0c31cd9942f6ca41;
+```
 
 #### pragma ignoreIntOverflow
 
@@ -2579,7 +2656,8 @@ values are described.
 **Note**: if the function `f` below is called with `n = 5` and internal/external message must be
 generated then only one message is sent with result `120` (120 = 5 * 4 * 3 * 2 * 1).
 
-**Hint:** Use `{value: 0, flag: 64}` for `responsible` function. Because `flag: 0` is used by default.
+**Hint:** Use `{value: 0, bounce: false, flag: 64}` for `responsible` function.
+Because `flag: 0` is used by default.
 
 See also: [External function calls](#external-function-calls).
 
@@ -2589,7 +2667,7 @@ function f(uint n) public pure {
 }
 
 function f(uint n) public responsible pure {
-    return{value: 0, flag: 64} n <= 1 ? 1 : n * f(n - 1);
+    return{value: 0, bounce: false, flag: 64} n <= 1 ? 1 : n * f(n - 1);
 }
 ```
 

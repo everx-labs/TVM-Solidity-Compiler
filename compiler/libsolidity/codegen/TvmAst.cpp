@@ -588,6 +588,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"SBITREFS", {1, 2, true}},
 		{"TPOP", {1, 2}},
 
+		{"COPYLEFT", {2, 0}},
 		{"RAWRESERVE", {2, 0}},
 		{"SENDRAWMSG", {2, 0}},
 

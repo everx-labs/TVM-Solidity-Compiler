@@ -1412,6 +1412,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt6(Pointer<TvmAstNode> 
 
 std::optional<Result> PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 	Pointer<TvmAstNode> const& cmd1 = get(idx1);
+	auto cmd1IfElse = to<TvmIfElse>(cmd1.get());
 	auto cmd1Ret = to<TvmReturn>(cmd1.get());
 	int idx2 = nextCommandLine(idx1);
 
@@ -1419,6 +1420,23 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 	if (cmd1Ret && !cmd1Ret->withIf() && !cmd1Ret->withAlt() && idx2 == -1) {
 		return Result{1};
 	}
+
+	// PUSHCONT {
+	//    NULL
+	//    SWAP
+	// }
+	// IFNOTJMP
+	// =>
+	// NULLROTRIFNOT
+	// DROP
+	if (cmd1IfElse && cmd1IfElse->falseBody() == nullptr && cmd1IfElse->withJmp() && cmd1IfElse->withNot() &&
+		idx2 == -1) {
+		std::vector<Pointer<TvmAstNode>> const& insts = cmd1IfElse->trueBody()->instructions();
+		if (insts.size() == 2 && is(insts.at(0), "NULL") && isSWAP(insts.at(1))) {
+			return Result{1, StackPusher::makeAsym("NULLROTRIFNOT"), makeDROP()};
+		}
+	}
+
 
 	// squash ST* opcodes
 	{

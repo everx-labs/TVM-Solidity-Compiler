@@ -1180,16 +1180,17 @@ public:
 		TVMDataSizeQ, ///< cell.dataSizeQ()
 
 		DecodeFunctionParams, ///< slice.decodeFunctionParams(function_name)
-		TVMSliceDecodeStateVars, ///< slice.decodeStateVars(contract_name)
 		TVMLoadRef, ///< slice.loadRef()
 		TVMLoadSlice, ///< slice.loadSlice()
-		TVMSliceEmpty, ///< slice.empty()
+		TVMSliceCompare, ///< slice.compare()
 		TVMSliceDataSize, ///< slice.dataSize()
 		TVMSliceDecode, ///< slice.decode(types)
+		TVMSliceDecodeQ, ///< slice.decodeQ(types)
+		TVMSliceDecodeStateVars, ///< slice.decodeStateVars(contract_name)
+		TVMSliceEmpty, ///< slice.empty()
+		TVMSliceHas, ///< slice.hasXXX()
 		TVMSliceSize, ///< slice.size()
 		TVMSliceSkip, ///< slice.skip()
-		TVMSliceCompare, ///< slice.compare()
-		TVMSliceHas, ///< slice.hasXXX()
 
 		StructUnpack, ///< <struct>.unpack()
 
@@ -1287,15 +1288,17 @@ public:
 		RndShuffle, /// < rnd.shuffle
 
 		MappingAt, ///< .at() for a mapping
+		MappingDelMinOrMax, ///< .delMin() or .delMax() for a mapping
+		MappingEmpty,  ///< .empty() for a mapping
+		MappingExists, ///< .exists() for a mapping
+		MappingFetch, ///< .fetch() for a mapping
+		MappingGetMinMax, ///< .min() or .max() for a mapping
 		MappingGetNextKey, ///< .next() for a mapping
 		MappingGetPrevKey, ///< .prev() for a mapping
-		MappingGetMinMax, ///< .min() or .max() for a mapping
-		MappingDelMinOrMax, ///< .delMin() or .delMax() for a mapping
-		MappingFetch, ///< .fetch() for a mapping
-		MappingExists, ///< .exists() for a mapping
-		MappingEmpty,  ///< .empty() for a mapping
-		MappingReplaceOrAdd,  ///< .replace() or .add() for a mapping
 		MappingGetSet,  ///< .getSet() for a mapping
+		MappingKeys,  ///< .keys() for a mapping
+		MappingReplaceOrAdd,  ///< .replace() or .add() for a mapping
+		MappingValues,  ///< .values() for a mapping
 
 		OptionalGet,  ///< .get() for optional
 		OptionalSet,  ///< .set() for optional
@@ -1543,6 +1546,7 @@ public:
 	bool hasSimpleZeroValueInMemory() const override { solAssert(false, ""); }
 
 	Type const* keyType() const { return m_keyType; }
+	Type const* realKeyType() const;
 	Type const* valueType() const { return m_valueType; }
 	MemberList::MemberMap nativeMembers(ContractDefinition const* _currentScope) const override;
 

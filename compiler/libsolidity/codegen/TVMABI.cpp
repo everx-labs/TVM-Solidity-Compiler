@@ -103,7 +103,7 @@ void TVMABI::generateABI(
 	{
 		Json::Value header(Json::arrayValue);
 		for (const std::string h : {"pubkey", "time", "expire"}) {
-			if (std::get<0>(pdh.haveHeader(h)) || (h == "time" && ctx.hasTimeInAbiHeader())) {
+			if (std::get<0>(pdh.hasHeader(h)) || (h == "time" && ctx.hasTimeInAbiHeader())) {
 				header.append(h);
 			}
 		}
@@ -577,9 +577,9 @@ ChainDataDecoder::ChainDataDecoder(StackPusher *pusher) :
 int ChainDataDecoder::maxBits(bool isResponsible) {
 	// external inbound message
 	int maxUsed = 1 + 512 + // signature
-				  (pusher->ctx().pragmaHelper().havePubkey()? 1 + 256 : 0) +
+				  (pusher->ctx().pragmaHelper().hasPubkey()? 1 + 256 : 0) +
 				  (pusher->ctx().hasTimeInAbiHeader()? 64 : 0) +
-				  (pusher->ctx().pragmaHelper().haveExpire()? 32 : 0) +
+				  (pusher->ctx().pragmaHelper().hasExpire()? 32 : 0) +
 				  32 + // functionID
 				  (isResponsible ? 32 : 0); // callback function
 	return maxUsed;
@@ -646,6 +646,33 @@ void ChainDataDecoder::decodeParameters(
 		solAssert(static_cast<int>(types.size()) <= pusher->stackSize(), "");
 }
 
+void ChainDataDecoder::decodeParametersQ(
+	const std::vector<Type const*>& types,
+	DecodePosition& position
+) {
+	pusher->startContinuation();
+	pusher->startOpaque();
+	int ind = 0;
+	for (const auto & type : types) {
+		decodeParameterQ(type, &position, ind);
+		++ind;
+	}
+	{
+		int n = types.size();
+		pusher->blockSwap(n, 1);
+		if (n == 1) {
+			if (optValueAsTuple(types.at(0))) {
+				pusher->tuple(1);
+			}
+		} else {
+			pusher->tuple(n);
+		}
+		pusher->blockSwap(1, 1);
+	}
+	pusher->endOpaque(1, 2);
+	pusher->pushContAndCallX(1, 2, false);
+}
+
 void ChainDataDecoder::loadNextSlice() {
 	pusher->push(-1 + 2, "LDREF");
 	pusher->push(-1, "ENDS"); // only ENDS
@@ -660,10 +687,7 @@ void ChainDataDecoder::loadNextSliceIfNeed(bool doLoadNextSlice) {
 
 void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition* position) {
 	const Type::Category category = type->category();
-	if (to<TvmCellType>(type)) {
-		loadNextSliceIfNeed(position->loadNextCell(type));
-		pusher->push(+1, "LDREF");
-	} else if (auto structType = to<StructType>(type)) {
+	if (auto structType = to<StructType>(type)) {
 		ast_vec<VariableDeclaration> const& members = structType->structDefinition().members();
 		for (const ASTPointer<VariableDeclaration> &m : members) {
 			decodeParameter(m->type(), position);
@@ -673,9 +697,6 @@ void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition* positio
 		pusher->blockSwap(memberQty, 1); // slice members...
 		pusher->tuple(memberQty); // slice struct
 		pusher->exchange(1); // ... struct slice
-	} else if (category == Type::Category::Address || category == Type::Category::Contract) {
-		loadNextSliceIfNeed(position->loadNextCell(type));
-		pusher->load(type, false);
 	} else if (isIntegralType(type)) {
 		TypeInfo ti{type};
 		solAssert(ti.isNumeric, "");
@@ -687,23 +708,55 @@ void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition* positio
 			pusher->push(-1, "GEQ");
 			pusher->_throw("THROWIF " + toString(TvmConst::RuntimeException::WrongValueOfEnum));
 		}
-	} else if (to<ArrayType>(type)) {
-		loadNextSliceIfNeed(position->loadNextCell(type));
-		pusher->load(type, false);
-	} else if (to<MappingType>(type)) {
-		loadNextSliceIfNeed(position->loadNextCell(type));
-		pusher->load(type, false);
-	} else if (to<OptionalType>(type)) {
-		loadNextSliceIfNeed(position->loadNextCell(type));
-		pusher->load(type, false);
-	} else if (to<FunctionType>(type)) {
-		loadNextSliceIfNeed(position->loadNextCell(type));
-		pusher->load(type, false);
-	} else if (to<VarInteger>(type)) {
+	} else if (
+		to<TvmCellType>(type) ||
+		to<ArrayType>(type) ||
+		to<MappingType>(type) ||
+		to<OptionalType>(type) ||
+		to<FunctionType>(type) ||
+		to<VarInteger>(type) ||
+		(category == Type::Category::Address || category == Type::Category::Contract)
+	) {
 		loadNextSliceIfNeed(position->loadNextCell(type));
 		pusher->load(type, false);
 	} else {
 		solUnimplemented("Unsupported parameter type for decoding: " + type->toString());
+	}
+}
+
+void ChainDataDecoder::decodeParameterQ(Type const* type, DecodePosition* position, int ind) {
+	const Type::Category category = type->category();
+	if (/*auto structType =*/ to<StructType>(type)) {
+		solUnimplemented("TODO");
+	} else if (
+		isIntegralType(type) ||
+		to<TvmCellType>(type) ||
+		to<ArrayType>(type) ||
+		to<MappingType>(type) ||
+		(category == Type::Category::Address || category == Type::Category::Contract)
+	) {
+		loadNextSliceIfNeed(position->loadNextCell(type));
+		pusher->loadQ(type);
+	} else {
+		solUnimplemented("Unsupported parameter type for decoding: " + type->toString());
+	}
+
+	pusher->startContinuation();
+	if (ind > 0) {
+		pusher->dropUnder(ind, 1);
+	}
+	pusher->pushNull();
+	pusher->blockSwap(1, 1);
+	pusher->endContinuation();
+
+	pusher->ifNotJmp();
+
+	if (auto enumType = to<EnumType>(type)) {
+		// val slice -1
+		pusher->pushS(1);
+		pusher->pushInt(enumType->enumDefinition().members().size());
+		pusher->push(-1, "GEQ");
+		pusher->_throw("THROWIF " + toString(TvmConst::RuntimeException::WrongValueOfEnum));
 	}
 }
 

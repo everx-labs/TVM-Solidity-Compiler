@@ -1452,6 +1452,11 @@ BoolResult FixedBytesType::isImplicitlyConvertibleTo(Type const& _convertTo) con
 
 BoolResult FixedBytesType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 {
+	if (auto arr = dynamic_cast<ArrayType const*>(&_convertTo);
+		arr && arr->isByteArray()
+	) {
+		return true;
+	}
 	return (_convertTo.category() == Category::Integer && numBytes() * 8 == dynamic_cast<IntegerType const&>(_convertTo).numBits()) ||
 		_convertTo.category() == Category::FixedPoint ||
 		_convertTo.category() == category();
@@ -1973,7 +1978,7 @@ MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 	return members;
 }
 
-static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType, Type const* valueType) {
+static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType, Type const* valueType, Type const* realKeyType) {
 	members.emplace_back("at", TypeProvider::function(
 		TypePointers{keyType},
 		TypePointers{valueType},
@@ -2014,6 +2019,22 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 				true, StateMutability::Pure
 		));
 	}
+	members.emplace_back("keys", TypeProvider::function(
+			{},
+			{TypeProvider::array(realKeyType)},
+			{},
+			{{}},
+			FunctionType::Kind::MappingKeys,
+			false, StateMutability::Pure
+	));
+	members.emplace_back("values", TypeProvider::function(
+			{},
+			{TypeProvider::array(valueType)},
+			{},
+			{{}},
+			FunctionType::Kind::MappingValues,
+			false, StateMutability::Pure
+	));
 	members.emplace_back("fetch", TypeProvider::function(
 			TypePointers{keyType},
 			TypePointers{TypeProvider::optional(valueType)},
@@ -2063,7 +2084,7 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 MemberList::MemberMap MappingType::nativeMembers(ContractDefinition const*) const
 {
 	MemberList::MemberMap members;
-	appendMapMethods(members, keyType(), valueType());
+	appendMapMethods(members, keyType(), valueType(), realKeyType());
 	return members;
 }
 
@@ -2852,14 +2873,15 @@ string FunctionType::richIdentifier() const
 	case Kind::StringSubstr: id += "stringsubstr"; break;
 
 	case Kind::DecodeFunctionParams: id += "tvmslicedecodefunctionparams"; break;
-	case Kind::TVMSliceDecodeStateVars: id += "tvmslicedecodestatevars"; break;
-	case Kind::TVMSliceEmpty: id += "tvmsliceempty"; break;
+	case Kind::TVMSliceCompare: id += "tvmslicecompare"; break;
 	case Kind::TVMSliceDataSize: id += "tvmslicedatasize"; break;
 	case Kind::TVMSliceDecode: id += "tvmslicedecode"; break;
+	case Kind::TVMSliceDecodeQ: id += "tvmslicedecodeq"; break;
+	case Kind::TVMSliceDecodeStateVars: id += "tvmslicedecodestatevars"; break;
+	case Kind::TVMSliceEmpty: id += "tvmsliceempty"; break;
+	case Kind::TVMSliceHas: id += "tvmslicehasxxx"; break;
 	case Kind::TVMSliceSize: id += "tvmslicesize"; break;
 	case Kind::TVMSliceSkip: id += "tvmsliceskip"; break;
-	case Kind::TVMSliceCompare: id += "tvmslicecompare"; break;
-	case Kind::TVMSliceHas: id += "tvmslicehasxxx"; break;
 
 	case Kind::TVMCellDepth: id += "tvmcelldepth"; break;
 	case Kind::TVMCellToSlice: id += "tvmcelltoslice"; break;
@@ -2938,15 +2960,17 @@ string FunctionType::richIdentifier() const
 	case Kind::MathSign: id += "mathsign"; break;
 
 	case Kind::MappingAt: id += "mappingat"; break;
+	case Kind::MappingDelMinOrMax: id += "mapdelmin"; break;
+	case Kind::MappingEmpty: id += "mapempty"; break;
+	case Kind::MappingExists: id += "mapexists"; break;
+	case Kind::MappingFetch: id += "mapfetch"; break;
 	case Kind::MappingGetMinMax: id += "mapgetminmax"; break;
 	case Kind::MappingGetNextKey: id += "mapgetnext"; break;
 	case Kind::MappingGetPrevKey: id += "mapgetprev"; break;
-	case Kind::MappingFetch: id += "mapfetch"; break;
-	case Kind::MappingExists: id += "mapexists"; break;
-	case Kind::MappingDelMinOrMax: id += "mapdelmin"; break;
-	case Kind::MappingEmpty: id += "mapempty"; break;
-	case Kind::MappingReplaceOrAdd: id += "mappingreplaceoradd"; break;
 	case Kind::MappingGetSet: id += "mappingsetget"; break;
+	case Kind::MappingKeys: id += "mappingkeys"; break;
+	case Kind::MappingReplaceOrAdd: id += "mappingreplaceoradd"; break;
+	case Kind::MappingValues: id += "mappingvalues"; break;
 
 	case Kind::Declaration: id += "declaration"; break;
 	case Kind::Internal: id += "internal"; break;
@@ -3543,6 +3567,18 @@ bool FunctionType::padArguments() const
 Type const* MappingType::encodingType() const
 {
 	return TypeProvider::uint(256);
+}
+
+Type const* MappingType::realKeyType() const
+{
+	auto strOrBytesType = dynamic_cast<ArrayType const*>(m_keyType);
+	if ((strOrBytesType != nullptr && strOrBytesType->isByteArray()) ||
+		m_keyType->category() == Type::Category::TvmCell
+	) {
+		return TypeProvider::uint256();
+	}
+
+	return m_keyType;
 }
 
 BoolResult MappingType::isImplicitlyConvertibleTo(Type const& _other) const
@@ -4498,6 +4534,15 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ContractDefinition const *) co
 			true,
 			StateMutability::Pure
 	));
+	members.emplace_back("decodeQ", TypeProvider::function(
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::TVMSliceDecodeQ,
+			true,
+			StateMutability::Pure
+	));
 
 	members.emplace_back("decodeFunctionParams", TypeProvider::function(
 			TypePointers{},
@@ -5011,7 +5056,7 @@ VarInteger const* ExtraCurrencyCollectionType::realValueType() const {
 
 MemberList::MemberMap ExtraCurrencyCollectionType::nativeMembers(ContractDefinition const *) const {
 	MemberList::MemberMap members;
-	appendMapMethods(members, keyType(), valueType());
+	appendMapMethods(members, keyType(), valueType(), keyType());
 	return members;
 }
 

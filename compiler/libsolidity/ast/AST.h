@@ -258,7 +258,7 @@ public:
 		SourceLocation const& _location,
 		std::vector<Token> const& _tokens,
 		std::vector<ASTString> const& _literals,
-		ASTPointer<Expression> _parameter = nullptr
+		std::vector<ASTPointer<Expression>> _parameter = {}
 	): ASTNode(_id, _location), m_tokens(_tokens), m_literals(_literals),
 		m_parameter(_parameter)
 	{}
@@ -269,7 +269,7 @@ public:
 	std::vector<Token> const& tokens() const { return m_tokens; }
 	std::vector<ASTString> const& literals() const { return m_literals; }
 
-	ASTPointer<Expression> parameter() const { return m_parameter; }
+	std::vector<ASTPointer<Expression>> parameter() const { return m_parameter; }
 private:
 
 	/// Sequence of tokens following the "pragma" keyword.
@@ -277,7 +277,7 @@ private:
 	/// Sequence of literals following the "pragma" keyword.
 	std::vector<ASTString> m_literals;
 	/// Arbitrary pragma parameter.
-	ASTPointer<Expression> m_parameter;
+	std::vector<ASTPointer<Expression>> m_parameter;
 };
 
 /**

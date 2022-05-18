@@ -160,6 +160,24 @@ bool TVMAnalyzer::visit(Return const& _return) {
 		}
 	}
 
+	if (m_currentFunction && m_currentFunction->isResponsible()) {
+		auto hasName = [&](std::string const& name) -> bool {
+			auto b = _return.names().begin();
+			auto e = _return.names().end();
+			return std::find_if(b, e, [&](ASTPointer<ASTString> const& x){
+				return name == *x;
+			}) != e;
+		};
+		if (!hasName("value") || !hasName("bounce") || !hasName("flag")) {
+			m_errorReporter.fatalDeclarationError(
+				_return.location(),
+				std::string{} +
+				"`value`, `bounce` and `flag` options must be explicitly defined for `responsible` functions.\n" +
+				"Hint: use `{value: 0, bounce: false, flag: 64}`."
+			);
+		}
+	}
+
 	return true;
 }
 
@@ -196,6 +214,38 @@ void TVMAnalyzer::endVisit(FunctionDefinition const&) {
 	m_structLoads.clear();
 	m_changedStructs.clear();
 	m_currentFunction = nullptr;
+}
+
+void TVMAnalyzer::endVisit(PragmaDirective const& _pragma) {
+	if (_pragma.literals().size() >= 1 && _pragma.literals().at(0) == "copyleft") {
+		std::vector<ASTPointer<Expression>> params = _pragma.parameter();
+
+		auto checkConstIneger = [&](Expression const& _e, SourceLocation const& loc, const std::string& msg, bigint max_val){
+			if (_e.annotation().type->category() != Type::Category::RationalNumber) {
+				m_errorReporter.syntaxError(loc, msg);
+				return;
+			}
+			auto number = dynamic_cast<RationalNumberType const *>(_e.annotation().type);
+			solAssert(number, "");
+			if (number->isFractional()) {
+				m_errorReporter.syntaxError(loc, msg);
+				return;
+			}
+			bigint val = number->value();
+			if (val < 0 || val >= max_val) {
+				m_errorReporter.syntaxError(loc, msg);
+				return;
+			}
+		};
+
+		// check type
+		checkConstIneger(*params.at(0), params.at(0)->location(),
+						 "Expected constant integer type (uint8).", bigint(1) << 8);
+
+		// check address
+		checkConstIneger(*params.at(1), params.at(1)->location(),
+						 "Expected constant integer type (uint256).", bigint(1) << 256);
+	}
 }
 
 ContactsUsageScanner::ContactsUsageScanner(const ContractDefinition &cd) {

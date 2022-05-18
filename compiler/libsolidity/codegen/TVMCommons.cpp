@@ -18,6 +18,8 @@
 
 #include <boost/algorithm/string/trim.hpp>
 
+#include <libsolidity/ast/TypeProvider.h>
+
 #include "TVM.h"
 #include "TVMCommons.hpp"
 #include "TVMConstants.hpp"
@@ -149,7 +151,7 @@ std::string typeToDictChar(Type const *keyType) {
 	return ""; // dict key is slice
 }
 
-int lengthOfDictKey(Type const *key) {
+int dictKeyLength(Type const *key) {
 	if (isIn(key->category(), Type::Category::Address, Type::Category::Contract)) {
 		return AddressInfo::stdAddrWithoutAnyCastLength();
 	}
@@ -181,8 +183,8 @@ IntegerType getKeyTypeOfC4() {
 	return IntegerType(TvmConst::C4::KeyLength);
 }
 
-IntegerType getKeyTypeOfArray() {
-	return IntegerType(TvmConst::ArrayKeyLength);
+IntegerType const& getArrayKeyType() {
+	return *TypeProvider::integer(TvmConst::ArrayKeyLength, IntegerType::Modifier::Unsigned);
 }
 
 std::tuple<Type const*, Type const*>
@@ -191,6 +193,22 @@ dictKeyValue(Type const* type) {
 	Type const* valueType{};
 	if (auto mapType = to<MappingType>(type)) {
 		keyType = mapType->keyType();
+		valueType = mapType->valueType();
+	} else if (auto ccType = to<ExtraCurrencyCollectionType>(type)) {
+		keyType = ccType->keyType();
+		valueType = ccType->realValueType();
+	} else {
+		solUnimplemented("");
+	}
+	return {keyType, valueType};
+}
+
+std::tuple<Type const*, Type const*>
+realDictKeyValue(Type const* type) {
+	Type const* keyType{};
+	Type const* valueType{};
+	if (auto mapType = to<MappingType>(type)) {
+		keyType = mapType->realKeyType();
 		valueType = mapType->valueType();
 	} else if (auto ccType = to<ExtraCurrencyCollectionType>(type)) {
 		keyType = ccType->keyType();
@@ -641,6 +659,47 @@ std::string StrUtils::toBinString(bigint num) {
 	}
 	std::reverse(res.begin(), res.end());
 	return res;
+}
+
+std::optional<bigint> ExprUtils::constValue(const Expression &_e) {
+	auto f = [](VariableDeclaration const*  vd) -> std::optional<bigint> {
+		if (vd != nullptr && vd->isConstant() && vd->value() != nullptr) {
+			return constValue(*vd->value());
+		}
+		return {};
+	};
+
+	if (_e.annotation().isPure) {
+		if (auto ident = to<Identifier>(&_e)) {
+			IdentifierAnnotation &identifierAnnotation = ident->annotation();
+			const auto *vd = to<VariableDeclaration>(identifierAnnotation.referencedDeclaration);
+			return f(vd);
+		} else if (_e.annotation().type->category() == Type::Category::RationalNumber) {
+			auto number = dynamic_cast<RationalNumberType const *>(_e.annotation().type);
+			solAssert(number, "");
+			bigint val = number->value();
+			return val;
+		}
+	} else {
+		// MyLibName.const_variable
+		auto memberAccess = to<MemberAccess>(&_e);
+		if (memberAccess) {
+			auto identifier = to<Identifier>(&memberAccess->expression());
+			if (identifier && identifier->annotation().type->category() == Type::Category::TypeType) {
+				auto vd = to<VariableDeclaration>(memberAccess->annotation().referencedDeclaration);
+				return f(vd);
+			}
+		}
+	}
+	return {};
+}
+
+std::optional<bool> ExprUtils::constBool(Expression const& _e) {
+	auto l = to<Literal>(&_e);
+	if (l != nullptr && isIn(l->token(), Token::TrueLiteral, Token::FalseLiteral)) {
+		return l->token() == Token::TrueLiteral;
+	}
+	return {};
 }
 
 } // end namespace solidity::frontend
