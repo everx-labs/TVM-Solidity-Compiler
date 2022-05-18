@@ -437,6 +437,41 @@ TypePointers TypeChecker::checkSliceDecode(std::vector<ASTPointer<Expression con
 	return components;
 }
 
+TypePointers TypeChecker::checkSliceDecodeQ(std::vector<ASTPointer<Expression const>> const& arguments)
+{
+	TypePointers components;
+	for (auto const& typeArgument: arguments) {
+		solAssert(typeArgument, "");
+		if (auto const* argTypeType = dynamic_cast<TypeType const*>(type(*typeArgument))) {
+			TypePointer actualType = argTypeType->actualType();
+			solAssert(actualType, "");
+			components.push_back(actualType);
+
+			switch (actualType->category()) {
+				case Type::Category::Integer:
+				case Type::Category::FixedBytes:
+				case Type::Category::Bool:
+				case Type::Category::FixedPoint:
+				case Type::Category::Address:
+				case Type::Category::Contract:
+				case Type::Category::TvmCell:
+				case Type::Category::Array:
+				case Type::Category::Mapping:
+				case Type::Category::ExtraCurrencyCollection:
+				case Type::Category::Enum:
+					break;
+
+				default:
+					m_errorReporter.typeError(typeArgument->location(), "Unsupported type for decoding.");
+			}
+		} else {
+			m_errorReporter.typeError(typeArgument->location(), "Argument has to be a type name.");
+			components.push_back(TypeProvider::emptyTuple());
+		}
+	}
+	return components;
+}
+
 TypePointers TypeChecker::typeCheckMetaTypeFunctionAndRetrieveReturnType(FunctionCall const& _functionCall)
 {
 	vector<ASTPointer<Expression const>> arguments = _functionCall.arguments();
@@ -2150,6 +2185,7 @@ void TypeChecker::typeCheckTvmEncodeArg(Type const* type, Expression const& node
 		case Type::Category::Array:
 		case Type::Category::Bool:
 		case Type::Category::Contract:
+		case Type::Category::Enum:
 		case Type::Category::ExtraCurrencyCollection:
 		case Type::Category::FixedBytes:
 		case Type::Category::Integer:
@@ -3125,6 +3161,11 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			);
 	};
 
+	auto checkAtLeastOneArg = [&]() {
+		if (arguments.empty()) {
+			m_errorReporter.fatalTypeError(_functionCall.location(), "Expected at least one argument.");
+		}
+	};
 
 	// Determine return types
 	// and target params arguments if function takes variable count of arguments or
@@ -3172,10 +3213,18 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			}
 			case FunctionType::Kind::TVMSliceDecode:
 			{
-				if (arguments.empty()) {
-					m_errorReporter.fatalTypeError(_functionCall.location(), "Expected at least one argument.");
-				}
+				checkAtLeastOneArg();
 				returnTypes = checkSliceDecode(_functionCall.arguments());
+				break;
+			}
+			case FunctionType::Kind::TVMSliceDecodeQ:
+			{
+				checkAtLeastOneArg();
+				TypePointers members = checkSliceDecode(_functionCall.arguments()); // TODO make for Q
+				if (members.size() == 1)
+					returnTypes = TypePointers{TypeProvider::optional(members.at(0))};
+				else
+					returnTypes = TypePointers{TypeProvider::optional(TypeProvider::tuple(members))};
 				break;
 			}
 			case FunctionType::Kind::TVMConfigParam:
@@ -3317,9 +3366,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			case FunctionType::Kind::ABIEncode:
 			case FunctionType::Kind::TVMBuilderStore:
 			{
-				if (arguments.empty()) {
-					m_errorReporter.fatalTypeError(_functionCall.location(), "Expected at least one argument.");
-				}
+				checkAtLeastOneArg();
 				typeCheckTvmEncodeFunctions(_functionCall);
 				returnTypes = functionType->returnParameterTypes();
 				break;
@@ -3349,14 +3396,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 					keyType = eccType->keyType();
 					valueType = eccType->valueType();
 				} else {
-					auto strOrBytesType = dynamic_cast<ArrayType const*>(mapType->keyType());
-					if ((strOrBytesType != nullptr && strOrBytesType->isByteArray()) ||
-						mapType->keyType()->category() == Type::Category::TvmCell
-					) {
-						keyType = TypeProvider::uint256();
-					} else {
-						keyType = mapType->keyType();
-					}
+					keyType = mapType->realKeyType();
 					valueType = mapType->valueType();
 				}
 				if (functionType->kind() == FunctionType::Kind::MappingGetNextKey) {
@@ -3560,9 +3600,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			}
 			case FunctionType::Kind::Require: {
 				paramTypes.push_back(TypeProvider::boolean());
-				if (arguments.empty()) {
-					m_errorReporter.fatalTypeError(_functionCall.location(), "Expected at least one argument.");
-				}
+				checkAtLeastOneArg();
 				if (arguments.size() >= 2) {
 					paramTypes.push_back(TypeProvider::uint256());
 				}

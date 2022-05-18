@@ -146,14 +146,18 @@ bool isRefType(const Type* type);
 
 std::string typeToDictChar(Type const* keyType);
 
-int lengthOfDictKey(Type const* key);
+int dictKeyLength(Type const* key);
 
 IntegerType getKeyTypeOfC4();
 
-IntegerType getKeyTypeOfArray();
+IntegerType const& getArrayKeyType();
 
 std::tuple<Type const*, Type const*>
 dictKeyValue(Type const* type);
+
+std::tuple<Type const*, Type const*>
+realDictKeyValue(Type const* type);
+
 
 std::vector<ContractDefinition const*> getContractsChain(ContractDefinition const* contract);
 std::vector<VariableDeclaration const *> notConstantStateVariables(ContractDefinition const* contract);
@@ -188,19 +192,19 @@ public:
 			pragmaDirectives{_pragmaDirectives} {
 	}
 
-	bool havePubkey() const {
-		return std::get<0>(haveHeader("pubkey"));
+	bool hasPubkey() const {
+		return std::get<0>(hasHeader("pubkey"));
 	}
 
-	bool haveTime() const {
-		return std::get<0>(haveHeader("time"));
+	bool hasTime() const {
+		return std::get<0>(hasHeader("time"));
 	}
 
-	bool haveExpire() const {
-		return std::get<0>(haveHeader("expire"));
+	bool hasExpire() const {
+		return std::get<0>(hasHeader("expire"));
 	}
 
-	std::tuple<bool, PragmaDirective const *> haveHeader(const std::string& str) const {
+	std::tuple<bool, PragmaDirective const *> hasHeader(const std::string& str) const {
 		for (PragmaDirective const *pd : pragmaDirectives) {
 			if (pd->literals().size() == 2 &&
 				pd->literals()[0] == "AbiHeader" &&
@@ -211,21 +215,32 @@ public:
 		return {false, nullptr};
 	}
 
-	bool haveIgnoreIntOverflow() const {
+	bool hasIgnoreIntOverflow() const {
 		return std::any_of(pragmaDirectives.begin(), pragmaDirectives.end(), [](const auto& pd){
 			return pd->literals().size() == 1 && pd->literals()[0] == "ignoreIntOverflow";
 		});
 	}
 
-	ASTPointer<Expression> haveMsgValue() const {
+	std::optional<std::vector<ASTPointer<Expression>>> hasMsgValue() const {
 		for (PragmaDirective const *pd : pragmaDirectives) {
 			if (pd->literals().size() == 1 &&
 				pd->literals()[0] == "msgValue") {
 				return pd->parameter();
 			}
 		}
-		return nullptr;
+		return {};
 	}
+
+	std::optional<std::vector<ASTPointer<Expression>>> hasCopyleft() const {
+		for (PragmaDirective const *pd : pragmaDirectives) {
+			if (pd->literals().size() == 1 &&
+				pd->literals()[0] == "copyleft") {
+				return pd->parameter();
+			}
+		}
+		return {};
+	}
+
 private:
 	std::vector<PragmaDirective const *> const& pragmaDirectives;
 };
@@ -357,6 +372,11 @@ namespace StrUtils {
 	std::string literalToSliceAddress(Literal const* literal);
 	bigint toBigint(const std::string& binStr);
 	std::string toBinString(bigint num);
+}
+
+namespace ExprUtils {
+	std::optional<bigint> constValue(Expression const &_e);
+	std::optional<bool> constBool(Expression const &_e);
 }
 
 } // end solidity::frontend

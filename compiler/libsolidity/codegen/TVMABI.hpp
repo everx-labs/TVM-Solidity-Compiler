@@ -93,12 +93,17 @@ public:
 	void decodeParameters(
 		const std::vector<Type const*>& types,
 		DecodePosition& position,
-		const bool doDropSlice
+		bool doDropSlice
+	);
+	void decodeParametersQ(
+		const std::vector<Type const*>& types,
+		DecodePosition& position
 	);
 private:
 	void loadNextSlice();
 	void loadNextSliceIfNeed(bool doLoadNextSlice);
 	void decodeParameter(Type const* type, DecodePosition* position);
+	void decodeParameterQ(Type const* type, DecodePosition* position, int ind);
 private:
 	StackPusher *pusher{};
 };

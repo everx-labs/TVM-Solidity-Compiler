@@ -489,9 +489,9 @@ std::pair<bool, bool> CompilerStack::compile()
 
 			std::vector<PragmaDirective const *> pragmaDirectives = getPragmaDirectives(source);
 			for (auto pragma: pragmaDirectives) {
-				if (pragma->parameter()) {
+				for (auto x : pragma->parameter()) {
 					TypeChecker typeChecker(m_evmVersion, m_errorReporter);
-					typeChecker.checkTypeRequirements(*pragma->parameter().get());
+					typeChecker.checkTypeRequirements(*x);
 				}
 			}
 

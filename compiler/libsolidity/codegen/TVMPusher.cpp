@@ -192,7 +192,7 @@ Pointer<Function> StackPusher::generateC7ToT4Macro(bool forAwait) {
 }
 
 bool StackPusher::doesFitInOneCellAndHaveNoStruct(Type const* key, Type const* value) {
-	int keyLength = lengthOfDictKey(key);
+	int keyLength = dictKeyLength(key);
 	return
 		TvmConst::MAX_HASH_MAP_INFO_ABOUT_KEY +
 		keyLength +
@@ -580,9 +580,9 @@ void StackPusher::recoverKeyAndValueAfterDictOperation(
 
 			if (saveOrigKeyAndNoTuple) {
 				startContinuation();
-				push(+1, "NULL");
-				push(+1, "NULL");
-				push(+1, "NULL");
+				pushNull();
+				pushNull();
+				pushNull();
 				push(-3, ""); // fix stack
 				endContinuation();
 
@@ -700,7 +700,7 @@ void StackPusher::declRetFlag() {
 }
 
 Pointer<AsymGen>
-StackPusher::asym(const string& cmd) {
+StackPusher::makeAsym(const string& cmd) {
 	auto f = [&](const std::string& pattert) {
 		istringstream iss(cmd);
 		string real;
@@ -764,6 +764,7 @@ StackPusher::asym(const string& cmd) {
 	else if (f("SDATASIZEQ")) { opcode = createNode<AsymGen>(cmd, 2, 1, 4); }
 
 	else if (dictRem()) { opcode = createNode<AsymGen>(cmd, 2, 2, 3); }
+	else if (f("NULLROTRIFNOT")) { opcode = createNode<AsymGen>(cmd, 2, 2, 3); }
 
 	else if (f("DICTGET")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
 	else if (f("DICTIGET")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
@@ -787,7 +788,7 @@ StackPusher::asym(const string& cmd) {
 
 	else if (dictSomeGet()) { opcode = createNode<AsymGen>(cmd, 4, 2, 3); }
 
-	else solAssert(opcode, "StackPusher::asym " + cmd);
+	else solAssert(opcode, "StackPusher::makeAsym " + cmd);
 	return opcode;
 }
 
@@ -808,7 +809,7 @@ void StackPusher::push(const Pointer<HardCode>& opcode) {
 
 void StackPusher::pushAsym(std::string const& opcode) {
 	solAssert(lockStack >= 1, "");
-	Pointer<AsymGen> node = asym(opcode);
+	Pointer<AsymGen> node = makeAsym(opcode);
 	m_instructions.back().push_back(node);
 }
 
@@ -1007,6 +1008,12 @@ void StackPusher::ifRetAlt() {
 
 void StackPusher::ifret() {
 	auto opcode = makeIFRET();
+	m_instructions.back().push_back(opcode);
+	change(1, 0);
+}
+
+void StackPusher::ifNotRet() {
+	auto opcode = makeIFNOTRET();
 	m_instructions.back().push_back(opcode);
 	change(1, 0);
 }
@@ -1381,7 +1388,7 @@ void StackPusher::preload(const Type *type) {
 			push(-1 + 1, "PLDDICT");
 			break;
 		case Type::Category::VarInteger:
-			push(-1 + 2, "LDVARUINT32");
+			load(type, false);
 			drop();
 			break;
 		case Type::Category::Tuple: {
@@ -1394,6 +1401,111 @@ void StackPusher::preload(const Type *type) {
 			solUnimplemented("Decode isn't supported for " + type->toString(true));
 	}
 	ensureSize(stackSize);
+}
+
+void StackPusher::loadQ(const Type *type) {
+	// slice ->
+	//    cell slice' true
+	//    slice false
+
+	auto decodeRef = [&](){
+		pushS(0);
+		*this << "SREFS";
+
+		startContinuation();
+		// slice
+		load(type, false);
+		*this << "TRUE";
+		// cell slice' true
+		endContinuation();
+
+		startContinuation();
+		*this << "FALSE";
+		// slice false
+		endContinuation();
+
+		ifElse();
+	};
+
+	switch (type->category()) {
+		case Type::Category::Optional: {
+			solUnimplemented("TODO");
+			break;
+		}
+		case Type::Category::Address:
+		case Type::Category::Contract:
+			pushAsym("LDMSGADDRQ");
+			break;
+		case Type::Category::TvmCell:
+			decodeRef();
+			break;
+		case Type::Category::Struct: {
+			solUnimplemented("TODO");
+			break;
+		}
+		case Type::Category::Integer:
+		case Type::Category::Enum:
+		case Type::Category::Bool:
+		case Type::Category::FixedPoint:
+		case Type::Category::FixedBytes: {
+			TypeInfo ti{type};
+			solAssert(ti.isNumeric, "");
+			string cmd = (ti.isSigned ? "LDIQ " : "LDUQ ") + toString(ti.numBits);
+			pushAsym(cmd);
+			break;
+		}
+		case Type::Category::Function: {
+			solUnimplemented("TODO");
+			break;
+		}
+		case Type::Category::Array: {
+			auto arrayType = to<ArrayType>(type);
+			if (arrayType->isByteArray()) {
+				decodeRef();
+			} else {
+				pushAsym("LDUQ 32");
+
+				startContinuation();
+				pushAsym("LDDICTQ");
+				{
+					startContinuation(); // u32 dict s
+					rotRev();
+					this->tuple(2);
+					blockSwap(1, 1);
+					*this << "TRUE";
+					endContinuation();
+
+					startContinuation(); // u32 s
+					dropUnder(1, 1);
+					*this << "FALSE";
+					endContinuation();
+					ifElse();
+				}
+				endContinuation();
+
+				startContinuation();
+				*this << "FALSE";
+				endContinuation();
+
+				ifElse();
+			}
+			break;
+		}
+		case Type::Category::Mapping:
+		case Type::Category::ExtraCurrencyCollection:
+			pushAsym("LDDICTQ");
+			break;
+		case Type::Category::VarInteger: {
+			solUnimplemented("TODO");
+			break;
+		}
+		case Type::Category::Tuple: {
+			solUnimplemented("TODO");
+			break;
+		}
+		default:
+			solUnimplemented("QDecode isn't supported for " + type->toString(true));
+	}
 }
 
 void StackPusher::store(
@@ -1798,7 +1910,7 @@ void StackPusher::hardConvert(Type const *leftType, Type const *rightType) {
 				}
 				case Type::Category::Array: {
 					auto stringType = to<ArrayType>(leftType);
-					solAssert(stringType->isString(), "");
+					solAssert(stringType->isByteArray(), "");
 					push(+1, "NEWC");
 					push(-2 + 1, "STU " + toString(8 * r->numBytes()));
 					push(0, "ENDC");
@@ -2426,7 +2538,7 @@ void TVMCompilerContext::initMembers(ContractDefinition const *contract) {
 		}
 	}
 
-	ignoreIntOverflow = m_pragmaHelper.haveIgnoreIntOverflow();
+	ignoreIntOverflow = m_pragmaHelper.hasIgnoreIntOverflow();
 	for (VariableDeclaration const *variable: notConstantStateVariables()) {
 		m_stateVarIndex[variable] = TvmConst::C7::FirstIndexForVariables + m_stateVarIndex.size();
 	}
@@ -2464,7 +2576,7 @@ PragmaDirectiveHelper const &TVMCompilerContext::pragmaHelper() const {
 }
 
 bool TVMCompilerContext::hasTimeInAbiHeader() const {
-	return m_pragmaHelper.haveTime() || afterSignatureCheck() == nullptr;
+	return m_pragmaHelper.hasTime() || afterSignatureCheck() == nullptr;
 }
 
 bool TVMCompilerContext::isStdlib() const {
@@ -2612,6 +2724,12 @@ bool TVMCompilerContext::dfs(FunctionDefinition const* v) {
 	return false;
 }
 
+void StackPusher::pushEmptyArray() {
+	pushInt(0);
+	push(+1, "NEWDICT");
+	push(-2 + 1, "TUPLE 2");
+}
+
 void StackPusher::pushNull() {
 	push(+1, "NULL");
 }
@@ -2642,9 +2760,7 @@ void StackPusher::pushDefaultValue(Type const* type) {
 				pushEmptyCell();
 				break;
 			}
-			pushInt(0);
-			push(+1, "NEWDICT");
-			push(-2 + 1, "TUPLE 2");
+			pushEmptyArray();
 			break;
 		case Type::Category::Mapping:
 		case Type::Category::ExtraCurrencyCollection:
@@ -2667,7 +2783,7 @@ void StackPusher::pushDefaultValue(Type const* type) {
 			break;
 		}
 		case Type::Category::Optional:
-			push(+1, "NULL");
+			pushNull();
 			break;
 		case Type::Category::TvmVector:
 			tuple(0);

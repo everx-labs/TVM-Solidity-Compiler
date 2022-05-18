@@ -45,13 +45,15 @@ void SourceUnit::accept(ASTConstVisitor& _visitor) const
 
 void PragmaDirective::accept(ASTVisitor& _visitor)
 {
-	_visitor.visit(*this);
+	if (_visitor.visit(*this))
+		listAccept(m_parameter, _visitor);
 	_visitor.endVisit(*this);
 }
 
 void PragmaDirective::accept(ASTConstVisitor& _visitor) const
 {
-	_visitor.visit(*this);
+	if (_visitor.visit(*this))
+		listAccept(m_parameter, _visitor);
 	_visitor.endVisit(*this);
 }
 

@@ -152,8 +152,7 @@ public:
 	void startOpaque();
 	void endOpaque(int take, int ret, bool isPure = false);
 	void declRetFlag();
-private:
-	static Pointer<AsymGen> asym(const std::string& cmd);
+	static Pointer<AsymGen> makeAsym(const std::string& cmd);
 public:
 	void push(const Pointer<Stack>& opcode);
 	void push(const Pointer<AsymGen>& opcode);
@@ -203,6 +202,7 @@ public:
 	void retAlt();
 	void ifRetAlt();
 	void ifret();
+	void ifNotRet();
 	void _throw(const std::string& cmd);
 
 	TVMStack& getStack();
@@ -241,6 +241,7 @@ public:
 	void load(const Type* type, bool reverseOrder);
 
 	void preload(const Type *type);
+	void loadQ(const Type *type);
 
 	void store(const Type *type, bool reverse);
 	void pushZeroAddress();
@@ -313,6 +314,7 @@ public:
   		const DataType& dataType = DataType::Slice
 	);
 
+	void pushEmptyArray();
 	void pushNull();
 	void pushEmptyCell();
 	void pushDefaultValue(Type const* type);

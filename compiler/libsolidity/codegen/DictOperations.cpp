@@ -27,14 +27,14 @@ using namespace solidity::util;
 DictOperation::DictOperation(StackPusher& pusher, Type const& keyType, Type const& valueType) :
 		pusher{pusher},
 		keyType{keyType},
-		keyLength{lengthOfDictKey(&keyType)},
+		keyLength{dictKeyLength(&keyType)},
 		valueType{valueType},
 		valueCategory{valueType.category()} {
 }
 
 void DictMinMax::minOrMax(bool saveOrigKeyAndNoTuple) {
 	// stack: dict
-	pusher.pushInt(lengthOfDictKey(&keyType)); // dict nbits
+	pusher.pushInt(dictKeyLength(&keyType)); // dict nbits
 
 	const bool haveKey = true;
 	bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
@@ -216,7 +216,7 @@ DictSet::DictSet(StackPusher &pusher, const Type &keyType, const Type &valueType
 
 void DictSet::dictSet() {
 	// stack: value key dict
-	int keyLength = lengthOfDictKey(&keyType);
+	int keyLength = dictKeyLength(&keyType);
 	pusher.pushInt(keyLength);
 	// stack: value index dict keyBitLength
 	opcode = "DICT" + typeToDictChar(&keyType);

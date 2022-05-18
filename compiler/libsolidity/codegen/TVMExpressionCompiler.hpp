@@ -27,8 +27,6 @@ public:
 	explicit TVMExpressionCompiler(StackPusher &pusher);
 	void compileNewExpr(const Expression* expr);
 	void acceptExpr(const Expression* expr, bool _isResultNeeded);
-	static std::optional<bigint> constValue(Expression const& _e);
-	static std::optional<bool> constBool(Expression const& _e);
 	static int returnParamQty(Expression const& _e);
 
 	LValueInfo expandLValue(

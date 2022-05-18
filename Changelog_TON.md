@@ -1,3 +1,24 @@
+### 0.60.0 (2022-??-??)
+
+Compiler features:
+ * Supported `pragma copyleft <type>, <wallet_address>;`.
+ * Supported explicit conversion from `bytesN` to `bytes`.
+ * Supported `<TvmSlice>.decode` for `enum` type.
+ * Supported `<TvmSlice>.decodeQ`.
+ * Supported `<map>.keys()` and `<map>.values()`.
+
+Bugfixes:
+ * Fixed problem with fetching `varInt` from mappings that use `varInt` as value.
+ * Fixed problem with control flow in  `do{ ...} while(...)` construction.
+
+Breaking change:
+ * `value`, `bounce` and `flag` options in return statement of `responsible` function must be
+explicitly defined.
+
+Gas optimizations:
+ * Peephole optimizations: use `PUSHPOW2`, `PUSHPOW2DEC`, `PUSHNEGPOW2` opcodes instead of 
+`PUSHINT` in same cases.
+
 ### 0.59.0 (2022-04-12)
 
 Compiler features:

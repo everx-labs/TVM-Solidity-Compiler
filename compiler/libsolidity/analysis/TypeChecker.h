@@ -99,6 +99,7 @@ private:
 
 	void typeCheckCallBack(FunctionType const* remoteFunction, Expression const& option);
 	TypePointers checkSliceDecode(std::vector<ASTPointer<Expression const>> const& _args);
+	TypePointers checkSliceDecodeQ(std::vector<ASTPointer<Expression const>> const& _args);
 	TypePointers getReturnTypesForTVMConfig(FunctionCall const& _functionCall);
 	TypePointers typeCheckMetaTypeFunctionAndRetrieveReturnType(FunctionCall const& _functionCall);
 

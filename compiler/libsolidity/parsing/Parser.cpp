@@ -156,7 +156,7 @@ ASTPointer<PragmaDirective> Parser::parsePragmaDirective()
 	expectToken(Token::Pragma);
 	vector<string> literals;
 	vector<Token> tokens;
-	ASTPointer<Expression> parameter = nullptr;
+	std::vector<ASTPointer<Expression>> parameter;
 	do
 	{
 		Token token = m_scanner->currentToken();
@@ -170,8 +170,15 @@ ASTPointer<PragmaDirective> Parser::parsePragmaDirective()
 			literals.push_back(literal);
 			tokens.push_back(token);
 			if (literal == "msgValue") {
-				m_scanner->next();
-				parameter = parsePrimaryExpression();
+				m_scanner->next(); // skip "msgValue"
+				parameter.emplace_back(parsePrimaryExpression());
+				break;
+			}
+			if (literal == "copyleft") {
+				m_scanner->next(); // skip "copyleft"
+				parameter.emplace_back(parsePrimaryExpression());
+				expectToken(Token::Comma);
+				parameter.emplace_back(parsePrimaryExpression());
 				break;
 			}
 		}
@@ -180,22 +187,6 @@ ASTPointer<PragmaDirective> Parser::parsePragmaDirective()
 	while (m_scanner->currentToken() != Token::Semicolon && m_scanner->currentToken() != Token::EOS);
 	nodeFactory.markEndPosition();
 	expectToken(Token::Semicolon);
-
-	if (literals.size() >= 2 && literals[0] == "solidity")
-	{
-		SemVerVersion recommendedVersion{string(VersionString)};
-		std::string errorString =
-				"It's deprecated."
-				" Consider adding \"pragma ever-solidity ^" +
-				to_string(recommendedVersion.major()) +
-				string(".") +
-				to_string(recommendedVersion.minor()) +
-				string(".") +
-				to_string(recommendedVersion.patch()) +
-				string(";\"") +
-				" to set a version of the compiler.";
-		m_errorReporter.warning(nodeFactory.location(), errorString);
-	}
 
 	if (literals.size() >= 3 && literals[0] == "ton")
 	{
@@ -207,9 +198,6 @@ ASTPointer<PragmaDirective> Parser::parsePragmaDirective()
 	}
 
 	ASTPointer<PragmaDirective> pd = nodeFactory.createNode<PragmaDirective>(tokens, literals, parameter);
-	if (literals.size() == 2 && literals[0] == "experimental" && literals[1] == "ABIEncoderV2") {
-		m_errorReporter.warning(pd->location(), "Have no effect in TON. Delete this.");
-	}
 	return pd;
 }
 
@@ -537,7 +525,7 @@ Parser::FunctionHeaderParserResult Parser::parseFunctionHeader(bool _isStateVari
 		{
 			if (token == Token::Payable)
 			{
-				parserWarning("Have no effect in TON. Delete this.");
+				parserWarning("Has no effect. Delete this.");
 			}
 
 			if (result.stateMutability != StateMutability::NonPayable)
@@ -1097,7 +1085,7 @@ ASTPointer<TypeName> Parser::parseTypeName(bool _allowVar)
 		{
 			if (elemTypeName.token() == Token::Address)
 			{
-				parserWarning("Have no effect in TON. Delete this.");
+				parserWarning("Has no effect. Delete this.");
 				nodeFactory.markEndPosition();
 				stateMutability = parseStateMutability();
 			}

@@ -51,6 +51,7 @@ private:
 	bool visit(FunctionCall const& _functionCall) override;
 	bool visit(VariableDeclaration const& _variable) override;
 	void endVisit(FunctionDefinition const&) override;
+	void endVisit(PragmaDirective const& _pragma) override;
 
 	langutil::ErrorReporter& m_errorReporter;
 

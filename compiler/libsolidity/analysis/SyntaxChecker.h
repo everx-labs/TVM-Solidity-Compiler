@@ -99,6 +99,7 @@ private:
 	/// Flag that indicates whether some version pragma was present.
 	std::optional<langutil::SourceLocation const* > m_versionPragma;
 	bool m_msgValuePragmaFound = false;
+	langutil::SourceLocation const* m_FirstCopyleft{};
 
 	int m_inLoopDepth = 0;
 	bool m_isInterface = false;
