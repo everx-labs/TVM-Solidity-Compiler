@@ -507,8 +507,8 @@ Supported types: `uintN`, `intN`, `bytesN`, `bool`, `ufixedMxN`, `fixedMxN`, `ad
 
 ```TVMSolidity
 TvmSlice slice = ...;
-optional(uint) a = slice.decode(uint);
-optional(uint8, uint16) b = slice.decode(uint8, uint16);
+optional(uint) a = slice.decodeQ(uint);
+optional(uint8, uint16) b = slice.decodeQ(uint8, uint16);
 ```
 
 See also: [\<TvmBuilder\>.store()](#tvmbuilderstore).
@@ -1917,7 +1917,7 @@ Operators:
 (1)
 <map>.keys() returns (KeyType[]);
 (2)
-<map>.values() returns (ValuesType[]);
+<map>.values() returns (ValueType[]);
 ```
 
 (1) Returns all mapping's keys/values.
