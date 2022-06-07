@@ -130,8 +130,7 @@ void AsymGen::accept(TvmAstVisitor& _visitor) {
 
 bool AsymGen::operator==(TvmAstNode const& _node) const {
 	auto a = to<AsymGen>(&_node);
-	return a && std::tie(opcode(), m_take, m_retMin, m_retMax) ==
-				std::tie(a->opcode(), a->m_take, a->m_retMin, a->m_retMax);
+	return a && opcode() == a->opcode();
 }
 
 void HardCode::accept(TvmAstVisitor& _visitor) {
@@ -489,6 +488,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"INITCODEHASH", {0, 1, true}},
 		{"LTIME", {0, 1, true}},
 		{"MYADDR", {0, 1, true}},
+		{"MYCODE", {0, 1, true}},
 		{"NEWC", {0, 1, true}},
 		{"NEWDICT", {0, 1, true}},
 		{"NIL", {0, 1, true}},
@@ -498,6 +498,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"PUSHPOW2DEC", {0, 1, true}},
 		{"RANDSEED", {0, 1, true}},
 		{"RANDU256", {0, 1}},
+		{"STORAGEFEE", {0, 1, true}},
 		{"TRUE", {0, 1, true}},
 
 		{"ADDRAND", {1, 0}},
@@ -529,10 +530,10 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"HASHSU", {1, 1, true}},
 		{"HEXDUMP", {1, 1}},
 		{"INC", {1, 1}},
-		{"INDEX_EXCEP", {1, 1}},
-		{"INDEX_NOEXCEP", {1, 1, true}},
 		{"INDEX2", {1, 1}},
 		{"INDEX3", {1, 1}},
+		{"INDEX_EXCEP", {1, 1}},
+		{"INDEX_NOEXCEP", {1, 1, true}},
 		{"ISNEG", {1, 1, true}},
 		{"ISNNEG", {1, 1, true}},
 		{"ISNPOS", {1, 1, true}},
@@ -567,10 +568,11 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"TLEN", {1, 1}},
 		{"UBITSIZE", {1, 1}},
 		{"UFITS", {1, 1}},
+		{"UNZIP", {1, 1}},
+		{"ZIP", {1, 1}},
 
 		{"BBITREFS", {1, 2, true}},
 		{"BREMBITREFS", {1, 2, true}},
-		{"LDDICT", {1, 2}},
 		{"LDDICT", {1, 2}},
 		{"LDGRAMS", {1, 2}},
 		{"LDI", {1, 2}},
@@ -595,6 +597,12 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"ADD", {2, 1}},
 		{"AND", {2, 1, true}},
 		{"CMP", {2, 1, true}},
+		{"DIFF", {2, 1}},
+		{"DIFF_PATCH", {2, 1}},
+		{"DIFF_PATCH_ZIP", {2, 1}},
+		{"DIFF_PATCH_ZIPQ", {2, 1}},
+		{"DIFF_PATCHQ", {2, 1}},
+		{"DIFF_ZIP", {2, 1}},
 		{"DIV", {2, 1}},
 		{"DIVC", {2, 1}},
 		{"DIVR", {2, 1}},
@@ -610,6 +618,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"MUL", {2, 1}},
 		{"NEQ", {2, 1, true}},
 		{"OR", {2, 1, true}},
+		{"PLDIX", {2, 1}},
 		{"PLDUX", {2, 1}},
 		{"SCHKBITSQ", {2, 1, true}},
 		{"SCHKREFSQ", {2, 1, true}},
@@ -1031,6 +1040,16 @@ Pointer<PushCellOrSlice> isPlainPushSlice(Pointer<TvmAstNode> const& node) {
 int getRootBitSize(PushCellOrSlice const &_node) {
 	int size = StrUtils::toBitString(_node.blob()).length();
 	return size;
+}
+
+Pointer<AsymGen> getZeroOrNullAlignment(bool isZero, bool isSwap, bool isNot) {
+	std::string cmd;
+	cmd += isZero ? "ZERO" : "NULL";
+	cmd += isSwap ? "SWAP" : "ROTR";
+	cmd += "IF";
+	if (isNot)
+		cmd += "NOT";
+	return std::make_shared<AsymGen>(cmd);
 }
 
 } // end solidity::frontend

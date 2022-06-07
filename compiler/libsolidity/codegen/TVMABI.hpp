@@ -31,9 +31,15 @@ public:
 	static void printFunctionIds(
 		ContractDefinition const& contract,
 		PragmaDirectiveHelper const& pragmaHelper
-	 );
+	);
+	static Json::Value generateFunctionIdsJson(
+		ContractDefinition const& contract,
+		PragmaDirectiveHelper const& pragmaHelper
+	);
 	static void generateABI(ContractDefinition const* contract,
 							std::vector<PragmaDirective const *> const& pragmaDirectives, std::ostream* out = &std::cout);
+	static Json::Value generateABIJson(ContractDefinition const* contract,
+							std::vector<PragmaDirective const *> const& pragmaDirectives);
 private:
 	static std::vector<const FunctionDefinition *> publicFunctions(ContractDefinition const& contract);
 	static void printData(const Json::Value& json, std::ostream* out);

@@ -57,7 +57,11 @@ private:
 	{
 		std::string language;
 		Json::Value errors;
+		std::vector<std::string> includePaths;
+		bool structWarning = false;
+		bool forceRemoteUpdate = false;
 		bool parserErrorRecovery = false;
+		std::string mainContract;
 		std::map<std::string, std::string> sources;
 		std::map<util::h256, std::string> smtLib2Responses;
 		langutil::EVMVersion evmVersion;

@@ -77,7 +77,6 @@ public:
 	bool hasMsgSender() const { return m_hasMsgSender; }
 	bool hasResponsibleFunction() const { return m_hasResponsibleFunction; }
 	bool hasAwaitCall() const { return m_hasAwaitCall; }
-	bool hasTvmCode() const { return m_hasTvmCode; }
 	std::set<FunctionDefinition const *> const& awaitFunctions() const { return m_awaitFunctions; }
 
 private:
@@ -85,7 +84,6 @@ private:
 	bool m_hasMsgSender{};
 	bool m_hasResponsibleFunction{};
 	bool m_hasAwaitCall{};
-	bool m_hasTvmCode{};
 	std::set<Declaration const*> m_usedFunctions;
 	std::set<FunctionDefinition const*> m_awaitFunctions;
 };

@@ -737,56 +737,56 @@ StackPusher::makeAsym(const string& cmd) {
 	};
 
 	Pointer<AsymGen> opcode;
-	if (f("CONFIGPARAM")) { opcode = createNode<AsymGen>(cmd, 1, 1, 2); }
-	else if (f("NULLSWAPIF")) { opcode = createNode<AsymGen>(cmd, 1, 1, 2); }
-	else if (f("NULLSWAPIFNOT")) { opcode = createNode<AsymGen>(cmd, 1, 1, 2); }
+	if (f("CONFIGPARAM")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("NULLSWAPIF")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("NULLSWAPIFNOT")) { opcode = createNode<AsymGen>(cmd); }
 
-	else if (f("LDDICTQ")) { opcode = createNode<AsymGen>(cmd, 1, 2, 3); }
-	else if (f("LDIQ")) { opcode = createNode<AsymGen>(cmd, 1, 2, 3); }
-	else if (f("LDMSGADDRQ")) { opcode = createNode<AsymGen>(cmd, 1, 2, 3); }
-	else if (f("LDUQ")) { opcode = createNode<AsymGen>(cmd, 1, 2, 3); }
+	else if (f("LDDICTQ")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("LDIQ")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("LDMSGADDRQ")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("LDUQ")) { opcode = createNode<AsymGen>(cmd); }
 
-	else if (f("DICTMIN")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
-	else if (f("DICTIMIN")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
-	else if (f("DICTUMIN")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
-	else if (f("DICTMINREF")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
-	else if (f("DICTIMINREF")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
-	else if (f("DICTUMINREF")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
+	else if (f("DICTMIN")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTIMIN")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTUMIN")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTMINREF")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTIMINREF")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTUMINREF")) { opcode = createNode<AsymGen>(cmd); }
 
-	else if (f("DICTMAX")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
-	else if (f("DICTIMAX")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
-	else if (f("DICTUMAX")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
-	else if (f("DICTMAXREF")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
-	else if (f("DICTIMAXREF")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
-	else if (f("DICTUMAXREF")) { opcode = createNode<AsymGen>(cmd, 2, 1, 3); }
+	else if (f("DICTMAX")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTIMAX")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTUMAX")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTMAXREF")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTIMAXREF")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTUMAXREF")) { opcode = createNode<AsymGen>(cmd); }
 
-	else if (f("CDATASIZEQ")) { opcode = createNode<AsymGen>(cmd, 2, 1, 4); }
-	else if (f("SDATASIZEQ")) { opcode = createNode<AsymGen>(cmd, 2, 1, 4); }
+	else if (f("CDATASIZEQ")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("SDATASIZEQ")) { opcode = createNode<AsymGen>(cmd); }
 
-	else if (dictRem()) { opcode = createNode<AsymGen>(cmd, 2, 2, 3); }
-	else if (f("NULLROTRIFNOT")) { opcode = createNode<AsymGen>(cmd, 2, 2, 3); }
+	else if (dictRem()) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("NULLROTRIFNOT")) { opcode = createNode<AsymGen>(cmd); }
 
-	else if (f("DICTGET")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
-	else if (f("DICTIGET")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
-	else if (f("DICTUGET")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
-	else if (f("DICTGETREF")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
-	else if (f("DICTIGETREF")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
-	else if (f("DICTUGETREF")) { opcode = createNode<AsymGen>(cmd, 3, 1, 2); }
+	else if (f("DICTGET")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTIGET")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTUGET")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTGETREF")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTIGETREF")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTUGETREF")) { opcode = createNode<AsymGen>(cmd); }
 
-	else if (f("DICTGETNEXT")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
-	else if (f("DICTGETNEXTEQ")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
-	else if (f("DICTGETPREV")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
-	else if (f("DICTGETPREVEQ")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
-	else if (f("DICTIGETNEXT")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
-	else if (f("DICTIGETNEXTEQ")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
-	else if (f("DICTIGETPREV")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
-	else if (f("DICTIGETPREVEQ")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
-	else if (f("DICTUGETNEXT")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
-	else if (f("DICTUGETNEXTEQ")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
-	else if (f("DICTUGETPREV")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
-	else if (f("DICTUGETPREVEQ")) { opcode = createNode<AsymGen>(cmd, 3, 1, 3); }
+	else if (f("DICTGETNEXT")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTGETNEXTEQ")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTGETPREV")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTGETPREVEQ")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTIGETNEXT")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTIGETNEXTEQ")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTIGETPREV")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTIGETPREVEQ")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTUGETNEXT")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTUGETNEXTEQ")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTUGETPREV")) { opcode = createNode<AsymGen>(cmd); }
+	else if (f("DICTUGETPREVEQ")) { opcode = createNode<AsymGen>(cmd); }
 
-	else if (dictSomeGet()) { opcode = createNode<AsymGen>(cmd, 4, 2, 3); }
+	else if (dictSomeGet()) { opcode = createNode<AsymGen>(cmd); }
 
 	else solAssert(opcode, "StackPusher::makeAsym " + cmd);
 	return opcode;

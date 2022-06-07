@@ -57,6 +57,9 @@
 #include <libsolidity/codegen/TVM.h>
 #include <libsolidity/codegen/TVMTypeChecker.hpp>
 #include <libsolidity/codegen/TVMAnalyzer.hpp>
+#include <libsolidity/codegen/TVMABI.hpp>
+#include <libsolidity/codegen/TvmAstVisitor.hpp>
+#include <libsolidity/codegen/TVMContractCompiler.hpp>
 
 using namespace std;
 using namespace solidity;
@@ -69,6 +72,9 @@ using solidity::util::toHex;
 using solidity::util::h256;
 
 static int g_compilerStackCounts = 0;
+
+using namespace solidity::langutil;
+solidity::langutil::ErrorReporter* GlobalParams::g_errorReporter{};
 
 #include <stdlib.h>
 
@@ -83,6 +89,7 @@ CompilerStack::CompilerStack(ReadCallback::Callback const& _readFile):
 	// no more than one entity is actually using it at a time.
 	solAssert(g_compilerStackCounts == 0, "You shall not have another CompilerStack aside me.");
 	++g_compilerStackCounts;
+	GlobalParams::g_errorReporter = &m_errorReporter;
 }
 
 CompilerStack::~CompilerStack()
@@ -466,7 +473,7 @@ bool CompilerStack::isRequestedContract(ContractDefinition const& _contract) con
 	return false;
 }
 
-std::pair<bool, bool> CompilerStack::compile()
+std::pair<bool, bool> CompilerStack::compile(bool json)
 {
 	bool didCompileSomething{};
 	if (m_stackState < AnalysisPerformed)
@@ -562,8 +569,25 @@ std::pair<bool, bool> CompilerStack::compile()
 
 		if (targetContract != nullptr) {
 			try {
-				TVMCompilerProceedContract(
-						&m_errorReporter,
+				if (json) {
+					std::vector<PragmaDirective const *> pragmaDirectives = getPragmaDirectives(&source(m_inputFile));
+					PragmaDirectiveHelper pragmaHelper{pragmaDirectives};
+					Contract const& c = contract(targetContract->name());
+					if (m_generateAbi) {
+						Json::Value abi = TVMABI::generateABIJson(targetContract, pragmaDirectives);
+						c.abi = make_unique<Json::Value>(abi);
+					}
+					if (m_generateCode) {
+						Pointer<solidity::frontend::Contract> codeContract =
+							TVMContractCompiler::generateContractCode(targetContract, pragmaHelper);
+						ostringstream out;
+						Printer p{out};
+						codeContract->accept(p);
+						Json::Value code = Json::Value(out.str());
+						c.code = make_unique<Json::Value>(code);
+					}
+				} else {
+					TVMCompilerProceedContract(
 						*targetContract,
 						&targetPragmaDirectives,
 						m_generateAbi,
@@ -572,7 +596,8 @@ std::pair<bool, bool> CompilerStack::compile()
 						m_folder,
 						m_file_prefix,
 						m_doPrintFunctionIds
-				);
+					);
+				}
 				didCompileSomething = true;
 			} catch (FatalError const &) {
 				return {false, didCompileSomething};
@@ -710,6 +735,44 @@ map<string, unsigned> CompilerStack::sourceIndices() const
 	for (auto const& s: m_sources)
 		indices[s.first] = index++;
 	return indices;
+}
+
+std::string CompilerStack::contractSource(std::string const& _contractName) const {
+	std::string sourceName = _contractName;
+	std::string::size_type pos = _contractName.rfind(':');
+	if (pos != std::string::npos) {
+		sourceName = _contractName.substr(0, pos);
+	}
+	return sourceName;
+}
+
+Json::Value const& CompilerStack::contractABI(std::string const& _contractName) const
+{
+	if (m_stackState < AnalysisPerformed)
+		BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("Analysis was not successful."));
+
+	auto const &abi = contract(_contractName).abi;
+	return abi ? *abi : Json::Value::null;
+}
+
+Json::Value const& CompilerStack::contractCode(std::string const& _contractName) const
+{
+	auto const &code = contract(_contractName).code;
+	return code ? *code : Json::Value::null;
+}
+
+Json::Value const& CompilerStack::functionIds(std::string const& _contractName) const
+{
+	std::string sourceName = contractSource(_contractName);
+	Contract const &c = contract(_contractName);
+	if (!c.functionIds)
+	{
+		std::vector<PragmaDirective const *> pragmaDirectives = getPragmaDirectives(&source(sourceName));
+		PragmaDirectiveHelper pragmaHelper{pragmaDirectives};
+		auto functionIds = TVMABI::generateFunctionIdsJson(*c.contract, pragmaHelper);
+		c.functionIds = make_unique<Json::Value>(functionIds);
+	}
+	return *c.functionIds;
 }
 
 Json::Value const& CompilerStack::natspecUser(string const& _contractName) const
@@ -1360,4 +1423,8 @@ std::vector<PragmaDirective const *> CompilerStack::getPragmaDirectives(Source c
 		}
 	}
 	return pragmaDirectives;
+}
+
+bool CompilerStack::canBeDeployed(std::string const& _contractName) const {
+	return contract(_contractName).contract->canBeDeployed();
 }

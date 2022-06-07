@@ -804,13 +804,15 @@ void TVMExpressionCompiler::visitMagic(MemberAccess const &_node) {
 		visitMsgMagic(_node);
 	} else if (identifier->name() == "tx") {
 		if (_node.memberName() == "timestamp") {
-			m_pusher.push(+1, "LTIME");
+			m_pusher << "LTIME";
+		} else if (_node.memberName() == "storageFee") {
+			m_pusher << "STORAGEFEE";
 		} else {
 			unsupportedMagic();
 		}
 	} else if (identifier->name() == "block") {
 		if (_node.memberName() == "timestamp") {
-			m_pusher.push(+1, "BLOCKLT");
+			m_pusher << "BLOCKLT";
 		} else {
 			unsupportedMagic();
 		}

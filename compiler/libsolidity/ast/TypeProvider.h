@@ -235,7 +235,7 @@ private:
 	static std::array<std::unique_ptr<IntegerType>, 256> const m_intM;
 	static std::array<std::unique_ptr<IntegerType>, 256> const m_uintM;
 	static std::array<std::unique_ptr<FixedBytesType>, 32> const m_bytesM;
-	static std::array<std::unique_ptr<MagicType>, 7> const m_magics;        ///< MagicType's except MetaType
+	static std::array<std::unique_ptr<MagicType>, 8> const m_magics;        ///< MagicType's except MetaType
 
 	std::map<std::pair<unsigned, IntegerType::Modifier>, std::unique_ptr<VarInteger>> m_varInterger{};
 	std::map<std::pair<unsigned, unsigned>, std::unique_ptr<FixedPointType>> m_ufixedMxN{};

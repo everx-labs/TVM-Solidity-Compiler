@@ -606,14 +606,15 @@ array<unique_ptr<FixedBytesType>, 32> const TypeProvider::m_bytesM{{
 	{make_unique<FixedBytesType>(32)}
 }};
 
-array<unique_ptr<MagicType>, 7> const TypeProvider::m_magics{{
+array<unique_ptr<MagicType>, 8> const TypeProvider::m_magics{{
 	{make_unique<MagicType>(MagicType::Kind::Block)},
 	{make_unique<MagicType>(MagicType::Kind::Message)},
 	{make_unique<MagicType>(MagicType::Kind::Transaction)},
 	{make_unique<MagicType>(MagicType::Kind::ABI)},
 	{make_unique<MagicType>(MagicType::Kind::TVM)},
 	{make_unique<MagicType>(MagicType::Kind::Math)},
-	{make_unique<MagicType>(MagicType::Kind::Rnd)}
+	{make_unique<MagicType>(MagicType::Kind::Rnd)},
+	{make_unique<MagicType>(MagicType::Kind::Gosh)}
 	// MetaType is stored separately
 }};
 
