@@ -31,7 +31,7 @@ using namespace std;
 using namespace solidity::util;
 using namespace solidity::langutil;
 
-void TVMABI::printFunctionIds(
+Json::Value TVMABI::generateFunctionIdsJson(
 	ContractDefinition const& contract,
 	PragmaDirectiveHelper const& pragmaHelper
 ) {
@@ -66,23 +66,26 @@ void TVMABI::printFunctionIds(
 		}
 	}
 
-	std::string lastName = map.rbegin()->first;
-	cout << "{" << endl;
+	Json::Value root(Json::objectValue);
 	for (const auto&[func, functionID] : map) {
-		cout
-			<< "\t"
-			<< "\"" << func << "\": "
-			<< "\"0x" << std::hex << std::setfill('0') << std::setw(8) << functionID << "\""
-			<< (lastName == func ? "" : ",")
-			<< endl;
+		std::stringstream ss;
+		ss << "0x" << std::hex << std::setfill('0') << std::setw(8) << functionID;
+		root[func] = ss.str();
 	}
-	cout << "}" << endl;
+	return root;
 }
 
-void TVMABI::generateABI(
+void TVMABI::printFunctionIds(
+	ContractDefinition const& contract,
+	PragmaDirectiveHelper const& pragmaHelper
+) {
+	Json::Value functionIds = generateFunctionIdsJson(contract, pragmaHelper);
+	cout << functionIds << endl;
+}
+
+Json::Value TVMABI::generateABIJson(
 	ContractDefinition const *contract,
-	std::vector<PragmaDirective const *> const &pragmaDirectives,
-	ostream *out
+	std::vector<PragmaDirective const *> const &pragmaDirectives
 ) {
 	PragmaDirectiveHelper pdh{pragmaDirectives};
 	TVMCompilerContext ctx(contract, pdh);
@@ -197,6 +200,16 @@ void TVMABI::generateABI(
 		}
 		root["fields"] = fields;
 	}
+
+	return root;
+}
+
+void TVMABI::generateABI(
+	ContractDefinition const *contract,
+	std::vector<PragmaDirective const *> const &pragmaDirectives,
+	ostream *out
+) {
+	Json::Value root = generateABIJson(contract, pragmaDirectives);
 
 //	Json::StreamWriterBuilder builder;
 //	const std::string json_file = Json::writeString(builder, root);

@@ -114,6 +114,8 @@ void FunctionCallCompiler::compile() {
 				}
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "rnd") {
 				rndFunction(*ma);
+			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "gosh") {
+				goshFunction();
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "msg") {
 				msgFunction(*ma);
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "abi") {
@@ -2290,6 +2292,47 @@ void FunctionCallCompiler::rndFunction(MemberAccess const &_node) {
 	}
 }
 
+void FunctionCallCompiler::goshFunction() {
+	Type const* expressionType = getType(&m_functionCall.expression());
+	auto functionType = dynamic_cast<FunctionType const*>(expressionType);
+	switch (functionType->kind()) {
+		case FunctionType::Kind::GoshDiff:
+			pushArgs();
+			m_pusher << "DIFF";
+			break;
+		case FunctionType::Kind::GoshApplyPatch:
+			pushArgs();
+			m_pusher << "DIFF_PATCH";
+			break;
+		case FunctionType::Kind::GoshZip:
+			pushArgs();
+			m_pusher << "ZIP";
+			break;
+		case FunctionType::Kind::GoshUnzip:
+			pushArgs();
+			m_pusher << "UNZIP";
+			break;
+		case FunctionType::Kind::GoshZipDiff:
+			pushArgs();
+			m_pusher << "DIFF_ZIP";
+			break;
+		case FunctionType::Kind::GoshApplyZipPatch:
+			pushArgs();
+			m_pusher << "DIFF_PATCH_ZIP";
+			break;
+		case FunctionType::Kind::GoshApplyPatchQ:
+			pushArgs();
+			m_pusher << "DIFF_PATCHQ";
+			break;
+		case FunctionType::Kind::GoshApplyZipPatchQ:
+			pushArgs();
+			m_pusher << "DIFF_PATCH_ZIPQ";
+			break;
+		default:
+			solUnimplemented("Unsupported function call");
+	}
+}
+
 bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 	if (_node.memberName() == "pubkey") { // tvm.pubkey
 		m_pusher.getGlob(TvmConst::C7::TvmPubkey);
@@ -2446,25 +2489,7 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		else
 			m_pusher._throw("THROW 1");
 	} else if (_node.memberName() == "code") {
-		int stackSize = m_pusher.stackSize();
-		m_pusher.getGlob(TvmConst::C7::MyCode);
-
-		auto code = createNode<HardCode>(std::vector<std::string>{
-			"PUSHREF {",
-			"\tDUP",
-			"\tSETGLOB 1",
-			"\tBLESS",
-			"\tJMPX",
-			"}",
-		}, 0, 1, true);
-		m_pusher.push(code);
-		solAssert(stackSize + 2 == m_pusher.stackSize(), "");
-
-		m_pusher.push(+1, "NEWC");
-		m_pusher.push(-1 + 1, "STSLICECONST x" + TvmConst::Selector::RootCodeCell()); // root selector
-		m_pusher.push(-1, "STREF"); //
-		m_pusher.push(-1, "STSLICE"); // main selector + salt
-		m_pusher.push(-1 + 1, "ENDC");
+		m_pusher << "MYCODE";
 	} else if (_node.memberName() == "codeSalt") {
 		pushArgs();
 		string getSaltFromUsualSelector = R"(

@@ -3028,6 +3028,15 @@ string FunctionType::richIdentifier() const
 	case Kind::RndNext: id += "rndnext"; break;
 	case Kind::RndSetSeed: id += "rndsetseed"; break;
 	case Kind::RndShuffle: id += "rndshuffle"; break;
+
+	case Kind::GoshApplyPatch: id += "goshapplypatch"; break;
+	case Kind::GoshApplyPatchQ: id += "goshapplypatchq"; break;
+	case Kind::GoshApplyZipPatch: id += "goshapplyzippatch"; break;
+	case Kind::GoshApplyZipPatchQ: id += "goshapplyzippatchq"; break;
+	case Kind::GoshDiff: id += "goshdiff"; break;
+	case Kind::GoshUnzip: id += "goshunzip"; break;
+	case Kind::GoshZip: id += "goshzip"; break;
+	case Kind::GoshZipDiff: id += "goshzipdiff"; break;
 	}
 	id += "_" + stateMutabilityToString(m_stateMutability);
 	id += identifierList(m_parameterTypes) + "returns" + identifierList(m_returnParameterTypes);
@@ -3890,6 +3899,8 @@ string MagicType::richIdentifier() const
 		return "t_magic_math";
 	case Kind::Rnd:
 		return "t_magic_rnd";
+	case Kind::Gosh:
+		return "t_magic_gosh";
 	}
 	return "";
 }
@@ -4321,8 +4332,9 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 	}
 	case Kind::Transaction:
 		return MemberList::MemberMap({
-			{"origin", TypeProvider::address()},
 			{"gasprice", TypeProvider::uint256()},
+			{"origin", TypeProvider::address()},
+			{"storageFee", TypeProvider::uint(64)},
 			{"timestamp", TypeProvider::uint(64)},
 		});
 	case Kind::ABI:
@@ -4373,6 +4385,87 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				StateMutability::Pure
 			)}
 		});
+	case Kind::Gosh: {
+		MemberList::MemberMap members;
+		for (auto const&[name, type] : std::vector<std::tuple<string, FunctionType::Kind>>{
+				{"diff", FunctionType::Kind::GoshDiff},
+				{"applyPatch", FunctionType::Kind::GoshApplyPatch},
+		}) {
+			members.push_back({ name,
+				TypeProvider::function(
+					{TypeProvider::stringMemory(), TypeProvider::stringMemory()},
+					{TypeProvider::stringMemory()},
+					{{}, {}},
+					{{}},
+					type,
+					true,
+					StateMutability::Pure
+		  	)});
+		}
+
+		for (auto const&[name, type] : std::vector<std::tuple<string, FunctionType::Kind>>{
+				{"zipDiff", FunctionType::Kind::GoshZipDiff},
+				{"applyZipPatch", FunctionType::Kind::GoshApplyZipPatch},
+		}) {
+			members.push_back({ name,
+				TypeProvider::function(
+					{TypeProvider::tvmcell(), TypeProvider::tvmcell()},
+					{TypeProvider::tvmcell()},
+					{{}, {}},
+					{{}},
+					type,
+					true,
+					StateMutability::Pure
+		  	)});
+		}
+
+		members.push_back({ "applyPatchQ",
+			TypeProvider::function(
+				{TypeProvider::stringMemory(), TypeProvider::stringMemory()},
+				{TypeProvider::optional(TypeProvider::stringMemory())},
+				{{}, {}},
+				{{}},
+				FunctionType::Kind::GoshApplyZipPatchQ,
+				true,
+				StateMutability::Pure
+		)});
+
+		members.push_back({ "applyZipPatchQ",
+			TypeProvider::function(
+				{TypeProvider::tvmcell(), TypeProvider::tvmcell()},
+				{TypeProvider::optional(TypeProvider::tvmcell())},
+				{{}, {}},
+				{{}},
+				FunctionType::Kind::GoshApplyZipPatchQ,
+				true,
+				StateMutability::Pure
+		)});
+
+		members.push_back({
+			"zip",
+			TypeProvider::function(
+				{TypeProvider::stringMemory()},
+				{TypeProvider::tvmcell()},
+				{{}},
+				{{}},
+				FunctionType::Kind::GoshZip,
+				true,
+				StateMutability::Pure
+		)});
+		members.push_back({
+			"unzip",
+			TypeProvider::function(
+				  {TypeProvider::tvmcell()},
+				  {TypeProvider::stringMemory()},
+				  {{}},
+				  {{}},
+				  FunctionType::Kind::GoshUnzip,
+				  true,
+				  StateMutability::Pure
+		)});
+
+		return members;
+	}
 	case Kind::MetaType:
 	{
 		solAssert(
@@ -4415,6 +4508,8 @@ string MagicType::toString(bool _short) const
 		return "math";
 	case Kind::Rnd:
 		return "rnd";
+	case Kind::Gosh:
+		return "gosh";
 	}
 	solAssert(false, "Unknown kind of magic.");
 	return {};

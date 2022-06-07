@@ -70,8 +70,7 @@ PUSHCONT {
 	SWAP
 	POP S4
 	.loc stdlib.sol, 43
-	LDDICT
-	DROP
+	PLDDICT
 	NIP
 	.loc stdlib.sol, 0
 }
@@ -192,8 +191,7 @@ LDU 8
 LDU 64
 LDU 64
 LDU 8
-LDU 64
-DROP
+PLDU 64
 BLKDROP2 4, 1
 .loc stdlib.sol, 0
 

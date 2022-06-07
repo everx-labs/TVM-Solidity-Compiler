@@ -129,7 +129,8 @@ bool ContractDefinition::constructorIsPublic() const
 
 bool ContractDefinition::canBeDeployed() const
 {
-	return constructorIsPublic() && !abstract() && !isInterface();
+	// In TON, libraries are also not deployable.
+	return constructorIsPublic() && !abstract() && !isInterface() && !isLibrary();
 }
 
 FunctionDefinition const* ContractDefinition::fallbackFunction() const

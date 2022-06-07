@@ -89,7 +89,8 @@ public:
 	static int fetchInt(Pointer<TvmAstNode> const& node);
 	static bool isNIP(Pointer<TvmAstNode> const& node);
 	static std::string arg(Pointer<TvmAstNode> const& node);
-	static bool is(Pointer<TvmAstNode> const& node, const std::string& opcode);
+	template<class ...Args>
+	static bool is(Pointer<TvmAstNode> const& node, Args&&... cmd);
 	static std::optional<std::pair<int, int>> checkSimpleCommand(Pointer<TvmAstNode> const& node);
 	static bool isSimpleCommand(Pointer<TvmAstNode> const& node, int take, int ret);
 	static bool isAddOrSub(Pointer<TvmAstNode> const& node);
@@ -475,6 +476,49 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt1(Pointer<TvmAstNode> 
 			TvmAstNode const* opcode = opcodes.at(index).get();
 			if (auto sub = to<SubProgram>(opcode)) {
 				return Result{1, createNode<CodeBlock>(sub->block()->type(), sub->block()->instructions())};
+			}
+		}
+	}
+
+	auto f = [](bool isZero, bool isSwap, std::vector<Pointer<TvmAstNode>> const& instructions) {
+		if (instructions.size() != (isSwap ? 2 : 1)) {
+			return false;
+		}
+		return *instructions.at(0) == *gen(isZero ? "PUSHINT 0" : "NULL") &&
+				(isSwap ? *instructions.at(1) == *makeXCH_S(1) : true);
+	};
+
+	// PUSHCONT {
+	//    PUSHINT 0 / NULL
+	//    [SWAP]
+	// }
+	// IF[ELSE][NOT][JMP]
+	// =>
+	// ZERO/NULL SWAP/ROTR IF [NOT]
+	// PUSHCONT { ... }
+	// IF[ELSE][NOT][JMP]
+	if (m_withUnpackOpaque && cmd1IfElse) {
+		for (bool isZero : {true, false}) {
+			for (bool isSwap : {true, false}) {
+				for (bool trueBranch: {true, false}) {
+					Pointer<CodeBlock> curBranch = trueBranch ? cmd1IfElse->trueBody() : cmd1IfElse->falseBody();
+					if (!curBranch) {
+						continue;
+					}
+					if (f(isZero, isSwap, curBranch->instructions())) {
+						Pointer<AsymGen> align = getZeroOrNullAlignment(isZero, isSwap ? false : true,
+																		trueBranch ? cmd1IfElse->withNot() : true);
+						solAssert(trueBranch ? true : !cmd1IfElse->withNot(), "");
+						auto emptyBlock = createNode<CodeBlock>(curBranch->type());
+						return Result{1,
+									  align,
+									  createNode<TvmIfElse>(cmd1IfElse->withNot(), cmd1IfElse->withJmp(),
+															trueBranch ? emptyBlock : cmd1IfElse->trueBody(),
+															trueBranch ? cmd1IfElse->falseBody() : emptyBlock,
+															cmd1IfElse->ret())
+						};
+					}
+				}
 			}
 		}
 	}
@@ -1041,6 +1085,20 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 		auto [qty1, index1] = isBLKPUSH(cmd2).value();
 		if (index0 == 0 && index1 == 0 && qty0 + qty1 <= 15)
 			return Result{2, makeBLKPUSH(qty0 + qty1, 0)};
+	}
+
+	// LD[I|U] N / LDDICT / LDREF / LD[I|U]X N
+	// DROP
+	if ((is(cmd1, "LDU", "LDI", "LDREF", "LDDICT", "LDUX", "LDIX")) &&
+		isDrop(cmd2)
+	) {
+		int n = isDrop(cmd2).value();
+		Pointer<GenOpcode> newOpcode = gen("P" + cmd1GenOp->fullOpcode());
+		if (n == 1) {
+			return Result{2, newOpcode};
+		} else {
+			return Result{2, {newOpcode, makeDROP(n - 1)}};
+		}
 	}
 
 	return {};
@@ -2095,9 +2153,10 @@ std::string PrivatePeepholeOptimizer::arg(Pointer<TvmAstNode> const& node) {
 	return g->arg();
 }
 
-bool PrivatePeepholeOptimizer::is(Pointer<TvmAstNode> const& node, const std::string& opcode) {
+template<class ...Args>
+bool PrivatePeepholeOptimizer::is(Pointer<TvmAstNode> const& node, Args&&... cmd) {
 	auto g = to<GenOpcode>(node.get());
-	return g && g->opcode() == opcode;
+	return g && isIn(g->opcode(), std::forward<Args>(cmd)...);
 }
 
 std::pair<int, int> PrivatePeepholeOptimizer::getIndexes(std::string const& str) {

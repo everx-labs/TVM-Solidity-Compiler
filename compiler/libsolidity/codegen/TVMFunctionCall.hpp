@@ -63,6 +63,7 @@ protected:
 	bool checkForTvmSendFunction(MemberAccess const& _node);
 	void msgFunction(MemberAccess const& _node);
 	void rndFunction(MemberAccess const& _node);
+	void goshFunction();
 	bool checkForTvmFunction(MemberAccess const& _node);
 	void abiFunction();
 	void mathFunction(MemberAccess const& _node);

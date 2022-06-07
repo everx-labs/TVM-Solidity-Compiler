@@ -45,6 +45,10 @@ cmake --build . --config Release -j 8
 
 To facilitate work with other TON tools add path to stdlib_sol.tvm into environment variable TVM_LINKER_LIB_PATH.
 
+## Sold driver
+
+See its [README.md](https://github.com/tonlabs/TON-Solidity-Compiler/blob/master/pub/sold/README.md) for build instructions.
+
 ## Links
 
 Code samples in Solidity for TON can be found there: [https://github.com/tonlabs/samples/tree/master/solidity](https://github.com/tonlabs/samples/tree/master/solidity)

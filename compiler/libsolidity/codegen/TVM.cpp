@@ -22,9 +22,6 @@
 
 using namespace std;
 using namespace solidity::frontend;
-using namespace solidity::langutil;
-
-solidity::langutil::ErrorReporter* GlobalParams::g_errorReporter{};
 
 std::string getPathToFiles(
 	const std::string& solFileName,
@@ -60,7 +57,6 @@ std::string getPathToFiles(
 }
 
 void TVMCompilerProceedContract(
-    solidity::langutil::ErrorReporter* errorReporter,
 	ContractDefinition const& _contract,
 	std::vector<PragmaDirective const *> const* pragmaDirectives,
 	bool generateAbi,
@@ -70,7 +66,6 @@ void TVMCompilerProceedContract(
 	const std::string& filePrefix,
 	bool doPrintFunctionIds
 ) {
-    GlobalParams::g_errorReporter = errorReporter;
 	std::string pathToFiles = getPathToFiles(solFileName, outputFolder, filePrefix);
 
 	PragmaDirectiveHelper pragmaHelper{*pragmaDirectives};

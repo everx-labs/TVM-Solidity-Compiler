@@ -238,6 +238,7 @@ contract development.
     * [math.sign()](#mathsign)
   * [**tx** namespace](#tx-namespace)
     * [tx.timestamp](#txtimestamp)
+    * [tx.storageFee](#txstoragefee)
   * [**block** namespace](#block-namespace)
     * [block.timestamp](#blocktimestamp)
   * [**rnd** namespace](#rnd-namespace)
@@ -247,6 +248,12 @@ contract development.
     * [rnd.shuffle](#rndshuffle)
   * [**abi** namespace](#abi-namespace)
     * [abi.encode(), abi.decode()](#abiencode-abidecode)
+  * [**gosh** namespace](#gosh-namespace)
+    * [gosh.diff](#goshdiff)
+    * [gosh.applyPatch and gosh.applyPatchQ](#goshapplypatch-and-goshapplypatchq)
+    * [gosh.zip and gosh.unzip](#goshzip-and-goshunzip)
+    * [gosh.zipDiff](#goshzipdiff)
+    * [gosh.applyZipPatch and gosh.applyZipPatchQ](#goshapplyzippatch-and-goshapplyzippatchq)
   * [Exponentiation](#exponentiation)
   * [selfdestruct](#selfdestruct)
   * [sha256](#sha256)
@@ -4041,6 +4048,16 @@ tx.timestamp returns (uint64);
 
 Returns the logical time of the current transaction.
 
+##### tx.storageFee
+
+It's an experimental feature and is available only in certain blockchain networks.
+
+```TVMSolidity
+tx.storageFee returns (uint64);
+```
+
+Returns the storage fee paid in the current transaction.
+
 ##### **block** namespace
 
 ##### block.timestamp
@@ -4152,6 +4169,67 @@ TvmCell cell = abi.encode(uint(1), uint(2), uint(3), uint(4));
 // c == 3
 // d == 4
 ```
+
+### **gosh** namespace
+
+All `gosh.*` functions are experimental features and are available only in certain blockchain
+networks.
+
+#### gosh.diff
+
+```TVMSolidity
+gosh.diff(string oldText, string newText) returns (string patch)
+```
+
+Calculates [patch](https://en.wikipedia.org/wiki/Diff) between `oldText` and `newText`. Example:
+
+```TVMSolidity
+string oldText = ...;
+string newText = ...;
+string patch = gosh.diff(oldText, newText);
+```
+
+#### gosh.applyPatch and gosh.applyPatchQ
+
+```TVMSolidity
+gosh.applyPatch(string oldText, string patch) returns (string newText)
+gosh.applyPatchQ(string oldText, string patch) returns (optional(string) newText)
+```
+
+Applies `patch` to the `oldText`. If it's impossible (bad patch), `gosh.applyPatch` throws an exception with type check
+error code (-8) but`gosh.applyPatchQ` returns `null`. Example:
+
+```TVMSolidity
+string oldText = ...;
+string patch = ...;
+string newText = gosh.applyDiff(oldText, patch);
+```
+
+#### gosh.zip and gosh.unzip
+
+```TVMSolidity
+gosh.zip(string text) returns (TvmCell zip)
+gosh.unzip(TvmCell zip) returns (optional(string) text)
+```
+
+`gosh.zip` converts the `text` to compressed `TvmCell`. `gosh.unzip` reverts such compression.
+
+#### gosh.zipDiff
+
+```TVMSolidity
+gosh.zipDiff(TvmCell oldText, TvmCell newText) returns (TvmCell patch)
+```
+
+It's the same as `gosh.diff` but it calculates `patch` between compressed string.
+
+#### gosh.applyZipPatch and gosh.applyZipPatchQ
+
+```TVMSolidity
+gosh.applyZipPatch(TvmCell oldText, TvmCell patch) returns (TvmCell newText)
+gosh.applyZipPatchQ(TvmCell oldText, TvmCell patch) returns (optional(TvmCell) newText)
+```
+
+These are the same as `gosh.applyPatch`/`gosh.applyPatchQ` but these functions are applied to compressed string.
 
 #### Exponentiation
 

@@ -96,9 +96,12 @@ case $(uname -s) in
             11.0 | 11.1 | 11.2 | 11.3 | 11.4)
                 echo "Installing solidity dependencies on macOS 11.0 / 11.1 / 11.2 / 11.3 / 11.4 Big Sur."
                 ;;
+            12.*)
+                echo "Installing solidity dependencies on macOS 12 Monterey."
+                ;;
             *)
                 echo "Unsupported macOS version."
-                echo "We only support Mavericks, Yosemite, El Capitan, Sierra, High Sierra, Mojave, Catalina, and Big Sur."
+                echo "We only support Mavericks, Yosemite, El Capitan, Sierra, High Sierra, Mojave, Catalina, Big Sur and Monterey."
                 exit 1
                 ;;
         esac

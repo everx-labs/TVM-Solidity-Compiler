@@ -391,10 +391,6 @@ TVMContractCompiler::generateContractCode(
 		functions.emplace_back(TVMFunctionCompiler::generatePublicFunctionSelector(ctx, contract));
 	}
 
-	if (ctx.usage().hasTvmCode()) {
-		pragmas.emplace_back(".pragma selector-save-my-code");
-	}
-
 	Pointer<Contract> c = createNode<Contract>(pragmas, functions);
 
 	DeleterAfterRet d;

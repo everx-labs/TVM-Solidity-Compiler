@@ -228,12 +228,7 @@ bool isBinaryRequested(Json::Value const& _outputSelection)
 	static vector<string> const outputsThatRequireBinaries{
 		"*",
 		"ir", "irOptimized",
-		"wast", "wasm", "ewasm.wast", "ewasm.wasm",
-		"evm.deployedBytecode", "evm.deployedBytecode.object", "evm.deployedBytecode.opcodes",
-		"evm.deployedBytecode.sourceMap", "evm.deployedBytecode.linkReferences",
-		"evm.bytecode", "evm.bytecode.object", "evm.bytecode.opcodes", "evm.bytecode.sourceMap",
-		"evm.bytecode.linkReferences",
-		"evm.gasEstimates", "evm.legacyAssembly", "evm.assembly"
+		"assembly"
 	};
 
 	for (auto const& fileRequests: _outputSelection)
@@ -311,7 +306,8 @@ std::optional<Json::Value> checkAuxiliaryInputKeys(Json::Value const& _input)
 
 std::optional<Json::Value> checkSettingsKeys(Json::Value const& _input)
 {
-	static set<string> keys{"parserErrorRecovery", "debug", "evmVersion", "libraries", "metadata", "optimizer", "outputSelection", "remappings"};
+	static set<string> keys{"parserErrorRecovery", "debug", "evmVersion", "libraries", "metadata", "optimizer", "outputSelection", "remappings",
+		"includePaths", "structWarning", "forceRemoteUpdate", "mainContract"};
 	return checkKeys(_input, keys, "settings");
 }
 
@@ -592,6 +588,37 @@ boost::variant<StandardCompiler::InputsAndSettings, Json::Value> StandardCompile
 	if (auto result = checkSettingsKeys(settings))
 		return *result;
 
+	if (settings.isMember("includePaths"))
+	{
+		for (auto const& includePath: settings["includePaths"])
+		{
+			if (!includePath.isString())
+				return formatFatalError("JSONError", "Include path must be a string.");
+			ret.includePaths.push_back(includePath.asString());
+		}
+	}
+
+	if (settings.isMember("structWarning"))
+	{
+		if (!settings["structWarning"].isBool())
+			return formatFatalError("JSONError", "\"settings.structWarning\" must be a Boolean.");
+		ret.structWarning = settings["structWarning"].asBool();
+	}
+
+	if (settings.isMember("forceRemoteUpdate"))
+	{
+		if (!settings["forceRemoteUpdate"].isBool())
+			return formatFatalError("JSONError", "\"settings.forceRemoteUpdate\" must be a Boolean.");
+		ret.forceRemoteUpdate = settings["forceRemoteUpdate"].asBool();
+	}
+
+	if (settings.isMember("mainContract"))
+	{
+		if (!settings["mainContract"].isString())
+			return formatFatalError("JSONError", "\"settings.mainContract\" must be a String.");
+		ret.mainContract = settings["mainContract"].asString();
+	}
+
 	if (settings.isMember("parserErrorRecovery"))
 	{
 		if (!settings["parserErrorRecovery"].isBool())
@@ -741,16 +768,36 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 
 	compilerStack.enableEwasmGeneration(isEwasmRequested(_inputsAndSettings.outputSelection));
 
+	if (sourceList.size() != 1) {
+		formatFatalError("JSONError", "Only one source is allowed.");
+	}
+	compilerStack.setInputFile(sourceList.begin()->first);
+
+	compilerStack.setMainContract(_inputsAndSettings.mainContract);
+
+	for (auto const& path: _inputsAndSettings.includePaths)
+	{
+		compilerStack.addIncludePath(path);
+	}
+	compilerStack.setStructWarning(_inputsAndSettings.structWarning);
+	compilerStack.setForceUpdate(_inputsAndSettings.forceRemoteUpdate);
+
 	Json::Value errors = std::move(_inputsAndSettings.errors);
 
 	bool const binariesRequested = isBinaryRequested(_inputsAndSettings.outputSelection);
 
 	try
 	{
+		compilerStack.generateAbi();
 		if (binariesRequested)
-			compilerStack.compile();
+		{
+			compilerStack.generateCode();
+		}
 		else
+		{
 			compilerStack.parseAndAnalyze();
+		}
+		compilerStack.compile(true);
 
 		for (auto const& error: compilerStack.errors())
 		{
@@ -882,8 +929,16 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 		string file = contractName.substr(0, colon);
 		string name = contractName.substr(colon + 1);
 
+		bool canBeDeployed = compilerStack.canBeDeployed(contractName);
+
 		// ABI, storage layout, documentation and metadata
 		Json::Value contractData(Json::objectValue);
+		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "abi", wildcardMatchesExperimental))
+			contractData["abi"] = compilerStack.contractABI(contractName);
+		if (canBeDeployed && isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "assembly", wildcardMatchesExperimental))
+			contractData["assembly"] = compilerStack.contractCode(contractName);
+		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "showFunctionIds", wildcardMatchesExperimental))
+			contractData["functionIds"] = compilerStack.functionIds(contractName);
 		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "metadata", wildcardMatchesExperimental))
 			contractData["metadata"] = compilerStack.metadata(contractName);
 		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "userdoc", wildcardMatchesExperimental))
@@ -906,8 +961,6 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 			evmData["legacyAssembly"] = compilerStack.assemblyJSON(contractName, sourceList);
 		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "evm.methodIdentifiers", wildcardMatchesExperimental))
 			evmData["methodIdentifiers"] = compilerStack.methodIdentifiers(contractName);
-		if (compilationSuccess && isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "evm.gasEstimates", wildcardMatchesExperimental))
-			evmData["gasEstimates"] = compilerStack.gasEstimates(contractName);
 
 		if (compilationSuccess && isArtifactRequested(
 			_inputsAndSettings.outputSelection,

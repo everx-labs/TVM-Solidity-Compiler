@@ -34,7 +34,6 @@ std::string getPathToFiles(
 );
 
 void TVMCompilerProceedContract(
-	solidity::langutil::ErrorReporter* errorReporter,
 	solidity::frontend::ContractDefinition const& _contract,
 	std::vector<solidity::frontend::PragmaDirective const *> const* pragmaDirectives,
 	bool generateAbi,

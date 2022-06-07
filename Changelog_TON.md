@@ -1,4 +1,19 @@
-### 0.60.0 (2022-??-??)
+### 0.61.0 (2022-06-07)
+
+Compiler features:
+* Supported experimental functions `gosh.diff`, `gosh.applyPatch`, `gosh.applyPatchQ`,
+`gosh.zip`, `gosh.unzip`, `gosh.zipDiff`, `gosh.applyZipPatch` and `gosh.applyZipPatchQ`.
+* Supported experimental `tx.storageFee`.
+
+Gas optimizations:
+ * Use opcode `MYCODE` for Solidity function `tvm.code()`.
+ * Assorted stack optimizations.
+
+Solidity compilation driver:
+ * Added new sold tool which combines Solidity compiler with linker library
+into a standalone compiler driver able to produce tvc out of sol in one pass.
+
+### 0.60.0 (2022-05-18)
 
 Compiler features:
  * Supported `pragma copyleft <type>, <wallet_address>;`.

@@ -244,7 +244,7 @@ public:
 
 	/// Compiles the source units that were previously added and parsed.
 	/// @returns false on error.
-	std::pair<bool, bool> compile();
+	std::pair<bool, bool> compile(bool json = false);
 
 	/// @returns the list of sources (paths) used
 	std::vector<std::string> sourceNames() const;
@@ -306,7 +306,11 @@ public:
 
 	/// @returns a JSON representing the contract ABI.
 	/// Prerequisite: Successful call to parse or compile.
-	// Json::Value const& contractABI(std::string const& _contractName) const;
+	Json::Value const& contractABI(std::string const& _contractName) const;
+
+	Json::Value const& contractCode(std::string const& _contractName) const;
+
+	Json::Value const& functionIds(std::string const& _contractName) const;
 
 	/// @returns a JSON representing the storage layout of the contract.
 	/// Prerequisite: Successful call to parse or compile.
@@ -331,6 +335,8 @@ public:
 
 	/// Overwrites the release/prerelease flag. Should only be used for testing.
 	void overwriteReleaseFlag(bool release) { m_release = release; }
+
+	bool canBeDeployed(std::string const& _contractName) const;
 private:
 	/// The state per source unit. Filled gradually during parsing.
 	struct Source
@@ -355,7 +361,9 @@ private:
 		std::string yulIROptimized; ///< Optimized experimental Yul IR code.
 		std::string ewasm; ///< Experimental Ewasm text representation
 		mutable std::unique_ptr<std::string const> metadata; ///< The metadata json that will be hashed into the chain.
+		mutable std::unique_ptr<Json::Value const> code;
 		mutable std::unique_ptr<Json::Value const> abi;
+		mutable std::unique_ptr<Json::Value const> functionIds;
 		// mutable std::unique_ptr<Json::Value const> storageLayout;
 		mutable std::unique_ptr<Json::Value const> userDocumentation;
 		mutable std::unique_ptr<Json::Value const> devDocumentation;
@@ -413,9 +421,7 @@ private:
 	/// @returns the metadata CBOR for the given serialised metadata JSON.
 	bytes createCBORMetadata(std::string const& _metadata, bool _experimentalMode);
 
-	/// @returns the contract ABI as a JSON object.
-	/// This will generate the JSON object and store it in the Contract object if it is not present yet.
-	// Json::Value const& contractABI(Contract const&) const;
+	std::string contractSource(std::string const&) const;
 
 	/// @returns the storage layout of the contract as a JSON object.
 	/// This will generate the JSON object and store it in the Contract object if it is not present yet.

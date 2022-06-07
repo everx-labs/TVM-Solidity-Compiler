@@ -273,9 +273,6 @@ bool ContactsUsageScanner::visit(FunctionCall const& _functionCall) {
 			case FunctionType::Kind::MsgPubkey:
 				m_hasMsgPubkey = true;
 				break;
-			case FunctionType::Kind::TVMCode:
-				m_hasTvmCode = true;
-				break;
 			default:
 				break;
 		}

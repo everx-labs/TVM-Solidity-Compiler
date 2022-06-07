@@ -1321,6 +1321,15 @@ public:
 		/// (i.e. when accessed directly via the name of the containing contract).
 		/// Cannot be called.
 		Declaration,
+
+		GoshApplyPatch,
+		GoshApplyPatchQ,
+		GoshApplyZipPatch,
+		GoshApplyZipPatchQ,
+		GoshDiff,
+		GoshUnzip,
+		GoshZip,
+		GoshZipDiff,
 	};
 
 	/// Creates the type of a function.
@@ -1712,6 +1721,7 @@ public:
 		TVM, ///< "tvm"
 		Math, ///< "math"
 		Rnd, ///< "rnd"
+		Gosh, ///< "gosh"
 		MetaType ///< "type(...)"
 	};
 

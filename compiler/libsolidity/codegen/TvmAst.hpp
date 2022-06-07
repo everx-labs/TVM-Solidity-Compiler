@@ -155,19 +155,13 @@ namespace solidity::frontend
 
 	class AsymGen : public TvmAstNode {
 	public:
-		explicit AsymGen(std::string opcode, int take, int retMin, int retMax) :
-				m_opcode(std::move(opcode)), m_take{take}, m_retMin{retMin}, m_retMax{retMax} {}
+		explicit AsymGen(std::string opcode) :
+				m_opcode(std::move(opcode)){}
 		void accept(TvmAstVisitor& _visitor) override;
 		bool operator==(TvmAstNode const&) const override;
 		std::string const& opcode() const { return m_opcode; }
-		int take() const { return m_take; }
-		int retMin() const { return m_retMin; }
-		int retMax() const { return m_retMax; }
 	private:
 		std::string m_opcode;
-		int m_take{};
-		int m_retMin{};
-		int m_retMax{};
 	};
 
 	class HardCode : public Gen {
@@ -302,7 +296,7 @@ namespace solidity::frontend
 			PUSHREFCONT,
 		};
 		static std::string toString(Type t);
-		CodeBlock(Type type, std::vector<Pointer<TvmAstNode>> instructions) :
+		CodeBlock(Type type, std::vector<Pointer<TvmAstNode>> instructions = {}) :
 			m_type{type}, m_instructions(std::move(instructions)) {
 			for (const Pointer<TvmAstNode>& i : m_instructions) {
 				solAssert(i != nullptr, "");
@@ -531,5 +525,7 @@ namespace solidity::frontend
 	Pointer<PushCellOrSlice> isPlainPushSlice(Pointer<TvmAstNode> const& node);
 
 	int getRootBitSize(PushCellOrSlice const &_node);
+
+	Pointer<AsymGen> getZeroOrNullAlignment(bool isZero, bool isSwap, bool isNot);
 
 }	// end solidity::frontend
