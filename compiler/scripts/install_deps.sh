@@ -188,7 +188,8 @@ case $(uname -s) in
                     git \
                     libboost-all-dev \
                     unzip \
-                    curl
+                    curl \
+                    libclang-dev
 
                 ;;
 
@@ -260,7 +261,8 @@ case $(uname -s) in
                     cmake \
                     git \
                     libboost-all-dev \
-                    curl
+                    curl \
+                    libclang-dev
                 ;;
 
 #------------------------------------------------------------------------------

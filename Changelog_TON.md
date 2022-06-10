@@ -1,3 +1,9 @@
+### 0.61.1 (2022-06-10)
+
+Added `sold` sources.
+Fix problem of using `mapping(string => ValueType) map` in loop `for ((uint k, ValueType v) : map)`.  
+Use `bytes` instead of `TvmCell` in `gosh` functions.
+
 ### 0.61.0 (2022-06-07)
 
 Compiler features:

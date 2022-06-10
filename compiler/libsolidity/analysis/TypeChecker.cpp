@@ -1224,7 +1224,7 @@ bool TypeChecker::visit(ForEachStatement const& _forStatement)
 						"."
 				);
 			} else {
-				checkVarDeclaration(vars->declarations().at(0).get(), mappingType->keyType());
+				checkVarDeclaration(vars->declarations().at(0).get(), mappingType->realKeyType());
 				checkVarDeclaration(vars->declarations().at(1).get(), mappingType->valueType());
 			}
 		} else if (arrayType) {

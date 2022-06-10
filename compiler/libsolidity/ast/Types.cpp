@@ -4409,8 +4409,8 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 		}) {
 			members.push_back({ name,
 				TypeProvider::function(
-					{TypeProvider::tvmcell(), TypeProvider::tvmcell()},
-					{TypeProvider::tvmcell()},
+					{TypeProvider::bytesMemory(), TypeProvider::bytesMemory()},
+					{TypeProvider::bytesMemory()},
 					{{}, {}},
 					{{}},
 					type,
@@ -4432,8 +4432,8 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 
 		members.push_back({ "applyZipPatchQ",
 			TypeProvider::function(
-				{TypeProvider::tvmcell(), TypeProvider::tvmcell()},
-				{TypeProvider::optional(TypeProvider::tvmcell())},
+				{TypeProvider::bytesMemory(), TypeProvider::bytesMemory()},
+				{TypeProvider::optional(TypeProvider::bytesMemory())},
 				{{}, {}},
 				{{}},
 				FunctionType::Kind::GoshApplyZipPatchQ,
@@ -4445,7 +4445,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			"zip",
 			TypeProvider::function(
 				{TypeProvider::stringMemory()},
-				{TypeProvider::tvmcell()},
+				{TypeProvider::bytesMemory()},
 				{{}},
 				{{}},
 				FunctionType::Kind::GoshZip,
@@ -4455,7 +4455,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 		members.push_back({
 			"unzip",
 			TypeProvider::function(
-				  {TypeProvider::tvmcell()},
+				  {TypeProvider::bytesMemory()},
 				  {TypeProvider::stringMemory()},
 				  {{}},
 				  {{}},
@@ -4463,7 +4463,6 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				  true,
 				  StateMutability::Pure
 		)});
-
 		return members;
 	}
 	case Kind::MetaType:
