@@ -4208,16 +4208,16 @@ string newText = gosh.applyDiff(oldText, patch);
 #### gosh.zip and gosh.unzip
 
 ```TVMSolidity
-gosh.zip(string text) returns (TvmCell zip)
-gosh.unzip(TvmCell zip) returns (optional(string) text)
+gosh.zip(string text) returns (bytes zip)
+gosh.unzip(bytes zip) returns (optional(string) text)
 ```
 
-`gosh.zip` converts the `text` to compressed `TvmCell`. `gosh.unzip` reverts such compression.
+`gosh.zip` converts the `text` to compressed `bytes`. `gosh.unzip` reverts such compression.
 
 #### gosh.zipDiff
 
 ```TVMSolidity
-gosh.zipDiff(TvmCell oldText, TvmCell newText) returns (TvmCell patch)
+gosh.zipDiff(bytes oldText, bytes newText) returns (bytes patch)
 ```
 
 It's the same as `gosh.diff` but it calculates `patch` between compressed string.
@@ -4225,8 +4225,8 @@ It's the same as `gosh.diff` but it calculates `patch` between compressed string
 #### gosh.applyZipPatch and gosh.applyZipPatchQ
 
 ```TVMSolidity
-gosh.applyZipPatch(TvmCell oldText, TvmCell patch) returns (TvmCell newText)
-gosh.applyZipPatchQ(TvmCell oldText, TvmCell patch) returns (optional(TvmCell) newText)
+gosh.applyZipPatch(bytes oldText, bytes patch) returns (bytes newText)
+gosh.applyZipPatchQ(bytes oldText, bytes patch) returns (optional(bytes) newText)
 ```
 
 These are the same as `gosh.applyPatch`/`gosh.applyPatchQ` but these functions are applied to compressed string.

@@ -47,7 +47,7 @@ To facilitate work with other TON tools add path to stdlib_sol.tvm into environm
 
 ## Sold driver
 
-See its [README.md](https://github.com/tonlabs/TON-Solidity-Compiler/blob/master/pub/sold/README.md) for build instructions.
+Documentation is available at [README.md](https://github.com/tonlabs/TON-Solidity-Compiler/blob/master/sold/README.md).
 
 ## Links
 
