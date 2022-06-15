@@ -369,7 +369,7 @@ namespace solidity::frontend
 		bool withJmp() const { return m_withJmp; }
 		Pointer<CodeBlock> const& trueBody() const { return m_trueBody; }
 		Pointer<CodeBlock> const& falseBody() const { return m_falseBody; }
-		int take() const override { return  0; }
+		int take() const override { return 1; }
 		int ret() const override { return m_ret; }
 	private:
 		bool m_withNot{};

@@ -1,15 +1,12 @@
-# Experimental Sol2TVM Compiler Driver
-
-This is a fork of the Solidity language [compiler](https://github.com/ethereum/solidity) targeting TVM.
+# Experimental Solidity Compiler Driver
 
 ## Build and Install
 
 ### Ubuntu Linux / MacOS
 
 ```shell
-git clone git@github.com:tonlabs/sol2tvm.git
-cd sol2tvm/pub/sold
-sh ../compiler/scripts/install_deps.sh
+sh ./compiler/scripts/install_deps.sh
+cd ./sold
 cargo build --release
 ```
 
@@ -19,13 +16,10 @@ Install Visual Studio Build Tools, Rust, Git, cmake.
 Run Visual Studio Developer Command Prompt
 
 ```shell
-git clone git@github.com:tonlabs/sol2tvm.git
-cd sol2tvm\pub\sold
+cd sold
 cargo build --release
 ```
 
 ## Usage
 
-```shell
-sold --help
-```
+Type `sold --help` for details.
