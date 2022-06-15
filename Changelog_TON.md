@@ -1,3 +1,8 @@
+### 0.61.2 (2022-06-15)
+
+Bugfixes:
+* Optimizer: fix bug that caused generating bad code.
+
 ### 0.61.1 (2022-06-10)
 
 Added `sold` sources.

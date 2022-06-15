@@ -91,8 +91,7 @@ public:
 	static std::string arg(Pointer<TvmAstNode> const& node);
 	template<class ...Args>
 	static bool is(Pointer<TvmAstNode> const& node, Args&&... cmd);
-	static std::optional<std::pair<int, int>> checkSimpleCommand(Pointer<TvmAstNode> const& node);
-	static bool isSimpleCommand(Pointer<TvmAstNode> const& node, int take, int ret);
+	static bool isSimpleCommand(Pointer<TvmAstNode> const& node);
 	static bool isAddOrSub(Pointer<TvmAstNode> const& node);
 	static bool isCommutative(Pointer<TvmAstNode> const& node);
 	static std::pair<int, int> getIndexes(std::string const& str);
@@ -1110,15 +1109,6 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 	auto isPUSH2 = isPUSH(cmd2);
 	auto cmd3GenOpcode = to<GenOpcode>(cmd3.get());
 
-	if (isNIP(cmd2) && isNIP(cmd3)) {
-		if (isPUSH1 && *isPUSH1 == 1) {
-			return Result{3, makeDROP()};
-		}
-		if (isSimpleCommand(cmd1, 0, 1)) {
-			return Result{3, makeDROP(2), cmd1};
-		}
-	}
-
 	// NEW
 	// s01
 	// ST**R
@@ -1128,7 +1118,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 	// ST**
 	if (
 		is(cmd1, "NEWC") &&
-		isSimpleCommand(cmd2, 0, 1) &&
+		isSimpleCommand(cmd2) &&
 		cmd3GenOpcode &&
 		boost::starts_with(cmd3GenOpcode->opcode(), "ST") && boost::ends_with(cmd3GenOpcode->opcode(), "R")
 	) {
@@ -1160,31 +1150,6 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 		return Result{3, makePUSHREF(arg(cmd2))};
 	}
 
-	// SWAP
-	// s01
-	// SWAP
-	// =>
-	// s01
-	// ROT
-	if (isSWAP(cmd1) &&
-		isSimpleCommand(cmd2, 0, 1) &&
-		isSWAP(cmd3)
-	) {
-		return Result{3, cmd2, makeROT()};
-	}
-
-	// ROT
-	// s01
-	// SWAP
-	// =>
-	// s01
-	// BLKSWAP 1, 3
-	if (isRot(cmd1) &&
-		isSimpleCommand(cmd2, 0, 1) &&
-		isSWAP(cmd3)
-	) {
-		return Result{3, cmd2, makeBLKSWAP(1, 3)};
-	}
 	// PUSHINT x
 	// PUSH Si (i!=0) or gen(0,1)
 	// CMP
@@ -2065,6 +2030,12 @@ bool PrivatePeepholeOptimizer::optimize(const std::function<std::optional<Result
 		solAssert(!isLoc(m_instructions.at(idx1)), "");
 		std::optional<Result> res = f(idx1);
 		if (res) {
+			{
+//				std::cout << ">>>A\n";
+//				Printer p{std::cout};
+//				for (const auto &x: m_instructions) x->accept(p);
+//				std::cout << std::endl;
+			}
 			didSomething = true;
 			updateLinesAndIndex(idx1, res);
 			// step back to several commands
@@ -2080,8 +2051,9 @@ bool PrivatePeepholeOptimizer::optimize(const std::function<std::optional<Result
 				++idx1;
 			}
 
+//			std::cout << "<<<B\n";
 //			Printer p{std::cout};
-//			for (auto x : m_instructions) x->accept(p);
+//			for (const auto& x : m_instructions) x->accept(p);
 //			std::cout << std::endl;
 		} else {
 			idx1 = nextCommandLine(idx1);
@@ -2201,24 +2173,13 @@ bool PrivatePeepholeOptimizer::isStack(Pointer<TvmAstNode> const& node, Stack::O
 	return stack && stack->opcode() == op;
 }
 
-std::optional<std::pair<int, int>> PrivatePeepholeOptimizer::checkSimpleCommand(Pointer<TvmAstNode> const& node) {
-	if (auto gen = to<Gen>(node.get())) {
-		return {{gen->take(), gen->ret()}};
-	}
-	if (isBLKSWAP(node)) {
-		auto [bottom, top] = isBLKSWAP(node).value();
-		int sum = bottom + top;
-		return {{sum, sum}};
-	}
-	return std::nullopt;
-}
 
-bool PrivatePeepholeOptimizer::isSimpleCommand(Pointer<TvmAstNode> const& node, int take, int ret) {
-	std::optional<std::pair<int, int>> opt = checkSimpleCommand(node);
-	if (!opt) {
-		return false;
-	}
-	return opt.value() == std::make_pair(take, ret);
+bool PrivatePeepholeOptimizer::isSimpleCommand(Pointer<TvmAstNode> const& node) {
+	auto gen = to<Gen>(node.get());
+	// TODO add another Gen
+	return gen &&
+		(to<GenOpcode>(gen) || to<PushCellOrSlice>(gen) || to<Glob>(gen) || to<Opaque>(gen) || to<HardCode>(gen)) &&
+		gen->take() == 0 && gen->ret() == 1;
 }
 
 bool PrivatePeepholeOptimizer::isAddOrSub(Pointer<TvmAstNode> const& node) {
