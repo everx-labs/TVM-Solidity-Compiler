@@ -356,18 +356,17 @@ void FunctionCallCompiler::mappingEmpty() {
 
 void FunctionCallCompiler::superFunctionCall(MemberAccess const &_node) {
 	pushArgs();
-	string fname = _node.memberName();
-	auto super = getSuperContract(m_pusher.ctx().getCurrentFunction()->annotation().contract,
-								  m_pusher.ctx().getContract(), fname);
-	solAssert(super, "");
-	if (getFunction(super, fname)) {
-		auto functionName = super->name() + "_" + fname;
-		if (auto ft = to<FunctionType>(getType(&_node))) {
-			m_pusher.pushCallOrCallRef(functionName, ft);
-			return;
-		}
-	}
-	solUnimplemented("");
+	auto someFunDecl = to<FunctionDefinition>(_node.annotation().referencedDeclaration);
+	FunctionDefinition const* superFunc = getSuperFunction(
+		m_pusher.ctx().getCurrentFunction()->annotation().contract,
+		m_pusher.ctx().getContract(),
+		someFunDecl->externalIdentifierHex()
+	);
+	solAssert(superFunc, "");
+	std::string functionName = m_pusher.ctx().getFunctionInternalName(superFunc, true);
+	auto ft = to<FunctionType>(getType(&_node));
+	solAssert(ft, "");
+	m_pusher.pushCallOrCallRef(functionName, ft);
 }
 
 void FunctionCallCompiler::typeTypeMethods(MemberAccess const &_node) {
@@ -1785,6 +1784,12 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 		acceptExpr(&_node.expression());
 		pushArgs();
 		m_pusher.pushMacroCallInCallRef(2, 1, "__strrchr_macro");
+	} else if (_node.memberName() == "toLowerCase") {
+		acceptExpr(&_node.expression());
+		m_pusher.pushMacroCallInCallRef(1, 1, "__toLowerCase_macro");
+	} else if (_node.memberName() == "toUpperCase") {
+		acceptExpr(&_node.expression());
+		m_pusher.pushMacroCallInCallRef(1, 1, "__toUpperCase_macro");
 	} else if (_node.memberName() == "byteLength") {
 		acceptExpr(&_node.expression());
 		m_pusher.byteLengthOfCell();

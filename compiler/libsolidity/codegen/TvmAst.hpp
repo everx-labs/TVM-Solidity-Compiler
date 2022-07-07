@@ -77,6 +77,7 @@ namespace solidity::frontend
 
 			TUCK,
 			PUXC,
+			XCPU,
 		};
 		explicit Stack(Opcode opcode, int i = -1, int j = -1, int k = -1);
 		void accept(TvmAstVisitor& _visitor) override;
@@ -511,6 +512,7 @@ namespace solidity::frontend
 	Pointer<Stack> makeBLKSWAP(int down, int top);
 	Pointer<Stack> makeTUCK();
 	Pointer<Stack> makePUXC(int i, int j);
+	Pointer<Stack> makeXCPU(int i, int j);
 	Pointer<TvmIfElse> flipIfElse(TvmIfElse const& node);
 
 	bool isPureGen01(TvmAstNode const& node);

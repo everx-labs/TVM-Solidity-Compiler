@@ -57,14 +57,20 @@ void fatal_error(const string &error_message) {
 	BOOST_THROW_EXCEPTION(FatalError()); // never throw, just for [[noreturn]]
 }
 
-const ContractDefinition *
-getSuperContract(const ContractDefinition *currentContract, const ContractDefinition *mainContract, const string &fname) {
-	ContractDefinition const* prev = nullptr;
+FunctionDefinition const* getSuperFunction(
+	const ContractDefinition *currentContract,
+	const ContractDefinition *mainContract,
+	const string &hexName
+) {
+	FunctionDefinition const* prev = nullptr;
 	for (auto c : getContractsChain(mainContract)) {
 		if (c == currentContract)
 			break;
-		if (getFunction(c, fname))
-			prev = c;
+		for (FunctionDefinition const* f : c->definedFunctions()) {
+			if (f->isOrdinary() && f->externalIdentifierHex() == hexName) {
+				prev = f;
+			}
+		}
 	}
 	return prev;
 }
@@ -245,15 +251,6 @@ getContractFunctionPairs(ContractDefinition const *contract) {
 	for (ContractDefinition const* c : getContractsChain(contract)) {
 		for (const auto f : c->definedFunctions())
 			result.emplace_back(f, c);
-	}
-	return result;
-}
-
-const FunctionDefinition *getFunction(ContractDefinition const *contract, const string &functionName) {
-	const FunctionDefinition* result = nullptr;
-	for (const auto f : contract->definedFunctions()) {
-		if (f->name() == functionName)
-			return f;
 	}
 	return result;
 }

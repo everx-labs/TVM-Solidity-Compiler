@@ -1811,7 +1811,7 @@ void StackPusher::hardConvert(Type const *leftType, Type const *rightType) {
 				integerFromFixedPoint(&to<VarInteger>(leftType)->asIntegerType(), r);
 				break;
 			default:
-				solUnimplemented("");
+				solUnimplemented(leftType->toString());
 				break;
 		}
 	};
@@ -2595,10 +2595,11 @@ string TVMCompilerContext::getFunctionInternalName(FunctionDefinition const* _fu
 	}
 
 	std::string functionName;
+	const std::string hexName = _function->externalIdentifierHex();
 	if (calledByPoint && isBaseFunction(_function)) {
-		functionName = _function->annotation().contract->name() + "_" + _function->name();
+		functionName = _function->annotation().contract->name() + "_" + _function->name() + "_" + hexName;
 	} else {
-		functionName = _function->name() + "_internal";
+		functionName = _function->name() + "_" + hexName + "_internal";
 	}
 
 	return functionName;
@@ -2607,7 +2608,7 @@ string TVMCompilerContext::getFunctionInternalName(FunctionDefinition const* _fu
 string TVMCompilerContext::getLibFunctionName(FunctionDefinition const* _function, bool withObject) {
 	std::string name = _function->annotation().contract->name() +
 			(withObject ? "_with_obj_" : "_no_obj_") +
-			_function->name();
+			_function->name() + "_" + _function->externalIdentifierHex();
 	return name;
 }
 

@@ -414,6 +414,10 @@ bool Printer::visit(Stack &_node) {
 		case Stack::Opcode::PUXC:
 			m_out << "PUXC S" << i << ", S" << j;
 			break;
+
+		case Stack::Opcode::XCPU:
+			m_out << "XCPU S" << i << ", S" << j;
+			break;
 	}
 	endL();
 	return false;
