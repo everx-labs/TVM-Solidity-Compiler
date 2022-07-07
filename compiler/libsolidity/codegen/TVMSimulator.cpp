@@ -326,7 +326,7 @@ bool Simulator::visit(Stack &_node) {
 
 		case Stack::Opcode::PUXC:
 			if ((minUpIndex <= i && i <= maxDownIndex) ||
-				(minUpIndex <= j && j <= maxDownIndex) ||  // it's ok if j==-1
+				(minUpIndex <= j && j <= maxDownIndex) ||  // note: it's false if j==-1
 				rest() == 0 // because we make PUSH Si, SWAP ...
 			) {
 				unableToConvertOpcode();
@@ -335,6 +335,18 @@ bool Simulator::visit(Stack &_node) {
 				++m_stackSize;
 			}
 			break;
+
+		case Stack::Opcode::XCPU: {
+			if ((minUpIndex <= i && i <= maxDownIndex) ||
+				(minUpIndex <= j && j <= maxDownIndex)
+			) {
+				unableToConvertOpcode();
+			} else {
+				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj));
+				++m_stackSize;
+			}
+			break;
+		}
 	}
 
 	return false;

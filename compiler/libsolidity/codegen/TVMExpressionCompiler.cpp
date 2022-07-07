@@ -171,6 +171,7 @@ void TVMExpressionCompiler::visitHonest(TupleExpression const& _tupleExpression,
 
 	for (ASTPointer<Expression> const& expr : components | boost::adaptors::reversed) {
 		compileNewExpr(expr.get());
+		m_pusher.hardConvert(arrayBaseType, expr.get()->annotation().type);
 	}
 	// values...
 	m_pusher.pushInt(0);
@@ -243,10 +244,12 @@ void TVMExpressionCompiler::visit2(Identifier const &_identifier) {
 		// Getting value of `now` variable
 		m_pusher.push(+1, "NOW");
 	} else if (name == "this") {
-		// calling this.function() will create internal message that should be sent to the address of current contract
+		// calling this.function() creates an internal message that should be sent to the address of current contract
 		m_pusher.push(+1, "MYADDR");
 	} else if (to<FunctionDefinition>(_identifier.annotation().referencedDeclaration)) {
-		m_pusher.push(+1,"PUSHINT $" + name + "_internal$");
+		auto funDecl = to<FunctionDefinition>(_identifier.annotation().referencedDeclaration);
+		std::string funName = m_pusher.ctx().getFunctionInternalName(funDecl, false);
+		m_pusher.push(+1,"PUSHINT $" + funName + "$");
 	} else {
 		cast_error(_identifier, "Unsupported identifier: " + name);
 	}

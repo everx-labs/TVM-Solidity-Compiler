@@ -129,6 +129,7 @@ bool StackOptimizer::visit(Stack &_node) {
 
 		case Stack::Opcode::TUCK:
 		case Stack::Opcode::PUXC:
+		case Stack::Opcode::XCPU:
 			delta = 1;
 			break;
 	}

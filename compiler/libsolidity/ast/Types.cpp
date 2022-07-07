@@ -1974,6 +1974,18 @@ MemberList::MemberMap ArrayType::nativeMembers(ContractDefinition const*) const
 			FunctionType::Kind::StringMethod,
 			false, StateMutability::Pure
 		));
+		for (auto const&[name, funType] : std::vector<std::pair<std::string, FunctionType::Kind>>{
+			{"toLowerCase", FunctionType::Kind::StringMethod},
+			{"toUpperCase", FunctionType::Kind::StringMethod},
+		})
+			members.emplace_back(name, TypeProvider::function(
+				{},
+				{TypeProvider::stringMemory()},
+				{},
+				{{}},
+				funType,
+				false, StateMutability::Pure
+		));
 	}
 	return members;
 }
@@ -2356,7 +2368,7 @@ u256 StructType::storageSize() const
 
 string StructType::toString(bool ) const
 {
-	string ret = "struct " + m_struct.annotation().canonicalName;;
+	string ret = "struct " + m_struct.annotation().canonicalName;
 	return ret;
 }
 
@@ -2871,6 +2883,8 @@ string FunctionType::richIdentifier() const
 
 	case Kind::StringMethod: id += "stringmethod"; break;
 	case Kind::StringSubstr: id += "stringsubstr"; break;
+	case Kind::StringToLowerCase: id += "stringtolowercase"; break;
+	case Kind::StringToUpperCase: id += "stringtouppercase"; break;
 
 	case Kind::DecodeFunctionParams: id += "tvmslicedecodefunctionparams"; break;
 	case Kind::TVMSliceCompare: id += "tvmslicecompare"; break;
@@ -3451,7 +3465,7 @@ string FunctionType::externalSignature() const
 
 	auto typeStrings = extParams.get() | boost::adaptors::transformed([&](TypePointer _t) -> string
 	{
-		string typeName = _t->signatureInExternalFunction(inLibrary);
+		string typeName = _t->signatureInExternalFunction(true);
 		return typeName;
 	});
 	return m_declaration->name() + "(" + boost::algorithm::join(typeStrings, ",") + ")";

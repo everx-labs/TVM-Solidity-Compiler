@@ -112,10 +112,16 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 
 	std::set<std::pair<CallableDeclaration const*, CallableDeclaration const*>> used{};
 	for (CallableDeclaration const* f : functions) {
+		if (!f->isPublic()) {
+			continue;
+		}
 		if (overridedFunctions.count(f)) {
 			continue;
 		}
 		for (CallableDeclaration const* ff : functions) {
+			if (!ff->isPublic()) {
+				continue;
+			}
 			if (overridedFunctions.count(ff) || f == ff) {
 				continue;
 			}
@@ -124,7 +130,7 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 					m_errorReporter.typeError(
 						f->location(),
 						SecondarySourceLocation().append("Another overloaded function is here:", ff->location()),
-						"Function overloading is not supported.");
+						"Function overloading is not supported for public functions.");
 					used.insert({f, ff});
 					used.insert({ff, f});
 				}

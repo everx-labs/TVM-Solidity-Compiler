@@ -922,11 +922,27 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 		return Result{2, makePUSHREF()};
 	}
 
-	if (is(cmd1, "NOT") &&
-		is(cmd2, "NOT")
-	) {
-		return Result{2};
+	// LESS | LEQ    | GREATER | GEQ  | EQUAL | NEQ   | EQINT  | NEQINT | NOT | TRUE  | FALSE
+	// NOT
+	// =>
+	// GEQ | GREATER | LEQ     | LESS | NEQ   | EQUAL | NEQINT | EQINT  |     | FALSE | TRUE
+	if (is(cmd2, "NOT")) {
+		if (is(cmd1, "LESS")) return Result{2, gen("GEQ")};
+		if (is(cmd1, "LEQ")) return Result{2, gen("GREATER")};
+		if (is(cmd1, "GREATER")) return Result{2, gen("LEQ")};
+		if (is(cmd1, "GEQ")) return Result{2, gen("LESS")};
+		if (is(cmd1, "EQUAL")) return Result{2, gen("NEQ")};
+		if (is(cmd1, "NEQ")) return Result{2, gen("EQUAL")};
+
+		if (is(cmd1, "EQINT")) return Result{2, gen("NEQINT " + arg(cmd1))};
+		if (is(cmd1, "NEQINT")) return Result{2, gen("EQINT " + arg(cmd1))};
+
+		if (is(cmd1, "NOT")) return Result{2};
+
+		if (is(cmd1, "TRUE")) return Result{2, gen("FALSE")};
+		if (is(cmd1, "FALSE")) return Result{2, gen("TRUE")};
 	}
+
 	if ((is(cmd1, "UFITS") && is(cmd2, "UFITS")) || (is(cmd1, "FITS") && is(cmd2, "FITS"))) {
 		int bitSize = std::min(fetchInt(cmd1), fetchInt(cmd2));
 		return Result{2, gen(cmd1GenOp->opcode() + " " + toString(bitSize))};
@@ -1978,6 +1994,23 @@ std::optional<Result> PrivatePeepholeOptimizer::squashPush(const int idx1) const
 		int i = *isPUSH(cmd1);
 		if (0 <= i && i <= 15)
 			return Result{2, makePUXC(i, -1)};
+	}
+
+	// XCHG Si
+	// PUSH Sj
+	// =>
+	// XCPU Si, Sj
+	if (m_optimizeSlice &&
+		isXCHG_S0(cmd1) && cmd2 && isPUSH(cmd2)
+	) {
+		int i = isXCHG_S0(cmd1).value();
+		int j = isPUSH(cmd2).value();
+		if (
+			0 <= i && i <= 15 &&
+			0 <= j && j <= 15
+		) {
+			return Result{2, makeXCPU(i, j)};
+		}
 	}
 
 	return {};

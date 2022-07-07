@@ -881,6 +881,12 @@ Pointer<Stack> makePUXC(int i, int j) {
 	return createNode<Stack>(Stack::Opcode::PUXC, i, j);
 }
 
+Pointer<Stack> makeXCPU(int i, int j) {
+	solAssert(0 <= i && i <= 15, "");
+	solAssert(0 <= j && j <= 15, "");
+	return createNode<Stack>(Stack::Opcode::XCPU, i, j);
+}
+
 Pointer<TvmIfElse> flipIfElse(TvmIfElse const& node) {
 	if (node.falseBody() == nullptr) {
 		return createNode<TvmIfElse>(!node.withNot(), node.withJmp(), node.trueBody(), node.falseBody(), node.ret());

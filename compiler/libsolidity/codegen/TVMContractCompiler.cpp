@@ -16,6 +16,7 @@
  * AST to TVM bytecode contract compiler
  */
 
+#include <fstream>
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/range/adaptor/map.hpp>
 

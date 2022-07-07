@@ -165,8 +165,6 @@ std::vector<VariableDeclaration const *> notConstantStateVariables(ContractDefin
 std::vector<std::pair<FunctionDefinition const*, ContractDefinition const*>>
 getContractFunctionPairs(ContractDefinition const* contract);
 
-const FunctionDefinition* getFunction(ContractDefinition const* contract, const std::string& functionName);
-
 bool isSuper(Expression const* expr);
 
 bool isMacro(const std::string& functionName);
@@ -176,9 +174,11 @@ bool isAddressThis(const FunctionCall* funCall);
 // List of all function but constructors with a given name
 std::vector<FunctionDefinition const*> getContractFunctions(ContractDefinition const* contract, const std::string& funcName);
 
-const ContractDefinition* getSuperContract(const ContractDefinition* currentContract,
-										   const ContractDefinition* mainContract,
-										   const std::string& fname);
+FunctionDefinition const* getSuperFunction(
+	const ContractDefinition* currentContract,
+	const ContractDefinition* mainContract,
+	const std::string& hexName
+);
 
 [[noreturn]]
 void cast_error(const ASTNode& node, const std::string& error_message);

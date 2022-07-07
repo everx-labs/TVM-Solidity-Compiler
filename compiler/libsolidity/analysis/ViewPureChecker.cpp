@@ -66,6 +66,14 @@ bool ViewPureChecker::visit(FunctionDefinition const& _funDef)
 void ViewPureChecker::endVisit(FunctionDefinition const& _funDef)
 {
 	solAssert(m_currentFunction == &_funDef, "");
+	for (ASTPointer<ModifierInvocation> const& mod : m_currentFunction->modifiers()) {
+		auto modDef = dynamic_cast<ModifierDefinition const*>(mod->name()->annotation().referencedDeclaration);
+		if (modDef) {
+			MutabilityAndLocation mutAndLoc = m_inferredMutability.at(modDef);
+			reportMutability(mutAndLoc.mutability, mutAndLoc.location, m_currentFunction->location());
+		}
+	}
+
 	if (
 		m_bestMutabilityAndLocation.mutability < _funDef.stateMutability() &&
 		_funDef.isImplemented() &&
@@ -136,7 +144,7 @@ void ViewPureChecker::endVisit(InlineAssembly const& /*_inlineAssembly*/)
 void ViewPureChecker::reportMutability(
 	StateMutability _mutability,
 	SourceLocation const& _location,
-	std::optional<SourceLocation> const&
+	std::optional<SourceLocation> const& funcDecl
 )
 {
 	if (_mutability > m_bestMutabilityAndLocation.mutability)
@@ -148,22 +156,34 @@ void ViewPureChecker::reportMutability(
 	// will set mutability to payable.
 	if (_mutability == StateMutability::View)
 	{
-		m_errorReporter.typeError(
-			_location,
-			"Function declared as pure, but this expression (potentially) reads from the "
-			"environment or state and thus requires \"view\"."
-		);
+		auto errText = "Function declared as pure, but this expression (potentially) reads from the "
+				 "environment or state and thus requires \"view\".";
+		if (funcDecl) {
+			m_errorReporter.typeError(
+				_location,
+				SecondarySourceLocation().append("Function declaration is here", *funcDecl),
+				errText
+			);
+		} else {
+			m_errorReporter.typeError(_location, errText);
+		}
 		m_errors = true;
 	}
 	else if (_mutability == StateMutability::NonPayable)
 	{
-		m_errorReporter.typeError(
-			_location,
-			"Function declared as " +
-			stateMutabilityToString(m_currentFunction->stateMutability()) +
-			", but this expression (potentially) modifies the state and thus "
-			"requires the default."
-		);
+		auto errText = "Function declared as " +
+					   stateMutabilityToString(m_currentFunction->stateMutability()) +
+					   ", but this expression (potentially) modifies the state and thus "
+					   "requires the default.";
+		if (funcDecl) {
+			m_errorReporter.typeError(
+				_location,
+				SecondarySourceLocation().append("Function declaration is here", *funcDecl),
+				errText
+			);
+		} else {
+			m_errorReporter.typeError(_location, errText);
+		}
 		m_errors = true;
 	}
 	else

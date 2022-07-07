@@ -1307,6 +1307,9 @@ public:
 
 		StringMethod,  ///< string methods
 		StringSubstr,  ///< string.substr()
+		StringToLowerCase,  ///< string.toLowerCase()
+		StringToUpperCase,  ///< string.toUpperCase()
+
 		ObjectCreation, ///< array creation using new
 		Assert, ///< assert()
 		Require, ///< require()

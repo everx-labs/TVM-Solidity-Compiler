@@ -1,7 +1,20 @@
+### 0.62.0 (2022-07-07)
+
+Compiler features:
+ * Supported `<string>.toUpperCase()` and `<string>.toLowerCase()`.
+ * Supported function overloading for private/internal functions.
+
+Bugfixes:
+ * Fixed mutability for public functions: it didn't respect function modifiers.
+ * Fixed compilation issue with inline arrays, e.g. `byte[] barr = [byte('a'), 'A'];`.
+
+Gas optimizations:
+* Assorted stack optimizations.
+
 ### 0.61.2 (2022-06-15)
 
 Bugfixes:
-* Optimizer: fix bug that caused generating bad code.
+ * Optimizer: fix bug that caused generating bad code.
 
 ### 0.61.1 (2022-06-10)
 
@@ -12,10 +25,10 @@ Use `bytes` instead of `TvmCell` in `gosh` functions.
 ### 0.61.0 (2022-06-07)
 
 Compiler features:
-* Supported experimental functions `gosh.diff`, `gosh.applyPatch`, `gosh.applyPatchQ`,
+ * Supported experimental functions `gosh.diff`, `gosh.applyPatch`, `gosh.applyPatchQ`,
 `gosh.zip`, `gosh.unzip`, `gosh.zipDiff`, `gosh.applyZipPatch` and `gosh.applyZipPatchQ`.
-* Supported experimental `tx.storageFee`.
-
+ * Supported experimental `tx.storageFee`.
+ 
 Gas optimizations:
  * Use opcode `MYCODE` for Solidity function `tvm.code()`.
  * Assorted stack optimizations.

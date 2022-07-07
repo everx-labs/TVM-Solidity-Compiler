@@ -67,6 +67,7 @@ bool StackState::apply(Stack const &opcode) {
 			break;
 		}
 
+		// TODO handle these cases
 		case Stack::Opcode::DROP:
 		case Stack::Opcode::BLKDROP2:
 		case Stack::Opcode::POP_S:
@@ -75,7 +76,8 @@ bool StackState::apply(Stack const &opcode) {
 		case Stack::Opcode::PUSH3_S:
 		case Stack::Opcode::PUSH_S:
 		case Stack::Opcode::TUCK:
-		case Stack::Opcode::PUXC: {
+		case Stack::Opcode::PUXC:
+		case Stack::Opcode::XCPU: {
 			ok = false;
 			break;
 		}
