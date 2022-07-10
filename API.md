@@ -3144,7 +3144,7 @@ create an outbound message carrying **reserve** nanotons to oneself, so that the
 actions would not be able to spend more money than the remainder. It's a wrapper for opcodes
 "RAWRESERVE" and "RAWRESERVEX". See [TVM][1].
 
-Les's denote:
+Let's denote:
 
 * `original_balance` is balance of the contract before the computing phase that is equal to balance
 of the contract before the transaction minus storage fee. Note: `original_balance` doesn't include
