@@ -11,61 +11,21 @@
  * limitations under the License.
  */
 
-use std::collections::HashMap;
 use std::fs::File;
-use std::io::{Read, Write, BufRead, BufReader};
+use std::io::{Read, Write};
 use std::os::raw::{c_char, c_void};
 use std::path::Path;
-use std::sync::Mutex;
 
 use clap::Parser;
 use failure::{bail, format_err};
 
 use ton_block::Serializable;
 use ton_types::{BagOfCells, Result, Status};
-use ton_utils::keyman::KeypairManager;
 use ton_utils::parser::{ParseEngine, ParseEngineInput};
 use ton_utils::program::Program;
 
 mod libsolc;
 mod printer;
-
-fn compute_line_info(filename: String, buf: &[u8]) {
-    let mut info = vec!();
-    let reader = BufReader::new(buf);
-    let mut byte = 0;
-    for line in reader.lines() {
-        if let Ok(line) = line {
-            byte += line.len() + 1;
-            info.push(byte);
-        } else {
-            return
-        }
-    }
-    LINES.lock().unwrap().insert(filename, info);
-}
-
-fn get_line_column(filename: &str, pos: usize) -> Result<(usize, usize)> {
-    if let Some(info) = LINES.lock().unwrap().get(filename) {
-        let mut line = 1;
-        let mut last = 1;
-        for byte in info {
-            if pos > *byte {
-                line += 1;
-                last = *byte;
-            } else {
-                return Ok((line, pos - last + 1))
-            }
-        }
-        bail!("Position not found")
-    } else {
-        bail!("Filename not found")
-    }
-}
-
-lazy_static::lazy_static! {
-    static ref LINES: Mutex<HashMap<String, Vec<usize>>> = Mutex::new(HashMap::new());
-}
 
 // Most of the work of locating an import is implemented in CompilerStack::loadMissingSources().
 // This callback receives an already resolved path, and the only thing left to do is to read
@@ -96,7 +56,6 @@ unsafe extern "C" fn read_callback(
     };
     let mut buf = vec![];
     let size = file.read_to_end(&mut buf).unwrap();
-    compute_line_info(filename, &buf);
     let ptr = libsolc::solidity_alloc(size as u64);
     std::ptr::copy(buf.as_ptr(), ptr as *mut u8, size);
     *o_contents = ptr;
@@ -167,44 +126,6 @@ fn compile(args: &Args, input: &str) -> Result<serde_json::Value> {
     Ok(res)
 }
 
-fn colorize(input: &str, style: ansi_term::Style) -> ansi_term::ANSIGenericString<str> {
-    if atty::is(atty::Stream::Stderr) {
-        style.paint(input)
-    } else {
-        input.into()
-    }
-}
-
-fn print_formatted_message(message: &str, file: &str, start: usize, _end: usize) {
-    if let Ok((line, _)) = get_line_column(file, start) {
-        let message_lines = message.lines();
-        let line_number_size = ((line as f64).log10() as usize) + 1;
-        let leftpad = std::iter::repeat(" ").take(line_number_size).collect::<String>();
-        let blue = ansi_term::Color::Blue.bold();
-        let yellow = ansi_term::Color::Yellow.normal();
-        for (index, message_line) in message_lines.enumerate() {
-            if index == 0 {
-                eprintln!("{}{}{}", leftpad, colorize("--> ", blue), message_line);
-                eprintln!("{} {}", leftpad, colorize("|", blue));
-            } else if index == 1 {
-                let line_hint = format!("{: >w$} |", line, w = line_number_size);
-                eprintln!("{} {}",
-                    colorize(&line_hint, blue),
-                    colorize(message_line, yellow)
-                );
-            } else {
-                eprintln!("{} {} {}", leftpad,
-                    colorize("|", blue),
-                    colorize(message_line, yellow)
-                );
-            }
-        }
-        eprintln!();
-    } else {
-        eprintln!("{}", message);
-    }
-}
-
 macro_rules! parse_error {
     () => {
         format_err!("Failed to parse compilation result")
@@ -223,9 +144,6 @@ fn parse_comp_result(
         let entries = v.as_array()
             .ok_or_else(|| parse_error!())?;
         let mut severe = false;
-        let red = ansi_term::Color::Red.bold();
-        let yellow = ansi_term::Color::Yellow.bold();
-        let white = ansi_term::Color::White.bold();
         for entry in entries {
             let entry = entry.as_object()
                 .ok_or_else(|| parse_error!())?;
@@ -233,32 +151,20 @@ fn parse_comp_result(
                 .ok_or_else(|| parse_error!())?
                 .as_str()
                 .ok_or_else(|| parse_error!())?;
-            let prefix = match severity {
-                "warning" => colorize("Warning", yellow),
-                "error" => {
-                    severe = true;
-                    colorize("Error", red)
-                }
-                _ => bail!("Unknown severity")
-            };
-            let message = entry.get("message")
+            if severity == "error" {
+                severe = true;
+            }
+            let message = entry.get("humanFormattedMessage")
                 .ok_or_else(|| parse_error!())?
                 .as_str()
                 .ok_or_else(|| parse_error!())?;
-            eprintln!("{}: {}", prefix, colorize(message, white));
-            let formatted_message = entry.get("formattedMessage")
-                .ok_or_else(|| parse_error!())?
-                .as_str()
-                .ok_or_else(|| parse_error!())?;
-
-            let source_location = entry.get("sourceLocation")
-                .ok_or_else(|| parse_error!())?
-                .as_object()
-                .ok_or_else(|| parse_error!())?;
-            let source_file = source_location.get("file").unwrap().as_str().unwrap();
-            let source_start = source_location.get("start").unwrap().as_i64().unwrap();
-            let source_end = source_location.get("end").unwrap().as_i64().unwrap();
-            print_formatted_message(formatted_message, source_file, source_start as usize, source_end as usize);
+            let message = if atty::is(atty::Stream::Stderr) {
+                message.to_string()
+            } else {
+                let bytes = strip_ansi_escapes::strip(message)?;
+                String::from_utf8(bytes)?
+            };    
+            eprint!("{}", message);
         }
         if severe {
             bail!("Compilation failed")
@@ -404,19 +310,6 @@ fn build(args: Args) -> Status {
 
     let mut prog = Program::new(ParseEngine::new_generic(inputs, Some(format!("{}", abi)))?);
 
-    match args.gen_key {
-        Some(file) => {
-            let pair = KeypairManager::new();
-            pair.store_public(&(file.to_string() + ".pub"))?;
-            pair.store_secret(&file)?;
-            prog.set_keypair(pair.drain());
-        }
-        None => if let Some(file) = args.set_key {
-            let pair = KeypairManager::from_secret_file(&file)
-                .ok_or_else(|| format_err!("Failed to read keypair"))?;
-            prog.set_keypair(pair.drain());
-        }
-    }
 
     let output_filename = if output_dir == "." {
         output_tvc
@@ -426,11 +319,9 @@ fn build(args: Args) -> Status {
 
     prog.compile_to_file_ex(
         -1,
-        Some(&format!("{}/{}", output_dir, abi_file_name)),
-        args.ctor_params.as_deref(),
         Some(&output_filename),
+        None,
         false,
-        None
     )?;
 
     let mut dbg_file = File::create(format!("{}/{}.debug.json", output_dir, output_prefix))?;
@@ -486,12 +377,6 @@ struct Args {
     #[clap(short('p'), long, value_parser, hide = true)] // deprecated
     ctor_params: Option<String>,
     /// Set newly generated keypair
-    #[clap(short, long, value_parser, conflicts_with = "set-key", hide = true)] // deprecated
-    gen_key: Option<String>,
-    /// Set keypair from file
-    #[clap(short, long, value_parser, conflicts_with = "gen-key", hide = true)] // deprecated
-    set_key: Option<String>,
-    /// Initialize static fields
     #[clap(long, value_parser)]
     init: Option<String>,
     /// Print name and id for each public function

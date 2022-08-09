@@ -91,12 +91,12 @@ public:
 	ContactsUsageScanner const& usage() const { return m_usage; }
 
 	void addConstArray(std::string const& name, TupleExpression const* arr) { m_constArrays.emplace(name, arr); }
-	std::set<std::pair<std::string, TupleExpression const*>> const& constArrays() const { return m_constArrays; }
+	std::set<std::pair<std::string, TupleExpression const*>>& constArrays() { return m_constArrays; }
 
 	void addNewArray(std::string const& name, FunctionCall const* arr) { m_newArray.emplace(name, arr); }
 	std::set<std::pair<std::string, FunctionCall const*>> const& newArrays() const { return m_newArray; }
 
-	void addBuildTuple(std::string const& name, std::vector<Type const*> types) {
+	void addBuildTuple(std::string const& name, const std::vector<Type const*>& types) {
 		m_tuples.emplace(name, types);
 	}
 	std::map<std::string, std::vector<Type const*>> const& buildTuple() const { return m_tuples; }
@@ -272,8 +272,6 @@ public:
 	void appendToBuilder(const std::string& bitString);
 	void checkOptionalValue();
 	bool doesFitInOneCellAndHaveNoStruct(Type const* key, Type const* value);
-	[[nodiscard]]
-	int maxBitLengthOfDictValue(Type const* type);
 	[[nodiscard]]
 	DataType prepareValueForDictOperations(Type const* keyType, Type const* valueType);
 	[[nodiscard]]

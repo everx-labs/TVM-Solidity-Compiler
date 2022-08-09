@@ -128,7 +128,10 @@ void SourceReferenceFormatterHuman::printSourceLocation(SourceReference const& _
 void SourceReferenceFormatterHuman::printExceptionInformation(SourceReferenceExtractor::Message const& _msg)
 {
 	// exception header line
-	errorColored() << _msg.category;
+	if (_msg.category == "Warning")
+		diagColored() << _msg.category;
+	else
+		errorColored() << _msg.category;
 	messageColored() << ": " << _msg.primary.message << '\n';
 
 	printSourceLocation(_msg.primary);

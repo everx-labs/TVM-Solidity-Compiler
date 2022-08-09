@@ -527,7 +527,7 @@ void TVMExpressionCompiler::visit2(BinaryOperation const &_binaryOperation) {
 
 	if ((lt->category() == Type::Category::TvmCell &&
 		 rt->category() == Type::Category::TvmCell) ||
-		(isByteArrayOrString(lt) && isByteArrayOrString(rt))) {
+		(isByteArrayOrString(lt->mobileType()) && isByteArrayOrString(rt->mobileType()))) {
 		visitBinaryOperationForTvmCell(acceptLeft, acceptRight, op);
 		return;
 	}

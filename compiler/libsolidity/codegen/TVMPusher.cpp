@@ -57,13 +57,11 @@ void StackPusher::pushString(const std::string& _str, bool toSlice) {
 	const int symbolQty = ((TvmConst::CellBitLength / 8) * 8) / 4; // one symbol in string == 8 bit. Letter can't be divided by 2 cells
 	PushCellOrSlice::Type type = toSlice ? PushCellOrSlice::Type::PUSHREFSLICE : PushCellOrSlice::Type::PUSHREF;
 	std::vector<std::pair<PushCellOrSlice::Type, std::string>> data;
-	int builderQty = 0;
 	int start = 0;
 	do {
 		std::string slice = hexStr.substr(start, std::min(symbolQty, length - start));
 		data.emplace_back(type, "x" + slice);
 		start += symbolQty;
-		++builderQty;
 		type = PushCellOrSlice::Type::CELL;
 	} while (start < length);
 
@@ -196,64 +194,9 @@ bool StackPusher::doesFitInOneCellAndHaveNoStruct(Type const* key, Type const* v
 	return
 		TvmConst::MAX_HASH_MAP_INFO_ABOUT_KEY +
 		keyLength +
-		maxBitLengthOfDictValue(value)
+        ABITypeSize{value}.maxBits
 		<
 		TvmConst::CellBitLength;
-}
-
-int StackPusher::maxBitLengthOfDictValue(Type const* type) {
-	switch (toDictValueType(type->category())) {
-		case DictValueType::Enum:
-		case DictValueType::Integer:
-		case DictValueType::Bool:
-		case DictValueType::FixedBytes:
-		case DictValueType::FixedPoint: {
-			TypeInfo ti{type};
-			return ti.numBits;
-		}
-
-		case DictValueType::Address:
-		case DictValueType::Contract:
-			return AddressInfo::maxBitLength();
-
-		case DictValueType::Array: {
-			if (isStringOrStringLiteralOrBytes(type))
-				return 0;
-			return 32 + 1;
-		}
-
-		case DictValueType::Mapping:
-		case DictValueType::ExtraCurrencyCollection:
-		case DictValueType::Optional:
-			return 1;
-
-		case DictValueType::VarInteger: {
-			auto vi = to<VarInteger>(type);
-			return vi->maxBitSizeInCell();
-		}
-
-		case DictValueType::TvmCell:
-			return 0;
-
-		case DictValueType::TvmSlice:
-			solUnimplemented("");
-
-		case DictValueType::Struct: {
-			auto st = to<StructType>(type);
-			int sum = 0;
-			for (const ASTPointer<VariableDeclaration>& m : st->structDefinition().members()) {
-				int cur = maxBitLengthOfDictValue(m->type());
-				sum += cur;
-			}
-			return sum;
-		}
-
-		case DictValueType::Function: {
-			return 32;
-		}
-	}
-
-	solUnimplemented("Unsupported " + type->toString());
 }
 
 DataType

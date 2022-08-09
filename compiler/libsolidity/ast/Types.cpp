@@ -1647,7 +1647,7 @@ TypeResult ArrayType::binaryOperatorResult(Token _operator, const Type *_other) 
 			return Type::commonType(this, _other);
 		}
 	}
-	if (isByteArray() && _operator == Token::Equal)
+	if (isByteArray() && (_operator == Token::Equal || _operator == Token::NotEqual))
 		return Type::commonType(this, _other);
 	return nullptr;
 }
@@ -2919,6 +2919,7 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMTupleLength: id += "tvmtuplelength"; break;
 	case Kind::TVMTupleEmpty: id += "tvmtupleempty"; break;
 
+	case Kind::TVMBuyGas: id += "tvmbuygas"; break;
 	case Kind::TVMChecksign: id += "tvmchecksign"; break;
 	case Kind::TVMCode: id += "tvmcode"; break;
 	case Kind::TVMCodeSalt: id += "tvmcodesalt"; break;
@@ -2940,11 +2941,11 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMReplayProtTime: id += "tvmreplayprottime"; break;
 	case Kind::TVMResetStorage: id += "tvmresetstorage"; break;
 	case Kind::TVMSendMsg: id += "tvmsendmsg"; break;
-	case Kind::TVMSetcode: id += "tvmsetcode"; break;
 	case Kind::TVMSetCodeSalt: id += "tvmsetcodesalt"; break;
 	case Kind::TVMSetGasLimit: id += "tvmsetgaslimit"; break;
 	case Kind::TVMSetPubkey: id += "tvmsetpubkey"; break;
 	case Kind::TVMSetReplayProtTime: id += "tvmsetreplayprottime"; break;
+	case Kind::TVMSetcode: id += "tvmsetcode"; break;
 
 
 	case Kind::AddressTransfer: id += "tvmtransfer"; break;
@@ -3973,6 +3974,7 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"exit1", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit1, false, StateMutability::Pure)},
 			{"setGasLimit", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetGasLimit, false, StateMutability::Pure)},
 			{"initCodeHash", TypeProvider::function({}, {"uint256"}, FunctionType::Kind::TVMInitCodeHash, false, StateMutability::Pure)},
+			{"buyGas", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetGasLimit, false, StateMutability::Pure)},
 
 			// for stdlib
 			{"replayProtTime", TypeProvider::function({}, {"uint64"}, FunctionType::Kind::TVMReplayProtTime, false, StateMutability::Pure)},

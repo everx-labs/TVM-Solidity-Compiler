@@ -188,6 +188,7 @@ contract development.
     * [TVM instructions](#tvm-instructions)
       * [tvm.accept()](#tvmaccept)
       * [tvm.setGasLimit()](#tvmsetgaslimit)
+      * [tvm.buyGas()](#tvmbuygas)
       * [tvm.commit()](#tvmcommit)
       * [tvm.rawCommit()](#tvmrawcommit)
       * [tvm.getData()](#tvmgetdata)
@@ -3001,6 +3002,15 @@ So if some user's public key will be stolen, then a hacker can spam with externa
 burn at most `5 * 75_000` units of gas instead of `5 * 1_000_000`, because we use `tvm.setGasLimit()` instead
 of `tvm.accept()`.
 
+##### tvm.buyGas()
+
+```TVMSolidity
+tvm.buyGas(uint value);
+```
+
+Computes the amount of gas that can be bought for `value` nanotons, and sets **g<sub>l</sub>**  
+accordingly in the same way as [tvm.setGasLimit()](#tvmsetgaslimit).
+
 ##### tvm.commit()
 
 ```TVMSolidity
@@ -4300,20 +4310,24 @@ See also [tvm.hash()](#tvmhash) to compute representation hash of the whole tree
 #### gasToValue
 
 ```TVMSolidity
+gasToValue(uint128 gas) returns (uint128 value)
 gasToValue(uint128 gas, int8 wid) returns (uint128 value)
 ```
 
 Returns worth of **gas** in workchain **wid**.
 Throws an exception if **wid** is not equal to `0` or `-1`.
+If `wid` is omitted than used the contract's `wid`.
 
 #### valueToGas
 
 ```TVMSolidity
+valueToGas(uint128 value) returns (uint128 gas)
 valueToGas(uint128 value, int8 wid) returns (uint128 gas)
 ```
 
 Counts how much **gas** could be bought on **value** nanotons in workchain **wid**.
 Throws an exception if **wid** is not equal to `0` or `-1`.
+If `wid` is omitted than used the contract's `wid`.
 
 ### TVM exception codes
 

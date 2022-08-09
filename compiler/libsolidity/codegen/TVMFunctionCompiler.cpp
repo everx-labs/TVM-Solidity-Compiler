@@ -272,7 +272,7 @@ TVMFunctionCompiler::generateC4ToC7WithInitMemory(TVMCompilerContext& ctx) {
 }
 
 Pointer<Function>
-TVMFunctionCompiler::generateBuildTuple(TVMCompilerContext& ctx, std::string const& name, std::vector<Type const*> types) {
+TVMFunctionCompiler::generateBuildTuple(TVMCompilerContext& ctx, std::string const& name, const std::vector<Type const*>& types) {
 	StackPusher pusher{&ctx};
 	int n = types.size();
 	std::vector<std::string> names(n);
@@ -775,16 +775,9 @@ void TVMFunctionCompiler::visitFunctionWithModifiers() {
 }
 
 void TVMFunctionCompiler::pushDefaultParameters(const ast_vec<VariableDeclaration> &returnParameters) {
-	int idParam = 0;
 	for (const ASTPointer<VariableDeclaration>& returnParam: returnParameters) {
-		auto name = returnParam->name();
-		if (name.empty()) {
-			name = "retParam@" + std::to_string(idParam);
-		}
 		m_pusher.pushDefaultValue(returnParam->type());
 		m_pusher.getStack().add(returnParam.get(), false);
-
-		++idParam;
 	}
 }
 
@@ -1450,7 +1443,6 @@ bool TVMFunctionCompiler::visit(Return const& _return) {
 		ast_vec<VariableDeclaration> const &params = _return.annotation().functionReturnParameters->parameters();
 		retCount = params.size();
 	}
-	int flag = 0;
 
 	m_pusher.startContinuation();
 	int trashSlots = m_pusher.stackSize() - m_startStackSize;
@@ -1462,7 +1454,6 @@ bool TVMFunctionCompiler::visit(Return const& _return) {
 	m_pusher.dropUnder(trashSlots - retCount, retCount);
 	if (lastAnalyzeFlag().has_value()) {
 		m_pusher.pushInt(TvmConst::RETURN_FLAG);
-		++flag;
 		--revertDelta;
 		m_pusher.push(revertDelta, ""); // fix stack
 	} else { // all continuation are run by JMPX

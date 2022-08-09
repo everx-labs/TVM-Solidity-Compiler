@@ -1249,6 +1249,7 @@ public:
 		TVMBuildExtMsg, ///< tvm.buildExtMsg()
 		TVMBuildIntMsg, ///< tvm.buildIntMsg()
 		TVMBuildStateInit, ///< tvm.buildStateInit()
+		TVMBuyGas, ///< tvm.buyGas()
 		TVMChecksign, ///< tvm.checkSign()
 		TVMCode, ///< tvm.code()
 		TVMCodeSalt, ///< tvm.codeSalt()
@@ -1268,11 +1269,11 @@ public:
 		TVMReplayProtTime, ///< tvm.replayProtTime()
 		TVMResetStorage, ///< tvm.resetStorage()
 		TVMSendMsg, ///< tvm.sendMsg()
-		TVMSetcode, ///< tvm.setcode()
 		TVMSetCodeSalt, ///< tvm.setCodeSalt()
 		TVMSetGasLimit, ///< tvm.setGasLimit()
 		TVMSetPubkey, ///< tvm.setPubkey()
 		TVMSetReplayProtTime, ///< tvm.setReplayProtTime()
+		TVMSetcode, ///< tvm.setcode()
 
 		TXtimestamp, ///< tx.timestamp
 

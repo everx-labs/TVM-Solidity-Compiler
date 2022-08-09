@@ -43,6 +43,7 @@ public:
 	bool analyze(SourceUnit const& _sourceUnit);
 
 private:
+	bool visit(MemberAccess const& contract) override;
 	bool visit(ContractDefinition const& contract) override;
 	bool visit(Assignment const& _variable) override;
 	bool visit(UnaryOperation const& _node) override;
@@ -51,6 +52,7 @@ private:
 	bool visit(FunctionCall const& _functionCall) override;
 	bool visit(VariableDeclaration const& _variable) override;
 	void endVisit(FunctionDefinition const&) override;
+	void endVisit(FunctionCall const&) override;
 	void endVisit(PragmaDirective const& _pragma) override;
 
 	langutil::ErrorReporter& m_errorReporter;
@@ -63,6 +65,7 @@ private:
 
 	bool m_structWarning = false;
 	FunctionDefinition const* m_currentFunction = nullptr;
+	std::vector<FunctionCall const*> m_functionCall;
 };
 
 class ContactsUsageScanner: public ASTConstVisitor

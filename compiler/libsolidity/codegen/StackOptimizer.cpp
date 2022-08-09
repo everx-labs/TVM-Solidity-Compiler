@@ -328,11 +328,7 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 	if (!ok && isPOP(op)) {
 		int startStackSize = isPOP(op).value();
 		Simulator sim{instructions.begin() + index + 1, instructions.end(), startStackSize, 1};
-		if (sim.wasSet()) {
-			ok = true;
-			commands.emplace_back(makeDROP());
-			commands.insert(commands.end(), instructions.begin() + index + 1, instructions.end());
-		} else if (sim.success()) {
+		if (sim.wasSet() || sim.success()) {
 			ok = true;
 			commands.emplace_back(makeDROP());
 			commands.insert(commands.end(), instructions.begin() + index + 1, instructions.end());

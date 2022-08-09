@@ -13,6 +13,8 @@
 use std::process::Command;
 
 fn main() {
+    println!("cargo:rerun-if-changed=../compiler/");
+
     let profile = std::env::var("PROFILE").unwrap();
     let sol2tvm = cmake::Config::new("../compiler").build();
 

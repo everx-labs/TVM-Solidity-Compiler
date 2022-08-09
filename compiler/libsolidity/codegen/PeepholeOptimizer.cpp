@@ -67,7 +67,7 @@ public:
 	std::optional<Result> optimizeSlice(int idx1) const;
 	static std::optional<Result> optimizeAt1(Pointer<TvmAstNode> const& cmd1, bool m_withUnpackOpaque);
 	static std::optional<Result> optimizeAt2(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2) ;
-	static std::optional<Result> optimizeAt3(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, Pointer<TvmAstNode> const& cmd3);
+    static std::optional<Result> optimizeAt3(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, Pointer<TvmAstNode> const& cmd3, bool m_withUnpackOpaque);
 	static std::optional<Result> optimizeAt4(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, Pointer<TvmAstNode> const& cmd3,
 					   Pointer<TvmAstNode> const& cmd4);
 	static std::optional<Result> optimizeAt5(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, Pointer<TvmAstNode> const& cmd3,
@@ -98,7 +98,6 @@ public:
 
 	template<class ...Args>
 	static bool isExc(Pointer<TvmAstNode> const& node, Args&&... cmd);
-	static bool isRot(Pointer<TvmAstNode> const& node);
 	static bool isConstAdd(Pointer<TvmAstNode> const& node);
 	static int getAddNum(Pointer<TvmAstNode> const& node);
 	static bool isStack(Pointer<TvmAstNode> const& node, Stack::Opcode op);
@@ -200,7 +199,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt(const int idx1) const
 	if (res) return res;
 
 	if (!cmd3) return {};
-	res = optimizeAt3(cmd1, cmd2, cmd3);
+	res = optimizeAt3(cmd1, cmd2, cmd3, m_withUnpackOpaque);
 	if (res) return res;
 
 	if (!cmd4) return {};
@@ -484,7 +483,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt1(Pointer<TvmAstNode> 
 			return false;
 		}
 		return *instructions.at(0) == *gen(isZero ? "PUSHINT 0" : "NULL") &&
-				(isSwap ? *instructions.at(1) == *makeXCH_S(1) : true);
+               (!isSwap || *instructions.at(1) == *makeXCH_S(1));
 	};
 
 	// PUSHCONT {
@@ -505,8 +504,8 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt1(Pointer<TvmAstNode> 
 						continue;
 					}
 					if (f(isZero, isSwap, curBranch->instructions())) {
-						Pointer<AsymGen> align = getZeroOrNullAlignment(isZero, isSwap ? false : true,
-																		trueBranch ? cmd1IfElse->withNot() : true);
+						Pointer<AsymGen> align = getZeroOrNullAlignment(isZero, !isSwap,
+                                                                        !trueBranch || cmd1IfElse->withNot());
 						solAssert(trueBranch ? true : !cmd1IfElse->withNot(), "");
 						auto emptyBlock = createNode<CodeBlock>(curBranch->type());
 						return Result{1,
@@ -914,10 +913,6 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 		}
 	}
 
-	if (is(cmd1, "MUL") && is(cmd2, "RSHIFT") && arg(cmd2) != " ") {
-		return Result{2, gen("MULRSHIFT " + arg(cmd2))};
-	}
-
 	if (is(cmd1, "NEWC") && is(cmd2, "ENDC")) {
 		return Result{2, makePUSHREF()};
 	}
@@ -1120,7 +1115,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 }
 
 std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2,
-											 Pointer<TvmAstNode> const& cmd3) {
+											 Pointer<TvmAstNode> const& cmd3, bool m_withUnpackOpaque) {
 	auto isPUSH1 = isPUSH(cmd1);
 	auto isPUSH2 = isPUSH(cmd2);
 	auto cmd3GenOpcode = to<GenOpcode>(cmd3.get());
@@ -1255,6 +1250,27 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 		auto [qty, index] = isBLKPUSH(cmd2).value();
 		if (index == 0 && qty + 1 <= 15) {
 			return Result{3, cmd1, makeBLKPUSH(qty + 1, index)};
+		}
+	}
+
+    // TODO delete, fix in stackOpt
+	// Note: breaking stack
+	// DUP
+	// IFREF { CALL $c7_to_c4$ / $upd_only_time_in_c4$ }
+	// =>
+	// IFREF { CALL $c7_to_c4$ / $upd_only_time_in_c4$ }
+	if (m_withUnpackOpaque && isPUSH(cmd1)) {
+		if (auto ifRef = to<TvmIfElse>(cmd2.get());
+			ifRef && !ifRef->withJmp() && !ifRef->withNot() && ifRef->falseBody() == nullptr
+		) {
+			std::vector<Pointer<TvmAstNode>> const &cmds = ifRef->trueBody()->instructions();
+			if (cmds.size() == 1) {
+				if (auto gen = to<GenOpcode>(cmds.at(0).get())) {
+					if (isIn(gen->fullOpcode(), "CALL $c7_to_c4$", "CALL $upd_only_time_in_c4$")) {
+						return Result{2, cmd2};
+					}
+				}
+			}
 		}
 	}
 
@@ -2174,10 +2190,6 @@ template<class ...Args>
 bool PrivatePeepholeOptimizer::isExc(Pointer<TvmAstNode> const& node, Args&&... cmd) {
 	auto cfi = to<TvmException>(node.get());
 	return cfi && isIn(cfi->opcode(), std::forward<Args>(cmd)...);
-}
-
-bool PrivatePeepholeOptimizer::isRot(Pointer<TvmAstNode> const& node) {
-	return isBLKSWAP(node) && std::make_pair(1, 2) == isBLKSWAP(node).value();
 }
 
 bool PrivatePeepholeOptimizer::isConstAdd(Pointer<TvmAstNode> const& node) {

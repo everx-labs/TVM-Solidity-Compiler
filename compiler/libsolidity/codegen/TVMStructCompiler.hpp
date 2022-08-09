@@ -33,8 +33,8 @@ public:
 	StructCompiler(StackPusher *pusher, StructType const* structType);
 	StructCompiler(
 		StackPusher *pusher,
-		const std::vector<Type const*>& memberTypes,
-		const std::vector<std::string>& memberNames
+		std::vector<Type const*>  memberTypes,
+		std::vector<std::string>  memberNames
 	);
 	void createDefaultStruct();
 	void createDefaultStructAsCell();

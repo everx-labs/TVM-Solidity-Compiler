@@ -142,11 +142,6 @@ bool isStringOrStringLiteralOrBytes(const Type *type) {
 	return type->category() == Type::Category::StringLiteral || (arrayType && arrayType->isByteArray());
 }
 
-bool isRefType(Type const* t) {
-	return (t->category() == Type::Category::Array && to<ArrayType>(t)->isByteArray()) ||
-			t->category() == Type::Category::TvmCell;
-}
-
 std::string typeToDictChar(Type const *keyType) {
 	TypeInfo ti(keyType);
 	if (ti.isNumeric) {
@@ -449,7 +444,7 @@ ABITypeSize::ABITypeSize(const Type *type) {
 	} else if (auto st = to<StructType>(type)) {
 		maxBits = 0;
 		maxRefs = 0;
-		for (auto t : st->structDefinition().members()) {
+		for (const auto& t : st->structDefinition().members()) {
 			ABITypeSize size{t->type()};
 			maxBits += size.maxBits;
 			maxRefs += size.maxRefs;
@@ -462,7 +457,7 @@ ABITypeSize::ABITypeSize(const Type *type) {
 			maxBits += size.maxBits;
 			maxRefs += size.maxRefs;
 		}
-	} else if (to<MappingType>(type)) {
+	} else if (to<MappingType>(type) || to<ExtraCurrencyCollectionType>(type)) {
 		maxBits = 1;
 		maxRefs = 1;
 	} else if (to<FunctionType>(type)) {
