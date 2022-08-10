@@ -42,7 +42,7 @@ public:
 	static Pointer<Function> updateOnlyTime(TVMCompilerContext& ctx);
 	static Pointer<Function> generateC4ToC7(TVMCompilerContext& ctx);
 	static Pointer<Function> generateC4ToC7WithInitMemory(TVMCompilerContext& ctx);
-	static Pointer<Function> generateBuildTuple(TVMCompilerContext& ctx, std::string const& name, std::vector<Type const*> types);
+	static Pointer<Function> generateBuildTuple(TVMCompilerContext& ctx, std::string const& name, const std::vector<Type const*>& types);
 	static Pointer<Function> generateNewArrays(TVMCompilerContext& ctx, std::string const& name, FunctionCall const* arr);
 	static Pointer<Function> generateConstArrays(TVMCompilerContext& ctx, std::string const& name, TupleExpression const* arr);
 	static Pointer<Function> generateMacro(TVMCompilerContext& ctx, FunctionDefinition const* function, const std::optional<std::string>& forceName = std::nullopt);

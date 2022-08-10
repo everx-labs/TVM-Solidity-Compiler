@@ -133,7 +133,9 @@ inline vector<shared_ptr<MagicVariableDeclaration const>> constructMagicVariable
 			StateMutability::Pure
 		)),
 		magicVarDecl("valueToGas", TypeProvider::function({"uint128", "int8"}, {"uint128"}, FunctionType::Kind::ValueToGas, false, StateMutability::Pure)),
+		magicVarDecl("valueToGas", TypeProvider::function({"uint128"}, {"uint128"}, FunctionType::Kind::ValueToGas, false, StateMutability::Pure)),
 		magicVarDecl("gasToValue", TypeProvider::function({"uint128", "int8"}, {"uint128"}, FunctionType::Kind::GasToValue, false, StateMutability::Pure)),
+		magicVarDecl("gasToValue", TypeProvider::function({"uint128"}, {"uint128"}, FunctionType::Kind::GasToValue, false, StateMutability::Pure)),
 		magicVarDecl("bitSize", TypeProvider::function({"int"}, {"uint16"}, FunctionType::Kind::BitSize, false, StateMutability::Pure)),
 		magicVarDecl("uBitSize", TypeProvider::function({"uint"}, {"uint16"}, FunctionType::Kind::UBitSize, false, StateMutability::Pure)),
 	};

@@ -116,9 +116,6 @@ bool Simulator::visit(TvmException &_node) {
 	} else {
 		m_stackSize -= _node.take();
 		m_commands.emplace_back(_node.shared_from_this());
-		if (!_node.withIf()) {
-			m_isDropped = true;
-		}
 	}
 	return false;
 }

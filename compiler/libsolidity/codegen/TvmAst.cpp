@@ -502,6 +502,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"TRUE", {0, 1, true}},
 
 		{"ADDRAND", {1, 0}},
+		{"BUYGAS", {1, 0}},
 		{"ENDS", {1, 0}},
 		{"SETCODE", {1, 0}},
 		{"SETGASLIMIT", {1, 0}},
@@ -525,6 +526,8 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"ENDC", {1, 1}},
 		{"EQINT", {1, 1, true}},
 		{"FITS", {1, 1}},
+		{"GASTOGRAM", {1, 1, true}},
+		{"GRAMTOGAS", {1, 1, true}},
 		{"GTINT", {1, 1, true}},
 		{"HASHCU", {1, 1, true}},
 		{"HASHSU", {1, 1, true}},
@@ -848,7 +851,7 @@ Pointer<Stack> makeBLKDROP2(int droppedCount, int leftCount) {
 	return createNode<Stack>(Stack::Opcode::BLKDROP2, droppedCount, leftCount);
 }
 
-Pointer<PushCellOrSlice> makePUSHREF(std::string data) {
+Pointer<PushCellOrSlice> makePUSHREF(const std::string& data) {
 	return createNode<PushCellOrSlice>(PushCellOrSlice::Type::PUSHREF, data, nullptr);
 }
 

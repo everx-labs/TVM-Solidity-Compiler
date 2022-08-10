@@ -24,11 +24,13 @@
 
 #include <libsolidity/ast/ASTJsonConverter.h>
 #include <liblangutil/SourceReferenceFormatter.h>
+#include <liblangutil/SourceReferenceFormatterHuman.h>
 #include <libsolutil/JSON.h>
 #include <libsolutil/Keccak256.h>
 
 #include <boost/algorithm/cxx11/any_of.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/predicate.hpp>
 
 #include <algorithm>
 #include <optional>
@@ -48,6 +50,7 @@ Json::Value formatError(
 	string const& _component,
 	string const& _message,
 	string const& _formattedMessage = "",
+	string const& _humanFormattedMessage = "",
 	Json::Value const& _sourceLocation = Json::Value(),
 	Json::Value const& _secondarySourceLocation = Json::Value()
 )
@@ -58,6 +61,7 @@ Json::Value formatError(
 	error["severity"] = _warning ? "warning" : "error";
 	error["message"] = _message;
 	error["formattedMessage"] = (_formattedMessage.length() > 0) ? _formattedMessage : _message;
+	error["humanFormattedMessage"] = (_humanFormattedMessage.length() > 0) ? _humanFormattedMessage : _message;
 	if (_sourceLocation.isObject())
 		error["sourceLocation"] = _sourceLocation;
 	if (_secondarySourceLocation.isArray())
@@ -112,6 +116,9 @@ Json::Value formatErrorWithException(
 	string message;
 	string formattedMessage = SourceReferenceFormatter::formatExceptionInformation(_exception, _type);
 
+    string typeForHuman = boost::ends_with(_type, "Error") ? "Error" : _type;
+	string humanFormattedMessage = SourceReferenceFormatterHuman::formatExceptionInformation(_exception, typeForHuman, true);
+
 	if (string const* description = boost::get_error_info<util::errinfo_comment>(_exception))
 		message = ((_message.length() > 0) ? (_message + ":") : "") + *description;
 	else
@@ -123,6 +130,7 @@ Json::Value formatErrorWithException(
 		_component,
 		message,
 		formattedMessage,
+		humanFormattedMessage,
 		formatSourceLocation(boost::get_error_info<errinfo_sourceLocation>(_exception)),
 		formatSecondarySourceLocation(boost::get_error_info<errinfo_secondarySourceLocation>(_exception))
 	);

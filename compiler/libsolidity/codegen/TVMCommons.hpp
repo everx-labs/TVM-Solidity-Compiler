@@ -142,8 +142,6 @@ bool isIntegralType(const Type* type);
 
 bool isStringOrStringLiteralOrBytes(const Type* type);
 
-bool isRefType(const Type* type);
-
 std::string typeToDictChar(Type const* keyType);
 
 int dictKeyLength(Type const* key);

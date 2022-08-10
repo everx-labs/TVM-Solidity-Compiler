@@ -1,3 +1,16 @@
+### 0.63.0 (2022-07-27)
+
+Compiler features:
+ * Supported operator `!=` for `bytes`.
+ * Added `valueToGas`/`gasToValue` without `wid`.
+ * Supported `tvm.buyGas()`.
+
+Bugfixes:
+ * Fixed compilation issue with inline arrays in inline arrays.
+ * Fixed compilation failure caused by such expressions: `<struct>.libFunc`.
+ * Fixed compilation issue with comparison `bytes` and string literals.
+ * Fixed problem with wrong encoding/decoding structures with optional types in arrays.
+
 ### 0.62.0 (2022-07-07)
 
 Compiler features:

@@ -35,6 +35,19 @@ bool TVMAnalyzer::analyze(const SourceUnit &_sourceUnit)
 	return Error::containsOnlyWarnings(m_errorReporter.errors());
 }
 
+bool TVMAnalyzer::visit(MemberAccess const& _node) {
+	auto funType = to<FunctionType>(_node.annotation().type);
+	if (funType) {
+		if (funType->bound() && (m_functionCall.empty() || m_functionCall.back()->expression() != _node)) {
+			m_errorReporter.fatalTypeError(
+				_node.location(),
+				"Function references are not supported for structures."
+			);
+		}
+	}
+	return true;
+}
+
 bool TVMAnalyzer::visit(ContractDefinition const& contract) {
 	std::map<std::string, EventDefinition const*> used;
 	for (EventDefinition const* event : contract.interfaceEvents()) {
@@ -182,6 +195,7 @@ bool TVMAnalyzer::visit(Return const& _return) {
 }
 
 bool TVMAnalyzer::visit(FunctionCall const& _functionCall) {
+	m_functionCall.emplace_back(&_functionCall);
 	for (const ASTPointer<const Expression>& argument: _functionCall.arguments()) {
 		if (auto ident = dynamic_cast<const Identifier*>(argument.get())) {
 			if (auto var = dynamic_cast<VariableDeclaration const*>(ident->annotation().referencedDeclaration)) {
@@ -216,11 +230,16 @@ void TVMAnalyzer::endVisit(FunctionDefinition const&) {
 	m_currentFunction = nullptr;
 }
 
+void TVMAnalyzer::endVisit(FunctionCall const&) {
+	solAssert(!m_functionCall.empty(), "");
+	m_functionCall.pop_back();
+}
+
 void TVMAnalyzer::endVisit(PragmaDirective const& _pragma) {
-	if (_pragma.literals().size() >= 1 && _pragma.literals().at(0) == "copyleft") {
+	if (!_pragma.literals().empty() && _pragma.literals().at(0) == "copyleft") {
 		std::vector<ASTPointer<Expression>> params = _pragma.parameter();
 
-		auto checkConstIneger = [&](Expression const& _e, SourceLocation const& loc, const std::string& msg, bigint max_val){
+		auto checkConstInteger = [&](Expression const& _e, SourceLocation const& loc, const std::string& msg, const bigint& max_val){
 			if (_e.annotation().type->category() != Type::Category::RationalNumber) {
 				m_errorReporter.syntaxError(loc, msg);
 				return;
@@ -239,11 +258,11 @@ void TVMAnalyzer::endVisit(PragmaDirective const& _pragma) {
 		};
 
 		// check type
-		checkConstIneger(*params.at(0), params.at(0)->location(),
+		checkConstInteger(*params.at(0), params.at(0)->location(),
 						 "Expected constant integer type (uint8).", bigint(1) << 8);
 
 		// check address
-		checkConstIneger(*params.at(1), params.at(1)->location(),
+		checkConstInteger(*params.at(1), params.at(1)->location(),
 						 "Expected constant integer type (uint256).", bigint(1) << 256);
 	}
 }

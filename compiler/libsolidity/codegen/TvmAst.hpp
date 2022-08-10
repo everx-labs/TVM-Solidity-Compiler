@@ -505,7 +505,7 @@ namespace solidity::frontend
 	Pointer<Glob> makeGetGlob(int i);
 	Pointer<Glob> makeSetGlob(int i);
 	Pointer<Stack> makeBLKDROP2(int droppedCount, int leftCount);
-	Pointer<PushCellOrSlice> makePUSHREF(std::string data = "");
+	Pointer<PushCellOrSlice> makePUSHREF(const std::string& data = "");
 	Pointer<Stack> makeREVERSE(int i, int j);
 	Pointer<Stack> makeROT();
 	Pointer<Stack> makeROTREV();

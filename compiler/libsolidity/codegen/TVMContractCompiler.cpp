@@ -376,8 +376,17 @@ TVMContractCompiler::generateContractCode(
 		ctx.setCurrentFunction(nullptr);
 	}
 
-	for (const auto&[name, arr] : ctx.constArrays()) {
-		functions.emplace_back(TVMFunctionCompiler::generateConstArrays(ctx, name, arr));
+	std::map<std::string, bool> usedInlineArrays;
+	auto it = ctx.constArrays().begin();
+	while (it != ctx.constArrays().end()) {
+		auto const [name, arr] = std::tie(it->first, it->second);
+		if (!usedInlineArrays[name]) {
+			usedInlineArrays[name] = true;
+			functions.emplace_back(TVMFunctionCompiler::generateConstArrays(ctx, name, arr));
+		}
+
+		ctx.constArrays().erase(it);
+		it = ctx.constArrays().begin();
 	}
 
 	for (const auto&[name, arr] : ctx.newArrays()) {

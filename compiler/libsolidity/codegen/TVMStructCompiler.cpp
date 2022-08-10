@@ -19,6 +19,8 @@
 #include "TVMCommons.hpp"
 #include "TVMPusher.hpp"
 #include "TVMStructCompiler.hpp"
+
+#include <utility>
 #include "TVMABI.hpp"
 
 using namespace solidity::frontend;
@@ -61,11 +63,11 @@ StructCompiler::StructCompiler(StackPusher *pusher, StructType const *structType
 
 StructCompiler::StructCompiler(
 	StackPusher *pusher,
-	const std::vector<Type const*>& m_types,
-	const std::vector<std::string>& m_names
+	std::vector<Type const*>  m_types,
+	std::vector<std::string>  m_names
 ) :
-	m_names{m_names},
-	m_types{m_types},
+	m_names{std::move(m_names)},
+	m_types{std::move(m_types)},
 	pusher{pusher}
 {
 

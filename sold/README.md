@@ -16,6 +16,7 @@ Install Visual Studio Build Tools, Rust, Git, cmake.
 Run Visual Studio Developer Command Prompt
 
 ```shell
+cmake -P compiler\scripts\install_deps.cmake
 cd sold
 cargo build --release
 ```

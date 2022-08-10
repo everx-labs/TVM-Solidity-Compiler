@@ -2643,6 +2643,9 @@ CALLREF {
 		m_pusher.push(-1, "SETGASLIMIT");
 	} else if (_node.memberName() == "initCodeHash") {
 		m_pusher << "INITCODEHASH";
+	} else if (_node.memberName() == "buyGas") {
+		pushArgs();
+		m_pusher.push(-1, "BUYGAS");
 	} else {
 		return false;
 	}
@@ -2914,12 +2917,20 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 	switch (m_funcType->kind()) {
 		case FunctionType::Kind::GasToValue: {
 			pushArgs();
-			m_pusher.pushMacroCallInCallRef(2, 1, "__gasToTon_macro");
+			if (m_arguments.size() == 1) {
+				m_pusher << "GASTOGRAM";
+			} else {
+				m_pusher.pushMacroCallInCallRef(2, 1, "__gasToTon_macro");
+			}
 			return true;
 		}
 		case FunctionType::Kind::ValueToGas: {
 			pushArgs();
-			m_pusher.pushMacroCallInCallRef(2, 1, "__tonToGas_macro");
+			if (m_arguments.size() == 1) {
+				m_pusher << "GRAMTOGAS";
+			} else {
+				m_pusher.pushMacroCallInCallRef(2, 1, "__tonToGas_macro");
+			}
 			return true;
 		}
 		case FunctionType::Kind::BitSize: {
