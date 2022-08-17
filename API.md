@@ -4229,7 +4229,7 @@ error code (-8) but`gosh.applyPatchQ` returns `null`. Example:
 ```TVMSolidity
 string oldText = ...;
 string patch = ...;
-string newText = gosh.applyDiff(oldText, patch);
+string newText = gosh.applyPatch(oldText, patch);
 ```
 
 #### gosh.zip and gosh.unzip
