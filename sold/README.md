@@ -10,10 +10,11 @@ cd ./sold
 cargo build --release
 ```
 
-### Windows 10
+### Windows 11
 
 Install Visual Studio Build Tools, Rust, Git, cmake.
-Run Visual Studio Developer Command Prompt
+Also install [LLVM-14.0.6-win64.exe](https://github.com/llvm/llvm-project/releases)
+Run Developer PowerShell for VS 2022.
 
 ```shell
 cmake -P compiler\scripts\install_deps.cmake

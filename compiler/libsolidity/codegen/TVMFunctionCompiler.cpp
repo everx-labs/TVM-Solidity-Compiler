@@ -349,7 +349,7 @@ TVMFunctionCompiler::generateOnTickTock(TVMCompilerContext& ctx, FunctionDefinit
 	}
 
 	TVMFunctionCompiler funCompiler{pusher, 0, function, false, false, 0};
-	funCompiler.setCopyleft();
+	funCompiler.setCopyleftAndTryCatch();
 	funCompiler.setGlobSenderAddressIfNeed();
 	funCompiler.visitFunctionWithModifiers();
 
@@ -907,6 +907,28 @@ bool TVMFunctionCompiler::visit(ExpressionStatement const& _statement) {
 	return false;
 }
 
+bool TVMFunctionCompiler::visit(TryStatement const& _tryState) {
+    // try body
+    m_pusher.startContinuation();
+    const int startStackSize = m_pusher.stackSize();
+    _tryState.body().accept(*this);
+    m_pusher.drop(m_pusher.stackSize() - startStackSize);
+    m_pusher.endContinuation();
+
+	// try body
+	m_pusher.startContinuation();
+    for (ASTPointer<VariableDeclaration> const& variable : _tryState.clause().parameters()->parameters()) {
+		m_pusher.getStack().add(variable.get(), true);
+    }
+	_tryState.clause().block().accept(*this);
+	m_pusher.drop(m_pusher.stackSize() - startStackSize);
+	m_pusher.endContinuation();
+
+	m_pusher.tryOpcode();
+
+    return false;
+}
+
 bool TVMFunctionCompiler::visit(IfStatement const &_ifStatement) {
 	const int saveStackSize = m_pusher.stackSize();
 
@@ -935,7 +957,7 @@ bool TVMFunctionCompiler::visit(IfStatement const &_ifStatement) {
 	// if
 	m_pusher.startContinuation();
 	_ifStatement.trueStatement().accept(*this);
-	endContinuation2(!canUseJmp);
+	endContinuation2(!canUseJmp); // TODO delete arg, optimizer is gonna delete DROP
 
 
 	if (_ifStatement.falseStatement() != nullptr) {
@@ -998,6 +1020,7 @@ void TVMFunctionCompiler::doWhile(WhileStatement const &_whileStatement) {
 		_whileStatement.body().accept(*this);
 		m_pusher.drop(m_pusher.stackSize() - ss);
 	}
+
 	// condition
 	acceptExpr(&_whileStatement.condition(), true);
 	m_pusher.push(0, "NOT");
@@ -1566,7 +1589,7 @@ void TVMFunctionCompiler::setCtorFlag() {
 	m_pusher.setGlob(TvmConst::C7::ConstructorFlag);
 }
 
-void TVMFunctionCompiler::setCopyleft() {
+void TVMFunctionCompiler::setCopyleftAndTryCatch() {
 	const std::optional<std::vector<ASTPointer<Expression>>> copyleft = m_pusher.ctx().pragmaHelper().hasCopyleft();
 	if (copyleft.has_value()) {
 		const std::optional<bigint>& addr = ExprUtils::constValue(*copyleft.value().at(1));
@@ -1575,6 +1598,10 @@ void TVMFunctionCompiler::setCopyleft() {
 		m_pusher.pushSlice(addrSlice);
 		m_pusher.pushInt(type.value());
 		m_pusher << "COPYLEFT";
+	}
+
+	if (m_pusher.ctx().usage().hasTryCatch()) {
+		m_pusher << "NEWEXCMODEL";
 	}
 }
 
@@ -1587,8 +1614,8 @@ TVMFunctionCompiler::generateMainExternalForAbiV2() {
 //		msg_body_slice
 //		transaction_id = -1
 
-	setCopyleft();
-	setCtorFlag();
+	setCopyleftAndTryCatch();
+	setCtorFlag(); // TODO unit with setCopyleftAndTryCatch
 	setGlobSenderAddressIfNeed();
 
 	m_pusher.pushS(1);
@@ -1659,16 +1686,33 @@ void TVMFunctionCompiler::checkSignatureAndReadPublicKey() {
 
 	m_pusher.startContinuation();
 	m_pusher.pushInt(512);
-	m_pusher.push(-2 + 2, "LDSLICEX ; signatureSlice msgSlice");
+	m_pusher.push(-2 + 2, "LDSLICEX");
+	// signatureSlice msgSlice
 	m_pusher.pushS(0);
-	m_pusher.push(-1 + 1, "HASHSU   ; signatureSlice msgSlice hashMsgSlice");
+
+	// signatureSlice msgSlice msgSlice
+	m_pusher << "MYADDR";
+	// signatureSlice msgSlice msgSlice dest
+	m_pusher << "NEWC";
+	// signatureSlice msgSlice msgSlice dest builder
+	m_pusher << "STSLICE";
+	m_pusher << "STSLICE";
+	// signatureSlice msgSlice builder
+	m_pusher << "ENDC";
+	// signatureSlice msgSlice signedCell
+
+	m_pusher.push(-1 + 1, "HASHCU");
+	// signatureSlice msgSlice msgHash
 	pushMsgPubkey();
-	m_pusher.push(-3 + 1, "CHKSIGNU      ; msgSlice isSigned");
-	m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::BadSignature) + " ; msgSlice");
+	// signatureSlice msgSlice msgHash pubkey
+	m_pusher.push(-3 + 1, "CHKSIGNU");
+	// msgSlice isSigned
+	m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::BadSignature));
+	// msgSlice
 	m_pusher.endContinuation();
 
 	if (m_pusher.ctx().pragmaHelper().hasPubkey()) {
-		// External inbound message have not signature but have public key
+		// External inbound message does not have signature but have public key
 		m_pusher.startContinuation();
 		m_pusher.push(+1, "LDU 1      ; hasPubkey msgSlice");
 		m_pusher.exchange(1);
@@ -1719,7 +1763,7 @@ TVMFunctionCompiler::generateMainInternal(TVMCompilerContext& ctx, ContractDefin
 	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, contract};
 
-	funCompiler.setCopyleft();
+	funCompiler.setCopyleftAndTryCatch();
 	funCompiler.setCtorFlag();
 
 	pusher.pushS(2);

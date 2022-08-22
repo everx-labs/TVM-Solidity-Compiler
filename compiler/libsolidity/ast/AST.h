@@ -1431,22 +1431,22 @@ public:
 		int64_t _id,
 		SourceLocation const& _location,
 		ASTPointer<ASTString> const& _docString,
-		ASTPointer<Expression> const& _externalCall,
-		std::vector<ASTPointer<TryCatchClause>> const& _clauses
+        ASTPointer<Block> _body,
+        ASTPointer<TryCatchClause> _clause
 	):
 		Statement(_id, _location, _docString),
-		m_externalCall(_externalCall),
-		m_clauses(_clauses)
+        m_body(_body),
+        m_clause(_clause)
 	{}
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 
-	Expression const& externalCall() const { return *m_externalCall; }
-	std::vector<ASTPointer<TryCatchClause>> const& clauses() const { return m_clauses; }
+    Block const& body() const { return *m_body; }
+	TryCatchClause const& clause() const { return *m_clause; }
 
 private:
-	ASTPointer<Expression> m_externalCall;
-	std::vector<ASTPointer<TryCatchClause>> m_clauses;
+    ASTPointer<Block> m_body;
+    ASTPointer<TryCatchClause> m_clause;
 };
 
 /**

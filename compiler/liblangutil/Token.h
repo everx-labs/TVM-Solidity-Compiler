@@ -249,6 +249,7 @@ namespace solidity::langutil
 	K(TvmSlice, "TvmSlice", 0)                                         \
 	K(TvmBuilder, "TvmBuilder", 0)                                     \
 	K(ExtraCurrencyCollection, "ExtraCurrencyCollection", 0)           \
+	K(Variant, "variant", 0)                                           \
 	K(Fixed, "fixed", 0)                                               \
 	K(UFixed, "ufixed", 0)                                             \
 	T(IntM, "intM", 0)                                                 \

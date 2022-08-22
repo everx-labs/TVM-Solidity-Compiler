@@ -58,6 +58,7 @@ protected:
 	bool checkForTvmBuilderMethods(MemberAccess const& _node, Type::Category category);
 	bool checkForTvmVectorMethods(MemberAccess const& _node, Type::Category category);
 	void cellMethods(MemberAccess const& _node);
+	void variantMethods(MemberAccess const& _node);
 	void addressMethod();
 	bool checkForTvmConfigParamFunction(MemberAccess const& _node);
 	bool checkForTvmSendFunction(MemberAccess const& _node);

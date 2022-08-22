@@ -53,7 +53,8 @@ namespace solidity::frontend {
 		bool visit(CodeBlock &_node) override;
 		bool visit(SubProgram &_node) override;
 		bool visit(LogCircuit &_node) override;
-		bool visit(TvmIfElse &_node) override;
+        bool visit(TryCatch &_node) override;
+        bool visit(TvmIfElse &_node) override;
 		bool visit(TvmRepeat &_node) override;
 		bool visit(TvmUntil &_node) override;
 		bool visit(While &_node) override;

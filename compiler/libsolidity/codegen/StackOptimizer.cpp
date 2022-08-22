@@ -143,6 +143,18 @@ bool StackOptimizer::visit(CodeBlock &_node) {
 	for (size_t i = 0; i < instructions.size(); ) {
 		if (successfullyUpdate(i, instructions)) {
 			m_didSome = true;
+
+            //Printer p{std::cout};
+            //std::cout << i << "\n";
+            //std::cout << "<<<<<\n";
+            //for (const auto& x  : _node.instructions())
+            //    x->accept(p);
+            //std::cout << "=====\n";
+            //for (const auto& x  : instructions)
+            //    x->accept(p);
+            //std::cout << ">>>>>\n";
+            //_node.upd(instructions);
+
 			// do nothing
 		} else {
 			Pointer<TvmAstNode> const& op = instructions.at(i);
@@ -217,6 +229,26 @@ bool StackOptimizer::visit(TvmUntil &_node) {
 	endScope();
 	solAssert(savedStack == size(), "");
 	return false;
+}
+
+bool StackOptimizer::visit(TryCatch &_node) {
+    const int savedStack = size();
+
+    // try body
+    startScope();
+    _node.tryBody()->accept(*this);
+    endScope();
+    solAssert(savedStack == size(), "");
+
+    // catch body
+    startScope();
+    delta(2); // 2 error variables
+    _node.catchBody()->accept(*this);
+    solAssert(savedStack == size(), "");
+    endScope();
+
+    solAssert(savedStack == size(), "");
+    return false;
 }
 
 bool StackOptimizer::visit(While &_node) {
@@ -325,6 +357,9 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 		}
 	}
 
+    // POP Si
+    // =>
+    // DROP
 	if (!ok && isPOP(op)) {
 		int startStackSize = isPOP(op).value();
 		Simulator sim{instructions.begin() + index + 1, instructions.end(), startStackSize, 1};

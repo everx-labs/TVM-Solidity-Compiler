@@ -60,6 +60,9 @@ contract development.
     * [\<optional(Type)\>.set()](#optionaltypeset)
     * [\<optional(Type)\>.reset()](#optionaltypereset)
     * [Keyword `null`](#keyword-null)
+  * [variant](#variant)
+    * [variant.isUint()](#variantisuint)
+    * [variant.toUint()](#varianttouint)
   * [vector(Type)](#vectortype)
     * [\<vector(Type)\>.push(Type)](#vectortypepushtype)
     * [\<vector(Type)\>.pop()](#vectortypepop)
@@ -68,6 +71,7 @@ contract development.
 * [TON specific control structures](#ton-specific-control-structures)
   * [Range-based for loop](#range-based-for-loop)
   * [repeat](#repeat)
+  * [try-catch](#trycatch)
 * [Changes and extensions in Solidity types](#changes-and-extensions-in-solidity-types)
   * [Integers](#integers)
     * [bitSize() and uBitSize()](#bitsize-and-ubitsize)
@@ -893,7 +897,7 @@ Replaces content of the `optional` with **value**.
 <optional(Type)>.reset();
 ```
 
-Deletes contents of the `optional`.
+Deletes content of the `optional`.
 
 ##### Keyword `null`
 
@@ -904,6 +908,22 @@ Example:
 optional(uint) x = 123;
 x = null; // reset value
 ```
+
+#### variant
+
+The `variant` type acts like a union for the most common solidity data types. Supported only `uint` so far.
+
+#### variant.isUint()
+
+```TVMSolidity
+<variant>.isUint() returns (bool)
+```
+
+Checks whether `<variant>` holds `uint` type. 
+
+#### variant.toUint()
+
+Converts `<variant>` to `uint` type if it's possible. Otherwise, throws an exception with code `77`.
 
 #### vector(Type)
 
@@ -1051,6 +1071,45 @@ repeat(a - 1) {
     a -= 1;
 }
 // a == 1
+```
+
+#### try-catch
+
+It is an experimental feature available only in certain blockchain networks.
+
+The `try` statement allows you to define a block of code to be tested for errors while it is executed. The 
+`catch` statement allows you to define a block of code to be executed, if an error occurs in the try block.
+`catch` block gets two parameters of type variant and uint, whick contain exception argument and code respectively.
+Example:
+
+```TVMSolidity
+TvmBuilder builder;
+uint c = 0;
+try {
+    c = a + b;
+    require(c != 42, 100, 22);
+    require(c != 43, 100, 33);
+    builder.store(c);
+} catch (variant value, uint errorCode) {
+    uint errorValue;
+    if (value.isUint()) {
+        errorValue = value.toUint();
+    }
+
+    if (errorCode == 100) {
+        if (errorValue == 22) {
+            // it was line: `require(c != 42, 100, 22);`
+        } else if (errorValue == 33) {
+            // it was line: `require(c != 43, 100, 33);`
+        }
+    } else if (errorCode == 8) {
+        // Cell overflow
+        // It was line: `builder.store(c);`
+    } else if (errorCode == 4) {
+        // Integer overflow
+        // It was line: `c = a + b;`
+    }
+}
 ```
 
 ### Changes and extensions in Solidity types
@@ -4386,6 +4445,7 @@ Solidity runtime error codes:
 * **74** - Await answer message has wrong source address.
 * **75** - Await answer message has wrong function id.
 * **76** - Public function was called before constructor.
+* **77** - It's impossible to convert `variant` type to target type. See [variant.toUint()](#varianttouint)
 
 ### Division and rounding
 

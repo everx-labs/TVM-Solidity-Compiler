@@ -198,6 +198,7 @@ public:
 	void repeat(bool _withBreakOrReturn);
 	void until(bool withBreakOrReturn);
 	void _while(bool _withBreakOrReturn);
+	void tryOpcode();
 	void ret();
 	void retAlt();
 	void ifRetAlt();

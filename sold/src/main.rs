@@ -91,6 +91,7 @@ fn compile(args: &Args, input: &str) -> Result<serde_json::Value> {
     };
     let force_remote_update = args.tvm_refresh_remote;
     let main_contract = args.contract.clone().unwrap_or_default();
+    let input = serde_json::ser::to_string(input)?;
     let input = format!(r#"
         {{
             "language": "Solidity",
@@ -99,15 +100,15 @@ fn compile(args: &Args, input: &str) -> Result<serde_json::Value> {
                 "forceRemoteUpdate": {force_remote_update},
                 "mainContract": "{main_contract}",
                 "outputSelection": {{
-                    "{input}": {{
+                    {input}: {{
                         "*": [ "abi"{assembly}{show_function_ids} ],
                         "": [ "ast" ]
                     }}
                 }}
             }},
             "sources": {{
-                "{input}": {{
-                    "urls": [ "{input}" ]
+                {input}: {{
+                    "urls": [ {input} ]
                 }}
             }}
         }}
@@ -158,7 +159,7 @@ fn parse_comp_result(
                 .ok_or_else(|| parse_error!())?
                 .as_str()
                 .ok_or_else(|| parse_error!())?;
-            let message = if atty::is(atty::Stream::Stderr) {
+            let message = if atty::is(atty::Stream::Stderr) && !cfg!(target_family = "windows") {
                 message.to_string()
             } else {
                 let bytes = strip_ansi_escapes::strip(message)?;
@@ -227,14 +228,22 @@ fn build(args: Args) -> Status {
         }
     }
 
-    let input_canonical = Path::new(&args.input).canonicalize()?;
+    let input_canonical = dunce::canonicalize(Path::new(&args.input))?;
     let input = input_canonical.as_os_str().to_str()
         .ok_or_else(|| format_err!("Failed to get canonical path"))?;
 
-    let res = compile(&args, input)?;
+    let input = if cfg!(target_family = "windows") {
+        // conform to boost::filesystem::canonical()
+        // note the first slash: C:/Users\Dummy\work\tests\Test.sol
+        input.replacen('\\', "/", 1)
+    } else {
+        input.to_owned()
+    };
+
+    let res = compile(&args, &input)?;
     let out = parse_comp_result(
         &res,
-        input,
+        &input,
         args.contract,
         !(args.abi_json || args.ast_json || args.ast_compact_json)
     )?;

@@ -160,7 +160,7 @@ public:
 		Address, Integer, RationalNumber, StringLiteral, Bool, FixedPoint, Array, ArraySlice,
 		FixedBytes, Contract, Struct, Function, Enum, Tuple,
 		Mapping, TypeType, Modifier, Magic, Module,
-		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection, TvmVector,
+		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection, TvmVector, Variant,
 		VarInteger, InitializerList, CallList, // <-- variables of that types can't be declared in solidity contract
 		Optional,
 		Null, // null
@@ -637,6 +637,22 @@ public:
 	TypeResult interfaceType(bool) const override { return this; }
 
 	MemberList::MemberMap nativeMembers(ContractDefinition const* _currentScope) const override;
+};
+
+/**
+ * The variant type that can store only `uint` type so far
+ */
+class Variant: public Type
+{
+public:
+    Variant() = default;
+    Category category() const override { return Category::Variant; }
+    bool isValueType() const override { return true; }
+    std::string richIdentifier() const override { return "t_variant"; }
+    std::string toString(bool) const override { return "variant"; }
+    TypePointer encodingType() const override { return this; }
+    TypeResult interfaceType(bool) const override { return this; }
+    MemberList::MemberMap nativeMembers(ContractDefinition const* _currentScope) const override;
 };
 
 /**
@@ -1173,6 +1189,9 @@ public:
 		AddressTransfer, ///< address.transfer()
 		AddressType, ///< address.getType() for address
 		AddressUnpack, ///< address.unpack() for address
+
+        VariantIsUint,
+        VariantToUint,
 
 		TVMCellDepth, ///< cell.depth()
 		TVMCellToSlice, ///< cell.toSlice()

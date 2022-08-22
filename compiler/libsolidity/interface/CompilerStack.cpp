@@ -1186,6 +1186,10 @@ CompilerStack::Contract const& CompilerStack::contract(string const& _contractNa
 		{
 			stringstream ss;
 			ss.str(contractEntry.first);
+#ifdef _WIN32
+			string drive;
+			getline(ss, drive, ':');
+#endif
 			// All entries are <source>:<contract>
 			string source;
 			string foundName;
