@@ -96,6 +96,7 @@ bool Printer::visit(TvmException &_node) {
 bool Printer::visit(GenOpcode &_node) {
 	tabs();
 	if (_node.fullOpcode() == "BITNOT") m_out << "NOT";
+	else if (_node.fullOpcode() == "NEWEXCMODEL") m_out << ".blob xf2fe ;; NEWEXCMODEL";
 	else if (_node.fullOpcode() == "TUPLE 1") m_out << "SINGLE";
 	else if (_node.fullOpcode() == "TUPLE 2") m_out << "PAIR";
 	else if (_node.fullOpcode() == "TUPLE 3") m_out << "TRIPLE";
@@ -618,6 +619,14 @@ bool Printer::visit(TvmUntil &_node) {
 		m_out << "UNTIL" << std::endl;
 	}
 	return false;
+}
+
+bool Printer::visit(TryCatch &_node) {
+    _node.tryBody()->accept(*this);
+    _node.catchBody()->accept(*this);
+    tabs();
+    m_out << "TRY" << std::endl;
+    return false;
 }
 
 bool Printer::visit(While &_node) {

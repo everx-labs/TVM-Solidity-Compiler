@@ -1,3 +1,15 @@
+### 0.64.0 (2022-08-18)
+
+Fixed build [sold](https://github.com/tonlabs/TON-Solidity-Compiler/tree/master/sold) for Windows and macOS. 
+
+Compiler features:
+ * Supported [ABI v2.3](https://github.com/tonlabs/ton-labs-abi/blob/master/docs/ABI_2.3_spec.md).
+ * Supported try-catch (experimental feature).
+ * Supported type `variant`.
+
+Typo:
+ * Rename function `storeZeros` -> `storeZeroes`.
+
 ### 0.63.0 (2022-07-27)
 
 Compiler features:

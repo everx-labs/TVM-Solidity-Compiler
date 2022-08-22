@@ -105,7 +105,6 @@ Pointer<Function> TVMConstructorCompiler::generateConstructors() {
 		ChainDataDecoder{&m_pusher}.decodeFunctionParameters(types, false);
 		m_pusher.getStack().change(-static_cast<int>(constructor->parameters().size()));
 		for (const ASTPointer<VariableDeclaration>& variable: constructor->parameters()) {
-			auto name = variable->name();
 			m_pusher.getStack().add(variable.get(), true);
 		}
 	}

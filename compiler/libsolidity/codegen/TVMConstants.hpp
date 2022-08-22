@@ -67,6 +67,10 @@ namespace TvmConst {
 													// header mask (3 bit), optional signBoxHandle (33 bit).
 	const int MAX_HASH_MAP_INFO_ABOUT_KEY = 2 + 10; // hml_long$10 + log2(1023)
 
+	namespace Abi {
+		const int MaxOptionalSignLength = 591; // it's max MsgAddressInt
+	}
+
 	namespace RuntimeException {
 		const int BadSignature = 40;
 		const int ArrayIndexOutOfRange = 50;
@@ -94,6 +98,7 @@ namespace TvmConst {
 		const int WrongAwaitAddress = 74;
 		const int WrongAwaitFuncId = 75;
 		const int CallThatWasBeforeCtorCall = 76;
+		const int BadVariant = 77;
 	}
 
 	namespace FunctionId {

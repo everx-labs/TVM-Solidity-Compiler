@@ -95,6 +95,7 @@ private:
 	void acceptBody(Block const& _block, std::optional<std::tuple<int, int>> functionBlock);
 	bool visit(Block const& _block) override;
 	bool visit(ExpressionStatement const& _expressionStatement) override;
+    bool visit(TryStatement const& _block) override;
 	bool visit(IfStatement const& _ifStatement) override;
 	bool visit(WhileStatement const& _whileStatement) override;
 	bool visit(ForEachStatement const& _forStatement) override;
@@ -116,7 +117,7 @@ private:
 
 	void setGlobSenderAddressIfNeed();
 	void setCtorFlag();
-	void setCopyleft();
+	void setCopyleftAndTryCatch();
 	Pointer<Function> generateMainExternalForAbiV2();
 
 	void pushMsgPubkey();

@@ -578,16 +578,14 @@ ASTPointer<TryCatchClause> ASTJsonImporter::createTryCatchClause(Json::Value con
 
 ASTPointer<TryStatement> ASTJsonImporter::createTryStatement(Json::Value const&  _node)
 {
-	vector<ASTPointer<TryCatchClause>> clauses;
-
-	for (auto& param: _node["clauses"])
-		clauses.emplace_back(createTryCatchClause(param));
+    ASTPointer<Block> body = createBlock(_node["block"]);
+	ASTPointer<TryCatchClause> clause = createTryCatchClause(_node["clause"]);
 
 	return createASTNode<TryStatement>(
 		_node,
 		nullOrASTString(_node, "documentation"),
-		convertJsonToASTNode<Expression>(member(_node, "externalCall")),
-		clauses
+		body,
+		clause
 	);
 }
 

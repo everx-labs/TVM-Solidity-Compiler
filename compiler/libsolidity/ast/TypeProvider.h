@@ -72,6 +72,7 @@ public:
 	static ArrayType const* bytesMemory();
 	static ArrayType const* bytesCalldata();
 	static ArrayType const* stringStorage();
+	static Variant const* variant();
 	static ArrayType const* stringMemory();
 
 	/// Constructor for a byte array ("bytes") and string.
@@ -225,6 +226,7 @@ private:
 	static std::unique_ptr<ArrayType> m_bytesMemory;
 	static std::unique_ptr<ArrayType> m_bytesCalldata;
 	static std::unique_ptr<ArrayType> m_stringStorage;
+    static std::unique_ptr<Variant> m_variant;
 	static std::unique_ptr<ArrayType> m_stringMemory;
 
 	static TupleType const m_emptyTuple;

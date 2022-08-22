@@ -405,6 +405,14 @@ void While::accept(TvmAstVisitor& _visitor) {
 	}
 }
 
+void TryCatch::accept(TvmAstVisitor& _visitor) {
+    if (_visitor.visit(*this))
+    {
+        m_tryBody->accept(_visitor);
+        m_catchBody->accept(_visitor);
+    }
+}
+
 void Function::accept(TvmAstVisitor& _visitor) {
 	if (_visitor.visit(*this))
 	{
@@ -480,6 +488,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 	const static std::unordered_map<std::string, OpcodeParams> opcodes = {
 		{"ACCEPT", {0, 0}},
 		{"COMMIT", {0, 0}},
+		{"NEWEXCMODEL", {0, 0}},
 		{"PRINTSTR", {0, 0}},
 
 		{"BLOCKLT", {0, 1, true}},

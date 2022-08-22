@@ -40,6 +40,7 @@ namespace solidity::frontend {
 		bool visit(TvmIfElse &_node) override;
 		bool visit(TvmRepeat &_node) override;
 		bool visit(TvmUntil &_node) override;
+		bool visit(TryCatch &_node) override;
 		bool visit(While &_node) override;
 		bool visit(Function &_node) override;
 		bool visit(Contract &_node) override;

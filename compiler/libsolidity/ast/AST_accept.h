@@ -566,8 +566,8 @@ void TryStatement::accept(ASTVisitor& _visitor)
 {
 	if (_visitor.visit(*this))
 	{
-		m_externalCall->accept(_visitor);
-		listAccept(m_clauses, _visitor);
+		m_body->accept(_visitor);
+		m_clause->accept(_visitor);
 	}
 	_visitor.endVisit(*this);
 }
@@ -576,8 +576,8 @@ void TryStatement::accept(ASTConstVisitor& _visitor) const
 {
 	if (_visitor.visit(*this))
 	{
-		m_externalCall->accept(_visitor);
-		listAccept(m_clauses, _visitor);
+		m_body->accept(_visitor);
+		m_clause->accept(_visitor);
 	}
 	_visitor.endVisit(*this);
 }

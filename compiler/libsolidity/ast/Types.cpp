@@ -2952,6 +2952,9 @@ string FunctionType::richIdentifier() const
 
 	case Kind::TXtimestamp: id += "txtimestamp"; break;
 
+	case Kind::VariantIsUint: id += "variantisuint"; break;
+	case Kind::VariantToUint: id += "varianttouint"; break;
+
 	case Kind::ExtraCurrencyCollectionMethods: id += "extracurrencycollectionmethods"; break;
 	case Kind::MsgPubkey: id += "msgpubkey"; break;
 	case Kind::AddressIsZero: id += "addressiszero"; break;
@@ -4895,6 +4898,29 @@ MemberList::MemberMap TvmCellType::nativeMembers(const ContractDefinition *) con
 	return members;
 }
 
+MemberList::MemberMap Variant::nativeMembers(ContractDefinition const* /*_currentScope*/) const {
+	MemberList::MemberMap members;
+	members.emplace_back("isUint", TypeProvider::function(
+			{},
+			{TypeProvider::boolean()},
+			{},
+			{{}},
+			FunctionType::Kind::VariantIsUint,
+			false,
+            StateMutability::Pure
+	));
+    members.emplace_back("toUint", TypeProvider::function(
+            {},
+            {TypeProvider::uint256()},
+            {},
+            {{}},
+            FunctionType::Kind::VariantToUint,
+            false,
+            StateMutability::Pure
+    ));
+	return members;
+}
+
 TypeResult TvmVectorType::unaryOperatorResult(Token _operator) const {
 	if (_operator == Token::Delete)
 		return TypeProvider::emptyTuple();
@@ -5077,7 +5103,7 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ContractDefinition *) 
 			false, StateMutability::Pure
 	));
 
-	for (const std::string func : {"storeOnes", "storeZeros"}) {
+	for (const std::string func : {"storeOnes", "storeZeroes"}) {
 		members.emplace_back(func, TypeProvider::function(
 				{TypeProvider::uint256()},
 				{},

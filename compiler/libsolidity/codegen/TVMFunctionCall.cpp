@@ -126,6 +126,8 @@ void FunctionCallCompiler::compile() {
 				addressMethod();
 			} else if (category == Type::Category::TvmCell) {
 				cellMethods(*ma);
+            } else if (category == Type::Category::Variant) {
+                variantMethods(*ma);
 			} else if (isSuper(&ma->expression())) {
 				superFunctionCall(*ma);
 			} else if (category == Type::Category::TypeType) {
@@ -768,7 +770,7 @@ void FunctionCallCompiler::generateExtInboundMsg(
 		}
 
 		m_pusher.push(+1, "NEWC");
-		builderSize += 1 + 512;
+		builderSize += TvmConst::Abi::MaxOptionalSignLength;
 		if (addSignature) {
 			m_pusher.stones(1);
 			m_pusher.stzeroes(512);	// Signature
@@ -1628,7 +1630,7 @@ bool FunctionCallCompiler::checkForTvmBuilderMethods(MemberAccess const &_node, 
 		if (_node.memberName() == "storeOnes") {
 			pushArgs();
 			m_pusher.push(-2 + 1, "STONES");
-		} else if (_node.memberName() == "storeZeros") {
+		} else if (_node.memberName() == "storeZeroes") {
 			pushArgs();
 			m_pusher.push(-2 + 1, "STZEROES");
 		} else if (_node.memberName() == "storeRef") {
@@ -1913,6 +1915,39 @@ void FunctionCallCompiler::cellMethods(MemberAccess const &_node) {
 	} else {
 		solUnimplemented("");
 	}
+}
+
+void FunctionCallCompiler::variantMethods(MemberAccess const& _node) {
+
+    auto isUint = [&](){
+        m_pusher.push(createNode<HardCode>(std::vector<std::string>{
+                "PUSHCONT {",
+                "	UFITS 256",
+                "	TRUE",
+                "}",
+                "PUSHCONT {",
+                "	FALSE",
+                "}",
+                "TRYARGS 1, 1"
+        }, 1, 1, true));
+    };
+
+    switch (m_funcType->kind()) {
+        case FunctionType::Kind::VariantToUint: {
+            acceptExpr(&_node.expression());
+            m_pusher.pushS(0);
+            isUint();
+            m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::BadVariant));
+            break;
+        }
+        case FunctionType::Kind::VariantIsUint: {
+            acceptExpr(&_node.expression());
+            isUint();
+            break;
+        }
+        default:
+            solUnimplemented("");
+    }
 }
 
 void FunctionCallCompiler::addressMethod() {

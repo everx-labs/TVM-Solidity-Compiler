@@ -1386,33 +1386,11 @@ ASTPointer<TryStatement> Parser::parseTryStatement(ASTPointer<ASTString> const& 
 	RecursionGuard recursionGuard(*this);
 	ASTNodeFactory nodeFactory(*this);
 	expectToken(Token::Try);
-	ASTPointer<Expression> externalCall = parseExpression();
-	vector<ASTPointer<TryCatchClause>> clauses;
-
-	ASTNodeFactory successClauseFactory(*this);
-	ASTPointer<ParameterList> returnsParameters;
-	if (m_scanner->currentToken() == Token::Returns)
-	{
-		m_scanner->next();
-		VarDeclParserOptions options;
-		options.allowEmptyName = true;
-		options.allowLocationSpecifier = true;
-		returnsParameters = parseParameterList(options, false);
-	}
-	ASTPointer<Block> successBlock = parseBlock();
-	successClauseFactory.setEndPositionFromNode(successBlock);
-	clauses.emplace_back(successClauseFactory.createNode<TryCatchClause>(
-		make_shared<ASTString>(), returnsParameters, successBlock
-	));
-
-	do
-	{
-		clauses.emplace_back(parseCatchClause());
-	}
-	while (m_scanner->currentToken() == Token::Catch);
-	nodeFactory.setEndPositionFromNode(clauses.back());
+    ASTPointer<Block> body = parseBlock();
+    ASTPointer<TryCatchClause> clause = parseCatchClause();
+    nodeFactory.setEndPositionFromNode(clause);
 	return nodeFactory.createNode<TryStatement>(
-		_docString, externalCall, clauses
+		_docString, body, clause
 	);
 }
 

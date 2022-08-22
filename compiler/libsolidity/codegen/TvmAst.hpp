@@ -432,6 +432,21 @@ namespace solidity::frontend
 		Pointer<CodeBlock> m_body;
 	};
 
+    class TryCatch : public TvmAstNode {
+    public:
+        TryCatch(Pointer<CodeBlock> _tryBody, Pointer<CodeBlock> _catchBody) :
+            m_tryBody{_tryBody},
+            m_catchBody{_catchBody}
+        {}
+        void accept(TvmAstVisitor& _visitor) override;
+        bool operator==(TvmAstNode const&) const override { return false; } // TODO
+        Pointer <CodeBlock> const& tryBody() const { return m_tryBody; }
+        Pointer <CodeBlock> const& catchBody() const { return m_catchBody; }
+    private:
+        Pointer<CodeBlock> m_tryBody;
+        Pointer<CodeBlock> m_catchBody;
+    };
+
 	class Function : public TvmAstNode {
 	public:
 		enum class FunctionType {

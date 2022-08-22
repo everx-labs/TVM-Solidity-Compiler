@@ -100,7 +100,7 @@ Json::Value TVMABI::generateABIJson(
 
 	Json::Value root(Json::objectValue);
 	root["ABI version"] = 2;
-	root["version"] = "2.2";
+	root["version"] = "2.3";
 
 	// header
 	{
@@ -589,7 +589,7 @@ ChainDataDecoder::ChainDataDecoder(StackPusher *pusher) :
 
 int ChainDataDecoder::maxBits(bool isResponsible) {
 	// external inbound message
-	int maxUsed = 1 + 512 + // signature
+	int maxUsed = TvmConst::Abi::MaxOptionalSignLength +
 				  (pusher->ctx().pragmaHelper().hasPubkey()? 1 + 256 : 0) +
 				  (pusher->ctx().hasTimeInAbiHeader()? 64 : 0) +
 				  (pusher->ctx().pragmaHelper().hasExpire()? 32 : 0) +

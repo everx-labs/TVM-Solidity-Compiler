@@ -40,6 +40,7 @@ unique_ptr<ArrayType> TypeProvider::m_bytesStorage;
 unique_ptr<ArrayType> TypeProvider::m_bytesMemory;
 unique_ptr<ArrayType> TypeProvider::m_bytesCalldata;
 unique_ptr<ArrayType> TypeProvider::m_stringStorage;
+unique_ptr<Variant> TypeProvider::m_variant;
 unique_ptr<ArrayType> TypeProvider::m_stringMemory;
 
 TupleType const TypeProvider::m_emptyTuple{};
@@ -646,6 +647,7 @@ void TypeProvider::reset()
 	clearCache(m_bytesMemory);
 	clearCache(m_bytesCalldata);
 	clearCache(m_stringStorage);
+	clearCache(m_variant);
 	clearCache(m_stringMemory);
 	clearCache(m_emptyTuple);
 	clearCache(m_address);
@@ -724,6 +726,8 @@ Type const* TypeProvider::fromElementaryTypeName(ElementaryTypeNameToken const& 
 		return bytesStorage();
 	case Token::String:
 		return stringStorage();
+    case Token::Variant:
+        return variant();
 	default:
 		solAssert(
 			false,
@@ -791,6 +795,13 @@ ArrayType const* TypeProvider::stringStorage()
 	if (!m_stringStorage)
 		m_stringStorage = make_unique<ArrayType>(true);
 	return m_stringStorage.get();
+}
+
+Variant const* TypeProvider::variant()
+{
+    if (!m_variant)
+        m_variant = make_unique<Variant>();
+    return m_variant.get();
 }
 
 ArrayType const* TypeProvider::stringMemory()

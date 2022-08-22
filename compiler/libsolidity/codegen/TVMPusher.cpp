@@ -934,6 +934,18 @@ void StackPusher::_while(bool _withBreakOrReturn) {
 	m_instructions.back().push_back(b);
 }
 
+void StackPusher::tryOpcode() {
+	solAssert(m_instructions.back().size() >= 2, "");
+	auto catchBody = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
+	solAssert(catchBody != nullptr, "");
+	m_instructions.back().pop_back();
+	auto tryBody = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
+	solAssert(tryBody != nullptr, "");
+	m_instructions.back().pop_back();
+	auto b = createNode<TryCatch>(tryBody, catchBody);
+	m_instructions.back().push_back(b);
+}
+
 void StackPusher::ret() {
 	auto opcode = makeRET();
 	m_instructions.back().push_back(opcode);
@@ -2727,6 +2739,7 @@ void StackPusher::pushDefaultValue(Type const* type) {
 			break;
 		}
 		case Type::Category::Optional:
+		case Type::Category::Variant:
 			pushNull();
 			break;
 		case Type::Category::TvmVector:

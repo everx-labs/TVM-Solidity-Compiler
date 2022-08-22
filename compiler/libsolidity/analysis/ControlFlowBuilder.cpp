@@ -87,11 +87,10 @@ bool ControlFlowBuilder::visit(Conditional const& _conditional)
 
 bool ControlFlowBuilder::visit(TryStatement const& _tryStatement)
 {
-	appendControlFlow(_tryStatement.externalCall());
+	appendControlFlow(_tryStatement.body());
 
-	auto nodes = splitFlow(_tryStatement.clauses().size());
-	for (size_t i = 0; i < _tryStatement.clauses().size(); ++i)
-		nodes[i] = createFlow(nodes[i], _tryStatement.clauses()[i]->block());
+	auto nodes = splitFlow(1);
+    nodes[0] = createFlow(nodes[0], _tryStatement.clause().block());
 	mergeFlow(nodes);
 
 	return false;

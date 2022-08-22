@@ -50,6 +50,7 @@ namespace solidity::frontend
 		virtual bool visit(TvmRepeat &_node) { return visitNode(_node); }
 		virtual bool visit(TvmUntil &_node) { return visitNode(_node); }
 		virtual bool visit(While &_node) { return visitNode(_node); }
+		virtual bool visit(TryCatch &_node) { return visitNode(_node); }
 		virtual bool visit(Contract &_node) { return visitNode(_node); }
 		virtual bool visit(Function &_node) { return visitNode(_node); }
 
@@ -80,6 +81,7 @@ namespace solidity::frontend
 		bool visit(TvmIfElse &_node) override;
 		bool visit(TvmRepeat &_node) override;
 		bool visit(TvmUntil &_node) override;
+		bool visit(TryCatch &_node) override;
 		bool visit(While &_node) override;
 		bool visit(Contract &_node) override;
 		bool visit(Function &_node) override;

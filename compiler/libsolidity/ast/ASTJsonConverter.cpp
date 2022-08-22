@@ -530,8 +530,8 @@ bool ASTJsonConverter::visit(TryCatchClause const& _node)
 bool ASTJsonConverter::visit(TryStatement const& _node)
 {
 	setJsonNode(_node, "TryStatement", {
-		make_pair("externalCall", toJson(_node.externalCall())),
-		make_pair("clauses", toJson(_node.clauses()))
+		make_pair("body", toJson(_node.body())),
+		make_pair("clause", toJson(_node.clause()))
 	});
 	return false;
 }
