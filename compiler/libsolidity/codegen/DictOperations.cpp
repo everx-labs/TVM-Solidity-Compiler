@@ -28,8 +28,7 @@ DictOperation::DictOperation(StackPusher& pusher, Type const& keyType, Type cons
 		pusher{pusher},
 		keyType{keyType},
 		keyLength{dictKeyLength(&keyType)},
-		valueType{valueType},
-		valueCategory{valueType.category()} {
+		valueType{valueType} {
 }
 
 void DictMinMax::minOrMax(bool saveOrigKeyAndNoTuple) {

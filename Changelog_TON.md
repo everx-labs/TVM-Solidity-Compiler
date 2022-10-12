@@ -1,3 +1,13 @@
+### 0.65.0 (2022-10-08)
+
+Compiler features:
+ * Supported `delete` and binary operators for `varUintN/varIntN` types.
+ * Supported function references for library function, e.g. `function(int, int) internal returns (int) op = Math.add;`
+ * Supported `gosh` functions: `applyBinPatch`/`applyBinPatchQ`/`applyZipBinPatch`/`applyZipBinPatchQ`. 
+ * Supported conversion `uint32` to private function, e.g. `function(uint, uint) internal pure returns (uint) fun = uint32(123456)`.
+ * Support command line option `--private-function-ids` for printing private function ids.
+ * Support `pragma upgrade func/oldsol;` to upgrade old contracts.
+
 ### 0.64.0 (2022-08-18)
 
 Fixed build [sold](https://github.com/tonlabs/TON-Solidity-Compiler/tree/master/sold) for Windows and macOS. 

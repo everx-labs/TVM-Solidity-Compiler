@@ -486,13 +486,13 @@ std::pair<bool, bool> CompilerStack::compile(bool json)
 	if (m_generateAbi || m_generateCode) {
 		ContractDefinition const *targetContract{};
 		std::vector<PragmaDirective const *> targetPragmaDirectives;
+		std::vector<ContractDefinition const *> libraries = getAllLibraries();
 
 		for (Source const *source: m_sourceOrder) {
 
 			if (source->ast->annotation().path != m_inputFile) {
 				continue;
 			}
-
 
 			std::vector<PragmaDirective const *> pragmaDirectives = getPragmaDirectives(source);
 			for (auto pragma: pragmaDirectives) {
@@ -579,7 +579,7 @@ std::pair<bool, bool> CompilerStack::compile(bool json)
 					}
 					if (m_generateCode) {
 						Pointer<solidity::frontend::Contract> codeContract =
-							TVMContractCompiler::generateContractCode(targetContract, pragmaHelper);
+							TVMContractCompiler::generateContractCode(targetContract, libraries, pragmaHelper);
 						ostringstream out;
 						Printer p{out};
 						codeContract->accept(p);
@@ -589,13 +589,15 @@ std::pair<bool, bool> CompilerStack::compile(bool json)
 				} else {
 					TVMCompilerProceedContract(
 						*targetContract,
+						libraries,
 						&targetPragmaDirectives,
 						m_generateAbi,
 						m_generateCode,
 						m_inputFile,
 						m_folder,
 						m_file_prefix,
-						m_doPrintFunctionIds
+						m_doPrintFunctionIds,
+                        m_doPrivateFunctionIds
 					);
 				}
 				didCompileSomething = true;
@@ -773,6 +775,26 @@ Json::Value const& CompilerStack::functionIds(std::string const& _contractName) 
 		c.functionIds = make_unique<Json::Value>(functionIds);
 	}
 	return *c.functionIds;
+}
+
+Json::Value const& CompilerStack::privateFunctionIds(std::string const& _contractName) const
+{
+	std::string sourceName = contractSource(_contractName);
+	Contract const &c = contract(_contractName);
+	if (!c.privateFunctionIds)
+	{
+		try {
+			std::vector<PragmaDirective const *> pragmaDirectives = getPragmaDirectives(&source(sourceName));
+			PragmaDirectiveHelper pragmaHelper{pragmaDirectives};
+			std::vector<ContractDefinition const *> libraries = getAllLibraries();
+			auto functionIds = TVMABI::generatePrivateFunctionIdsJson(*c.contract, libraries, pragmaHelper);
+			c.privateFunctionIds = make_unique<Json::Value>(functionIds);
+		} catch (...) {
+			// TODO sorry
+			c.privateFunctionIds = make_unique<Json::Value>();
+		}
+	}
+	return *c.privateFunctionIds;
 }
 
 Json::Value const& CompilerStack::natspecUser(string const& _contractName) const
@@ -1427,6 +1449,20 @@ std::vector<PragmaDirective const *> CompilerStack::getPragmaDirectives(Source c
 		}
 	}
 	return pragmaDirectives;
+}
+
+std::vector<ContractDefinition const *> CompilerStack::getAllLibraries() const {
+	std::vector<ContractDefinition const *> libraries;
+	for (Source const *source: m_sourceOrder) {
+		for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
+			if (auto cont = dynamic_cast<ContractDefinition const *>(node.get())) {
+				if (cont->isLibrary()) {
+					libraries.emplace_back(cont);
+				}
+			}
+		}
+	}
+	return libraries;
 }
 
 bool CompilerStack::canBeDeployed(std::string const& _contractName) const {

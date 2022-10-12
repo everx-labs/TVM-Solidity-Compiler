@@ -203,6 +203,10 @@ public:
 		m_doPrintFunctionIds = true;
 	}
 
+    void printPrivateFunctionIds() {
+        m_doPrivateFunctionIds = true;
+    }
+
 	/// Enable experimental generation of Yul IR code.
 	void enableIRGeneration(bool _enable = true) { m_generateIR = _enable; }
 
@@ -311,6 +315,7 @@ public:
 	Json::Value const& contractCode(std::string const& _contractName) const;
 
 	Json::Value const& functionIds(std::string const& _contractName) const;
+	Json::Value const& privateFunctionIds(std::string const& _contractName) const;
 
 	/// @returns a JSON representing the storage layout of the contract.
 	/// Prerequisite: Successful call to parse or compile.
@@ -364,6 +369,7 @@ private:
 		mutable std::unique_ptr<Json::Value const> code;
 		mutable std::unique_ptr<Json::Value const> abi;
 		mutable std::unique_ptr<Json::Value const> functionIds;
+		mutable std::unique_ptr<Json::Value const> privateFunctionIds;
 		// mutable std::unique_ptr<Json::Value const> storageLayout;
 		mutable std::unique_ptr<Json::Value const> userDocumentation;
 		mutable std::unique_ptr<Json::Value const> devDocumentation;
@@ -447,6 +453,7 @@ private:
 	) const;
 
 	std::vector<PragmaDirective const *> getPragmaDirectives(Source const* source) const;
+	std::vector<ContractDefinition const *> getAllLibraries() const;
 
 
 	ReadCallback::Callback m_readFile;
@@ -494,6 +501,7 @@ private:
 	std::vector<std::string> m_includePaths;
 	bool m_forceUpdate = false;
 	bool m_doPrintFunctionIds = false;
+    bool m_doPrivateFunctionIds = false;
 };
 
 }

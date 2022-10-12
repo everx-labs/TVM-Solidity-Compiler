@@ -58,22 +58,26 @@ std::string getPathToFiles(
 
 void TVMCompilerProceedContract(
 	ContractDefinition const& _contract,
+	std::vector<ContractDefinition const *> libraries,
 	std::vector<PragmaDirective const *> const* pragmaDirectives,
 	bool generateAbi,
 	bool generateCode,
 	const std::string& solFileName,
 	const std::string& outputFolder,
 	const std::string& filePrefix,
-	bool doPrintFunctionIds
+	bool doPrintFunctionIds,
+    bool doPrivateFunctionIds
 ) {
 	std::string pathToFiles = getPathToFiles(solFileName, outputFolder, filePrefix);
 
 	PragmaDirectiveHelper pragmaHelper{*pragmaDirectives};
 	if (doPrintFunctionIds) {
-		TVMContractCompiler::printFunctionIds(_contract, pragmaHelper);
+        TVMContractCompiler::printFunctionIds(_contract, pragmaHelper);
+    } else if (doPrivateFunctionIds) {
+        TVMContractCompiler::printPrivateFunctionIds(_contract, libraries, pragmaHelper);
 	} else {
 		if (generateCode) {
-			TVMContractCompiler::generateCode(pathToFiles + ".code", _contract, pragmaHelper);
+			TVMContractCompiler::generateCode(pathToFiles + ".code", _contract, libraries, pragmaHelper);
 		}
 		if (generateAbi) {
 			TVMContractCompiler::generateABI(pathToFiles + ".abi.json", &_contract, *pragmaDirectives);

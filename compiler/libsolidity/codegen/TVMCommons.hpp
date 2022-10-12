@@ -35,8 +35,6 @@
 
 #include "TvmAst.hpp"
 
-#define DBG(x) cout << (x) << endl;
-
 namespace solidity::frontend {
 
 template <typename T> using ast_vec = std::vector<ASTPointer<T>>;
@@ -69,11 +67,6 @@ struct AddressInfo {
 	static int stdAddrWithoutAnyCastLength() {
 		// addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt
 		return 2 + 1 + 8 + 256;
-	}
-
-	static int minBitLength() {
-		// addr_none$00 = MsgAddressExt;
-		return 2;
 	}
 
 	static int maxBitLength() {
@@ -237,6 +230,19 @@ public:
 			}
 		}
 		return {};
+	}
+
+    bool hasUpgradeFunc() const {
+		return std::any_of(pragmaDirectives.begin(), pragmaDirectives.end(), [](PragmaDirective const *pd){
+			return pd->literals().size() == 2 && pd->literals()[0] == "upgrade" && pd->literals()[1] == "func";
+		});
+    }
+
+	bool hasUpgradeOldSol() const {
+		// TODO test that it's impossible to use func and oldsol at same time
+		return std::any_of(pragmaDirectives.begin(), pragmaDirectives.end(), [](PragmaDirective const *pd){
+			return pd->literals().size() == 2 && pd->literals()[0] == "upgrade" && pd->literals()[1] == "oldsol";
+		});
 	}
 
 private:

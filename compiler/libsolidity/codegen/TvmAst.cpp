@@ -413,6 +413,18 @@ void TryCatch::accept(TvmAstVisitor& _visitor) {
     }
 }
 
+Function::Function(int take, int ret, std::string name, Function::FunctionType type, Pointer<CodeBlock> block,
+				   const FunctionDefinition *_function) :
+		m_take{take},
+		m_ret{ret},
+		m_name{std::move(name)},
+		m_type{type},
+		m_block{std::move(block)},
+		m_function{_function}
+{
+	solAssert(type != FunctionType::PrivateFunction || _function != nullptr, "");
+}
+
 void Function::accept(TvmAstVisitor& _visitor) {
 	if (_visitor.visit(*this))
 	{
@@ -611,9 +623,11 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"CMP", {2, 1, true}},
 		{"DIFF", {2, 1}},
 		{"DIFF_PATCH", {2, 1}},
+		{"DIFF_PATCHQ", {2, 1, true}},
+		{"DIFF_PATCH_BINARY", {2, 1}},
+		{"DIFF_PATCH_BINARYQ", {2, 1, true}},
 		{"DIFF_PATCH_ZIP", {2, 1}},
-		{"DIFF_PATCH_ZIPQ", {2, 1}},
-		{"DIFF_PATCHQ", {2, 1}},
+		{"DIFF_PATCH_ZIPQ", {2, 1, true}},
 		{"DIFF_ZIP", {2, 1}},
 		{"DIV", {2, 1}},
 		{"DIVC", {2, 1}},
@@ -624,6 +638,8 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"INDEXVAR", {2, 1}}, // only for vector
 		{"LEQ", {2, 1, true}},
 		{"LESS", {2, 1, true}},
+        {"DIFF_PATCH_BINARY_ZIP", {2, 1}},
+        {"DIFF_PATCH_BINARY_ZIPQ", {2, 1, true}},
 		{"MAX", {2, 1, true}},
 		{"MIN", {2, 1, true}},
 		{"MOD", {2, 1}},
@@ -638,7 +654,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"SDLEXCMP", {2, 1}},
 		{"SDSKIPFIRST", {2, 1}},
 		{"SETINDEX", {2, 1}},
-		{"SETINDEXQ", {2, 1}},
+		{"SETINDEXQ", {2, 1, true}},
 		{"STB", {2, 1}},
 		{"STBR", {2, 1}},
 		{"STBREF", {2, 1}},
@@ -682,9 +698,9 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"MULDIV", {3, 1}},
 		{"MULDIVC", {3, 1}},
 		{"MULDIVR", {3, 1}},
-		{"SCHKBITREFSQ", {3, 1}},
+		{"SCHKBITREFSQ", {3, 1, true}},
 		{"SETINDEXVAR", {3, 1}},
-		{"SETINDEXVARQ", {3, 1}},
+		{"SETINDEXVARQ", {3, 1, true}},
 		{"SSKIPFIRST", {3, 1}},
 		{"STIXR", {3, 1}},
 		{"STUX", {3, 1}},

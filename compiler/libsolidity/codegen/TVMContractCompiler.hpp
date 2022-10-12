@@ -44,6 +44,11 @@ private:
 class TVMContractCompiler: private boost::noncopyable {
 public:
 	static void printFunctionIds(ContractDefinition const& contract, PragmaDirectiveHelper const& pragmaHelper);
+	static void printPrivateFunctionIds(
+		ContractDefinition const& contract,
+		std::vector<solidity::frontend::ContractDefinition const *> libraries,
+		PragmaDirectiveHelper const& pragmaHelper
+	);
 	static void generateABI(
 		const std::string& fileName,
 		ContractDefinition const* contract,
@@ -52,9 +57,14 @@ public:
 	static void generateCode(
 		const std::string& fileName,
 		ContractDefinition const& contract,
+		std::vector<solidity::frontend::ContractDefinition const *> libraries,
 		PragmaDirectiveHelper const &pragmaHelper
 	);
-	static Pointer<Contract> generateContractCode(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
+	static Pointer<Contract> generateContractCode(
+		ContractDefinition const* contract,
+		std::vector<solidity::frontend::ContractDefinition const *> libraries,
+		PragmaDirectiveHelper const& pragmaHelper
+	);
 	static void optimizeCode(Pointer<Contract>& c);
 private:
 	static void fillInlineFunctions(TVMCompilerContext& ctx, ContractDefinition const* contract);

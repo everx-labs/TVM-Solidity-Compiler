@@ -35,11 +35,13 @@ std::string getPathToFiles(
 
 void TVMCompilerProceedContract(
 	solidity::frontend::ContractDefinition const& _contract,
+	std::vector<solidity::frontend::ContractDefinition const *> libraries,
 	std::vector<solidity::frontend::PragmaDirective const *> const* pragmaDirectives,
 	bool generateAbi,
 	bool generateCode,
 	const std::string& solFileName,
 	const std::string& outputFolder,
 	const std::string& filePrefix,
-	bool doPrintFunctionIds
+	bool doPrintFunctionIds,
+    bool doPrivateFunctionIds
 );

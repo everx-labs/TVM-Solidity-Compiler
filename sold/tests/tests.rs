@@ -35,6 +35,15 @@ fn test_trivial() -> Status {
         .success()
         .stdout(predicate::str::contains("Contract successfully compiled"));
 
+    Command::cargo_bin(BIN_NAME)?
+        .arg("tests/Trivial.sol")
+        .arg("--output-dir")
+        .arg("tests")
+        .arg("--print_code")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("code\":\"te6ccgECDAEAA"));
+
     remove_all_outputs("Trivial")?;
     Ok(())
 }
@@ -157,5 +166,37 @@ fn test_init() -> Status {
     assert!(abi.contains("ABI version"));
 
     remove_all_outputs("Init")?;
+    Ok(())
+}
+
+#[test]
+fn test_private_function_ids() -> Status {
+    Command::cargo_bin(BIN_NAME)?
+        .arg("tests/FunctionId.sol")
+        .arg("--private-function-ids")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(r#"[
+  {
+    "id": 4199241165,
+    "scope": "C",
+    "sign": "f(uint32,uint256,uint256)"
+  },
+  {
+    "id": 2254871888,
+    "scope": "C",
+    "sign": "add(uint256,uint256)"
+  },
+  {
+    "id": 4034881437,
+    "scope": "C",
+    "sign": "sub(uint256,uint256)"
+  },
+  {
+    "id": 4048818487,
+    "scope": "Math",
+    "sign": "mul(uint256,uint256)"
+  }
+"#));
     Ok(())
 }

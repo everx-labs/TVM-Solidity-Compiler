@@ -488,11 +488,11 @@ TVMFunctionCompiler::generatePublicFunctionSelector(TVMCompilerContext& ctx, Con
 }
 
 Pointer<Function>
-TVMFunctionCompiler::generatePrivateFunction(TVMCompilerContext& ctx, const std::string& name) {
+TVMFunctionCompiler::generatePrivateFunction(TVMCompilerContext& ctx, const std::string& name, FunctionDefinition const* funDef) {
 	StackPusher pusher{&ctx};
 	const std::string macroName = name + "_macro";
 	pusher.pushCall(0, 0, macroName);
-	return createNode<Function>(0, 0, name, Function::FunctionType::PrivateFunction, pusher.getBlock());
+	return createNode<Function>(0, 0, name, Function::FunctionType::PrivateFunction, pusher.getBlock(), funDef);
 }
 
 Pointer<Function> TVMFunctionCompiler::generateLibraryFunction(
@@ -504,7 +504,7 @@ Pointer<Function> TVMFunctionCompiler::generateLibraryFunction(
 	TVMFunctionCompiler funCompiler{pusher, 0, function, true, true, 0};
 	const std::string macroName = name + "_macro";
 	pusher.pushCall(0, 0, macroName);
-	return createNode<Function>(0, 0, name, Function::FunctionType::PrivateFunction, pusher.getBlock());
+	return createNode<Function>(0, 0, name, Function::FunctionType::PrivateFunctionWithObj, pusher.getBlock());
 }
 
 Pointer<Function> TVMFunctionCompiler::generateLibraryFunctionMacro(

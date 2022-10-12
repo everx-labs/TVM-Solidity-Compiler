@@ -25,6 +25,7 @@
 #include "TVMPusher.hpp"
 #include "TVM.h"
 #include "TVMConstants.hpp"
+#include "TVMContractCompiler.hpp"
 
 using namespace solidity::frontend;
 using namespace std;
@@ -75,12 +76,25 @@ Json::Value TVMABI::generateFunctionIdsJson(
 	return root;
 }
 
-void TVMABI::printFunctionIds(
-	ContractDefinition const& contract,
-	PragmaDirectiveHelper const& pragmaHelper
+Json::Value
+TVMABI::generatePrivateFunctionIdsJson(
+	const ContractDefinition &contract,
+	std::vector<ContractDefinition const *> libraries,
+	const PragmaDirectiveHelper &pragmaHelper
 ) {
-	Json::Value functionIds = generateFunctionIdsJson(contract, pragmaHelper);
-	cout << functionIds << endl;
+	Json::Value ids{Json::arrayValue};
+	Pointer<Contract> codeContract = TVMContractCompiler::generateContractCode(&contract, libraries, pragmaHelper);
+	for (Pointer<Function> const& fun : codeContract->functions()) {
+		if (fun->type() == Function::FunctionType::PrivateFunction) {
+			Json::Value func{Json::objectValue};
+			FunctionDefinition const* def = fun->functionDefinition();
+			func["scope"] = def->annotation().contract->name();
+			func["sign"] = def->externalSignature();
+			func["id"] = ChainDataEncoder::toHash256(fun->name());
+			ids.append(func);
+		}
+	}
+	return ids;
 }
 
 Json::Value TVMABI::generateABIJson(
@@ -834,6 +848,20 @@ std::pair<uint32_t, bool> ChainDataEncoder::calculateFunctionID(const CallableDe
 	return {id, false};
 }
 
+uint32_t ChainDataEncoder::toHash256(std::string const& str) {
+    bytes hash = picosha2::hash256(bytes(
+            str.begin(),
+            str.end()
+    ));
+    uint32_t funcID = 0;
+    for (size_t i = 0; i < 4; i++) {
+        funcID <<= 8u;
+        funcID += hash[i];
+    }
+
+    return funcID;
+}
+
 uint32_t ChainDataEncoder::calculateFunctionID(
 		const std::string& name,
 		const std::vector<Type const*>& inputs,
@@ -866,23 +894,13 @@ uint32_t ChainDataEncoder::calculateFunctionID(
 	}
 	ss << "v2";
 
-	std::string str = ss.str();
-	bytes hash = picosha2::hash256(bytes(
-			str.begin(),
-			str.end()
-	));
-	uint32_t funcID = 0;
-	for (size_t i = 0; i < 4; i++) {
-		funcID <<= 8u;
-		funcID += hash[i];
-	}
-
-	return funcID;
+	return toHash256(ss.str());
 }
 
 uint32_t ChainDataEncoder::calculateFunctionIDWithReason(
 		const CallableDeclaration *funcDef,
-		const ReasonOfOutboundMessage &reason
+		const ReasonOfOutboundMessage &reason,
+		bool isLib
 ) {
 	std::vector<VariableDeclaration const*> outputs;
 	std::vector<VariableDeclaration const*>* retParams = nullptr;
@@ -900,10 +918,16 @@ uint32_t ChainDataEncoder::calculateFunctionIDWithReason(
 	}
 
 	bool isResponsible{};
-	if (auto fd = to<FunctionDefinition>(funcDef))
+	if (auto fd = to<FunctionDefinition>(funcDef)) {
 		isResponsible = fd->isResponsible();
+	}
 
-	return calculateFunctionIDWithReason(name, getTypesFromVarDecls(funcDef->parameters()), retParams, reason, functionId, isResponsible);
+	std::vector<Type const*> input = getTypesFromVarDecls(funcDef->parameters());
+	if (isLib) {
+		input.erase(input.begin(), input.begin() + 1);
+	}
+
+	return calculateFunctionIDWithReason(name, input, retParams, reason, functionId, isResponsible);
 }
 
 uint32_t ChainDataEncoder::calculateFunctionIDWithReason(

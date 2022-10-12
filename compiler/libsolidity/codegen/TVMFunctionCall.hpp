@@ -119,6 +119,8 @@ protected:
 		const Expression *onerrorid,
 		const Expression *stateInit,
         const Expression *signBoxHandle,
+		const Expression *abiVer,
+		const Expression *flags,
 		const CallableDeclaration *functionDefinition,
 		const ast_vec<Expression const>& arguments
 	);

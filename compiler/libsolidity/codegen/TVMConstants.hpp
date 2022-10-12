@@ -26,7 +26,6 @@ namespace TvmConst {
 		const int PersistenceMembersStartIndex = 1;
 	}
 	namespace C7 {
-		const int MyCode = 1;
 		const int TvmPubkey = 2;
 		const int ReplayProtTime = 3;
 		const int ReturnParams = 4;
@@ -127,7 +126,7 @@ namespace TvmConst {
 	namespace Selector {
 		inline std::string RootCodeCell() { return "8adb35"; } // 8a-PUSHREF db35-JMPXDATA
 		inline std::string PrivateOpcode0() { return "F4A4_"; } // DICTPUSHCONST
-		inline std::string PrivateOpcode1() { return "F4A1"; } // DICTUGETJMP
+		inline std::string PrivateOpcode1() { return "F4BDF2C04E"; } // DICTUGETJMPZ THROW 78
 	}
 
 	const int IterStackOptQty = 10;

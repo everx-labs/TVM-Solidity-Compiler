@@ -70,7 +70,7 @@ void SourceReferenceFormatterHuman::printSourceLocation(SourceReference const& _
 	if (_ref.sourceName.empty())
 		return; // Nothing we can print here
 
-	int const leftpad = static_cast<int>(log10(max(_ref.position.line, 1))) + 1;
+	int const leftpad = static_cast<int>(log10(max(_ref.position.line + 1, 1))) + 1;
 
 	// line 0: source name
 	frameColored() << string(leftpad, ' ') << "--> ";
