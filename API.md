@@ -155,6 +155,7 @@ contract development.
   * [pragma ignoreIntOverflow](#pragma-ignoreintoverflow)
   * [pragma AbiHeader](#pragma-abiheader)
   * [pragma msgValue](#pragma-msgvalue)
+  * [pragma upgrade func/oldsol](#pragma-upgrade-funcoldsol)
 * [State variables](#state-variables)
   * [Decoding state variables](#decoding-state-variables)
   * [Keyword `constant`](#keyword-constant)
@@ -255,11 +256,9 @@ contract development.
   * [**abi** namespace](#abi-namespace)
     * [abi.encode(), abi.decode()](#abiencode-abidecode)
   * [**gosh** namespace](#gosh-namespace)
-    * [gosh.diff](#goshdiff)
-    * [gosh.applyPatch and gosh.applyPatchQ](#goshapplypatch-and-goshapplypatchq)
+    * [gosh.diff and gosh.zipDiff](#goshdiff-and-goshzipdiff)
+    * [gosh.applyPatch, gosh.applyPatchQ, gosh.applyZipPatch, gosh.applyZipPatchQ, gosh.applyZipBinPatch and gosh.applyZipBinPatchQ](#goshapplypatch-goshapplypatchq-goshapplyzippatch-goshapplyzippatchq-goshapplyzipbinpatch-and-goshapplyzipbinpatchq)
     * [gosh.zip and gosh.unzip](#goshzip-and-goshunzip)
-    * [gosh.zipDiff](#goshzipdiff)
-    * [gosh.applyZipPatch and gosh.applyZipPatchQ](#goshapplyzippatch-and-goshapplyzippatchq)
   * [Exponentiation](#exponentiation)
   * [selfdestruct](#selfdestruct)
   * [sha256](#sha256)
@@ -2321,6 +2320,15 @@ pragma msgValue 10 ton;
 pragma msgValue 10_000_000_123;
 ```
 
+#### pragma upgrade func/oldsol
+
+```TVMSolidity
+pragma upgrade func;
+pragma upgrade oldsol;
+```
+
+Defines that code is compiled with special selector that is needed to upgrade func/solidity contracts.
+
 ### State variables
 
 #### Decoding state variables
@@ -3804,7 +3812,9 @@ tvm.buildExtMsg({
     callbackId: (uint32 | functionIdentifier),
     onErrorId: (uint32 | functionIdentifier),
     stateInit: TvmCell,
-    signBoxHandle: optional(uint32)
+    signBoxHandle: optional(uint32),
+    abiVer: uint8,
+    flags: uint8
 })
 returns (TvmCell);
 ```
@@ -3826,9 +3836,14 @@ but stores special data:
 
 * callback id - 32 bits;
 * on error id - 32 bits;
-* abi version - 8 bits;
+* abi version - 8 bits; Can be specified manually and contain full abi version in little endian half bytes (e.g. version = "2.3" -> abiVer: 0x32)
 * header mask - 3 bits in such order: time, expire, pubkey;
-* optional value signBoxHandle - 1 bit (whether value is present) + \[32 bits\].
+* optional value signBoxHandle - 1 bit (whether value is present) + \[32 bits\];
+* control flags byte - 8 bits. 
+  Currently used bits:
+    1 - override time (dengine will replace time value with current time)
+    2 - override exp (dengine will replace time value with actual expire value)
+    4 - async call (dengine must send message and don't wait for the result)
 
 Other function parameters define fields of the message:
 
@@ -3905,6 +3920,7 @@ contract Test {
         pubkey.set(0x95c06aa743d1f9000dd64b75498f106af4b7e7444234d7de67ea26988f6181df);
         Foo(addr).bar{expire: 0x12345, time: 0x123, pubkey: pubkey, sign: true}(123, 45).extMsg;
         Foo(addr).bar{expire: 0x12345, time: 0x123, sign: true, signBoxHandle: signBox}(123, 45).extMsg;
+        Foo(addr).bar{expire: 0x12345, time: 0x123, sign: true, signBoxHandle: signBox, abiVer: 0x32, flags: 0x07}(123, 45).extMsg;
     }
 }
 ```
@@ -4261,13 +4277,18 @@ TvmCell cell = abi.encode(uint(1), uint(2), uint(3), uint(4));
 All `gosh.*` functions are experimental features and are available only in certain blockchain
 networks.
 
-#### gosh.diff
+#### gosh.diff and gosh.zipDiff
+
 
 ```TVMSolidity
+(1)
 gosh.diff(string oldText, string newText) returns (string patch)
+(2)
+gosh.zipDiff(bytes oldText, bytes newText) returns (bytes patch)
 ```
+(1) Calculates [patch](https://en.wikipedia.org/wiki/Diff) between `oldText` and `newText`. Example:
+(2) It's the same as `gosh.diff` but it calculates `patch` between compressed strings.
 
-Calculates [patch](https://en.wikipedia.org/wiki/Diff) between `oldText` and `newText`. Example:
 
 ```TVMSolidity
 string oldText = ...;
@@ -4275,15 +4296,32 @@ string newText = ...;
 string patch = gosh.diff(oldText, newText);
 ```
 
-#### gosh.applyPatch and gosh.applyPatchQ
+#### gosh.applyPatch, gosh.applyPatchQ, gosh.applyZipPatch, gosh.applyZipPatchQ, gosh.applyZipBinPatch and gosh.applyZipBinPatchQ
 
 ```TVMSolidity
+(1)
 gosh.applyPatch(string oldText, string patch) returns (string newText)
 gosh.applyPatchQ(string oldText, string patch) returns (optional(string) newText)
+(2)
+gosh.applyBinPatch(bytes oldText, bytes patch) returns (bytes newText)
+gosh.applyBinPatchQ(bytes oldText, bytes patch) returns (optional(bytes) newText)
+(3)
+gosh.applyZipPatch(bytes oldText, bytes patch) returns (bytes newText)
+gosh.applyZipPatchQ(bytes oldText, bytes patch) returns (optional(bytes) newText)
+(4)
+gosh.applyZipBinPatch(bytes oldText, bytes patch) returns (bytes newText)
+gosh.applyZipBinPatchQ(bytes oldText, bytes patch) returns (optional(bytes) newText)
 ```
 
+(1)
 Applies `patch` to the `oldText`. If it's impossible (bad patch), `gosh.applyPatch` throws an exception with type check
 error code (-8) but`gosh.applyPatchQ` returns `null`. Example:
+(2)
+These are the same as `gosh.applyPatch`/`gosh.applyPatchQ` but these functions are applied to binary arrays.
+(3)
+These are the same as `gosh.applyPatch`/`gosh.applyPatchQ` but these functions are applied to compressed strings.
+(4)
+These are the same as `gosh.applyPatch`/`gosh.applyPatchQ` but these functions are applied to compressed binary arrays.
 
 ```TVMSolidity
 string oldText = ...;
@@ -4299,23 +4337,6 @@ gosh.unzip(bytes zip) returns (optional(string) text)
 ```
 
 `gosh.zip` converts the `text` to compressed `bytes`. `gosh.unzip` reverts such compression.
-
-#### gosh.zipDiff
-
-```TVMSolidity
-gosh.zipDiff(bytes oldText, bytes newText) returns (bytes patch)
-```
-
-It's the same as `gosh.diff` but it calculates `patch` between compressed string.
-
-#### gosh.applyZipPatch and gosh.applyZipPatchQ
-
-```TVMSolidity
-gosh.applyZipPatch(bytes oldText, bytes patch) returns (bytes newText)
-gosh.applyZipPatchQ(bytes oldText, bytes patch) returns (optional(bytes) newText)
-```
-
-These are the same as `gosh.applyPatch`/`gosh.applyPatchQ` but these functions are applied to compressed string.
 
 #### Exponentiation
 
@@ -4418,34 +4439,35 @@ List of codes:
 Smart-contract written on solidity can throw runtime errors while execution.
 
 Solidity runtime error codes:
-
-* **40** - External inbound message has an invalid signature. See [tvm.pubkey()](#tvmpubkey) and [msg.pubkey()](#msgpubkey).
-* **50** - Array index or index of [\<mapping\>.at()](#mappingat) is out of range.
-* **51** - Contract's constructor has already been called.
-* **52** - Replay protection exception. See `timestamp` in [pragma AbiHeader](#pragma-abiheader).
-* **53** - See [\<address\>.unpack()](#addressunpack).
-* **54** - `<array>.pop` call for an empty array.
-* **55** - See [tvm.insertPubkey()](#tvminsertpubkey).
-* **57** - External inbound message is expired. See `expire` in [pragma AbiHeader](#pragma-abiheader).
-* **58** - External inbound message has no signature but has public key. See `pubkey` in [pragma AbiHeader](#pragma-abiheader).
-* **60** - Inbound message has wrong function id. In the contract there are no functions with such function id and there is no fallback function that could handle the message. See [fallback](#fallback).
-* **61** - Deploying `StateInit` has no public key in `data` field.
-* **62** - Reserved for internal usage.
-* **63** - See [\<optional(Type)\>.get()](#optionaltypeget).
-* **64** - `tvm.buildExtMSg()` call with wrong parameters. See [tvm.buildExtMsg()](#tvmbuildextmsg).
-* **65** - Call of the unassigned variable of function type. See [Function type](#function-type).
-* **66** - Convert an integer to a string with width less than number length. See [format()](#format).
-* **67** - See [gasToValue](#gastovalue) and [valueToGas](#valuetogas).
-* **68** - There is no config parameter 20 or 21.
-* **69** - Zero to the power of zero calculation (`0**0` in solidity style or `0^0`).
-* **70** - `string` method `substr` was called with substr longer than the whole string.
-* **71** - Function marked by `externalMsg` was called by internal message.
-* **72** - Function marked by `internalMsg` was called by external message.
-* **73** - The value can't be converted to enum type.
-* **74** - Await answer message has wrong source address.
-* **75** - Await answer message has wrong function id.
-* **76** - Public function was called before constructor.
-* **77** - It's impossible to convert `variant` type to target type. See [variant.toUint()](#varianttouint)
+  * **40** - External inbound message has an invalid signature. See [tvm.pubkey()](#tvmpubkey) and [msg.pubkey()](#msgpubkey).
+  * **50** - Array index or index of [\<mapping\>.at()](#mappingat) is out of range.
+  * **51** - Contract's constructor has already been called.
+  * **52** - Replay protection exception. See `timestamp` in [pragma AbiHeader](#pragma-abiheader).
+  * **53** - See [\<address\>.unpack()](#addressunpack).
+  * **54** - `<array>.pop` call for an empty array.
+  * **55** - See [tvm.insertPubkey()](#tvminsertpubkey).
+  * **57** - External inbound message is expired. See `expire` in [pragma AbiHeader](#pragma-abiheader).
+  * **58** - External inbound message has no signature but has public key. See `pubkey` in [pragma AbiHeader](#pragma-abiheader).
+  * **60** - Inbound message has wrong function id. In the contract there are no functions with such function id and there is no fallback function that could handle the message. See [fallback](#fallback).
+  * **61** - Deploying `StateInit` has no public key in `data` field.
+  * **62** - Reserved for internal usage.
+  * **63** - See [\<optional(Type)\>.get()](#optionaltypeget).
+  * **64** - `tvm.buildExtMSg()` call with wrong parameters. See [tvm.buildExtMsg()](#tvmbuildextmsg).
+  * **66** - Convert an integer to a string with width less than number length. See [format()](#format).
+  * **67** - See [gasToValue](#gastovalue) and [valueToGas](#valuetogas).
+  * **68** - There is no config parameter 20 or 21.
+  * **69** - Zero to the power of zero calculation (`0**0` in solidity style or `0^0`).
+  * **70** - `string` method `substr` was called with substr longer than the whole string.
+  * **71** - Function marked by `externalMsg` was called by internal message.
+  * **72** - Function marked by `internalMsg` was called by external message.
+  * **73** - The value can't be converted to enum type.
+  * **74** - Await answer message has wrong source address.
+  * **75** - Await answer message has wrong function id.
+  * **76** - Public function was called before constructor.
+  * **77** - It's impossible to convert `variant` type to target type. See [variant.toUint()](#varianttouint).
+  * **78** - There's no private function with the function id.
+  * **79** - You are deploying contract that uses [pragma upgrade func/oldsol](#pragma-upgrade-funcoldsol). Use the 
+contract only for updating another contracts.
 
 ### Division and rounding
 

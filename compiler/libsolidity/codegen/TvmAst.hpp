@@ -26,6 +26,7 @@
 #include <liblangutil/Exceptions.h>
 
 #include <boost/noncopyable.hpp>
+#include "libsolidity/ast/AST.h"
 
 template <class T>
 using Pointer = std::shared_ptr<T>;
@@ -231,12 +232,12 @@ namespace solidity::frontend
 
 	class TvmException : public TvmAstNode {
 	public:
-		explicit TvmException(bool _arg, bool _any, bool _if, bool _not, const std::string& _param) :
+		explicit TvmException(bool _arg, bool _any, bool _if, bool _not, std::string  _param) :
 			m_arg{_arg},
 			m_any{_any},
 			m_if{_if},
 			m_not{_not},
-			m_param{_param}
+			m_param{std::move(_param)}
 		{
 		}
 		void accept(TvmAstVisitor& _visitor) override;
@@ -435,8 +436,8 @@ namespace solidity::frontend
     class TryCatch : public TvmAstNode {
     public:
         TryCatch(Pointer<CodeBlock> _tryBody, Pointer<CodeBlock> _catchBody) :
-            m_tryBody{_tryBody},
-            m_catchBody{_catchBody}
+            m_tryBody{std::move(_tryBody)},
+            m_catchBody{std::move(_catchBody)}
         {}
         void accept(TvmAstVisitor& _visitor) override;
         bool operator==(TvmAstNode const&) const override { return false; } // TODO
@@ -451,6 +452,7 @@ namespace solidity::frontend
 	public:
 		enum class FunctionType {
 			PrivateFunction,
+			PrivateFunctionWithObj,
 			Macro,
 			MacroGetter,
 			MainInternal,
@@ -458,19 +460,13 @@ namespace solidity::frontend
 			OnCodeUpgrade,
 			OnTickTock
 		};
-		Function(int take, int ret, std::string name, FunctionType type, Pointer<CodeBlock> block) :
-			m_take{take},
-			m_ret{ret},
-			m_name(std::move(name)),
-			m_type(type),
-			m_block(std::move(block))
-		{
-		}
+		Function(int take, int ret, std::string name, FunctionType type, Pointer<CodeBlock> block, FunctionDefinition const* _function = {});
 		void accept(TvmAstVisitor& _visitor) override;
 		bool operator==(TvmAstNode const&) const override { return false; } // TODO
 		int take() const { return m_take; }
 		int ret() const { return m_ret; }
 		std::string const& name() const { return m_name; }
+        FunctionDefinition const* functionDefinition() const { return m_function; }
 		FunctionType type() const { return m_type; }
 		Pointer<CodeBlock> const& block() const { return m_block; }
 	private:
@@ -479,6 +475,7 @@ namespace solidity::frontend
 		std::string m_name;
 		FunctionType m_type{};
 		Pointer<CodeBlock> m_block;
+        FunctionDefinition const* m_function{};
 	};
 
 	class Contract : public TvmAstNode {

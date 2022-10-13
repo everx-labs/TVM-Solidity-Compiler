@@ -51,7 +51,7 @@ public:
 	static Pointer<Function> generateCheckResume(TVMCompilerContext& ctx);
 	static Pointer<Function> generateOnCodeUpgrade(TVMCompilerContext& ctx, FunctionDefinition const* function);
 	static Pointer<Function> generateOnTickTock(TVMCompilerContext& ctx, FunctionDefinition const* function);
-	static Pointer<Function> generatePrivateFunction(TVMCompilerContext& ctx, const std::string& name);
+	static Pointer<Function> generatePrivateFunction(TVMCompilerContext& ctx, const std::string& name, FunctionDefinition const* funDef);
 	static Pointer<Function> generateLibraryFunction(TVMCompilerContext& ctx, FunctionDefinition const* function, const std::string& name);
 	static Pointer<Function> generateLibraryFunctionMacro(TVMCompilerContext& ctx, FunctionDefinition const* function, const std::string& name);
 	static Pointer<Function> generateReceive(TVMCompilerContext& ctx, FunctionDefinition const* function);

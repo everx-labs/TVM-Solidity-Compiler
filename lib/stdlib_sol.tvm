@@ -136,9 +136,8 @@ CALL $__tonToGas_macro$
 
 .macro __tonToGas_macro
 .loc stdlib.sol, 67
-SWAP
 PUSHPOW2 16
-ROT
+SWAP
 CALLREF {
 	CALL $__gasGasPrice_macro$
 }

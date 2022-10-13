@@ -730,6 +730,7 @@ public:
 	Category category() const override { return Category::VarInteger; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_varinteger"; }
+    TypeResult unaryOperatorResult(Token _operator) const override;
 	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
 	std::string toString(bool) const override;
 
@@ -1353,6 +1354,10 @@ public:
 		GoshUnzip,
 		GoshZip,
 		GoshZipDiff,
+        GoshApplyBinPatch,
+        GoshApplyBinPatchQ,
+        GoshApplyZipBinPatch,
+        GoshApplyZipBinPatchQ,
 	};
 
 	/// Creates the type of a function.

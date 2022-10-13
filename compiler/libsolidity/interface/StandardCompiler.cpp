@@ -765,7 +765,7 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 	compilerStack.setEVMVersion(_inputsAndSettings.evmVersion);
 	compilerStack.setParserErrorRecovery(_inputsAndSettings.parserErrorRecovery);
 	compilerStack.setRemappings(_inputsAndSettings.remappings);
-	compilerStack.setOptimiserSettings(std::move(_inputsAndSettings.optimiserSettings));
+	compilerStack.setOptimiserSettings(_inputsAndSettings.optimiserSettings);
 	compilerStack.setRevertStringBehaviour(_inputsAndSettings.revertStrings);
 	compilerStack.setLibraries(_inputsAndSettings.libraries);
 	compilerStack.useMetadataLiteralSources(_inputsAndSettings.metadataLiteralSources);
@@ -947,6 +947,8 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 			contractData["assembly"] = compilerStack.contractCode(contractName);
 		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "showFunctionIds", wildcardMatchesExperimental))
 			contractData["functionIds"] = compilerStack.functionIds(contractName);
+		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "showPrivateFunctionIds", wildcardMatchesExperimental))
+			contractData["privateFunctionIds"] = compilerStack.privateFunctionIds(contractName);
 		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "metadata", wildcardMatchesExperimental))
 			contractData["metadata"] = compilerStack.metadata(contractName);
 		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "userdoc", wildcardMatchesExperimental))

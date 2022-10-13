@@ -272,6 +272,7 @@ bool StackOptimizer::visit(While &_node) {
 bool StackOptimizer::visit(Function &f) {
 	switch (f.type()) {
 		case Function::FunctionType::PrivateFunction:
+		case Function::FunctionType::PrivateFunctionWithObj:
 		case Function::FunctionType::Macro:
 		case Function::FunctionType::OnCodeUpgrade:
 		case Function::FunctionType::OnTickTock: {

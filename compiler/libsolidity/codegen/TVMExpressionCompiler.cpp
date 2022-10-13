@@ -145,7 +145,7 @@ void TVMExpressionCompiler::visit2(TupleExpression const &_tupleExpression) {
 					toString(_tupleExpression.id());
 
 			m_pusher << "PUSHINT " + toString(n);
-			m_pusher.compureConstCell(computeName);
+			m_pusher.computeConstCell(computeName);
 			m_pusher << "TUPLE 2";
 
 			m_pusher.ctx().addConstArray(computeName, &_tupleExpression);
@@ -210,9 +210,7 @@ void TVMExpressionCompiler::visitHonest(TupleExpression const& _tupleExpression,
 	solAssert(stackSize + 1 == m_pusher.stackSize(), "");
 }
 
-bool TVMExpressionCompiler::tryPushConstant(Identifier const &_identifier) {
-	IdentifierAnnotation& identifierAnnotation = _identifier.annotation();
-	Declaration const* declaration = identifierAnnotation.referencedDeclaration;
+bool TVMExpressionCompiler::tryPushConstant(Declaration const* declaration) {
 	const auto* variableDeclaration = to<VariableDeclaration>(declaration);
 	if (!variableDeclaration || !variableDeclaration->isConstant()){
 		return false;
@@ -223,13 +221,14 @@ bool TVMExpressionCompiler::tryPushConstant(Identifier const &_identifier) {
 
 bool TVMExpressionCompiler::pushLocalOrStateVariable(Identifier const &_identifier) {
 	auto& stack = m_pusher.getStack();
-	if (stack.isParam(_identifier.annotation().referencedDeclaration)) {
-		auto offset = stack.getOffset(_identifier.annotation().referencedDeclaration);
+	Declaration const* declaration = _identifier.annotation().referencedDeclaration;
+	if (stack.isParam(declaration)) {
+		auto offset = stack.getOffset(declaration);
 		m_pusher.pushS(offset);
 		return true;
-	} else if (tryPushConstant(_identifier)) {
+	} else if (tryPushConstant(declaration)) {
 		return true;
-	} else if (auto variable = to<VariableDeclaration>(_identifier.annotation().referencedDeclaration)) {
+	} else if (auto variable = to<VariableDeclaration>(declaration)) {
 		solAssert(variable->isStateVariable() && !variable->isConstant(), "");
 		m_pusher.getGlob(variable);
 		return true;
@@ -248,8 +247,7 @@ void TVMExpressionCompiler::visit2(Identifier const &_identifier) {
 		m_pusher.push(+1, "MYADDR");
 	} else if (to<FunctionDefinition>(_identifier.annotation().referencedDeclaration)) {
 		auto funDecl = to<FunctionDefinition>(_identifier.annotation().referencedDeclaration);
-		std::string funName = m_pusher.ctx().getFunctionInternalName(funDecl, false);
-		m_pusher.push(+1,"PUSHINT $" + funName + "$");
+		m_pusher.pushPrivateFunctionId(*funDecl);
 	} else {
 		cast_error(_identifier, "Unsupported identifier: " + name);
 	}
@@ -859,7 +857,21 @@ void TVMExpressionCompiler::visit2(MemberAccess const &_node) {
 			return;
 		}
 
+        auto conType = to<ContractType>(typeType->actualType());
+        if (conType->contractDefinition().isLibrary()) {
+            auto funType = to<FunctionType>(_node.annotation().type);
+            if (funType) {
+                auto funDef = to<FunctionDefinition>(&funType->declaration());
+                m_pusher.pushPrivateFunctionId(*funDef);
+                return ;
+            }
+        }
+
 		if (fold_constants(&_node)) {
+			return;
+		}
+
+		if (tryPushConstant(_node.annotation().referencedDeclaration)) {
 			return;
 		}
 	}
@@ -952,7 +964,7 @@ void TVMExpressionCompiler::visit2(IndexRangeAccess const &indexRangeAccess) {
 				m_pusher.push(+1, "TRUE");
 			}
 
-			m_pusher.pushMacroCallInCallRef(4, 1, "bytes_substr");
+			m_pusher.pushMacroCallInCallRef(4, 1, "bytes_substr_macro");
 			return;
 		}
 	}

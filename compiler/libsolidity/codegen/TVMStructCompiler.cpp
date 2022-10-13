@@ -94,9 +94,9 @@ void StructCompiler::createDefaultStruct(bool asSlice) {
 		name += "_" + t->identifier();
 	}
 	if (asSlice)
-		pusher->compureConstSlice(name);
+		pusher->computeConstSlice(name);
 	else
-		pusher->compureConstCell(name);
+		pusher->computeConstCell(name);
 	pusher->ctx().addBuildTuple(name, m_types);
 }
 

@@ -38,7 +38,6 @@ protected:
 	Type const& keyType;
 	const int keyLength{};
 	Type const& valueType;
-	const Type::Category valueCategory{};
 };
 
 

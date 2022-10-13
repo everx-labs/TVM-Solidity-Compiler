@@ -563,6 +563,14 @@ BoolResult IntegerType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 		FixedPointType const& convertTo = dynamic_cast<FixedPointType const&>(_convertTo);
 		return maxValue() <= convertTo.maxIntegerValue() && minValue() >= convertTo.minIntegerValue();
 	}
+	else if (_convertTo.category() == Category::Function)
+	{
+		auto convertTo = dynamic_cast<FunctionType const*>(&_convertTo);
+		if (convertTo->kind() == FunctionType::Kind::Internal) {
+			return true;
+		}
+		return false;
+	}
 	else
 		return false;
 }
@@ -626,6 +634,7 @@ TypeResult IntegerType::binaryOperatorResult(Token _operator, Type const* _other
 	if (
 		_other->category() != Category::RationalNumber &&
 		_other->category() != Category::FixedPoint &&
+		_other->category() != Category::VarInteger &&
 		_other->category() != category()
 	)
 		return nullptr;
@@ -3055,6 +3064,10 @@ string FunctionType::richIdentifier() const
 	case Kind::GoshUnzip: id += "goshunzip"; break;
 	case Kind::GoshZip: id += "goshzip"; break;
 	case Kind::GoshZipDiff: id += "goshzipdiff"; break;
+    case Kind::GoshApplyBinPatch: id += "goshapplybinpatch"; break;
+    case Kind::GoshApplyBinPatchQ: id += "goshapplybinpatchq"; break;
+    case Kind::GoshApplyZipBinPatch: id += "goshapplyzipbinpatch"; break;
+    case Kind::GoshApplyZipBinPatchQ: id += "goshapplyzipbinpatchq"; break;
 	}
 	id += "_" + stateMutabilityToString(m_stateMutability);
 	id += identifierList(m_parameterTypes) + "returns" + identifierList(m_returnParameterTypes);
@@ -4118,19 +4131,21 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 							 TypeProvider::uint(32),
 							 TypeProvider::optional(TypeProvider::uint256()),
 							 TypeProvider::boolean(),
-							 TypeProvider::tvmcell()},
+							 TypeProvider::tvmcell(),
+							 TypeProvider::uint(8)},
 				TypePointers{TypeProvider::tvmcell()},
 				strings{string("dest"),			// mandatory
 						string("call"),			// mandatory
 						string("callbackId"),	// mandatory
-						string("abiVer"),		// must be deleted
+						string("abiVer"),		// can be omitted
 						string("onErrorId"),	    // mandatory
 						string("signBoxHandle"),	// can be omitted
 						string("time"),			// can be omitted
 						string("expire"),		// can be omitted
 						string("pubkey"),		// can be omitted
 						string("sign"),			// can be omitted
-						string("stateInit")},	// can be omitted
+						string("stateInit"),	// can be omitted
+						string("flags")},	// can be omitted
 				strings{string()},
 				FunctionType::Kind::TVMBuildExtMsg,
 				true, StateMutability::Pure
@@ -4423,8 +4438,10 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 		}
 
 		for (auto const&[name, type] : std::vector<std::tuple<string, FunctionType::Kind>>{
-				{"zipDiff", FunctionType::Kind::GoshZipDiff},
+				{"applyBinPatch", FunctionType::Kind::GoshApplyBinPatch},
+				{"applyZipBinPatch", FunctionType::Kind::GoshApplyZipBinPatch},
 				{"applyZipPatch", FunctionType::Kind::GoshApplyZipPatch},
+				{"zipDiff", FunctionType::Kind::GoshZipDiff},
 		}) {
 			members.push_back({ name,
 				TypeProvider::function(
@@ -4449,16 +4466,22 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				StateMutability::Pure
 		)});
 
-		members.push_back({ "applyZipPatchQ",
-			TypeProvider::function(
-				{TypeProvider::bytesMemory(), TypeProvider::bytesMemory()},
-				{TypeProvider::optional(TypeProvider::bytesMemory())},
-				{{}, {}},
-				{{}},
-				FunctionType::Kind::GoshApplyZipPatchQ,
-				true,
-				StateMutability::Pure
-		)});
+        for (auto const&[name, type] : std::vector<std::tuple<string, FunctionType::Kind>>{
+                {"applyZipPatchQ", FunctionType::Kind::GoshApplyZipPatchQ},
+                {"applyBinPatchQ", FunctionType::Kind::GoshApplyBinPatchQ},
+                {"applyZipBinPatchQ", FunctionType::Kind::GoshApplyZipBinPatchQ},
+        }) {
+            members.push_back({ name,
+                TypeProvider::function(
+                    {TypeProvider::bytesMemory(), TypeProvider::bytesMemory()},
+                    {TypeProvider::optional(TypeProvider::bytesMemory())},
+                    {{}, {}},
+                    {{}},
+                    type,
+                    true,
+                    StateMutability::Pure
+            )});
+        }
 
 		members.push_back({
 			"zip",
@@ -5160,8 +5183,18 @@ BoolResult VarInteger::isExplicitlyConvertibleTo(Type const& _convertTo) const {
 	return m_int.isExplicitlyConvertibleTo(_convertTo);
 }
 
+TypeResult VarInteger::unaryOperatorResult(Token _operator) const {
+	if (_operator == Token::Delete)
+		return TypeProvider::emptyTuple();
+	return nullptr;
+}
+
 TypeResult VarInteger::binaryOperatorResult(Token _operator, Type const* _other) const {
-	return m_int.binaryOperatorResult(_operator, _other);
+    TypePointer resultType = m_int.binaryOperatorResult(_operator, _other);
+    if (resultType->isImplicitlyConvertibleTo(*this)) {
+        resultType = this;
+    }
+	return resultType;
 }
 
 std::string VarInteger::toString(bool) const {

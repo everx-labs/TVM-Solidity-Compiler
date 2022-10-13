@@ -124,6 +124,7 @@ static string const g_argTvmOptimize = "tvm-optimize";
 static string const g_argRefreshRemote = "tvm-refresh-remote";
 static string const g_argTvmUnsavedStructs = "tvm-unsaved-structs";
 static string const g_argFunctionIds = "function-ids";
+static string const g_argPrivateFunctionIds = "private-function-ids";
 
 
 static void version()
@@ -302,6 +303,7 @@ Allowed options)",
 		(g_argTvm.c_str(), "Produce TVM assembly (deprecated).")
 		(g_argTvmABI.c_str(), "Produce JSON ABI for contract.")
 		(g_argFunctionIds.c_str(), "Print name and id for each public function.")
+		(g_argPrivateFunctionIds.c_str(), "Print name and id for each private function.")
 		(g_argTvmOptimize.c_str(), "It's deprecated.")
 		(g_argTvmUnsavedStructs.c_str(), "Enable struct usage analyzer.")
 		(g_argRefreshRemote.c_str(), "Force download and rewrite remote import files.");
@@ -445,6 +447,8 @@ bool CommandLineInterface::processInput()
 
 		if (m_args.count(g_argFunctionIds))
 			m_compiler->printFunctionIds();
+        if (m_args.count(g_argPrivateFunctionIds))
+            m_compiler->printPrivateFunctionIds();
 
 		string fileName = m_args[g_argInputFile].as<string>();
 		fileName = boost::filesystem::canonical(fileName).string();

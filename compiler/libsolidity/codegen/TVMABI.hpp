@@ -28,13 +28,14 @@ class StackPusher;
 
 class TVMABI {
 public:
-	static void printFunctionIds(
-		ContractDefinition const& contract,
-		PragmaDirectiveHelper const& pragmaHelper
-	);
 	static Json::Value generateFunctionIdsJson(
 		ContractDefinition const& contract,
 		PragmaDirectiveHelper const& pragmaHelper
+	);
+	static Json::Value generatePrivateFunctionIdsJson(
+			ContractDefinition const& contract,
+			std::vector<ContractDefinition const *> libraries,
+			PragmaDirectiveHelper const& pragmaHelper
 	);
 	static void generateABI(ContractDefinition const* contract,
 							std::vector<PragmaDirective const *> const& pragmaDirectives, std::ostream* out = &std::cout);
@@ -132,12 +133,13 @@ public:
 	// returns pair (functionID, is_manually_overridden)
 	uint32_t calculateConstructorFunctionID();
 	std::pair<uint32_t, bool> calculateFunctionID(const CallableDeclaration *declaration);
+	static uint32_t toHash256(std::string const& str);
 	uint32_t calculateFunctionID(
 		const std::string& name,
 		const std::vector<Type const*>& inputs,
 		const std::vector<VariableDeclaration const*> *outputs
 	);
-	uint32_t calculateFunctionIDWithReason(const CallableDeclaration *funcDef, const ReasonOfOutboundMessage &reason);
+	uint32_t calculateFunctionIDWithReason(const CallableDeclaration *funcDef, const ReasonOfOutboundMessage &reason, bool isLib = false);
 	uint32_t calculateFunctionIDWithReason(
 		const std::string& name,
 		std::vector<Type const*> inputs,

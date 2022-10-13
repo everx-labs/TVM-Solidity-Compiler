@@ -679,7 +679,7 @@ StackPusher::makeAsym(const string& cmd) {
 		return false;
 	};
 
-	Pointer<AsymGen> opcode;
+	Pointer<AsymGen> opcode = nullptr;
 	if (f("CONFIGPARAM")) { opcode = createNode<AsymGen>(cmd); }
 	else if (f("NULLSWAPIF")) { opcode = createNode<AsymGen>(cmd); }
 	else if (f("NULLSWAPIFNOT")) { opcode = createNode<AsymGen>(cmd); }
@@ -787,6 +787,11 @@ void StackPusher::pushSlice(std::string const& data) {
 	solAssert(!m_instructions.empty(), "");
 	m_instructions.back().push_back(genPushSlice(data));
 	change(0, 1);
+}
+
+void StackPusher::pushPrivateFunctionId(FunctionDefinition const& funDef) {
+	std::string funName = ctx().getFunctionInternalName(&funDef, false);
+	push(+1,"PUSHINT $" + funName + "$");
 }
 
 void StackPusher::startContinuation() {
@@ -1782,6 +1787,10 @@ void StackPusher::hardConvert(Type const *leftType, Type const *rightType) {
 			case Type::Category::VarInteger:
 				integerFromInteger(&to<VarInteger>(leftType)->asIntegerType(), r);
 				break;
+			case Type::Category::Function: {
+                m_ctx->setPragmaSaveAllFunctions();
+                break;
+            }
 			case Type::Category::FixedBytes:
 				// do nothing here
 				break;
@@ -2005,6 +2014,12 @@ void StackPusher::checkFit(Type const *type) {
 			break;
 		}
 
+        case Type::Category::VarInteger: {
+            auto varInt = to<VarInteger>(type);
+            checkFit(&varInt->asIntegerType());
+            break;
+        }
+
 		default:
 			solUnimplemented("");
 			break;
@@ -2047,7 +2062,9 @@ void StackPusher::pushCallOrCallRef(
 	FunctionDefinition const* v = m_ctx->getCurrentFunction();
 	bool hasLoop = m_ctx->addAndDoesHaveLoop(v, _to);
 	if (hasLoop) {
-		pushCall(take, ret, functionName);
+        pushPrivateFunctionId(*_to);
+        pushC3();
+        execute(take + 2, ret);
 	} else {
 		pushMacroCallInCallRef(take, ret, functionName + "_macro");
 	}
@@ -2059,11 +2076,11 @@ void StackPusher::pushCall(int take, int ret, const std::string& functionName) {
 	m_instructions.back().push_back(opcode);
 }
 
-void StackPusher::compureConstCell(std::string const& expName) {
+void StackPusher::computeConstCell(std::string const& expName) {
 	pushCellOrSlice(createNode<PushCellOrSlice>(PushCellOrSlice::Type::PUSHREF_COMPUTE, expName, nullptr));
 }
 
-void StackPusher::compureConstSlice(std::string const& expName) {
+void StackPusher::computeConstSlice(std::string const& expName) {
 	pushCellOrSlice(createNode<PushCellOrSlice>(PushCellOrSlice::Type::PUSHREFSLICE_COMPUTE, expName, nullptr));
 }
 
@@ -2551,12 +2568,13 @@ string TVMCompilerContext::getFunctionInternalName(FunctionDefinition const* _fu
 
 	std::string functionName;
 	const std::string hexName = _function->externalIdentifierHex();
-	if (calledByPoint && isBaseFunction(_function)) {
+    if (_function->annotation().contract->isLibrary()) {
+        functionName = getLibFunctionName(_function, calledByPoint);
+    } else if (calledByPoint && isBaseFunction(_function)) {
 		functionName = _function->annotation().contract->name() + "_" + _function->name() + "_" + hexName;
 	} else {
 		functionName = _function->name() + "_" + hexName + "_internal";
 	}
-
 	return functionName;
 }
 
@@ -2606,10 +2624,6 @@ int TVMCompilerContext::getOffsetC4() const {
 		(storeTimestampInC4() ? 64 : 0) +
 		1 + // constructor flag
 		(m_usage.hasAwaitCall() ? 1 : 0);
-}
-
-void TVMCompilerContext::addLib(FunctionDefinition const* f) {
-	m_libFunctions.insert(f);
 }
 
 std::vector<std::pair<VariableDeclaration const*, int>> TVMCompilerContext::getStaticVariables() const {

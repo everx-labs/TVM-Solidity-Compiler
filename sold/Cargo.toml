@@ -1,7 +1,11 @@
 [package]
 edition = '2021'
 name = 'sold'
-version = '0.64.0'
+version = '0.65.0'
+
+[[bin]]
+name = 'sold'
+path = 'src/main.rs'
 
 [dependencies]
 atty = '0.2'
@@ -10,12 +14,12 @@ failure = '0.1'
 once_cell = '1.10'
 serde_json = '1.0'
 strip-ansi-escapes = '0.1.1'
-clap = { features = [ 'derive' ], version = '3.2.*' }
+clap = { features = [ 'derive' ], version = "4.0.9" }
 serde = { features = [ 'derive' ], version = '1.0' }
 ton_abi = { git = 'https://github.com/tonlabs/ton-labs-abi.git', tag = '2.3.7' }
 ton_block = { git = 'https://github.com/tonlabs/ton-labs-block.git', tag = '1.8.3' }
 ton_types = { git = 'https://github.com/tonlabs/ton-labs-types.git', tag = '1.11.4' }
-tvm_linker = { git = 'https://github.com/tonlabs/TVM-linker.git', tag = '0.15.70' }
+tvm_linker = { git = 'https://github.com/tonlabs/TVM-linker.git', tag = '0.18.3' }
 
 [build-dependencies]
 bindgen = '0.60.1'
@@ -24,4 +28,8 @@ cmake = '0.1'
 [dev-dependencies]
 assert_cmd = '2.0.4'
 predicates = '2.1.1'
+
+[lib]
+name = 'sold_lib'
+path = 'src/lib.rs'
 

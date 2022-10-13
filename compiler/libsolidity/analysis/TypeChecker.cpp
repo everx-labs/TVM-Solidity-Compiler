@@ -2512,7 +2512,7 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 		const bool isNewExpression = dynamic_cast<const NewExpression *>(&functionCallOpt->expression()) != nullptr;
 
 		if (isExternalInboundMessage) {
-			arr = {"time", "expire", "call", "sign", "pubkey", "abiVer", "callbackId", "onErrorId", "stateInit","signBoxHandle"};
+			arr = {"time", "expire", "call", "sign", "pubkey", "abiVer", "callbackId", "onErrorId", "stateInit","signBoxHandle", "flags"};
 		} else if (isNewExpression) {
 			arr = {"stateInit", "code", "pubkey", "varInit", "splitDepth", "wid", "value", "currencies", "bounce", "flag"};
 		} else {
@@ -3540,6 +3540,10 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				break;
 			}
 		}
+		if (!funcCallAnno.arguments.has_value()) {
+			// make leak sanitizer silent
+			funcCallAnno.arguments = FuncCallArguments();
+		}
 		funcCallAnno.arguments->targetTypes = paramTypes;
 		funcCallAnno.type = returnTypes.size() == 1 ?
 			returnTypes.front() :
@@ -3614,6 +3618,8 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	int setTime = -1;
 	int setOnError = -1;
     int setSignHandler = -1;
+	int setAbiVer = -1;
+	int setFlags = -1;
 
 	FunctionType::Kind kind = expressionFunctionType->kind();
 	if (
@@ -3648,7 +3654,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	if (isNewExpression)
 		arr = {"stateInit", "code", "pubkey", "varInit", "splitDepth", "wid", "value", "currencies", "bounce", "flag"};
 	else
-		arr = {"time", "expire", "call", "sign",  "pubkey", "abiVer", "callbackId", "onErrorId", "stateInit", "signBoxHandle", "value", "currencies", "bounce", "flag", "callback"};
+		arr = {"time", "expire", "call", "sign",  "pubkey", "abiVer", "callbackId", "onErrorId", "stateInit", "signBoxHandle", "value", "currencies", "bounce", "flag", "callback", "flags"};
 	auto fold = [&](){
 		std::string s;
 		for (size_t i = 0; i < arr.size(); ++i) {
@@ -3684,7 +3690,11 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(32)));
 			setCheckOption(setSignHandler, "signBoxHandle", i);
 		} else if (name == "abiVer") {
-			m_errorReporter.warning(options.at(i)->location(), "It has no effect. Delete \"abiVer\" option.");
+			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(8)));
+			setCheckOption(setAbiVer, "abiVer", i);
+		} else if (name == "flags") {
+			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(8)));
+			setCheckOption(setFlags, "flags", i);
 		} else if (name == "stateInit") {
 			expectType(*options[i], *TypeProvider::optional(TypeProvider::tvmcell()));
 			setCheckOption(setStateInit, "stateInit", i);

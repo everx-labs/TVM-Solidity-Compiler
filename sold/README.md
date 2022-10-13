@@ -10,6 +10,13 @@ cd ./sold
 cargo build --release
 ```
 
+### FreeBSD
+
+```shell
+pkg install boost-libs cmake rust-bindgen
+cargo build --release
+```
+
 ### Windows 11
 
 Install Visual Studio Build Tools, Rust, Git, cmake.

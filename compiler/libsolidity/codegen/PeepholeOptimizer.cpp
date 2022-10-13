@@ -1168,7 +1168,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 	// PUSH S(i-1) or gen(0,1)
 	// CMP2
 	if (isPUSHINT(cmd1) && ((isPUSH2 && *isPUSH2 != 0) || isPureGen01(*cmd2))) {
-		auto newCmd2 = isPUSH(cmd2) ? makePUSH(*isPUSH2 - 1) : cmd2;
+		auto newCmd2 = isPUSH2 ? makePUSH(*isPUSH2 - 1) : cmd2;
 		bigint val = pushintValue(cmd1);
 		if (-128 <= val && val < 128) {
 			if (is(cmd3, "NEQ"))
@@ -1252,6 +1252,22 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 			return Result{3, cmd1, makeBLKPUSH(qty + 1, index)};
 		}
 	}
+
+    //            ; a b
+    // SWAP       ; b a
+    // gen(0, 1)  ; b a c
+    // ROT        ; a c b
+    // =>
+    // gen(0,1)
+    // SWAP
+    if (isSWAP(cmd1)) {
+        std::optional<std::pair<int, int>> rot = isBLKSWAP(cmd3);
+        if (rot && *rot == std::make_pair(1, 2)) {
+            if (isPureGen01(*cmd2)) {
+                return Result{3, cmd2, makeXCH_S(1)};
+            }
+        }
+    }
 
     // TODO delete, fix in stackOpt
 	// Note: breaking stack
@@ -1341,9 +1357,9 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> 
 	) {
 		return Result{4, makePUSHREF(isPlainPushSlice(cmd1)->blob())};
 	}
-	if (isPUSHINT(cmd1) && isPUSHINT(cmd1) && pushintValue(cmd1) == 0 &&
+	if (isPUSHINT(cmd1) && pushintValue(cmd1) == 0 &&
 		is(cmd2, "STUR") &&
-		isPUSHINT(cmd3) && isPUSHINT(cmd3) && pushintValue(cmd3) == 0 &&
+		isPUSHINT(cmd3) && pushintValue(cmd3) == 0 &&
 		is(cmd4, "STUR")
 	) {
 		int bitSize = fetchInt(cmd2) + fetchInt(cmd4);

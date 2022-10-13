@@ -493,7 +493,7 @@ StateMutability Parser::parseStateMutability()
 Parser::FunctionHeaderParserResult Parser::parseFunctionHeader(bool _isStateVariable)
 {
 	RecursionGuard recursionGuard(*this);
-	FunctionHeaderParserResult result;
+	FunctionHeaderParserResult result = {};
 
 	VarDeclParserOptions options;
 	options.allowLocationSpecifier = true;

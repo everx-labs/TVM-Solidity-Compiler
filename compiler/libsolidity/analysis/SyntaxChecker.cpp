@@ -160,6 +160,12 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 			m_errorReporter.syntaxError(_pragma.location(), "Correct format: pragma AbiHeader [time|pubkey|expire]");
 		}
 	}
+	else if (_pragma.literals()[0] == "upgrade")
+    {
+        if (_pragma.literals().size() != 2 || (_pragma.literals()[1] != "func" && _pragma.literals()[1] != "oldsol")) {
+            m_errorReporter.syntaxError(_pragma.location(), R"(Unknown pragma. Use: "pragma upgrade func;" or "pragma upgrade oldsol;")");
+        }
+    }
 	else if (_pragma.literals()[0] == "ignoreIntOverflow")
 	{
 		return true;

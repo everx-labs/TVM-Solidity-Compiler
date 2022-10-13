@@ -69,8 +69,6 @@ public:
 	FunctionDefinition const* afterSignatureCheck() const;
 	bool storeTimestampInC4() const;
 	int getOffsetC4() const;
-	void addLib(FunctionDefinition const* f);
-	std::set<FunctionDefinition const*>& getLibFunctions() { return m_libFunctions; }
 	std::vector<std::pair<VariableDeclaration const*, int>> getStaticVariables() const;
 	void setCurrentFunction(FunctionDefinition const* f) { m_currentFunction = f; }
 	FunctionDefinition const* getCurrentFunction() { return m_currentFunction; }
@@ -101,13 +99,15 @@ public:
 	}
 	std::map<std::string, std::vector<Type const*>> const& buildTuple() const { return m_tuples; }
 
+    bool getPragmaSaveAllFunctions() const { return m_pragmaSaveAllFunctions; }
+    void setPragmaSaveAllFunctions() { m_pragmaSaveAllFunctions = true; }
+
 private:
 	// TODO split to several classes
 	ContractDefinition const* m_contract{};
 	bool ignoreIntOverflow{};
 	PragmaDirectiveHelper const& m_pragmaHelper;
 	std::map<VariableDeclaration const*, int> m_stateVarIndex;
-	std::set<FunctionDefinition const*> m_libFunctions;
 	FunctionDefinition const* m_currentFunction{};
 	std::map<std::string, Pointer<CodeBlock>> m_inlinedFunctions;
 	std::map<FunctionDefinition const*, std::set<FunctionDefinition const*>> graph;
@@ -125,6 +125,7 @@ private:
 	std::set<std::pair<std::string, TupleExpression const*>> m_constArrays;
 	std::set<std::pair<std::string, FunctionCall const*>> m_newArray;
 	std::map<std::string, std::vector<Type const*>> m_tuples;
+    bool m_pragmaSaveAllFunctions{};
 };
 
 class StackPusher {
@@ -165,7 +166,7 @@ private:
 	void pushCellOrSlice(const Pointer<PushCellOrSlice>& opcode);
 public:
 	void pushSlice(std::string const& data);
-
+	void pushPrivateFunctionId(FunctionDefinition const& funDef);
 	void startContinuation();
 private:
 	void endCont(CodeBlock::Type type);
@@ -256,8 +257,8 @@ public:
 	void pushMacroCallInCallRef(int take, int ret, const std::string& fname);
 	void pushCallOrCallRef(const std::string& functionName, FunctionType const* ft, const std::optional<std::pair<int, int>>& deltaStack = std::nullopt);
 	void pushCall(int take, int ret, const std::string& functionName);
-	void compureConstCell(std::string const& expName);
-	void compureConstSlice(std::string const& expName);
+	void computeConstCell(std::string const& expName);
+	void computeConstSlice(std::string const& expName);
 	void drop(int cnt = 1);
 	void blockSwap(int down, int up);
 	void reverse(int qty, int startIndex);

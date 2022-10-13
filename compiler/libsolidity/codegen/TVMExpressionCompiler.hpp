@@ -45,7 +45,7 @@ protected:
 public:
 	void visitHonest(TupleExpression const& _tupleExpression, bool onlyDict);
 protected:
-	bool tryPushConstant(Identifier const& _identifier);
+	bool tryPushConstant(Declaration const* declaration);
 	bool pushLocalOrStateVariable(Identifier const& _identifier);
 
 	void visit2(Identifier const& _identifier);

@@ -140,10 +140,6 @@ public:
 		return m_alwaysReturns || m_alwaysBreak || m_alwaysContinue;
 	}
 
-	bool mayDoThat() const {
-		return m_canReturn || m_canBreak || m_canContinue;
-	}
-
 private:
 	bool startLoop();
 

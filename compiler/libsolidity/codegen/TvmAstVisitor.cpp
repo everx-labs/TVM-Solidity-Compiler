@@ -663,6 +663,7 @@ bool Printer::visit(Contract &_node) {
 bool Printer::visit(Function &_node) {
 	switch (_node.type()) {
 		case Function::FunctionType::PrivateFunction:
+		case Function::FunctionType::PrivateFunctionWithObj:
 			m_out << ".globl\t" << _node.name() << std::endl;
 			m_out << ".type\t" << _node.name() << ", @function" << std::endl;
 			break;

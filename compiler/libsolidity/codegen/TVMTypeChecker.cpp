@@ -235,32 +235,6 @@ bool TVMTypeChecker::visit(IndexRangeAccess const& indexRangeAccess) {
 	return true;
 }
 
-bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
-	auto ft = to<FunctionType>(_functionCall.expression().annotation().type);
-	if (ft) {
-		switch (ft->kind()) {
-			case FunctionType::Kind::TVMBuildExtMsg: {
-				vector<ASTPointer<Expression const>> const& arguments = _functionCall.arguments();
-				vector<ASTPointer<ASTString>> const &argumentNames = _functionCall.names();
-				auto findName = [&](const ASTString& optName) {
-					auto it = std::find_if(argumentNames.begin(), argumentNames.end(),
-										   [&](const ASTPointer<ASTString> &name) {
-											   return *name == optName;
-										   });
-					return it == argumentNames.end()  ? -1 : it - argumentNames.begin();
-				};
-				if (int index = findName("abiVer"); index != -1) {
-					m_errorReporter.warning(arguments.at(index)->location(), "It has no effect. Delete \"abiVer\" option.");
-				}
-				break;
-			}
-			default:
-				break;
-		}
-	}
-	return true;
-}
-
 bool TVMTypeChecker::visit(ContractDefinition const& cd) {
 	contractDefinition = &cd;
 

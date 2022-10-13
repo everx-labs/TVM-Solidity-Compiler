@@ -180,7 +180,17 @@ void TVMContractCompiler::printFunctionIds(
 	ContractDefinition const& contract,
 	PragmaDirectiveHelper const& pragmaHelper
 ) {
-	TVMABI::printFunctionIds(contract, pragmaHelper);
+	Json::Value functionIds = TVMABI::generateFunctionIdsJson(contract, pragmaHelper);
+	cout << functionIds << endl;
+}
+
+void TVMContractCompiler::printPrivateFunctionIds(
+    ContractDefinition const& contract,
+	std::vector<solidity::frontend::ContractDefinition const *> libraries,
+    PragmaDirectiveHelper const& pragmaHelper
+) {
+	Json::Value functionIds = TVMABI::generatePrivateFunctionIdsJson(contract, libraries, pragmaHelper);
+	cout << functionIds << endl;
 }
 
 void TVMContractCompiler::generateABI(
@@ -204,9 +214,10 @@ void TVMContractCompiler::generateABI(
 void TVMContractCompiler::generateCode(
 	const std::string& fileName,
 	ContractDefinition const& contract,
+	std::vector<solidity::frontend::ContractDefinition const *> libraries,
 	PragmaDirectiveHelper const &pragmaHelper
 ) {
-	Pointer<Contract> codeContract = generateContractCode(&contract, pragmaHelper);
+	Pointer<Contract> codeContract = generateContractCode(&contract, libraries, pragmaHelper);
 
     ofstream ofile;
     ofile.open(fileName);
@@ -222,6 +233,7 @@ void TVMContractCompiler::generateCode(
 Pointer<Contract>
 TVMContractCompiler::generateContractCode(
 	ContractDefinition const *contract,
+	std::vector<ContractDefinition const *> libraries,
 	PragmaDirectiveHelper const &pragmaHelper
 ) {
 	std::vector<std::string> pragmas;
@@ -231,6 +243,13 @@ TVMContractCompiler::generateContractCode(
 
 	if (!ctx.isStdlib()) {
 		pragmas.emplace_back(std::string{} + ".version sol " + solidity::frontend::VersionNumber);
+	}
+
+    if (pragmaHelper.hasUpgradeFunc()) {
+        pragmas.emplace_back(".pragma selector-func-solidity");
+    }
+	if (pragmaHelper.hasUpgradeOldSol()) {
+		pragmas.emplace_back(".pragma selector-old-sol");
 	}
 
 	fillInlineFunctions(ctx, contract);
@@ -289,7 +308,7 @@ TVMContractCompiler::generateContractCode(
 				}
 				std::string functionName = ctx.getFunctionInternalName(_function);
 				if (_function->visibility() <= Visibility::Public) {
-					functions.push_back(TVMFunctionCompiler::generatePrivateFunction(ctx, functionName));
+					functions.push_back(TVMFunctionCompiler::generatePrivateFunction(ctx, functionName, _function));
 				}
 				{
 					const std::string macroName = functionName + "_macro";
@@ -344,35 +363,30 @@ TVMContractCompiler::generateContractCode(
 		}
 	}
 
-	map<FunctionDefinition const *, bool> usedFunctions;
-	while (!ctx.getLibFunctions().empty()) {
-		FunctionDefinition const *function = *ctx.getLibFunctions().begin();
-		ctx.getLibFunctions().erase(ctx.getLibFunctions().begin());
-		if (usedFunctions[function]) {
-			continue;
-		}
-		usedFunctions[function] = true;
-		ctx.setCurrentFunction(function);
+	for (ContractDefinition const * lib : libraries) {
+		for (FunctionDefinition const *function : lib->definedFunctions()) {
+			ctx.setCurrentFunction(function);
 
-		if (!function->modifiers().empty()) {
-			cast_error(*function->modifiers().at(0).get(),
-					   "Modifiers for library functions are not supported yet.");
-		}
+			if (!function->modifiers().empty()) {
+				cast_error(*function->modifiers().at(0).get(),
+						   "Modifiers for library functions are not supported yet.");
+			}
 
-		if (!function->parameters().empty()) {
-			{
-				const std::string name = TVMCompilerContext::getLibFunctionName(function, true);
-				functions.emplace_back(TVMFunctionCompiler::generateLibraryFunction(ctx, function, name));
+			if (!function->parameters().empty()) {
+				{
+					const std::string name = TVMCompilerContext::getLibFunctionName(function, true);
+					functions.emplace_back(TVMFunctionCompiler::generateLibraryFunction(ctx, function, name));
+				}
+				{
+					const std::string name = TVMCompilerContext::getLibFunctionName(function, true) + "_macro";
+					functions.emplace_back(TVMFunctionCompiler::generateLibraryFunctionMacro(ctx, function, name));
+				}
 			}
-			{
-				const std::string name = TVMCompilerContext::getLibFunctionName(function, true) + "_macro";
-				functions.emplace_back(TVMFunctionCompiler::generateLibraryFunctionMacro(ctx, function, name));
-			}
+			const std::string name = TVMCompilerContext::getLibFunctionName(function, false);
+			functions.emplace_back(TVMFunctionCompiler::generatePrivateFunction(ctx, name, function));
+			functions.emplace_back(TVMFunctionCompiler::generateMacro(ctx, function, name + "_macro"));
+			ctx.setCurrentFunction(nullptr);
 		}
-		const std::string name = TVMCompilerContext::getLibFunctionName(function, false);
-		functions.emplace_back(TVMFunctionCompiler::generatePrivateFunction(ctx, name));
-		functions.emplace_back(TVMFunctionCompiler::generateMacro(ctx, function, name + "_macro"));
-		ctx.setCurrentFunction(nullptr);
 	}
 
 	std::map<std::string, bool> usedInlineArrays;
@@ -399,6 +413,10 @@ TVMContractCompiler::generateContractCode(
 	if (!ctx.isStdlib()) {
 		functions.emplace_back(TVMFunctionCompiler::generatePublicFunctionSelector(ctx, contract));
 	}
+
+    if (ctx.getPragmaSaveAllFunctions()) {
+        pragmas.emplace_back(".pragma save-all-private-functions");
+    }
 
 	Pointer<Contract> c = createNode<Contract>(pragmas, functions);
 
