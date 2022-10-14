@@ -71,7 +71,7 @@ contract development.
 * [TON specific control structures](#ton-specific-control-structures)
   * [Range-based for loop](#range-based-for-loop)
   * [repeat](#repeat)
-  * [try-catch](#trycatch)
+  * [try-catch](#try-catch)
 * [Changes and extensions in Solidity types](#changes-and-extensions-in-solidity-types)
   * [Integers](#integers)
     * [bitSize() and uBitSize()](#bitsize-and-ubitsize)
