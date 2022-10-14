@@ -393,10 +393,10 @@ pub struct Args {
     #[clap(long, value_parser)]
     pub private_function_ids: bool,
     /// Get AST of all source files in JSON format
-    #[clap(long, value_parser, conflicts_with = "ast-compact-json")]
+    #[clap(long, value_parser, conflicts_with = "ast_compact_json")]
     pub ast_json: bool,
     /// Get AST of all source files in compact JSON format
-    #[clap(long, value_parser, conflicts_with = "ast-json")]
+    #[clap(long, value_parser, conflicts_with = "ast_json")]
     pub ast_compact_json: bool,
     /// Get ABI without actually compiling
     #[clap(long, value_parser)]
