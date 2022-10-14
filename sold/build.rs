@@ -19,19 +19,34 @@ fn main() {
 
     for lib in ["solc", "solidity", "langutil", "solutil"] {
         if cfg!(target_os = "windows") {
-            println!("cargo:rustc-link-search=native={}/build/lib{}/{}", sol2tvm.display(), lib, profile);
+            println!(
+                "cargo:rustc-link-search=native={}/build/lib{}/{}",
+                sol2tvm.display(),
+                lib,
+                profile
+            );
         } else {
-            println!("cargo:rustc-link-search=native={}/build/lib{}", sol2tvm.display(), lib);
+            println!(
+                "cargo:rustc-link-search=native={}/build/lib{}",
+                sol2tvm.display(),
+                lib
+            );
         }
         println!("cargo:rustc-link-lib=static={}", lib);
     }
 
     println!("cargo:rustc-link-search=native={}/lib", sol2tvm.display());
-    println!("cargo:rustc-link-search=native={}/build/deps/lib", sol2tvm.display());
+    println!(
+        "cargo:rustc-link-search=native={}/build/deps/lib",
+        sol2tvm.display()
+    );
 
     if cfg!(target_os = "windows") {
         let path = std::path::PathBuf::from("../compiler/deps/install/win64/lib");
-        println!("cargo:rustc-link-search=native={}", std::fs::canonicalize(path).unwrap().display());
+        println!(
+            "cargo:rustc-link-search=native={}",
+            std::fs::canonicalize(path).unwrap().display()
+        );
     } else if cfg!(target_os = "macos") {
         println!("cargo:rustc-link-search=native=/opt/homebrew/lib");
         println!("cargo:rustc-link-search=native=/usr/local/lib");

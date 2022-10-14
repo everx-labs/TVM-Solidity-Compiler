@@ -29,7 +29,7 @@ unsafe extern "C" fn read_callback(
         .into_owned();
     if kind != "source" {
         *o_error = make_error(format!("Unknown kind \"{}\"", kind));
-        return
+        return;
     }
     let filename = std::ffi::CStr::from_ptr(data)
         .to_string_lossy()
@@ -38,7 +38,7 @@ unsafe extern "C" fn read_callback(
         Ok(f) => f,
         Err(e) => {
             *o_error = make_error(format!("Failed to open file: {}", e));
-            return
+            return;
         }
     };
     let mut buf = vec![];
@@ -63,8 +63,11 @@ pub fn solidity_version() -> String {
 }
 
 fn compile(args: &Args, input: &str) -> Result<serde_json::Value> {
-    let include_paths = args.include_path.iter()
-        .map(|x| format!("\"{}\"", x)).collect::<Vec<_>>()
+    let include_paths = args
+        .include_path
+        .iter()
+        .map(|x| format!("\"{}\"", x))
+        .collect::<Vec<_>>()
         .join(", ");
     let show_function_ids = if args.function_ids {
         ", \"showFunctionIds\""
@@ -84,7 +87,8 @@ fn compile(args: &Args, input: &str) -> Result<serde_json::Value> {
     let force_remote_update = args.tvm_refresh_remote;
     let main_contract = args.contract.clone().unwrap_or_default();
     let input = serde_json::ser::to_string(input)?;
-    let input = format!(r#"
+    let input = format!(
+        r#"
         {{
             "language": "Solidity",
             "settings": {{
@@ -104,7 +108,8 @@ fn compile(args: &Args, input: &str) -> Result<serde_json::Value> {
                 }}
             }}
         }}
-    "#);
+    "#
+    );
     let input_cstring = std::ffi::CString::new(input).expect("Failed to create CString");
     let output = unsafe {
         std::ffi::CStr::from_ptr(libsolc::solidity_compile(
@@ -112,8 +117,8 @@ fn compile(args: &Args, input: &str) -> Result<serde_json::Value> {
             Some(read_callback),
             std::ptr::null_mut(),
         ))
-            .to_string_lossy()
-            .into_owned()
+        .to_string_lossy()
+        .into_owned()
     };
     let res = serde_json::from_str(output.as_str())?;
     Ok(res)
@@ -134,20 +139,20 @@ fn parse_comp_result(
     let res = res.as_object().ok_or_else(|| parse_error!())?;
 
     if let Some(v) = res.get("errors") {
-        let entries = v.as_array()
-            .ok_or_else(|| parse_error!())?;
+        let entries = v.as_array().ok_or_else(|| parse_error!())?;
         let mut severe = false;
         for entry in entries {
-            let entry = entry.as_object()
-                .ok_or_else(|| parse_error!())?;
-            let severity = entry.get("severity")
+            let entry = entry.as_object().ok_or_else(|| parse_error!())?;
+            let severity = entry
+                .get("severity")
                 .ok_or_else(|| parse_error!())?
                 .as_str()
                 .ok_or_else(|| parse_error!())?;
             if severity == "error" {
                 severe = true;
             }
-            let message = entry.get("humanFormattedMessage")
+            let message = entry
+                .get("humanFormattedMessage")
                 .ok_or_else(|| parse_error!())?
                 .as_str()
                 .ok_or_else(|| parse_error!())?;
@@ -176,21 +181,23 @@ fn parse_comp_result(
 
     if let Some(ref contract) = contract {
         if !all.contains_key(contract) {
-            Err(format_err!("Source file doesn't contain the desired contract \"{}\"", contract))
+            Err(format_err!(
+                "Source file doesn't contain the desired contract \"{}\"",
+                contract
+            ))
         } else {
             Ok(all.get(contract).unwrap().clone())
         }
     } else {
-        let mut iter =
-            all.iter().filter(|(_, v)| {
-                if !compile {
-                    true
-                } else if let Some(v) = v.as_object() {
-                    v.get("assembly").is_some()
-                } else {
-                    false
-                }
-            });
+        let mut iter = all.iter().filter(|(_, v)| {
+            if !compile {
+                true
+            } else if let Some(v) = v.as_object() {
+                v.get("assembly").is_some()
+            } else {
+                false
+            }
+        });
         let qualification = if compile { "deployable " } else { "" };
         let entry = iter.next();
         if let Some(entry) = entry {
@@ -200,7 +207,10 @@ fn parse_comp_result(
                 Ok(entry.1.clone())
             }
         } else {
-            Err(format_err!("Source file contains no {}contracts", qualification))
+            Err(format_err!(
+                "Source file contains no {}contracts",
+                qualification
+            ))
         }
     }
 }
@@ -216,12 +226,17 @@ pub fn build(args: Args) -> Status {
 
     if let Some(ref output_prefix) = args.output_prefix {
         if output_prefix.contains(std::path::is_separator) {
-            bail!("Invalid output prefix \"{}\". Use option -O to set output directory", output_prefix);
+            bail!(
+                "Invalid output prefix \"{}\". Use option -O to set output directory",
+                output_prefix
+            );
         }
     }
 
     let input_canonical = dunce::canonicalize(Path::new(&args.input))?;
-    let input = input_canonical.as_os_str().to_str()
+    let input = input_canonical
+        .as_os_str()
+        .to_str()
         .ok_or_else(|| format_err!("Failed to get canonical path"))?;
 
     let input = if cfg!(target_family = "windows") {
@@ -237,20 +252,24 @@ pub fn build(args: Args) -> Status {
         &res,
         &input,
         args.contract,
-        !(args.abi_json || args.ast_json || args.ast_compact_json)
+        !(args.abi_json || args.ast_json || args.ast_compact_json),
     )?;
 
     if args.function_ids {
         println!("{}", serde_json::to_string_pretty(&out["functionIds"])?);
-        return Ok(())
+        return Ok(());
     }
 
     if args.private_function_ids {
-        println!("{}", serde_json::to_string_pretty(&out["privateFunctionIds"])?);
-        return Ok(())
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&out["privateFunctionIds"])?
+        );
+        return Ok(());
     }
 
-    let input_file_stem = input_canonical.file_stem()
+    let input_file_stem = input_canonical
+        .file_stem()
         .ok_or_else(|| format_err!("Failed to extract file stem"))?
         .to_str()
         .ok_or_else(|| format_err!("Failed to get file stem"))?
@@ -259,14 +278,15 @@ pub fn build(args: Args) -> Status {
     let output_tvc = format!("{}.tvc", output_prefix);
 
     if args.ast_json || args.ast_compact_json {
-        let all = res.as_object()
+        let all = res
+            .as_object()
             .ok_or_else(|| parse_error!())?
             .get("sources")
             .ok_or_else(|| parse_error!())?
             .as_object()
             .ok_or_else(|| parse_error!())?;
 
-        let mut array = vec!();
+        let mut array = vec![];
         for (_, val) in all {
             let ast = val
                 .as_object()
@@ -286,7 +306,7 @@ pub fn build(args: Args) -> Status {
             serde_json::to_writer(&mut ast_file, &ast)?;
         }
         writeln!(ast_file)?;
-        return Ok(())
+        return Ok(());
     }
 
     let abi = &out["abi"];
@@ -294,7 +314,7 @@ pub fn build(args: Args) -> Status {
     let mut abi_file = File::create(output_path.join(&abi_file_name))?;
     printer::print_abi_json_canonically(&mut abi_file, abi)?;
     if args.abi_json {
-        return Ok(())
+        return Ok(());
     }
 
     let assembly = out["assembly"]
@@ -308,14 +328,22 @@ pub fn build(args: Args) -> Status {
     let mut inputs = Vec::new();
     if let Some(lib) = args.lib {
         let lib_file = File::open(&lib)?;
-        inputs.push(ParseEngineInput { buf: Box::new(lib_file), name: lib });
+        inputs.push(ParseEngineInput {
+            buf: Box::new(lib_file),
+            name: lib,
+        });
     } else {
-        inputs.push(ParseEngineInput { buf: Box::new(STDLIB), name: String::from("stdlib_sol.tvm") });
+        inputs.push(ParseEngineInput {
+            buf: Box::new(STDLIB),
+            name: String::from("stdlib_sol.tvm"),
+        });
     }
-    inputs.push(ParseEngineInput { buf: Box::new(assembly.as_bytes()), name: format!("{}/{}", output_dir, assembly_file_name) });
+    inputs.push(ParseEngineInput {
+        buf: Box::new(assembly.as_bytes()),
+        name: format!("{}/{}", output_dir, assembly_file_name),
+    });
 
     let mut prog = Program::new(ParseEngine::new_generic(inputs, Some(format!("{}", abi)))?);
-
 
     let output_filename = if output_dir == "." {
         output_tvc
@@ -326,11 +354,7 @@ pub fn build(args: Args) -> Status {
     prog.set_silent(args.silent);
     prog.set_print_code(args.print_code);
 
-    prog.compile_to_file_ex(
-        -1,
-        Some(&output_filename),
-        None,
-    )?;
+    prog.compile_to_file_ex(-1, Some(&output_filename), None)?;
     if !args.print_code {
         let mut dbg_file = File::create(format!("{}/{}.debug.json", output_dir, output_prefix))?;
         serde_json::to_writer_pretty(&mut dbg_file, &prog.dbgmap)?;
