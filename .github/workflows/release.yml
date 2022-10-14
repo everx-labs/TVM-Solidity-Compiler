@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  qa:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: rustfmt, clippy
+          override: true
+
+      - uses: actions/cache@v3
+        continue-on-error: false
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - run: |
+          make qa
+
+  build:
+    needs:
+      - qa
+    runs-on: ${{ matrix.platform.on }}
+    name: ${{ matrix.platform.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { on: ubuntu-20.04, name: linux-amd64, target: x86_64-unknown-linux-musl }
+          - { on: ubuntu-20.04, name: freebsd-amd64, target: x86_64-unknown-freebsd }
+          - { on: macos-11, name: darwin-amd64, target: x86_64-apple-darwin }
+          - { on: macos-11, name: darwin-arm64, target: aarch64-apple-darwin }
+          - { on: windows-2022, name: windows-amd64, target: x86_64-pc-windows-gnu }
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.platform.target }}
+          profile: minimal
+          override: true
+
+      - uses: actions/cache@v3
+        continue-on-error: false
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('Cargo.lock') }}
+
+      - run: |
+          make release
+          tar -czvf sold-${{ github.ref_name }}-${{ matrix.platform.name }}.tar.gz -C release sold*
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: sold-${{  github.ref_name }}-${{ matrix.platform.name }}
+          path: |
+            release/sold*
+
+      - uses: softprops/action-gh-release@v1
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        with:
+          draft: false
+          files: |
+            sold-${{ github.ref_name }}-${{ matrix.platform.name }}.tar.gz
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

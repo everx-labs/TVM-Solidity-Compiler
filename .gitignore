@@ -2,3 +2,5 @@ build/
 sold/target/
 target/
 .idea/
+.deps-ready
+release

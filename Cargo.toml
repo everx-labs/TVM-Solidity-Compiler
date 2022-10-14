@@ -2,3 +2,6 @@
 members = [
     'sold'
 ]
+
+[profile.release]
+strip = true  # Automatically strip symbols from the binary.

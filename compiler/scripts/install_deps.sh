@@ -93,14 +93,14 @@ case $(uname -s) in
             10.15)
                 echo "Installing solidity dependencies on macOS 10.15 Catalina."
                 ;;
-            11.0 | 11.1 | 11.2 | 11.3 | 11.4)
-                echo "Installing solidity dependencies on macOS 11.0 / 11.1 / 11.2 / 11.3 / 11.4 Big Sur."
+            11.*)
+                echo "Installing solidity dependencies on macOS 11.x Big Sur."
                 ;;
             12.*)
                 echo "Installing solidity dependencies on macOS 12 Monterey."
                 ;;
             *)
-                echo "Unsupported macOS version."
+                echo "Unsupported macOS version: $(sw_vers -productVersion)"
                 echo "We only support Mavericks, Yosemite, El Capitan, Sierra, High Sierra, Mojave, Catalina, Big Sur and Monterey."
                 exit 1
                 ;;
@@ -177,7 +177,7 @@ case $(uname -s) in
             Debian*)
                 #Debian
                 . /etc/os-release
-                
+
                 # Install "normal packages"
                 sudo apt-get -y update
                 sudo apt-get -y install \
@@ -254,7 +254,7 @@ case $(uname -s) in
             Ubuntu|LinuxMint)
                 #LinuxMint is a distro on top of Ubuntu.
                 #Ubuntu
-                
+
                 sudo apt-get -y update
                 sudo apt-get -y install \
                     build-essential \
