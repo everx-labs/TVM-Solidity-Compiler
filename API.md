@@ -1805,6 +1805,9 @@ If `bytes`, `string` or `TvmCell` types are used as `KeyType` then `mapping` sto
 only hashes of mapping keys. That's why for these types the `delMin`/`min`/`next` and
 another mapping methods return `uint256` as key (not `bytes`/`string`/`TvmCell`).
 
+If you use mapping as an input or output param, `KeyType` of the mapping can only be of type
+`address` or of `int<M>`/`uint<M>` types with M from 8 to 256.
+
 See example of how to work with mappings:
 
 * [database](https://github.com/tonlabs/samples/blob/master/solidity/13_BankCollector.sol)
