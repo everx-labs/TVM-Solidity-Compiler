@@ -39,7 +39,7 @@ fn test_trivial() -> Status {
         .arg("tests/Trivial.sol")
         .arg("--output-dir")
         .arg("tests")
-        .arg("--print_code")
+        .arg("--print-code")
         .assert()
         .success()
         .stdout(predicate::str::contains("code\":\"te6ccgECDAEAA"));

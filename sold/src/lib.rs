@@ -408,6 +408,6 @@ pub struct Args {
     #[clap(long, value_parser)]
     pub silent: bool,
     /// After ASM compilation do not generate TVC but print the code cell only
-    #[clap(long("print_code"), value_parser)]
+    #[clap(long, value_parser)]
     pub print_code: bool,
 }
