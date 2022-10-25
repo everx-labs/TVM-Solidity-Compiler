@@ -11,8 +11,14 @@
  * limitations under the License.
  */
 
+use std::process::Command;
+
 fn main() {
     println!("cargo:rerun-if-changed=../compiler/");
+    if cfg!(target_os = "windows") {
+        let install_deps = Command::new("cmake").arg("-P").arg("../compiler/scripts/install_deps.cmake").output();
+        assert!(install_deps.is_ok());
+    }
 
     let profile = std::env::var("PROFILE").unwrap();
     let sol2tvm = cmake::Config::new("../compiler").build();
@@ -56,11 +62,11 @@ fn main() {
         println!("cargo:rustc-link-lib=stdc++");
     }
 
-    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
-    bindgen::Builder::default()
-        .header("../compiler/libsolc/libsolc.h")
-        .generate()
-        .expect("Failed to generate bindings")
-        .write_to_file(out.join("bindings.rs"))
-        .expect("Failed to write bindings");
+    // let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    // bindgen::Builder::default()
+    //     .header("../compiler/libsolc/libsolc.h")
+    //     .generate()
+    //     .expect("Failed to generate bindings")
+    //     .write_to_file(out.join("bindings.rs"))
+    //     .expect("Failed to write bindings");
 }

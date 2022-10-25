@@ -2053,7 +2053,7 @@ void StackPusher::pushCallOrCallRef(
 		ret = ft->returnParameterTypes().size();
 	}
 
-	if (boost::ends_with(functionName, "_macro") || functionName == ":onCodeUpgrade") {
+	if (boost::ends_with(functionName, "_macro")) {
 		pushMacroCallInCallRef(take, ret, functionName);
 		return;
 	}
@@ -2061,8 +2061,10 @@ void StackPusher::pushCallOrCallRef(
 	auto _to = to<FunctionDefinition>(&ft->declaration());
 	FunctionDefinition const* v = m_ctx->getCurrentFunction();
 	bool hasLoop = m_ctx->addAndDoesHaveLoop(v, _to);
-	if (hasLoop) {
-        pushPrivateFunctionId(*_to);
+	auto fd = to<FunctionDefinition>(&ft->declaration());
+	const bool isOnCodeUpgrade = fd->name() == "onCodeUpgrade";
+	if (hasLoop || isOnCodeUpgrade) {
+		pushPrivateFunctionId(*_to);
         pushC3();
         execute(take + 2, ret);
 	} else {
@@ -2559,9 +2561,6 @@ string TVMCompilerContext::getFunctionInternalName(FunctionDefinition const* _fu
 	if (isStdlib()) {
 		return _function->name();
 	}
-	if (_function->name() == "onCodeUpgrade") {
-		return ":onCodeUpgrade";
-	}
 	if (_function->isFallback()) {
 		return "fallback";
 	}
@@ -2606,12 +2605,16 @@ bool TVMCompilerContext::ignoreIntegerOverflow() const {
 }
 
 FunctionDefinition const *TVMCompilerContext::afterSignatureCheck() const {
-	for (FunctionDefinition const* f : m_contract->definedFunctions()) {
-		if (f->name() == "afterSignatureCheck") {
-			return f;
+	FunctionDefinition const *res = {};
+	for (ContractDefinition const* c : m_contract->annotation().linearizedBaseContracts) {
+		for (FunctionDefinition const *f: c->definedFunctions()) {
+			if (f->name() == "afterSignatureCheck") {
+				solAssert(res == nullptr, "");
+				res = f;
+			}
 		}
 	}
-	return nullptr;
+	return res;
 }
 
 bool TVMCompilerContext::storeTimestampInC4() const {

@@ -5,6 +5,7 @@ use std::path::Path;
 
 use clap::Parser;
 use failure::{bail, format_err};
+use serde::Deserialize;
 
 use ton_block::Serializable;
 use ton_types::{BagOfCells, Result, Status};
@@ -115,7 +116,9 @@ fn compile(args: &Args, input: &str) -> Result<serde_json::Value> {
             .to_string_lossy()
             .into_owned()
     };
-    let res = serde_json::from_str(output.as_str())?;
+    let mut de = serde_json::Deserializer::from_str(&output);
+    de.disable_recursion_limit(); // ast json part might be considerably nested
+    let res = serde_json::Value::deserialize(&mut de)?;
     Ok(res)
 }
 
@@ -350,7 +353,7 @@ pub fn build(args: Args) -> Status {
         let mut buffer = vec![];
         BagOfCells::with_root(&root_cell).write_to(&mut buffer, false)?;
 
-        let mut file = std::fs::File::create(&output_filename)?;
+        let mut file = File::create(&output_filename)?;
         file.write_all(&buffer)?;
     }
 

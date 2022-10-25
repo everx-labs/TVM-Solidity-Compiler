@@ -52,7 +52,7 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 						m_errorReporter.typeError(
 							f->location(),
 							SecondarySourceLocation().append("Declaration of the function with the same function ID: ", funcId2Decl.at(id)->location()),
-							"Two functions have have the same functionID.");
+							"Two functions have the same functionID.");
 					}
 				} else {
 					funcId2Decl[id] = f;
@@ -187,8 +187,8 @@ bool TVMTypeChecker::visit(const FunctionDefinition &f) {
 	if (f.functionID().has_value() && f.functionID().value() == 0) {
 		m_errorReporter.typeError(f.location(), "functionID can't be equal to zero because this value is reserved for receive function.");
 	}
-	if (f.functionID().has_value() && !f.isPublic()) {
-		m_errorReporter.typeError(f.location(), "Only public/external functions can have functionID.");
+	if (f.functionID().has_value() && (!f.isPublic() && f.name() != "onCodeUpgrade")) {
+		m_errorReporter.typeError(f.location(), "Only public/external functions and function `onCodeUpgrade` can have functionID.");
 	}
 	if (f.functionID().has_value() && (f.isReceive() || f.isFallback() || f.isOnTickTock() || f.isOnBounce())) {
 		m_errorReporter.typeError(f.location(), "functionID isn't supported for receive, fallback, onBounce and onTickTock functions.");

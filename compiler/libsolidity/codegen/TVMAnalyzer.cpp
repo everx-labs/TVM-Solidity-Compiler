@@ -38,11 +38,28 @@ bool TVMAnalyzer::analyze(const SourceUnit &_sourceUnit)
 bool TVMAnalyzer::visit(MemberAccess const& _node) {
 	auto funType = to<FunctionType>(_node.annotation().type);
 	if (funType) {
-		if (funType->bound() && (m_functionCall.empty() || m_functionCall.back()->expression() != _node)) {
-			m_errorReporter.fatalTypeError(
+		if (funType->bound()) {
+			auto printError = [&]{
+				m_errorReporter.fatalTypeError(
 				_node.location(),
-				"Function references are not supported for structures."
-			);
+				"Function references are not supported if the function is called as arg1.fun(arg2, ..., argn)."
+				);
+			};
+
+			if (m_functionCall.empty()) {
+				printError();
+			} else {
+				Expression const& expr = m_functionCall.back()->expression();
+				Expression const* targetExpr{};
+				if (auto opt = dynamic_cast<FunctionCallOptions const*>(&expr)) {
+					targetExpr = &opt->expression();
+				} else {
+					targetExpr = &m_functionCall.back()->expression();
+				}
+				if (*targetExpr != _node) {
+					printError();
+				}
+			}
 		}
 	}
 	return true;

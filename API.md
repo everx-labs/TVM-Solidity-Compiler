@@ -1805,8 +1805,8 @@ If `bytes`, `string` or `TvmCell` types are used as `KeyType` then `mapping` sto
 only hashes of mapping keys. That's why for these types the `delMin`/`min`/`next` and
 another mapping methods return `uint256` as key (not `bytes`/`string`/`TvmCell`).
 
-If you use mapping as an input or output param, `KeyType` of the mapping can only be of type
-`address` or of `int<M>`/`uint<M>` types with M from 8 to 256.
+If you use mapping as an input or output param for public/external functions,
+`KeyType` of the mapping can only be of type `address` or of `int<M>`/`uint<M>` types with M from 8 to 256.
 
 See example of how to work with mappings:
 
@@ -2558,6 +2558,9 @@ function onCodeUpgrade(...) private {
     /*...*/
 }
 ```
+
+Function `onCodeUpgrade` had function id = 2 (for compiler <= 0.65.0). Now, it has another id, but you can set 
+`functionID(2)` in new contracts for the `onCodeUpgrade` to upgrade old ones.
 
 See example of how to upgrade code of the contract:
 
