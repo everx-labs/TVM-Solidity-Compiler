@@ -460,7 +460,8 @@ namespace solidity::frontend
 			OnCodeUpgrade,
 			OnTickTock
 		};
-		Function(int take, int ret, std::string name, FunctionType type, Pointer<CodeBlock> block, FunctionDefinition const* _function = {});
+		Function(int take, int ret, std::string name, FunctionType type, Pointer<CodeBlock> block,
+				 FunctionDefinition const* _function = {});
 		void accept(TvmAstVisitor& _visitor) override;
 		bool operator==(TvmAstNode const&) const override { return false; } // TODO
 		int take() const { return m_take; }

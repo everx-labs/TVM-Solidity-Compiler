@@ -22,6 +22,7 @@
 #include <libsolidity/codegen/TvmAstVisitor.hpp>
 #include <liblangutil/Exceptions.h>
 #include "TVMCommons.hpp"
+#include "TVMABI.hpp"
 
 using namespace solidity::frontend;
 
@@ -661,33 +662,39 @@ bool Printer::visit(Contract &_node) {
 }
 
 bool Printer::visit(Function &_node) {
+	const std::string &funName = _node.name();
 	switch (_node.type()) {
 		case Function::FunctionType::PrivateFunction:
 		case Function::FunctionType::PrivateFunctionWithObj:
-			m_out << ".globl\t" << _node.name() << std::endl;
-			m_out << ".type\t" << _node.name() << ", @function" << std::endl;
+			m_out << ".globl\t" << funName << std::endl;
+			m_out << ".type\t" << funName << ", @function" << std::endl;
 			break;
+		case Function::FunctionType::OnCodeUpgrade: {
+			solAssert(_node.functionDefinition(), "");
+			std::optional<uint32_t> id = _node.functionDefinition()->functionID();
+			if (!id.has_value()) {
+				id = ChainDataEncoder::toHash256(funName) & 0x7FFFFFFFu;
+			}
+			m_out << ".internal-alias " << funName << ", " << *id << std::endl
+				  << ".internal " << funName << std::endl;
+			break;
+		}
 		case Function::FunctionType::Macro:
 		case Function::FunctionType::MacroGetter:
-			m_out << ".macro " << _node.name() << std::endl;
+			m_out << ".macro " << funName << std::endl;
 			break;
 		case Function::FunctionType::MainInternal:
-			solAssert(_node.name() == "main_internal", "");
+			solAssert(funName == "main_internal", "");
 			m_out << ".internal-alias :main_internal, 0" << std::endl
 				<< ".internal :main_internal" << std::endl;
 			break;
 		case Function::FunctionType::MainExternal:
-			solAssert(_node.name() == "main_external", "");
+			solAssert(funName == "main_external", "");
 			m_out << ".internal-alias :main_external, -1" << std::endl
 				  << ".internal :main_external" << std::endl;
 			break;
-		case Function::FunctionType::OnCodeUpgrade:
-			solAssert(_node.name() == "onCodeUpgrade", "");
-			m_out << ".internal-alias :onCodeUpgrade, 2" << std::endl
-				  << ".internal :onCodeUpgrade" << std::endl;
-			break;
 		case Function::FunctionType::OnTickTock:
-			solAssert(_node.name() == "onTickTock", "");
+			solAssert(funName == "onTickTock", "");
 			m_out << ".internal-alias :onTickTock, -2" << std::endl
 				  << ".internal :onTickTock" << std::endl;
 			break;

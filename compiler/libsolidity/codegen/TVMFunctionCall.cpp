@@ -2935,8 +2935,8 @@ bool FunctionCallCompiler::checkLocalFunctionOrLibCall(const Identifier *identif
 		ContractDefinition const* contractDecl= funDecl.annotation().contract;
 		bool isLib = contractDecl->isLibrary();
 		std::string name;
+		auto fd = to<FunctionDefinition>(&funDecl);
 		if (isLib) {
-			auto fd = to<FunctionDefinition>(&funDecl);
 			name = TVMCompilerContext::getLibFunctionName(fd, false);
 		} else {
 			name = m_pusher.ctx().getFunctionInternalName(functionDefinition, false);

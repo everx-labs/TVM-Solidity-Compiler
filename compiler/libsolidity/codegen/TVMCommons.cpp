@@ -463,6 +463,9 @@ ABITypeSize::ABITypeSize(const Type *type) {
 	} else if (to<FunctionType>(type)) {
 		maxBits = 32;
 		maxRefs = 0;
+	} else if (to<TvmSliceType>(type) || to<TvmBuilderType>(type)) {
+		maxBits = 1023;
+		maxRefs = 3;
 	} else {
 		solUnimplemented("Undefined type: " + type->toString());
 	}

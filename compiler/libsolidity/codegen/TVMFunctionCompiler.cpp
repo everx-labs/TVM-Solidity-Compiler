@@ -328,7 +328,9 @@ TVMFunctionCompiler::generateOnCodeUpgrade(TVMCompilerContext& ctx, FunctionDefi
 	pusher.push(0, "COMMIT");
 	pusher._throw("THROW 0");
 	int take = function->parameters().size();
-	return createNode<Function>(take, 0, "onCodeUpgrade", Function::FunctionType::OnCodeUpgrade, pusher.getBlock());
+	const std::string name = ctx.getFunctionInternalName(function, false);
+	return createNode<Function>(take, 0, name, Function::FunctionType::OnCodeUpgrade,
+								pusher.getBlock(), function);
 }
 
 Pointer<Function>

@@ -3622,7 +3622,17 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	int setFlags = -1;
 
 	FunctionType::Kind kind = expressionFunctionType->kind();
+
+	bool isLib = false;
+	if (expressionFunctionType->hasDeclaration()) {
+		if (auto func = dynamic_cast<FunctionDefinition const *>(&expressionFunctionType->declaration())) {
+			if (func->annotation().contract->isLibrary()) {
+				isLib = true;
+			}
+		}
+	}
 	if (
+		!isLib &&
 		kind != FunctionType::Kind::Creation &&
 		kind != FunctionType::Kind::External &&
 		kind != FunctionType::Kind::BareCall &&

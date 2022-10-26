@@ -1,3 +1,13 @@
+### 0.66.0 (2022-10-25)
+
+Bugfixes:
+ * Fixed problem with getting inherited function `afterSignatureCheck`.
+ * Support overloading for function `onCodeUpgrade`.
+
+Breaking change:
+ * Function `onCodeUpgrade` had function id = 2. Now, it has another id, but you can set `functionID(2)` in new 
+contracts  to upgrade old ones.
+
 ### 0.65.0 (2022-10-08)
 
 Compiler features:
