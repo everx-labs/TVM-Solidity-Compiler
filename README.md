@@ -1,10 +1,23 @@
+<meta name="title" content="TON-Solidity-Compiler">
+<meta name="description" content="Solidity compiler for TON Virtual Machine">
+<meta name='keywords' content='compiler, smart-contracts, blockchain, solidity, tvm, everscale, everos, venom-blockchain, venom-developer-program'>
+
 # Sol2TVM Compiler
+
+[![GitHub](https://img.shields.io/github/license/tonlabs/TON-Solidity-Compiler?style=for-the-badge)](./LICENSE)
+[![Everscale](https://custom-icon-badges.demolab.com/badge/-everscale-13173e?style=for-the-badge&logoColor=yellow&logo=everscale)](https://everscale.network/)
 
 Port of the Solidity smart-contract [compiler](https://github.com/ethereum/solidity) generating TVM bytecode for TON blockchain. Please refer to upstream README.md for information on the language itself.
 
 ##  TON Solidity API reference
 
 [API documentation is here](https://github.com/tonlabs/TON-Solidity-Compiler/blob/master/API.md)
+
+## Developer program
+
+<a href="https://github.com/venom-blockchain/developer-program">
+ <img src="https://raw.githubusercontent.com/venom-blockchain/developer-program/main/vf-dev-program.png" alt="Logo" width="366.8" height="146.4">
+</a>
 
 ## Build and Install
 
@@ -60,3 +73,6 @@ TON OS command line tool: [https://github.com/tonlabs/tonos-cli](https://github.
 Example of usage TON OS for working (deploying, calling and etc.) with TON blockchain can be found there: [Write smart contract in Solidity](https://docs.ton.dev/86757ecb2/p/950f8a-write-smart-contract-in-solidity)
 
 Change log: [Changelog_TON.md](https://github.com/tonlabs/TON-Solidity-Compiler/blob/master/Changelog_TON.md)
+
+## License
+[GNU GENERAL PUBLIC LICENSE Version 3](./LICENSE)
