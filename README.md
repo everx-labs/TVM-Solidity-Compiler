@@ -69,3 +69,6 @@ TON OS command line tool: [https://github.com/tonlabs/tonos-cli](https://github.
 Example of usage TON OS for working (deploying, calling and etc.) with TON blockchain can be found there: [Write smart contract in Solidity](https://docs.ton.dev/86757ecb2/p/950f8a-write-smart-contract-in-solidity)
 
 Change log: [Changelog_TON.md](https://github.com/tonlabs/TON-Solidity-Compiler/blob/master/Changelog_TON.md)
+
+## License
+[GNU GENERAL PUBLIC LICENSE Version 3](./LICENSE)
