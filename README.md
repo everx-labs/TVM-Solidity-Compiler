@@ -1,5 +1,8 @@
 # Sol2TVM Compiler
 
+[![GitHub](https://img.shields.io/github/license/tonlabs/TON-Solidity-Compiler?style=for-the-badge)](./LICENSE)
+[![Everscale](https://custom-icon-badges.demolab.com/badge/-everscale-13173e?style=for-the-badge&logoColor=yellow&logo=everscale)](https://everscale.network/)
+
 Port of the Solidity smart-contract [compiler](https://github.com/ethereum/solidity) generating TVM bytecode for TON blockchain. Please refer to upstream README.md for information on the language itself.
 
 ##  TON Solidity API reference
