@@ -6,6 +6,12 @@ Port of the Solidity smart-contract [compiler](https://github.com/ethereum/solid
 
 [API documentation is here](https://github.com/tonlabs/TON-Solidity-Compiler/blob/master/API.md)
 
+## Developer program
+
+<a href="https://github.com/venom-blockchain/developer-program">
+ <img src="https://raw.githubusercontent.com/venom-blockchain/developer-program/main/vf-dev-program.png" alt="Logo" width="366.8" height="146.4">
+</a>
+
 ## Build and Install
 
 Original Instructions about how to build and install the Solidity compiler can be found in the [Solidity documentation](https://solidity.readthedocs.io/en/latest/installing-solidity.html#building-from-source).
