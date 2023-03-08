@@ -1,3 +1,7 @@
+<meta name="title" content="TON-Solidity-Compiler">
+<meta name="description" content="Solidity compiler for TON Virtual Machine">
+<meta name='keywords' content='compiler, smart-contracts, blockchain, solidity, tvm, everscale, everos, venom-blockchain, venom-developer-program'>
+
 # Sol2TVM Compiler
 
 [![GitHub](https://img.shields.io/github/license/tonlabs/TON-Solidity-Compiler?style=for-the-badge)](./LICENSE)
