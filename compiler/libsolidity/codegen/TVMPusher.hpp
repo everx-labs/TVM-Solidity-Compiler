@@ -295,8 +295,8 @@ public:
 		const DecodeType& decodeType,
 		bool saveOrigKeyAndNoTuple = false
 	);
-	static TypePointer parseIndexType(Type const* type);
-	static TypePointer parseValueType(IndexAccess const& indexAccess);
+	static Type const* parseIndexType(Type const* type);
+	static Type const* parseValueType(IndexAccess const& indexAccess);
 
 	void setDict(
 		Type const &keyType,

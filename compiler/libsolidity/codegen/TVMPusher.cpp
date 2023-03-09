@@ -1255,7 +1255,7 @@ bool StackPusher::fastLoad(const Type* type) {
 		}
 		case Type::Category::Array: {
 			auto arrayType = to<ArrayType>(type);
-			if (arrayType->isByteArray()) {
+			if (arrayType->isByteArrayOrString()) {
 				push(-1 + 2, "LDREF");
 				return true;
 			} else {
@@ -1333,7 +1333,7 @@ void StackPusher::preload(const Type *type) {
 		}
 		case Type::Category::Array: {
 			auto arrayType = to<ArrayType>(type);
-			if (arrayType->isByteArray()) {
+			if (arrayType->isByteArrayOrString()) {
 				push(0, "PLDREF");
 			} else {
 				push(-1 + 2, "LDU 32");
@@ -1420,7 +1420,7 @@ void StackPusher::loadQ(const Type *type) {
 		}
 		case Type::Category::Array: {
 			auto arrayType = to<ArrayType>(type);
-			if (arrayType->isByteArray()) {
+			if (arrayType->isByteArrayOrString()) {
 				decodeRef();
 			} else {
 				pushAsym("LDUQ 32");
@@ -1577,7 +1577,7 @@ void StackPusher::store(
 			break;
 		case Type::Category::Array: {
 			auto arrayType = to<ArrayType>(type);
-			if (arrayType->isByteArray()) {
+			if (arrayType->isByteArrayOrString()) {
 				push(-1, reverse? "STREFR" : "STREF"); // builder
 			} else {
 				if (!reverse) {
@@ -1682,9 +1682,13 @@ void StackPusher::hardConvert(Type const *leftType, Type const *rightType) {
 			checkFit(l);
 	};
 
-	auto integerFromInteger = [this, impl](IntegerType const* l, IntegerType const* /*r*/) {
-		if (!impl)
-			checkFit(l);
+	auto integerFromInteger = [this, impl](IntegerType const* l, IntegerType const* r) {
+		if (!impl) {
+			bool canConvert = l->numBits() > r->numBits() && l->isSigned() && !r->isSigned();
+			if (!canConvert) {
+				checkFit(l);
+			}
+		}
 	};
 
 	auto fixedPointFromInteger = [this, impl](FixedPointType const* l, IntegerType const* /*r*/) {
@@ -1804,8 +1808,8 @@ void StackPusher::hardConvert(Type const *leftType, Type const *rightType) {
 	};
 
 	auto tupleFromTuple = [&](TupleType const* leftType, TupleType const* rightType) {
-		std::vector<TypePointer> const& lc = leftType->components();
-		std::vector<TypePointer> const& rc = rightType->components();
+		std::vector<Type const*> const& lc = leftType->components();
+		std::vector<Type const*> const& rc = rightType->components();
 		solAssert(lc.size() == rc.size(), "");
 		int n = lc.size();
 		for (int i = n - 1; 0 <= i; --i) {
@@ -1874,7 +1878,7 @@ void StackPusher::hardConvert(Type const *leftType, Type const *rightType) {
 				}
 				case Type::Category::Array: {
 					auto stringType = to<ArrayType>(leftType);
-					solAssert(stringType->isByteArray(), "");
+					solAssert(stringType->isByteArrayOrString(), "");
 					push(+1, "NEWC");
 					push(-2 + 1, "STU " + toString(8 * r->numBytes()));
 					push(0, "ENDC");
@@ -1889,7 +1893,7 @@ void StackPusher::hardConvert(Type const *leftType, Type const *rightType) {
 
 		case Type::Category::Array: {
 			auto r = to<ArrayType>(rightType);
-			if (!r->isByteArray()) {
+			if (!r->isByteArrayOrString()) {
 				break;
 			}
 			// bytes or string
@@ -2139,7 +2143,7 @@ void StackPusher::rotRev() {
 	push(makeROTREV());
 }
 
-TypePointer StackPusher::parseIndexType(Type const *type) {
+Type const* StackPusher::parseIndexType(Type const *type) {
 	if (to<ArrayType>(type)) {
 		return TypeProvider::uint(32);
 	}
@@ -2152,7 +2156,7 @@ TypePointer StackPusher::parseIndexType(Type const *type) {
 	solUnimplemented("");
 }
 
-TypePointer StackPusher::parseValueType(IndexAccess const &indexAccess) {
+Type const* StackPusher::parseValueType(IndexAccess const &indexAccess) {
 	if (auto currencyType = to<ExtraCurrencyCollectionType>(indexAccess.baseExpression().annotation().type)) {
 		return currencyType->realValueType();
 	}
@@ -2439,7 +2443,7 @@ int TVMStack::size() const {
 void TVMStack::change(int diff) {
 	if (diff != 0) {
 		m_size += diff;
-		solAssert(m_size >= 0, "");
+		solAssert(m_size >= 0, "TVMStack::change");
 	}
 }
 
@@ -2586,7 +2590,7 @@ string TVMCompilerContext::getLibFunctionName(FunctionDefinition const* _functio
 
 string TVMCompilerContext::getFunctionExternalName(FunctionDefinition const *_function) {
 	const string& fname = _function->name();
-	solAssert(_function->isPublic(), "Internal error: expected public function: " + fname);
+	solAssert(_function->functionIsExternallyVisible(), "Internal error: expected public function: " + fname);
 	if (_function->isConstructor()) {
 		return "constructor";
 	}
@@ -2729,7 +2733,7 @@ void StackPusher::pushDefaultValue(Type const* type) {
 			break;
 		case Type::Category::Array:
 		case Type::Category::TvmCell:
-			if (cat == Type::Category::TvmCell || to<ArrayType>(type)->isByteArray()) {
+			if (cat == Type::Category::TvmCell || to<ArrayType>(type)->isByteArrayOrString()) {
 				pushEmptyCell();
 				break;
 			}

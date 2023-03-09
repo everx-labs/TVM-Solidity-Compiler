@@ -48,12 +48,12 @@ std::string functionName(FunctionDefinition const *_function) {
 }
 
 void cast_error(const ASTNode &node, const string &error_message) {
-	GlobalParams::g_errorReporter->fatalParserError(node.location(), error_message);
+	GlobalParams::g_errorReporter->fatalParserError(228_error, node.location(), error_message);
 	BOOST_THROW_EXCEPTION(FatalError()); // never throw, just for [[noreturn]]
 }
 
 void fatal_error(const string &error_message) {
-	GlobalParams::g_errorReporter->error(Error::Type::TypeError, SourceLocation(), error_message);
+	GlobalParams::g_errorReporter->error(228_error, Error::Type::TypeError, SourceLocation(), error_message);
 	BOOST_THROW_EXCEPTION(FatalError()); // never throw, just for [[noreturn]]
 }
 
@@ -85,12 +85,12 @@ bool isAddressOrContractType(const Type *type) {
 
 bool isUsualArray(const Type *type) {
 	auto arrayType = to<ArrayType>(type);
-	return arrayType && !arrayType->isByteArray();
+	return arrayType && !arrayType->isByteArrayOrString();
 }
 
 bool isByteArrayOrString(const Type *type) {
 	auto arrayType = to<ArrayType>(type);
-	return arrayType && arrayType->isByteArray();
+	return arrayType && arrayType->isByteArrayOrString();
 }
 
 bool isString(const Type *type) {
@@ -139,7 +139,7 @@ bool isIntegralType(const Type *type) {
 
 bool isStringOrStringLiteralOrBytes(const Type *type) {
 	auto arrayType = to<ArrayType>(type);
-	return type->category() == Type::Category::StringLiteral || (arrayType && arrayType->isByteArray());
+	return type->category() == Type::Category::StringLiteral || (arrayType && arrayType->isByteArrayOrString());
 }
 
 std::string typeToDictChar(Type const *keyType) {
@@ -339,7 +339,7 @@ getTupleTypes(TupleType const* tuple) {
 	std::vector<std::string> names;
 	std::vector<Type const*> types;
 	int i = 0;
-	for (const TypePointer& comp : tuple->components()) {
+	for (Type const* comp : tuple->components()) {
 		types.emplace_back(comp);
 		names.emplace_back(to_string(i));
 
@@ -422,7 +422,7 @@ ABITypeSize::ABITypeSize(const Type *type) {
 		maxBits = varInt->maxBitSizeInCell();
 		maxRefs = 0;
 	} else if (auto arrayType = to<ArrayType>(type)) {
-		if (arrayType->isByteArray()) {
+		if (arrayType->isByteArrayOrString()) {
 			maxBits = 0;
 			maxRefs = 1;
 		} else {
@@ -664,7 +664,7 @@ std::optional<bigint> ExprUtils::constValue(const Expression &_e) {
 		return {};
 	};
 
-	if (_e.annotation().isPure) {
+	if (*_e.annotation().isPure) {
 		if (auto ident = to<Identifier>(&_e)) {
 			IdentifierAnnotation &identifierAnnotation = ident->annotation();
 			const auto *vd = to<VariableDeclaration>(identifierAnnotation.referencedDeclaration);
@@ -672,7 +672,7 @@ std::optional<bigint> ExprUtils::constValue(const Expression &_e) {
 		} else if (_e.annotation().type->category() == Type::Category::RationalNumber) {
 			auto number = dynamic_cast<RationalNumberType const *>(_e.annotation().type);
 			solAssert(number, "");
-			bigint val = number->value();
+			bigint val = number->value2();
 			return val;
 		}
 	} else {

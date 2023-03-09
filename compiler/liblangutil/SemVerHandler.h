@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 /**
  * @author Christian <chris@ethereum.org>
  * @date 2016
@@ -23,13 +24,17 @@
 #pragma once
 
 #include <liblangutil/Token.h>
+#include <libsolutil/Assertions.h>
+
 #include <string>
+#include <optional>
+#include <utility>
 #include <vector>
 
 namespace solidity::langutil
 {
 
-class SemVerError: util::Exception
+class SemVerError: public util::Exception
 {
 };
 
@@ -80,10 +85,10 @@ struct SemVerMatchExpression
 class SemVerMatchExpressionParser
 {
 public:
-	SemVerMatchExpressionParser(std::vector<Token> const& _tokens, std::vector<std::string> const& _literals):
-		m_tokens(_tokens), m_literals(_literals)
-	{}
-	SemVerMatchExpression parse();
+	SemVerMatchExpressionParser(std::vector<Token> _tokens, std::vector<std::string> _literals);
+
+	/// Returns an expression if it was parseable, or nothing otherwise.
+	std::optional<SemVerMatchExpression> parse();
 
 private:
 	void reset();

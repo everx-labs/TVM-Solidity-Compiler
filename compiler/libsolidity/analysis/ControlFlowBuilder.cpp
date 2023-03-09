@@ -14,32 +14,38 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 
 #include <libsolidity/analysis/ControlFlowBuilder.h>
+#include <libsolidity/ast/ASTUtils.h>
 
 using namespace solidity;
 using namespace solidity::langutil;
 using namespace solidity::frontend;
 using namespace std;
 
-ControlFlowBuilder::ControlFlowBuilder(CFG::NodeContainer& _nodeContainer, FunctionFlow const& _functionFlow):
+ControlFlowBuilder::ControlFlowBuilder(CFG::NodeContainer& _nodeContainer, FunctionFlow const& _functionFlow, ContractDefinition const* _contract):
 	m_nodeContainer(_nodeContainer),
 	m_currentNode(_functionFlow.entry),
 	m_returnNode(_functionFlow.exit),
-	m_revertNode(_functionFlow.revert)
+	m_revertNode(_functionFlow.revert),
+	m_contract(_contract)
 {
 }
 
+
 unique_ptr<FunctionFlow> ControlFlowBuilder::createFunctionFlow(
 	CFG::NodeContainer& _nodeContainer,
-	FunctionDefinition const& _function
+	FunctionDefinition const& _function,
+	ContractDefinition const* _contract
 )
 {
 	auto functionFlow = make_unique<FunctionFlow>();
 	functionFlow->entry = _nodeContainer.newNode();
 	functionFlow->exit = _nodeContainer.newNode();
 	functionFlow->revert = _nodeContainer.newNode();
-	ControlFlowBuilder builder(_nodeContainer, *functionFlow);
+	functionFlow->transactionReturn = _nodeContainer.newNode();
+	ControlFlowBuilder builder(_nodeContainer, *functionFlow, _contract);
 	builder.appendControlFlow(_function);
 
 	return functionFlow;
@@ -130,17 +136,17 @@ bool ControlFlowBuilder::visit(ForStatement const& _forStatement)
 	if (_forStatement.condition())
 		appendControlFlow(*_forStatement.condition());
 
-	auto loopExpression = newLabel();
+	auto postPart = newLabel();
 	auto nodes = splitFlow<2>();
 	auto afterFor = nodes[1];
 	m_currentNode = nodes[0];
 
 	{
-		BreakContinueScope scope(*this, afterFor, loopExpression);
+		BreakContinueScope scope(*this, afterFor, postPart);
 		appendControlFlow(_forStatement.body());
 	}
 
-	placeAndConnectLabel(loopExpression);
+	placeAndConnectLabel(postPart);
 
 	if (auto expression = _forStatement.loopExpression())
 		appendControlFlow(*expression);
@@ -267,6 +273,16 @@ bool ControlFlowBuilder::visit(Throw const& _throw)
 	return false;
 }
 
+bool ControlFlowBuilder::visit(RevertStatement const& _revert)
+{
+	solAssert(!!m_currentNode, "");
+	solAssert(!!m_revertNode, "");
+	visitNode(_revert);
+	connect(m_currentNode, m_revertNode);
+	m_currentNode = newLabel();
+	return false;
+}
+
 bool ControlFlowBuilder::visit(PlaceholderStatement const&)
 {
 	solAssert(!!m_currentNode, "");
@@ -281,6 +297,7 @@ bool ControlFlowBuilder::visit(PlaceholderStatement const&)
 
 bool ControlFlowBuilder::visit(FunctionCall const& _functionCall)
 {
+	solAssert(!!m_revertNode, "");
 	solAssert(!!m_currentNode, "");
 	solAssert(!!_functionCall.expression().annotation().type, "");
 
@@ -288,24 +305,43 @@ bool ControlFlowBuilder::visit(FunctionCall const& _functionCall)
 		switch (functionType->kind())
 		{
 			case FunctionType::Kind::Revert:
-				solAssert(!!m_revertNode, "");
 				visitNode(_functionCall);
 				_functionCall.expression().accept(*this);
 				ASTNode::listAccept(_functionCall.arguments(), *this);
+
 				connect(m_currentNode, m_revertNode);
+
 				m_currentNode = newLabel();
 				return false;
 			case FunctionType::Kind::Require:
 			case FunctionType::Kind::Assert:
 			{
-				solAssert(!!m_revertNode, "");
 				visitNode(_functionCall);
 				_functionCall.expression().accept(*this);
 				ASTNode::listAccept(_functionCall.arguments(), *this);
+
 				connect(m_currentNode, m_revertNode);
+
 				auto nextNode = newLabel();
+
 				connect(m_currentNode, nextNode);
 				m_currentNode = nextNode;
+				return false;
+			}
+			case FunctionType::Kind::Internal:
+			{
+				visitNode(_functionCall);
+				_functionCall.expression().accept(*this);
+				ASTNode::listAccept(_functionCall.arguments(), *this);
+
+				solAssert(!m_currentNode->functionCall);
+				m_currentNode->functionCall = &_functionCall;
+
+				auto nextNode = newLabel();
+
+				connect(m_currentNode, nextNode);
+				m_currentNode = nextNode;
+
 				return false;
 			}
 			default:
@@ -321,10 +357,22 @@ bool ControlFlowBuilder::visit(ModifierInvocation const& _modifierInvocation)
 			appendControlFlow(*argument);
 
 	auto modifierDefinition = dynamic_cast<ModifierDefinition const*>(
-		_modifierInvocation.name()->annotation().referencedDeclaration
+		_modifierInvocation.name().annotation().referencedDeclaration
 	);
-	if (!modifierDefinition) return false;
-	solAssert(!!modifierDefinition, "");
+
+	if (!modifierDefinition)
+		return false;
+
+	VirtualLookup const& requiredLookup = *_modifierInvocation.name().annotation().requiredLookup;
+
+	if (requiredLookup == VirtualLookup::Virtual)
+		modifierDefinition = &modifierDefinition->resolveVirtual(*m_contract);
+	else
+		solAssert(requiredLookup == VirtualLookup::Static);
+
+	if (!modifierDefinition->isImplemented())
+		return false;
+
 	solAssert(!!m_returnNode, "");
 
 	m_placeholderEntry = newLabel();
@@ -352,14 +400,13 @@ bool ControlFlowBuilder::visit(FunctionDefinition const& _functionDefinition)
 		appendControlFlow(*returnParameter);
 		m_returnNode->variableOccurrences.emplace_back(
 			*returnParameter,
-			VariableOccurrence::Kind::Return,
-			nullptr
+			VariableOccurrence::Kind::Return
 		);
 
 	}
 
-	for (auto const& modifier: _functionDefinition.modifiers())
-		appendControlFlow(*modifier);
+	for (auto const& modifierInvocation: _functionDefinition.modifiers())
+		appendControlFlow(*modifierInvocation);
 
 	appendControlFlow(_functionDefinition.body());
 
@@ -382,7 +429,7 @@ bool ControlFlowBuilder::visit(Return const& _return)
 			m_currentNode->variableOccurrences.emplace_back(
 				*returnParameter,
 				VariableOccurrence::Kind::Assignment,
-				&_return
+				_return.location()
 			);
 	}
 	connect(m_currentNode, m_returnNode);
@@ -411,8 +458,7 @@ bool ControlFlowBuilder::visit(VariableDeclaration const& _variableDeclaration)
 
 	m_currentNode->variableOccurrences.emplace_back(
 		_variableDeclaration,
-		VariableOccurrence::Kind::Declaration,
-		nullptr
+		VariableOccurrence::Kind::Declaration
 	);
 
 	// Handle declaration with immediate assignment.
@@ -420,14 +466,13 @@ bool ControlFlowBuilder::visit(VariableDeclaration const& _variableDeclaration)
 		m_currentNode->variableOccurrences.emplace_back(
 			_variableDeclaration,
 			VariableOccurrence::Kind::Assignment,
-			_variableDeclaration.value().get()
+			_variableDeclaration.value()->location()
 		);
 	// Function arguments are considered to be immediately assigned as well (they are "externally assigned").
 	else if (_variableDeclaration.isCallableOrCatchParameter() && !_variableDeclaration.isReturnParameter())
 		m_currentNode->variableOccurrences.emplace_back(
 			_variableDeclaration,
-			VariableOccurrence::Kind::Assignment,
-			nullptr
+			VariableOccurrence::Kind::Assignment
 		);
 	return true;
 }
@@ -453,15 +498,11 @@ bool ControlFlowBuilder::visit(VariableDeclarationStatement const& _variableDecl
 						solAssert(tupleExpression->components().size() > i, "");
 						expression = tupleExpression->components()[i].get();
 					}
-				while (auto tupleExpression = dynamic_cast<TupleExpression const*>(expression))
-					if (tupleExpression->components().size() == 1)
-						expression = tupleExpression->components().front().get();
-					else
-						break;
+				expression = resolveOuterUnaryTuples(expression);
 				m_currentNode->variableOccurrences.emplace_back(
 					*var,
 					VariableOccurrence::Kind::Assignment,
-					expression
+					expression ? std::make_optional(expression->location()) : std::optional<langutil::SourceLocation>{}
 				);
 			}
 	}
@@ -476,10 +517,10 @@ bool ControlFlowBuilder::visit(Identifier const& _identifier)
 	if (auto const* variableDeclaration = dynamic_cast<VariableDeclaration const*>(_identifier.annotation().referencedDeclaration))
 		m_currentNode->variableOccurrences.emplace_back(
 			*variableDeclaration,
-			static_cast<Expression const&>(_identifier).annotation().lValueRequested ?
+			static_cast<Expression const&>(_identifier).annotation().willBeWrittenTo ?
 			VariableOccurrence::Kind::Assignment :
 			VariableOccurrence::Kind::Access,
-			&_identifier
+			_identifier.location()
 		);
 
 	return true;

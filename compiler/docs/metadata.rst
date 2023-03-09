@@ -1,3 +1,5 @@
+.. _metadata:
+
 #################
 Contract Metadata
 #################
@@ -19,9 +21,12 @@ the :ref:`Standard JSON Interface<compiler-api>`.
 
 You have to publish the metadata file to IPFS, Swarm, or another service so
 that others can access it. You create the file by using the ``solc --metadata``
-command that generates a file called ``ContractName_meta.json``. It contains
-IPFS and Swarm references to the source code, so you have to upload all source
-files and the metadata file.
+command together with the ``--output-dir`` parameter. Without the parameter,
+the metadata will be written to standard output.
+The metadata contains IPFS and Swarm references to the source code, so you have to
+upload all source files in addition to the metadata file. For IPFS, the hash contained
+in the CID returned by ``ipfs add`` (not the direct sha2-256 hash of the file)
+shall match with the one contained in the bytecode.
 
 The metadata file has the following format. The example below is presented in a
 human-readable way. Properly formatted metadata should use quotes correctly,
@@ -29,32 +34,34 @@ reduce whitespace to a minimum and sort the keys of all objects to arrive at a
 unique formatting. Comments are not permitted and used here only for
 explanatory purposes.
 
-.. code-block:: none
+.. code-block:: javascript
 
     {
       // Required: The version of the metadata format
-      version: "1",
+      "version": "1",
       // Required: Source code language, basically selects a "sub-version"
       // of the specification
-      language: "Solidity",
+      "language": "Solidity",
       // Required: Details about the compiler, contents are specific
       // to the language.
-      compiler: {
+      "compiler": {
         // Required for Solidity: Version of the compiler
-        version: "0.4.6+commit.2dabbdf0.Emscripten.clang",
+        "version": "0.8.2+commit.661d1103",
         // Optional: Hash of the compiler binary which produced this output
-        keccak256: "0x123..."
+        "keccak256": "0x123..."
       },
-      // Required: Compilation source files/source units, keys are file names
-      sources:
+      // Required: Compilation source files/source units, keys are file paths
+      "sources":
       {
-        "myFile.sol": {
+        "myDirectory/myFile.sol": {
           // Required: keccak256 hash of the source file
           "keccak256": "0x123...",
           // Required (unless "content" is used, see below): Sorted URL(s)
-          // to the source file, protocol is more or less arbitrary, but a
-          // Swarm URL is recommended
-          "urls": [ "bzzr://56ab..." ]
+          // to the source file, protocol is more or less arbitrary, but an
+          // IPFS URL is recommended
+          "urls": [ "bzz-raw://7d7a...", "dweb:/ipfs/QmN..." ],
+          // Optional: SPDX license identifier as given in the source file
+          "license": "MIT"
         },
         "destructible": {
           // Required: keccak256 hash of the source file
@@ -64,53 +71,113 @@ explanatory purposes.
         }
       },
       // Required: Compiler settings
-      settings:
+      "settings":
       {
-        // Required for Solidity: Sorted list of remappings
-        remappings: [ ":g=/dir" ],
+        // Required for Solidity: Sorted list of import remappings
+        "remappings": [ ":g=/dir" ],
         // Optional: Optimizer settings. The fields "enabled" and "runs" are deprecated
         // and are only given for backwards-compatibility.
-        optimizer: {
-          enabled: true,
-          runs: 500,
-          details: {
+        "optimizer": {
+          "enabled": true,
+          "runs": 500,
+          "details": {
             // peephole defaults to "true"
-            peephole: true,
+            "peephole": true,
+            // inliner defaults to "true"
+            "inliner": true,
             // jumpdestRemover defaults to "true"
-            jumpdestRemover: true,
-            orderLiterals: false,
-            deduplicate: false,
-            cse: false,
-            constantOptimizer: false,
-            yul: false,
-            yulDetails: {}
+            "jumpdestRemover": true,
+            "orderLiterals": false,
+            "deduplicate": false,
+            "cse": false,
+            "constantOptimizer": false,
+            "yul": true,
+            // Optional: Only present if "yul" is "true"
+            "yulDetails": {
+              "stackAllocation": false,
+              "optimizerSteps": "dhfoDgvulfnTUtnIf..."
+            }
           }
         },
-        metadata: {
-          // Reflects the setting used in the input json, defaults to false
-          useLiteralContent: true,
+        "metadata": {
+          // Reflects the setting used in the input json, defaults to "false"
+          "useLiteralContent": true,
           // Reflects the setting used in the input json, defaults to "ipfs"
-          bytecodeHash: "ipfs"
-        }
-        // Required for Solidity: File and name of the contract or library this
+          "bytecodeHash": "ipfs"
+        },
+        // Required for Solidity: File path and the name of the contract or library this
         // metadata is created for.
-        compilationTarget: {
-          "myFile.sol": "MyContract"
+        "compilationTarget": {
+          "myDirectory/myFile.sol": "MyContract"
         },
         // Required for Solidity: Addresses for libraries used
-        libraries: {
+        "libraries": {
           "MyLib": "0x123123..."
         }
       },
       // Required: Generated information about the contract.
-      output:
+      "output":
       {
-        // Required: ABI definition of the contract
-        abi: [ ... ],
+        // Required: ABI definition of the contract. See "Contract ABI Specification"
+        "abi": [/* ... */],
+        // Required: NatSpec developer documentation of the contract.
+        "devdoc": {
+          "version": 1 // NatSpec version
+          "kind": "dev",
+          // Contents of the @author NatSpec field of the contract
+          "author": "John Doe",
+          // Contents of the @title NatSpec field of the contract
+          "title": "MyERC20: an example ERC20"
+          // Contents of the @dev NatSpec field of the contract
+          "details": "Interface of the ERC20 standard as defined in the EIP. See https://eips.ethereum.org/EIPS/eip-20 for details",
+          "methods": {
+            "transfer(address,uint256)": {
+              // Contents of the @dev NatSpec field of the method
+              "details": "Returns a boolean value indicating whether the operation succeeded. Must be called by the token holder address",
+              // Contents of the @param NatSpec fields of the method
+              "params": {
+                "_value": "The amount tokens to be transferred",
+                "_to": "The receiver address"
+              }
+              // Contents of the @return NatSpec field.
+              "returns": {
+                // Return var name (here "success") if exists. "_0" as key if return var is unnamed
+                "success": "a boolean value indicating whether the operation succeeded"
+              }
+            }
+          },
+          "stateVariables": {
+            "owner": {
+              // Contents of the @dev NatSpec field of the state variable
+              "details": "Must be set during contract creation. Can then only be changed by the owner"
+            }
+          }
+          "events": {
+             "Transfer(address,address,uint256)": {
+               "details": "Emitted when `value` tokens are moved from one account (`from`) toanother (`to`)."
+               "params": {
+                 "from": "The sender address"
+                 "to": "The receiver address"
+                 "value": "The token amount"
+               }
+             }
+          }
+        },
         // Required: NatSpec user documentation of the contract
-        userdoc: [ ... ],
-        // Required: NatSpec developer documentation of the contract
-        devdoc: [ ... ],
+        "userdoc": {
+          "version": 1 // NatSpec version
+          "kind": "user",
+          "methods": {
+            "transfer(address,uint256)": {
+              "notice": "Transfers `_value` tokens to address `_to`"
+            }
+          },
+          "events": {
+            "Transfer(address,address,uint256)": {
+              "notice": "`_value` tokens have been moved from `from` to `to`"
+            }
+          }
+        }
       }
     }
 
@@ -137,7 +204,9 @@ the mapping ``{"ipfs": <IPFS hash>, "solc": <compiler version>}`` is stored
 contain more keys (see below) and the beginning of that
 encoding is not easy to find, its length is added in a two-byte big-endian
 encoding. The current version of the Solidity compiler usually adds the following
-to the end of the deployed bytecode::
+to the end of the deployed bytecode
+
+.. code-block:: text
 
     0xa2
     0x64 'i' 'p' 'f' 's' 0x58 0x22 <34 bytes IPFS hash>
@@ -145,7 +214,7 @@ to the end of the deployed bytecode::
     0x00 0x33
 
 So in order to retrieve the data, the end of the deployed bytecode can be checked
-to match that pattern and use the IPFS hash to retrieve the file.
+to match that pattern and the IPFS hash can be used to retrieve the file (if pinned/published).
 
 Whereas release builds of solc use a 3 byte encoding of the version as shown
 above (one byte each for major, minor and patch version number), prerelease builds
@@ -169,14 +238,15 @@ Usage for Automatic Interface Generation and NatSpec
 ====================================================
 
 The metadata is used in the following way: A component that wants to interact
-with a contract (e.g. Mist or any wallet) retrieves the code of the contract,
-from that the IPFS/Swarm hash of a file which is then retrieved.  That file
+with a contract (e.g. a wallet) retrieves the code of the contract.
+It decodes the CBOR encoded section containing the IPFS/Swarm hash of the
+metadata file. With that hash, the metadata file is retrieved. That file
 is JSON-decoded into a structure like above.
 
 The component can then use the ABI to automatically generate a rudimentary
 user interface for the contract.
 
-Furthermore, the wallet can use the NatSpec user documentation to display a confirmation message to the user
+Furthermore, the wallet can use the NatSpec user documentation to display a human-readable confirmation message to the user
 whenever they interact with the contract, together with requesting
 authorization for the transaction signature.
 
@@ -194,6 +264,6 @@ This automatically verifies the metadata since its hash is part of the bytecode.
 Excess data corresponds to the constructor input data, which should be decoded
 according to the interface and presented to the user.
 
-In the repository `source-verify <https://github.com/ethereum/source-verify>`_
+In the repository `sourcify <https://github.com/ethereum/sourcify>`_
 (`npm package <https://www.npmjs.com/package/source-verify>`_) you can see
 example code that shows how to use this feature.

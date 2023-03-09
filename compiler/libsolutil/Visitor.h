@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 /**
  * Visitor templates.
  */
@@ -55,6 +56,17 @@ struct VisitorFallback<R> { template<typename T> R operator()(T&&) const { retur
 template<>
 struct VisitorFallback<> { template<typename T> void operator()(T&&) const {} };
 
-template <typename... Visitors> struct GenericVisitor: Visitors... { using Visitors::operator()...; };
+// MSVC. Empty base class optimization does not happen in some scenarios.
+// Enforcing it with __declspec(empty_bases) avoids MSVC Debug test crash
+// (Run-Time Check Failure #2 - Stack around the variable '....' was corrupted).
+// See https://docs.microsoft.com/en-us/cpp/cpp/empty-bases,
+//     https://developercommunity.visualstudio.com/t/10005513.
+#if defined(_MSC_VER)
+#define SOLC_EMPTY_BASES __declspec(empty_bases)
+#else
+#define SOLC_EMPTY_BASES
+#endif
+
+template <typename... Visitors> struct SOLC_EMPTY_BASES GenericVisitor: Visitors... { using Visitors::operator()...; };
 template <typename... Visitors> GenericVisitor(Visitors...) -> GenericVisitor<Visitors...>;
 }

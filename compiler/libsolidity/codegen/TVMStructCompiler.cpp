@@ -37,6 +37,7 @@ StructCompiler::StructCompiler(StackPusher *pusher, TupleType const* tuple) :
 	}
 }
 
+namespace {
 std::vector<Type const*>
 getTypesFrom(StructDefinition const *structDefinition)
 {
@@ -55,6 +56,7 @@ getNamesFrom(StructDefinition const *structDefinition)
 		result.push_back(vd->name());
 	}
 	return result;
+}
 }
 
 StructCompiler::StructCompiler(StackPusher *pusher, StructType const *structType) :

@@ -7,6 +7,7 @@
 [![GitHub](https://img.shields.io/github/license/tonlabs/TON-Solidity-Compiler?style=for-the-badge)](./LICENSE)
 [![Everscale](https://custom-icon-badges.demolab.com/badge/-everscale-13173e?style=for-the-badge&logoColor=yellow&logo=everscale)](https://everscale.network/)
 
+
 Port of the Solidity smart-contract [compiler](https://github.com/ethereum/solidity) generating TVM bytecode for TON blockchain. Please refer to upstream README.md for information on the language itself.
 
 ##  TON Solidity API reference
@@ -26,7 +27,7 @@ Original Instructions about how to build and install the Solidity compiler can b
 ### Ubuntu Linux
 
 ```shell
-git clone git@github.com:tonlabs/TON-Solidity-Compiler.git
+git clone https://github.com/tonlabs/TON-Solidity-Compiler
 cd TON-Solidity-Compiler
 sh ./compiler/scripts/install_deps.sh
 mkdir build
@@ -43,20 +44,20 @@ sh ./compiler/scripts/install_lib_variable.sh
 
 ### Windows 10
 
-Install Visual Studio, Git bash, cmake.
-Run Visual Studio Developer Command Prompt
+Install Visual Studio Build Tools 2019, Git bash, cmake.
+Run Developer PowerShell for VS 2019
 
 ```shell
 git clone https://github.com/tonlabs/TON-Solidity-Compiler
 cd TON-Solidity-Compiler
-cmake -P compiler\scripts\install_deps.cmake
+compiler\scripts\install_deps.ps1
 mkdir build
 cd build
-cmake ..\compiler
-cmake --build . --config Release -j 8
+cmake -DBoost_DIR="..\compiler\deps\boost\lib\cmake\Boost-1.77.0" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ..\compiler
+cmake --build . --config Release -- /m
 ```
 
-To facilitate work with other TON tools add path to stdlib_sol.tvm into environment variable TVM_LINKER_LIB_PATH.
+To facilitate work with other TON tools add path to stdlib_sol.tvm into environment variable `TVM_LINKER_LIB_PATH`.
 
 ## Sold driver
 

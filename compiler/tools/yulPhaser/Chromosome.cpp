@@ -14,10 +14,11 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 
 #include <tools/yulPhaser/Chromosome.h>
 
-#include <tools/yulPhaser/Random.h>
+#include <tools/yulPhaser/SimulationRNG.h>
 
 #include <libyul/optimiser/Suite.h>
 #include <libsolutil/CommonData.h>
@@ -42,15 +43,12 @@ Chromosome Chromosome::makeRandom(size_t _length)
 	for (size_t i = 0; i < _length; ++i)
 		steps.push_back(randomOptimisationStep());
 
-	return Chromosome(move(steps));
+	return Chromosome(std::move(steps));
 }
 
 ostream& phaser::operator<<(ostream& _stream, Chromosome const& _chromosome)
 {
-	for (auto const& stepName: _chromosome.m_optimisationSteps)
-		_stream << OptimiserSuite::stepNameToAbbreviationMap().at(stepName);
-
-	return _stream;
+	return _stream << _chromosome.m_genes;
 }
 
 vector<string> Chromosome::allStepNames()
@@ -66,5 +64,28 @@ string const& Chromosome::randomOptimisationStep()
 {
 	static vector<string> stepNames = allStepNames();
 
-	return stepNames[uniformRandomInt(0, stepNames.size() - 1)];
+	return stepNames[SimulationRNG::uniformInt(0, stepNames.size() - 1)];
+}
+
+char Chromosome::randomGene()
+{
+	return OptimiserSuite::stepNameToAbbreviationMap().at(randomOptimisationStep());
+}
+
+string Chromosome::stepsToGenes(vector<string> const& _optimisationSteps)
+{
+	string genes;
+	for (string const& stepName: _optimisationSteps)
+		genes.push_back(OptimiserSuite::stepNameToAbbreviationMap().at(stepName));
+
+	return genes;
+}
+
+vector<string> Chromosome::genesToSteps(string const& _genes)
+{
+	vector<string> steps;
+	for (char abbreviation: _genes)
+		steps.push_back(OptimiserSuite::stepAbbreviationToNameMap().at(abbreviation));
+
+	return steps;
 }

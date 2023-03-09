@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 /**
  * @author Alex Beregszaszi
  * @date 2016
@@ -23,9 +24,13 @@
 #pragma once
 
 #include <libsolidity/interface/CompilerStack.h>
+#include <libsolutil/JSON.h>
+
+#include <liblangutil/DebugInfoSelection.h>
 
 #include <optional>
-#include <boost/variant.hpp>
+#include <utility>
+#include <variant>
 
 namespace solidity::frontend
 {
@@ -34,14 +39,20 @@ namespace solidity::frontend
  * Standard JSON compiler interface, which expects a JSON input and returns a JSON output.
  * See docs/using-the-compiler#compiler-input-and-output-json-description.
  */
-class StandardCompiler: boost::noncopyable
+class StandardCompiler
 {
 public:
+	/// Noncopyable.
+	StandardCompiler(StandardCompiler const&) = delete;
+	StandardCompiler& operator=(StandardCompiler const&) = delete;
+
 	/// Creates a new StandardCompiler.
 	/// @param _readFile callback used to read files for import statements. Must return
 	/// and must not emit exceptions.
-	explicit StandardCompiler(ReadCallback::Callback const& _readFile = ReadCallback::Callback()):
-		m_readFile(_readFile)
+	explicit StandardCompiler(ReadCallback::Callback _readFile = ReadCallback::Callback(),
+		util::JsonFormat const& _format = {}):
+		m_readFile(std::move(_readFile)),
+		m_jsonPrintingFormat(std::move(_format))
 	{
 	}
 
@@ -58,30 +69,33 @@ private:
 		std::string language;
 		Json::Value errors;
 		std::vector<std::string> includePaths;
-		bool structWarning = false;
-		bool forceRemoteUpdate = false;
 		bool parserErrorRecovery = false;
 		std::string mainContract;
+		CompilerStack::State stopAfter = CompilerStack::State::CompilationSuccessful;
 		std::map<std::string, std::string> sources;
 		std::map<util::h256, std::string> smtLib2Responses;
 		langutil::EVMVersion evmVersion;
-		std::vector<CompilerStack::Remapping> remappings;
+		std::vector<ImportRemapper::Remapping> remappings;
 		RevertStrings revertStrings = RevertStrings::Default;
 		OptimiserSettings optimiserSettings = OptimiserSettings::minimal();
+		std::optional<langutil::DebugInfoSelection> debugInfoSelection;
 		std::map<std::string, util::h160> libraries;
 		bool metadataLiteralSources = false;
 		CompilerStack::MetadataHash metadataHash = CompilerStack::MetadataHash::IPFS;
 		Json::Value outputSelection;
+		bool viaIR = false;
 	};
 
 	/// Parses the input json (and potentially invokes the read callback) and either returns
 	/// it in condensed form or an error as a json object.
-	boost::variant<InputsAndSettings, Json::Value> parseInput(Json::Value const& _input);
+	std::variant<InputsAndSettings, Json::Value> parseInput(Json::Value const& _input);
 
 	Json::Value compileSolidity(InputsAndSettings _inputsAndSettings);
 	Json::Value compileYul(InputsAndSettings _inputsAndSettings);
 
 	ReadCallback::Callback m_readFile;
+
+	util::JsonFormat m_jsonPrintingFormat;
 };
 
 }

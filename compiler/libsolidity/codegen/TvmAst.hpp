@@ -281,7 +281,7 @@ namespace solidity::frontend
 		int ret() const override { return 1; }
 		Type type() const  { return m_type; }
 		std::string const &blob() const { return m_blob; }
-		Pointer<PushCellOrSlice> child() const { return m_child; };
+		Pointer<PushCellOrSlice> child() const { return m_child; }
 		bool equal(PushCellOrSlice const& another) const; // TODO delete
 		void updToRef();
 	private:

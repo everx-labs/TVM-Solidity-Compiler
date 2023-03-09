@@ -14,20 +14,21 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 
 #include <tools/yulPhaser/Program.h>
 
-#include <tools/yulPhaser/Exceptions.h>
-
 #include <liblangutil/CharStream.h>
 #include <liblangutil/ErrorReporter.h>
-#include <liblangutil/Exceptions.h>
+#include <liblangutil/SourceReferenceFormatter.h>
 
 #include <libyul/AsmAnalysis.h>
 #include <libyul/AsmAnalysisInfo.h>
 #include <libyul/AsmJsonConverter.h>
 #include <libyul/AsmParser.h>
 #include <libyul/AsmPrinter.h>
+#include <libyul/AST.h>
+#include <libyul/ObjectParser.h>
 #include <libyul/YulString.h>
 #include <libyul/backends/evm/EVMDialect.h>
 #include <libyul/optimiser/Disambiguator.h>
@@ -39,6 +40,8 @@
 #include <libyul/optimiser/Suite.h>
 
 #include <libsolutil/JSON.h>
+
+#include <libsolidity/interface/OptimiserSettings.h>
 
 #include <cassert>
 #include <memory>
@@ -64,16 +67,29 @@ Program::Program(Program const& program):
 {
 }
 
-Program Program::load(CharStream& _sourceCode)
+variant<Program, ErrorList> Program::load(CharStream& _sourceCode)
 {
 	// ASSUMPTION: parseSource() rewinds the stream on its own
 	Dialect const& dialect = EVMDialect::strictAssemblyForEVMObjects(EVMVersion{});
-	unique_ptr<Block> ast = parseSource(dialect, _sourceCode);
-	unique_ptr<AsmAnalysisInfo> analysisInfo = analyzeAST(dialect, *ast);
+
+	variant<unique_ptr<Block>, ErrorList> astOrErrors = parseObject(dialect, _sourceCode);
+	if (holds_alternative<ErrorList>(astOrErrors))
+		return get<ErrorList>(astOrErrors);
+
+	variant<unique_ptr<AsmAnalysisInfo>, ErrorList> analysisInfoOrErrors = analyzeAST(
+		dialect,
+		*get<unique_ptr<Block>>(astOrErrors)
+	);
+	if (holds_alternative<ErrorList>(analysisInfoOrErrors))
+		return get<ErrorList>(analysisInfoOrErrors);
 
 	Program program(
 		dialect,
-		disambiguateAST(dialect, *ast, *analysisInfo)
+		disambiguateAST(
+			dialect,
+			*get<unique_ptr<Block>>(astOrErrors),
+			*get<unique_ptr<AsmAnalysisInfo>>(analysisInfoOrErrors)
+		)
 	);
 	program.optimise({
 		FunctionHoister::name,
@@ -86,7 +102,7 @@ Program Program::load(CharStream& _sourceCode)
 
 void Program::optimise(vector<string> const& _optimisationSteps)
 {
-	m_ast = applyOptimisationSteps(m_dialect, m_nameDispenser, move(m_ast), _optimisationSteps);
+	m_ast = applyOptimisationSteps(m_dialect, m_nameDispenser, std::move(m_ast), _optimisationSteps);
 }
 
 ostream& phaser::operator<<(ostream& _stream, Program const& _program)
@@ -97,24 +113,50 @@ ostream& phaser::operator<<(ostream& _stream, Program const& _program)
 string Program::toJson() const
 {
 	Json::Value serializedAst = AsmJsonConverter(0)(*m_ast);
-	return jsonPrettyPrint(serializedAst);
+	return jsonPrettyPrint(removeNullMembers(std::move(serializedAst)));
 }
 
-unique_ptr<Block> Program::parseSource(Dialect const& _dialect, CharStream _source)
+variant<unique_ptr<Block>, ErrorList> Program::parseObject(Dialect const& _dialect, CharStream _source)
 {
 	ErrorList errors;
 	ErrorReporter errorReporter(errors);
-	auto scanner = make_shared<Scanner>(move(_source));
-	Parser parser(errorReporter, _dialect);
+	auto scanner = make_shared<Scanner>(_source);
 
-	unique_ptr<Block> ast = parser.parse(scanner, false);
-	assertThrow(ast != nullptr, InvalidProgram, "Error parsing source");
-	assert(errorReporter.errors().empty());
+	ObjectParser parser(errorReporter, _dialect);
+	shared_ptr<Object> object = parser.parse(scanner, false);
+	if (object == nullptr || !errorReporter.errors().empty())
+		// NOTE: It's possible to get errors even if the returned object is non-null.
+		// For example when there are errors in a nested object.
+		return errors;
 
-	return ast;
+	Object* deployedObject = nullptr;
+	if (object->subObjects.size() > 0)
+		for (auto& subObject: object->subObjects)
+			// solc --ir produces an object with a subobject of the same name as the outer object
+			// but suffixed with  "_deployed".
+			// The other object references the nested one which makes analysis fail. Below we try to
+			// extract just the nested one for that reason. This is just a heuristic. If there's no
+			// subobject with such a suffix we fall back to accepting the whole object as is.
+			if (subObject != nullptr && subObject->name.str() == object->name.str() + "_deployed")
+			{
+				deployedObject = dynamic_cast<Object*>(subObject.get());
+				if (deployedObject != nullptr)
+					break;
+			}
+	Object* selectedObject = (deployedObject != nullptr ? deployedObject : object.get());
+
+	// NOTE: I'm making a copy of the whole AST to get unique_ptr rather than shared_ptr.
+	// This is a slight performance hit but it's much less than the parsing itself.
+	// unique_ptr lets me be sure that two Program instances can never share the AST by mistake.
+	// The public API of the class does not provide access to the smart pointer so it won't be hard
+	// to switch to shared_ptr if the copying turns out to be an issue (though it would be better
+	// to refactor ObjectParser and Object to use unique_ptr instead).
+	auto astCopy = make_unique<Block>(get<Block>(ASTCopier{}(*selectedObject->code)));
+
+	return variant<unique_ptr<Block>, ErrorList>(std::move(astCopy));
 }
 
-unique_ptr<AsmAnalysisInfo> Program::analyzeAST(Dialect const& _dialect, Block const& _ast)
+variant<unique_ptr<AsmAnalysisInfo>, ErrorList> Program::analyzeAST(Dialect const& _dialect, Block const& _ast)
 {
 	ErrorList errors;
 	ErrorReporter errorReporter(errors);
@@ -122,10 +164,11 @@ unique_ptr<AsmAnalysisInfo> Program::analyzeAST(Dialect const& _dialect, Block c
 	AsmAnalyzer analyzer(*analysisInfo, errorReporter, _dialect);
 
 	bool analysisSuccessful = analyzer.analyze(_ast);
-	assertThrow(analysisSuccessful, InvalidProgram, "Error analyzing source");
-	assert(errorReporter.errors().empty());
+	if (!analysisSuccessful)
+		return errors;
 
-	return analysisInfo;
+	assert(errorReporter.errors().empty());
+	return variant<unique_ptr<AsmAnalysisInfo>, ErrorList>(std::move(analysisInfo));
 }
 
 unique_ptr<Block> Program::disambiguateAST(
@@ -150,7 +193,12 @@ unique_ptr<Block> Program::applyOptimisationSteps(
 	// An empty set of reserved identifiers. It could be a constructor parameter but I don't
 	// think it would be useful in this tool. Other tools (like yulopti) have it empty too.
 	set<YulString> const externallyUsedIdentifiers = {};
-	OptimiserStepContext context{_dialect, _nameDispenser, externallyUsedIdentifiers};
+	OptimiserStepContext context{
+		_dialect,
+		_nameDispenser,
+		externallyUsedIdentifiers,
+		frontend::OptimiserSettings::standard().expectedExecutionsPerDeployment
+	};
 
 	for (string const& step: _optimisationSteps)
 		OptimiserSuite::allSteps().at(step)->run(context, *_ast);
@@ -158,7 +206,7 @@ unique_ptr<Block> Program::applyOptimisationSteps(
 	return _ast;
 }
 
-size_t Program::computeCodeSize(Block const& _ast)
+size_t Program::computeCodeSize(Block const& _ast, CodeWeights const& _weights)
 {
-	return CodeSize::codeSizeIncludingFunctions(_ast);
+	return CodeSize::codeSizeIncludingFunctions(_ast, _weights);
 }

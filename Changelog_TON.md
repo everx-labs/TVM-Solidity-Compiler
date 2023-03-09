@@ -1,3 +1,14 @@
+### 0.67.0 (2023-03-16)
+
+Update compiler frontend (from original version 0.6.3 to 0.8.17):
+  * Breaking changes:
+    * `block.timestamp` returns opcode `NOW` instead of opcode `BLOCKLT`. `block.logicaltime` returns opcode `BLOCKLT`.
+    * Type `byte` is deleted. Use `bytes1`.
+    * And another breaking changes from original compiler.
+  * Files are imported according [this](https://docs.soliditylang.org/en/v0.8.17/path-resolution.html). Use cmd options `--base-path`, `--include-path` and another options.
+  * Downloading files in import section from the Internet is forbidden. Use [remapping](https://docs.soliditylang.org/en/v0.8.17/path-resolution.html#import-remapping).
+  * Update NatSpec, code analyzer, etc.
+
 ### 0.66.0 (2022-10-25)
 
 Bugfixes:

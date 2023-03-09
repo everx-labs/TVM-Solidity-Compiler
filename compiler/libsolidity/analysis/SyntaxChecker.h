@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 
 #pragma once
 
@@ -38,6 +39,7 @@ namespace solidity::frontend
  *  - issues deprecation warnings for unary '+'
  *  - issues deprecation warning for throw
  *  - whether the msize instruction is used and the Yul optimizer is enabled at the same time.
+ *  - selection of the ABI coder through pragmas.
  */
 class SyntaxChecker: private ASTConstVisitor
 {
@@ -71,6 +73,9 @@ private:
 	bool visit(ForEachStatement const& _forStatement) override;
 	void endVisit(ForEachStatement const& _forStatement) override;
 
+	bool visit(Block const& _block) override;
+	void endVisit(Block const& _block) override;
+
 	bool visit(Continue const& _continueStatement) override;
 	bool visit(Break const& _breakStatement) override;
 
@@ -83,10 +88,12 @@ private:
 	bool visit(PlaceholderStatement const& _placeholderStatement) override;
 
 	bool visit(ContractDefinition const& _contract) override;
+	void endVisit(ContractDefinition const& _contract) override;
+
+	bool visit(UsingForDirective const& _usingFor) override;
+
 	bool visit(FunctionDefinition const& _function) override;
 	bool visit(FunctionTypeName const& _node) override;
-
-	bool visit(VariableDeclarationStatement const& _statement) override;
 
 	bool visit(StructDefinition const& _struct) override;
 	bool visit(Literal const& _literal) override;
@@ -101,8 +108,11 @@ private:
 	bool m_msgValuePragmaFound = false;
 	langutil::SourceLocation const* m_FirstCopyleft{};
 
+	/// Flag that indicates whether we are inside an unchecked block.
+	bool m_uncheckedArithmetic = false;
+
 	int m_inLoopDepth = 0;
-	bool m_isInterface = false;
+	std::optional<ContractKind> m_currentContractKind;
 
 	SourceUnit const* m_sourceUnit = nullptr;
 };

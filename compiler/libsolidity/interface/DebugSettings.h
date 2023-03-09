@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 /**
  * Settings to aid debugging.
  */
@@ -54,7 +55,7 @@ inline std::optional<RevertStrings> revertStringsFromString(std::string const& _
 	for (auto i: {RevertStrings::Default, RevertStrings::Strip, RevertStrings::Debug, RevertStrings::VerboseDebug})
 		if (revertStringsToString(i) == _str)
 			return i;
-	return {};
+	return std::nullopt;
 }
 
 }

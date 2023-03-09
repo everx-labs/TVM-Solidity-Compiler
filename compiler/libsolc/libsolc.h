@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 /**
  * @author Christian <c@ethdev.com>
  * @date 2014
@@ -94,6 +95,14 @@ char* solidity_compile(char const* _input, CStyleReadFileCallback _readCallback,
 /// NOTE: the pointer returned by solidity_compile as well as any other pointer retrieved via solidity_alloc()
 /// is invalid after calling this!
 void solidity_reset() SOLC_NOEXCEPT;
+
+void* file_reader_new() SOLC_NOEXCEPT;
+void file_reader_set_base_path(void *fr, const char* path) SOLC_NOEXCEPT;
+void file_reader_add_include_path(void *fr, const char* path) SOLC_NOEXCEPT;
+void file_reader_allow_directory(void *fr, const char* path) SOLC_NOEXCEPT;
+void file_reader_add_or_update_file(void *fr, const char* path, const char* content) SOLC_NOEXCEPT;
+char* file_reader_source_unit_name(void*fr, const char* path) SOLC_NOEXCEPT;
+char* file_reader_read(void *fr, const char* name, int* success) SOLC_NOEXCEPT;
 
 #ifdef __cplusplus
 }

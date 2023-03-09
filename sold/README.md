@@ -1,4 +1,4 @@
-# Experimental Solidity Compiler Driver
+# Solidity Compiler Driver
 
 ## Build and Install
 
@@ -19,11 +19,11 @@ cargo build --release
 
 ### Windows 11
 
-Install Visual Studio Build Tools, Rust, Git, cmake.
-Run Developer PowerShell for VS 2022.
+Install Visual Studio Build Tools 2019, Git bash, cmake.
+Run Developer PowerShell for VS 2019
 
 ```shell
-cmake -P compiler\scripts\install_deps.cmake
+compiler\scripts\install_deps.ps1
 cd sold
 cargo build --release
 ```

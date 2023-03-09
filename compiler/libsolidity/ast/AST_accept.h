@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 /**
  * @author Christian <c@ethdev.com>
  * @date 2014
@@ -59,13 +60,19 @@ void PragmaDirective::accept(ASTConstVisitor& _visitor) const
 
 void ImportDirective::accept(ASTVisitor& _visitor)
 {
-	_visitor.visit(*this);
+	if (_visitor.visit(*this))
+		for (SymbolAlias const& symbolAlias: symbolAliases())
+			if (symbolAlias.symbol)
+				symbolAlias.symbol->accept(_visitor);
 	_visitor.endVisit(*this);
 }
 
 void ImportDirective::accept(ASTConstVisitor& _visitor) const
 {
-	_visitor.visit(*this);
+	if (_visitor.visit(*this))
+		for (SymbolAlias const& symbolAlias: symbolAliases())
+			if (symbolAlias.symbol)
+				symbolAlias.symbol->accept(_visitor);
 	_visitor.endVisit(*this);
 }
 
@@ -102,6 +109,18 @@ void ContractDefinition::accept(ASTConstVisitor& _visitor) const
 		listAccept(m_baseContracts, _visitor);
 		listAccept(m_subNodes, _visitor);
 	}
+	_visitor.endVisit(*this);
+}
+
+void IdentifierPath::accept(ASTVisitor& _visitor)
+{
+	_visitor.visit(*this);
+	_visitor.endVisit(*this);
+}
+
+void IdentifierPath::accept(ASTConstVisitor& _visitor) const
+{
+	_visitor.visit(*this);
 	_visitor.endVisit(*this);
 }
 
@@ -153,11 +172,31 @@ void EnumValue::accept(ASTConstVisitor& _visitor) const
 	_visitor.endVisit(*this);
 }
 
+void UserDefinedValueTypeDefinition::accept(ASTConstVisitor& _visitor) const
+{
+	if (_visitor.visit(*this))
+	{
+		if (m_underlyingType)
+			m_underlyingType->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void UserDefinedValueTypeDefinition::accept(ASTVisitor& _visitor)
+{
+	if (_visitor.visit(*this))
+	{
+		if (m_underlyingType)
+			m_underlyingType->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
 void UsingForDirective::accept(ASTVisitor& _visitor)
 {
 	if (_visitor.visit(*this))
 	{
-		m_libraryName->accept(_visitor);
+		listAccept(functionsOrLibrary(), _visitor);
 		if (m_typeName)
 			m_typeName->accept(_visitor);
 	}
@@ -168,7 +207,7 @@ void UsingForDirective::accept(ASTConstVisitor& _visitor) const
 {
 	if (_visitor.visit(*this))
 	{
-		m_libraryName->accept(_visitor);
+		listAccept(functionsOrLibrary(), _visitor);
 		if (m_typeName)
 			m_typeName->accept(_visitor);
 	}
@@ -291,7 +330,8 @@ void ModifierDefinition::accept(ASTVisitor& _visitor)
 		m_parameters->accept(_visitor);
 		if (m_overrides)
 			m_overrides->accept(_visitor);
-		m_body->accept(_visitor);
+		if (m_body)
+			m_body->accept(_visitor);
 	}
 	_visitor.endVisit(*this);
 }
@@ -305,7 +345,8 @@ void ModifierDefinition::accept(ASTConstVisitor& _visitor) const
 		m_parameters->accept(_visitor);
 		if (m_overrides)
 			m_overrides->accept(_visitor);
-		m_body->accept(_visitor);
+		if (m_body)
+			m_body->accept(_visitor);
 	}
 	_visitor.endVisit(*this);
 }
@@ -354,6 +395,28 @@ void EventDefinition::accept(ASTConstVisitor& _visitor) const
 	_visitor.endVisit(*this);
 }
 
+void ErrorDefinition::accept(ASTVisitor& _visitor)
+{
+	if (_visitor.visit(*this))
+	{
+		if (m_documentation)
+			m_documentation->accept(_visitor);
+		m_parameters->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void ErrorDefinition::accept(ASTConstVisitor& _visitor) const
+{
+	if (_visitor.visit(*this))
+	{
+		if (m_documentation)
+			m_documentation->accept(_visitor);
+		m_parameters->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
 void ElementaryTypeName::accept(ASTVisitor& _visitor)
 {
 	_visitor.visit(*this);
@@ -368,13 +431,15 @@ void ElementaryTypeName::accept(ASTConstVisitor& _visitor) const
 
 void UserDefinedTypeName::accept(ASTVisitor& _visitor)
 {
-	_visitor.visit(*this);
+	if (_visitor.visit(*this))
+		this->pathNode().accept(_visitor);
 	_visitor.endVisit(*this);
 }
 
 void UserDefinedTypeName::accept(ASTConstVisitor& _visitor) const
 {
-	_visitor.visit(*this);
+	if (_visitor.visit(*this))
+		this->pathNode().accept(_visitor);
 	_visitor.endVisit(*this);
 }
 
@@ -709,6 +774,20 @@ void Throw::accept(ASTVisitor& _visitor)
 void Throw::accept(ASTConstVisitor& _visitor) const
 {
 	_visitor.visit(*this);
+	_visitor.endVisit(*this);
+}
+
+void RevertStatement::accept(ASTVisitor& _visitor)
+{
+	if (_visitor.visit(*this))
+		m_errorCall->accept(_visitor);
+	_visitor.endVisit(*this);
+}
+
+void RevertStatement::accept(ASTConstVisitor& _visitor) const
+{
+	if (_visitor.visit(*this))
+		m_errorCall->accept(_visitor);
 	_visitor.endVisit(*this);
 }
 

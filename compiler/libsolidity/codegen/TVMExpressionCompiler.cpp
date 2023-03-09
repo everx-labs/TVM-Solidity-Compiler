@@ -25,6 +25,7 @@
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCall.hpp"
 #include "TVMStructCompiler.hpp"
+#include "TVM.h"
 
 using namespace solidity::frontend;
 using namespace solidity::langutil;
@@ -137,9 +138,9 @@ void TVMExpressionCompiler::visit2(TupleExpression const &_tupleExpression) {
 	vector<ASTPointer<Expression>> const& components = _tupleExpression.components();
 	if (_tupleExpression.isInlineArray()) {
 		int n = components.size();
-		if (_tupleExpression.annotation().isPure) {
+		if (*_tupleExpression.annotation().isPure) {
 			const int stackSize = m_pusher.stackSize();
-			SourceReference sr = SourceReferenceExtractor::extract(&_tupleExpression.location());
+			SourceReference sr = SourceReferenceExtractor::extract(*GlobalParams::g_compilerStack, &_tupleExpression.location());
 			const std::string computeName = "inline_array_line_" +
 					toString(sr.position.line) + "_column_" + toString(sr.position.column) + "_ast_id_" +
 					toString(_tupleExpression.id());
@@ -312,7 +313,7 @@ void TVMExpressionCompiler::compileUnaryDelete(UnaryOperation const &node) {
 			collectLValue(lValueInfo, true, false);
 		} else { // mapping
 			m_pusher.pushS(1);                            // ... index dict index
-            TypePointer const dictKey = StackPusher::parseIndexType(indexAccess->baseExpression().annotation().type);
+            Type const* dictKey = StackPusher::parseIndexType(indexAccess->baseExpression().annotation().type);
 			m_pusher.exchange(1);                                // ... index index' dict
 			m_pusher.pushInt(dictKeyLength(dictKey)); // ..index index dict nbits
 			m_pusher.push(-3 + 2, "DICT" + typeToDictChar(dictKey) + "DEL");  // ... index dict' {-1,0}
@@ -500,9 +501,9 @@ void TVMExpressionCompiler::visit2(BinaryOperation const &_binaryOperation) {
 	const auto &rexp = _binaryOperation.rightExpression();
 	Type const *lt = getType(&lexp);
 	Type const *rt = getType(&rexp);
-	TypePointer const &commonType = _binaryOperation.annotation().commonType;
-	TypePointer leftTargetType = commonType;
-	TypePointer rightTargetType = TokenTraits::isShiftOp(op) ? rexp.annotation().type->mobileType() : commonType;
+	Type const* &commonType = _binaryOperation.annotation().commonType;
+	Type const* leftTargetType = commonType;
+	Type const* rightTargetType = TokenTraits::isShiftOp(op) ? rexp.annotation().type->mobileType() : commonType;
 
 	if (lt->category() == Type::Category::Function || rt->category() == Type::Category::Function) {
 		solUnimplemented("Unsupported binary operation");
@@ -813,6 +814,8 @@ void TVMExpressionCompiler::visitMagic(MemberAccess const &_node) {
 		}
 	} else if (identifier->name() == "block") {
 		if (_node.memberName() == "timestamp") {
+			m_pusher << "NOW";
+		} else if (_node.memberName() == "logtimestamp") {
 			m_pusher << "BLOCKLT";
 		} else {
 			unsupportedMagic();
@@ -918,7 +921,7 @@ void TVMExpressionCompiler::visitMemberAccessArray(MemberAccess const &_node) {
 	auto arrayType = to<ArrayType>(_node.expression().annotation().type);
 	if (_node.memberName() == "length") {
 		compileNewExpr(&_node.expression());
-		if (arrayType->isByteArray()) {
+		if (arrayType->isByteArrayOrString()) {
 			m_pusher.byteLengthOfCell();
 		} else {
 			m_pusher.indexNoexcep(0);
@@ -948,7 +951,7 @@ void TVMExpressionCompiler::visit2(IndexRangeAccess const &indexRangeAccess) {
 	Type const *baseType = indexRangeAccess.baseExpression().annotation().type;
 	if (baseType->category() == Type::Category::Array) {
 		auto baseArrayType = to<ArrayType>(baseType);
-		if (baseArrayType->isByteArray()) {
+		if (baseArrayType->isByteArrayOrString()) {
 			acceptExpr(&indexRangeAccess.baseExpression()); // bytes
 			if (indexRangeAccess.startExpression()) {
 				compileNewExpr(indexRangeAccess.startExpression());
@@ -975,7 +978,7 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 	Type const *baseType = indexAccess.baseExpression().annotation().type;
 	if (baseType->category() == Type::Category::Array) {
 		auto baseArrayType = to<ArrayType>(baseType);
-		if (baseArrayType->isByteArray()) {
+		if (baseArrayType->isByteArrayOrString()) {
 			acceptExpr(&indexAccess.baseExpression()); // bytes
 			m_pusher.push(-1 + 1, "CTOS");
 			compileNewExpr(indexAccess.indexExpression()); // slice index
@@ -1226,8 +1229,8 @@ TVMExpressionCompiler::collectLValue(
 					m_pusher.dropUnder(1, 1); // dict
 				} else {
 					// index dict value
-					TypePointer const keyType = StackPusher::parseIndexType(indexAccess->baseExpression().annotation().type);
-					TypePointer const valueDictType = StackPusher::parseValueType(*indexAccess);
+					Type const* keyType = StackPusher::parseIndexType(indexAccess->baseExpression().annotation().type);
+					Type const* valueDictType = StackPusher::parseValueType(*indexAccess);
 					const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueDictType);
 					m_pusher.rotRev(); // value index dict
 					m_pusher.setDict(*keyType, *valueDictType, dataType); // dict'
@@ -1239,7 +1242,7 @@ TVMExpressionCompiler::collectLValue(
 					m_pusher.popS(1); // size dict
 				} else {
 					// size index dict value
-					TypePointer const keyType = StackPusher::parseIndexType(indexAccess->baseExpression().annotation().type);
+					Type const* keyType = StackPusher::parseIndexType(indexAccess->baseExpression().annotation().type);
 					auto valueDictType = getType(indexAccess);
 					const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueDictType);
 					m_pusher.rotRev(); // size value index dict
@@ -1289,7 +1292,7 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 		}
 		collectLValue(lValueInfo, true, valueIsBuilder);
 	} else {
-		TypePointer const& commonType = lhs.annotation().type;
+		Type const*& commonType = lhs.annotation().type;
 		compileNewExpr(&rhs); // r
 		m_pusher.hardConvert(commonType, rhs.annotation().type);
 		const int saveStackSize = m_pusher.stackSize();

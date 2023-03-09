@@ -48,7 +48,7 @@ constexpr bool isIn(T v, Args... args) {
 }
 
 constexpr uint64_t str2int(const char* str, int i = 0) {
-	return !str[i] ? 5381 : (str2int(str, i+1) * 33) ^ str[i];
+	return !str[i] ? 5381 : (str2int(str, i+1) * 33) ^ uint64_t(str[i]);
 }
 
 std::string functionName(FunctionDefinition const* _function);
@@ -105,7 +105,7 @@ struct TypeInfo {
 		if (auto* integerType = to<IntegerType>(type)) {
 			isNumeric = true;
 			isSigned = integerType->isSigned();
-			numBits = integerType->numBits();
+			numBits = int(integerType->numBits());
 		} else if (to<BoolType>(type)) {
 			isNumeric = true;
 			isSigned = true;
@@ -121,7 +121,7 @@ struct TypeInfo {
 		} else if (auto* fp = to<FixedPointType>(type)) {
 			isNumeric = true;
 			isSigned = fp->isSigned();
-			numBits = fp->numBits();
+			numBits = int(fp->numBits());
 		}
 		category = type->category();
 	}
@@ -258,7 +258,7 @@ struct ABITypeSize {
 };
 
 inline std::pair<std::vector<Type const*>, std::vector<ASTNode const*>>
-getParams(const std::vector<VariableDeclaration const*>& params, size_t offset = 0) {
+getParams(const std::vector<VariableDeclaration const*>& params, std::vector<ASTNode const*>::difference_type offset = 0) {
 	std::vector<Type const*> types;
 	std::vector<ASTNode const*> nodes;
 	for (auto it = params.begin() + offset; it != params.end(); it++) {

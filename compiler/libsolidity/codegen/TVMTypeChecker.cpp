@@ -50,6 +50,7 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 					std::set<CallableDeclaration const*> bf2 = getAllBaseFunctions(f2);
 					if (bf.count(f2) == 0 && bf2.count(f) == 0) {
 						m_errorReporter.typeError(
+							228_error,
 							f->location(),
 							SecondarySourceLocation().append("Declaration of the function with the same function ID: ", funcId2Decl.at(id)->location()),
 							"Two functions have the same functionID.");
@@ -71,11 +72,13 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 					overridedFunctions.insert(base);
 					if ((!f->functionID().has_value() && baseFunction->functionID()) || (f->functionID().has_value() && !baseFunction->functionID())) {
 						m_errorReporter.typeError(
-								f->location(),
-								SecondarySourceLocation().append("Declaration of the base function: ", baseFunction->location()),
-								"Both override and base functions should have functionID if it is defined for one of them.");
+							228_error,
+							f->location(),
+							SecondarySourceLocation().append("Declaration of the base function: ", baseFunction->location()),
+							"Both override and base functions should have functionID if it is defined for one of them.");
 					} else if (f->functionID().has_value() && f->functionID() != baseFunction->functionID()) {
 						m_errorReporter.typeError(
+							228_error,
 							f->location(),
 							SecondarySourceLocation().append("Declaration of the base function: ", baseFunction->location()),
 							"Override function should have functionID = " + toString(baseFunction->functionID().value()) + ".");
@@ -83,25 +86,28 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 
 					if (baseFunction->isResponsible() != f->isResponsible()) {
 						m_errorReporter.typeError(
-								f->location(),
-								SecondarySourceLocation().append("Declaration of the base function: ", baseFunction->location()),
-								"Both override and base functions should be marked as responsible or not");
+							228_error,
+							f->location(),
+							SecondarySourceLocation().append("Declaration of the base function: ", baseFunction->location()),
+							"Both override and base functions should be marked as responsible or not");
 					}
 
 					if ((!f->functionID().has_value() && baseFunction->functionID()) || (f->functionID().has_value() && !baseFunction->functionID())) {
 						m_errorReporter.typeError(
-								f->location(),
-								SecondarySourceLocation().append("Declaration of the base function: ",
-																 baseFunction->location()),
-								"Both override and base functions should have functionID if it is defined for one of them.");
+							228_error,
+							f->location(),
+							SecondarySourceLocation().append("Declaration of the base function: ",
+															 baseFunction->location()),
+							"Both override and base functions should have functionID if it is defined for one of them.");
 					}
 
 					if ((f->internalMsg() ^ baseFunction->internalMsg()) || (f->externalMsg() ^ baseFunction->externalMsg())) {
 						m_errorReporter.typeError(
-								f->location(),
-								SecondarySourceLocation().append("Declaration of the base function: ",
-																 baseFunction->location()),
-								"Both override and base functions should be marked as internalMsg or externalMsg.");
+							228_error,
+							f->location(),
+							SecondarySourceLocation().append("Declaration of the base function: ",
+															 baseFunction->location()),
+							"Both override and base functions should be marked as internalMsg or externalMsg.");
 					}
 				}
 			}
@@ -128,6 +134,7 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 			if (f->name() == ff->name()) {
 				if (used.count(std::make_pair(f, ff)) == 0) {
 					m_errorReporter.typeError(
+						228_error,
 						f->location(),
 						SecondarySourceLocation().append("Another overloaded function is here:", ff->location()),
 						"Function overloading is not supported for public functions.");
@@ -142,16 +149,16 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 void TVMTypeChecker::check_onCodeUpgrade(FunctionDefinition const& f) {
 	const std::string s = "\nfunction onCodeUpgrade(...) (internal|private) { /*...*/ }";
 	if (!f.returnParameters().empty()) {
-		m_errorReporter.typeError(f.returnParameters().at(0)->location(), "Function mustn't return any parameters. Expected function signature:" + s);
+		m_errorReporter.typeError(228_error, f.returnParameters().at(0)->location(), "Function mustn't return any parameters. Expected function signature:" + s);
 	}
 	if (f.isPublic()) {
-		m_errorReporter.typeError(f.location(), "Bad function visibility. Expected function signature:" + s);
+		m_errorReporter.typeError(228_error, f.location(), "Bad function visibility. Expected function signature:" + s);
 	}
 }
 
 bool TVMTypeChecker::visit(VariableDeclaration const& _node) {
 	if (_node.isStateVariable() && _node.type()->category() == Type::Category::TvmSlice) {
-		m_errorReporter.typeError(_node.location(), "This type can't be used for state variables.");
+		m_errorReporter.typeError(228_error, _node.location(), "This type can't be used for state variables.");
 	}
 	return true;
 }
@@ -166,6 +173,7 @@ bool TVMTypeChecker::visit(const Mapping &_mapping) {
                 TypeInfo ti {member->type()};
                 if (!ti.isNumeric) {
 					m_errorReporter.typeError(
+						228_error,
 						_mapping.keyType().location(),
 						SecondarySourceLocation().append("Bad field: ", member->location()),
 						"If struct type is used as a key type for mapping, then "
@@ -175,7 +183,7 @@ bool TVMTypeChecker::visit(const Mapping &_mapping) {
                 bitLength += ti.numBits;
             }
             if (bitLength > TvmConst::CellBitLength) {
-				m_errorReporter.typeError(_mapping.keyType().location(), "If struct type is used as a key type for mapping, then "
+				m_errorReporter.typeError(228_error, _mapping.keyType().location(), "If struct type is used as a key type for mapping, then "
 											   "struct must fit in " + toString(TvmConst::CellBitLength) + " bits");
             }
         }
@@ -185,17 +193,17 @@ bool TVMTypeChecker::visit(const Mapping &_mapping) {
 
 bool TVMTypeChecker::visit(const FunctionDefinition &f) {
 	if (f.functionID().has_value() && f.functionID().value() == 0) {
-		m_errorReporter.typeError(f.location(), "functionID can't be equal to zero because this value is reserved for receive function.");
+		m_errorReporter.typeError(228_error, f.location(), "functionID can't be equal to zero because this value is reserved for receive function.");
 	}
 	if (f.functionID().has_value() && (!f.isPublic() && f.name() != "onCodeUpgrade")) {
-		m_errorReporter.typeError(f.location(), "Only public/external functions and function `onCodeUpgrade` can have functionID.");
+		m_errorReporter.typeError(228_error, f.location(), "Only public/external functions and function `onCodeUpgrade` can have functionID.");
 	}
 	if (f.functionID().has_value() && (f.isReceive() || f.isFallback() || f.isOnTickTock() || f.isOnBounce())) {
-		m_errorReporter.typeError(f.location(), "functionID isn't supported for receive, fallback, onBounce and onTickTock functions.");
+		m_errorReporter.typeError(228_error, f.location(), "functionID isn't supported for receive, fallback, onBounce and onTickTock functions.");
 	}
 
 	if (f.isInline() && f.isPublic()) {
-		m_errorReporter.typeError(f.location(), "Inline function should have private or internal visibility");
+		m_errorReporter.typeError(228_error, f.location(), "Inline function should have private or internal visibility");
 	}
 	if (f.name() == "onCodeUpgrade") {
 		check_onCodeUpgrade(f);
@@ -208,18 +216,18 @@ bool TVMTypeChecker::visit(const FunctionDefinition &f) {
 				f.parameters().at(0)->type()->category() != Type::Category::TvmSlice ||
 				f.parameters().at(1)->type()->category() != Type::Category::TvmCell
 				) {
-			m_errorReporter.typeError(f.location(),
+			m_errorReporter.typeError(228_error, f.location(),
 									  "Unexpected function parameters." + s);
 		}
 		if (f.returnParameters().size() != 1 ||
 			f.returnParameters().at(0)->type()->category() != Type::Category::TvmSlice) {
-			m_errorReporter.typeError(f.location(), "Should return TvmSlice." + s);
+			m_errorReporter.typeError(228_error, f.location(), "Should return TvmSlice." + s);
 		}
 		if (f.visibility() != Visibility::Private) {
-			m_errorReporter.typeError(f.location(), "Should be marked as private." + s);
+			m_errorReporter.typeError(228_error, f.location(), "Should be marked as private." + s);
 		}
 		if (!f.isInline()) {
-			m_errorReporter.typeError(f.location(), "Should be marked as inline." + s);
+			m_errorReporter.typeError(228_error, f.location(), "Should be marked as inline." + s);
 		}
 	}
 
@@ -229,8 +237,8 @@ bool TVMTypeChecker::visit(const FunctionDefinition &f) {
 bool TVMTypeChecker::visit(IndexRangeAccess const& indexRangeAccess) {
 	Type const *baseType = indexRangeAccess.baseExpression().annotation().type;
 	auto baseArrayType = to<ArrayType>(baseType);
-	if (baseType->category() != Type::Category::Array || !baseArrayType->isByteArray()) {
-		m_errorReporter.typeError(indexRangeAccess.location(), "Index range access is available only for bytes.");
+	if (baseType->category() != Type::Category::Array || !baseArrayType->isByteArrayOrString()) {
+		m_errorReporter.typeError(228_error, indexRangeAccess.location(), "Index range access is available only for bytes.");
 	}
 	return true;
 }

@@ -88,7 +88,7 @@ public:
 	void visitFunctionWithModifiers();
 private:
 	void visitForOrWhileCondition(const std::function<void()>& pushCondition);
-	void afterLoopCheck(const CFAnalyzer& ci, const int& loopVarQty, bool _doAnalyzeFlag);
+	void afterLoopCheck(const std::unique_ptr<CFAnalyzer>& ci, const int& loopVarQty, bool _doAnalyzeFlag);
 	bool visitNode(ASTNode const&) override { solUnimplemented("Internal error: unreachable"); }
 
 	bool visit(VariableDeclarationStatement const& _variableDeclarationStatement) override;
@@ -99,9 +99,9 @@ private:
 	bool visit(IfStatement const& _ifStatement) override;
 	bool visit(WhileStatement const& _whileStatement) override;
 	bool visit(ForEachStatement const& _forStatement) override;
-	std::pair<CFAnalyzer, ControlFlowInfo> pushControlFlowFlag(Statement const& body);
+	std::pair<std::unique_ptr<CFAnalyzer>, ControlFlowInfo> pushControlFlowFlag(Statement const& body);
 	void visitBodyOfForLoop(
-		const CFAnalyzer& ci,
+		const std::unique_ptr<CFAnalyzer>&	 ci,
 		const std::function<void()>& pushStartBody,
 		Statement const& body,
 		const std::function<void()>& loopExpression

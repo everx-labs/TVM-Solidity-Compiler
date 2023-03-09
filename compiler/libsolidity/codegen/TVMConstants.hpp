@@ -117,12 +117,6 @@ namespace TvmConst {
 		const int dest = 1;
 	}
 
-	namespace Attributes {
-		inline std::string MuteStructWarning() {
-			return "maybe_unsaved";
-		}
-	}
-
 	namespace Selector {
 		inline std::string RootCodeCell() { return "8adb35"; } // 8a-PUSHREF db35-JMPXDATA
 		inline std::string PrivateOpcode0() { return "F4A4_"; } // DICTPUSHCONST

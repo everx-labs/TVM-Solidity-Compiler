@@ -1,4 +1,0 @@
-{
-}
-// ----
-// : movable, sideEffectFree, sideEffectFreeIfNoMSize

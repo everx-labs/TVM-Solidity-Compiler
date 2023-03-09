@@ -430,3 +430,32 @@ fn bindgen_test_layout___va_list_tag() {
     }
     test_field_reg_save_area();
 }
+extern "C" {
+    pub fn file_reader_new() -> *mut ::std::os::raw::c_void;
+    pub fn file_reader_set_base_path(
+        fr: *mut ::std::os::raw::c_void,
+        path: *const ::std::os::raw::c_char,
+    );
+    pub fn file_reader_add_include_path(
+        fr: *mut ::std::os::raw::c_void,
+        path: *const ::std::os::raw::c_char,
+    );
+    pub fn file_reader_allow_directory(
+        fr: *mut ::std::os::raw::c_void,
+        path: *const ::std::os::raw::c_char,
+    );
+    pub fn file_reader_add_or_update_file(
+        fr: *mut ::std::os::raw::c_void,
+        path: *const ::std::os::raw::c_char,
+        content: *const ::std::os::raw::c_char,
+    );
+    pub fn file_reader_source_unit_name(
+        fr: *mut ::std::os::raw::c_void,
+        path: *const ::std::os::raw::c_char,
+    ) -> *mut ::std::os::raw::c_char;
+    pub fn file_reader_read(
+        fr: *mut ::std::os::raw::c_void,
+        name: *const ::std::os::raw::c_char,
+        success: *mut ::std::os::raw::c_int,
+    ) -> *mut ::std::os::raw::c_char;
+}

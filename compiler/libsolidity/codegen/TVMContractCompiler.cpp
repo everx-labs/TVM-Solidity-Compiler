@@ -59,7 +59,7 @@ void TVMConstructorCompiler::dfs(ContractDefinition const *c) {
 	}
 	if (c->constructor() != nullptr) {
 		for (const ASTPointer<ModifierInvocation> &modInvoc : c->constructor()->modifiers()) {
-			auto base = to<ContractDefinition>(modInvoc->name()->annotation().referencedDeclaration);
+			auto base = to<ContractDefinition>(modInvoc->name().annotation().referencedDeclaration);
 			if (base != nullptr) {
 				if (modInvoc->arguments() != nullptr) {
 					m_args[base] = modInvoc->arguments();
