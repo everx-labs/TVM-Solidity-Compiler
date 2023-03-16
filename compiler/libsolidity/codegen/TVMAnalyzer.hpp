@@ -35,8 +35,7 @@ class TVMAnalyzer: private ASTConstVisitor
 {
 public:
 	/// @param _errorReporter provides the error logging functionality.
-	/// @param _structWarning provides the flag whether struct warning is needed.
-	explicit TVMAnalyzer(langutil::ErrorReporter& _errorReporter, bool _structWarning = false);
+	explicit TVMAnalyzer(langutil::ErrorReporter& _errorReporter);
 
 	/// Performs analysis on the given source unit and all of its sub-nodes.
 	/// @returns true if all checks passed. Note even if all checks passed, errors() can still contain warnings
@@ -45,25 +44,15 @@ public:
 private:
 	bool visit(MemberAccess const& contract) override;
 	bool visit(ContractDefinition const& contract) override;
-	bool visit(Assignment const& _variable) override;
-	bool visit(UnaryOperation const& _node) override;
 	bool visit(FunctionDefinition const& _function) override;
 	bool visit(Return const& _return) override;
 	bool visit(FunctionCall const& _functionCall) override;
-	bool visit(VariableDeclaration const& _variable) override;
 	void endVisit(FunctionDefinition const&) override;
 	void endVisit(FunctionCall const&) override;
 	void endVisit(PragmaDirective const& _pragma) override;
 
 	langutil::ErrorReporter& m_errorReporter;
 
-	/// Containers to find structs, that were created or loaded but not saved or used.
-	/// TODO: fix this check for condition control flow (tests/test_state_var_not_saved_bad.sol)
-	std::map<std::pair<size_t, VariableDeclaration const*>, ASTNode const *> m_structLoads;
-	std::multimap<std::pair<size_t, VariableDeclaration const*>, ASTNode const *> m_changedStructs;
-	std::vector<std::pair<size_t, VariableDeclaration const*>> m_declaredReturns;
-
-	bool m_structWarning = false;
 	FunctionDefinition const* m_currentFunction = nullptr;
 	std::vector<FunctionCall const*> m_functionCall;
 };

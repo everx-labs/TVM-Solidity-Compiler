@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 /**
  * @author Christian <c@ethdev.com>
  * @date 2015
@@ -22,28 +23,28 @@
 
 #include <libsolidity/analysis/ReferencesResolver.h>
 #include <libsolidity/analysis/NameAndTypeResolver.h>
-#include <libsolidity/analysis/ConstantEvaluator.h>
 #include <libsolidity/ast/AST.h>
-#include <libsolidity/ast/TypeProvider.h>
 
 #include <liblangutil/ErrorReporter.h>
 #include <liblangutil/Exceptions.h>
 
 #include <libsolutil/StringUtils.h>
+#include <libsolutil/CommonData.h>
 
 #include <boost/algorithm/string.hpp>
-#include <boost/range/adaptor/transformed.hpp>
+#include <boost/algorithm/string/split.hpp>
 
 using namespace std;
+using namespace solidity;
 using namespace solidity::langutil;
+using namespace solidity::frontend;
 
-namespace solidity::frontend
-{
 
 bool ReferencesResolver::resolve(ASTNode const& _root)
 {
+	auto errorWatcher = m_errorReporter.errorWatcher();
 	_root.accept(*this);
-	return !m_errorOccurred;
+	return errorWatcher.ok();
 }
 
 bool ReferencesResolver::visit(Block const& _block)
@@ -60,6 +61,22 @@ void ReferencesResolver::endVisit(Block const& _block)
 		return;
 
 	m_resolver.setScope(_block.scope());
+}
+
+bool ReferencesResolver::visit(TryCatchClause const& _tryCatchClause)
+{
+	if (!m_resolveInsideCode)
+		return false;
+	m_resolver.setScope(&_tryCatchClause);
+	return true;
+}
+
+void ReferencesResolver::endVisit(TryCatchClause const& _tryCatchClause)
+{
+	if (!m_resolveInsideCode)
+		return;
+
+	m_resolver.setScope(_tryCatchClause.scope());
 }
 
 bool ReferencesResolver::visit(ForStatement const& _for)
@@ -101,6 +118,14 @@ void ReferencesResolver::endVisit(VariableDeclarationStatement const& _varDeclSt
 			m_resolver.activateVariable(var->name());
 }
 
+bool ReferencesResolver::visit(VariableDeclaration const& _varDecl)
+{
+	if (_varDecl.documentation())
+		resolveInheritDoc(*_varDecl.documentation(), _varDecl.annotation());
+
+	return true;
+}
+
 bool ReferencesResolver::visit(Identifier const& _identifier)
 {
 	auto declarations = m_resolver.nameFromCurrentScope(_identifier.name());
@@ -115,26 +140,22 @@ bool ReferencesResolver::visit(Identifier const& _identifier)
 			else
 				errorMessage += " Did you mean " + std::move(suggestions) + "?";
 		}
-		declarationError(_identifier.location(), errorMessage);
+		m_errorReporter.declarationError(7576_error, _identifier.location(), errorMessage);
 	}
 	else if (declarations.size() == 1)
 		_identifier.annotation().referencedDeclaration = declarations.front();
 	else
-		_identifier.annotation().overloadedDeclarations =
-			m_resolver.cleanedDeclarations(_identifier, declarations);
+		_identifier.annotation().candidateDeclarations = declarations;
 	return false;
-}
-
-bool ReferencesResolver::visit(ElementaryTypeName const& _typeName)
-{
-	if (!_typeName.annotation().type)
-		_typeName.annotation().type = TypeProvider::fromElementaryTypeName(_typeName.typeName());
-	return true;
 }
 
 bool ReferencesResolver::visit(FunctionDefinition const& _functionDefinition)
 {
 	m_returnParameters.push_back(_functionDefinition.returnParameterList().get());
+
+	if (_functionDefinition.documentation())
+		resolveInheritDoc(*_functionDefinition.documentation(), _functionDefinition.annotation());
+
 	return true;
 }
 
@@ -144,9 +165,13 @@ void ReferencesResolver::endVisit(FunctionDefinition const&)
 	m_returnParameters.pop_back();
 }
 
-bool ReferencesResolver::visit(ModifierDefinition const&)
+bool ReferencesResolver::visit(ModifierDefinition const& _modifierDefinition)
 {
 	m_returnParameters.push_back(nullptr);
+
+	if (_modifierDefinition.documentation())
+		resolveInheritDoc(*_modifierDefinition.documentation(), _modifierDefinition.annotation());
+
 	return true;
 }
 
@@ -156,125 +181,17 @@ void ReferencesResolver::endVisit(ModifierDefinition const&)
 	m_returnParameters.pop_back();
 }
 
-void ReferencesResolver::endVisit(UserDefinedTypeName const& _typeName)
+void ReferencesResolver::endVisit(IdentifierPath const& _path)
 {
-	Declaration const* declaration = m_resolver.pathFromCurrentScope(_typeName.namePath());
-	if (!declaration)
+	std::vector<Declaration const*> declarations = m_resolver.pathFromCurrentScopeWithAllDeclarations(_path.path());
+	if (declarations.empty())
 	{
-		fatalDeclarationError(_typeName.location(), "Identifier not found or not unique.");
+		m_errorReporter.fatalDeclarationError(7920_error, _path.location(), "Identifier not found or not unique.");
 		return;
 	}
 
-	_typeName.annotation().referencedDeclaration = declaration;
-
-	if (StructDefinition const* structDef = dynamic_cast<StructDefinition const*>(declaration))
-		_typeName.annotation().type = TypeProvider::structType(*structDef);
-	else if (EnumDefinition const* enumDef = dynamic_cast<EnumDefinition const*>(declaration))
-		_typeName.annotation().type = TypeProvider::enumType(*enumDef);
-	else if (ContractDefinition const* contract = dynamic_cast<ContractDefinition const*>(declaration))
-		_typeName.annotation().type = TypeProvider::contract(*contract);
-	else
-	{
-		_typeName.annotation().type = TypeProvider::emptyTuple();
-		typeError(_typeName.location(), "Name has to refer to a struct, enum or contract.");
-	}
-}
-
-void ReferencesResolver::endVisit(FunctionTypeName const& _typeName)
-{
-	switch (_typeName.visibility())
-	{
-	case Visibility::Internal:
-	case Visibility::External:
-		break;
-	default:
-		fatalTypeError(_typeName.location(), "Invalid visibility, can only be \"external\" or \"internal\".");
-		return;
-	}
-
-	if (_typeName.visibility() == Visibility::External)
-		for (auto const& t: _typeName.parameterTypes() + _typeName.returnParameterTypes())
-		{
-			solAssert(t->annotation().type, "Type not set for parameter.");
-			if (!t->annotation().type->interfaceType(false).get())
-			{
-				fatalTypeError(t->location(), "Internal type cannot be used for external function type.");
-				return;
-			}
-		}
-
-	_typeName.annotation().type = TypeProvider::function(_typeName);
-}
-
-void ReferencesResolver::endVisit(Mapping const& _typeName)
-{
-	TypePointer keyType = _typeName.keyType().annotation().type;
-	TypePointer valueType = _typeName.valueType().annotation().type;
-	// Convert key type to memory.
-	keyType = TypeProvider::withLocationIfReference(keyType);
-	valueType = TypeProvider::withLocationIfReference(valueType);
-	_typeName.annotation().type = TypeProvider::mapping(keyType, valueType);
-}
-
-void ReferencesResolver::endVisit(Optional const& _typeName)
-{
-	std::vector<ASTPointer<TypeName>> const& comp = _typeName.maybeTypes();
-	std::vector<Type const*> types;
-	for (const ASTPointer<TypeName>& c : comp) {
-		types.emplace_back(c->annotation().type);
-	}
-
-	if (comp.size() == 1) {
-		_typeName.annotation().type = TypeProvider::optional(types.at(0));
-	} else {
-		_typeName.annotation().type = TypeProvider::optional(TypeProvider::tuple(types));
-	}
-}
-
-void ReferencesResolver::endVisit(TvmVector const& _typeName)
-{
-	TypeName const& type = _typeName.type();
-	_typeName.annotation().type = TypeProvider::tvmtuple(type.annotation().type);
-}
-
-void ReferencesResolver::endVisit(const ElementaryTypeName &_typeName) {
-	if (_typeName.typeName().token() == Token::ExtraCurrencyCollection) {
-		_typeName.annotation().type = TypeProvider::extraCurrencyCollection();
-	} else {
-		ASTConstVisitor::endVisit(_typeName);
-	}
-}
-
-void ReferencesResolver::endVisit(ArrayTypeName const& _typeName)
-{
-	TypePointer baseType = _typeName.baseType().annotation().type;
-	if (!baseType)
-	{
-		solAssert(!m_errorReporter.errors().empty(), "");
-		return;
-	}
-	if (baseType->storageBytes() == 0)
-		fatalTypeError(_typeName.baseType().location(), "Illegal base type of storage size zero for array.");
-	if (Expression const* length = _typeName.length())
-	{
-		TypePointer& lengthTypeGeneric = length->annotation().type;
-		if (!lengthTypeGeneric)
-			lengthTypeGeneric = ConstantEvaluator(m_errorReporter).evaluate(*length);
-		RationalNumberType const* lengthType = dynamic_cast<RationalNumberType const*>(lengthTypeGeneric);
-		if (!lengthType || !lengthType->mobileType())
-			fatalTypeError(length->location(), "Invalid array length, expected integer literal or constant expression.");
-		else if (lengthType->isZero())
-			fatalTypeError(length->location(), "Array with zero length specified.");
-		else if (lengthType->isFractional())
-			fatalTypeError(length->location(), "Array with fractional length specified.");
-		else if (lengthType->isNegative())
-			fatalTypeError(length->location(), "Array with negative length specified.");
-		else
-			_typeName.annotation().type = TypeProvider::array(baseType, lengthType->literalValue(nullptr));
-	}
-	else
-		_typeName.annotation().type = TypeProvider::array(baseType);
-
+	_path.annotation().referencedDeclaration = declarations.back();
+	_path.annotation().pathDeclarations = std::move(declarations);
 }
 
 bool ReferencesResolver::visit(InlineAssembly const& /*_inlineAssembly*/)
@@ -289,64 +206,72 @@ bool ReferencesResolver::visit(Return const& _return)
 	return true;
 }
 
-void ReferencesResolver::endVisit(VariableDeclaration const& _variable)
+void ReferencesResolver::resolveInheritDoc(StructuredDocumentation const& _documentation, StructurallyDocumentedAnnotation& _annotation)
 {
-	if (_variable.annotation().type)
-		return;
-
-	if (_variable.isConstant() && !_variable.isStateVariable())
-		m_errorReporter.declarationError(_variable.location(), "The \"constant\" keyword can only be used for state variables.");
-
-	if (!_variable.typeName())
+	switch (_annotation.docTags.count("inheritdoc"))
 	{
-		// This can still happen in very unusual cases where a developer uses constructs, such as
-		// `var a;`, however, such code will have generated errors already.
-		// However, we cannot blindingly solAssert() for that here, as the TypeChecker (which is
-		// invoking ReferencesResolver) is generating it, so the error is most likely(!) generated
-		// after this step.
-		return;
-	}
-
-
-	TypePointer type = _variable.typeName()->annotation().type;
-	if (auto ref = dynamic_cast<ReferenceType const*>(type))
+	case 0:
+		break;
+	case 1:
 	{
-		bool isPointer = !_variable.isStateVariable();
-		type = TypeProvider::withLocation(ref, isPointer);
+		string const& name = _annotation.docTags.find("inheritdoc")->second.content;
+		if (name.empty())
+		{
+			m_errorReporter.docstringParsingError(
+				1933_error,
+				_documentation.location(),
+				"Expected contract name following documentation tag @inheritdoc."
+			);
+			return;
+		}
+
+		vector<string> path;
+		boost::split(path, name, boost::is_any_of("."));
+		if (any_of(path.begin(), path.end(), [](auto& _str) { return _str.empty(); }))
+		{
+			m_errorReporter.docstringParsingError(
+				5967_error,
+				_documentation.location(),
+				"Documentation tag @inheritdoc reference \"" +
+				name +
+				"\" is malformed."
+			);
+			return;
+		}
+		Declaration const* result = m_resolver.pathFromCurrentScope(path);
+
+		if (result == nullptr)
+		{
+			m_errorReporter.docstringParsingError(
+				9397_error,
+				_documentation.location(),
+				"Documentation tag @inheritdoc references inexistent contract \"" +
+				name +
+				"\"."
+			);
+			return;
+		}
+		else
+		{
+			_annotation.inheritdocReference = dynamic_cast<ContractDefinition const*>(result);
+
+			if (!_annotation.inheritdocReference)
+				m_errorReporter.docstringParsingError(
+					1430_error,
+					_documentation.location(),
+					"Documentation tag @inheritdoc reference \"" +
+					name +
+					"\" is not a contract."
+				);
+		}
+		break;
 	}
-
-	_variable.annotation().type = type;
-}
-
-void ReferencesResolver::typeError(SourceLocation const& _location, string const& _description)
-{
-	m_errorOccurred = true;
-	m_errorReporter.typeError(_location, _description);
-}
-
-void ReferencesResolver::fatalTypeError(SourceLocation const& _location, string const& _description)
-{
-	m_errorOccurred = true;
-	m_errorReporter.fatalTypeError(_location, _description);
-}
-
-void ReferencesResolver::declarationError(SourceLocation const& _location, string const& _description)
-{
-	m_errorOccurred = true;
-	m_errorReporter.declarationError(_location, _description);
-}
-
-void ReferencesResolver::declarationError(SourceLocation const& _location, SecondarySourceLocation const& _ssl, string const& _description)
-{
-	m_errorOccurred = true;
-	m_errorReporter.declarationError(_location, _ssl, _description);
-}
-
-void ReferencesResolver::fatalDeclarationError(SourceLocation const& _location, string const& _description)
-{
-	m_errorOccurred = true;
-	m_errorReporter.fatalDeclarationError(_location, _description);
-}
-
-
+	default:
+		m_errorReporter.docstringParsingError(
+			5142_error,
+			_documentation.location(),
+			"Documentation tag @inheritdoc can only be given once."
+		);
+		break;
+	}
 }

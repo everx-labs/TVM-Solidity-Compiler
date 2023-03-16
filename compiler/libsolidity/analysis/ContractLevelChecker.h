@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 /**
  * Component that verifies overloads, abstract contracts, function clashes and others
  * checks at contract or function level.
@@ -38,7 +39,7 @@ namespace solidity::frontend
 
 /**
  * Component that verifies overloads, abstract contracts, function clashes and others
- * checks at contract or function level.
+ * checks at file, contract, or function level.
  */
 class ContractLevelChecker
 {
@@ -50,18 +51,23 @@ public:
 		m_errorReporter(_errorReporter)
 	{}
 
+	/// Performs checks on the given source ast.
+	/// @returns true iff all checks passed. Note even if all checks passed, errors() can still contain warnings
+	bool check(SourceUnit const& _sourceUnit);
+
+private:
 	/// Performs checks on the given contract.
 	/// @returns true iff all checks passed. Note even if all checks passed, errors() can still contain warnings
 	bool check(ContractDefinition const& _contract);
-
-private:
 	/// Checks that two functions defined in this contract with the same name have different
 	/// arguments and that there is at most one constructor.
 	void checkDuplicateFunctions(ContractDefinition const& _contract);
 	void checkDuplicateEvents(ContractDefinition const& _contract);
+	void checkReceiveFunction(ContractDefinition const& _contract);
 	template <class T>
-	void findDuplicateDefinitions(std::map<std::string, std::vector<T>> const& _definitions, std::string _message);
-	void checkAbstractFunctions(ContractDefinition const& _contract);
+	void findDuplicateDefinitions(std::map<std::string, std::vector<T>> const& _definitions);
+	/// Checks for unimplemented functions and modifiers.
+	void checkAbstractDefinitions(ContractDefinition const& _contract);
 	/// Checks that the base constructor arguments are properly provided.
 	/// Fills the list of unimplemented functions in _contract's annotations.
 	void checkBaseConstructorArguments(ContractDefinition const& _contract);

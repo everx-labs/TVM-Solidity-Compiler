@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 /**
  * @author Christian <c@ethdev.com>
  * @date 2014
@@ -21,10 +22,9 @@
  */
 
 #include <libsolc/libsolc.h>
+#include <libsolidity/interface/FileReader.h>
 #include <libsolidity/interface/StandardCompiler.h>
 #include <libsolidity/interface/Version.h>
-#include <libsolutil/Common.h>
-#include <libsolutil/JSON.h>
 
 #include <cstdlib>
 #include <list>
@@ -36,6 +36,7 @@ using namespace std;
 using namespace solidity;
 using namespace solidity::util;
 
+using solidity::frontend::FileReader;
 using solidity::frontend::ReadCallback;
 using solidity::frontend::StandardCompiler;
 
@@ -56,7 +57,7 @@ string takeOverAllocation(char const* _data)
 	for (auto iter = begin(solidityAllocations); iter != end(solidityAllocations); ++iter)
 		if (iter->data() == _data)
 		{
-			string chunk = move(*iter);
+			string chunk = std::move(*iter);
 			solidityAllocations.erase(iter);
 			return chunk;
 		}
@@ -109,7 +110,7 @@ ReadCallback::Callback wrapReadCallback(CStyleReadFileCallback _readCallback, vo
 string compile(string _input, CStyleReadFileCallback _readCallback, void* _readContext)
 {
 	StandardCompiler compiler(wrapReadCallback(_readCallback, _readContext));
-	return compiler.compile(move(_input));
+	return compiler.compile(std::move(_input));
 }
 
 }
@@ -155,5 +156,77 @@ extern void solidity_reset() noexcept
 	// This is called right before each compilation, but not at the end, so additional memory
 	// can be freed here.
 	solidityAllocations.clear();
+}
+
+// #define FILE_READER_DEBUG 1
+
+extern void* file_reader_new() noexcept
+{
+#ifdef FILE_READER_DEBUG
+	cout << "file_reader_new" << endl;
+#endif
+	return new FileReader();
+}
+extern void file_reader_set_base_path(void *p, const char* path) noexcept
+{
+#ifdef FILE_READER_DEBUG
+	cout << "file_reader_set_base_path " << path << endl;
+#endif
+	FileReader *fileReader = (FileReader *)p;
+	fileReader->setBasePath(boost::filesystem::path(path));
+}
+extern void file_reader_add_include_path(void *p, const char* path) noexcept
+{
+#ifdef FILE_READER_DEBUG
+	cout << "file_reader_add_include_path " << path << endl;
+#endif
+	FileReader *fileReader = (FileReader *)p;
+	fileReader->addIncludePath(boost::filesystem::path(path));
+}
+extern void file_reader_allow_directory(void *p, const char* path) noexcept
+{
+#ifdef FILE_READER_DEBUG
+	cout << "file_reader_allow_directory " << path << endl;
+#endif
+	FileReader *fileReader = (FileReader *)p;
+	fileReader->allowDirectory(boost::filesystem::path(path));
+}
+extern void file_reader_add_or_update_file(void *p, const char* path, const char* content) noexcept
+{
+#ifdef FILE_READER_DEBUG
+	cout << "file_reader_add_or_update_file " << path << endl;
+#endif
+	FileReader *fileReader = (FileReader *)p;
+	fileReader->addOrUpdateFile(boost::filesystem::path(path), content);
+}
+extern char* file_reader_source_unit_name(void *p, const char* path) noexcept
+{
+	FileReader *fileReader = (FileReader *)p;
+	string name = fileReader->cliPathToSourceUnitName(boost::filesystem::path(path));
+#ifdef FILE_READER_DEBUG
+	cout << "file_reader_source_unit_name " << path << " " << name << endl;
+#endif
+	return solidityAllocations.emplace_back(name).data();
+}
+extern char* file_reader_read(void *p, const char* name, int* success) noexcept
+{
+#ifdef FILE_READER_DEBUG
+	cout << "file_reader_read " << name << endl;
+#endif
+	FileReader *fileReader = (FileReader *)p;
+	auto map = fileReader->sourceUnits();
+	if (map.count(name)) {
+#ifdef FILE_READER_DEBUG
+		cout << "cached" << endl;
+#endif
+		*success = true;
+		return solidityAllocations.emplace_back(map[name]).data();
+	}
+	ReadCallback::Result res = fileReader->readFile("source", name);
+	*success = res.success;
+#ifdef FILE_READER_DEBUG
+	cout << "success " << res.success << endl;
+#endif
+	return solidityAllocations.emplace_back(res.responseOrErrorMessage).data();
 }
 }

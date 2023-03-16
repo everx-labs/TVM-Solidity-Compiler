@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::raw::{c_char, c_void};
 use std::path::Path;
 
@@ -8,18 +8,15 @@ use failure::{bail, format_err};
 use serde::Deserialize;
 
 use ton_block::Serializable;
-use ton_types::{BagOfCells, Result, Status};
+use ton_types::{BagOfCells, Result, SliceData, Status};
 use ton_utils::parser::{ParseEngine, ParseEngineInput};
 use ton_utils::program::Program;
 
 mod libsolc;
 mod printer;
 
-// Most of the work of locating an import is implemented in CompilerStack::loadMissingSources().
-// This callback receives an already resolved path, and the only thing left to do is to read
-// the file at the specified path.
 unsafe extern "C" fn read_callback(
-    _context: *mut c_void,
+    context: *mut c_void,
     kind: *const c_char,
     data: *const c_char,
     o_contents: *mut *mut c_char,
@@ -32,21 +29,13 @@ unsafe extern "C" fn read_callback(
         *o_error = make_error(format!("Unknown kind \"{}\"", kind));
         return
     }
-    let filename = std::ffi::CStr::from_ptr(data)
-        .to_string_lossy()
-        .into_owned();
-    let mut file = match File::open(&filename) {
-        Ok(f) => f,
-        Err(e) => {
-            *o_error = make_error(format!("Failed to open file: {}", e));
-            return
-        }
-    };
-    let mut buf = vec![];
-    let size = file.read_to_end(&mut buf).unwrap();
-    let ptr = libsolc::solidity_alloc(size as u64);
-    std::ptr::copy(buf.as_ptr(), ptr as *mut u8, size);
-    *o_contents = ptr;
+    let mut success = 0i32;
+    let contents_ptr = libsolc::file_reader_read(context, data, &mut success);
+    if success == 0 {
+        *o_error = contents_ptr;
+    } else {
+        *o_contents = contents_ptr;
+    }
 }
 
 unsafe fn make_error(msg: String) -> *mut c_char {
@@ -63,10 +52,41 @@ pub fn solidity_version() -> String {
     }
 }
 
-fn compile(args: &Args, input: &str) -> Result<serde_json::Value> {
-    let include_paths = args.include_path.iter()
-        .map(|x| format!("\"{}\"", x)).collect::<Vec<_>>()
-        .join(", ");
+fn to_cstr(s: &str) -> Result<std::ffi::CString> {
+    std::ffi::CString::new(s).map_err(|e| format_err!("Failed to convert: {}", e))
+}
+
+fn compile(args: &Args, input: &str, remappings: Vec<String>) -> Result<(String, serde_json::Value)> {
+    let file_reader = unsafe {
+        let file_reader = libsolc::file_reader_new();
+        if let Some(base_path) = args.base_path.clone() {
+            libsolc::file_reader_set_base_path(file_reader, to_cstr(&base_path)?.as_ptr());
+        }
+        for include_path in args.include_path.clone() {
+            libsolc::file_reader_add_include_path(file_reader, to_cstr(&include_path)?.as_ptr());
+        }
+        for allowed_path in args.allowed_path.clone() {
+            libsolc::file_reader_allow_directory(file_reader, to_cstr(&allowed_path)?.as_ptr());
+        }
+        let input_content = std::fs::read_to_string(input)?;
+        libsolc::file_reader_add_or_update_file(
+            file_reader,
+            to_cstr(input)?.as_ptr(),
+            to_cstr(&input_content)?.as_ptr()
+        );
+        if let Some(path) = dunce::canonicalize(Path::new(&input))?.parent() {
+            let path = path.to_str().ok_or_else(|| format_err!("Failed to convert path to string"))?;
+            libsolc::file_reader_allow_directory(file_reader, to_cstr(path)?.as_ptr());
+        }
+        file_reader
+    };
+    let source_unit_name = {
+        let name = unsafe {
+            std::ffi::CStr::from_ptr(libsolc::file_reader_source_unit_name(
+                file_reader, to_cstr(input)?.as_ptr()))
+        };
+        &name.to_string_lossy().into_owned()
+    };
     let show_function_ids = if args.function_ids {
         ", \"showFunctionIds\""
     } else {
@@ -77,49 +97,59 @@ fn compile(args: &Args, input: &str) -> Result<serde_json::Value> {
     } else {
         ""
     };
-    let assembly = if args.abi_json || args.ast_json || args.ast_compact_json {
+    let assembly = if args.abi_json || args.ast_compact_json {
         ""
     } else {
         ", \"assembly\""
     };
-    let force_remote_update = args.tvm_refresh_remote;
     let main_contract = args.contract.clone().unwrap_or_default();
-    let input = serde_json::ser::to_string(input)?;
-    let input = format!(r#"
+    let remappings = remappings_to_json_string(remappings);
+    let input_json = format!(r#"
         {{
             "language": "Solidity",
             "settings": {{
-                "includePaths": [ {include_paths} ],
-                "forceRemoteUpdate": {force_remote_update},
                 "mainContract": "{main_contract}",
+                "remappings": {remappings},
                 "outputSelection": {{
-                    {input}: {{
+                    "{source_unit_name}": {{
                         "*": [ "abi"{assembly}{show_function_ids}{show_private_function_ids} ],
                         "": [ "ast" ]
                     }}
                 }}
             }},
             "sources": {{
-                {input}: {{
-                    "urls": [ {input} ]
+                "{source_unit_name}": {{
+                    "urls": [ "{source_unit_name}" ]
                 }}
             }}
         }}
     "#);
-    let input_cstring = std::ffi::CString::new(input).expect("Failed to create CString");
     let output = unsafe {
         std::ffi::CStr::from_ptr(libsolc::solidity_compile(
-            input_cstring.as_ptr(),
+            to_cstr(&input_json)?.as_ptr(),
             Some(read_callback),
-            std::ptr::null_mut(),
+            file_reader,
         ))
-            .to_string_lossy()
-            .into_owned()
+        .to_string_lossy()
+        .into_owned()
     };
     let mut de = serde_json::Deserializer::from_str(&output);
     de.disable_recursion_limit(); // ast json part might be considerably nested
     let res = serde_json::Value::deserialize(&mut de)?;
-    Ok(res)
+    Ok((source_unit_name.clone(), res))
+}
+
+fn remappings_to_json_string(remappings: Vec<String>) -> String {
+    let mut out = String::from("[ ");
+    let len = remappings.len();
+    for (i, r) in remappings.iter().enumerate() {
+        out += &format!("\"{}\"", r);
+        if i != len - 1 {
+            out += ", ";
+        }
+    }
+    out += " ]";
+    out
 }
 
 macro_rules! parse_error {
@@ -130,7 +160,7 @@ macro_rules! parse_error {
 
 fn parse_comp_result(
     res: &serde_json::Value,
-    input: &str,
+    source_unit_name: &str,
     contract: Option<String>,
     compile: bool,
 ) -> Result<serde_json::Value> {
@@ -172,7 +202,7 @@ fn parse_comp_result(
         .ok_or_else(|| parse_error!())?
         .as_object()
         .ok_or_else(|| parse_error!())?
-        .get(input)
+        .get(source_unit_name)
         .ok_or_else(|| parse_error!())?
         .as_object()
         .ok_or_else(|| parse_error!())?;
@@ -189,28 +219,52 @@ fn parse_comp_result(
                 if !compile {
                     true
                 } else if let Some(v) = v.as_object() {
-                    v.get("assembly").is_some()
+                    let assembly = v.get("assembly");
+                    if let Some(assembly) = assembly {
+                        !assembly.is_null()
+                    } else {
+                        false
+                    }
                 } else {
                     false
                 }
             });
         let qualification = if compile { "deployable " } else { "" };
-        let entry = iter.next();
-        if let Some(entry) = entry {
-            if iter.next().is_some() {
-                Err(format_err!("Source file contains at least two {}contracts. Consider adding the option --contract in compiler command line to select the desired contract", qualification))
-            } else {
-                Ok(entry.1.clone())
-            }
+        let entry = iter.next().unwrap();
+        if iter.next().is_some() {
+            Err(format_err!("Source file contains at least two {}contracts. Consider adding the option --contract in compiler command line to select the desired contract", qualification))
         } else {
-            Err(format_err!("Source file contains no {}contracts", qualification))
+            Ok(entry.1.clone())
         }
     }
 }
 
 static STDLIB: &[u8] = include_bytes!("../../lib/stdlib_sol.tvm");
 
+fn parse_positional_args(args: Vec<String>) -> Result<(String, Vec<String>)> {
+    let mut input = None;
+    let mut remappings = vec!();
+    for arg in args {
+        if arg.contains('=') {
+            remappings.push(arg);
+        } else {
+            if input.is_some() {
+                bail!("Two or more inputs are given")
+            }
+            input = Some(arg)
+        }
+    }
+    if let Some(input) = input {
+        Ok((input, remappings))
+    } else {
+        bail!("No input files are given")
+    }
+}
+
 pub fn build(args: Args) -> Status {
+    if !args.include_path.is_empty() && args.base_path.is_none() {
+        bail!("--include-path option requires a non-empty base path")
+    }
     let output_dir = args.output_dir.clone().unwrap_or_else(|| String::from("."));
     let output_path = Path::new(&output_dir);
     if !output_path.exists() {
@@ -223,24 +277,15 @@ pub fn build(args: Args) -> Status {
         }
     }
 
-    let input_canonical = dunce::canonicalize(Path::new(&args.input))?;
-    let input = input_canonical.as_os_str().to_str()
-        .ok_or_else(|| format_err!("Failed to get canonical path"))?;
+    let (input, remappings) = parse_positional_args(args.input.clone())?;
+    let input_canonical = dunce::canonicalize(Path::new(&input))?;
 
-    let input = if cfg!(target_family = "windows") {
-        // conform to boost::filesystem::canonical()
-        // note the first slash: C:/Users\Dummy\work\tests\Test.sol
-        input.replacen('\\', "/", 1)
-    } else {
-        input.to_owned()
-    };
-
-    let res = compile(&args, &input)?;
+    let res = compile(&args, &input, remappings)?;
     let out = parse_comp_result(
-        &res,
-        &input,
+        &res.1,
+        &res.0,
         args.contract,
-        !(args.abi_json || args.ast_json || args.ast_compact_json)
+        !(args.abi_json || args.ast_compact_json)
     )?;
 
     if args.function_ids {
@@ -261,8 +306,8 @@ pub fn build(args: Args) -> Status {
     let output_prefix = args.output_prefix.unwrap_or(input_file_stem);
     let output_tvc = format!("{}.tvc", output_prefix);
 
-    if args.ast_json || args.ast_compact_json {
-        let all = res.as_object()
+    if args.ast_compact_json {
+        let all = res.1.as_object()
             .ok_or_else(|| parse_error!())?
             .get("sources")
             .ok_or_else(|| parse_error!())?
@@ -283,11 +328,7 @@ pub fn build(args: Args) -> Status {
         let ast_file_name = format!("{}.ast.json", output_prefix);
         let mut ast_file = File::create(output_path.join(&ast_file_name))?;
 
-        if args.ast_json {
-            serde_json::to_writer_pretty(&mut ast_file, &ast)?;
-        } else {
-            serde_json::to_writer(&mut ast_file, &ast)?;
-        }
+        serde_json::to_writer(&mut ast_file, &ast)?;
         writeln!(ast_file)?;
         return Ok(())
     }
@@ -345,7 +386,7 @@ pub fn build(args: Args) -> Status {
         let new_data = ton_abi::json_abi::update_contract_data(
             &serde_json::to_string(abi)?,
             &params_data,
-            state.data.clone().unwrap_or_default().into(),
+            SliceData::load_cell(state.data.clone().unwrap_or_default())?,
         )?;
         state.set_data(new_data.into_cell());
 
@@ -364,53 +405,65 @@ use once_cell::sync::OnceCell;
 pub static VERSION: OnceCell<String> = OnceCell::new();
 
 #[derive(Parser, Debug)]
-#[clap(author, about, long_about = None)]
+#[clap(author, about = "sold, the Ever Solidity commandline driver", long_about = None)]
 #[clap(arg_required_else_help = true)]
 #[clap(version = VERSION.get().unwrap().as_str())]
 pub struct Args {
-    /// Source file name
+    /// Source file name or remappings in the form of context:prefix=target
     #[clap(value_parser)]
-    pub input: String,
+    pub input: Vec<String>,
+
+    // Input Options:
     /// Contract to build if sources define more than one contract
     #[clap(short, long, value_parser, value_names = &["NAME"])]
     pub contract: Option<String>,
-    /// Output directory (by default, current directory is used)
-    #[clap(short('O'), long, value_parser, value_names = &["PATH"])]
-    pub output_dir: Option<String>,
-    /// Output prefix (by default, input file stem is used as prefix)
-    #[clap(short('P'), long, value_parser, value_names = &["PREFIX"])]
-    pub output_prefix: Option<String>,
-    /// Include additional path to search for imports
-    #[clap(short('I'), long, value_parser, value_names = &["PATH"])]
+    /// Use the given path as the root of the source tree instead of the root of the filesystem
+    #[clap(long, value_parser, value_names = &["PATH"])]
+    pub base_path: Option<String>,
+    /// Make an additional source directory available to the default import callback.
+    /// Use this option if you want to import contracts whose location is not fixed in relation
+    /// to your main source tree, e.g. third-party libraries installed using a package manager.
+    /// Can be used multiple times.
+    /// Can only be used if base path has a non-empty value.
+    #[clap(short('i'), long, value_parser, value_names = &["PATH"])]
     pub include_path: Vec<String>,
+    /// Allow a given path for imports. A list of paths can be supplied by separating them with a comma
+    #[clap(long, value_parser, value_names = &["PATH"])]
+    pub allowed_path: Vec<String>,
     /// Library to use instead of default
-    #[clap(short('L'), long, value_parser, value_names = &["PATH"])]
+    #[clap(short('l'), long, value_parser, value_names = &["PATH"])]
     pub lib: Option<String>,
-    /// Set newly generated keypair
-    #[clap(long, value_parser, value_names = &["FILENAME"])]
-    pub init: Option<String>,
+
+    // Output Options:
+    /// Prefix for output files (by default, input file stem is used as prefix)
+    #[clap(short('p'), long, value_parser, value_names = &["PREFIX"])]
+    pub output_prefix: Option<String>,
+    /// Output directory (by default, current directory is used)
+    #[clap(short('o'), long, value_parser, value_names = &["PATH"])]
+    pub output_dir: Option<String>,
+
+    //Output Components:
+    /// Print the code cell to stdout
+    #[clap(long("print-code"), value_parser)]
+    pub print_code: bool,
+    /// ABI specification of the contracts
+    #[clap(long, value_parser)]
+    pub abi_json: bool,
     /// Print name and id for each public function
     #[clap(long, value_parser)]
     pub function_ids: bool,
     /// Print name and id for each private function
     #[clap(long, value_parser)]
     pub private_function_ids: bool,
-    /// Get AST of all source files in JSON format
-    #[clap(long, value_parser, conflicts_with = "ast-compact-json")]
-    pub ast_json: bool,
-    /// Get AST of all source files in compact JSON format
-    #[clap(long, value_parser, conflicts_with = "ast-json")]
+    /// AST of all source files in a compact JSON format
+    #[clap(long, value_parser)]
     pub ast_compact_json: bool,
-    /// Get ABI without actually compiling
-    #[clap(long, value_parser)]
-    pub abi_json: bool,
-    /// Force download and rewrite remote import files
-    #[clap(long, value_parser)]
-    pub tvm_refresh_remote: bool,
+
+    // TODO ?
+    /// Set newly generated keypair
+    #[clap(long, value_parser, value_names = &["FILENAME"])]
+    pub init: Option<String>,
     /// Mute all notifications
     #[clap(long, value_parser)]
     pub silent: bool,
-    /// After ASM compilation do not generate TVC but print the code cell only
-    #[clap(long("print_code"), value_parser)]
-    pub print_code: bool,
 }

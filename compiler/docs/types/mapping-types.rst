@@ -4,12 +4,12 @@
 Mapping Types
 =============
 
-Mapping types use the syntax ``mapping(_KeyType => _ValueType)`` and variables
-of mapping type are declared using the syntax ``mapping(_KeyType => _ValueType) _VariableName``.
-The ``_KeyType`` can be any
+Mapping types use the syntax ``mapping(KeyType => ValueType)`` and variables
+of mapping type are declared using the syntax ``mapping(KeyType => ValueType) VariableName``.
+The ``KeyType`` can be any
 built-in value type, ``bytes``, ``string``, or any contract or enum type. Other user-defined
 or complex types, such as mappings, structs or array types are not allowed.
-``_ValueType`` can be any type, including mappings, arrays and structs.
+``ValueType`` can be any type, including mappings, arrays and structs.
 
 You can think of mappings as `hash tables <https://en.wikipedia.org/wiki/Hash_table>`_, which are virtually initialised
 such that every possible key exists and is mapped to a value whose
@@ -26,12 +26,13 @@ are allowed for state variables, as storage reference types
 in functions, or as parameters for library functions.
 They cannot be used as parameters or return parameters
 of contract functions that are publicly visible.
+These restrictions are also true for arrays and structs that contain mappings.
 
 You can mark state variables of mapping type as ``public`` and Solidity creates a
-:ref:`getter <visibility-and-getters>` for you. The ``_KeyType`` becomes a parameter for the getter.
-If ``_ValueType`` is a value type or a struct, the getter returns ``_ValueType``.
-If ``_ValueType`` is an array or a mapping, the getter has one parameter for
-each ``_KeyType``, recursively.
+:ref:`getter <visibility-and-getters>` for you. The ``KeyType`` becomes a parameter for the getter.
+If ``ValueType`` is a value type or a struct, the getter returns ``ValueType``.
+If ``ValueType`` is an array or a mapping, the getter has one parameter for
+each ``KeyType``, recursively.
 
 In the example below, the ``MappingExample`` contract defines a public ``balances``
 mapping, with the key type an ``address``, and a value type a ``uint``, mapping
@@ -39,9 +40,10 @@ an Ethereum address to an unsigned integer value. As ``uint`` is a value type, t
 returns a value that matches the type, which you can see in the ``MappingUser``
 contract that returns the value at the specified address.
 
-::
+.. code-block:: solidity
 
-    pragma solidity >=0.4.0 <0.7.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.4.0 <0.9.0;
 
     contract MappingExample {
         mapping(address => uint) public balances;
@@ -64,9 +66,10 @@ The example below is a simplified version of an
 ``_allowances`` is an example of a mapping type inside another mapping type.
 The example below uses ``_allowances`` to record the amount someone else is allowed to withdraw from your account.
 
-::
+.. code-block:: solidity
 
-    pragma solidity >=0.4.0 <0.7.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.4.22 <0.9.0;
 
     contract MappingExample {
 
@@ -81,23 +84,24 @@ The example below uses ``_allowances`` to record the amount someone else is allo
         }
 
         function transferFrom(address sender, address recipient, uint256 amount) public returns (bool) {
+            require(_allowances[sender][msg.sender] >= amount, "ERC20: Allowance not high enough.");
+            _allowances[sender][msg.sender] -= amount;
             _transfer(sender, recipient, amount);
-            approve(sender, msg.sender, amount);
             return true;
         }
 
-        function approve(address owner, address spender, uint256 amount) public returns (bool) {
-            require(owner != address(0), "ERC20: approve from the zero address");
+        function approve(address spender, uint256 amount) public returns (bool) {
             require(spender != address(0), "ERC20: approve to the zero address");
 
-            _allowances[owner][spender] = amount;
-            emit Approval(owner, spender, amount);
+            _allowances[msg.sender][spender] = amount;
+            emit Approval(msg.sender, spender, amount);
             return true;
         }
 
         function _transfer(address sender, address recipient, uint256 amount) internal {
             require(sender != address(0), "ERC20: transfer from the zero address");
             require(recipient != address(0), "ERC20: transfer to the zero address");
+            require(_balances[sender] >= amount, "ERC20: Not enough funds.");
 
             _balances[sender] -= amount;
             _balances[recipient] += amount;
@@ -115,12 +119,14 @@ Iterable Mappings
 You cannot iterate over mappings, i.e. you cannot enumerate their keys.
 It is possible, though, to implement a data structure on
 top of them and iterate over that. For example, the code below implements an
-``IterableMapping`` library that the ``User`` contract then adds data too, and
+``IterableMapping`` library that the ``User`` contract then adds data to, and
 the ``sum`` function iterates over to sum all the values.
 
-::
+.. code-block:: solidity
+    :force:
 
-    pragma solidity >=0.5.99 <0.7.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity ^0.8.8;
 
     struct IndexValue { uint keyIndex; uint value; }
     struct KeyFlag { uint key; bool deleted; }
@@ -131,6 +137,8 @@ the ``sum`` function iterates over to sum all the values.
         uint size;
     }
 
+    type Iterator is uint;
+
     library IterableMapping {
         function insert(itmap storage self, uint key, uint value) internal returns (bool replaced) {
             uint keyIndex = self.data[key].keyIndex;
@@ -138,8 +146,8 @@ the ``sum`` function iterates over to sum all the values.
             if (keyIndex > 0)
                 return true;
             else {
-                self.keys.push();
                 keyIndex = self.keys.length;
+                self.keys.push();
                 self.data[key].keyIndex = keyIndex + 1;
                 self.keys[keyIndex].key = key;
                 self.size++;
@@ -160,24 +168,28 @@ the ``sum`` function iterates over to sum all the values.
             return self.data[key].keyIndex > 0;
         }
 
-        function iterate_start(itmap storage self) internal view returns (uint keyIndex) {
-            return iterate_next(self, uint(-1));
+        function iterateStart(itmap storage self) internal view returns (Iterator) {
+            return iteratorSkipDeleted(self, 0);
         }
 
-        function iterate_valid(itmap storage self, uint keyIndex) internal view returns (bool) {
-            return keyIndex < self.keys.length;
+        function iterateValid(itmap storage self, Iterator iterator) internal view returns (bool) {
+            return Iterator.unwrap(iterator) < self.keys.length;
         }
 
-        function iterate_next(itmap storage self, uint keyIndex) internal view returns (uint r_keyIndex) {
-            keyIndex++;
-            while (keyIndex < self.keys.length && self.keys[keyIndex].deleted)
-                keyIndex++;
-            return keyIndex;
+        function iterateNext(itmap storage self, Iterator iterator) internal view returns (Iterator) {
+            return iteratorSkipDeleted(self, Iterator.unwrap(iterator) + 1);
         }
 
-        function iterate_get(itmap storage self, uint keyIndex) internal view returns (uint key, uint value) {
+        function iterateGet(itmap storage self, Iterator iterator) internal view returns (uint key, uint value) {
+            uint keyIndex = Iterator.unwrap(iterator);
             key = self.keys[keyIndex].key;
             value = self.data[key].value;
+        }
+
+        function iteratorSkipDeleted(itmap storage self, uint keyIndex) private view returns (Iterator) {
+            while (keyIndex < self.keys.length && self.keys[keyIndex].deleted)
+                keyIndex++;
+            return Iterator.wrap(keyIndex);
         }
     }
 
@@ -200,11 +212,11 @@ the ``sum`` function iterates over to sum all the values.
         // Computes the sum of all stored data.
         function sum() public view returns (uint s) {
             for (
-                uint i = data.iterate_start();
-                data.iterate_valid(i);
-                i = data.iterate_next(i)
+                Iterator i = data.iterateStart();
+                data.iterateValid(i);
+                i = data.iterateNext(i)
             ) {
-                (, uint value) = data.iterate_get(i);
+                (, uint value) = data.iterateGet(i);
                 s += value;
             }
         }

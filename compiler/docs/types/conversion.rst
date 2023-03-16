@@ -28,11 +28,11 @@ In the example below, ``y`` and ``z``, the operands of the addition,
 do not have the same type, but ``uint8`` can
 be implicitly converted to ``uint16`` and not vice-versa. Because of that,
 ``y`` is converted to the type of ``z`` before the addition is performed
-in the ``uint16`` type. The resulting type of the expression ``y + z`` is ``uint16`.
+in the ``uint16`` type. The resulting type of the expression ``y + z`` is ``uint16``.
 Because it is assigned to a variable of type ``uint32`` another implicit conversion
 is performed after the addition.
 
-::
+.. code-block:: solidity
 
     uint8 y;
     uint16 z;
@@ -50,7 +50,7 @@ result is what you want and expect!
 
 Take the following example that converts a negative ``int`` to a ``uint``:
 
-::
+.. code-block:: solidity
 
     int  y = -3;
     uint x = uint(y);
@@ -59,13 +59,17 @@ At the end of this code snippet, ``x`` will have the value ``0xfffff..fd`` (64 h
 characters), which is -3 in the two's complement representation of 256 bits.
 
 If an integer is explicitly converted to a smaller type, higher-order bits are
-cut off::
+cut off:
+
+.. code-block:: solidity
 
     uint32 a = 0x12345678;
     uint16 b = uint16(a); // b will be 0x5678 now
 
 If an integer is explicitly converted to a larger type, it is padded on the left (i.e., at the higher order end).
-The result of the conversion will compare equal to the original integer::
+The result of the conversion will compare equal to the original integer:
+
+.. code-block:: solidity
 
     uint16 a = 0x1234;
     uint32 b = uint32(a); // b will be 0x00001234 now
@@ -73,14 +77,18 @@ The result of the conversion will compare equal to the original integer::
 
 Fixed-size bytes types behave differently during conversions. They can be thought of as
 sequences of individual bytes and converting to a smaller type will cut off the
-sequence::
+sequence:
+
+.. code-block:: solidity
 
     bytes2 a = 0x1234;
     bytes1 b = bytes1(a); // b will be 0x12
 
 If a fixed-size bytes type is explicitly converted to a larger type, it is padded on
 the right. Accessing the byte at a fixed index will result in the same value before and
-after the conversion (if the index is still in range)::
+after the conversion (if the index is still in range):
+
+.. code-block:: solidity
 
     bytes2 a = 0x1234;
     bytes4 b = bytes4(a); // b will be 0x12340000
@@ -91,13 +99,36 @@ Since integers and fixed-size byte arrays behave differently when truncating or
 padding, explicit conversions between integers and fixed-size byte arrays are only allowed,
 if both have the same size. If you want to convert between integers and fixed-size byte arrays of
 different size, you have to use intermediate conversions that make the desired truncation and padding
-rules explicit::
+rules explicit:
+
+.. code-block:: solidity
 
     bytes2 a = 0x1234;
     uint32 b = uint16(a); // b will be 0x00001234
     uint32 c = uint32(bytes4(a)); // c will be 0x12340000
     uint8 d = uint8(uint16(a)); // d will be 0x34
     uint8 e = uint8(bytes1(a)); // e will be 0x12
+
+``bytes`` arrays and ``bytes`` calldata slices can be converted explicitly to fixed bytes types (``bytes1``/.../``bytes32``).
+In case the array is longer than the target fixed bytes type, truncation at the end will happen.
+If the array is shorter than the target type, it will be padded with zeros at the end.
+
+.. code-block:: solidity
+
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity ^0.8.5;
+
+    contract C {
+        bytes s = "abcdefgh";
+        function f(bytes calldata c, bytes memory m) public view returns (bytes16, bytes3) {
+            require(c.length == 16, "");
+            bytes16 b = bytes16(m);  // if length of m is greater than 16, truncation will happen
+            b = bytes16(s);  // padded on the right, so result is "abcdefgh\0\0\0\0\0\0\0\0"
+            bytes3 b1 = bytes3(s); // truncated, b1 equals to "abc"
+            b = bytes16(c[:8]);  // also padded with zeros
+            return (b, b1);
+        }
+    }
 
 .. _types-conversion-literals:
 
@@ -108,11 +139,18 @@ Integer Types
 -------------
 
 Decimal and hexadecimal number literals can be implicitly converted to any integer type
-that is large enough to represent it without truncation::
+that is large enough to represent it without truncation:
+
+.. code-block:: solidity
 
     uint8 a = 12; // fine
     uint32 b = 1234; // fine
     uint16 c = 0x123456; // fails, since it would have to truncate to 0x3456
+
+.. note::
+    Prior to version 0.8.0, any decimal or hexadecimal number literals could be explicitly
+    converted to an integer type. From 0.8.0, such explicit conversions are as strict as implicit
+    conversions, i.e., they are only allowed if the literal fits in the resulting range.
 
 Fixed-Size Byte Arrays
 ----------------------
@@ -120,7 +158,9 @@ Fixed-Size Byte Arrays
 Decimal number literals cannot be implicitly converted to fixed-size byte arrays. Hexadecimal
 number literals can be, but only if the number of hex digits exactly fits the size of the bytes
 type. As an exception both decimal and hexadecimal literals which have a value of zero can be
-converted to any fixed-size bytes type::
+converted to any fixed-size bytes type:
+
+.. code-block:: solidity
 
     bytes2 a = 54321; // not allowed
     bytes2 b = 0x12; // not allowed
@@ -131,7 +171,9 @@ converted to any fixed-size bytes type::
     bytes4 g = 0x0; // fine
 
 String literals and hex string literals can be implicitly converted to fixed-size byte arrays,
-if their number of characters matches the size of the bytes type::
+if their number of characters matches the size of the bytes type:
+
+.. code-block:: solidity
 
     bytes2 a = hex"1234"; // fine
     bytes2 b = "xy"; // fine
@@ -146,6 +188,10 @@ Addresses
 As described in :ref:`address_literals`, hex literals of the correct size that pass the checksum
 test are of ``address`` type. No other literals can be implicitly converted to the ``address`` type.
 
-Explicit conversions from ``bytes20`` or any integer type to ``address`` result in ``address payable``.
+Explicit conversions to ``address`` are allowed only from ``bytes20`` and ``uint160``.
 
-An ``address a`` can be converted to ``address payable`` via ``payable(a)``.
+An ``address a`` can be converted explicitly to ``address payable`` via ``payable(a)``.
+
+.. note::
+    Prior to version 0.8.0, it was possible to explicitly convert from any integer type (of any size, signed or unsigned) to  ``address`` or ``address payable``.
+    Starting with in 0.8.0 only conversion from ``uint160`` is allowed.

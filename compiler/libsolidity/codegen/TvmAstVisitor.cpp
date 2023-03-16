@@ -935,4 +935,3 @@ bool LogCircuitExpander::isPureOperation(Pointer<TvmAstNode> const& op) {
 
 	return false;
 }
- 

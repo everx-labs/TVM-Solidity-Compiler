@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 /**
  * @author Christian <c@ethdev.com>
  * @author Gav Wood <g@ethdev.com>
@@ -33,6 +34,8 @@ using namespace std;
 namespace solidity::frontend
 {
 
+namespace
+{
 /// Magic variables get negative ids for easy differentiation
 int magicVariableToID(std::string const& _name)
 {
@@ -45,11 +48,6 @@ int magicVariableToID(std::string const& _name)
 	else if (_name == "format") return -105;
 	else if (_name == "gasleft") return -7;
 	else if (_name == "keccak256") return -8;
-	else if (_name == "log0") return -10;
-	else if (_name == "log1") return -11;
-	else if (_name == "log2") return -12;
-	else if (_name == "log3") return -13;
-	else if (_name == "log4") return -14;
 	else if (_name == "logtvm") return -102;
 	else if (_name == "math") return -103;
 	else if (_name == "rnd") return -105;
@@ -64,7 +62,6 @@ int magicVariableToID(std::string const& _name)
 	else if (_name == "sha256") return -22;
 	else if (_name == "sha3") return -23;
 	else if (_name == "stoi") return -106;
-	else if (_name == "suicide") return -24;
 	else if (_name == "super") return -25;
 	else if (_name == "tvm") return -101;
 	else if (_name == "tx") return -26;
@@ -86,59 +83,50 @@ inline vector<shared_ptr<MagicVariableDeclaration const>> constructMagicVariable
 
 	return {
 		magicVarDecl("abi", TypeProvider::magic(MagicType::Kind::ABI)),
-		magicVarDecl("addmod", TypeProvider::function(strings{"uint256", "uint256", "uint256"}, strings{"uint256"}, FunctionType::Kind::AddMod, false, StateMutability::Pure)),
-		magicVarDecl("assert", TypeProvider::function(strings{"bool"}, strings{}, FunctionType::Kind::Assert, false, StateMutability::Pure)),
+		magicVarDecl("addmod", TypeProvider::function(strings{"uint256", "uint256", "uint256"}, strings{"uint256"}, FunctionType::Kind::AddMod, StateMutability::Pure)),
+		magicVarDecl("assert", TypeProvider::function(strings{"bool"}, strings{}, FunctionType::Kind::Assert, StateMutability::Pure)),
 		magicVarDecl("block", TypeProvider::magic(MagicType::Kind::Block)),
-		magicVarDecl("blockhash", TypeProvider::function(strings{"uint256"}, strings{"bytes32"}, FunctionType::Kind::BlockHash, false, StateMutability::View)),
-		magicVarDecl("ecrecover", TypeProvider::function(strings{"bytes32", "uint8", "bytes32", "bytes32"}, strings{"address"}, FunctionType::Kind::ECRecover, false, StateMutability::Pure)),
-		magicVarDecl("format", TypeProvider::function(strings{}, strings{"string"}, FunctionType::Kind::Format, true, StateMutability::Pure)),
-		magicVarDecl("gasleft", TypeProvider::function(strings(), strings{"uint256"}, FunctionType::Kind::GasLeft, false, StateMutability::View)),
+		magicVarDecl("msg", TypeProvider::magic(MagicType::Kind::Message)),
+		magicVarDecl("mulmod", TypeProvider::function(strings{"uint256", "uint256", "uint256"}, strings{"uint256"}, FunctionType::Kind::MulMod, StateMutability::Pure)),
+		magicVarDecl("now", TypeProvider::uint(32)),
+		magicVarDecl("require", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::Require, StateMutability::Pure, FunctionType::Options::withArbitraryParameters())),
+		magicVarDecl("revert", TypeProvider::function(strings(), strings(), FunctionType::Kind::Revert, StateMutability::Pure, FunctionType::Options::withArbitraryParameters())),
+		magicVarDecl("selfdestruct", TypeProvider::function(strings{"address payable"}, strings{}, FunctionType::Kind::Selfdestruct)),
+		magicVarDecl("sha256", TypeProvider::function({}, {}, FunctionType::Kind::SHA256, StateMutability::Pure)),
+
+		magicVarDecl("format", TypeProvider::function(strings{}, strings{"string"}, FunctionType::Kind::Format, StateMutability::Pure, FunctionType::Options::withArbitraryParameters())),
 		magicVarDecl("gosh", TypeProvider::magic(MagicType::Kind::Gosh)),
-		magicVarDecl("keccak256", TypeProvider::function(strings{"bytes memory"}, strings{"bytes32"}, FunctionType::Kind::KECCAK256, false, StateMutability::Pure)),
-		magicVarDecl("log0", TypeProvider::function(strings{"bytes32"}, strings{}, FunctionType::Kind::Log0)),
-		magicVarDecl("log1", TypeProvider::function(strings{"bytes32", "bytes32"}, strings{}, FunctionType::Kind::Log1)),
-		magicVarDecl("log2", TypeProvider::function(strings{"bytes32", "bytes32", "bytes32"}, strings{}, FunctionType::Kind::Log2)),
-		magicVarDecl("log3", TypeProvider::function(strings{"bytes32", "bytes32", "bytes32", "bytes32"}, strings{}, FunctionType::Kind::Log3)),
-		magicVarDecl("log4", TypeProvider::function(strings{"bytes32", "bytes32", "bytes32", "bytes32", "bytes32"}, strings{}, FunctionType::Kind::Log4)),
-		magicVarDecl("logtvm", TypeProvider::function(strings{"string"}, strings{}, FunctionType::Kind::LogTVM, false, StateMutability::Pure)),
+		magicVarDecl("logtvm", TypeProvider::function(strings{"string"}, strings{}, FunctionType::Kind::LogTVM, StateMutability::Pure)),
 		magicVarDecl("math", TypeProvider::magic(MagicType::Kind::Math)),
 		magicVarDecl("rnd", TypeProvider::magic(MagicType::Kind::Rnd)),
-		magicVarDecl("msg", TypeProvider::magic(MagicType::Kind::Message)),
-		magicVarDecl("mulmod", TypeProvider::function(strings{"uint256", "uint256", "uint256"}, strings{"uint256"}, FunctionType::Kind::MulMod, false, StateMutability::Pure)),
-		magicVarDecl("now", TypeProvider::uint(32)),
-		magicVarDecl("require", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::Require, true, StateMutability::Pure)),
-		magicVarDecl("revert", TypeProvider::function(strings(), strings(), FunctionType::Kind::Revert, true, StateMutability::Pure)),
-		magicVarDecl("ripemd160", TypeProvider::function(strings{"bytes memory"}, strings{"bytes20"}, FunctionType::Kind::RIPEMD160, false, StateMutability::Pure)),
-		magicVarDecl("selfdestruct", TypeProvider::function(strings{"address payable"}, strings{}, FunctionType::Kind::Selfdestruct)),
-		magicVarDecl("sha256", TypeProvider::function({"TvmSlice"}, {"uint256"}, FunctionType::Kind::SHA256, false, StateMutability::Pure)),
-		magicVarDecl("sha256", TypeProvider::function({"bytes"}, {"uint256"}, FunctionType::Kind::SHA256, false, StateMutability::Pure)),
-		magicVarDecl("sha3", TypeProvider::function(strings{"bytes memory"}, strings{"bytes32"}, FunctionType::Kind::KECCAK256, false, StateMutability::Pure)),
 		magicVarDecl("stoi", TypeProvider::function(
 				TypePointers{TypeProvider::stringStorage()},
 				TypePointers{TypeProvider::optional(TypeProvider::integer(256, IntegerType::Modifier::Signed))},
 				strings{string()},
 				strings{string()},
 				FunctionType::Kind::Stoi,
-				false,
 				StateMutability::Pure)
 				),
-		magicVarDecl("suicide", TypeProvider::function(strings{"address payable"}, strings{}, FunctionType::Kind::Selfdestruct)),
 		magicVarDecl("tvm", TypeProvider::magic(MagicType::Kind::TVM)),
 		magicVarDecl("tx", TypeProvider::magic(MagicType::Kind::Transaction)),
+		// Accepts a MagicType that can be any contract type or an Integer type and returns a
+		// MagicType. The TypeChecker handles the correctness of the input and output types.
 		magicVarDecl("type", TypeProvider::function(
-			strings{"address"} /* accepts any contract type, handled by the type checker */,
-			strings{} /* returns a MagicType, handled by the type checker */,
+			strings{},
+			strings{},
 			FunctionType::Kind::MetaType,
-			false,
-			StateMutability::Pure
+			StateMutability::Pure,
+			FunctionType::Options::withArbitraryParameters()
 		)),
-		magicVarDecl("valueToGas", TypeProvider::function({"uint128", "int8"}, {"uint128"}, FunctionType::Kind::ValueToGas, false, StateMutability::Pure)),
-		magicVarDecl("valueToGas", TypeProvider::function({"uint128"}, {"uint128"}, FunctionType::Kind::ValueToGas, false, StateMutability::Pure)),
-		magicVarDecl("gasToValue", TypeProvider::function({"uint128", "int8"}, {"uint128"}, FunctionType::Kind::GasToValue, false, StateMutability::Pure)),
-		magicVarDecl("gasToValue", TypeProvider::function({"uint128"}, {"uint128"}, FunctionType::Kind::GasToValue, false, StateMutability::Pure)),
-		magicVarDecl("bitSize", TypeProvider::function({"int"}, {"uint16"}, FunctionType::Kind::BitSize, false, StateMutability::Pure)),
-		magicVarDecl("uBitSize", TypeProvider::function({"uint"}, {"uint16"}, FunctionType::Kind::UBitSize, false, StateMutability::Pure)),
+		magicVarDecl("valueToGas", TypeProvider::function({"uint128", "int8"}, {"uint128"}, FunctionType::Kind::ValueToGas, StateMutability::Pure)),
+		magicVarDecl("valueToGas", TypeProvider::function({"uint128"}, {"uint128"}, FunctionType::Kind::ValueToGas, StateMutability::Pure)),
+		magicVarDecl("gasToValue", TypeProvider::function({"uint128", "int8"}, {"uint128"}, FunctionType::Kind::GasToValue, StateMutability::Pure)),
+		magicVarDecl("gasToValue", TypeProvider::function({"uint128"}, {"uint128"}, FunctionType::Kind::GasToValue, StateMutability::Pure)),
+		magicVarDecl("bitSize", TypeProvider::function({"int"}, {"uint16"}, FunctionType::Kind::BitSize, StateMutability::Pure)),
+		magicVarDecl("uBitSize", TypeProvider::function({"uint"}, {"uint16"}, FunctionType::Kind::UBitSize, StateMutability::Pure)),
 	};
+}
+
 }
 
 GlobalContext::GlobalContext(): m_magicVariables{constructMagicVariables()}
@@ -154,7 +142,7 @@ vector<Declaration const*> GlobalContext::declarations() const
 {
 	vector<Declaration const*> declarations;
 	declarations.reserve(m_magicVariables.size());
-	for (auto& variable: m_magicVariables)
+	for (ASTPointer<MagicVariableDeclaration const> const& variable: m_magicVariables)
 		declarations.push_back(variable.get());
 	return declarations;
 }
@@ -162,15 +150,26 @@ vector<Declaration const*> GlobalContext::declarations() const
 MagicVariableDeclaration const* GlobalContext::currentThis() const
 {
 	if (!m_thisPointer[m_currentContract])
-		m_thisPointer[m_currentContract] = make_shared<MagicVariableDeclaration>(magicVariableToID("this"), "this", TypeProvider::contract(*m_currentContract));
+	{
+		Type const* type = TypeProvider::emptyTuple();
+		if (m_currentContract)
+			type = TypeProvider::contract(*m_currentContract);
+		m_thisPointer[m_currentContract] =
+			make_shared<MagicVariableDeclaration>(magicVariableToID("this"), "this", type);
+	}
 	return m_thisPointer[m_currentContract].get();
-
 }
 
 MagicVariableDeclaration const* GlobalContext::currentSuper() const
 {
 	if (!m_superPointer[m_currentContract])
-		m_superPointer[m_currentContract] = make_shared<MagicVariableDeclaration>(magicVariableToID("super"), "super", TypeProvider::contract(*m_currentContract, true));
+	{
+		Type const* type = TypeProvider::emptyTuple();
+		if (m_currentContract)
+			type = TypeProvider::typeType(TypeProvider::contract(*m_currentContract, true));
+		m_superPointer[m_currentContract] =
+			make_shared<MagicVariableDeclaration>(magicVariableToID("super"), "super", type);
+	}
 	return m_superPointer[m_currentContract].get();
 }
 

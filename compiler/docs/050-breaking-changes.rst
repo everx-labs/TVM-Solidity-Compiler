@@ -89,8 +89,8 @@ For most of the topics the compiler will provide suggestions.
 
 * Explicit data location for all variables of struct, array or mapping types is
   now mandatory. This is also applied to function parameters and return
-  variables.  For example, change ``uint[] x = m_x`` to ``uint[] storage x =
-  m_x``, and ``function f(uint[][] x)`` to ``function f(uint[][] memory x)``
+  variables.  For example, change ``uint[] x = z`` to ``uint[] storage x =
+  z``, and ``function f(uint[][] x)`` to ``function f(uint[][] memory x)``
   where ``memory`` is the data location and might be replaced by ``storage`` or
   ``calldata`` accordingly.  Note that ``external`` functions require
   parameters with a data location of ``calldata``.
@@ -127,7 +127,10 @@ For most of the topics the compiler will provide suggestions.
   adjusted within the type before the conversion.  For example, you can convert
   a ``bytes4`` (4 bytes) to a ``uint64`` (8 bytes) by first converting the
   ``bytes4`` variable to ``bytes8`` and then to ``uint64``. You get the
-  opposite padding when converting through ``uint32``.
+  opposite padding when converting through ``uint32``. Before v0.5.0 any
+  conversion between ``bytesX`` and ``uintY`` would go through ``uint8X``. For
+  example ``uint8(bytes3(0x291807))`` would be converted to ``uint8(uint24(bytes3(0x291807)))``
+  (the result is ``0x07``).
 
 * Using ``msg.value`` in non-payable functions (or introducing it via a
   modifier) is disallowed as a security feature. Turn the function into
@@ -290,10 +293,12 @@ It is still possible to interface with contracts written for Solidity versions p
 v0.5.0 (or the other way around) by defining interfaces for them.
 Consider you have the following pre-0.5.0 contract already deployed:
 
-::
+.. code-block:: solidity
 
-    // This will not compile with the current version of the compiler
+    // SPDX-License-Identifier: GPL-3.0
     pragma solidity ^0.4.25;
+    // This will report a warning until version 0.4.25 of the compiler
+    // This will not compile after 0.5.0
     contract OldContract {
         function someOldFunction(uint8 a) {
             //...
@@ -306,9 +311,10 @@ Consider you have the following pre-0.5.0 contract already deployed:
 
 This will no longer compile with Solidity v0.5.0. However, you can define a compatible interface for it:
 
-::
+.. code-block:: solidity
 
-    pragma solidity >=0.5.0 <0.7.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.5.0 <0.9.0;
     interface OldContract {
         function someOldFunction(uint8 a) external;
         function anotherOldFunction() external returns (bool);
@@ -323,9 +329,10 @@ the function will work with ``staticcall``.
 
 Given the interface defined above, you can now easily use the already deployed pre-0.5.0 contract:
 
-::
+.. code-block:: solidity
 
-    pragma solidity >=0.5.0 <0.7.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.5.0 <0.9.0;
 
     interface OldContract {
         function someOldFunction(uint8 a) external;
@@ -343,10 +350,11 @@ Similarly, pre-0.5.0 libraries can be used by defining the functions of the libr
 supplying the address of the pre-0.5.0 library during linking (see :ref:`commandline-compiler` for how to use the
 commandline compiler for linking):
 
-::
+.. code-block:: solidity
 
     // This will not compile after 0.6.0
-    pragma solidity >=0.5.0 <0.5.99;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity ^0.5.0;
 
     library OldLibrary {
         function someFunction(uint8 a) public returns(bool);
@@ -367,10 +375,11 @@ v0.5.0 with some of the changes listed in this section.
 
 Old version:
 
-::
+.. code-block:: solidity
 
-    // This will not compile
+    // SPDX-License-Identifier: GPL-3.0
     pragma solidity ^0.4.25;
+    // This will not compile after 0.5.0
 
     contract OtherContract {
         uint x;
@@ -396,7 +405,7 @@ Old version:
             // Throw is fine in this version.
             if (x > 100)
                 throw;
-            bytes b = new bytes(x);
+            bytes memory b = new bytes(x);
             y = -3 >> 1;
             // y == -1 (wrong, should be -2)
             do {
@@ -429,16 +438,18 @@ Old version:
 
 New version:
 
-::
+.. code-block:: solidity
 
-    pragma solidity >=0.5.0 <0.7.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity ^0.5.0;
+    // This will not compile after 0.6.0
 
     contract OtherContract {
         uint x;
         function f(uint y) external {
             x = y;
         }
-        receive() payable external {}
+        function() payable external {}
     }
 
     contract New {
@@ -472,7 +483,7 @@ New version:
             return data;
         }
 
-        using address_make_payable for address;
+        using AddressMakePayable for address;
         // Data location for 'arr' must be specified
         function g(uint[] memory /* arr */, bytes8 x, OtherContract otherContract, address unknownContract) public payable {
             // 'otherContract.transfer' is not provided.
@@ -489,7 +500,7 @@ New version:
             // 'address payable' should be used whenever possible.
             // To increase clarity, we suggest the use of a library for
             // the conversion (provided after the contract in this example).
-            address payable addr = unknownContract.make_payable();
+            address payable addr = unknownContract.makePayable();
             require(addr.send(1 ether));
 
             // Since uint32 (4 bytes) is smaller than bytes8 (8 bytes),
@@ -505,8 +516,8 @@ New version:
 
     // We can define a library for explicitly converting ``address``
     // to ``address payable`` as a workaround.
-    library address_make_payable {
-        function make_payable(address x) internal pure returns (address payable) {
+    library AddressMakePayable {
+        function makePayable(address x) internal pure returns (address payable) {
             return address(uint160(x));
         }
     }

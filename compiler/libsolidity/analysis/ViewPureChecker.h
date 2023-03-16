@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 
 #pragma once
 
@@ -49,6 +50,8 @@ private:
 		langutil::SourceLocation location;
 	};
 
+	bool visit(ImportDirective const&) override;
+
 	bool visit(FunctionDefinition const& _funDef) override;
 	void endVisit(FunctionDefinition const& _funDef) override;
 	bool visit(ModifierDefinition const& _modifierDef) override;
@@ -71,6 +74,8 @@ private:
 	);
 
 	bool isStateVariable(Expression const&  expression) const;
+	/// Determines the mutability of modifier if not already cached.
+	MutabilityAndLocation const& modifierMutability(ModifierDefinition const& _modifier);
 
 	std::vector<std::shared_ptr<ASTNode>> const& m_ast;
 	langutil::ErrorReporter& m_errorReporter;

@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 
 #pragma once
 
@@ -22,6 +23,13 @@
 namespace solidity::phaser
 {
 
-struct InvalidProgram: virtual util::Exception {};
+struct BadInput: virtual util::Exception {};
+struct InvalidProgram: virtual BadInput {};
+struct NoInputFiles: virtual BadInput {};
+struct MissingFile: virtual BadInput {};
+
+struct FileOpenError: virtual util::Exception {};
+struct FileReadError: virtual util::Exception {};
+struct FileWriteError: virtual util::Exception {};
 
 }

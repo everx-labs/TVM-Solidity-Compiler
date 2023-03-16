@@ -6,16 +6,21 @@
 ## You can pass a branch name as argument to this script (which, if no argument is given,
 ## will default to "develop").
 ##
-## If the gien branch is "release", the resulting package will be uplaoded to
+## If the given branch is "release", the resulting package will be uploaded to
 ## ethereum/ethereum PPA, or ethereum/ethereum-dev PPA otherwise.
-##
-## The gnupg key for "builds@ethereum.org" has to be present in order to sign
-## the package.
 ##
 ## It will clone the Solidity git from github, determine the version,
 ## create a source archive and push it to the ubuntu ppa servers.
 ##
-## This requires the following entries in /etc/dput.cf:
+## To interact with launchpad, you need to set the variables $LAUNCHPAD_EMAIL
+## and $LAUNCHPAD_KEYID in the file .release_ppa_auth in the root directory of
+## the project to your launchpad email and pgp keyid.
+## This could for example look like this:
+##
+##  LAUNCHPAD_EMAIL=your-launchpad-email@ethereum.org
+##  LAUNCHPAD_KEYID=123ABCFFFFFFFF
+##
+## Additionally the following entries in /etc/dput.cf are required:
 ##
 ##  [ethereum-dev]
 ##  fqdn			= ppa.launchpad.net
@@ -34,11 +39,16 @@
 ##  method			= ftp
 ##  incoming		= ~ethereum/ethereum-static
 ##  login			= anonymous
-
 ##
 ##############################################################################
 
-set -ev
+set -e
+
+
+REPO_ROOT="$(dirname "$0")/.."
+
+# shellcheck source=scripts/common.sh
+source "${REPO_ROOT}/scripts/common.sh"
 
 if [ -z "$1" ]
 then
@@ -48,40 +58,62 @@ else
 fi
 
 is_release() {
-    [[ "${branch}" = "release" ]] || [[ "${branch}" =~ ^v[0-9]+(\.[0-9])*$ ]]
+    [[ "${branch}" =~ ^v[0-9]+(\.[0-9]+)*$ ]]
 }
 
-keyid=70D110489D66E2F6
-email=builds@ethereum.org
+sourcePPAConfig
+
 packagename=solc
 
-static_build_distribution=disco
+# This needs to be a still active release
+static_build_distribution=focal
 
-DISTRIBUTIONS="bionic disco eoan"
+DISTRIBUTIONS="focal jammy kinetic"
 
 if is_release
 then
     DISTRIBUTIONS="$DISTRIBUTIONS STATIC"
+
+    # Sanity checks
+    checkDputEntries "\[ethereum\]"
+    checkDputEntries "\[ethereum-static\]"
+else
+    # Sanity check
+    checkDputEntries "\[ethereum-dev\]"
 fi
 
 for distribution in $DISTRIBUTIONS
 do
 cd /tmp/
-rm -rf $distribution
-mkdir $distribution
-cd $distribution
+rm -rf "$distribution"
+mkdir "$distribution"
+cd "$distribution"
 
-if [ $distribution = STATIC ]
+if [ "$distribution" = STATIC ]
 then
     pparepo=ethereum-static
     SMTDEPENDENCY=""
-    CMAKE_OPTIONS="-DSOLC_LINK_STATIC=On"
+    CMAKE_OPTIONS="-DSOLC_LINK_STATIC=On -DCMAKE_EXE_LINKER_FLAGS=-static"
 else
     if is_release
     then
         pparepo=ethereum
     else
         pparepo=ethereum-dev
+    fi
+    if [ "$distribution" = focal ]
+    then
+        SMTDEPENDENCY="libz3-static-dev,
+            libcvc4-dev,
+            "
+    elif [ "$distribution" = disco ]
+    then
+        SMTDEPENDENCY="libz3-static-dev,
+            libcvc4-dev,
+            "
+    else
+        SMTDEPENDENCY="libz3-static-dev,
+            "
     fi
     CMAKE_OPTIONS=""
 fi
@@ -91,15 +123,16 @@ ppafilesurl=https://launchpad.net/~ethereum/+archive/ubuntu/${pparepo}/+files
 git clone --depth 2 --recursive https://github.com/ethereum/solidity.git -b "$branch"
 mv solidity solc
 
-# Fetch jsoncpp dependency
+# Fetch dependencies
 mkdir -p ./solc/deps/downloads/ 2>/dev/null || true
-wget -O ./solc/deps/downloads/jsoncpp-1.9.2.tar.gz https://github.com/open-source-parsers/jsoncpp/archive/1.9.2.tar.gz
+wget -O ./solc/deps/downloads/jsoncpp-1.9.3.tar.gz https://github.com/open-source-parsers/jsoncpp/archive/1.9.3.tar.gz
+wget -O ./solc/deps/downloads/range-v3-0.12.0.tar.gz https://github.com/ericniebler/range-v3/archive/0.12.0.tar.gz
+wget -O ./solc/deps/downloads/fmt-8.0.1.tar.gz https://github.com/fmtlib/fmt/archive/8.0.1.tar.gz
 
 # Determine version
 cd solc
-version=$($(dirname "$0")/get_version.sh)
+version=$("$(dirname "$0")/get_version.sh")
 commithash=$(git rev-parse --short=8 HEAD)
-committimestamp=$(git show --format=%ci HEAD | head -n 1)
 commitdate=$(git show --format=%ci HEAD | head -n 1 | cut - -b1-10 | sed -e 's/-0?/./' | sed -e 's/-0?/./')
 
 echo "$commithash" > commit_hash.txt
@@ -114,11 +147,11 @@ fi
 # gzip will create different tars all the time and we are not allowed
 # to upload the same file twice with different contents, so we only
 # create it once.
-if [ ! -e /tmp/${packagename}_${debversion}.orig.tar.gz ]
+if [ ! -e "/tmp/${packagename}_${debversion}.orig.tar.gz" ]
 then
-    tar --exclude .git -czf /tmp/${packagename}_${debversion}.orig.tar.gz .
+    tar --exclude .git -czf "/tmp/${packagename}_${debversion}.orig.tar.gz" .
 fi
-cp /tmp/${packagename}_${debversion}.orig.tar.gz ../
+cp "/tmp/${packagename}_${debversion}.orig.tar.gz" ../
 
 # Create debian package information
 
@@ -144,7 +177,7 @@ Vcs-Git: git://github.com/ethereum/solidity.git
 Vcs-Browser: https://github.com/ethereum/solidity
 
 Package: solc
-Architecture: any-i386 any-amd64
+Architecture: any-amd64
 Multi-Arch: same
 Depends: \${shlibs:Depends}, \${misc:Depends}
 Conflicts: libethereum (<= 1.2.9)
@@ -230,7 +263,7 @@ chmod +x debian/rules
 
 versionsuffix=0ubuntu1~${distribution}
 # bump version / add entry to changelog
-EMAIL="$email" dch -v 1:${debversion}-${versionsuffix} "git build of ${commithash}"
+EMAIL="$LAUNCHPAD_EMAIL" dch -v "1:${debversion}-${versionsuffix}" "git build of ${commithash}"
 
 
 # build source package
@@ -240,39 +273,41 @@ EMAIL="$email" dch -v 1:${debversion}-${versionsuffix} "git build of ${commithas
 debuild -S -d -sa -us -uc
 
 # prepare .changes file for Launchpad
-if [ $distribution = STATIC ]
+if [ "$distribution" = STATIC ]
 then
-    sed -i -e s/UNRELEASED/${static_build_distribution}/ -e s/urgency=medium/urgency=low/ ../*.changes
+    sed -i -e "s/UNRELEASED/${static_build_distribution}/" -e s/urgency=medium/urgency=low/ ../*.changes
 else
-    sed -i -e s/UNRELEASED/${distribution}/ -e s/urgency=medium/urgency=low/ ../*.changes
+    sed -i -e "s/UNRELEASED/${distribution}/" -e s/urgency=medium/urgency=low/ ../*.changes
 fi
 
 # check if ubuntu already has the source tarball
 (
 cd ..
-orig=${packagename}_${debversion}.orig.tar.gz
-orig_size=$(ls -l $orig | cut -d ' ' -f 5)
-orig_sha1=$(sha1sum $orig | cut -d ' ' -f 1)
-orig_sha256=$(sha256sum $orig | cut -d ' ' -f 1)
-orig_md5=$(md5sum $orig | cut -d ' ' -f 1)
+orig="${packagename}_${debversion}.orig.tar.gz"
+# shellcheck disable=SC2012
+orig_size=$(ls -l "$orig" | cut -d ' ' -f 5)
+orig_sha1=$(sha1sum "$orig" | cut -d ' ' -f 1)
+orig_sha256=$(sha256sum "$orig" | cut -d ' ' -f 1)
+orig_md5=$(md5sum "$orig" | cut -d ' ' -f 1)
 
-if wget --quiet -O $orig-tmp "$ppafilesurl/$orig"
+if wget --quiet -O "$orig-tmp" "$ppafilesurl/$orig"
 then
     echo "[WARN] Original tarball found in Ubuntu archive, using it instead"
-    mv $orig-tmp $orig
-    new_size=$(ls -l *.orig.tar.gz | cut -d ' ' -f 5)
-    new_sha1=$(sha1sum $orig | cut -d ' ' -f 1)
-    new_sha256=$(sha256sum $orig | cut -d ' ' -f 1)
-    new_md5=$(md5sum $orig | cut -d ' ' -f 1)
-    sed -i -e s,$orig_sha1,$new_sha1,g -e s,$orig_sha256,$new_sha256,g -e s,$orig_size,$new_size,g -e s,$orig_md5,$new_md5,g *.dsc
-    sed -i -e s,$orig_sha1,$new_sha1,g -e s,$orig_sha256,$new_sha256,g -e s,$orig_size,$new_size,g -e s,$orig_md5,$new_md5,g *.changes
+    mv "$orig-tmp" "$orig"
+    # shellcheck disable=SC2012
+    new_size=$(ls -l ./*.orig.tar.gz | cut -d ' ' -f 5)
+    new_sha1=$(sha1sum "$orig" | cut -d ' ' -f 1)
+    new_sha256=$(sha256sum "$orig" | cut -d ' ' -f 1)
+    new_md5=$(md5sum "$orig" | cut -d ' ' -f 1)
+    sed -i -e "s,$orig_sha1,$new_sha1,g" -e "s,$orig_sha256,$new_sha256,g" -e "s,$orig_size,$new_size,g" -e "s,$orig_md5,$new_md5,g" ./*.dsc
+    sed -i -e "s,$orig_sha1,$new_sha1,g" -e "s,$orig_sha256,$new_sha256,g" -e "s,$orig_size,$new_size,g" -e "s,$orig_md5,$new_md5,g" ./*.changes
 fi
 )
 
 # sign the package
-debsign --re-sign -k ${keyid} ../${packagename}_${debversion}-${versionsuffix}_source.changes
+debsign --re-sign -k "${LAUNCHPAD_KEYID}" "../${packagename}_${debversion}-${versionsuffix}_source.changes"
 
 # upload
-dput ${pparepo} ../${packagename}_${debversion}-${versionsuffix}_source.changes
+dput "${pparepo}" "../${packagename}_${debversion}-${versionsuffix}_source.changes"
 
 done

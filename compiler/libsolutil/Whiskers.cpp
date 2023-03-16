@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 /** @file Whiskers.cpp
  * @author Chris <chis@ethereum.org>
  * @date 2017
@@ -31,7 +32,7 @@ using namespace std;
 using namespace solidity::util;
 
 Whiskers::Whiskers(string _template):
-	m_template(move(_template))
+	m_template(std::move(_template))
 {
 }
 
@@ -39,7 +40,8 @@ Whiskers& Whiskers::operator()(string _parameter, string _value)
 {
 	checkParameterValid(_parameter);
 	checkParameterUnknown(_parameter);
-	m_parameters[move(_parameter)] = move(_value);
+	checkTemplateContainsTags(_parameter, {""});
+	m_parameters[std::move(_parameter)] = std::move(_value);
 	return *this;
 }
 
@@ -47,7 +49,8 @@ Whiskers& Whiskers::operator()(string _parameter, bool _value)
 {
 	checkParameterValid(_parameter);
 	checkParameterUnknown(_parameter);
-	m_conditions[move(_parameter)] = _value;
+	checkTemplateContainsTags(_parameter, {"?", "/"});
+	m_conditions[std::move(_parameter)] = _value;
 	return *this;
 }
 
@@ -58,10 +61,11 @@ Whiskers& Whiskers::operator()(
 {
 	checkParameterValid(_listParameter);
 	checkParameterUnknown(_listParameter);
+	checkTemplateContainsTags(_listParameter, {"#", "/"});
 	for (auto const& element: _values)
 		for (auto const& val: element)
 			checkParameterValid(val.first);
-	m_listParameters[move(_listParameter)] = move(_values);
+	m_listParameters[std::move(_listParameter)] = std::move(_values);
 	return *this;
 }
 
@@ -99,6 +103,19 @@ void Whiskers::checkParameterUnknown(string const& _parameter) const
 	);
 }
 
+void Whiskers::checkTemplateContainsTags(string const& _parameter, vector<string> const& _prefixes) const
+{
+	for (auto const& prefix: _prefixes)
+	{
+		string tag{"<" + prefix + _parameter + ">"};
+		assertThrow(
+			m_template.find(tag) != string::npos,
+			WhiskersError,
+			"Tag '" + tag + "' not found in template:\n" + m_template
+		);
+	}
+}
+
 namespace
 {
 template<class ReplaceCallback>
@@ -132,7 +149,11 @@ string Whiskers::replace(
 	map<string, vector<StringMap>> const& _listParameters
 )
 {
-	static regex listOrTag("<(" + paramRegex() + ")>|<#(" + paramRegex() + ")>((?:.|\\r|\\n)*?)</\\2>|<\\?(" + paramRegex() + ")>((?:.|\\r|\\n)*?)(<!\\4>((?:.|\\r|\\n)*?))?</\\4>");
+	static regex listOrTag(
+		"<(" + paramRegex() + ")>|"
+		"<#(" + paramRegex() + ")>((?:.|\\r|\\n)*?)</\\2>|"
+		"<\\?(\\+?" + paramRegex() + ")>((?:.|\\r|\\n)*?)(<!\\4>((?:.|\\r|\\n)*?))?</\\4>"
+	);
 	return regex_replace(_template, listOrTag, [&](match_results<string::const_iterator> _match) -> string
 	{
 		string tagName(_match[1]);
@@ -164,12 +185,28 @@ string Whiskers::replace(
 		else
 		{
 			assertThrow(!conditionName.empty(), WhiskersError, "");
-			assertThrow(
-				_conditions.count(conditionName),
-				WhiskersError, "Condition parameter " + conditionName + " not set."
-			);
+			bool conditionValue = false;
+			if (conditionName[0] == '+')
+			{
+				string tag = conditionName.substr(1);
+
+				if (_parameters.count(tag))
+					conditionValue = !_parameters.at(tag).empty();
+				else if (_listParameters.count(tag))
+					conditionValue = !_listParameters.at(tag).empty();
+				else
+					assertThrow(false, WhiskersError, "Tag " + tag + " used as condition but was not set.");
+			}
+			else
+			{
+				assertThrow(
+					_conditions.count(conditionName),
+					WhiskersError, "Condition parameter " + conditionName + " not set."
+				);
+				conditionValue = _conditions.at(conditionName);
+			}
 			return replace(
-				_conditions.at(conditionName) ? _match[5] : _match[7],
+				conditionValue ? _match[5] : _match[7],
 				_parameters,
 				_conditions,
 				_listParameters

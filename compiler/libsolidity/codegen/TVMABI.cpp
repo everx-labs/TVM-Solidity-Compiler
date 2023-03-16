@@ -107,7 +107,7 @@ Json::Value TVMABI::generateABIJson(
 	const std::vector<const FunctionDefinition *> publicFunctions = TVMABI::publicFunctions(*contract);
 	std::vector<const EventDefinition *> events {};
 
-	for (const auto &_event : contract->interfaceEvents())
+	for (const auto &_event : contract->definedInterfaceEvents())
 		events.push_back(_event);
 
 	std::set<std::string> used;
@@ -277,7 +277,7 @@ std::vector<const FunctionDefinition *> TVMABI::publicFunctions(ContractDefiniti
 
 	for (auto c : contract.annotation().linearizedBaseContracts) {
 		for (const auto &_function : c->definedFunctions()) {
-			if (_function->isPublic() && !_function->isConstructor() &&
+			if (!_function->isConstructor() && _function->isPublic() &&
 				!_function->isReceive() && !_function->isFallback() && !_function->isOnBounce() && !_function->isOnTickTock())
 				publicFunctions.push_back(_function);
 		}
@@ -455,7 +455,7 @@ Json::Value TVMABI::setupNameTypeComponents(const string &name, const Type *type
 			}
 		} else if (auto arrayType = to<ArrayType>(type)) {
 			Type const *arrayBaseType = arrayType->baseType();
-			if (arrayType->isByteArray()) {
+			if (arrayType->isByteArrayOrString()) {
 				if (arrayType->isString()) {
 					typeName = "string";
 				} else {
@@ -1084,7 +1084,7 @@ std::string ChainDataEncoder::toStringForCalcFuncID(Type const * type) {
 		ret += ")";
 		return ret;
 	} else if (auto arrayType = to<ArrayType>(type)) {
-		if (!arrayType->isByteArray())
+		if (!arrayType->isByteArrayOrString())
 			return toStringForCalcFuncID(arrayType->baseType()) + "[]";
 	} else if (auto mapping = to<MappingType>(type)) {
 		return "map(" + toStringForCalcFuncID(mapping->keyType()) + "," +

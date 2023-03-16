@@ -89,7 +89,7 @@ contract development.
     * [\<bytes\>.operator[]](#bytesoperator)
     * [\<bytes\> slice](#bytes-slice)
     * [\<bytes\>.length](#byteslength)
-    * [\<bytes\>.toSlice](#bytestoslice)
+    * [\<bytes\>.toSlice()](#bytestoslice)
     * [\<bytes\>.dataSize()](#bytesdatasize)
     * [\<bytes\>.dataSizeQ()](#bytesdatasizeq)
     * [\<bytes\>.append()](#bytesappend)
@@ -101,6 +101,9 @@ contract development.
     * [\<string\>.append()](#stringappend)
     * [\<string\>.operator+](#stringoperator)
     * [\<string\>.find() and \<string\>.findLast()](#stringfind-and-stringfindlast)
+    * [\<string\>.toSlice()](#stringtoslice)
+    * [\<string\>.dataSize()](#stringdatasize)
+    * [\<string\>.dataSizeQ()](#stringdatasizeq)
     * [\<string\>.toUpperCase()` and \<string\>.toLowerCase()](#stringtouppercase-and-stringtolowercase)
     * [format()](#format)
     * [stoi()](#stoi)
@@ -1330,7 +1333,7 @@ slice = byteArray[:];  // slice == "01234567890123456789"
 
 Returns length of the `bytes` array.
 
-##### \<bytes\>.toSlice
+##### \<bytes\>.toSlice()
 
 ```TVMSolidity
 <bytes>.toSlice() returns (TvmSlice);
@@ -1462,6 +1465,30 @@ string sub = "111";
 optional(uint32) c = str.find(sub);
 bool s = c.hasValue(); // s == false
 ```
+
+##### \<string\>.toSlice()
+
+```TVMSolidity
+<string>.toSlice() returns (TvmSlice);
+```
+
+Converts `string` to `TvmSlice`.
+
+##### \<string\>.dataSize()
+
+```TVMSolidity
+<string>.dataSize(uint n) returns (uint /*cells*/, uint /*bits*/, uint /*refs*/);
+```
+
+Same as [\<TvmCell\>.dataSize()](#tvmcelldatasize).
+
+##### \<string\>.dataSizeQ()
+
+```TVMSolidity
+<string>.dataSizeQ(uint n) returns (optional(uint /*cells*/, uint /*bits*/, uint /*refs*/));
+```
+
+Same as [\<TvmCell\>.dataSizeQ()](#tvmcelldatasizeq).
 
 ##### \<string\>.toUpperCase()` and \<string\>.toLowerCase()
 

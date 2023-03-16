@@ -14,19 +14,24 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 
 #include <tools/yulPhaser/Population.h>
 
-#include <tools/yulPhaser/Program.h>
+#include <tools/yulPhaser/PairSelections.h>
+#include <tools/yulPhaser/Selections.h>
+
+#include <libsolutil/CommonData.h>
+#include <libsolutil/CommonIO.h>
 
 #include <algorithm>
 #include <cassert>
-#include <iostream>
 #include <numeric>
 
 using namespace std;
 using namespace solidity;
 using namespace solidity::langutil;
+using namespace solidity::util;
 using namespace solidity::phaser;
 
 namespace solidity::phaser
@@ -39,51 +44,137 @@ ostream& operator<<(ostream& _stream, Population const& _population);
 
 ostream& phaser::operator<<(ostream& _stream, Individual const& _individual)
 {
-	_stream << "Fitness: ";
-	if (_individual.fitness.has_value())
-		_stream << _individual.fitness.value();
-	else
-		_stream << "<NONE>";
-	_stream << ", optimisations: " << _individual.chromosome;
+	_stream << _individual.fitness << " " << _individual.chromosome;
 
 	return _stream;
 }
 
-Population::Population(Program _program, vector<Chromosome> const& _chromosomes):
-	m_program{move(_program)}
+bool phaser::isFitter(Individual const& a, Individual const& b)
 {
-	for (auto const& chromosome: _chromosomes)
-		m_individuals.push_back({chromosome});
+	return (
+		(a.fitness < b.fitness) ||
+		(a.fitness == b.fitness && a.chromosome.length() < b.chromosome.length()) ||
+		(a.fitness == b.fitness && a.chromosome.length() == b.chromosome.length() && a.chromosome.genes() < b.chromosome.genes())
+	);
 }
 
-Population Population::makeRandom(Program _program, size_t _size)
+Population Population::makeRandom(
+	shared_ptr<FitnessMetric> _fitnessMetric,
+	size_t _size,
+	function<size_t()> _chromosomeLengthGenerator
+)
 {
-	vector<Individual> individuals;
+	vector<Chromosome> chromosomes;
 	for (size_t i = 0; i < _size; ++i)
-		individuals.push_back({Chromosome::makeRandom(randomChromosomeLength())});
+		chromosomes.push_back(Chromosome::makeRandom(_chromosomeLengthGenerator()));
 
-	return Population(move(_program), individuals);
+	return Population(std::move(_fitnessMetric), std::move(chromosomes));
 }
 
-size_t Population::measureFitness(Chromosome const& _chromosome, Program const& _program)
+Population Population::makeRandom(
+	shared_ptr<FitnessMetric> _fitnessMetric,
+	size_t _size,
+	size_t _minChromosomeLength,
+	size_t _maxChromosomeLength
+)
 {
-	Program programCopy = _program;
-	programCopy.optimise(_chromosome.optimisationSteps());
-	return programCopy.codeSize();
+	return makeRandom(
+		std::move(_fitnessMetric),
+		_size,
+		std::bind(uniformChromosomeLength, _minChromosomeLength, _maxChromosomeLength)
+	);
 }
 
-void Population::run(optional<size_t> _numRounds, ostream& _outputStream)
+Population Population::select(Selection const& _selection) const
 {
-	doEvaluation();
-	for (size_t round = 0; !_numRounds.has_value() || round < _numRounds.value(); ++round)
+	vector<Individual> selectedIndividuals;
+	for (size_t i: _selection.materialise(m_individuals.size()))
+		selectedIndividuals.emplace_back(m_individuals[i]);
+
+	return Population(m_fitnessMetric, selectedIndividuals);
+}
+
+Population Population::mutate(Selection const& _selection, function<Mutation> _mutation) const
+{
+	vector<Individual> mutatedIndividuals;
+	for (size_t i: _selection.materialise(m_individuals.size()))
+		mutatedIndividuals.emplace_back(_mutation(m_individuals[i].chromosome), *m_fitnessMetric);
+
+	return Population(m_fitnessMetric, mutatedIndividuals);
+}
+
+Population Population::crossover(PairSelection const& _selection, function<Crossover> _crossover) const
+{
+	vector<Individual> crossedIndividuals;
+	for (auto const& [i, j]: _selection.materialise(m_individuals.size()))
 	{
-		doMutation();
-		doSelection();
-		doEvaluation();
-
-		_outputStream << "---------- ROUND " << round << " ----------" << endl;
-		_outputStream << *this;
+		auto childChromosome = _crossover(
+			m_individuals[i].chromosome,
+			m_individuals[j].chromosome
+		);
+		crossedIndividuals.emplace_back(std::move(childChromosome), *m_fitnessMetric);
 	}
+
+	return Population(m_fitnessMetric, crossedIndividuals);
+}
+
+tuple<Population, Population> Population::symmetricCrossoverWithRemainder(
+	PairSelection const& _selection,
+	function<SymmetricCrossover> _symmetricCrossover
+) const
+{
+	vector<int> indexSelected(m_individuals.size(), false);
+
+	vector<Individual> crossedIndividuals;
+	for (auto const& [i, j]: _selection.materialise(m_individuals.size()))
+	{
+		auto children = _symmetricCrossover(
+			m_individuals[i].chromosome,
+			m_individuals[j].chromosome
+		);
+		crossedIndividuals.emplace_back(std::move(get<0>(children)), *m_fitnessMetric);
+		crossedIndividuals.emplace_back(std::move(get<1>(children)), *m_fitnessMetric);
+		indexSelected[i] = true;
+		indexSelected[j] = true;
+	}
+
+	vector<Individual> remainder;
+	for (size_t i = 0; i < indexSelected.size(); ++i)
+		if (!indexSelected[i])
+			remainder.emplace_back(m_individuals[i]);
+
+	return {
+		Population(m_fitnessMetric, crossedIndividuals),
+		Population(m_fitnessMetric, remainder),
+	};
+}
+
+namespace solidity::phaser
+{
+
+Population operator+(Population _a, Population _b)
+{
+	// This operator is meant to be used only with populations sharing the same metric (and, to make
+	// things simple, "the same" here means the same exact object in memory).
+	assert(_a.m_fitnessMetric == _b.m_fitnessMetric);
+
+	using ::operator+; // Import the std::vector concat operator from CommonData.h
+	return Population(_a.m_fitnessMetric, std::move(_a.m_individuals) + std::move(_b.m_individuals));
+}
+
+}
+
+Population Population::combine(std::tuple<Population, Population> _populationPair)
+{
+	return get<0>(_populationPair) + get<1>(_populationPair);
+}
+
+bool Population::operator==(Population const& _other) const
+{
+	// We consider populations identical only if they share the same exact instance of the metric.
+	// It might be possible to define some notion of equality for metric objects but it would
+	// be an overkill since mixing populations using different metrics is not a common use case.
+	return m_individuals == _other.m_individuals && m_fitnessMetric == _other.m_fitnessMetric;
 }
 
 ostream& phaser::operator<<(ostream& _stream, Population const& _population)
@@ -95,42 +186,20 @@ ostream& phaser::operator<<(ostream& _stream, Population const& _population)
 	return _stream;
 }
 
-void Population::doMutation()
-{
-	// TODO: Implement mutation and crossover
-}
-
-void Population::doEvaluation()
-{
-	for (auto& individual: m_individuals)
-		if (!individual.fitness.has_value())
-			individual.fitness = measureFitness(individual.chromosome, m_program);
-}
-
-void Population::doSelection()
-{
-	assert(all_of(m_individuals.begin(), m_individuals.end(), [](auto& i){ return i.fitness.has_value(); }));
-
-	sort(
-		m_individuals.begin(),
-		m_individuals.end(),
-		[](auto const& a, auto const& b){ return a.fitness.value() < b.fitness.value(); }
-	);
-
-	randomizeWorstChromosomes(m_individuals, m_individuals.size() / 2);
-}
-
-void Population::randomizeWorstChromosomes(
-	vector<Individual>& _individuals,
-	size_t _count
+vector<Individual> Population::chromosomesToIndividuals(
+	FitnessMetric& _fitnessMetric,
+	vector<Chromosome> _chromosomes
 )
 {
-	assert(_individuals.size() >= _count);
-	// ASSUMPTION: _individuals is sorted in ascending order
+	vector<Individual> individuals;
+	for (auto& chromosome: _chromosomes)
+		individuals.emplace_back(std::move(chromosome), _fitnessMetric);
 
-	auto individual = _individuals.begin() + (_individuals.size() - _count);
-	for (; individual != _individuals.end(); ++individual)
-	{
-		*individual = {Chromosome::makeRandom(randomChromosomeLength())};
-	}
+	return individuals;
+}
+
+vector<Individual> Population::sortedIndividuals(vector<Individual> _individuals)
+{
+	sort(_individuals.begin(), _individuals.end(), isFitter);
+	return _individuals;
 }

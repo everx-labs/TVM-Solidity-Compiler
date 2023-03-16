@@ -16,12 +16,19 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-changed=../compiler/");
     if cfg!(target_os = "windows") {
-        let install_deps = Command::new("cmake").arg("-P").arg("../compiler/scripts/install_deps.cmake").output();
+        let install_deps = Command::new("powershell.exe").arg("../compiler/scripts/install_deps.ps1").output();
         assert!(install_deps.is_ok());
     }
 
     let profile = std::env::var("PROFILE").unwrap();
-    let sol2tvm = cmake::Config::new("../compiler").build();
+    let sol2tvm = if cfg!(target_os = "windows") {
+        cmake::Config::new("../compiler")
+            .define("Boost_DIR", "../compiler/deps/boost/lib/cmake/Boost-1.77.0")
+            .define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreaded")
+            .build()
+    } else {
+        cmake::Config::new("../compiler").build()
+    };
 
     for lib in ["solc", "solidity", "langutil", "solutil"] {
         if cfg!(target_os = "windows") {
@@ -36,7 +43,7 @@ fn main() {
     println!("cargo:rustc-link-search=native={}/build/deps/lib", sol2tvm.display());
 
     if cfg!(target_os = "windows") {
-        let path = std::path::PathBuf::from("../compiler/deps/install/win64/lib");
+        let path = std::path::PathBuf::from("../compiler/deps/boost/lib");
         println!("cargo:rustc-link-search=native={}", std::fs::canonicalize(path).unwrap().display());
     } else if cfg!(target_os = "macos") {
         println!("cargo:rustc-link-search=native=/opt/homebrew/lib");
@@ -54,6 +61,8 @@ fn main() {
         // libboost_filesystem.a from devel/boost-libs is compiled w/o -fPIC,
         // so link dynamically
         println!("cargo:rustc-link-lib=boost_filesystem");
+    } else if cfg!(target_os = "windows") {
+        println!("cargo:rustc-link-lib=static=libboost_filesystem-vc142-mt-s-x64-1_77");
     }
 
     if cfg!(target_os = "macos") || cfg!(target_os = "freebsd") {

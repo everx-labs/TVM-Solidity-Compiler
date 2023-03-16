@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 /**
  * EVM versioning.
  */
@@ -31,7 +32,7 @@ namespace solidity::langutil
 
 /**
  * A version specifier of the EVM we want to compile to.
- * Defaults to the latest version deployed on Ethereum mainnet at the time of compiler release.
+ * Defaults to the latest version deployed on Ethereum Mainnet at the time of compiler release.
  */
 class EVMVersion:
 	boost::less_than_comparable<EVMVersion>,
@@ -48,10 +49,11 @@ public:
 	static EVMVersion petersburg() { return {Version::Petersburg}; }
 	static EVMVersion istanbul() { return {Version::Istanbul}; }
 	static EVMVersion berlin() { return {Version::Berlin}; }
+	static EVMVersion london() { return {Version::London}; }
 
 	static std::optional<EVMVersion> fromString(std::string const& _version)
 	{
-		for (auto const& v: {homestead(), tangerineWhistle(), spuriousDragon(), byzantium(), constantinople(), petersburg(), istanbul(), berlin()})
+		for (auto const& v: {homestead(), tangerineWhistle(), spuriousDragon(), byzantium(), constantinople(), petersburg(), istanbul(), berlin(), london()})
 			if (_version == v.name())
 				return v;
 		return std::nullopt;
@@ -72,6 +74,7 @@ public:
 		case Version::Petersburg: return "petersburg";
 		case Version::Istanbul: return "istanbul";
 		case Version::Berlin: return "berlin";
+		case Version::London: return "london";
 		}
 		return "INVALID";
 	}
@@ -84,17 +87,18 @@ public:
 	bool hasExtCodeHash() const { return *this >= constantinople(); }
 	bool hasChainID() const { return *this >= istanbul(); }
 	bool hasSelfBalance() const { return *this >= istanbul(); }
+	bool hasBaseFee() const { return *this >= london(); }
 
 	/// Whether we have to retain the costs for the call opcode itself (false),
 	/// or whether we can just forward easily all remaining gas (true).
 	bool canOverchargeGasForCall() const { return *this >= tangerineWhistle(); }
 
 private:
-	enum class Version { Homestead, TangerineWhistle, SpuriousDragon, Byzantium, Constantinople, Petersburg, Istanbul, Berlin };
+	enum class Version { Homestead, TangerineWhistle, SpuriousDragon, Byzantium, Constantinople, Petersburg, Istanbul, Berlin, London };
 
 	EVMVersion(Version _version): m_version(_version) {}
 
-	Version m_version = Version::Istanbul;
+	Version m_version = Version::London;
 };
 
 }

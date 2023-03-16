@@ -10,10 +10,20 @@ set(sources
 	analysis/ControlFlowBuilder.h
 	analysis/ControlFlowGraph.cpp
 	analysis/ControlFlowGraph.h
+	analysis/ControlFlowRevertPruner.cpp
+	analysis/ControlFlowRevertPruner.h
 	analysis/DeclarationContainer.cpp
 	analysis/DeclarationContainer.h
+	analysis/DeclarationTypeChecker.cpp
+	analysis/DeclarationTypeChecker.h
 	analysis/DocStringAnalyser.cpp
 	analysis/DocStringAnalyser.h
+	analysis/DocStringTagParser.cpp
+	analysis/DocStringTagParser.h
+	analysis/FunctionCallGraph.cpp
+	analysis/FunctionCallGraph.h
+	analysis/ImmutableValidator.cpp
+	analysis/ImmutableValidator.h
 	analysis/GlobalContext.cpp
 	analysis/GlobalContext.h
 	analysis/NameAndTypeResolver.cpp
@@ -22,8 +32,12 @@ set(sources
 	analysis/OverrideChecker.h
 	analysis/PostTypeChecker.cpp
 	analysis/PostTypeChecker.h
+	analysis/PostTypeContractLevelChecker.cpp
+	analysis/PostTypeContractLevelChecker.h
 	analysis/ReferencesResolver.cpp
 	analysis/ReferencesResolver.h
+	analysis/Scoper.cpp
+	analysis/Scoper.h
 	analysis/StaticAnalyzer.cpp
 	analysis/StaticAnalyzer.h
 	analysis/SyntaxChecker.cpp
@@ -39,13 +53,15 @@ set(sources
 	ast/ASTAnnotations.h
 	ast/ASTEnums.h
 	ast/ASTForward.h
-	ast/ASTJsonConverter.cpp
-	ast/ASTJsonConverter.h
+	ast/ASTJsonExporter.cpp
+	ast/ASTJsonExporter.h
 	ast/ASTUtils.cpp
 	ast/ASTUtils.h
 	ast/ASTJsonImporter.cpp
 	ast/ASTJsonImporter.h
 	ast/ASTVisitor.h
+	ast/CallGraph.cpp
+	ast/CallGraph.h
 	ast/ExperimentalFeatures.h
 	ast/Types.cpp
 	ast/Types.h
@@ -54,6 +70,10 @@ set(sources
 	interface/CompilerStack.cpp
 	interface/CompilerStack.h
 	interface/DebugSettings.h
+	interface/FileReader.cpp
+	interface/FileReader.h
+	interface/ImportRemapper.cpp
+	interface/ImportRemapper.h
 	interface/Natspec.cpp
 	interface/Natspec.h
 	interface/OptimiserSettings.h
@@ -62,6 +82,22 @@ set(sources
 	interface/StandardCompiler.h
 	interface/Version.cpp
 	interface/Version.h
+	lsp/FileRepository.cpp
+	lsp/FileRepository.h
+	lsp/GotoDefinition.cpp
+	lsp/GotoDefinition.h
+	lsp/RenameSymbol.cpp
+	lsp/RenameSymbol.h
+	lsp/HandlerBase.cpp
+	lsp/HandlerBase.h
+	lsp/LanguageServer.cpp
+	lsp/LanguageServer.h
+	lsp/SemanticTokensBuilder.cpp
+	lsp/SemanticTokensBuilder.h
+	lsp/Transport.cpp
+	lsp/Transport.h
+	lsp/Utils.cpp
+	lsp/Utils.h
 	parsing/DocStringParser.cpp
 	parsing/DocStringParser.h
 	parsing/Parser.cpp
@@ -115,4 +151,4 @@ set(sources
 )
 
 add_library(solidity ${sources})
-target_link_libraries(solidity PUBLIC langutil solutil Boost::boost Boost::filesystem Boost::system)
+target_link_libraries(solidity PUBLIC langutil solutil Boost::boost Boost::filesystem Boost::system fmt::fmt-header-only)

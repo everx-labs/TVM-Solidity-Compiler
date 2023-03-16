@@ -39,7 +39,7 @@ fn test_trivial() -> Status {
         .arg("tests/Trivial.sol")
         .arg("--output-dir")
         .arg("tests")
-        .arg("--print_code")
+        .arg("--print-code")
         .assert()
         .success()
         .stdout(predicate::str::contains("code\":\"te6ccgECDAEAA"));
@@ -103,7 +103,7 @@ fn test_library() -> Status {
         .arg("tests")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("Source file contains no deployable contracts"));
+        .stderr(predicate::str::contains("Source file doesn't contain any deployable contracts."));
 
     Ok(())
 }
@@ -141,6 +141,8 @@ fn test_cycle() -> Status {
     Command::cargo_bin(BIN_NAME)?
         .arg("tests/CycleA.sol")
         .arg("--output-dir")
+        .arg("tests")
+        .arg("--base-path")
         .arg("tests")
         .assert()
         .success()
@@ -198,5 +200,20 @@ fn test_private_function_ids() -> Status {
     "sign": "mul(uint256,uint256)"
   }
 "#));
+    Ok(())
+}
+
+#[test]
+fn test_remapping() -> Status {
+    Command::cargo_bin(BIN_NAME)?
+        .arg("tests/ImportRemote.sol")
+        .arg("--output-dir")
+        .arg("tests")
+        .arg("github.com/tonlabs/debots/=tests/remote/")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Contract successfully compiled"));
+
+    remove_all_outputs("ImportRemote")?;
     Ok(())
 }

@@ -27,6 +27,7 @@
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCall.hpp"
 #include "TVMStructCompiler.hpp"
+#include "TVM.h"
 
 using namespace solidity::frontend;
 using namespace solidity::langutil;
@@ -77,9 +78,9 @@ void FunctionCallCompiler::compile() {
 		if (!structMethodCall()) {
 			reportError();
 		}
-	} else if (m_functionCall.annotation().kind == FunctionCallKind::StructConstructorCall) {
+	} else if (*m_functionCall.annotation().kind == FunctionCallKind::StructConstructorCall) {
 		structConstructorCall();
-	} else if (m_functionCall.annotation().kind == FunctionCallKind::TypeConversion) {
+	} else if (*m_functionCall.annotation().kind == FunctionCallKind::TypeConversion) {
 		typeConversion();
 	} else {
 		if (ma != nullptr) {
@@ -462,7 +463,7 @@ std::function<void()> FunctionCallCompiler::generateDataSection(
 		// stake: builder dict
 
 		IntegerType keyType = getKeyTypeOfC4();
-		TypePointer valueType = TypeProvider::uint256();
+		Type const* valueType = TypeProvider::uint256();
 
 		pushKey();
 		const DataType& dataType = m_pusher.prepareValueForDictOperations(&keyType, valueType);
@@ -1346,7 +1347,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 	} else if (_node.memberName() == "decode") {
 		const int stackSize = m_pusher.stackSize();
 		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true,
-																   _node.expression().annotation().isLValue);
+																   *_node.expression().annotation().isLValue);
 		TypePointers targetTypes;
 		if (auto const* targetTupleType = dynamic_cast<TupleType const*>(m_retType))
 			targetTypes = targetTupleType->components();
@@ -1363,7 +1364,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 
 		const int stackSize = m_pusher.stackSize();
 		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true,
-																  _node.expression().annotation().isLValue);
+																  *_node.expression().annotation().isLValue);
 		auto optType = to<OptionalType>(m_retType);
 		TypePointers targetTypes;
 		if (auto const* targetTupleType = dynamic_cast<TupleType const*>(optType->valueType()))
@@ -1382,7 +1383,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		CallableDeclaration const* functionDefinition = getFunctionDeclarationOrConstructor(m_arguments.at(0).get());
 		const LValueInfo lValueInfo =
 				m_exprCompiler.expandLValue(&_node.expression(), true,
-											 _node.expression().annotation().isLValue);
+											 *_node.expression().annotation().isLValue);
 		// lvalue.. slice
 		if (functionDefinition) {
 			auto fd = to<FunctionDefinition>(functionDefinition);
@@ -1405,7 +1406,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		m_exprCompiler.collectLValue(lValueInfo, true, false);
 	} else if (boost::starts_with(_node.memberName(), "load")) {
 		const LValueInfo lValueInfo =
-				m_exprCompiler.expandLValue(&_node.expression(), true, _node.expression().annotation().isLValue);
+				m_exprCompiler.expandLValue(&_node.expression(), true, *_node.expression().annotation().isLValue);
 		if (_node.memberName() == "loadRefAsSlice") {
 			m_pusher.push(-1 + 2, "LDREFRTOS");
 			m_pusher.exchange(1);
@@ -1448,7 +1449,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 	} else if (_node.memberName() == "skip") {
 		const LValueInfo lValueInfo =
 				m_exprCompiler.expandLValue(&_node.expression(), true,
-											 _node.expression().annotation().isLValue);
+											 *_node.expression().annotation().isLValue);
 		if (m_arguments.size() == 1) {
 			pushArgAndConvert(0);
 			m_pusher.push(-2+1, "SDSKIPFIRST");
@@ -1464,14 +1465,14 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		std::vector<Type const*> stateVarTypes;
 
 		auto retTuple = to<TupleType>(m_retType);
-		for (TypePointer const type : retTuple->components()) {
+		for (Type const* type : retTuple->components()) {
 			stateVarTypes.push_back(type);
 		}
 
 
 		const LValueInfo lValueInfo =
 				m_exprCompiler.expandLValue(&_node.expression(), true,
-											_node.expression().annotation().isLValue);
+											*_node.expression().annotation().isLValue);
 		// lvalue.. slice
 		ChainDataDecoder decoder{&m_pusher};
 		decoder.decodeData(0, 0, stateVarTypes);
@@ -2732,12 +2733,12 @@ void FunctionCallCompiler::abiFunction() {
 			if (te) {
 				for (const ASTPointer<Expression>& e : te->components()) {
 					auto const* argTypeType = dynamic_cast<TypeType const*>(e->annotation().type);
-					TypePointer actualType = argTypeType->actualType();
+					Type const* actualType = argTypeType->actualType();
 					types.emplace_back(actualType);
 				}
 			} else {
 				auto const* argTypeType = dynamic_cast<TypeType const*>(m_arguments.at(1)->annotation().type);
-				TypePointer actualType = argTypeType->actualType();
+				Type const* actualType = argTypeType->actualType();
 				types.emplace_back(actualType);
 			}
 
@@ -2887,13 +2888,8 @@ void FunctionCallCompiler::typeConversion() {
 			conversionToAddress();
 			return;
 		} else if (auto enumDef = to<EnumDefinition>(identifier->annotation().referencedDeclaration)) {
-
 			const auto& value = ExprUtils::constValue(*m_arguments[0]);
 			if (value.has_value()) {
-				if (value < 0 || value >= enumDef->members().size()) {
-					cast_error(m_functionCall, "The value must be in the range 1 - " +
-											   toString(enumDef->members().size()) + ".");
-				}
 				m_pusher.push(+1, "PUSHINT " + value.value().str());
 				return;
 			}
@@ -2998,9 +2994,9 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 
 		case FunctionType::Kind::SHA256: { // "sha256"
 			pushArgAndConvert(0);
-			Type const* arg = m_funcType->parameterTypes().at(0);
+			Type const* arg = m_arguments.at(0)->annotation().type;
 			auto arrType = to<ArrayType>(arg);
-			if (arrType && arrType->isByteArray()) {
+			if (arrType && arrType->isByteArrayOrString()) {
 				m_pusher.push(0, "CTOS");
 			}
 			m_pusher.push(0, "SHA256U");
@@ -3255,7 +3251,7 @@ bool FunctionCallCompiler::createNewContract() {
 		return false;
 
 	pushArgs(true);
-	const TypePointer type = newExpr->typeName().annotation().type;
+	const Type* type = newExpr->typeName().annotation().type;
 
 	std::function<void()> pushKey = [&]() {
 		if (Expression const* stateInit = findOption("pubkey")) {
@@ -3521,9 +3517,9 @@ void FunctionCallCompiler::creatArrayWithDefaultValue() {
 		return ;
 	}
 
-	if (m_functionCall.annotation().isPure) {
+	if (*m_functionCall.annotation().isPure) {
 		pushArgs();
-		SourceReference sr = SourceReferenceExtractor::extract(&m_functionCall.location());
+		SourceReference sr = SourceReferenceExtractor::extract(*GlobalParams::g_compilerStack, &m_functionCall.location());
 		const std::string computeName = "new_array_line_" +
 										toString(sr.position.line) + "_column_" + toString(sr.position.column) + "_ast_id_" +
 										toString(m_functionCall.id());

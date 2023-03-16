@@ -23,6 +23,9 @@
 using namespace std;
 using namespace solidity::frontend;
 
+solidity::langutil::ErrorReporter* GlobalParams::g_errorReporter{};
+solidity::frontend::CompilerStack* GlobalParams::g_compilerStack{};
+
 std::string getPathToFiles(
 	const std::string& solFileName,
 	const std::string& outputFolder,
@@ -36,7 +39,7 @@ std::string getPathToFiles(
 		pathToFiles = filePrefix;
 		boost::filesystem::path p(filePrefix);
 		if (filePrefix != p.filename()) {
-			std::cerr << "Error: Option -f takes basename of output file(s)." << std::endl <<
+			std::cerr << "Error: Option -p takes basename of output file(s)." << std::endl <<
 						"\"" << filePrefix << "\" looks like a path. Use option -o to set an output directory.";
 			std::exit(1);
 		}

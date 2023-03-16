@@ -17,9 +17,9 @@ the usual semantics known from C or JavaScript.
 
 Solidity also supports exception handling in the form of ``try``/``catch``-statements,
 but only for :ref:`external function calls <external-function-calls>` and
-contract creation calls.
+contract creation calls. Errors can be created using the :ref:`revert statement <revert-statement>`.
 
-Parentheses can *not* be omitted for conditionals, but curly brances can be omitted
+Parentheses can *not* be omitted for conditionals, but curly braces can be omitted
 around single-statement bodies.
 
 Note that there is no type conversion from non-boolean to boolean types as
@@ -39,10 +39,14 @@ Internal Function Calls
 -----------------------
 
 Functions of the current contract can be called directly ("internally"), also recursively, as seen in
-this nonsensical example::
+this nonsensical example:
 
-    pragma solidity >=0.4.16 <0.7.0;
+.. code-block:: solidity
 
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.4.22 <0.9.0;
+
+    // This will report a warning
     contract C {
         function g(uint a) public pure returns (uint ret) { return a + f(); }
         function f() internal pure returns (uint ret) { return g(7) + f(); }
@@ -61,9 +65,10 @@ uses up at least one stack slot and there are only 1024 slots available.
 External Function Calls
 -----------------------
 
-The expressions ``this.g(8);`` and ``c.g(2);`` (where ``c`` is a contract
-instance) are also valid function calls, but this time, the function
-will be called "externally", via a message call and not directly via jumps.
+Functions can also be called using the ``this.g(8);`` and ``c.g(2);`` notation, where
+``c`` is a contract instance and ``g`` is a function belonging to ``c``.
+Calling the function ``g`` via either way results in it being called "externally", using a
+message call and not directly via jumps.
 Please note that function calls on ``this`` cannot be used in the constructor,
 as the actual contract has not been created yet.
 
@@ -80,9 +85,10 @@ Note that it is discouraged to specify gas values explicitly, since the gas cost
 of opcodes can change in the future. Any Wei you send to the contract is added
 to the total balance of that contract:
 
-::
+.. code-block:: solidity
 
-    pragma solidity >=0.4.0 <0.7.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.6.2 <0.9.0;
 
     contract InfoFeed {
         function info() public payable returns (uint ret) { return 42; }
@@ -100,11 +106,28 @@ otherwise, the ``value`` option would not be available.
 .. warning::
   Be careful that ``feed.info{value: 10, gas: 800}`` only locally sets the
   ``value`` and amount of ``gas`` sent with the function call, and the
-  parentheses at the end perform the actual call. So in this case, the
-  function is not called and the ``value`` and ``gas`` settings are lost.
+  parentheses at the end perform the actual call. So
+  ``feed.info{value: 10, gas: 800}`` does not call the function and
+  the ``value`` and ``gas`` settings are lost, only
+  ``feed.info{value: 10, gas: 800}()`` performs the function call.
 
-Function calls cause exceptions if the called contract does not exist (in the
-sense that the account does not contain code) or if the called contract itself
+Due to the fact that the EVM considers a call to a non-existing contract to
+always succeed, Solidity uses the ``extcodesize`` opcode to check that
+the contract that is about to be called actually exists (it contains code)
+and causes an exception if it does not. This check is skipped if the return
+data will be decoded after the call and thus the ABI decoder will catch the
+case of a non-existing contract.
+
+Note that this check is not performed in case of :ref:`low-level calls <address_related>` which
+operate on addresses rather than contract instances.
+
+.. note::
+    Be careful when using high-level calls to
+    :ref:`precompiled contracts <precompiledContracts>`,
+    since the compiler considers them non-existing according to the
+    above logic even though they execute code and can return data.
+
+Function calls also cause exceptions if the called contract itself
 throws an exception or goes out of gas.
 
 .. warning::
@@ -123,21 +146,22 @@ throws an exception or goes out of gas.
     so your contract is not vulnerable to a reentrancy exploit.
 
 .. note::
-    Before Solidity 0.6.2, the recommended way to specify the value and gas
-    was to use ``f.value(x).gas(g)()``. This is still possible but deprecated
-    and will be removed with Solidity 0.7.0.
+    Before Solidity 0.6.2, the recommended way to specify the value and gas was to
+    use ``f.value(x).gas(g)()``. This was deprecated in Solidity 0.6.2 and is no
+    longer possible since Solidity 0.7.0.
 
-Named Calls and Anonymous Function Parameters
----------------------------------------------
+Function Calls with Named Parameters
+------------------------------------
 
 Function call arguments can be given by name, in any order,
 if they are enclosed in ``{ }`` as can be seen in the following
 example. The argument list has to coincide by name with the list of
 parameters from the function declaration, but can be in arbitrary order.
 
-::
+.. code-block:: solidity
 
-    pragma solidity >=0.4.0 <0.7.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.4.0 <0.9.0;
 
     contract C {
         mapping(uint => uint) data;
@@ -152,15 +176,18 @@ parameters from the function declaration, but can be in arbitrary order.
 
     }
 
-Omitted Function Parameter Names
---------------------------------
+Omitted Names in Function Definitions
+-------------------------------------
 
-The names of unused parameters (especially return parameters) can be omitted.
-Those parameters will still be present on the stack, but they are inaccessible.
+The names of parameters and return values in the function declaration can be omitted.
+Those items with omitted names will still be present on the stack, but they are
+inaccessible by name. An omitted return value name
+can still return a value to the caller by use of the ``return`` statement.
 
-::
+.. code-block:: solidity
 
-    pragma solidity >=0.4.16 <0.7.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.4.22 <0.9.0;
 
     contract C {
         // omitted name for parameter
@@ -181,13 +208,13 @@ A contract can create other contracts using the ``new`` keyword. The full
 code of the contract being created has to be known when the creating contract
 is compiled so recursive creation-dependencies are not possible.
 
-::
+.. code-block:: solidity
 
-    pragma solidity >=0.5.0 <0.7.0;
-
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.7.0 <0.9.0;
     contract D {
         uint public x;
-        constructor(uint a) public payable {
+        constructor(uint a) payable {
             x = a;
         }
     }
@@ -236,31 +263,31 @@ contracts creates other contracts in the meantime.
 The main use-case here is contracts that act as judges for off-chain interactions,
 which only need to be created if there is a dispute.
 
-::
+.. code-block:: solidity
 
-    pragma solidity >0.6.1 <0.7.0;
-
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.7.0 <0.9.0;
     contract D {
         uint public x;
-        constructor(uint a) public {
+        constructor(uint a) {
             x = a;
         }
     }
 
     contract C {
         function createDSalted(bytes32 salt, uint arg) public {
-            /// This complicated expression just tells you how the address
-            /// can be pre-computed. It is just there for illustration.
-            /// You actually only need ``new D{salt: salt}(arg)``.
-            address predictedAddress = address(bytes20(keccak256(abi.encodePacked(
-                byte(0xff),
+            // This complicated expression just tells you how the address
+            // can be pre-computed. It is just there for illustration.
+            // You actually only need ``new D{salt: salt}(arg)``.
+            address predictedAddress = address(uint160(uint(keccak256(abi.encodePacked(
+                bytes1(0xff),
                 address(this),
                 salt,
                 keccak256(abi.encodePacked(
                     type(D).creationCode,
-                    arg
+                    abi.encode(arg)
                 ))
-            ))));
+            )))));
 
             D d = new D{salt: salt}(arg);
             require(address(d) == predictedAddress);
@@ -272,7 +299,7 @@ which only need to be created if there is a dispute.
     re-created at the same address after having been destroyed. Yet, it is possible
     for that newly created contract to have a different deployed bytecode even
     though the creation bytecode has been the same (which is a requirement because
-    otherwise the address would change). This is due to the fact that the compiler
+    otherwise the address would change). This is due to the fact that the constructor
     can query external state that might have changed between the two creations
     and incorporate that into the deployed bytecode before it is stored.
 
@@ -305,9 +332,10 @@ or to pre-existing variables (or LValues in general).
 Tuples are not proper types in Solidity, they can only be used to form syntactic
 groupings of expressions.
 
-::
+.. code-block:: solidity
 
-    pragma solidity >0.4.23 <0.7.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.5.0 <0.9.0;
 
     contract C {
         uint index;
@@ -343,26 +371,17 @@ i.e. the following is not valid: ``(x, uint y) = (1, 2);``
 Complications for Arrays and Structs
 ------------------------------------
 
-The semantics of assignments are a bit more complicated for
-non-value types like arrays and structs.
-Assigning *to* a state variable always creates an independent
-copy. On the other hand, assigning to a local variable creates
-an independent copy only for elementary types, i.e. static
-types that fit into 32 bytes. If structs or arrays (including
-``bytes`` and ``string``) are assigned from a state variable
-to a local variable, the local variable holds a reference to
-the original state variable. A second assignment to the local
-variable does not modify the state but only changes the
-reference. Assignments to members (or elements) of the local
-variable *do* change the state.
+The semantics of assignments are more complicated for non-value types like arrays and structs,
+including ``bytes`` and ``string``, see :ref:`Data location and assignment behaviour <data-location-assignment>` for details.
 
 In the example below the call to ``g(x)`` has no effect on ``x`` because it creates
 an independent copy of the storage value in memory. However, ``h(x)`` successfully modifies ``x``
 because only a reference and not a copy is passed.
 
-::
+.. code-block:: solidity
 
-    pragma solidity >=0.4.16 <0.7.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.4.22 <0.9.0;
 
     contract C {
         uint[20] x;
@@ -418,9 +437,10 @@ use state variables before they are declared and call functions recursively.
 As a consequence, the following examples will compile without warnings, since
 the two variables have the same name but disjoint scopes.
 
-::
+.. code-block:: solidity
 
-    pragma solidity >=0.5.0 <0.7.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.5.0 <0.9.0;
     contract C {
         function minimalScoping() pure public {
             {
@@ -439,9 +459,10 @@ As a special example of the C99 scoping rules, note that in the following,
 the first assignment to ``x`` will actually assign the outer and not the inner variable.
 In any case, you will get a warning about the outer variable being shadowed.
 
-::
+.. code-block:: solidity
 
-    pragma solidity >=0.5.0 <0.7.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.5.0 <0.9.0;
     // This will report a warning
     contract C {
         function f() pure public returns (uint) {
@@ -460,9 +481,10 @@ In any case, you will get a warning about the outer variable being shadowed.
     for the entire function, regardless where it was declared. The following example shows a code snippet that used
     to compile but leads to an error starting from version 0.5.0.
 
-::
+.. code-block:: solidity
 
-    pragma solidity >=0.5.0 <0.7.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.5.0 <0.9.0;
     // This will not compile
     contract C {
         function f() pure public returns (uint) {
@@ -471,6 +493,76 @@ In any case, you will get a warning about the outer variable being shadowed.
             return x;
         }
     }
+
+
+.. index:: ! safe math, safemath, checked, unchecked
+.. _unchecked:
+
+Checked or Unchecked Arithmetic
+===============================
+
+An overflow or underflow is the situation where the resulting value of an arithmetic operation,
+when executed on an unrestricted integer, falls outside the range of the result type.
+
+Prior to Solidity 0.8.0, arithmetic operations would always wrap in case of
+under- or overflow leading to widespread use of libraries that introduce
+additional checks.
+
+Since Solidity 0.8.0, all arithmetic operations revert on over- and underflow by default,
+thus making the use of these libraries unnecessary.
+
+To obtain the previous behaviour, an ``unchecked`` block can be used:
+
+.. code-block:: solidity
+
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity ^0.8.0;
+    contract C {
+        function f(uint a, uint b) pure public returns (uint) {
+            // This subtraction will wrap on underflow.
+            unchecked { return a - b; }
+        }
+        function g(uint a, uint b) pure public returns (uint) {
+            // This subtraction will revert on underflow.
+            return a - b;
+        }
+    }
+
+The call to ``f(2, 3)`` will return ``2**256-1``, while ``g(2, 3)`` will cause
+a failing assertion.
+
+The ``unchecked`` block can be used everywhere inside a block, but not as a replacement
+for a block. It also cannot be nested.
+
+The setting only affects the statements that are syntactically inside the block.
+Functions called from within an ``unchecked`` block do not inherit the property.
+
+.. note::
+    To avoid ambiguity, you cannot use ``_;`` inside an ``unchecked`` block.
+
+The following operators will cause a failing assertion on overflow or underflow
+and will wrap without an error if used inside an unchecked block:
+
+``++``, ``--``, ``+``, binary ``-``, unary ``-``, ``*``, ``/``, ``%``, ``**``
+
+``+=``, ``-=``, ``*=``, ``/=``, ``%=``
+
+.. warning::
+    It is not possible to disable the check for division by zero
+    or modulo by zero using the ``unchecked`` block.
+
+.. note::
+   Bitwise operators do not perform overflow or underflow checks.
+   This is particularly visible when using bitwise shifts (``<<``, ``>>``, ``<<=``, ``>>=``) in
+   place of integer division and multiplication by a power of 2.
+   For example ``type(uint256).max << 3`` does not revert even though ``type(uint256).max * 8`` would.
+
+.. note::
+    The second statement in ``int x = type(int).min; -x;`` will result in an overflow
+    because the negative range can hold one more value than the positive range.
+
+Explicit type conversions will always truncate and never cause a failing assertion
+with the exception of a conversion from an integer to an enum type.
 
 .. index:: ! exception, ! throw, ! assert, ! require, ! revert, ! errors
 
@@ -485,7 +577,8 @@ state in the current call (and all its sub-calls) and
 flags an error to the caller.
 
 When exceptions happen in a sub-call, they "bubble up" (i.e.,
-exceptions are rethrown) automatically. Exceptions to this rule are ``send``
+exceptions are rethrown) automatically unless they are caught in
+a ``try/catch`` statement. Exceptions to this rule are ``send``
 and the low-level functions ``call``, ``delegatecall`` and
 ``staticcall``: they return ``false`` as their first return value in case
 of an exception instead of "bubbling up".
@@ -496,39 +589,71 @@ of an exception instead of "bubbling up".
     if the account called is non-existent, as part of the design
     of the EVM. Account existence must be checked prior to calling if needed.
 
-Exceptions can be caught with the ``try``/``catch`` statement.
+Exceptions can contain error data that is passed back to the caller
+in the form of :ref:`error instances <errors>`.
+The built-in errors ``Error(string)`` and ``Panic(uint256)`` are
+used by special functions, as explained below. ``Error`` is used for "regular" error conditions
+while ``Panic`` is used for errors that should not be present in bug-free code.
 
-``assert`` and ``require``
---------------------------
+Panic via ``assert`` and Error via ``require``
+----------------------------------------------
 
 The convenience functions ``assert`` and ``require`` can be used to check for conditions and throw an exception
 if the condition is not met.
 
-The ``assert`` function should only be used to test for internal
+The ``assert`` function creates an error of type ``Panic(uint256)``.
+The same error is created by the compiler in certain situations as listed below.
+
+Assert should only be used to test for internal
 errors, and to check invariants. Properly functioning code should
-never reach a failing ``assert`` statement; if this happens there
+never create a Panic, not even on invalid external input.
+If this happens, then there
 is a bug in your contract which you should fix. Language analysis
 tools can evaluate your contract to identify the conditions and
-function calls which will reach a failing ``assert``.
+function calls which will cause a Panic.
 
-An ``assert``-style exception is generated in the following situations:
+A Panic exception is generated in the following situations.
+The error code supplied with the error data indicates the kind of panic.
 
-#. If you access an array or an array slice at a too large or negative index (i.e. ``x[i]`` where ``i >= x.length`` or ``i < 0``).
-#. If you access a fixed-length ``bytesN`` at a too large or negative index.
-#. If you divide or modulo by zero (e.g. ``5 / 0`` or ``23 % 0``).
-#. If you shift by a negative amount.
-#. If you convert a value too big or negative into an enum type.
-#. If you call a zero-initialized variable of internal function type.
-#. If you call ``assert`` with an argument that evaluates to false.
+#. 0x00: Used for generic compiler inserted panics.
+#. 0x01: If you call ``assert`` with an argument that evaluates to false.
+#. 0x11: If an arithmetic operation results in underflow or overflow outside of an ``unchecked { ... }`` block.
+#. 0x12; If you divide or modulo by zero (e.g. ``5 / 0`` or ``23 % 0``).
+#. 0x21: If you convert a value that is too big or negative into an enum type.
+#. 0x22: If you access a storage byte array that is incorrectly encoded.
+#. 0x31: If you call ``.pop()`` on an empty array.
+#. 0x32: If you access an array, ``bytesN`` or an array slice at an out-of-bounds or negative index (i.e. ``x[i]`` where ``i >= x.length`` or ``i < 0``).
+#. 0x41: If you allocate too much memory or create an array that is too large.
+#. 0x51: If you call a zero-initialized variable of internal function type.
 
-The ``require`` function should be used to ensure valid conditions
+The ``require`` function either creates an error without any data or
+an error of type ``Error(string)``. It
+should be used to ensure valid conditions
 that cannot be detected until execution time.
 This includes conditions on inputs
 or return values from calls to external contracts.
 
-A ``require``-style exception is generated in the following situations:
+.. note::
 
-#. Calling ``require`` with an argument that evaluates to ``false``.
+    It is currently not possible to use custom errors in combination
+    with ``require``. Please use ``if (!condition) revert CustomError();`` instead.
+
+An ``Error(string)`` exception (or an exception without data) is generated
+by the compiler
+in the following situations:
+
+#. Calling ``require(x)`` where ``x`` evaluates to ``false``.
+#. If you use ``revert()`` or ``revert("description")``.
+#. If you perform an external function call targeting a contract that contains no code.
+#. If your contract receives Ether via a public function without
+   ``payable`` modifier (including the constructor and the fallback function).
+#. If your contract receives Ether via a public getter function.
+
+For the following cases, the error data from the external call
+(if provided) is forwarded. This means that it can either cause
+an `Error` or a `Panic` (or whatever else was given):
+
+#. If a ``.transfer()`` fails.
 #. If you call a function via a message call but it does not finish
    properly (i.e., it runs out of gas, has no matching function, or
    throws an exception itself), except when a low level operation
@@ -537,20 +662,22 @@ A ``require``-style exception is generated in the following situations:
    indicate failures by returning ``false``.
 #. If you create a contract using the ``new`` keyword but the contract
    creation :ref:`does not finish properly<creating-contracts>`.
-#. If you perform an external function call targeting a contract that contains no code.
-#. If your contract receives Ether via a public function without
-   ``payable`` modifier (including the constructor and the fallback function).
-#. If your contract receives Ether via a public getter function.
-#. If a ``.transfer()`` fails.
 
 You can optionally provide a message string for ``require``, but not for ``assert``.
+
+.. note::
+    If you do not provide a string argument to ``require``, it will revert
+    with empty error data, not even including the error selector.
+
 
 The following example shows how you can use ``require`` to check conditions on inputs
 and ``assert`` for internal error checking.
 
-::
+.. code-block:: solidity
+    :force:
 
-    pragma solidity >=0.5.0 <0.7.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.5.0 <0.9.0;
 
     contract Sharer {
         function sendHalf(address payable addr) public payable returns (uint balance) {
@@ -566,37 +693,59 @@ and ``assert`` for internal error checking.
     }
 
 Internally, Solidity performs a revert operation (instruction
-``0xfd``) for a ``require``-style exception and executes an invalid operation
-(instruction ``0xfe``) to throw an ``assert``-style exception. In both cases, this causes
+``0xfd``). This causes
 the EVM to revert all changes made to the state. The reason for reverting
 is that there is no safe way to continue execution, because an expected effect
 did not occur. Because we want to keep the atomicity of transactions, the
 safest action is to revert all changes and make the whole transaction
 (or at least call) without effect.
 
-In both cases, the caller can react on such failures using ``try``/``catch``
-(in the failing ``assert``-style exception only if enough gas is left), but
-the changes in the caller will always be reverted.
+In both cases, the caller can react on such failures using ``try``/``catch``, but
+the changes in the callee will always be reverted.
 
 .. note::
 
-    ``assert``-style exceptions consume all gas available to the call,
-    while ``require``-style exceptions do not consume any gas starting from the Metropolis release.
+    Panic exceptions used to use the ``invalid`` opcode before Solidity 0.8.0,
+    which consumed all gas available to the call.
+    Exceptions that use ``require`` used to consume all gas until before the Metropolis release.
+
+.. _revert-statement:
 
 ``revert``
 ----------
 
-The ``revert`` function is another way to trigger exceptions from within other code blocks to flag an error and
-revert the current call. The function takes an optional string
-message containing details about the error that is passed back to the caller.
+A direct revert can be triggered using the ``revert`` statement and the ``revert`` function.
 
-The following example shows how to use an error string together with ``revert`` and the equivalent ``require``:
+The ``revert`` statement takes a custom error as direct argument without parentheses:
 
-::
+    revert CustomError(arg1, arg2);
 
-    pragma solidity >=0.5.0 <0.7.0;
+For backwards-compatibility reasons, there is also the ``revert()`` function, which uses parentheses
+and accepts a string:
+
+    revert();
+    revert("description");
+
+The error data will be passed back to the caller and can be caught there.
+Using ``revert()`` causes a revert without any error data while ``revert("description")``
+will create an ``Error(string)`` error.
+
+Using a custom error instance will usually be much cheaper than a string description,
+because you can use the name of the error to describe it, which is encoded in only
+four bytes. A longer description can be supplied via NatSpec which does not incur
+any costs.
+
+The following example shows how to use an error string and a custom error instance
+together with ``revert`` and the equivalent ``require``:
+
+.. code-block:: solidity
+
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity ^0.8.4;
 
     contract VendingMachine {
+        address owner;
+        error Unauthorized();
         function buy(uint amount) public payable {
             if (amount > msg.value / 2 ether)
                 revert("Not enough Ether provided.");
@@ -607,9 +756,23 @@ The following example shows how to use an error string together with ``revert`` 
             );
             // Perform the purchase.
         }
+        function withdraw() public {
+            if (msg.sender != owner)
+                revert Unauthorized();
+
+            payable(msg.sender).transfer(address(this).balance);
+        }
     }
 
-The two syntax options are equivalent, it's developer preference which to use.
+The two ways ``if (!condition) revert(...);`` and ``require(condition, ...);`` are
+equivalent as long as the arguments to ``revert`` and ``require`` do not have side-effects,
+for example if they are just strings.
+
+.. note::
+    The ``require`` function is evaluated just as any other function.
+    This means that all arguments are evaluated before the function itself is executed.
+    In particular, in ``require(condition, f())`` the function ``f`` is executed even if
+    ``condition`` is true.
 
 The provided string is :ref:`abi-encoded <ABI>` as if it were a call to a function ``Error(string)``.
 In the above example, ``revert("Not enough Ether provided.");`` returns the following hexadecimal as error return data:
@@ -635,9 +798,10 @@ The provided message can be retrieved by the caller using ``try``/``catch`` as s
 
 A failure in an external call can be caught using a try/catch statement, as follows:
 
-::
+.. code-block:: solidity
 
-    pragma solidity ^0.6.0;
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.8.1;
 
     interface DataFeed { function getData(address token) external returns (uint value); }
 
@@ -656,10 +820,15 @@ A failure in an external call can be caught using a try/catch statement, as foll
                 // and a reason string was provided.
                 errorCount++;
                 return (0, false);
+            } catch Panic(uint /*errorCode*/) {
+                // This is executed in case of a panic,
+                // i.e. a serious error like division by zero
+                // or overflow. The error code can be used
+                // to determine the kind of error.
+                errorCount++;
+                return (0, false);
             } catch (bytes memory /*lowLevelData*/) {
-                // This is executed in case revert() was used
-                // or there was a failing assertion, division
-                // by zero, etc. inside getData.
+                // This is executed in case revert() was used.
                 errorCount++;
                 return (0, false);
             }
@@ -675,24 +844,28 @@ matching the types returned by the external call. In case there was no error,
 these variables are assigned and the contract's execution continues inside the
 first success block. If the end of the success block is reached, execution continues after the ``catch`` blocks.
 
-Currently, Solidity supports different kinds of catch blocks depending on the
-type of error. If the error was caused by ``revert("reasonString")`` or
-``require(false, "reasonString")`` (or an internal error that causes such an
-exception), then the catch clause
-of the type ``catch Error(string memory reason)`` will be executed.
+Solidity supports different kinds of catch blocks depending on the
+type of error:
+
+- ``catch Error(string memory reason) { ... }``: This catch clause is executed if the error was caused by ``revert("reasonString")`` or
+  ``require(false, "reasonString")`` (or an internal error that causes such an
+  exception).
+
+- ``catch Panic(uint errorCode) { ... }``: If the error was caused by a panic, i.e. by a failing ``assert``, division by zero,
+  invalid array access, arithmetic overflow and others, this catch clause will be run.
+
+- ``catch (bytes memory lowLevelData) { ... }``: This clause is executed if the error signature
+  does not match any other clause, if there was an error while decoding the error
+  message, or
+  if no error data was provided with the exception.
+  The declared variable provides access to the low-level error data in that case.
+
+- ``catch { ... }``: If you are not interested in the error data, you can just use
+  ``catch { ... }`` (even as the only catch clause) instead of the previous clause.
+
 
 It is planned to support other types of error data in the future.
-The string ``Error`` is currently parsed as is and is not treated as an identifier.
-
-The clause ``catch (bytes memory lowLevelData)`` is executed if the error signature
-does not match any other clause, there was an error during decoding of the error
-message, if there was a failing assertion in the external
-call (for example due to a division by zero or a failing ``assert()``) or
-if no error data was provided with the exception.
-The declared variable provides access to the low-level error data in that case.
-
-If you are not interested in the error data, you can just use
-``catch { ... }`` (even as the only catch clause).
+The strings ``Error`` and ``Panic`` are currently parsed as is and are not treated as identifiers.
 
 In order to catch all error cases, you have to have at least the clause
 ``catch { ...}`` or the clause ``catch (bytes memory lowLevelData) { ... }``.
@@ -724,6 +897,6 @@ in scope in the block that follows.
     The error might have happened deeper down in the call chain and the
     called contract just forwarded it. Also, it could be due to an
     out-of-gas situation and not a deliberate error condition:
-    The caller always retains 63/64th of the gas in a call and thus
+    The caller always retains at least 1/64th of the gas in a call and thus
     even if the called contract goes out of gas, the caller still
     has some gas left.

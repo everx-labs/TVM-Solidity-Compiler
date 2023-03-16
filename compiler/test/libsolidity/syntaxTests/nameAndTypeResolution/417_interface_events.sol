@@ -1,3 +1,0 @@
-interface I {
-    event E();
-}

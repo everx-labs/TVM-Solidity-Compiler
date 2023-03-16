@@ -14,6 +14,7 @@
 	You should have received a copy of the GNU General Public License
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
+// SPDX-License-Identifier: GPL-3.0
 /**
  * Component that verifies override properties.
  */
@@ -32,6 +33,7 @@
 namespace solidity::langutil
 {
 class ErrorReporter;
+struct ErrorId;
 struct SourceLocation;
 }
 
@@ -82,8 +84,13 @@ public:
 	/// @returns receive / fallback / function (only the latter for modifiers and variables);
 	langutil::Token functionKind() const;
 
-	FunctionType const* functionType() const;
+	/// @returns the externally callable function type
+	FunctionType const* externalFunctionType() const;
+	/// @returns the (unmodified) function type
+	FunctionType const* originalFunctionType() const;
 	ModifierType const* modifierType() const;
+
+	Declaration const* declaration() const;
 
 	langutil::SourceLocation const& location() const;
 
@@ -97,6 +104,7 @@ public:
 
 	/**
 	 * Struct to help comparing override items about whether they override each other.
+	 * Compares functions based on their "externally callable" type.
 	 * Does not produce a total order.
 	 */
 	struct OverrideComparator
@@ -158,20 +166,16 @@ private:
 	void overrideListError(
 		OverrideProxy const& _item,
 		std::set<ContractDefinition const*, CompareByID> _secondary,
+		langutil::ErrorId _error,
 		std::string const& _message1,
 		std::string const& _message2
 	);
 	void overrideError(
-		Declaration const& _overriding,
-		Declaration const& _super,
-		std::string const& _message,
-		std::string const& _secondaryMsg = "Overridden function is here:"
-	);
-	void overrideError(
 		OverrideProxy const& _overriding,
 		OverrideProxy const& _super,
+		langutil::ErrorId _error,
 		std::string const& _message,
-		std::string const& _secondaryMsg = "Overridden function is here:"
+		std::optional<std::string> const& _secondaryMsg = {}
 	);
 	/// Checks for functions in different base contracts which conflict with each
 	/// other and thus need to be overridden explicitly.
