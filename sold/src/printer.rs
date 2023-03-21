@@ -20,7 +20,9 @@ use serde::Serialize;
 use ton_types::{Result, Status};
 
 pub fn print_abi_json_canonically(out: &mut File, value: &serde_json::Value) -> Status {
-    let root = value.as_object().ok_or_else(|| format_err!("ABI parsing failed"))?;
+    let root = value
+        .as_object()
+        .ok_or_else(|| format_err!("ABI parsing failed"))?;
     writeln!(out, "{{")?;
     writeln!(out, "\t\"ABI version\": {},", root["ABI version"])?;
     if let Some(version) = root.get("version") {
@@ -28,7 +30,9 @@ pub fn print_abi_json_canonically(out: &mut File, value: &serde_json::Value) -> 
     }
     if let Some(header) = root.get("header") {
         write!(out, "\t\"header\": [")?;
-        let array = header.as_array().ok_or_else(|| format_err!("ABI parsing failed"))?;
+        let array = header
+            .as_array()
+            .ok_or_else(|| format_err!("ABI parsing failed"))?;
         for i in 0..array.len() {
             write!(out, "{}", array[i])?;
             if i + 1 != array.len() {
@@ -63,7 +67,9 @@ pub fn print_abi_json_canonically(out: &mut File, value: &serde_json::Value) -> 
 }
 
 fn print_data(out: &mut File, value: &serde_json::Value) -> Status {
-    let json = value.as_array().ok_or_else(|| format_err!("ABI parsing failed"))?;
+    let json = value
+        .as_array()
+        .ok_or_else(|| format_err!("ABI parsing failed"))?;
     for f in 0..json.len() {
         write!(out, "\t\t")?;
 
@@ -78,9 +84,13 @@ fn print_data(out: &mut File, value: &serde_json::Value) -> Status {
 }
 
 fn print(out: &mut File, value: &serde_json::Value) -> Status {
-    let json = value.as_array().ok_or_else(|| format_err!("ABI parsing failed"))?;
+    let json = value
+        .as_array()
+        .ok_or_else(|| format_err!("ABI parsing failed"))?;
     for f in 0..json.len() {
-        let function = json[f].as_object().ok_or_else(|| format_err!("ABI parsing failed"))?;
+        let function = json[f]
+            .as_object()
+            .ok_or_else(|| format_err!("ABI parsing failed"))?;
         writeln!(out, "\t\t{{")?;
 
         writeln!(out, "\t\t\t\"name\": {},", function["name"])?;
@@ -91,7 +101,9 @@ fn print(out: &mut File, value: &serde_json::Value) -> Status {
 
         writeln!(out, "\t\t\t\"inputs\": [")?;
         if let Some(inputs) = function.get("inputs") {
-            let array = inputs.as_array().ok_or_else(|| format_err!("ABI parsing failed"))?;
+            let array = inputs
+                .as_array()
+                .ok_or_else(|| format_err!("ABI parsing failed"))?;
             for i in 0..array.len() {
                 write!(out, "\t\t\t\t")?;
                 write!(out, "{}", to_string_pretty_no_indent(&array[i])?)?;
@@ -106,7 +118,9 @@ fn print(out: &mut File, value: &serde_json::Value) -> Status {
 
         writeln!(out, "\t\t\t\"outputs\": [")?;
         if let Some(outputs) = function.get("outputs") {
-            let array = outputs.as_array().ok_or_else(|| format_err!("ABI parsing failed"))?;
+            let array = outputs
+                .as_array()
+                .ok_or_else(|| format_err!("ABI parsing failed"))?;
             for o in 0..array.len() {
                 write!(out, "\t\t\t\t")?;
                 write!(out, "{}", to_string_pretty_no_indent(&array[o])?)?;

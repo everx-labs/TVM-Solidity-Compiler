@@ -16,7 +16,9 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-changed=../compiler/");
     if cfg!(target_os = "windows") {
-        let install_deps = Command::new("powershell.exe").arg("../compiler/scripts/install_deps.ps1").output();
+        let install_deps = Command::new("powershell.exe")
+            .arg("../compiler/scripts/install_deps.ps1")
+            .output();
         assert!(install_deps.is_ok());
     }
 
@@ -32,19 +34,34 @@ fn main() {
 
     for lib in ["solc", "solidity", "langutil", "solutil"] {
         if cfg!(target_os = "windows") {
-            println!("cargo:rustc-link-search=native={}/build/lib{}/{}", sol2tvm.display(), lib, profile);
+            println!(
+                "cargo:rustc-link-search=native={}/build/lib{}/{}",
+                sol2tvm.display(),
+                lib,
+                profile
+            );
         } else {
-            println!("cargo:rustc-link-search=native={}/build/lib{}", sol2tvm.display(), lib);
+            println!(
+                "cargo:rustc-link-search=native={}/build/lib{}",
+                sol2tvm.display(),
+                lib
+            );
         }
         println!("cargo:rustc-link-lib=static={}", lib);
     }
 
     println!("cargo:rustc-link-search=native={}/lib", sol2tvm.display());
-    println!("cargo:rustc-link-search=native={}/build/deps/lib", sol2tvm.display());
+    println!(
+        "cargo:rustc-link-search=native={}/build/deps/lib",
+        sol2tvm.display()
+    );
 
     if cfg!(target_os = "windows") {
         let path = std::path::PathBuf::from("../compiler/deps/boost/lib");
-        println!("cargo:rustc-link-search=native={}", std::fs::canonicalize(path).unwrap().display());
+        println!(
+            "cargo:rustc-link-search=native={}",
+            std::fs::canonicalize(path).unwrap().display()
+        );
     } else if cfg!(target_os = "macos") {
         println!("cargo:rustc-link-search=native=/opt/homebrew/lib");
         println!("cargo:rustc-link-search=native=/usr/local/lib");

@@ -12,7 +12,7 @@
  */
 
 use clap::Parser;
-use sold_lib::{Args, VERSION, build, solidity_version};
+use sold_lib::{build, solidity_version, Args, VERSION};
 
 mod libsolc;
 

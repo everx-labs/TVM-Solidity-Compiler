@@ -11,17 +11,17 @@
  * limitations under the License.
  */
 
-use predicates::prelude::*;
 use assert_cmd::Command;
+use predicates::prelude::*;
 
 type Status = Result<(), Box<dyn std::error::Error>>;
 const BIN_NAME: &str = "sold";
 
 fn remove_all_outputs(name: &str) -> Status {
-    std::fs::remove_file(format!("tests/{}.abi.json",   name))?;
-    std::fs::remove_file(format!("tests/{}.code",       name))?;
+    std::fs::remove_file(format!("tests/{}.abi.json", name))?;
+    std::fs::remove_file(format!("tests/{}.code", name))?;
     std::fs::remove_file(format!("tests/{}.debug.json", name))?;
-    std::fs::remove_file(format!("tests/{}.tvc",        name))?;
+    std::fs::remove_file(format!("tests/{}.tvc", name))?;
     Ok(())
 }
 
@@ -103,7 +103,9 @@ fn test_library() -> Status {
         .arg("tests")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("Source file doesn't contain any deployable contracts."));
+        .stderr(predicate::str::contains(
+            "Source file doesn't contain any deployable contracts.",
+        ));
 
     Ok(())
 }
@@ -178,7 +180,8 @@ fn test_private_function_ids() -> Status {
         .arg("--private-function-ids")
         .assert()
         .success()
-        .stdout(predicate::str::contains(r#"[
+        .stdout(predicate::str::contains(
+            r#"[
   {
     "id": 4199241165,
     "scope": "C",
@@ -199,7 +202,8 @@ fn test_private_function_ids() -> Status {
     "scope": "Math",
     "sign": "mul(uint256,uint256)"
   }
-"#));
+"#,
+        ));
     Ok(())
 }
 
