@@ -46,7 +46,7 @@ public:
 	static void printFunctionIds(ContractDefinition const& contract, PragmaDirectiveHelper const& pragmaHelper);
 	static void printPrivateFunctionIds(
 		ContractDefinition const& contract,
-		std::vector<solidity::frontend::ContractDefinition const *> libraries,
+		std::vector<std::shared_ptr<SourceUnit>> _sourceUnits,
 		PragmaDirectiveHelper const& pragmaHelper
 	);
 	static void generateABI(
@@ -54,15 +54,15 @@ public:
 		ContractDefinition const* contract,
 		std::vector<PragmaDirective const *> const& pragmaDirectives
 	);
-	static void generateCode(
+	static void generateCodeAndSaveToFile(
 		const std::string& fileName,
 		ContractDefinition const& contract,
-		std::vector<solidity::frontend::ContractDefinition const *> libraries,
+		std::vector<std::shared_ptr<SourceUnit>> _sourceUnits,
 		PragmaDirectiveHelper const &pragmaHelper
 	);
 	static Pointer<Contract> generateContractCode(
 		ContractDefinition const* contract,
-		std::vector<solidity::frontend::ContractDefinition const *> libraries,
+		std::vector<std::shared_ptr<SourceUnit>> _sourceUnits,
 		PragmaDirectiveHelper const& pragmaHelper
 	);
 	static void optimizeCode(Pointer<Contract>& c);

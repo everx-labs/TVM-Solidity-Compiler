@@ -268,7 +268,7 @@ void DelMinOrMax::delMinOrMax() {
 	opcode = "DICT" + typeToDictChar(&keyType) + "REM" + (isDelMin? "MIN" : "MAX") + (isInRef? "REF" : "");
 	stackSize = pusher.stackSize();
 
-	lValueInfo = ec->expandLValue(&memberAccess->expression(), true, true); // lValue... map
+	lValueInfo = ec->expandLValue(&memberAccess->expression(), true); // lValue... map
 	pusher.pushInt(keyLength); // dict nbits
 
 	pusher.startOpaque();

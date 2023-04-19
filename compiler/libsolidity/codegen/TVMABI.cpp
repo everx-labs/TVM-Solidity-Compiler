@@ -79,11 +79,11 @@ Json::Value TVMABI::generateFunctionIdsJson(
 Json::Value
 TVMABI::generatePrivateFunctionIdsJson(
 	const ContractDefinition &contract,
-	std::vector<ContractDefinition const *> libraries,
+	std::vector<std::shared_ptr<SourceUnit>> _sourceUnits,
 	const PragmaDirectiveHelper &pragmaHelper
 ) {
 	Json::Value ids{Json::arrayValue};
-	Pointer<Contract> codeContract = TVMContractCompiler::generateContractCode(&contract, libraries, pragmaHelper);
+	Pointer<Contract> codeContract = TVMContractCompiler::generateContractCode(&contract, _sourceUnits, pragmaHelper);
 	for (Pointer<Function> const& fun : codeContract->functions()) {
 		if (fun->type() == Function::FunctionType::PrivateFunction) {
 			Json::Value func{Json::objectValue};
@@ -562,7 +562,7 @@ DecodePositionAbiV2::DecodePositionAbiV2(int _bitOffset, int _refOffset, const s
 		} else {
 			bits += size.maxBits;
 			refs += size.maxRefs;
-			if (bits >= TvmConst::CellBitLength || refs >= 4) {
+			if (bits > TvmConst::CellBitLength || refs >= 4) {
 				m_doLoadNextCell[i] = true;
 				bits = size.maxBits;
 				refs = size.maxRefs;

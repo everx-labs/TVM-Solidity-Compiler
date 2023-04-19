@@ -2163,19 +2163,15 @@ Type const* StackPusher::parseValueType(IndexAccess const &indexAccess) {
 	return indexAccess.annotation().type;
 }
 
-bool StackPusher::tryAssignParam(Declaration const *name) {
+void StackPusher::assignStackVariable(Declaration const *name) {
 	auto& stack = getStack();
-	if (stack.isParam(name)) {
-		int idx = stack.getOffset(name);
-		solAssert(idx >= 0, "");
-		if (idx == 0) {
-			// nothing
-		} else {
-			popS(idx);
-		}
-		return true;
+	int idx = stack.getOffset(name);
+	solAssert(idx >= 0, "");
+	if (idx == 0) {
+		// nothing
+	} else {
+		popS(idx);
 	}
-	return false;
 }
 
 void StackPusher::prepareKeyForDictOperations(Type const *key, bool doIgnoreBytes) {
@@ -2571,10 +2567,13 @@ string TVMCompilerContext::getFunctionInternalName(FunctionDefinition const* _fu
 
 	std::string functionName;
 	const std::string hexName = _function->externalIdentifierHex();
-    if (_function->annotation().contract->isLibrary()) {
+	ContractDefinition const* contract = _function->annotation().contract;
+    if (contract && contract->isLibrary()) {
         functionName = getLibFunctionName(_function, calledByPoint);
     } else if (calledByPoint && isBaseFunction(_function)) {
 		functionName = _function->annotation().contract->name() + "_" + _function->name() + "_" + hexName;
+	} else if (_function->isFree()) {
+		functionName = _function->name() + "_" + hexName + "_free_internal";
 	} else {
 		functionName = _function->name() + "_" + hexName + "_internal";
 	}

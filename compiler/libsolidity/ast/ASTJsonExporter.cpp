@@ -710,7 +710,8 @@ bool ASTJsonExporter::visit(Return const& _node)
 {
 	setJsonNode(_node, "Return", {
 		make_pair("expression", toJsonOrNull(_node.expression())),
-		make_pair("functionReturnParameters", idOrNull(_node.annotation().functionReturnParameters))
+		make_pair("functionReturnParameters", idOrNull(_node.annotation().functionReturnParameters)),
+		make_pair("options", toJson(_node.options())),
 	});
 	return false;
 }

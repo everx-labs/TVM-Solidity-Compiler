@@ -761,7 +761,7 @@ bool TypeChecker::visit(FunctionDefinition const& _function)
 		if (_function.externalMsg() && _function.internalMsg()) {
 			m_errorReporter.typeError(228_error, _function.location(), R"("internalMsg" and "externalMsg" cannot be used together.)");
 		}
-		if (!_function.isPublic()) {
+		if (!_function.functionIsExternallyVisible()) {
 			m_errorReporter.typeError(228_error, _function.location(), R"(Private/internal function can't be marked as internalMsg/externalMsg.)");
 		}
 		if (_function.isReceive() || _function.isFallback() || _function.isOnBounce() || _function.isOnTickTock()) {
@@ -2968,16 +2968,6 @@ TypeChecker::checkPubFunctionOrContractTypeAndGetDefinition(Expression const& ar
 			" provided."
 		);
 	}
-	if (constructorDef && !constructorDef->isPublic()) {
-		m_errorReporter.fatalTypeError(
-			228_error,
-			arg.location(),
-			SecondarySourceLocation().append("Declaration is here:", constructorDef->location()),
-			"Contract with public constructor required, but \"" +
-					Declaration::visibilityToString(constructorDef->visibility()) +
-			"\" constructor provided."
-		);
-	}
 	return constructorDef;
 }
 
@@ -3471,9 +3461,11 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		TypePointers returnTypes;
 		auto checkArgConversion = [&]() {
 			for (size_t i = 0; i < paramTypes.size(); ++i) {
-				if (!arguments.at(i)->annotation().type->isImplicitlyConvertibleTo(*paramTypes.at(i))) {
-					m_errorReporter.typeError(228_error, _functionCall.location(),
-                    "Expected argument of type " + paramTypes.at(i)->canonicalName());
+				const Type *givenType = arguments.at(i)->annotation().type;
+				const Type *expType = paramTypes.at(i);
+				if (!givenType->isImplicitlyConvertibleTo(*expType)) {
+					m_errorReporter.typeError(228_error, arguments.at(i)->location(),
+				  		"Expected " + expType->canonicalName() + " type, but given " + givenType->canonicalName());
 				}
 			}
 		};
@@ -3934,7 +3926,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			paramTypes.push_back(TypeProvider::boolean());
 			checkAtLeastOneArg();
 			if (arguments.size() >= 2) {
-				paramTypes.push_back(TypeProvider::uint256());
+				paramTypes.push_back(TypeProvider::uint(16));
 			}
 			if (arguments.size() >= 3) {
 				paramTypes.push_back(arguments.at(2)->annotation().type->mobileType());
@@ -3947,7 +3939,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		}
 		case FunctionType::Kind::Revert: {
 			if (!arguments.empty()) {
-				paramTypes.push_back(TypeProvider::uint256());
+				paramTypes.push_back(TypeProvider::uint(16));
 			}
 			if (arguments.size() >= 2) {
 				paramTypes.push_back(arguments.at(1)->annotation().type->mobileType());

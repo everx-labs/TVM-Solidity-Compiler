@@ -275,9 +275,6 @@ public:
 	/// @returns a list of the contract names in the sources.
 	std::vector<std::string> contractNames() const;
 
-	/// @returns the name of the last contract. If _sourceName is defined the last contract of that source will be returned.
-	std::string const lastContractName(std::optional<std::string> const& _sourceName = std::nullopt) const;
-
 	/// @returns either the contract's name or a mixture of its name and source file, sanitized for filesystem use
 	std::string const filesystemFriendlyName(std::string const& _contractName) const;
 
@@ -450,7 +447,7 @@ private:
 	) const;
 
 	std::vector<PragmaDirective const *> getPragmaDirectives(Source const* source) const;
-	std::vector<ContractDefinition const *> getAllLibraries() const;
+	std::vector<std::shared_ptr<SourceUnit>> getSourceUnits() const;
 
 	ReadCallback::Callback m_readFile;
 	OptimiserSettings m_optimiserSettings;

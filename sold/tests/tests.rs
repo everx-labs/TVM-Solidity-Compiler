@@ -102,8 +102,9 @@ fn test_library() -> Status {
         .arg("--output-dir")
         .arg("tests")
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("Source file doesn't contain any deployable contracts."));
+        .success()
+        .stderr(predicate::str::contains("Compiler run successful, no output requested."))
+        ;
 
     Ok(())
 }
@@ -216,4 +217,28 @@ fn test_remapping() -> Status {
 
     remove_all_outputs("ImportRemote")?;
     Ok(())
+}
+
+#[test]
+fn test_userdoc_devdoc() -> Status {
+    Command::cargo_bin(BIN_NAME)?
+        .arg("tests/Trivial.sol")
+        .arg("--userdoc")
+        .arg("--devdoc")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(r#"Developer Documentation
+{
+  "kind": "dev",
+  "methods": {},
+  "version": 1
+}
+User Documentation
+{
+  "kind": "user",
+  "methods": {},
+  "version": 1
+}
+"#));
+    Ok(())        
 }

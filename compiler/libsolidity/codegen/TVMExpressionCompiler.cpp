@@ -246,8 +246,7 @@ void TVMExpressionCompiler::visit2(Identifier const &_identifier) {
 	} else if (name == "this") {
 		// calling this.function() creates an internal message that should be sent to the address of current contract
 		m_pusher.push(+1, "MYADDR");
-	} else if (to<FunctionDefinition>(_identifier.annotation().referencedDeclaration)) {
-		auto funDecl = to<FunctionDefinition>(_identifier.annotation().referencedDeclaration);
+	} else if (auto funDecl = to<FunctionDefinition>(_identifier.annotation().referencedDeclaration)) {
 		m_pusher.pushPrivateFunctionId(*funDecl);
 	} else {
 		cast_error(_identifier, "Unsupported identifier: " + name);
@@ -263,7 +262,7 @@ void TVMExpressionCompiler::compileUnaryOperation(
 	Type const* resType = _node.annotation().type;
 	LValueInfo lValueInfo;
 	if (isCurrentResultNeeded()) {
-		lValueInfo = expandLValue(&_node.subExpression(), true, true);
+		lValueInfo = expandLValue(&_node.subExpression(), true);
 		const int expandedLValueSize = m_pusher.stackSize() - saveStackSize - 1;
 		solAssert(expandedLValueSize >= 0, "");
 		if (isPrefixOperation) {
@@ -281,7 +280,7 @@ void TVMExpressionCompiler::compileUnaryOperation(
 			}
 		}
 	} else {
-		lValueInfo = expandLValue(&_node.subExpression(), true, true);
+		lValueInfo = expandLValue(&_node.subExpression(), true);
 		m_pusher.push(0, tvmUnaryOperation);
 	}
 
@@ -292,7 +291,7 @@ void TVMExpressionCompiler::compileUnaryOperation(
 }
 
 void TVMExpressionCompiler::compileUnaryDelete(UnaryOperation const &node) {
-	const LValueInfo lValueInfo = expandLValue(&node.subExpression(), false, true);
+	const LValueInfo lValueInfo = expandLValue(&node.subExpression(), false);
 	Expression const* lastExpr = lValueInfo.expressions.back();
 	Type const* exprType = node.subExpression().annotation().type;
 	if (to<Identifier>(lastExpr)) {
@@ -815,7 +814,7 @@ void TVMExpressionCompiler::visitMagic(MemberAccess const &_node) {
 	} else if (identifier->name() == "block") {
 		if (_node.memberName() == "timestamp") {
 			m_pusher << "NOW";
-		} else if (_node.memberName() == "logtimestamp") {
+		} else if (_node.memberName() == "logicaltime") {
 			m_pusher << "BLOCKLT";
 		} else {
 			unsupportedMagic();
@@ -1086,9 +1085,10 @@ bool TVMExpressionCompiler::isOptionalGet(Expression const* expr) {
 LValueInfo
 TVMExpressionCompiler::expandLValue(
 	Expression const *const _expr,
-	const bool withExpandLastValue,
-	bool isLValue
+	const bool withExpandLastValue
 ) {
+	solAssert(*_expr->annotation().isLValue, "");
+	const int startStackSize = m_pusher.stackSize();
 	LValueInfo lValueInfo {};
 
 	Expression const* expr = _expr;
@@ -1104,14 +1104,8 @@ TVMExpressionCompiler::expandLValue(
 			memberAccess && getType(&memberAccess->expression())->category() == Type::Category::Struct
 		) {
 			expr = &memberAccess->expression();
-		} else if (
-			auto funCall = to<FunctionCall>(expr);
-			funCall && !isLValue
-		) {
-			compileNewExpr(_expr);
-			lValueInfo.doesntNeedToCollect = true;
-			return lValueInfo;
 		} else if (isOptionalGet(expr)) {
+			auto funCall = to<FunctionCall>(expr);
 			auto ma = to<MemberAccess>(&funCall->expression());
 			expr = &ma->expression();
 		} else {
@@ -1120,8 +1114,9 @@ TVMExpressionCompiler::expandLValue(
 	}
 	std::reverse(lValueInfo.expressions.begin(), lValueInfo.expressions.end());
 
-	for (int i = 0; i < static_cast<int>(lValueInfo.expressions.size()); i++) {
-		bool isLast = (i + 1) == static_cast<int>(lValueInfo.expressions.size());
+	const int n = static_cast<int>(lValueInfo.expressions.size());
+	for (int i = 0; i < n; i++) {
+		bool isLast = i + 1 == n;
 		if (auto variable = to<Identifier>(lValueInfo.expressions[i])) {
 			auto& stack = m_pusher.getStack();
 			auto name = variable->name();
@@ -1187,6 +1182,7 @@ TVMExpressionCompiler::expandLValue(
 			solUnimplemented("");
 		}
 	}
+	lValueInfo.stackSizeDiff = m_pusher.stackSize() - startStackSize;
 	return lValueInfo;
 }
 
@@ -1199,23 +1195,17 @@ TVMExpressionCompiler::collectLValue(
 {
 	// variable [arrayIndex | mapIndex | structMember | <optional>.get()]...
 
-	if (lValueInfo.doesntNeedToCollect) {
-		solAssert(haveValueOnStackTop, "Collect with not needed value is available only for on stack top values.");
-		m_pusher.drop();
-		return;
-	}
-
 	const int n = static_cast<int>(lValueInfo.expressions.size());
 
 	for (int i = n - 1; i >= 0; i--) {
-		const bool isLast = (i + 1) == static_cast<int>(lValueInfo.expressions.size());
+		const bool isLast = i + 1 == n;
 
 		if (auto variable = to<Identifier>(lValueInfo.expressions[i])) {
 //				pushLog("colVar");
 			auto& stack = m_pusher.getStack();
 			if (stack.isParam(variable->annotation().referencedDeclaration)) {
 				solAssert((haveValueOnStackTop && n == 1) || n > 1, "");
-				m_pusher.tryAssignParam(variable->annotation().referencedDeclaration);
+				m_pusher.assignStackVariable(variable->annotation().referencedDeclaration);
 			} else {
 				// value
 				auto vd = to<VariableDeclaration>(variable->annotation().referencedDeclaration);
@@ -1283,7 +1273,7 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 		const int saveStackSize0 = m_pusher.stackSize();
 		bool valueIsBuilder = push_rhs();
 		const int saveStackSize = m_pusher.stackSize();
-		const LValueInfo lValueInfo = expandLValue(&lhs, false, true);
+		const LValueInfo lValueInfo = expandLValue(&lhs, false);
 		if (isCurrentResultNeeded()) {
 			solAssert(saveStackSize - saveStackSize0 == 1, "");
 			m_pusher.pushS(m_pusher.stackSize() - saveStackSize);
@@ -1296,7 +1286,7 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 		compileNewExpr(&rhs); // r
 		m_pusher.hardConvert(commonType, rhs.annotation().type);
 		const int saveStackSize = m_pusher.stackSize();
-		const LValueInfo lValueInfo = expandLValue(&lhs, true, true); // r expanded... l
+		const LValueInfo lValueInfo = expandLValue(&lhs, true); // r expanded... l
 		m_pusher.hardConvert(commonType, lhs.annotation().type);
 		const int expandedLValueSize = m_pusher.stackSize() - saveStackSize - 1;
 		m_pusher.blockSwap(1, expandedLValueSize + 1); // expanded... l r
@@ -1342,7 +1332,7 @@ bool TVMExpressionCompiler::tryAssignTuple(Assignment const &_assignment) {
 				m_pusher.hardConvert(leftComp->annotation().type, rhs.annotation().type);
 			}
 			const int stackSizeForValue = m_pusher.stackSize();
-			const LValueInfo lValueInfo = expandLValue(leftComp.get(), false, true);
+			const LValueInfo lValueInfo = expandLValue(leftComp.get(), false);
 			const int stackSize = m_pusher.stackSize();
 			const int expandLValueSize = stackSize - stackSizeForValue;
 			if (expandLValueSize > 0) {

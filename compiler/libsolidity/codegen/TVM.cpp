@@ -61,7 +61,7 @@ std::string getPathToFiles(
 
 void TVMCompilerProceedContract(
 	ContractDefinition const& _contract,
-	std::vector<ContractDefinition const *> libraries,
+	std::vector<std::shared_ptr<SourceUnit>> _sourceUnits,
 	std::vector<PragmaDirective const *> const* pragmaDirectives,
 	bool generateAbi,
 	bool generateCode,
@@ -77,10 +77,10 @@ void TVMCompilerProceedContract(
 	if (doPrintFunctionIds) {
         TVMContractCompiler::printFunctionIds(_contract, pragmaHelper);
     } else if (doPrivateFunctionIds) {
-        TVMContractCompiler::printPrivateFunctionIds(_contract, libraries, pragmaHelper);
+		TVMContractCompiler::printPrivateFunctionIds(_contract, _sourceUnits, pragmaHelper);
 	} else {
 		if (generateCode) {
-			TVMContractCompiler::generateCode(pathToFiles + ".code", _contract, libraries, pragmaHelper);
+			TVMContractCompiler::generateCodeAndSaveToFile(pathToFiles + ".code", _contract, _sourceUnits, pragmaHelper);
 		}
 		if (generateAbi) {
 			TVMContractCompiler::generateABI(pathToFiles + ".abi.json", &_contract, *pragmaDirectives);

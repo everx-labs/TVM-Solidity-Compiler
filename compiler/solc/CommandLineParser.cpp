@@ -548,7 +548,7 @@ General Information)").c_str(),
 			"Use the given path as the root of the source tree instead of the root of the filesystem."
 		)
 		(
-			g_strIncludePath.c_str(),
+			(g_strIncludePath + ",i").c_str(),
 			po::value<vector<string>>()->value_name("path"),
 			"Make an additional source directory available to the default import callback. "
 			"Use this option if you want to import contracts whose location is not fixed in relation "

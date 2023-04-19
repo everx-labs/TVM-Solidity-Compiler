@@ -34,7 +34,7 @@ public:
 	);
 	static Json::Value generatePrivateFunctionIdsJson(
 			ContractDefinition const& contract,
-			std::vector<ContractDefinition const *> libraries,
+			std::vector<std::shared_ptr<SourceUnit>> _sourceUnits,
 			PragmaDirectiveHelper const& pragmaHelper
 	);
 	static void generateABI(ContractDefinition const* contract,

@@ -633,17 +633,11 @@ std::pair<bool, bool> CompilerStack::compile(bool json)
 	if (m_generateAbi || m_generateCode || m_doPrintFunctionIds || m_doPrivateFunctionIds) {
 		ContractDefinition const *targetContract{};
 		std::vector<PragmaDirective const *> targetPragmaDirectives;
-		std::vector<ContractDefinition const *> libraries = getAllLibraries();
 
 		bool findSrc = false;
 		for (Source const *source: m_sourceOrder) {
-			// TODO DELETE. IS IT OK?
-			auto a = boost::filesystem::path(m_inputFile);
-			boost::filesystem::path aaa = a.filename();
-			string curCand = *source->ast->annotation().path;
-			boost::filesystem::path bbb{curCand};
-
-			if (aaa != bbb.filename()) {
+			string curSrcPath = *source->ast->annotation().path;
+			if (curSrcPath != m_inputFile) {
 				continue;
 			}
 
@@ -721,14 +715,6 @@ std::pair<bool, bool> CompilerStack::compile(bool json)
 			);
 			return {false, didCompileSomething};
 		}
-		if (targetContract == nullptr) {
-			m_errorReporter.typeError(
-				228_error,
-				SourceLocation(),
-				"Source file doesn't contain any deployable contracts."
-			);
-			return {false, didCompileSomething};
-		}
 
 		if (targetContract != nullptr) {
 			try {
@@ -742,7 +728,7 @@ std::pair<bool, bool> CompilerStack::compile(bool json)
 					}
 					if (m_generateCode) {
 						Pointer<solidity::frontend::Contract> codeContract =
-							TVMContractCompiler::generateContractCode(targetContract, libraries, pragmaHelper);
+							TVMContractCompiler::generateContractCode(targetContract, getSourceUnits(), pragmaHelper);
 						ostringstream out;
 						Printer p{out};
 						codeContract->accept(p);
@@ -752,7 +738,7 @@ std::pair<bool, bool> CompilerStack::compile(bool json)
 				} else {
 					TVMCompilerProceedContract(
 						*targetContract,
-						libraries,
+						getSourceUnits(),
 						&targetPragmaDirectives,
 						m_generateAbi,
 						m_generateCode,
@@ -760,7 +746,7 @@ std::pair<bool, bool> CompilerStack::compile(bool json)
 						m_folder,
 						m_file_prefix,
 						m_doPrintFunctionIds,
-                        m_doPrivateFunctionIds
+						m_doPrivateFunctionIds
 					);
 				}
 				didCompileSomething = true;
@@ -788,19 +774,6 @@ vector<string> CompilerStack::contractNames() const
 	for (auto const& contract: m_contracts)
 		contractNames.push_back(contract.first);
 	return contractNames;
-}
-
-string const CompilerStack::lastContractName(optional<string> const& _sourceName) const
-{
-	if (m_stackState < AnalysisPerformed)
-		solThrow(CompilerError, "Parsing was not successful.");
-	// try to find some user-supplied contract
-	string contractName;
-	for (auto const& it: m_sources)
-		if (_sourceName.value_or(it.first) == it.first)
-			for (auto const* contract: ASTNode::filteredNodes<ContractDefinition>(it.second.ast->nodes()))
-				contractName = contract->fullyQualifiedName();
-	return contractName;
 }
 
 string const* CompilerStack::sourceMapping(string const& _contractName) const
@@ -949,8 +922,7 @@ Json::Value const& CompilerStack::privateFunctionIds(std::string const& _contrac
 		try {
 			std::vector<PragmaDirective const *> pragmaDirectives = getPragmaDirectives(&source(sourceName));
 			PragmaDirectiveHelper pragmaHelper{pragmaDirectives};
-			std::vector<ContractDefinition const *> libraries = getAllLibraries();
-			auto functionIds = TVMABI::generatePrivateFunctionIdsJson(*c.contract, libraries, pragmaHelper);
+			auto functionIds = TVMABI::generatePrivateFunctionIdsJson(*c.contract, getSourceUnits(), pragmaHelper);
 			c.privateFunctionIds = make_unique<Json::Value>(functionIds);
 		} catch (...) {
 			// TODO sorry
@@ -1246,13 +1218,9 @@ CompilerStack::Contract const& CompilerStack::contract(string const& _contractNa
 CompilerStack::Source const& CompilerStack::source(string const& _sourceName) const
 {
 	auto it = m_sources.find(_sourceName);
-	if (it == m_sources.end()) {
-		it = std::find_if(m_sources.begin(), m_sources.end(), [&_sourceName] (auto it) {
-			return _sourceName == boost::filesystem::canonical(it.first).string();
-		});
-		if (it == m_sources.end())
-			BOOST_THROW_EXCEPTION(CompilerError() << errinfo_comment("Given source file not found."));
-	}
+	if (it == m_sources.end())
+		solThrow(CompilerError, "Given source file not found: " + _sourceName);
+
 	return it->second;
 }
 
@@ -1486,16 +1454,10 @@ std::vector<PragmaDirective const *> CompilerStack::getPragmaDirectives(Source c
 	return pragmaDirectives;
 }
 
-std::vector<ContractDefinition const *> CompilerStack::getAllLibraries() const {
-	std::vector<ContractDefinition const *> libraries;
+std::vector<std::shared_ptr<SourceUnit>> CompilerStack::getSourceUnits() const {
+	std::vector<std::shared_ptr<SourceUnit>> sourceUnits;
 	for (Source const *source: m_sourceOrder) {
-		for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
-			if (auto cont = dynamic_cast<ContractDefinition const *>(node.get())) {
-				if (cont->isLibrary()) {
-					libraries.emplace_back(cont);
-				}
-			}
-		}
+		sourceUnits.push_back(source->ast);
 	}
-	return libraries;
+	return sourceUnits;
 }

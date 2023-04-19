@@ -37,7 +37,7 @@ std::string getPathToFiles(
 
 void TVMCompilerProceedContract(
 	solidity::frontend::ContractDefinition const& _contract,
-	std::vector<solidity::frontend::ContractDefinition const *> libraries,
+	std::vector<std::shared_ptr<solidity::frontend::SourceUnit>> _sourceUnits,
 	std::vector<solidity::frontend::PragmaDirective const *> const* pragmaDirectives,
 	bool generateAbi,
 	bool generateCode,

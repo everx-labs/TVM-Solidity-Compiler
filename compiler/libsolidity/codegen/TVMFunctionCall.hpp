@@ -55,7 +55,7 @@ protected:
 	void sliceMethods(MemberAccess const& _node);
 	void arrayMethods(MemberAccess const& _node);
 	bool checkForOptionalMethods(MemberAccess const& _node);
-	bool checkForTvmBuilderMethods(MemberAccess const& _node, Type::Category category);
+	void builderMethods(MemberAccess const& _node);
 	bool checkForTvmVectorMethods(MemberAccess const& _node, Type::Category category);
 	void cellMethods(MemberAccess const& _node);
 	void variantMethods(MemberAccess const& _node);

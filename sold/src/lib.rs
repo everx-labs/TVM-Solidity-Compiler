@@ -8,7 +8,7 @@ use failure::{bail, format_err};
 use serde::Deserialize;
 
 use ton_block::Serializable;
-use ton_types::{BagOfCells, Result, SliceData, Status};
+use ton_types::{Result, SliceData, Status};
 use ton_utils::parser::{ParseEngine, ParseEngineInput};
 use ton_utils::program::Program;
 
@@ -97,10 +97,15 @@ fn compile(args: &Args, input: &str, remappings: Vec<String>) -> Result<(String,
     } else {
         ""
     };
-    let assembly = if args.abi_json || args.ast_compact_json {
+    let assembly = if args.abi_json || args.ast_compact_json || args.userdoc || args.devdoc {
         ""
     } else {
         ", \"assembly\""
+    };
+    let doc = if args.userdoc || args.devdoc {
+        ", \"userdoc\", \"devdoc\""
+    } else {
+        ""
     };
     let main_contract = args.contract.clone().unwrap_or_default();
     let remappings = remappings_to_json_string(remappings);
@@ -112,7 +117,7 @@ fn compile(args: &Args, input: &str, remappings: Vec<String>) -> Result<(String,
                 "remappings": {remappings},
                 "outputSelection": {{
                     "{source_unit_name}": {{
-                        "*": [ "abi"{assembly}{show_function_ids}{show_private_function_ids} ],
+                        "*": [ "abi"{assembly}{show_function_ids}{show_private_function_ids}{doc} ],
                         "": [ "ast" ]
                     }}
                 }}
@@ -158,6 +163,8 @@ macro_rules! parse_error {
     };
 }
 
+pub static ERROR_MSG_NO_OUTPUT: &str = "Compiler run successful, no output requested.";
+
 fn parse_comp_result(
     res: &serde_json::Value,
     source_unit_name: &str,
@@ -165,6 +172,7 @@ fn parse_comp_result(
     compile: bool,
 ) -> Result<serde_json::Value> {
     let res = res.as_object().ok_or_else(|| parse_error!())?;
+    // println!("{}", serde_json::to_string_pretty(&res)?);
 
     if let Some(v) = res.get("errors") {
         let entries = v.as_array()
@@ -230,11 +238,15 @@ fn parse_comp_result(
                 }
             });
         let qualification = if compile { "deployable " } else { "" };
-        let entry = iter.next().unwrap();
-        if iter.next().is_some() {
-            Err(format_err!("Source file contains at least two {}contracts. Consider adding the option --contract in compiler command line to select the desired contract", qualification))
+        let entry = iter.next();
+        if let Some(entry) = entry {
+            if iter.next().is_some() {
+                Err(format_err!("Source file contains at least two {}contracts. Consider adding the option --contract in compiler command line to select the desired contract", qualification))
+            } else {
+                Ok(entry.1.clone())
+            }
         } else {
-            Ok(entry.1.clone())
+            Err(format_err!("{}", ERROR_MSG_NO_OUTPUT))
         }
     }
 }
@@ -285,7 +297,7 @@ pub fn build(args: Args) -> Status {
         &res.1,
         &res.0,
         args.contract,
-        !(args.abi_json || args.ast_compact_json)
+        !(args.abi_json || args.ast_compact_json || args.userdoc || args.devdoc )
     )?;
 
     if args.function_ids {
@@ -306,6 +318,18 @@ pub fn build(args: Args) -> Status {
     let output_prefix = args.output_prefix.unwrap_or(input_file_stem);
     let output_tvc = format!("{}.tvc", output_prefix);
 
+    if args.userdoc || args.devdoc {
+        if args.devdoc {
+            println!("Developer Documentation");
+            println!("{}", serde_json::to_string_pretty(&out["devdoc"])?);
+        }
+        if args.userdoc {
+            println!("User Documentation");
+            println!("{}", serde_json::to_string_pretty(&out["userdoc"])?);
+        }
+        return Ok(())
+    }
+
     if args.ast_compact_json {
         let all = res.1.as_object()
             .ok_or_else(|| parse_error!())?
@@ -323,13 +347,8 @@ pub fn build(args: Args) -> Status {
                 .ok_or_else(|| parse_error!())?;
             array.push(ast.clone());
         }
-
-        let ast = serde_json::Value::Array(array);
-        let ast_file_name = format!("{}.ast.json", output_prefix);
-        let mut ast_file = File::create(output_path.join(&ast_file_name))?;
-
-        serde_json::to_writer(&mut ast_file, &ast)?;
-        writeln!(ast_file)?;
+        assert!(array.len() == 1);
+        println!("{}", serde_json::to_string(&array[0])?);
         return Ok(())
     }
 
@@ -358,7 +377,7 @@ pub fn build(args: Args) -> Status {
     }
     inputs.push(ParseEngineInput { buf: Box::new(assembly.as_bytes()), name: format!("{}/{}", output_dir, assembly_file_name) });
 
-    let mut prog = Program::new(ParseEngine::new_generic(inputs, Some(format!("{}", abi)))?);
+    let mut prog = Program::new(ParseEngine::new_generic(inputs, Some(format!("{}", abi)))?)?;
 
 
     let output_filename = if output_dir == "." {
@@ -391,8 +410,7 @@ pub fn build(args: Args) -> Status {
         state.set_data(new_data.into_cell());
 
         let root_cell = state.write_to_new_cell()?.into_cell()?;
-        let mut buffer = vec![];
-        BagOfCells::with_root(&root_cell).write_to(&mut buffer, false)?;
+        let buffer = ton_types::write_boc(&root_cell)?;
 
         let mut file = File::create(&output_filename)?;
         file.write_all(&buffer)?;
@@ -458,6 +476,12 @@ pub struct Args {
     /// AST of all source files in a compact JSON format
     #[clap(long, value_parser)]
     pub ast_compact_json: bool,
+    /// Natspec user documentation of all contracts.
+    #[clap(long, value_parser)]
+    pub userdoc: bool,
+    /// Natspec developer documentation of all contracts.
+    #[clap(long, value_parser)]
+    pub devdoc: bool,
 
     // TODO ?
     /// Set newly generated keypair

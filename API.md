@@ -35,6 +35,7 @@ contract development.
       * [\<TvmSlice\>.decodeFunctionParams()](#tvmslicedecodefunctionparams)
       * [\<TvmSlice\>.decodeStateVars()](#tvmslicedecodestatevars)
       * [\<TvmSlice\>.skip()](#tvmsliceskip)
+      * [\<TvmSlice\>.loadZeroes(), \<TvmSlice\>.loadOnes() and \<TvmSlice\>.loadSame()](#tvmsliceloadzeroes-tvmsliceloadones-and-tvmsliceloadsame)
   * [TvmBuilder](#tvmbuilder)
     * [\<TvmBuilder\>.toSlice()](#tvmbuildertoslice)
     * [\<TvmBuilder\>.toCell()](#tvmbuildertocell)
@@ -46,8 +47,7 @@ contract development.
     * [\<TvmBuilder\>.remBitsAndRefs()](#tvmbuilderrembitsandrefs)
     * [\<TvmBuilder\>.depth()](#tvmbuilderdepth)
     * [\<TvmBuilder\>.store()](#tvmbuilderstore)
-    * [\<TvmBuilder\>.storeOnes()](#tvmbuilderstoreones)
-    * [\<TvmBuilder\>.storeZeroes()](#tvmbuilderstorezeroes)
+    * [\<TvmBuilder\>.storeZeroes(), \<TvmBuilder\>.storeOnes() and \<TvmBuilder\>.storeSame()](#tvmbuilderstorezeroes-tvmbuilderstoreones-and-tvmbuilderstoresame)
     * [\<TvmBuilder\>.storeSigned()](#tvmbuilderstoresigned)
     * [\<TvmBuilder\>.storeUnsigned()](#tvmbuilderstoreunsigned)
     * [\<TvmBuilder\>.storeRef()](#tvmbuilderstoreref)
@@ -251,6 +251,7 @@ contract development.
     * [tx.storageFee](#txstoragefee)
   * [**block** namespace](#block-namespace)
     * [block.timestamp](#blocktimestamp)
+    * [block.logicaltime](#blocklogicaltime)
   * [**rnd** namespace](#rnd-namespace)
     * [rnd.next](#rndnext)
     * [rnd.getSeed](#rndgetseed)
@@ -646,6 +647,24 @@ contract B {
 
 Skips the first `length` bits and `refs` references from the `TvmSlice`.
 
+###### \<TvmSlice\>.loadZeroes(), \<TvmSlice\>.loadOnes() and \<TvmSlice\>.loadSame()
+
+```TVMSolidity
+(1)
+<TvmSlice>.loadZeroes() returns (uint10 n);
+(2)
+<TvmSlice>.loadOnes() returns (uint10 n);
+(3)
+<TvmSlice>.loadSame(uint1 value) returns (uint10 n);
+```
+
+(1) Returns the count `n` of leading zero bits in `TvmSlice`, and removes these bits from `TvmSlice`.
+
+(2) Returns the count `n` of leading one bits in `TvmSlice`, and removes these bits from `TvmSlice`.
+
+(3) Returns the count `n` of leading bits equal to `0 ≤ value ≤ 1` in `TvmSlice`, and removes these bits from `TvmSlice`.
+
+
 #### TvmBuilder
 
 `TvmBuilder` represents *TVM cell builder* ([TVM][1] - 1.1.3). TON Solidity compiler defines the following
@@ -769,21 +788,19 @@ builder.store(a, b, uint(33));
 
 See also: [\<TvmSlice\>.decode()](#tvmslicedecode).
 
-##### \<TvmBuilder\>.storeOnes()
+##### \<TvmBuilder\>.storeZeroes(), \<TvmBuilder\>.storeOnes() and \<TvmBuilder\>.storeSame()
 
 ```TVMSolidity
-<TvmBuilder>.storeOnes(uint n);
+<TvmBuilder>.storeZeroes(uint10 n);
+<TvmBuilder>.storeOnes(uint10 n);
+<TvmBuilder>.storeSame(uint10 n, uint1 value);
 ```
 
-Stores `n` binary ones into the `TvmBuilder`.
+(1) Stores `n` binary zeroes into the `TvmBuilder`.
 
-##### \<TvmBuilder\>.storeZeroes()
+(2) Stores `n` binary ones into the `TvmBuilder`.
 
-```TVMSolidity
-<TvmBuilder>.storeZeroes(uint n);
-```
-
-Stores `n` binary zeroes into the `TvmBuilder`.
+(3) Stores `n` binary `value`s (0 ≤ value ≤ 1) into the `TvmBuilder`.
 
 ##### \<TvmBuilder\>.storeSigned()
 
@@ -4198,7 +4215,15 @@ Returns the storage fee paid in the current transaction.
 ##### block.timestamp
 
 ```TVMSolidity
-block.timestamp returns (uint64);
+block.timestamp returns (uint32);
+```
+
+Returns the current Unix time. Unix time is the same for the all transactions from one block. 
+
+##### block.logicaltime
+
+```TVMSolidity
+block.logicaltime returns (uint64);
 ```
 
 Returns the starting logical time of the current block.
