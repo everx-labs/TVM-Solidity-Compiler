@@ -305,7 +305,7 @@ public:
 		SetDictOperation opcode = SetDictOperation::Set
 	);
 
-	bool tryAssignParam(Declaration const* name);
+	void assignStackVariable(Declaration const* name);
 
 	void getDict(
 		const Type& keyType,

@@ -12,7 +12,7 @@
  */
 
 use clap::Parser;
-use sold_lib::{Args, VERSION, build, solidity_version};
+use sold_lib::{Args, VERSION, ERROR_MSG_NO_OUTPUT, build, solidity_version};
 
 mod libsolc;
 
@@ -22,6 +22,8 @@ fn main() {
     let args = Args::parse();
     if let Err(e) = build(args) {
         eprintln!("{}", e);
-        std::process::exit(1);
+        if e.to_string() != ERROR_MSG_NO_OUTPUT {
+            std::process::exit(1);
+        }
     }
 }

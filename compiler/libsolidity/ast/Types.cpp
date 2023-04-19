@@ -4384,7 +4384,7 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 	{
 	case Kind::Block:
 		return MemberList::MemberMap({
-			{"logtimestamp", TypeProvider::uint(64)},
+			{"logicaltime", TypeProvider::uint(64)},
 			{"timestamp", TypeProvider::uint(32)},
 			{"difficulty", TypeProvider::uint256()},
 			{"number", TypeProvider::uint256()},
@@ -4537,12 +4537,12 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 		));
 
 		members.emplace_back("rawConfigParam", TypeProvider::function(
-				TypePointers{TypeProvider::integer(32, IntegerType::Modifier::Signed)},
-				TypePointers{TypeProvider::tvmcell(), TypeProvider::boolean()},
-				strings{string()},
-				strings{string(), string()},
-				FunctionType::Kind::TVMRawConfigParam,
-				StateMutability::Pure
+            {TypeProvider::integer(32, IntegerType::Modifier::Signed)},
+            {TypeProvider::optional(TypeProvider::tvmcell())},
+            {{}},
+            {{}},
+            FunctionType::Kind::TVMRawConfigParam,
+            StateMutability::Pure
 		));
 
 		members.emplace_back("buildExtMsg", TypeProvider::function(
@@ -5137,7 +5137,40 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				StateMutability::Pure,
 				nullptr, FunctionType::Options::withArbitraryParameters()
 			)
-		}
+		},
+		{
+			"loadOnes",
+			TypeProvider::function(
+				{},
+				{TypeProvider::uint(10)},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceSize,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadZeroes",
+			TypeProvider::function(
+				{},
+				{TypeProvider::uint(10)},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceSize,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadSame",
+			TypeProvider::function(
+				{TypeProvider::uint(1)},
+				{TypeProvider::uint(10)},
+				{{}},
+				{{}},
+				FunctionType::Kind::TVMSliceSize,
+				StateMutability::Pure
+			)
+		},
 	};
 
 	members.emplace_back("decode", TypeProvider::function(
@@ -5483,7 +5516,19 @@ TypeResult TvmCellType::binaryOperatorResult(Token _operator, const Type *_other
 
 MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 {
-	MemberList::MemberMap members;
+	MemberList::MemberMap members = {
+		{
+			"storeSame",
+			TypeProvider::function(
+				{TypeProvider::uint(10), TypeProvider::uint(1)},
+				{},
+				{{}, {}},
+				{},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+	};
 
     members.emplace_back("depth", TypeProvider::function(
             TypePointers{},
@@ -5595,7 +5640,7 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 
 	for (const std::string func : {"storeOnes", "storeZeroes"}) {
 		members.emplace_back(func.c_str(), TypeProvider::function(
-				{TypeProvider::uint256()},
+				{TypeProvider::uint(10)},
 				{},
 				{{}},
 				{},

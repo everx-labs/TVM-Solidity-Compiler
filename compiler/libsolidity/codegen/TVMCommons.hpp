@@ -351,7 +351,7 @@ enum class SetDictOperation { Set, Replace, Add };
 
 struct LValueInfo {
 	std::vector<Expression const*> expressions;
-	bool doesntNeedToCollect = false;
+	int stackSizeDiff = 0;
 };
 
 DictValueType toDictValueType(const Type::Category& category);

@@ -1,3 +1,26 @@
+### 0.68.0 (2023-04-19)
+
+Breaking change:
+ * `require()` and `revert()` take `uint16` exception code instead of `uint256`.
+ * `tvm.rawConfigParam(...)` returns `optional(TvmCell)` instead of `(TvmCell, bool)`.
+ * Exit status of `solc`/`sold` is equal to `0` and it prints `Compiler run successful, no output requested.` if the source contain no deployable contracts.
+
+Compiler features:
+ * Supported [free functions](https://docs.soliditylang.org/en/latest/contracts.html#functions).
+ * Supported `<TvmSlice>.loadZeroes()`, `<TvmSlice>.loadOnes()` and `<TvmSlice>.loadSame()`.
+ * Supported `<TvmBuilder>.storeSame()`.
+
+Bugfixes:
+ * Fixed a problem with lvalue expressions. The problem caused type check error.
+ * Fixed the bug that caused an exception in decoding the parameters of public function.
+ * Fixed compilation fail if you use `tvm.functionID(ContractName)` or `externalMsg`/`internalMsg`.
+ * Fixed bug when AST (`solc --ast-compact-json`) was generated with ignoring options in return statements (`return {value: ..., flag: ..., bounce: ...}(...);`).
+ * Fixed compilation fail when you have 2 files with the same names in your project.
+
+sold:
+ * Supported `--userdoc`/`--devdoc` options.
+ * `--ast-compact-json` option outputs to stdout now.
+
 ### 0.67.0 (2023-03-16)
 
 Update compiler frontend (from original version 0.6.3 to 0.8.17):
@@ -16,7 +39,7 @@ Bugfixes:
  * Support overloading for function `onCodeUpgrade`.
 
 Breaking change:
- * Function `onCodeUpgrade` had function id = 2. Now, it has another id, but you can set `functionID(2)` in new 
+ * Function `onCodeUpgrade` had function id = 2. Now, it has another id, but you can set `functionID(2)` in new
 contracts  to upgrade old ones.
 
 ### 0.65.0 (2022-10-08)
@@ -24,14 +47,14 @@ contracts  to upgrade old ones.
 Compiler features:
  * Supported `delete` and binary operators for `varUintN/varIntN` types.
  * Supported function references for library function, e.g. `function(int, int) internal returns (int) op = Math.add;`
- * Supported `gosh` functions: `applyBinPatch`/`applyBinPatchQ`/`applyZipBinPatch`/`applyZipBinPatchQ`. 
+ * Supported `gosh` functions: `applyBinPatch`/`applyBinPatchQ`/`applyZipBinPatch`/`applyZipBinPatchQ`.
  * Supported conversion `uint32` to private function, e.g. `function(uint, uint) internal pure returns (uint) fun = uint32(123456)`.
  * Support command line option `--private-function-ids` for printing private function ids.
  * Support `pragma upgrade func/oldsol;` to upgrade old contracts.
 
 ### 0.64.0 (2022-08-18)
 
-Fixed build [sold](https://github.com/tonlabs/TON-Solidity-Compiler/tree/master/sold) for Windows and macOS. 
+Fixed build [sold](https://github.com/tonlabs/TON-Solidity-Compiler/tree/master/sold) for Windows and macOS.
 
 Compiler features:
  * Supported [ABI v2.3](https://github.com/tonlabs/ton-labs-abi/blob/master/docs/ABI_2.3_spec.md).
@@ -75,7 +98,7 @@ Bugfixes:
 ### 0.61.1 (2022-06-10)
 
 Added `sold` sources.
-Fix problem of using `mapping(string => ValueType) map` in loop `for ((uint k, ValueType v) : map)`.  
+Fix problem of using `mapping(string => ValueType) map` in loop `for ((uint k, ValueType v) : map)`.
 Use `bytes` instead of `TvmCell` in `gosh` functions.
 
 ### 0.61.0 (2022-06-07)
@@ -84,7 +107,7 @@ Compiler features:
  * Supported experimental functions `gosh.diff`, `gosh.applyPatch`, `gosh.applyPatchQ`,
 `gosh.zip`, `gosh.unzip`, `gosh.zipDiff`, `gosh.applyZipPatch` and `gosh.applyZipPatchQ`.
  * Supported experimental `tx.storageFee`.
- 
+
 Gas optimizations:
  * Use opcode `MYCODE` for Solidity function `tvm.code()`.
  * Assorted stack optimizations.
@@ -111,7 +134,7 @@ Breaking change:
 explicitly defined.
 
 Gas optimizations:
- * Peephole optimizations: use `PUSHPOW2`, `PUSHPOW2DEC`, `PUSHNEGPOW2` opcodes instead of 
+ * Peephole optimizations: use `PUSHPOW2`, `PUSHPOW2DEC`, `PUSHNEGPOW2` opcodes instead of
 `PUSHINT` in same cases.
 
 ### 0.59.0 (2022-04-12)
@@ -156,7 +179,7 @@ Assorted peephole stack optimizations.
 
 ### 0.57.1 (2022-02-04)
 
-Bugfixes:  
+Bugfixes:
  * Code optimizer: fix bug that caused swapping some opcodes.
 
 ### 0.57.0 (2022-02-01)
@@ -220,7 +243,7 @@ Compiler features:
  * Supported constant arrays, e.g. `uint[] public constant fib = [uint(2), 3, 5, 8, 12, 20, 32];`.
 
 Breaking change:
- * Changed `stoi()` return type to `optional(int)`. 
+ * Changed `stoi()` return type to `optional(int)`.
  * Output AST JSON to the file instead of standard output.
 
 Gas optimizations:
@@ -254,7 +277,7 @@ Breaking change:
  * Deleted `\<TvmSlice\>.bitsAndRefs()`. Please, use `\<TvmSlice\>.size()`.
  * Renamed `\<TvmBuilder\>.bitsAndRefs()` -> `\<TvmSlice\>.size()`.
  * Deleted `tvm.deploy()`. Please, use `\<address\>.transfer({stateInit: ..., ...})`.
- * Changed `TvmSlice`, `TvmCell` and `TvmBuilder` `.depth()` method return type from `uint64` to `uint16`. 
+ * Changed `TvmSlice`, `TvmCell` and `TvmBuilder` `.depth()` method return type from `uint64` to `uint16`.
 
 Gas optimizations:
  * Assorted stack optimizations.
@@ -545,7 +568,7 @@ Bug fixes.
 
 APIs for common TON-specific functionality:
  * Supported optional type
- * Added methods for optional type: set, hasValue, get 
+ * Added methods for optional type: set, hasValue, get
 
 Changed APIs to handle mappings: fetch, min, max, prev, next and ect.
 

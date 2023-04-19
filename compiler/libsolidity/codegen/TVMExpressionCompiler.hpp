@@ -31,8 +31,7 @@ public:
 
 	LValueInfo expandLValue(
 		Expression const* const _expr,
-		const bool withExpandLastValue,
-		bool isLValue
+		const bool withExpandLastValue
 	);
 	void collectLValue(const LValueInfo &lValueInfo, bool haveValueOnStackTop, bool isValueBuilder);
 

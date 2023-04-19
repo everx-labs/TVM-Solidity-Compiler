@@ -185,11 +185,11 @@ void TVMContractCompiler::printFunctionIds(
 }
 
 void TVMContractCompiler::printPrivateFunctionIds(
-    ContractDefinition const& contract,
-	std::vector<solidity::frontend::ContractDefinition const *> libraries,
-    PragmaDirectiveHelper const& pragmaHelper
+	ContractDefinition const& contract,
+	std::vector<std::shared_ptr<SourceUnit>> _sourceUnits,
+	PragmaDirectiveHelper const& pragmaHelper
 ) {
-	Json::Value functionIds = TVMABI::generatePrivateFunctionIdsJson(contract, libraries, pragmaHelper);
+	Json::Value functionIds = TVMABI::generatePrivateFunctionIdsJson(contract, _sourceUnits, pragmaHelper);
 	cout << functionIds << endl;
 }
 
@@ -211,13 +211,13 @@ void TVMContractCompiler::generateABI(
 	}
 }
 
-void TVMContractCompiler::generateCode(
+void TVMContractCompiler::generateCodeAndSaveToFile(
 	const std::string& fileName,
 	ContractDefinition const& contract,
-	std::vector<solidity::frontend::ContractDefinition const *> libraries,
+	std::vector<std::shared_ptr<SourceUnit>> _sourceUnits,
 	PragmaDirectiveHelper const &pragmaHelper
 ) {
-	Pointer<Contract> codeContract = generateContractCode(&contract, libraries, pragmaHelper);
+	Pointer<Contract> codeContract = generateContractCode(&contract, _sourceUnits, pragmaHelper);
 
     ofstream ofile;
     ofile.open(fileName);
@@ -233,7 +233,7 @@ void TVMContractCompiler::generateCode(
 Pointer<Contract>
 TVMContractCompiler::generateContractCode(
 	ContractDefinition const *contract,
-	std::vector<ContractDefinition const *> libraries,
+	std::vector<std::shared_ptr<SourceUnit>> _sourceUnits,
 	PragmaDirectiveHelper const &pragmaHelper
 ) {
 	std::vector<std::string> pragmas;
@@ -363,29 +363,58 @@ TVMContractCompiler::generateContractCode(
 		}
 	}
 
-	for (ContractDefinition const * lib : libraries) {
-		for (FunctionDefinition const *function : lib->definedFunctions()) {
-			ctx.setCurrentFunction(function);
+	for (std::shared_ptr<SourceUnit> source: _sourceUnits) {
+		for (ASTPointer<ASTNode> const &node: source->nodes()) {
+			if (auto lib = dynamic_cast<ContractDefinition const *>(node.get())) {
+				if (lib->isLibrary()) {
+					for (FunctionDefinition const *function : lib->definedFunctions()) {
+						ctx.setCurrentFunction(function);
 
-			if (!function->modifiers().empty()) {
-				cast_error(*function->modifiers().at(0).get(),
-						   "Modifiers for library functions are not supported yet.");
-			}
+						if (!function->modifiers().empty()) {
+							cast_error(*function->modifiers().at(0).get(),
+									   "Modifiers for library functions are not supported yet.");
+						}
 
-			if (!function->parameters().empty()) {
-				{
-					const std::string name = TVMCompilerContext::getLibFunctionName(function, true);
-					functions.emplace_back(TVMFunctionCompiler::generateLibraryFunction(ctx, function, name));
-				}
-				{
-					const std::string name = TVMCompilerContext::getLibFunctionName(function, true) + "_macro";
-					functions.emplace_back(TVMFunctionCompiler::generateLibraryFunctionMacro(ctx, function, name));
+						if (!function->parameters().empty()) {
+							{
+								const std::string name = TVMCompilerContext::getLibFunctionName(function, true);
+								functions.emplace_back(TVMFunctionCompiler::generateLibraryFunction(ctx, function, name));
+							}
+							{
+								const std::string name = TVMCompilerContext::getLibFunctionName(function, true) + "_macro";
+								functions.emplace_back(TVMFunctionCompiler::generateLibraryFunctionMacro(ctx, function, name));
+							}
+						}
+						const std::string name = TVMCompilerContext::getLibFunctionName(function, false);
+						functions.emplace_back(TVMFunctionCompiler::generatePrivateFunction(ctx, name, function));
+						functions.emplace_back(TVMFunctionCompiler::generateMacro(ctx, function, name + "_macro"));
+						ctx.setCurrentFunction(nullptr);
+					}
 				}
 			}
-			const std::string name = TVMCompilerContext::getLibFunctionName(function, false);
-			functions.emplace_back(TVMFunctionCompiler::generatePrivateFunction(ctx, name, function));
-			functions.emplace_back(TVMFunctionCompiler::generateMacro(ctx, function, name + "_macro"));
-			ctx.setCurrentFunction(nullptr);
+		}
+	}
+
+	for (std::shared_ptr<SourceUnit> source: _sourceUnits) {
+		for (ASTPointer<ASTNode> const &node: source->nodes()) {
+			if (auto function = dynamic_cast<FunctionDefinition const *>(node.get())) {
+				if (function->isFree()) {
+					ctx.setCurrentFunction(function);
+
+					if (!function->modifiers().empty()) {
+						cast_error(*function->modifiers().at(0).get(),
+								   "Modifiers for free functions are not supported yet.");
+					}
+
+					std::string functionName = ctx.getFunctionInternalName(function);
+					functions.push_back(TVMFunctionCompiler::generatePrivateFunction(ctx, functionName, function));
+
+					const std::string macroName = functionName + "_macro";
+					functions.push_back(TVMFunctionCompiler::generateMacro(ctx, function, macroName));
+
+					ctx.setCurrentFunction(nullptr);
+				}
+			}
 		}
 	}
 

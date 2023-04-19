@@ -486,6 +486,9 @@ void CommandLineInterface::compile()
 		}
 		else
 		{
+			StringMap const& src = m_fileReader.sourceUnits();
+			solAssert(src.size() == 1, "");
+			m_compiler->setInputFile(src.begin()->first);
 			m_compiler->setSources(m_fileReader.sourceUnits());
 			m_compiler->setParserErrorRecovery(m_options.input.errorRecovery);
 		}
@@ -503,11 +506,6 @@ void CommandLineInterface::compile()
 		if (m_options.tvmParams.printPrivateFunctionIds)
 			m_compiler->printPrivateFunctionIds();
 		m_compiler->setOutputFolder(m_options.output.dir.string());
-
-		// TODO DELETE make 1 file only, check whether it is remapping
-		for (const boost::filesystem::path& p : m_options.input.paths) {
-			m_compiler->setInputFile(p.string());
-		}
 
 		bool successful = true;
 		bool didCompileSomething = false;
@@ -570,14 +568,11 @@ void CommandLineInterface::handleAst()
 	}
 	else
 	{
-		sout() << "JSON AST (compact format):" << endl << endl;
 		for (auto const& sourceCode: m_fileReader.sourceUnits())
 		{
-			sout() << endl << "======= " << sourceCode.first << " =======" << endl;
 			ASTJsonExporter(m_compiler->state(), m_compiler->sourceIndices()).print(sout(), m_compiler->ast(sourceCode.first), m_options.formatting.json);
+			sout() << endl;
 		}
-		sout() << endl;
-		sout() << "]" << endl;
 		m_hasOutput = true;
 	}
 }

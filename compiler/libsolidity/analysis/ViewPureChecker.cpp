@@ -47,9 +47,15 @@ bool ViewPureChecker::visit(FunctionDefinition const& _funDef)
 	solAssert(!m_currentFunction, "");
 	m_currentFunction = &_funDef;
 	m_bestMutabilityAndLocation = {StateMutability::Pure, _funDef.location()};
-	ContractDefinition const* contr = _funDef.annotation().contract;
-	if (contr->isLibrary() && _funDef.stateMutability() != StateMutability::NonPayable) {
-		m_errorReporter.warning(228_error, _funDef.location(), "Library functions must have default mutability. Delete keyword view or pure.");
+	if (ContractDefinition const* contr = _funDef.annotation().contract) {
+		if (contr->isLibrary() && _funDef.stateMutability() != StateMutability::NonPayable) {
+			m_errorReporter.warning(228_error, _funDef.location(),
+									"Library functions must have default mutability. Delete keyword view or pure.");
+		}
+	}
+	if (_funDef.isFree() && _funDef.stateMutability() != StateMutability::NonPayable) {
+		m_errorReporter.warning(228_error, _funDef.location(),
+								"Free functions must have default mutability. Delete keyword view or pure.");
 	}
 	return true;
 }
@@ -65,13 +71,15 @@ void ViewPureChecker::endVisit(FunctionDefinition const& _funDef)
 		}
 	}
 
+	ContractDefinition const* contract = _funDef.annotation().contract;
 	if (
 		m_bestMutabilityAndLocation.mutability < _funDef.stateMutability() &&
 		_funDef.isImplemented() &&
 		!_funDef.body().statements().empty() &&
 		!_funDef.isConstructor() &&
 		!_funDef.overrides() &&
-		!_funDef.annotation().contract->isLibrary() &&
+		!(contract && contract->isLibrary()) &&
+		!_funDef.isFree() &&
 		!_funDef.isFallback() &&
 		!_funDef.isReceive() &&
 		!_funDef.virtualSemantics()
@@ -252,7 +260,16 @@ void ViewPureChecker::endVisit(FunctionCall const& _functionCall)
 				}
 			}
 			if (!isLibCall) {
-				mutability = dynamic_cast<FunctionType const &>(*_functionCall.expression().annotation().type).stateMutability();
+				bool isFree{};
+				auto ident = dynamic_cast<Identifier const*>(&_functionCall.expression());
+				if (ident) {
+					auto funcDef = dynamic_cast<FunctionDefinition const*>(ident->annotation().referencedDeclaration);
+					isFree = funcDef && funcDef->isFree();
+				}
+				if (isFree)
+					mutability = StateMutability::Pure;
+				else
+					mutability = dynamic_cast<FunctionType const &>(*_functionCall.expression().annotation().type).stateMutability();
 			}
 		}
 	}
@@ -320,7 +337,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::ABI, "encodeWithSelector"},
 			{MagicType::Kind::ABI, "encodeWithSignature"},
 			{MagicType::Kind::Block, "blockhash"},
-			{MagicType::Kind::Block, "logtimestamp"},
+			{MagicType::Kind::Block, "logicaltime"},
 			{MagicType::Kind::Block, "timestamp"},
 			{MagicType::Kind::Gosh, "applyBinPatch"},
 			{MagicType::Kind::Gosh, "applyBinPatchQ"},

@@ -173,17 +173,15 @@ THROWIFNOT 67
 PUSHINT 20
 PUSHINT 21
 CONDSEL
-CONFIGPARAM
-DUP
-PUSHCONT {
-	PUSHREF {
-	}
-	SWAP
-}
-IFNOT
+CONFIGOPTPARAM
 .loc stdlib.sol, 77
-THROWIFNOT 68
+DUP
+ISNULL
+THROWIF 68
 .loc stdlib.sol, 78
+DUP
+ISNULL
+THROWIF 63
 CTOS
 .loc stdlib.sol, 79
 LDU 8
@@ -1527,8 +1525,8 @@ PUSHCONT {
 	.loc stdlib.sol, 333
 	PUSH S3
 	LDU 8
-	POP S5
-	DROP
+	NIP
+	POP S4
 	.loc stdlib.sol, 0
 }
 IF
@@ -1539,8 +1537,8 @@ PUSHCONT {
 	PUSH S3
 	LDU 8
 	LDU 8
-	POP S6
-	DROP2
+	BLKDROP2 2, 1
+	POP S4
 	.loc stdlib.sol, 0
 }
 IF
