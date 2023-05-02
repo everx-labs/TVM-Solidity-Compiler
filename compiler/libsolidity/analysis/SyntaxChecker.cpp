@@ -183,9 +183,20 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 	}
 	else if (_pragma.literals()[0] == "AbiHeader")
 	{
-		if (_pragma.literals().size() != 2 ||
-				(_pragma.literals()[1] != "time" && _pragma.literals()[1] != "pubkey" && _pragma.literals()[1] != "expire")) {
-			m_errorReporter.syntaxError(228_error, _pragma.location(), "Correct format: pragma AbiHeader [time|pubkey|expire]");
+		const std::string base = "Correct format: pragma AbiHeader [pubkey|expire|notime]";
+		if (_pragma.literals().size() != 2) {
+			auto err = "Empty pragma. " + base;
+			m_errorReporter.syntaxError(228_error, _pragma.location(), err);
+		} else {
+			auto literal = _pragma.literals()[1];
+			if (literal != "pubkey" && literal != "expire" && literal != "notime") {
+				auto err = "Unknown pragma \""+ literal + "\". " + base;
+				if (literal == "time") {
+					err += "\nNote: timestamp in header of external message "
+							"is on by default, so delete this pragma.";
+				}
+				m_errorReporter.syntaxError(228_error, _pragma.location(), err);
+			}
 		}
 	}
 	else if (_pragma.literals()[0] == "upgrade")

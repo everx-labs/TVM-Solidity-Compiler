@@ -366,7 +366,7 @@ std::optional<Json::Value> checkAuxiliaryInputKeys(Json::Value const& _input)
 std::optional<Json::Value> checkSettingsKeys(Json::Value const& _input)
 {
 	static set<string> keys{"parserErrorRecovery", "debug", "evmVersion", "libraries", "metadata", "optimizer", "outputSelection", "remappings",
-		"includePaths", "mainContract"};
+		"includePaths", "mainContract", "tvmVersion"};
 	return checkKeys(_input, keys, "settings");
 }
 
@@ -727,6 +727,16 @@ std::variant<StandardCompiler::InputsAndSettings, Json::Value> StandardCompiler:
 		ret.evmVersion = *version;
 	}
 
+	if (settings.isMember("tvmVersion"))
+	{
+		if (!settings["tvmVersion"].isString())
+			return formatFatalError("JSONError", "tvmVersion must be a string.");
+		std::optional<langutil::TVMVersion> version = langutil::TVMVersion::fromString(settings["tvmVersion"].asString());
+		if (!version)
+			return formatFatalError("JSONError", "Invalid TVM version requested.");
+		ret.tvmVersion = *version;
+	}
+
 	if (settings.isMember("debug"))
 	{
 		if (auto result = checkKeys(settings["debug"], {"revertStrings", "debugInfo"}, "settings.debug"))
@@ -982,6 +992,7 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 	compilerStack.setSources(sourceList);
 	// TODO: do we need EVMVersion and other stuff?
 	compilerStack.setEVMVersion(_inputsAndSettings.evmVersion);
+	compilerStack.setTVMVersion(_inputsAndSettings.tvmVersion);
 	compilerStack.setParserErrorRecovery(_inputsAndSettings.parserErrorRecovery);
 	compilerStack.setRemappings(std::move(_inputsAndSettings.remappings));
 	compilerStack.setOptimiserSettings(std::move(_inputsAndSettings.optimiserSettings));

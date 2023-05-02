@@ -17,14 +17,15 @@
  */
 
 
-#include "TVM.h"
+#include "TVM.hpp"
 #include "TVMContractCompiler.hpp"
 
 using namespace std;
 using namespace solidity::frontend;
 
 solidity::langutil::ErrorReporter* GlobalParams::g_errorReporter{};
-solidity::frontend::CompilerStack* GlobalParams::g_compilerStack{};
+solidity::langutil::CharStreamProvider* GlobalParams::g_charStreamProvider{};
+solidity::util::SetOnce<solidity::langutil::TVMVersion> GlobalParams::g_tvmVersion{};
 
 std::string getPathToFiles(
 	const std::string& solFileName,
@@ -61,7 +62,7 @@ std::string getPathToFiles(
 
 void TVMCompilerProceedContract(
 	ContractDefinition const& _contract,
-	std::vector<std::shared_ptr<SourceUnit>> _sourceUnits,
+	std::vector<std::shared_ptr<SourceUnit>> const& _sourceUnits,
 	std::vector<PragmaDirective const *> const* pragmaDirectives,
 	bool generateAbi,
 	bool generateCode,

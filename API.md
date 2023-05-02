@@ -2261,7 +2261,6 @@ Example:
 ```TVMSolidity
 pragma ton-solidity >= 0.35.0;
 pragma AbiHeader expire;
-pragma AbiHeader time;
 pragma AbiHeader pubkey;
 
 import "https://github.com/tonlabs/debots/raw/9c6ca72b648fa51962224ec0d7ce91df2a0068c1/Debot.sol";
@@ -2323,23 +2322,18 @@ Turns off binary operation result overflow check.
 #### pragma AbiHeader
 
 ```TVMSolidity
-pragma AbiHeader time;
+pragma AbiHeader notime;
 pragma AbiHeader pubkey;
 pragma AbiHeader expire;
 ```
 
 Defines headers that are used in external messages:
 
+* `notime` - disables `time` abi header, which is enabled by default. Abi header `time` – `uint64` local time when message was created, used for replay protection
 * `pubkey` (`uint256`) - optional public key that the message can be signed with.
-* `time` (`uint64`)  - local time when message was created. Used for replay protection.
-* `expire` (`uint32`) - time when the message should be meant as expired.
+* `expire` (`uint32`)  - time when the message should be meant as expired.
 
 **Note:**
-
-- `time` presents in external messages if `pragma AbiHeader time` is used OR there is no
-`afterSignatureCheck` function defined in the contract.
-- `time` doesn't present in external messages if `pragma AbiHeader time` isn't used AND there
-is `afterSignatureCheck` function defined in the contract.
 
 Defined headers are listed in `*.abi.json` file in `header` section.
 

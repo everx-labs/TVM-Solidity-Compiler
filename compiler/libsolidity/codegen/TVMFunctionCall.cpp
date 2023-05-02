@@ -27,7 +27,7 @@
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCall.hpp"
 #include "TVMStructCompiler.hpp"
-#include "TVM.h"
+#include "TVM.hpp"
 
 using namespace solidity::frontend;
 using namespace solidity::langutil;
@@ -3480,7 +3480,7 @@ void FunctionCallCompiler::creatArrayWithDefaultValue() {
 
 	if (*m_functionCall.annotation().isPure) {
 		pushArgs();
-		SourceReference sr = SourceReferenceExtractor::extract(*GlobalParams::g_compilerStack, &m_functionCall.location());
+		SourceReference sr = SourceReferenceExtractor::extract(*GlobalParams::g_charStreamProvider, &m_functionCall.location());
 		const std::string computeName = "new_array_line_" +
 										toString(sr.position.line) + "_column_" + toString(sr.position.column) + "_ast_id_" +
 										toString(m_functionCall.id());

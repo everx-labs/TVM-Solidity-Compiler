@@ -5704,6 +5704,8 @@ TypeResult VarInteger::unaryOperatorResult(Token _operator) const {
 
 TypeResult VarInteger::binaryOperatorResult(Token _operator, Type const* _other) const {
     Type const* resultType = m_int.binaryOperatorResult(_operator, _other);
+	if (resultType == nullptr)
+		return nullptr;
     if (resultType->isImplicitlyConvertibleTo(*this)) {
         resultType = this;
     }

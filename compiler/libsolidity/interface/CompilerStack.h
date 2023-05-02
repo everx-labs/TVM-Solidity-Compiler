@@ -35,9 +35,10 @@
 
 #include <liblangutil/CharStreamProvider.h>
 #include <liblangutil/DebugInfoSelection.h>
-#include <liblangutil/ErrorReporter.h>
 #include <liblangutil/EVMVersion.h>
+#include <liblangutil/ErrorReporter.h>
 #include <liblangutil/SourceLocation.h>
+#include <liblangutil/TVMVersion.h>
 
 #include <libsolutil/Common.h>
 #include <libsolutil/FixedHash.h>
@@ -162,6 +163,8 @@ public:
 	/// When called without an argument it will revert to the default version.
 	/// Must be set before parsing.
 	void setEVMVersion(langutil::EVMVersion _version = langutil::EVMVersion{});
+
+	void setTVMVersion(langutil::TVMVersion _version = langutil::TVMVersion{});
 
 	/// Sets the requested contract names by source.
 	/// If empty, no filtering is performed and every contract
@@ -491,6 +494,7 @@ private:
 	std::string m_inputFile;
 	bool m_doPrintFunctionIds = false;
     bool m_doPrivateFunctionIds = false;
+	solidity::langutil::TVMVersion m_tvmVersion;
 };
 
 }

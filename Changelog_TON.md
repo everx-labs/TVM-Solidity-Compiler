@@ -1,6 +1,21 @@
+### 0.69.0 (2023-05-15)
+
+Breaking changes:
+* `pragma AbiHeader time` is no longer allowed for use. Timestamp in header of external message is enabled by default and can be disabled with `pragma AbiHeader notime`.
+
+Compiler features:
+ * Supported generating code for The Open Network. Use command line option `--tvm-version ton`. We don't use `ZERO(SWAP|ROTR)IF[NOT][2]`, `COPYLEFT`, `INITCODEHASH`, `MYCODE`, `STORAGEFEE`, `LDCONT`, `STCONT` and another opcodes for ton.
+
+Optimizations:
+ * Improved constant analyzer that compile more optimal code for `require`/`revert` functions and another cases.
+
+Bugfixes:
+ * Fixed segmentation fault that could occur in some cases of using `var[U]Int` types.
+ * Fixed segmentation fault that occurred in constructions `optional(T1, T2) x = null;` and some another cases. 
+
 ### 0.68.0 (2023-04-19)
 
-Breaking change:
+Breaking changes:
  * `require()` and `revert()` take `uint16` exception code instead of `uint256`.
  * `tvm.rawConfigParam(...)` returns `optional(TvmCell)` instead of `(TvmCell, bool)`.
  * Exit status of `solc`/`sold` is equal to `0` and it prints `Compiler run successful, no output requested.` if the source contain no deployable contracts.
@@ -38,7 +53,7 @@ Bugfixes:
  * Fixed problem with getting inherited function `afterSignatureCheck`.
  * Support overloading for function `onCodeUpgrade`.
 
-Breaking change:
+Breaking changes:
  * Function `onCodeUpgrade` had function id = 2. Now, it has another id, but you can set `functionID(2)` in new
 contracts  to upgrade old ones.
 
@@ -129,7 +144,7 @@ Bugfixes:
  * Fixed problem with fetching `varInt` from mappings that use `varInt` as value.
  * Fixed problem with control flow in  `do{ ...} while(...)` construction.
 
-Breaking change:
+Breaking changes:
  * `value`, `bounce` and `flag` options in return statement of `responsible` function must be
 explicitly defined.
 
@@ -207,7 +222,7 @@ Compiler features:
  * Supported `abi.encode()`/`abi.decode()`.
  * Supported keyword `emptyMap`.
 
-Breaking change:
+Breaking changes:
  * Supported `mapping`'s in constructor of structures.
 
 Bugfix:
@@ -220,7 +235,7 @@ Bugfix:
 Bugfixes:
  * Fix issue when it was impossible to import 2 files from each other.
 
-Breaking change:
+Breaking changes:
  * Output AST JSON as pure json without `====` separators or something else.
  * Deleted option "abiVer" from `tvm.buildExtMsg()` and sending external inbound message for debots.
 
@@ -242,7 +257,7 @@ Compiler features:
  * Supported `tvm.setGasLimit(uint)`.
  * Supported constant arrays, e.g. `uint[] public constant fib = [uint(2), 3, 5, 8, 12, 20, 32];`.
 
-Breaking change:
+Breaking changes:
  * Changed `stoi()` return type to `optional(int)`.
  * Output AST JSON to the file instead of standard output.
 
@@ -259,7 +274,7 @@ Compiler features:
  * Checked if `stateInit` is valid before deploying.
  * Supported tvm.buildDataInit().
 
-Breaking change:
+Breaking changes:
  * Deleted `tvm.buildEmptyData()`. Use `tvm.buildDataInit()`.
 
 Gas optimizations:
@@ -273,7 +288,7 @@ Compiler features:
  * Added keyword `null`.
  * Supported concatenation `string` and `bytesN` types.
 
-Breaking change:
+Breaking changes:
  * Deleted `\<TvmSlice\>.bitsAndRefs()`. Please, use `\<TvmSlice\>.size()`.
  * Renamed `\<TvmBuilder\>.bitsAndRefs()` -> `\<TvmSlice\>.size()`.
  * Deleted `tvm.deploy()`. Please, use `\<address\>.transfer({stateInit: ..., ...})`.
@@ -305,7 +320,7 @@ Support ABI 2.1:
 Bugfixes:
  * Fixed an issue when a function can be called but constructor hasn't been called yet.
 
-Breaking change:
+Breaking changes:
  * Syntax of creating and sending of an external inbound message changed from option `{extMsg: true}`
 to suffix `.extMsg`.
  * Rename `_answer_id` to `answerId` for responsible functions.
@@ -318,7 +333,7 @@ Compiler features:
  * Added serialization to builder and deserialization from slice for "enum" type values.
  * Support synchronous calls with `.await` suffix.
 
-Breaking change:
+Breaking changes:
  * Throw exception with code 72 on external message invocations for the functions with modifier `internalMsg`.
 
 Bugfixes:
@@ -336,7 +351,7 @@ Compiler features:
  * Support `msg.isInternal`, `msg.isExternal` and `msg.isTickTock`.
  * Support `storeOnes` and `storeZeroes` for `TvmBuilder`.
 
-Breaking change:
+Breaking changes:
  * Change behavior of function `<string>.substr()`.
  * Use `{dest: ...}` instead of `.extAddr(...)` in emit statement to set destination address.
 
@@ -387,7 +402,7 @@ Changes:
 
 ### 0.42.0 (2021-04-19)
 
-Breaking change:
+Breaking changes:
  * Calling a fallback function (instead of throwing error) in cases:
    1. Bit length of the internal input message is between 1 and 31.
    2. The message has zero bit size and not zero count of references.

@@ -25,7 +25,7 @@
 #include "TVMExpressionCompiler.hpp"
 #include "TVMFunctionCall.hpp"
 #include "TVMStructCompiler.hpp"
-#include "TVM.h"
+#include "TVM.hpp"
 
 using namespace solidity::frontend;
 using namespace solidity::langutil;
@@ -140,7 +140,7 @@ void TVMExpressionCompiler::visit2(TupleExpression const &_tupleExpression) {
 		int n = components.size();
 		if (*_tupleExpression.annotation().isPure) {
 			const int stackSize = m_pusher.stackSize();
-			SourceReference sr = SourceReferenceExtractor::extract(*GlobalParams::g_compilerStack, &_tupleExpression.location());
+			SourceReference sr = SourceReferenceExtractor::extract(*GlobalParams::g_charStreamProvider, &_tupleExpression.location());
 			const std::string computeName = "inline_array_line_" +
 					toString(sr.position.line) + "_column_" + toString(sr.position.column) + "_ast_id_" +
 					toString(_tupleExpression.id());

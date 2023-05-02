@@ -35,7 +35,6 @@
 #include <libsolidity/interface/CompilerStack.h>
 #include <libsolidity/interface/StandardCompiler.h>
 #include <libsolidity/interface/DebugSettings.h>
-#include <libsolidity/codegen/TVM.h>
 #include <libsolidity/interface/ImportRemapper.h>
 #include <libsolidity/interface/StorageLayout.h>
 #include <libsolidity/lsp/LanguageServer.h>
@@ -506,6 +505,7 @@ void CommandLineInterface::compile()
 		if (m_options.tvmParams.printPrivateFunctionIds)
 			m_compiler->printPrivateFunctionIds();
 		m_compiler->setOutputFolder(m_options.output.dir.string());
+		m_compiler->setTVMVersion(m_options.tvmParams.tvmVersion);
 
 		bool successful = true;
 		bool didCompileSomething = false;

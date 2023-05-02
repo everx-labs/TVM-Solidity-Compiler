@@ -21,12 +21,14 @@
 
 #include <boost/algorithm/string/trim.hpp>
 
+#include <liblangutil/Exceptions.h>
+
+#include "TVM.hpp"
+#include "TVMCommons.hpp"
+#include "TVMConstants.hpp"
+#include "TVMPusher.hpp"
 #include "TvmAst.hpp"
 #include "TvmAstVisitor.hpp"
-#include "TVMCommons.hpp"
-#include "TVMPusher.hpp"
-#include "TVMConstants.hpp"
-#include <liblangutil/Exceptions.h>
 
 using namespace solidity::frontend;
 using namespace std;
@@ -131,6 +133,13 @@ void AsymGen::accept(TvmAstVisitor& _visitor) {
 bool AsymGen::operator==(TvmAstNode const& _node) const {
 	auto a = to<AsymGen>(&_node);
 	return a && opcode() == a->opcode();
+}
+
+AsymGen::AsymGen(std::string opcode) :
+	m_opcode(std::move(opcode))
+{
+	if (boost::starts_with(m_opcode, "ZERO"))
+		solAssert(*GlobalParams::g_tvmVersion != langutil::TVMVersion::ton(), "");
 }
 
 void HardCode::accept(TvmAstVisitor& _visitor) {
@@ -453,6 +462,9 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		std::istringstream iss(cmd);
 		iss >> op >> param;
 	}
+
+	if (*GlobalParams::g_tvmVersion == langutil::TVMVersion::ton())
+		solAssert(!isIn(op, "COPYLEFT", "INITCODEHASH", "MYCODE", "LDCONT", "STCONT"), "");
 
 	auto f = [&](const std::string& pattert) {
 		return op == pattert;

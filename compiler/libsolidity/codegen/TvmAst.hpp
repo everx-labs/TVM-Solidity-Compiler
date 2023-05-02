@@ -157,8 +157,7 @@ namespace solidity::frontend
 
 	class AsymGen : public TvmAstNode {
 	public:
-		explicit AsymGen(std::string opcode) :
-				m_opcode(std::move(opcode)){}
+		explicit AsymGen(std::string opcode);
 		void accept(TvmAstVisitor& _visitor) override;
 		bool operator==(TvmAstNode const&) const override;
 		std::string const& opcode() const { return m_opcode; }

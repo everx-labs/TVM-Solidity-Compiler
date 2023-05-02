@@ -76,7 +76,7 @@
 #include <limits>
 #include <string>
 
-#include <libsolidity/codegen/TVM.h>
+#include <libsolidity/codegen/TVM.hpp>
 #include <libsolidity/codegen/TVMTypeChecker.hpp>
 #include <libsolidity/codegen/TVMAnalyzer.hpp>
 #include <libsolidity/codegen/TVMABI.hpp>
@@ -108,7 +108,7 @@ CompilerStack::CompilerStack(ReadCallback::Callback _readFile):
 	solAssert(g_compilerStackCounts == 0, "You shall not have another CompilerStack aside me.");
 	++g_compilerStackCounts;
 	GlobalParams::g_errorReporter = &m_errorReporter;
-	GlobalParams::g_compilerStack = this;
+	GlobalParams::g_charStreamProvider = this;
 }
 
 CompilerStack::~CompilerStack()
@@ -226,6 +226,15 @@ void CompilerStack::setEVMVersion(langutil::EVMVersion _version)
 	if (m_stackState >= ParsedAndImported)
 		solThrow(CompilerError, "Must set EVM version before parsing.");
 	m_evmVersion = _version;
+}
+
+void CompilerStack::setTVMVersion(langutil::TVMVersion _version)
+{
+	if (m_stackState >= ParsedAndImported)
+		solThrow(CompilerError, "Must set TVM version before parsing.");
+	m_tvmVersion = _version;
+
+	GlobalParams::g_tvmVersion = m_tvmVersion;
 }
 
 void CompilerStack::setLibraries(std::map<std::string, util::h160> const& _libraries)

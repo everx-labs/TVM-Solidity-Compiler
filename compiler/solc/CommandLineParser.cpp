@@ -21,6 +21,7 @@
 #include <solc/Exceptions.h>
 
 #include <liblangutil/EVMVersion.h>
+#include <liblangutil/TVMVersion.h>
 
 #include <boost/algorithm/string.hpp>
 
@@ -87,6 +88,7 @@ static string const g_strAsm = "asm";
 static string const g_strABI = "abi-json";
 static string const g_strFunctionIds = "function-ids";
 static string const g_strPrivateFunctionIds = "private-function-ids";
+static string const g_strTVMVersion = "tvm-version";
 
 
 /// Possible arguments to for --revert-strings
@@ -576,6 +578,11 @@ General Information)").c_str(),
 			po::value<string>()->value_name("path"),
 			"Output directory (by default, current directory is used)"
 		)
+		(
+			g_strTVMVersion.c_str(),
+			po::value<string>()->value_name("version")->default_value(TVMVersion{}.name()),
+			"Select desired TVM version. Either ever, ton, gosh."
+		)
 	;
 	desc.add(outputOptions);
 
@@ -937,6 +944,15 @@ void CommandLineParser::processArgs()
 
 	solAssert(m_options.input.mode == InputMode::Compiler || m_options.input.mode == InputMode::CompilerWithASTImport);
 
+
+	if (m_args.count(g_strTVMVersion))
+	{
+		string versionOptionStr = m_args[g_strTVMVersion].as<string>();
+		std::optional<langutil::TVMVersion> versionOption = langutil::TVMVersion::fromString(versionOptionStr);
+		if (!versionOption)
+			solThrow(CommandLineValidationError, "Invalid option for --" + g_strTVMVersion + ": " + versionOptionStr);
+		m_options.tvmParams.tvmVersion = *versionOption;
+	}
 
 	if (m_args.count(g_strContract))
 		m_options.tvmParams.mainContract = m_args[g_strContract].as<string>();
