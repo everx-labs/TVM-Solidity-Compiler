@@ -20,7 +20,7 @@
 
 #include <libsolidity/ast/TypeProvider.h>
 
-#include "TVM.h"
+#include "TVM.hpp"
 #include "TVMCommons.hpp"
 #include "TVMConstants.hpp"
 
@@ -657,35 +657,27 @@ std::string StrUtils::toBinString(bigint num) {
 }
 
 std::optional<bigint> ExprUtils::constValue(const Expression &_e) {
-	auto f = [](VariableDeclaration const*  vd) -> std::optional<bigint> {
-		if (vd != nullptr && vd->isConstant() && vd->value() != nullptr) {
-			return constValue(*vd->value());
-		}
-		return {};
-	};
-
 	if (*_e.annotation().isPure) {
-		if (auto ident = to<Identifier>(&_e)) {
-			IdentifierAnnotation &identifierAnnotation = ident->annotation();
-			const auto *vd = to<VariableDeclaration>(identifierAnnotation.referencedDeclaration);
-			return f(vd);
-		} else if (_e.annotation().type->category() == Type::Category::RationalNumber) {
-			auto number = dynamic_cast<RationalNumberType const *>(_e.annotation().type);
-			solAssert(number, "");
-			bigint val = number->value2();
-			return val;
-		}
-	} else {
-		// MyLibName.const_variable
-		auto memberAccess = to<MemberAccess>(&_e);
-		if (memberAccess) {
-			auto identifier = to<Identifier>(&memberAccess->expression());
-			if (identifier && identifier->annotation().type->category() == Type::Category::TypeType) {
-				auto vd = to<VariableDeclaration>(memberAccess->annotation().referencedDeclaration);
-				return f(vd);
+		if (auto memberAccess = to<MemberAccess>(&_e)) {
+			if (auto variable = dynamic_cast<VariableDeclaration const *>(memberAccess->annotation().referencedDeclaration)) {
+				return constValue(*variable->value());
 			}
 		}
+
+		if (auto ident = to<Identifier>(&_e)) {
+			IdentifierAnnotation &identifierAnnotation = ident->annotation();
+			const auto *variable = to<VariableDeclaration>(identifierAnnotation.referencedDeclaration);
+			return constValue(*variable->value());
+		}
 	}
+
+	if (_e.annotation().type->category() == Type::Category::RationalNumber) {
+		auto number = dynamic_cast<RationalNumberType const *>(_e.annotation().type);
+		solAssert(number, "");
+		bigint val = number->value2();
+		return val;
+	}
+
 	return {};
 }
 

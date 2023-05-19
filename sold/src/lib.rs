@@ -1,9 +1,10 @@
+use std::fmt;
 use std::fs::File;
 use std::io::Write;
 use std::os::raw::{c_char, c_void};
 use std::path::Path;
 
-use clap::Parser;
+use clap::{ValueEnum, Parser};
 use failure::{bail, format_err};
 use serde::Deserialize;
 
@@ -107,12 +108,21 @@ fn compile(args: &Args, input: &str, remappings: Vec<String>) -> Result<(String,
     } else {
         ""
     };
+    let tvm_version = match args.tvm_version {
+        None => {
+            "".to_string()
+        }
+        Some(version) => {
+            format!(r#""tvmVersion": "{}","#, version)
+        }
+    };
     let main_contract = args.contract.clone().unwrap_or_default();
     let remappings = remappings_to_json_string(remappings);
     let input_json = format!(r#"
         {{
             "language": "Solidity",
             "settings": {{
+                {tvm_version}
                 "mainContract": "{main_contract}",
                 "remappings": {remappings},
                 "outputSelection": {{
@@ -347,7 +357,7 @@ pub fn build(args: Args) -> Status {
                 .ok_or_else(|| parse_error!())?;
             array.push(ast.clone());
         }
-        assert!(array.len() == 1);
+        assert_eq!(array.len(), 1);
         println!("{}", serde_json::to_string(&array[0])?);
         return Ok(())
     }
@@ -422,6 +432,23 @@ pub fn build(args: Args) -> Status {
 use once_cell::sync::OnceCell;
 pub static VERSION: OnceCell<String> = OnceCell::new();
 
+#[derive(Copy, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+pub enum TvmVersion {
+    Ton,
+    Ever,
+    Gosh,
+}
+
+impl fmt::Display for TvmVersion {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TvmVersion::Ton => write!(f, "ton"),
+            TvmVersion::Ever => write!(f, "ever"),
+            TvmVersion::Gosh => write!(f, "gosh"),
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 #[clap(author, about = "sold, the Ever Solidity commandline driver", long_about = None)]
 #[clap(arg_required_else_help = true)]
@@ -459,6 +486,9 @@ pub struct Args {
     /// Output directory (by default, current directory is used)
     #[clap(short('o'), long, value_parser, value_names = &["PATH"])]
     pub output_dir: Option<String>,
+    /// Select desired TVM version.
+    #[clap(long, value_enum)]
+    pub tvm_version: Option<TvmVersion>,
 
     //Output Components:
     /// Print the code cell to stdout

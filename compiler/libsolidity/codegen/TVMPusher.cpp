@@ -1643,10 +1643,13 @@ void StackPusher::hardConvert(Type const *leftType, Type const *rightType) {
 	if (lQty > rQty) {
 		auto l = to<OptionalType>(leftType);
 		hardConvert(l->valueType(), rightType);
+		// optional(uint, uint) q = (1, 2);
 		if (l->valueType()->category() == Type::Category::Tuple){
-			// optional(uint, uint) q = (1, 2);
-			auto tt = to<TupleType>(l->valueType());
-			tuple(tt->components().size());
+			if (rightType->category() != Type::Category::Null) {
+				auto tt = to<TupleType>(l->valueType());
+				tuple(tt->components().size());
+			}
+		// optional([mapping|optional]) q = ...
 		} else if (optValueAsTuple(l->valueType())) {
 			tuple(1);
 		}
@@ -1819,9 +1822,9 @@ void StackPusher::hardConvert(Type const *leftType, Type const *rightType) {
 			}
 		}
 	};
-	
-	
-	
+
+
+
 	switch (rightType->category()) {
 
 		case Type::Category::RationalNumber: {
@@ -2549,10 +2552,6 @@ PragmaDirectiveHelper const &TVMCompilerContext::pragmaHelper() const {
 	return m_pragmaHelper;
 }
 
-bool TVMCompilerContext::hasTimeInAbiHeader() const {
-	return m_pragmaHelper.hasTime() || afterSignatureCheck() == nullptr;
-}
-
 bool TVMCompilerContext::isStdlib() const {
 	return m_contract->name() == "stdlib";
 }
@@ -2621,7 +2620,7 @@ FunctionDefinition const *TVMCompilerContext::afterSignatureCheck() const {
 }
 
 bool TVMCompilerContext::storeTimestampInC4() const {
-	return hasTimeInAbiHeader() && afterSignatureCheck() == nullptr;
+	return m_pragmaHelper.hasTime() && afterSignatureCheck() == nullptr;
 }
 
 int TVMCompilerContext::getOffsetC4() const {

@@ -183,17 +183,9 @@ public:
 			pragmaDirectives{_pragmaDirectives} {
 	}
 
-	bool hasPubkey() const {
-		return std::get<0>(hasHeader("pubkey"));
-	}
-
-	bool hasTime() const {
-		return std::get<0>(hasHeader("time"));
-	}
-
-	bool hasExpire() const {
-		return std::get<0>(hasHeader("expire"));
-	}
+	bool hasTime()   const { return !std::get<0>(hasHeader("notime")); }
+	bool hasPubkey() const { return std::get<0>(hasHeader("pubkey")); }
+	bool hasExpire() const { return std::get<0>(hasHeader("expire")); }
 
 	std::tuple<bool, PragmaDirective const *> hasHeader(const std::string& str) const {
 		for (PragmaDirective const *pd : pragmaDirectives) {

@@ -18,11 +18,12 @@
 
 #include <boost/format.hpp>
 
-#include "TvmAst.hpp"
-#include "TVMConstants.hpp"
 #include "PeepholeOptimizer.hpp"
-#include "TVMPusher.hpp"
 #include "StackOpcodeSquasher.hpp"
+#include "TVM.hpp"
+#include "TVMConstants.hpp"
+#include "TVMPusher.hpp"
+#include "TvmAst.hpp"
 
 using namespace std;
 using namespace solidity::util;
@@ -497,6 +498,10 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt1(Pointer<TvmAstNode> 
 	// IF[ELSE][NOT][JMP]
 	if (m_withUnpackOpaque && cmd1IfElse) {
 		for (bool isZero : {true, false}) {
+			if (isZero && *GlobalParams::g_tvmVersion == langutil::TVMVersion::ton()){
+				// ignore ZERO SWAP/ROTR IF [NOT]
+				continue;
+			}
 			for (bool isSwap : {true, false}) {
 				for (bool trueBranch: {true, false}) {
 					Pointer<CodeBlock> curBranch = trueBranch ? cmd1IfElse->trueBody() : cmd1IfElse->falseBody();

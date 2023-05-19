@@ -23,7 +23,7 @@
 
 #include "TVMABI.hpp"
 #include "TVMPusher.hpp"
-#include "TVM.h"
+#include "TVM.hpp"
 #include "TVMConstants.hpp"
 #include "TVMContractCompiler.hpp"
 
@@ -119,11 +119,12 @@ Json::Value TVMABI::generateABIJson(
 	// header
 	{
 		Json::Value header(Json::arrayValue);
-		for (const std::string h : {"pubkey", "time", "expire"}) {
-			if (std::get<0>(pdh.hasHeader(h)) || (h == "time" && ctx.hasTimeInAbiHeader())) {
-				header.append(h);
-			}
-		}
+
+		// NOTE: order is important
+		if (pdh.hasPubkey()) header.append("pubkey");
+		if (pdh.hasTime())   header.append("time");
+		if (pdh.hasExpire()) header.append("expire");
+
 		root["header"] = header;
 	}
 
@@ -605,7 +606,7 @@ int ChainDataDecoder::maxBits(bool isResponsible) {
 	// external inbound message
 	int maxUsed = TvmConst::Abi::MaxOptionalSignLength +
 				  (pusher->ctx().pragmaHelper().hasPubkey()? 1 + 256 : 0) +
-				  (pusher->ctx().hasTimeInAbiHeader()? 64 : 0) +
+				  (pusher->ctx().pragmaHelper().hasTime()? 64 : 0) +
 				  (pusher->ctx().pragmaHelper().hasExpire()? 32 : 0) +
 				  32 + // functionID
 				  (isResponsible ? 32 : 0); // callback function

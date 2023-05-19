@@ -27,6 +27,7 @@
 
 #include <liblangutil/DebugInfoSelection.h>
 #include <liblangutil/EVMVersion.h>
+#include <liblangutil/TVMVersion.h>
 
 #include <libsolutil/JSON.h>
 
@@ -228,6 +229,7 @@ struct CommandLineOptions
 		bool abi = false;
 		bool printFunctionIds = false;
 		bool printPrivateFunctionIds = false;
+		langutil::TVMVersion tvmVersion;
 	} tvmParams;
 };
 

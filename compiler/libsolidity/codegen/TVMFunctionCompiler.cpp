@@ -29,7 +29,7 @@
 #include "TVMFunctionCall.hpp"
 #include "TVMFunctionCompiler.hpp"
 #include "TVMStructCompiler.hpp"
-#include "TVM.h"
+#include "TVM.hpp"
 
 using namespace solidity::frontend;
 using namespace solidity::langutil;
@@ -1568,13 +1568,6 @@ bool TVMFunctionCompiler::visit(EmitStatement const &_emit) {
 	return false;
 }
 
-Pointer<Function> TVMFunctionCompiler::generateMainExternal(TVMCompilerContext& ctx, ContractDefinition const *contract) {
-	StackPusher pusher{&ctx};
-	TVMFunctionCompiler funCompiler{pusher, contract};
-	Pointer<Function> f = funCompiler.generateMainExternalForAbiV2();
-	return f;
-}
-
 void TVMFunctionCompiler::setGlobSenderAddressIfNeed() {
 	if (m_pusher.ctx().usage().hasMsgSender()) {
 		m_pusher.pushSlice("x8000000000000000000000000000000000000000000000000000000000000000001_");
@@ -1606,42 +1599,48 @@ void TVMFunctionCompiler::setCopyleftAndTryCatch() {
 	}
 }
 
-Pointer<Function>
-TVMFunctionCompiler::generateMainExternalForAbiV2() {
-//		stack:
-//		contract_balance
-//		msg_balance is always zero
-//		msg_cell
-//		msg_body_slice
-//		transaction_id = -1
+Pointer<Function> TVMFunctionCompiler::generateMainExternal(
+	TVMCompilerContext& ctx,
+	ContractDefinition const *contract
+) {
+	//	stack:
+	//	contract_balance
+	//	msg_balance is always zero
+	//	msg_cell
+	//	msg_body_slice
+	//	transaction_id = -1
 
-	setCopyleftAndTryCatch();
-	setCtorFlag(); // TODO unit with setCopyleftAndTryCatch
-	setGlobSenderAddressIfNeed();
+	StackPusher pusher{&ctx};
+	TVMFunctionCompiler f{pusher, contract};
 
-	m_pusher.pushS(1);
+	f.setCopyleftAndTryCatch();
+	f.setCtorFlag(); // TODO unit with setCopyleftAndTryCatch
+	f.setGlobSenderAddressIfNeed();
 
-	m_pusher.pushMacroCallInCallRef(0, 0, "c4_to_c7_with_init_storage");
+	pusher.pushS(1);
+	pusher.pushMacroCallInCallRef(0, 0, "c4_to_c7_with_init_storage");
 
-	checkSignatureAndReadPublicKey();
-	if (m_pusher.ctx().afterSignatureCheck()) {
+	f.checkSignatureAndReadPublicKey();
+	if (pusher.ctx().afterSignatureCheck()) {
 		// ... msg_cell msg_body_slice -1 rest_msg_body_slice
-		m_pusher.pushS(3);
-		Pointer<CodeBlock> block = m_pusher.ctx().getInlinedFunction("afterSignatureCheck");
-		m_pusher.pushInlineFunction(block, 2, 1);
+		pusher.pushS(3);
+		Pointer<CodeBlock> block = pusher.ctx().getInlinedFunction("afterSignatureCheck");
+		pusher.pushInlineFunction(block, 2, 1);
 	} else {
-		defaultReplayProtection();
-		if (m_pusher.ctx().pragmaHelper().hasExpire()) {
-			expire();
-		}
+		if (pusher.ctx().pragmaHelper().hasTime())   f.defaultReplayProtection();
+		if (pusher.ctx().pragmaHelper().hasExpire()) f.expire();
 	}
 
 	// msg_body
-	m_pusher.push(+1, "LDU 32 ; funcId body");
-	m_pusher.exchange(1);
+	pusher.push(+1, "LDU 32 ; funcId body");
+	pusher.exchange(1);
 
-	callPublicFunctionOrFallback();
-	return createNode<Function>(0, 0, "main_external", Function::FunctionType::MainExternal, m_pusher.getBlock());
+	f.callPublicFunctionOrFallback();
+	return createNode<Function>(
+		0, 0, "main_external",
+		Function::FunctionType::MainExternal,
+		pusher.getBlock()
+	);
 }
 
 void TVMFunctionCompiler::pushMsgPubkey() {
@@ -1890,7 +1889,7 @@ void TVMFunctionCompiler::updC4IfItNeeds() {
 	} else {
 		// if it's external message than save values for replay protection
 		if (m_pusher.ctx().afterSignatureCheck() == nullptr &&
-			m_pusher.ctx().hasTimeInAbiHeader() &&
+			m_pusher.ctx().pragmaHelper().hasTime() &&
 			m_pusher.ctx().notConstantStateVariables().size() >= 2 // just optimization
 		) {
 			m_pusher.pushS(0);
@@ -2021,7 +2020,7 @@ void TVMFunctionCompiler::buildPublicFunctionSelector(
 }
 
 void TVMFunctionCompiler::pushLocation(const ASTNode& node, bool reset) {
-	SourceReference sr = SourceReferenceExtractor::extract(*GlobalParams::g_compilerStack, &node.location());
+	SourceReference sr = SourceReferenceExtractor::extract(*GlobalParams::g_charStreamProvider, &node.location());
     const int line = reset ? 0 : sr.position.line + 1;
     m_pusher.pushLoc(sr.sourceName, line);
 }

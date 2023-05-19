@@ -20,13 +20,16 @@
 
 #include <vector>
 #include <liblangutil/ErrorReporter.h>
+#include <liblangutil/TVMVersion.h>
 #include <libsolidity/ast/ASTForward.h>
-#include <libsolidity/interface/CompilerStack.h>
+#include <liblangutil/CharStreamProvider.h>
+#include <libsolutil/SetOnce.h>
 
 class GlobalParams {
 public:
     static solidity::langutil::ErrorReporter* g_errorReporter;
-    static solidity::frontend::CompilerStack* g_compilerStack;
+    static solidity::langutil::CharStreamProvider* g_charStreamProvider;
+    static solidity::util::SetOnce<solidity::langutil::TVMVersion> g_tvmVersion;
 };
 
 std::string getPathToFiles(
@@ -37,7 +40,7 @@ std::string getPathToFiles(
 
 void TVMCompilerProceedContract(
 	solidity::frontend::ContractDefinition const& _contract,
-	std::vector<std::shared_ptr<solidity::frontend::SourceUnit>> _sourceUnits,
+	std::vector<std::shared_ptr<solidity::frontend::SourceUnit>> const& _sourceUnits,
 	std::vector<solidity::frontend::PragmaDirective const *> const* pragmaDirectives,
 	bool generateAbi,
 	bool generateCode,

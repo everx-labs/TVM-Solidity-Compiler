@@ -116,7 +116,7 @@ set(sources
 	codegen/StackOptimizer.cpp
 	codegen/StackOptimizer.hpp
 	codegen/TVM.cpp
-	codegen/TVM.h
+	codegen/TVM.hpp
 	codegen/TVMABI.cpp
 	codegen/TVMABI.hpp
 	codegen/TVMAnalyzer.cpp

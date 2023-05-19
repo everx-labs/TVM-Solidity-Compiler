@@ -33,6 +33,9 @@ public:
 	bool visit(FunctionDefinition const& fc) override;
 	bool visit(ContractDefinition const& ) override;
 	bool visit(IndexRangeAccess const& ) override;
+	bool visit(FunctionCall const& ) override;
+	bool visit(PragmaDirective const& ) override;
+	bool visit(MemberAccess const& ) override;
 	void endVisit(ContractDefinition const& ) override;
 
 private:

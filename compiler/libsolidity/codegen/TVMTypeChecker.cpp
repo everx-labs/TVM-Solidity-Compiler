@@ -20,6 +20,7 @@
 
 #include <libsolidity/ast/ASTForward.h>
 
+#include "TVM.hpp"
 #include "TVMCommons.hpp"
 #include "TVMConstants.hpp"
 #include "TVMTypeChecker.hpp"
@@ -28,6 +29,10 @@ using namespace solidity::frontend;
 using namespace solidity::langutil;
 using namespace solidity::util;
 using namespace std;
+
+namespace {
+	string isNotSupportedVM = " is not supported by the VM version. See \"--tvm-version\" command-line option.";
+}
 
 TVMTypeChecker::TVMTypeChecker(langutil::ErrorReporter& _errorReporter) :
 	m_errorReporter{_errorReporter}
@@ -239,6 +244,77 @@ bool TVMTypeChecker::visit(IndexRangeAccess const& indexRangeAccess) {
 	auto baseArrayType = to<ArrayType>(baseType);
 	if (baseType->category() != Type::Category::Array || !baseArrayType->isByteArrayOrString()) {
 		m_errorReporter.typeError(228_error, indexRangeAccess.location(), "Index range access is available only for bytes.");
+	}
+	return true;
+}
+
+bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
+	Type const* expressionType = _functionCall.expression().annotation().type;
+	switch (expressionType->category()) {
+	case Type::Category::Function: {
+		auto functionType = to<FunctionType>(expressionType);
+		switch (functionType->kind()) {
+		case FunctionType::Kind::TVMInitCodeHash:
+			if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
+				m_errorReporter.typeError(228_error, _functionCall.location(),
+										  "\"tvm.initCodeHash()\"" + isNotSupportedVM);
+			}
+			break;
+		case FunctionType::Kind::TVMCode:
+			if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
+				m_errorReporter.typeError(228_error, _functionCall.location(),
+										  "\"tvm.code()\"" + isNotSupportedVM);
+			}
+			break;
+		default:
+			break;
+		}
+		break;
+	}
+	default:
+		break;
+	}
+
+
+	if (_functionCall.isAwait() && *GlobalParams::g_tvmVersion == TVMVersion::ton()) {
+		m_errorReporter.typeError(228_error, _functionCall.location(),
+								  "\"*.await\"" + isNotSupportedVM);
+	}
+
+	return true;
+}
+
+bool TVMTypeChecker::visit(PragmaDirective const& _pragma) {
+	if (!_pragma.literals().empty()) {
+		if (_pragma.literals().at(0) == "copyleft" && *GlobalParams::g_tvmVersion == TVMVersion::ton()) {
+			m_errorReporter.typeError(228_error, _pragma.location(),
+									  "\"pragma copyleft ...\"" + isNotSupportedVM);
+		}
+	}
+	return true;
+}
+
+bool TVMTypeChecker::visit(MemberAccess const& _memberAccess) {
+	ASTString const& member = _memberAccess.memberName();
+	Expression const& expression = _memberAccess.expression();
+	switch (expression.annotation().type->category()) {
+	case Type::Category::Magic: {
+		if (member == "storageFee") {
+			if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
+				m_errorReporter.typeError(228_error, _memberAccess.location(),
+										  "\"tx.storageFee\"" + isNotSupportedVM);
+			}
+		}
+		if (auto ident = to<Identifier>(&expression)) {
+			if (ident->name() == "gosh" && *GlobalParams::g_tvmVersion != TVMVersion::gosh()) {
+				m_errorReporter.typeError(228_error, _memberAccess.location(),
+										  "\"gosh." + member + "\"" + isNotSupportedVM);
+			}
+		}
+		break;
+	}
+	default:
+		break;
 	}
 	return true;
 }
