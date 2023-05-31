@@ -2411,23 +2411,29 @@ function calls.
 
 If unassigned variable of function type is called, then exception with code 65 is thrown.
 
-```TVMSolidity
-function getSum(int a, int b) internal pure returns (int) {
+```solidity
+contract C {
+  function getSum(int a, int b) internal pure returns (int) {
     return a + b;
-}
+  }
 
-function getSub(int a, int b) internal pure returns (int) {
+  function getSub(int a, int b) internal pure returns (int) {
     return a - b;
-}
+  }
 
-function process(int a, int b, uint8 mode) public returns (int) {
-    function (int, int) returns (int) fun;
+  function router(uint8 mode) internal returns (function (int, int) returns (int)) {
+    function (int, int) returns (int) func;
     if (mode == 0) {
-        fun = getSum;
+      func = getSum;
     } else if (mode == 1) {
-        fun = getSub;
+      func = getSub;
     }
-    return fun(a, b); // if `fun` isn't initialized, then exception is thrown
+    return func; // if `func` isn't initialized, then exception is thrown
+  }
+
+  function process(int a, int b, uint8 mode) public returns (int) {
+    return router(mode)(a, b);
+  }
 }
 ```
 
