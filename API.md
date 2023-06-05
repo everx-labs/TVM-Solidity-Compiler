@@ -4212,7 +4212,13 @@ Returns the storage fee paid in the current transaction.
 block.timestamp returns (uint32);
 ```
 
-Returns the current Unix time. Unix time is the same for the all transactions from one block. 
+Returns the current block time.
+
+| Compiler version | Returned value |
+| --- | --- |
+| < 0.32.0 | Not supported |
+| [< 0.67.0](https://github.com/tonlabs/TON-Solidity-Compiler/blob/master/Changelog_TON.md#032-2020-11-03) | Returns block logical time (opcode BLOCKLT).<br/>For Unix timestamp, use `now`. |
+| [>= 0.67.0](https://github.com/tonlabs/TON-Solidity-Compiler/blob/master/Changelog_TON.md#0670-2023-03-16) | Returns the current Unix time (opcode NOW).<br/>Unix time is the same for the all transactions within one block. |
 
 ##### block.logicaltime
 
