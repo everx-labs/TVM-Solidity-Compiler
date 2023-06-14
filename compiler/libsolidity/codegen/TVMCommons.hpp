@@ -224,11 +224,11 @@ public:
 		return {};
 	}
 
-    bool hasUpgradeFunc() const {
+	bool hasUpgradeFunc() const {
 		return std::any_of(pragmaDirectives.begin(), pragmaDirectives.end(), [](PragmaDirective const *pd){
 			return pd->literals().size() == 2 && pd->literals()[0] == "upgrade" && pd->literals()[1] == "func";
 		});
-    }
+	}
 
 	bool hasUpgradeOldSol() const {
 		// TODO test that it's impossible to use func and oldsol at same time
@@ -246,7 +246,8 @@ struct ABITypeSize {
 	int maxBits = -1;
 	int maxRefs = -1;
 
-	explicit ABITypeSize(Type const* type);
+	explicit ABITypeSize(Type const* _type);
+	void init(Type const* _type);
 };
 
 inline std::pair<std::vector<Type const*>, std::vector<ASTNode const*>>
@@ -284,10 +285,28 @@ enum class LocationReturn {
 	Anywhere
 };
 
-struct ControlFlowInfo {
-	int stackSize {-1};
-	bool doAnalyzeFlag {false};
-	bool isLoop {false};
+class ControlFlowInfo {
+public:
+	ControlFlowInfo() = default;
+	ControlFlowInfo(int stackSize, bool hasAnalyzeFlag, bool isLoop) : m_stackSize(stackSize),
+																	   m_hasAnalyzeFlag(hasAnalyzeFlag), m_isLoop(isLoop) {}
+
+	int stackSize() const {
+		return m_stackSize;
+	}
+
+	bool hasAnalyzeFlag() const {
+		return m_hasAnalyzeFlag;
+	}
+
+	bool isLoop() const {
+		return m_isLoop;
+	}
+
+private:
+	int m_stackSize {-1};
+	bool m_hasAnalyzeFlag {false};
+	bool m_isLoop {false};
 };
 
 LocationReturn notNeedsPushContWhenInlining(Block const& _block);

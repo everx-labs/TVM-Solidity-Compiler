@@ -127,6 +127,5 @@ namespace TvmConst {
 	const int TvmTupleLen = 255;
 
 	static constexpr int CONTINUE_FLAG = 1;
-	static constexpr int BREAK_FLAG = 2;
 	static constexpr int RETURN_FLAG = 4;
 }

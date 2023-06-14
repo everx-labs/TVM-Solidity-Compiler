@@ -113,20 +113,23 @@ bool StaticAnalyzer::visit(FunctionDefinition const& _function)
 	return true;
 }
 
-void StaticAnalyzer::endVisit(FunctionDefinition const&)
+void StaticAnalyzer::endVisit(FunctionDefinition const& _funDefinition)
 {
 	if (m_currentFunction && !m_currentFunction->body().statements().empty())
 		for (auto const& var: m_localVarUseCount)
 			if (var.second == 0)
 			{
-				if (var.first.second->isCallableOrCatchParameter())
-					m_errorReporter.warning(
-						5667_error,
-						var.first.second->location(),
-						"Unused " +
-						string(var.first.second->isTryCatchParameter() ? "try/catch" : "function") +
-						" parameter. Remove or comment out the variable name to silence this warning."
-					);
+				if (var.first.second->isCallableOrCatchParameter()) {
+					if (!_funDefinition.isInlineAssembly()) {
+						m_errorReporter.warning(
+							5667_error,
+							var.first.second->location(),
+							"Unused " +
+							string(var.first.second->isTryCatchParameter() ? "try/catch" : "function") +
+							" parameter. Remove or comment out the variable name to silence this warning."
+						);
+					}
+				}
 				else
 					m_errorReporter.warning(2072_error, var.first.second->location(), "Unused local variable.");
 			}

@@ -83,8 +83,8 @@ Pointer<Function> TVMConstructorCompiler::generateConstructors() {
 		m_pusher.ctx().addPublicFunction(functionId, "constructor");
 	}
 
-	m_pusher.push(+1, ""); // push encoded params of constructor
-	m_pusher.push(+1, ""); // functionID
+	m_pusher.fixStack(+1); // push encoded params of constructor
+	m_pusher.fixStack(+1); // functionID
 	m_pusher.drop();
 
 	c4ToC7WithMemoryInitAndConstructorProtection();
@@ -98,7 +98,7 @@ Pointer<Function> TVMConstructorCompiler::generateConstructors() {
 	FunctionDefinition const* constructor = linearizedBaseContracts[0]->constructor();
 	int take{};
 	if (constructor == nullptr) {
-		m_pusher.push(-1, "ENDS");
+		m_pusher << "ENDS";
 	} else {
 		take = constructor->parameters().size();
 		vector<Type const*> types = getParams(constructor->parameters()).first;
@@ -141,12 +141,12 @@ Pointer<Function> TVMConstructorCompiler::generateConstructors() {
 		pusher.clear();
 		pusher.takeLast(take2);
 		TVMFunctionCompiler::generateFunctionWithModifiers(pusher, c->constructor(), false);
-		m_pusher.push(-take2, ""); // fix stack
+		m_pusher.fixStack(-take2); // fix stack
 		m_pusher.add(pusher);
 	}
 
 	if (!haveConstructor) {
-		m_pusher.push(0, "ACCEPT");
+		m_pusher << "ACCEPT";
 	}
 
 //	solAssert(m_pusher.stackSize() == 0, "");
@@ -164,7 +164,7 @@ Pointer<Function> TVMConstructorCompiler::generateConstructors() {
 void TVMConstructorCompiler::c4ToC7WithMemoryInitAndConstructorProtection() {
 	// copy c4 to c7
 	m_pusher.was_c4_to_c7_called();
-	m_pusher.push(-1, ""); // fix stack
+	m_pusher.fixStack(-1); // fix stack
 
 	m_pusher.startContinuation();
 	m_pusher.pushCall(0, 0, "c4_to_c7_with_init_storage");
@@ -219,15 +219,15 @@ void TVMContractCompiler::generateCodeAndSaveToFile(
 ) {
 	Pointer<Contract> codeContract = generateContractCode(&contract, _sourceUnits, pragmaHelper);
 
-    ofstream ofile;
-    ofile.open(fileName);
-    if (!ofile) {
+	ofstream ofile;
+	ofile.open(fileName);
+	if (!ofile) {
 		fatal_error("Failed to open the output file: " + fileName);
 	}
 	Printer p{ofile};
 	codeContract->accept(p);
-    ofile.close();
-    cout << "Code was generated and saved to file " << fileName << endl;
+	ofile.close();
+	cout << "Code was generated and saved to file " << fileName << endl;
 }
 
 Pointer<Contract>
@@ -245,9 +245,9 @@ TVMContractCompiler::generateContractCode(
 		pragmas.emplace_back(std::string{} + ".version sol " + solidity::frontend::VersionNumber);
 	}
 
-    if (pragmaHelper.hasUpgradeFunc()) {
-        pragmas.emplace_back(".pragma selector-func-solidity");
-    }
+	if (pragmaHelper.hasUpgradeFunc()) {
+		pragmas.emplace_back(".pragma selector-func-solidity");
+	}
 	if (pragmaHelper.hasUpgradeOldSol()) {
 		pragmas.emplace_back(".pragma selector-old-sol");
 	}
@@ -292,7 +292,8 @@ TVMContractCompiler::generateContractCode(
 			} else if (isMacro(_function->name())) {
 				functions.push_back(TVMFunctionCompiler::generateMacro(ctx, _function));
 			} else if (_function->name() == "onCodeUpgrade") {
-				functions.push_back(TVMFunctionCompiler::generateOnCodeUpgrade(ctx, _function));
+				if (!ctx.isBaseFunction(_function))
+					functions.push_back(TVMFunctionCompiler::generateOnCodeUpgrade(ctx, _function));
 			} else {
 				if (_function->isPublic()) {
 					bool isBaseMethod = _function != getContractFunctions(contract, _function->name()).back();
@@ -398,7 +399,7 @@ TVMContractCompiler::generateContractCode(
 	for (std::shared_ptr<SourceUnit> source: _sourceUnits) {
 		for (ASTPointer<ASTNode> const &node: source->nodes()) {
 			if (auto function = dynamic_cast<FunctionDefinition const *>(node.get())) {
-				if (function->isFree()) {
+				if (function->isFree() && !function->isInlineAssembly()) {
 					ctx.setCurrentFunction(function);
 
 					if (!function->modifiers().empty()) {
@@ -443,9 +444,9 @@ TVMContractCompiler::generateContractCode(
 		functions.emplace_back(TVMFunctionCompiler::generatePublicFunctionSelector(ctx, contract));
 	}
 
-    if (ctx.getPragmaSaveAllFunctions()) {
-        pragmas.emplace_back(".pragma save-all-private-functions");
-    }
+	if (ctx.getPragmaSaveAllFunctions()) {
+		pragmas.emplace_back(".pragma save-all-private-functions");
+	}
 
 	Pointer<Contract> c = createNode<Contract>(pragmas, functions);
 

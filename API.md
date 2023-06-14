@@ -24,18 +24,27 @@ contract development.
     * [\<TvmSlice\>.hasNBits(), \<TvmSlice\>.hasNRefs() and \<TvmSlice\>.hasNBitsAndRefs()](#tvmslicehasnbits-tvmslicehasnrefs-and-tvmslicehasnbitsandrefs)
     * [\<TvmSlice\>.compare()](#tvmslicecompare)
     * [TvmSlice load primitives](#tvmslice-load-primitives)
-      * [\<TvmSlice\>.decode()](#tvmslicedecode)
-      * [\<TvmSlice\>.decodeQ()](#tvmslicedecodeq)
+      * [\<TvmSlice\>.load()](#tvmsliceload)
+      * [\<TvmSlice\>.loadQ()](#tvmsliceloadq)
       * [\<TvmSlice\>.loadRef()](#tvmsliceloadref)
       * [\<TvmSlice\>.loadRefAsSlice()](#tvmsliceloadrefasslice)
-      * [\<TvmSlice\>.loadSigned()](#tvmsliceloadsigned)
-      * [\<TvmSlice\>.loadUnsigned()](#tvmsliceloadunsigned)
+      * [\<TvmSlice\>.loadInt() and \<TvmSlice\>.loadIntQ()](#tvmsliceloadint-and-tvmsliceloadintq)
+      * [\<TvmSlice\>.loadUint() and \<TvmSlice\>.loadUintQ()](#tvmsliceloaduint-and-tvmsliceloaduintq)
+      * [Load little-endian integers](#load-little-endian-integers)
       * [\<TvmSlice\>.loadTons()](#tvmsliceloadtons)
-      * [\<TvmSlice\>.loadSlice()](#tvmsliceloadslice)
-      * [\<TvmSlice\>.decodeFunctionParams()](#tvmslicedecodefunctionparams)
-      * [\<TvmSlice\>.decodeStateVars()](#tvmslicedecodestatevars)
+      * [\<TvmSlice\>.loadSlice() and \<TvmSlice\>.loadSliceQ()](#tvmsliceloadslice-and-tvmsliceloadsliceq)
+      * [\<TvmSlice\>.loadFunctionParams()](#tvmsliceloadfunctionparams)
+      * [\<TvmSlice\>.loadStateVars()](#tvmsliceloadstatevars)
       * [\<TvmSlice\>.skip()](#tvmsliceskip)
       * [\<TvmSlice\>.loadZeroes(), \<TvmSlice\>.loadOnes() and \<TvmSlice\>.loadSame()](#tvmsliceloadzeroes-tvmsliceloadones-and-tvmsliceloadsame)
+    * [TvmSlice preload primitives](#tvmslice-preload-primitives)
+      * [\<TvmSlice\>.preload()](#tvmslicepreload)
+      * [\<TvmSlice\>.preloadQ()](#tvmslicepreloadq)
+      * [\<TvmSlice\>.preloadRef()](#tvmslicepreloadref)
+      * [\<TvmSlice\>.preloadInt() and \<TvmSlice\>.preloadIntQ()](#tvmslicepreloadint-and-tvmslicepreloadintq)
+      * [\<TvmSlice\>.preloadUint() and \<TvmSlice\>.preloadUintQ()](#tvmslicepreloaduint-and-tvmslicepreloaduintq)
+      * [Preload little-endian integers](#preload-little-endian-integers)
+      * [\<TvmSlice\>.preloadSlice() and \<TvmSlice\>.preloadSliceQ()](#tvmslicepreloadslice-and-tvmslicepreloadsliceq)
   * [TvmBuilder](#tvmbuilder)
     * [\<TvmBuilder\>.toSlice()](#tvmbuildertoslice)
     * [\<TvmBuilder\>.toCell()](#tvmbuildertocell)
@@ -48,8 +57,9 @@ contract development.
     * [\<TvmBuilder\>.depth()](#tvmbuilderdepth)
     * [\<TvmBuilder\>.store()](#tvmbuilderstore)
     * [\<TvmBuilder\>.storeZeroes(), \<TvmBuilder\>.storeOnes() and \<TvmBuilder\>.storeSame()](#tvmbuilderstorezeroes-tvmbuilderstoreones-and-tvmbuilderstoresame)
-    * [\<TvmBuilder\>.storeSigned()](#tvmbuilderstoresigned)
-    * [\<TvmBuilder\>.storeUnsigned()](#tvmbuilderstoreunsigned)
+    * [\<TvmBuilder\>.storeInt()](#tvmbuilderstoreint)
+    * [\<TvmBuilder\>.storeUint()](#tvmbuilderstoreuint)
+    * [Store little-endian integers](#store-little-endian-integers)
     * [\<TvmBuilder\>.storeRef()](#tvmbuilderstoreref)
     * [\<TvmBuilder\>.storeTons()](#tvmbuilderstoretons)
   * [ExtraCurrencyCollection](#extracurrencycollection)
@@ -89,7 +99,6 @@ contract development.
     * [\<bytes\>.operator[]](#bytesoperator)
     * [\<bytes\> slice](#bytes-slice)
     * [\<bytes\>.length](#byteslength)
-    * [\<bytes\>.toSlice()](#bytestoslice)
     * [\<bytes\>.dataSize()](#bytesdatasize)
     * [\<bytes\>.dataSizeQ()](#bytesdatasizeq)
     * [\<bytes\>.append()](#bytesappend)
@@ -101,7 +110,6 @@ contract development.
     * [\<string\>.append()](#stringappend)
     * [\<string\>.operator+](#stringoperator)
     * [\<string\>.find() and \<string\>.findLast()](#stringfind-and-stringfindlast)
-    * [\<string\>.toSlice()](#stringtoslice)
     * [\<string\>.dataSize()](#stringdatasize)
     * [\<string\>.dataSizeQ()](#stringdatasizeq)
     * [\<string\>.toUpperCase()` and \<string\>.toLowerCase()](#stringtouppercase-and-stringtolowercase)
@@ -174,6 +182,7 @@ contract development.
 * [Function specifiers](#function-specifiers)
   * [Function mutability: pure, view and default](#function-mutability-pure-view-and-default)
   * [Keyword inline](#keyword-inline)
+  * [Assembly](#assembly)
   * [functionID()](#functionid)
   * [externalMsg and internalMsg](#externalmsg-and-internalmsg)
 * [Events and return](#events-and-return)
@@ -183,6 +192,7 @@ contract development.
   * [Synchronous calls](#synchronous-calls)
 * [Delete variables](#delete-variables)
 * [API functions and members](#api-functions-and-members)
+  * [Type information](#type-information)
   * [**msg** namespace](#msg-namespace)
     * [msg.sender](#msgsender)
     * [msg.value](#msgvalue)
@@ -247,7 +257,7 @@ contract development.
     * [math.divmod()](#mathdivmod)
     * [math.sign()](#mathsign)
   * [**tx** namespace](#tx-namespace)
-    * [tx.timestamp](#txtimestamp)
+    * [tx.logicaltime](#txlogicaltime)
     * [tx.storageFee](#txstoragefee)
   * [**block** namespace](#block-namespace)
     * [block.timestamp](#blocktimestamp)
@@ -282,9 +292,9 @@ TON Solidity compiler add its current version to the generated code. This versio
 
 1) using [tvm_linker](https://github.com/tonlabs/TVM-linker#2-decoding-of-boc-messages-prepared-externally) from a `*.tvc` file:
 
-```bash
-tvm_linker decode --tvm <tvc-file>
-```
+    ```bash
+    tvm_linker decode --tvm <tvc-file>
+    ```
 
 2) using [tonos-cli](https://github.com/tonlabs/tonos-cli#48-decode-commands) from a `*.boc` file, a `*.tvc` file, or a network account:
 
@@ -391,6 +401,8 @@ Comparison operators:
 
 Note: only data bits from the root cells are compared. References are ignored.
 
+`TvmSlice` can be converted to `bytes`. It costs at least 500 gas units.
+
 ##### \<TvmSlice\>.empty()
 
 ```TVMSolidity
@@ -461,9 +473,9 @@ otherwise function result is one plus the maximum of depths of the cells referre
 ##### \<TvmSlice\>.hasNBits(), \<TvmSlice\>.hasNRefs() and \<TvmSlice\>.hasNBitsAndRefs()
 
 ```TVMSolidity
-<TvmSlice>.hasNBits(uint16 bits) returns (bool);
-<TvmSlice>.hasNRefs(uint8 refs) returns (bool);
-<TvmSlice>.hasNBitsAndRefs(uint16 bits, uint8 refs) returns (bool);
+<TvmSlice>.hasNBits(uint10 bits) returns (bool);
+<TvmSlice>.hasNRefs(uint2 refs) returns (bool);
+<TvmSlice>.hasNBitsAndRefs(uint10 bits, uint2 refs) returns (bool);
 ```
 
 Checks whether the `TvmSlice` contains the specified amount of data bits and references.
@@ -471,7 +483,7 @@ Checks whether the `TvmSlice` contains the specified amount of data bits and ref
 ##### \<TvmSlice\>.compare()
 
 ```TVMSolidity
-<TvmSlice>.compare(TvmSlice other) returns (int8);
+<TvmSlice>.compare(TvmSlice other) returns (int2);
 ```
 
 Lexicographically compares the `slice` and `other` data bits of the root slices and returns result as an integer:
@@ -482,49 +494,41 @@ Lexicographically compares the `slice` and `other` data bits of the root slices 
 
 ##### TvmSlice load primitives
 
-All functions below modify the `TvmSlice` object they were called for and all of them work
-consistently. It means that if user wants to load second ref from the slice, he should
-load the first one with [\<TvmSlice\>.loadRef()](#tvmsliceloadref), [\<TvmSlice\>.loadRefAsSlice()](#tvmsliceloadrefasslice)
-or just skip it with [\<TvmSlice\>.skip()](#tvmsliceskip) and then load the ref he needs.
-The same rule is applied to data bits. To load bits from 2 to 10 positions, user should load
-or skip first two bits.
+All `load*` functions below modify the `TvmSlice` object. If you wants to load second reference from the `TvmSlice`, you should load the first one with [\<TvmSlice\>.loadRef()](#tvmsliceloadref) and then load the reference you need. The same rule is applied to data bits. To load bits from 2 to 10 positions, you should load or skip first two bits.
 
-###### \<TvmSlice\>.decode()
+###### \<TvmSlice\>.load()
 
 ```TVMSolidity
-<TvmSlice>.decode(TypeA, TypeB, ...) returns (TypeA /*a*/, TypeB /*b*/, ...);
+<TvmSlice>.load(TypeA, TypeB, ...) returns (TypeA /*a*/, TypeB /*b*/, ...);
 ```
 
-Sequentially decodes values of the specified types from the `TvmSlice`.
+Sequentially loads values of the specified types from the `TvmSlice`.
 Supported types: `uintN`, `intN`, `bytesN`, `bool`, `ufixedMxN`, `fixedMxN`, `address`, `contract`,
 `TvmCell`, `bytes`, `string`, `mapping`, `ExtraCurrencyCollection`, `array`, `optional` and 
 `struct`.  Example:
 
 ```TVMSolidity
 TvmSlice slice = ...;
-(uint8 a, uint16 b) = slice.decode(uint8, uint16);
-(uint16 num0, uint32 num1, address addr) = slice.decode(uint16, uint32, address);
+(uint8 a, uint16 b) = slice.load(uint8, uint16);
+(uint16 num0, uint32 num1, address addr) = slice.load(uint16, uint32, address);
 ```
 
 See also: [\<TvmBuilder\>.store()](#tvmbuilderstore).
-**Note**: if all the argument types can't be decoded from the slice a cell underflow [exception](#tvm-exception-codes) is thrown.
+**Note**: if all the argument types can't be loaded from the slice a cell underflow [exception](#tvm-exception-codes) is thrown.
 
-###### \<TvmSlice\>.decodeQ()
+###### \<TvmSlice\>.loadQ()
 
 ```TVMSolidity
-<TvmSlice>.decodeQ(TypeA, TypeB, ...) returns (optional(TypeA, TypeB, ...));
+<TvmSlice>.loadQ(TypeA, TypeB, ...) returns (optional(TypeA, TypeB, ...));
 ```
 
 Sequentially decodes values of the specified types from the `TvmSlice` 
 if the `TvmSlice` holds sufficient data for all specified types. Otherwise, returns `null`.
 
-Supported types: `uintN`, `intN`, `bytesN`, `bool`, `ufixedMxN`, `fixedMxN`, `address`, `contract`,
-`TvmCell`, `bytes`, `string`, `mapping`, `ExtraCurrencyCollection`, and `array`.
-
 ```TVMSolidity
 TvmSlice slice = ...;
-optional(uint) a = slice.decodeQ(uint);
-optional(uint8, uint16) b = slice.decodeQ(uint8, uint16);
+optional(uint) a = slice.loadQ(uint);
+optional(uint8, uint16) b = slice.loadQ(uint8, uint16);
 ```
 
 See also: [\<TvmBuilder\>.store()](#tvmbuilderstore).
@@ -545,21 +549,52 @@ Loads a cell from the `TvmSlice` reference.
 
 Loads a cell from the `TvmSlice` reference and converts it into a `TvmSlice`.
 
-###### \<TvmSlice\>.loadSigned()
+###### \<TvmSlice\>.loadInt() and \<TvmSlice\>.loadIntQ()
 
 ```TVMSolidity
-<TvmSlice>.loadSigned(uint16 bitSize) returns (int);
+(1)
+<TvmSlice>.loadInt(uint9 bitSize) returns (int);
+(2)
+<TvmSlice>.loadIntQ(uint9 bitSize) returns (optional(int));
 ```
 
-Loads a signed integer with the given **bitSize** from the `TvmSlice`.
+(1) Loads a signed integer with the given **bitSize** from the `TvmSlice`.
 
-###### \<TvmSlice\>.loadUnsigned()
+(2) Loads a signed integer with the given **bitSize** from the `TvmSlice` if `TvmSlice` contains it. Otherwise, returns `null`.
+
+###### \<TvmSlice\>.loadUint() and \<TvmSlice\>.loadUintQ()
 
 ```TVMSolidity
-<TvmSlice>.loadUnsigned(uint16 bitSize) returns (uint);
+(1)
+<TvmSlice>.loadUint(uint9 bitSize) returns (uint);
+(2)
+<TvmSlice>.loadUintQ(uint9 bitSize) returns (optional(uint));
 ```
 
-Loads an unsigned integer with the given **bitSize** from the `TvmSlice`.
+(1) Loads an unsigned integer with the given **bitSize** from the `TvmSlice`.
+
+(2) Loads an unsigned integer with the given **bitSize** from the `TvmSlice` if `TvmSlice` contains it. Otherwise, returns `null`.
+
+###### Load little-endian integers
+
+```TVMSolidity
+(1)
+<TvmSlice>.loadIntLE2() returns (int16)
+<TvmSlice>.loadIntLE4() returns (int32)
+<TvmSlice>.loadIntLE8() returns (int64)
+<TvmSlice>.loadUintLE2() returns (uint16)
+<TvmSlice>.loadUintLE4() returns (uint32)
+<TvmSlice>.loadUintLE8() returns (uint64)
+(2)
+<TvmSlice>.loadIntLE4Q() returns (optional(int32))
+<TvmSlice>.loadIntLE8Q() returns (optional(int64))
+<TvmSlice>.loadUintLE4Q() returns (optional(uint32))
+<TvmSlice>.loadUintLE8Q() returns (optional(uint64))
+```
+
+(1) Loads the little-endian integer from `TvmSlice`.
+
+(2) Same as (1) but returns `null` if it's impossible to load the integer.
 
 ###### \<TvmSlice\>.loadTons()
 
@@ -569,42 +604,50 @@ Loads an unsigned integer with the given **bitSize** from the `TvmSlice`.
 
 Loads (deserializes) **VarUInteger 16** and returns an unsigned 128-bit integer. See [TL-B scheme][3].
 
-###### \<TvmSlice\>.loadSlice()
+###### \<TvmSlice\>.loadSlice() and \<TvmSlice\>.loadSliceQ()
 
 ```TVMSolidity
-<TvmSlice>.loadSlice(uint length) returns (TvmSlice);
-<TvmSlice>.loadSlice(uint length, uint refs) returns (TvmSlice);
+(1)
+<TvmSlice>.loadSlice(uint10 bits) returns (TvmSlice);
+(2)
+<TvmSlice>.loadSlice(uint10 bits, uint refs) returns (TvmSlice);
+(3)
+<TvmSlice>.loadSliceQ(uint10 bits) returns (optional(TvmSlice));
+(4)
+<TvmSlice>.loadSliceQ(uint10 bits, uint2 refs) returns (optional(TvmSlice));
 ```
 
-Loads the first `length` bits and `refs` references from the `TvmSlice` into a separate `TvmSlice`.
+(1) Loads the first `bits` bits from `TvmSlice`.
+(2) Loads the first `bits` bits and `refs` references from `TvmSlice`.
+(3) and (4) are same as (1) and (2) but return `optional` type.
 
-###### \<TvmSlice\>.decodeFunctionParams()
+###### \<TvmSlice\>.loadFunctionParams()
 
 ```TVMSolidity
-// Decode parameters of the public/external function without "responsible" attribute
-<TvmSlice>.decodeFunctionParams(functionName) returns (TypeA /*a*/, TypeB /*b*/, ...);
+// Loads parameters of the public/external function without "responsible" attribute
+<TvmSlice>.loadFunctionParams(functionName) returns (TypeA /*a*/, TypeB /*b*/, ...);
 
-// Decode parameters of the public/external function with "responsible" attribute
-<TvmSlice>.decodeFunctionParams(functionName) returns (uint32 callbackFunctionId, TypeA /*a*/, TypeB /*b*/, ...);
+// Loads parameters of the public/external function with "responsible" attribute
+<TvmSlice>.loadFunctionParams(functionName) returns (uint32 callbackFunctionId, TypeA /*a*/, TypeB /*b*/, ...);
 
-// Decode constructor parameters
-<TvmSlice>.decodeFunctionParams(ContractName) returns (TypeA /*a*/, TypeB /*b*/, ...);
+// Loads constructor parameters
+<TvmSlice>.loadFunctionParams(ContractName) returns (TypeA /*a*/, TypeB /*b*/, ...);
 ```
 
-Decodes parameters of the function or constructor (if contract type is provided). This function is usually used in
+Loads parameters of the function or constructor (if contract type is provided). This function is usually used in
 **[onBounce](#onbounce)** function.
 
 See example of how to use **onBounce** function:
 
 * [onBounceHandler](https://github.com/tonlabs/samples/blob/master/solidity/16_onBounceHandler.sol)
 
-###### \<TvmSlice\>.decodeStateVars()
+###### \<TvmSlice\>.loadStateVars()
 
 ```TVMSolidity
-<TvmSlice>.decodeStateVars(ContractName) returns (uint256 /*pubkey*/, uint64 /*timestamp*/, bool /*constructorFlag*/, Type1 /*var1*/, Type2 /*var2*/, ...);
+<TvmSlice>.loadStateVars(ContractName) returns (uint256 /*pubkey*/, uint64 /*timestamp*/, bool /*constructorFlag*/, Type1 /*var1*/, Type2 /*var2*/, ...);
 ```
 
-Decode state variables from `slice` that is obtained from the field `data` of `stateInit`
+Loads state variables from `slice` that is obtained from the field `data` of `stateInit`
 
 Example:
 
@@ -622,7 +665,7 @@ contract B {
 	function f(TvmCell data) public pure {
 		TvmSlice s = data.toSlice();
 		(uint256 pubkey, uint64 timestamp, bool flag,
-			uint a, uint b, uint c, uint d, address e, address f) = s.decodeStateVars(A);
+			uint a, uint b, uint c, uint d, address e, address f) = s.loadStateVars(A);
 			
 		// pubkey - pubkey of the contract A
 		// timestamp - timestamp that used for replay protection
@@ -641,11 +684,11 @@ contract B {
 ###### \<TvmSlice\>.skip()
 
 ```TVMSolidity
-<TvmSlice>.skip(uint length);
-<TvmSlice>.skip(uint length, uint refs);
+<TvmSlice>.skip(uint10 bits);
+<TvmSlice>.skip(uint10 bits, uint2 refs);
 ```
 
-Skips the first `length` bits and `refs` references from the `TvmSlice`.
+Skips the first `bits` bits and `refs` references from the `TvmSlice`.
 
 ###### \<TvmSlice\>.loadZeroes(), \<TvmSlice\>.loadOnes() and \<TvmSlice\>.loadSame()
 
@@ -664,6 +707,93 @@ Skips the first `length` bits and `refs` references from the `TvmSlice`.
 
 (3) Returns the count `n` of leading bits equal to `0 ≤ value ≤ 1` in `TvmSlice`, and removes these bits from `TvmSlice`.
 
+See also: [\<TvmBuilder\>.storeZeroes(), \<TvmBuilder\>.storeOnes() and \<TvmBuilder\>.storeSame()](#tvmbuilderstorezeroes-tvmbuilderstoreones-and-tvmbuilderstoresame).
+
+##### TvmSlice preload primitives
+
+All `preload*` functions below don't modify the `TvmSlice` object.
+
+###### \<TvmSlice\>.preload()
+
+```TVMSolidity
+<TvmSlice>.preload(TypeA, TypeB, ...) returns (TypeA /*a*/, TypeB /*b*/, ...);
+```
+
+Same as [\<TvmSlice\>.load()](#tvmsliceload) but doesn't modify `TvmSlice`.
+
+###### \<TvmSlice\>.preloadQ()
+
+```TVMSolidity
+<TvmSlice>.preloadQ(TypeA, TypeB, ...) returns (optional(TypeA, TypeB, ...));
+```
+
+Same as [\<TvmSlice\>.loadQ()](#tvmsliceloadq) but doesn't modify `TvmSlice`.
+
+###### \<TvmSlice\>.preloadRef()
+
+```TVMSolidity
+(1)
+<TvmSlice>.preloadRef() returns (TvmCell);
+(2)
+<TvmSlice>.preloadRef(uint2 index) returns (TvmCell);
+```
+
+(1) Returns the first cell reference of `TvmSlice`.
+
+(2) Returns the `index` cell reference of `TvmSlice`, where `0 ≤ index ≤ 3`.
+
+###### \<TvmSlice\>.preloadInt() and \<TvmSlice\>.preloadIntQ()
+
+```TVMSolidity
+(1)
+<TvmSlice>.preloadInt(uint9 bitSize) returns (int);
+(2)
+<TvmSlice>.preloadIntQ(uint9 bitSize) returns (optional(int));
+```
+
+Same as [\<TvmSlice\>.loadInt() and \<TvmSlice\>.loadIntQ()](#tvmsliceloadint-and-tvmsliceloadintq) but doesn't modify `TvmSlice`.
+
+###### \<TvmSlice\>.preloadUint() and \<TvmSlice\>.preloadUintQ()
+
+```TVMSolidity
+(1)
+<TvmSlice>.preloadUint(uint9 bitSize) returns (uint);
+(2)
+<TvmSlice>.preloadUintQ(uint9 bitSize) returns (optional(uint));
+```
+
+Same as [\<TvmSlice\>.loadUint() and \<TvmSlice\>.loadUintQ()](#tvmsliceloaduint-and-tvmsliceloaduintq) but doesn't modify `TvmSlice`.
+
+###### Preload little-endian integers
+
+```TVMSolidity
+<TvmSlice>.preloadIntLE4() returns (int32)
+<TvmSlice>.preloadIntLE8() returns (int64)
+<TvmSlice>.preloadUintLE4() returns (uint32)
+<TvmSlice>.preloadUintLE8() returns (uint64)
+
+<TvmSlice>.preloadIntLE4Q() returns (optional(int32))
+<TvmSlice>.preloadIntLE8Q() returns (optional(int64))
+<TvmSlice>.preloadUintLE4Q() returns (optional(uint32))
+<TvmSlice>.preloadUintLE8Q() returns (optional(uint64))
+```
+
+Same as [Load little-endian integers](#load-little-endian-integers) but doesn't modify `TvmSlice`.
+
+###### \<TvmSlice\>.preloadSlice() and \<TvmSlice\>.preloadSliceQ()
+
+```TVMSolidity
+(1)
+<TvmSlice>.preloadSlice(uint10 bits) returns (TvmSlice);
+(2)
+<TvmSlice>.preloadSlice(uint10 bits, uint refs) returns (TvmSlice);
+(3)
+<TvmSlice>.preloadSliceQ(uint10 bits) returns (optional(TvmSlice));
+(4)
+<TvmSlice>.preloadSliceQ(uint10 bits, uint4 refs) returns (optional(TvmSlice));
+```
+
+Same as [\<TvmSlice\>.loadSlice() and \<TvmSlice\>.loadSliceQ()](#tvmsliceloadslice-and-tvmsliceloadsliceq) but doesn't modify `TvmSlice`.
 
 #### TvmBuilder
 
@@ -786,13 +916,16 @@ TvmBuilder builder;
 builder.store(a, b, uint(33));
 ```
 
-See also: [\<TvmSlice\>.decode()](#tvmslicedecode).
+See also: [\<TvmSlice\>.load()](#tvmsliceload).
 
 ##### \<TvmBuilder\>.storeZeroes(), \<TvmBuilder\>.storeOnes() and \<TvmBuilder\>.storeSame()
 
 ```TVMSolidity
+(1)
 <TvmBuilder>.storeZeroes(uint10 n);
+(2)
 <TvmBuilder>.storeOnes(uint10 n);
+(3)
 <TvmBuilder>.storeSame(uint10 n, uint1 value);
 ```
 
@@ -802,21 +935,36 @@ See also: [\<TvmSlice\>.decode()](#tvmslicedecode).
 
 (3) Stores `n` binary `value`s (0 ≤ value ≤ 1) into the `TvmBuilder`.
 
-##### \<TvmBuilder\>.storeSigned()
+See also: [\<TvmSlice\>.loadZeroes(), \<TvmSlice\>.loadOnes() and \<TvmSlice\>.loadSame()](#tvmsliceloadzeroes-tvmsliceloadones-and-tvmsliceloadsame).
+
+##### \<TvmBuilder\>.storeInt()
 
 ```TVMSolidity
-<TvmBuilder>.storeSigned(int256 value, uint16 bitSize);
+<TvmBuilder>.storeInt(int256 value, uint9 bitSize);
 ```
 
 Stores a signed integer **value** with given **bitSize** in the `TvmBuilder`.
 
-##### \<TvmBuilder\>.storeUnsigned()
+##### \<TvmBuilder\>.storeUint()
 
 ```TVMSolidity
-<TvmBuilder>.storeUnsigned(uint256 value, uint16 bitSize);
+<TvmBuilder>.storeUint(uint256 value, uint9 bitSize);
 ```
 
 Stores an unsigned integer **value** with given **bitSize** in the `TvmBuilder`.
+
+##### Store little-endian integers
+
+```TVMSolidity
+<TvmBuilder>.storeIntLE2(int16)
+<TvmBuilder>.storeIntLE4(int32)
+<TvmBuilder>.storeIntLE8(int64)
+<TvmBuilder>.storeUintLE2(uint16)
+<TvmBuilder>.storeUintLE4(uint32)
+<TvmBuilder>.storeUintLE8(uint64)
+```
+
+Stores the little-endian integer.
 
 ##### \<TvmBuilder\>.storeRef()
 
@@ -1098,7 +1246,7 @@ It is an experimental feature available only in certain blockchain networks.
 
 The `try` statement allows you to define a block of code to be tested for errors while it is executed. The 
 `catch` statement allows you to define a block of code to be executed, if an error occurs in the try block.
-`catch` block gets two parameters of type variant and uint, whick contain exception argument and code respectively.
+`catch` block gets two parameters of type variant and uint16, which contain exception argument and code respectively.
 Example:
 
 ```TVMSolidity
@@ -1109,7 +1257,7 @@ try {
     require(c != 42, 100, 22);
     require(c != 43, 100, 33);
     builder.store(c);
-} catch (variant value, uint errorCode) {
+} catch (variant value, uint16 errorCode) {
     uint errorValue;
     if (value.isUint()) {
         errorValue = value.toUint();
@@ -1136,7 +1284,7 @@ try {
 #### Integers
 
 ``int`` / ``uint``: Signed and unsigned integers of various sizes. Keywords ``uintN`` and ``intN``
-where ``N`` is a number from ``8``  to ``256`` in steps of 8 denotes the number of bits. ``uint`` and ``int``
+where ``N`` is a number from ``1``  to ``256`` in steps of 1 denotes the number of bits. ``uint`` and ``int``
 are aliases for ``uint256`` and ``int256``, respectively.
 
 Operators:
@@ -1300,6 +1448,8 @@ bytes a = "abzABZ0129";
 bytes b = hex"01239abf";
 ```
 
+`bytes` can be converted to `TvmSlice`. Warning: if length of the array is greater than 127 then extra bytes are stored in the first reference of the slice. Use [\<TvmSlice\>.loadRef()](#tvmsliceloadref) to load that extra bytes.
+
 ##### \<bytes\>.empty()
 
 ```TVMSolidity
@@ -1350,16 +1500,6 @@ slice = byteArray[:];  // slice == "01234567890123456789"
 
 Returns length of the `bytes` array.
 
-##### \<bytes\>.toSlice()
-
-```TVMSolidity
-<bytes>.toSlice() returns (TvmSlice);
-```
-
-Converts `bytes` to `TvmSlice`.
-Warning: if length of the array is greater than 127 then extra bytes are
-stored in the first reference of the slice. Use [\<TvmSlice\>.loadRef()](#tvmsliceloadref) to load that extra bytes.
-
 ##### \<bytes\>.dataSize()
 
 ```TVMSolidity
@@ -1399,6 +1539,8 @@ If `bytes` object has less than **N** bytes, extra bytes are padded with zero bi
 TON Solidity compiler expands `string` type with the following functions:
 
 **Note**: Due to VM restrictions string length can't exceed `1024 * 127 = 130048` bytes.
+
+`string` can be converted to `TvmSlice`.
 
 ##### \<string\>.empty()
 
@@ -1482,14 +1624,6 @@ string sub = "111";
 optional(uint32) c = str.find(sub);
 bool s = c.hasValue(); // s == false
 ```
-
-##### \<string\>.toSlice()
-
-```TVMSolidity
-<string>.toSlice() returns (TvmSlice);
-```
-
-Converts `string` to `TvmSlice`.
 
 ##### \<string\>.dataSize()
 
@@ -1642,7 +1776,7 @@ uint bitCnt;
 address addrExtern = address.makeAddrExtern(addrNumber, bitCnt);
 ```
 
-Constructs an `address` of type **addr_extern** with given **value** with **bitCnt** bit length.
+Constructs an `address` of type **addr_extern** with given **value** with **bitCnt** bit-length.
 
 ##### Members
 
@@ -1838,8 +1972,8 @@ function test(uint x, uint y, uint z, address addr) public {
 }
 ```
 
-If you use `mapping(KeyType => TvmSlice) map;` be sure that sum of bit length of `KeyType`
-and bit length of `TvmSlice` is less than 1023 bit.
+If you use `mapping(KeyType => TvmSlice) map;` be sure that sum of bit-length of `KeyType`
+and bit-length of `TvmSlice` is less than 1023 bit.
 
 Struct `KeyType` can be used to sort keys of the mapping in ascending order. In the example
 above addresses in the mapping are sorted by their keys. `x` field of the Point struct
@@ -2376,7 +2510,7 @@ Defines that code is compiled with special selector that is needed to upgrade fu
 
 You can decode state variables using tonos-cli. See `tonos-cli decode account --help`.
 
-See also: [\<TvmSlice\>.decodeStateVars()](#tvmslicedecodestatevars).
+See also: [\<TvmSlice\>.loadStateVars()](#tvmsliceloadstatevars).
 
 #### Keyword `constant`
 
@@ -2477,8 +2611,8 @@ contract Bomber {
 `fallback` function is called on receiving an inbound internal/external message in such cases:
 
 1. The message contains a function id that the contract doesn't contain.
-2. Bit length of the message is from 1 to 31 (including).
-3. Bit length of the message is equal to zero, but the message contains reference(s).
+2. Bit-length of the message is from 1 to 31 (including).
+3. Bit-length of the message is equal to zero, but the message contains reference(s).
 
 **Note**: if the message has correct function id but invalid encoded function parameters then
 the transaction fail with an exception (e.g. [cell underflow exception](#tvm-exception-codes)).
@@ -2517,14 +2651,14 @@ contract ContractB {
         {
             TvmBuilder b;
             b.storeUnsigned(1, 1);
-            // Bit length of the message is equal to 20 bits.
+            // Bit-length of the message is equal to 20 bits.
             addr.transfer({value: 2 ton, body: b.toCell()});
         }
 
         {
             TvmBuilder b;
             b.storeRef(b);
-            // Bit length of the message is equal to zero but the message contains one reference.
+            // Bit-length of the message is equal to zero but the message contains one reference.
             addr.transfer({value: 1 ton, body: b.toCell()});
         }
 
@@ -2700,6 +2834,37 @@ function getSum(uint a, uint b) public returns (uint) {
 // Code of this function is inserted in place of the call site.
 function sum(uint a, uint b) private inline returns (uint) {
     return a + b;
+}
+```
+
+#### Assembly
+
+To make inline assembler you should mark free function as `assembly`. Function body must contain lines of assembler code separated by commas.
+
+It is up to user to set correct mutability (`pure`, `view` or default), return parameters of the function and so on. 
+
+```TVMSolidity
+function checkOverflow(uint a, uint b) assembly pure returns (bool) {
+    "QADD",
+    "ISNAN",
+    "NOT",
+}
+
+contract Contract {
+    function f(uint a, uint b) private {
+        bool ok =  checkOverflow(a, b);
+        if (ok) {
+            uint c = a + b;
+        }
+    }
+}
+```
+
+You can use inline assembler to support new opcodes in experimental or another implementations of TVM. 
+
+```TVMSolidity
+function incomingValue() assembly pure returns (uint) {
+    ".blob xF82B", // it's opcode INCOMINGVALUE 
 }
 ```
 
@@ -2991,6 +3156,15 @@ uint8 refs = b.refs(); // refs == 1
 ```
 
 ### API functions and members
+
+#### Type information
+
+The expression `type(T)` can be used to retrieve information about the type T. 
+
+The following properties are available for an integer, variable integer and enum type `T`:
+ * `type(T).min` - the smallest value representable by type `T`.
+
+ * `type(T).max` - the largest value representable by type `T`.
 
 #### **msg** namespace
 
@@ -3435,7 +3609,7 @@ List of possible names:
 
 * `code` (`TvmCell`) - defines the code field of the `StateInit`. Must be specified.
 * `data` (`TvmCell`) - defines the data field of the `StateInit`. Conflicts with `pubkey` and
-`varInit`. Can be omitted, in this case data field would be build from `pubkey` and `varInit`.
+`varInit`. Can be omitted, in this case data field would be built from `pubkey` and `varInit`.
 * `splitDepth` (`uint8`) - splitting depth. `0 <= splitDepth <= 31`. Can be omitted. By default,
 it has no value.
 * `pubkey` (`uint256`) - defines the public key of the new contract. Conflicts with `data`.
@@ -3812,7 +3986,7 @@ addr.transfer({value: 10 ton, body: body});
 See also:
 
 * [External function calls](#external-function-calls)
-* [\<TvmSlice\>.decodeFunctionParams()](#tvmslicedecodefunctionparams)
+* [\<TvmSlice\>.loadFunctionParams()](#tvmsliceloadfunctionparams)
 * [tvm.buildIntMsg()](#tvmbuildintmsg)
 
 ##### tvm.exit() and tvm.exit1()
@@ -4021,6 +4195,9 @@ It will happen because the transaction will fail at the action phase.
 
 #### **math** namespace
 
+`T` is an integer, [variable integer](#varint-and-varuint) or fixed point type in the `math.*` functions where applicable.
+Fixed point type is not applicable for `math.modpow2()`, `math.muldiv[r|c]()`, `math.muldivmod()` and `math.divmod()`.
+
 ##### math.min() math.max()
 
 ```TVMSolidity
@@ -4028,7 +4205,7 @@ math.min(T a, T b, ...) returns (T);
 math.max(T a, T b, ...) returns (T);
 ```
 
-Returns the minimal (maximal) value of the passed arguments. `T` should be an integer or fixed point type
+Returns the minimal (maximal) value of the passed arguments. 
 
 ##### math.minmax()
 
@@ -4036,19 +4213,18 @@ Returns the minimal (maximal) value of the passed arguments. `T` should be an in
 math.minmax(T a, T b) returns (T /*min*/, T /*max*/);
 ```
 
-Returns minimal and maximal values of the passed arguments. `T` should be an integer or fixed point type
+Returns minimal and maximal values of the passed arguments.
 
 Example:
 
 ```TVMSolidity
-(uint a, uint b) = math.minmax(20, 10); // (10, 20)
+(uint a, uint b) = math.minmax(20, 10); // (a, b) == (10, 20)
 ```
 
 ##### math.abs()
 
 ```TVMSolidity
-math.abs(intM val) returns (intM);
-math.abs(fixedMxN val) returns (fixedMxN);
+math.abs(T val) returns (T);
 ```
 
 Computes the absolute value of the given integer.
@@ -4056,26 +4232,26 @@ Computes the absolute value of the given integer.
 Example:
 
 ```TVMSolidity
-int a = math.abs(-4123); // 4123
-int b = -333;
-int c = math.abs(b); // 333
+int a = math.abs(-100); // a == 100
+int b = -100;
+int c = math.abs(b); // c == 100
 ```
 
 ##### math.modpow2()
 
 ```TVMSolidity
-math.modpow2(uint value, uint power) returns (uint);
+math.modpow2(T value, uint power) returns (T);
 ```
 
-Computes the value modulo 2^**power**. Note that **power** should be a constant integer.
+Computes the `value mod 2^power`. Note: `power` should be a constant integer.
 
 Example:
 
 ```TVMSolidity
-uint constant pow = 12;
-uint val = 12313;
-uint a = math.modpow2(val, 10);
-uint b = math.modpow2(val, pow);
+uint constant pow = 10;
+uint val = 1026;
+uint a = math.modpow2(21, 4); // a == 5
+uint b = math.modpow2(val, pow); // b == 2
 ```
 
 ##### math.divr() math.divc()
@@ -4085,16 +4261,14 @@ math.divc(T a, T b) returns (T);
 math.divr(T a, T b) returns (T);
 ```
 
-Returns result of the division of two integers. `T` should be an integer or fixed point type.
-The return value is rounded. **ceiling** and **nearest** modes are used for `divc` and `divr`
-respectively.
-See also: [Division and rounding](#division-and-rounding).
+Returns result of the division of two integers. The return value is rounded. **ceiling** and **nearest** modes are used for `divc` and `divr`
+respectively. See also: [Division and rounding](#division-and-rounding).
 
 Example:
 
 ```TVMSolidity
-int c = math.divc(10, 3); // c = 4
-int c = math.divr(10, 3); // c = 3
+int c = math.divc(10, 3); // c == 4
+int c = math.divr(10, 3); // c == 3
 
 fixed32x2 a = 0.25;
 fixed32x2 res = math.divc(a, 2); // res == 0.13
@@ -4108,10 +4282,8 @@ math.muldivr(T a, T b, T c) returns (T);
 math.muldivc(T a, T b, T c) returns (T);
 ```
 
-Multiplies two values and then divides the result by a third value. `T` is integer type.
-The return value is rounded. **floor**, **ceiling** and **nearest** modes are used for `muldiv`,
-`muldivc` and `muldivr` respectively.
-See also: [Division and rounding](#division-and-rounding).
+Multiplies two values and then divides the result by a third value. The return value is rounded. **floor**, **ceiling** and **nearest** modes are used for `muldiv`,
+`muldivc` and `muldivr` respectively. See also: [Division and rounding](#division-and-rounding).
 
 Example:
 
@@ -4137,11 +4309,11 @@ Example:
 uint a = 3;
 uint b = 2;
 uint c = 5;
-(uint d, uint r) = math.muldivmod(a, b, c); // (1, 1)
+(uint d, uint r) = math.muldivmod(a, b, c); // (d, r) == (1, 1)
 int e = -1;
 int f = 3;
 int g = 2;
-(int h, int p) = math.muldivmod(e, f, g); // (-2, 1)
+(int h, int p) = math.muldivmod(e, f, g); // (h, p) == (-2, 1)
 ```
 
 ##### math.divmod()
@@ -4151,45 +4323,45 @@ math.divmod(T a, T b) returns (T /*result*/, T /*remainder*/);
 ```
 
 This function divides the first number by the second and returns the result and the
-remainder. Result is rounded to the floor.  `T` must be an integer type.
+remainder. Result is rounded to the floor.
 
 Example:
 
 ```TVMSolidity
-uint a = 3;
-uint b = 2;
-(uint d, uint r) = math.divmod(a, b);
-int e = -1;
+uint a = 11;
+uint b = 3;
+(uint d, uint r) = math.divmod(a, b); // (d, r) == (3, 2)
+
+int e = -11;
 int f = 3;
-(int h, int p) = math.divmod(e, f);
+(int h, int p) = math.divmod(e, f); // (h, p) == (-3, 2)
 ```
 
 ##### math.sign()
 
 ```TVMSolidity
-math.sign(int val) returns (int8);
+math.sign(T val) returns (int2);
 ```
 
-Returns the number in case of the sign of the argument value `val`:
-
-* -1 if `val` is negative;
-* 0 if `val` is zero;
-* 1 if `val` is positive.
+Returns:
+ * -1 if `val` is negative;
+ * 0 if `val` is zero;
+ * 1 if `val` is positive.
 
 Example:
 
 ```TVMSolidity
-int8 sign = math.sign(-1333); // sign == -1
-int8 sign = math.sign(44); // sign == 1
+int8 sign = math.sign(-100); // sign == -1
+int8 sign = math.sign(100); // sign == 1
 int8 sign = math.sign(0); // sign == 0
 ```
 
 ##### **tx** namespace
 
-##### tx.timestamp
+##### tx.logicaltime
 
 ```TVMSolidity
-tx.timestamp returns (uint64);
+tx.logicaltime returns (uint64);
 ```
 
 Returns the logical time of the current transaction.
@@ -4199,7 +4371,7 @@ Returns the logical time of the current transaction.
 It's an experimental feature and is available only in certain blockchain networks.
 
 ```TVMSolidity
-tx.storageFee returns (uint64);
+tx.storageFee returns (uint120);
 ```
 
 Returns the storage fee paid in the current transaction.
@@ -4430,7 +4602,7 @@ sha256(bytes b) returns (uint256)
 sha256(string str) returns (uint256)
 ```
 
-1. Computes the SHA-256 hash. If the bit length of `slice` is not divisible by eight, throws a cell
+1. Computes the SHA-256 hash. If the bit-length of `slice` is not divisible by eight, throws a cell
 underflow [exception](#tvm-exception-codes). References of `slice` are not used to compute the hash. Only data bits located
 in the root cell of `slice` are used.
 2. Computes the SHA-256 hash only for the first 127 bytes. If `bytes.length > 127` then `b[128],
@@ -4463,28 +4635,22 @@ If `wid` is omitted than used the contract's `wid`.
 
 ### TVM exception codes
 
-Tvm exception code can differ in different networks:
-for C++ nodes networks they should correspond original documentation
-([TVM][1] - 4.5.7);
-for Rust nodes network codes are converted to other values:
- `rust_code = -(c++_code + 1)`
+| Name              | Code | Definition                                                                                                                                         |
+|-------------------|:----:|----------------------------------------------------------------------------------------------------------------------------------------------------|
+| Stack underflow   |  2   | Not enough arguments in the stack for a primitive                                                                                                  |
+| Stack overflow    |  3   | More values have been stored on a stack than allowed by this version of TVM                                                                        |
+| Integer overflow  |  4   | Integer does not fit into expected range (by default −2<sup>256</sup> ≤ x < 2<sup>256</sup>), or a division by zero has occurred                   |
+| Range check error |  5   | Integer out of expected range                                                                                                                      |
+| Invalid opcode    |  6   | Instruction or its immediate arguments cannot be decoded                                                                                           |
+| Type check error  |  7   | An argument to a primitive is of incorrect value type                                                                                              |
+| Cell overflow     |  8   | Error in one of the serialization primitives                                                                                                       |
+| Cell underflow    |  9   | Deserialization error                                                                                                                              |
+| Dictionary error  |  10  | Error while deserializing a dictionary object                                                                                                      |
+| Unknown error     |  11  | Unknown error, may be thrown by user programs                                                                                                      |
+| Fatal error       |  12  | Thrown by TVM in situations deemed impossible                                                                                                      |
+| Out of gas        |  13  | Thrown by TVM when the remaining gas (g r ) becomes negative. This exception usually cannot be caught and leads to an immediate termination of TVM |
 
-List of codes:
-
-| Name              | C++ code | Rust code | Definition                                                                                                                                         |
-|-------------------|:--------:|:---------:|----------------------------------------------------------------------------------------------------------------------------------------------------|
-| Stack underflow   |    2     |    -3     | Not enough arguments in the stack for a primitive                                                                                                  |
-| Stack overflow    |    3     |    -4     | More values have been stored on a stack than allowed by this version of TVM                                                                        |
-| Integer overflow  |    4     |    -5     | Integer does not fit into expected range (by default −2<sup>256</sup> ≤ x < 2<sup>256</sup>), or a division by zero has occurred                   |
-| Range check error |    5     |    -6     | Integer out of expected range                                                                                                                      |
-| Invalid opcode    |    6     |    -7     | Instruction or its immediate arguments cannot be decoded                                                                                           |
-| Type check error  |    7     |    -8     | An argument to a primitive is of incorrect value type                                                                                              |
-| Cell overflow     |    8     |    -9     | Error in one of the serialization primitives                                                                                                       |
-| Cell underflow    |    9     |    -10    | Deserialization error                                                                                                                              |
-| Dictionary error  |    10    |    -11    | Error while deserializing a dictionary object                                                                                                      |
-| Unknown error     |    11    |    -12    | Unknown error, may be thrown by user programs                                                                                                      |
-| Fatal error       |    12    |    -13    | Thrown by TVM in situations deemed impossible                                                                                                      |
-| Out of gas        |    13    |    -14    | Thrown by TVM when the remaining gas (g r ) becomes negative. This exception usually cannot be caught and leads to an immediate termination of TVM |
+See also: [TVM][1] - 4.5.7
 
 ### Solidity runtime errors
 
@@ -4569,24 +4735,24 @@ function of special function like `receive`, `fallback`, `onBounce`, `onTickTock
 Before calling contract's function `main_external` does:
 
 1. Checks the message signature. Let's consider how the signature is checked:
-- If signature is present and `pubkey` header isn't defined then `tvm.pubkey()` is used
-for checking.
-- If signature isn't present and `pubkey` header isn't defined then signature isn't checked.
-- If signature is present, `pubkey` header is defined and `pubkey` isn't present in the
-message then `tvm.pubkey()` is used for checking.
-- If signature is present, `pubkey` header is defined and `pubkey` is present in the
-message then `msg.pubkey()` is used for checking.
-- If signature isn't present, `pubkey` header is defined and `pubkey` is present in the
-message then an [exception with code 58](#solidity-runtime-errors) is thrown.
+   - If signature is present and `pubkey` header isn't defined then `tvm.pubkey()` is used
+   for checking.
+   - If signature isn't present and `pubkey` header isn't defined then signature isn't checked.
+   - If signature is present, `pubkey` header is defined and `pubkey` isn't present in the
+   message then `tvm.pubkey()` is used for checking.
+   - If signature is present, `pubkey` header is defined and `pubkey` is present in the
+   message then `msg.pubkey()` is used for checking.
+   - If signature isn't present, `pubkey` header is defined and `pubkey` is present in the
+   message then an [exception with code 58](#solidity-runtime-errors) is thrown.
 2. Replay protection:
-- `time` is present and there is no `afterSignatureCheck` then the contract checks whether
-`oldTime` < `time` < `now` * 1000 + 30 minutes. If it's true then `oldTime` is updated by new `time`.
-Otherwise, an exception is thrown.
-- there is `afterSignatureCheck` (despite usage of `time`) then make your own replay protection.
+   - `time` is present and there is no `afterSignatureCheck` then the contract checks whether
+   `oldTime` < `time` < `now` * 1000 + 30 minutes. If it's true then `oldTime` is updated by new `time`.
+   Otherwise, an exception is thrown.
+   - there is `afterSignatureCheck` (despite usage of `time`) then make your own replay protection.
 3. Message expiration:
-- `expire` is present and there is no `afterSignatureCheck` then the contract checks whether
-`expire` > `now`.
-- there is `afterSignatureCheck` (despite usage of `expire`) then make your own check.
+   - `expire` is present and there is no `afterSignatureCheck` then the contract checks whether
+   `expire` > `now`.
+   - there is `afterSignatureCheck` (despite usage of `expire`) then make your own check.
 
 See also: [pragma AbiHeader](#pragma-abiheader), [afterSignatureCheck](#aftersignaturecheck).
 

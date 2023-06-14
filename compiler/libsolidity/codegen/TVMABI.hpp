@@ -99,8 +99,7 @@ public:
 	void decodeData(int offset, int usedRefs, const std::vector<Type const*>& types);
 	void decodeParameters(
 		const std::vector<Type const*>& types,
-		DecodePosition& position,
-		bool doDropSlice
+		DecodePosition& position
 	);
 	void decodeParametersQ(
 		const std::vector<Type const*>& types,

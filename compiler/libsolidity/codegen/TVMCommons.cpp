@@ -166,17 +166,17 @@ int dictKeyLength(Type const *key) {
 		return 256; // hash of tree of cells
 	}
 
-    auto structType = to<StructType>(key);
+	auto structType = to<StructType>(key);
 	if (structType) {
-        int bitLength = 0;
-        StructDefinition const &structDefinition = structType->structDefinition();
-        for (const auto &member : structDefinition.members()) {
-            TypeInfo ti2{member->type()};
-            solAssert(ti2.isNumeric, "");
-            bitLength += ti2.numBits;
-        }
-        return bitLength;
-    }
+		int bitLength = 0;
+		StructDefinition const &structDefinition = structType->structDefinition();
+		for (const auto &member : structDefinition.members()) {
+			TypeInfo ti2{member->type()};
+			solAssert(ti2.isNumeric, "");
+			bitLength += ti2.numBits;
+		}
+		return bitLength;
+	}
 	solUnimplemented("");
 }
 
@@ -409,7 +409,11 @@ std::set<CallableDeclaration const*> getAllBaseFunctions(CallableDeclaration con
 }
 
 
-ABITypeSize::ABITypeSize(const Type *type) {
+ABITypeSize::ABITypeSize(Type const* _type) {
+	init(_type);
+}
+
+void ABITypeSize::init(Type const* type) {
 	if (isAddressOrContractType(type)){
 		maxBits = AddressInfo::maxBitLength();
 		maxRefs = 0;
@@ -466,6 +470,8 @@ ABITypeSize::ABITypeSize(const Type *type) {
 	} else if (to<TvmSliceType>(type) || to<TvmBuilderType>(type)) {
 		maxBits = 1023;
 		maxRefs = 3;
+	} else if (auto userDefType = to<UserDefinedValueType>(type)) {
+		init(&userDefType->underlyingType());
 	} else {
 		solUnimplemented("Undefined type: " + type->toString());
 	}
@@ -603,7 +609,7 @@ std::string StrUtils::tonsToBinaryString(bigint value) {
 		s += value % 2 == 0? "0" : "1";
 		value /= 2;
 	}
-	solAssert(len < 120, "Ton value should fit 120 bit");
+	solAssert(len <= 120, "coins value must fit into 120 bit");
 	while (len % 8 != 0) {
 		s += "0";
 		len++;
@@ -667,7 +673,9 @@ std::optional<bigint> ExprUtils::constValue(const Expression &_e) {
 		if (auto ident = to<Identifier>(&_e)) {
 			IdentifierAnnotation &identifierAnnotation = ident->annotation();
 			const auto *variable = to<VariableDeclaration>(identifierAnnotation.referencedDeclaration);
-			return constValue(*variable->value());
+			if (variable) {
+				return constValue(*variable->value());
+			}
 		}
 	}
 

@@ -98,6 +98,7 @@ public:
 	bool visit(Optional const& _node) override;
 	bool visit(TvmVector const& _node) override;
 	bool visit(ArrayTypeName const& _node) override;
+	bool visit(FreeInlineAssembly const& _node) override;
 	bool visit(InlineAssembly const& _node) override;
 	bool visit(Block const& _node) override;
 	bool visit(PlaceholderStatement const& _node) override;

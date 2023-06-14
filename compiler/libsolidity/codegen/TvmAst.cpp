@@ -373,7 +373,7 @@ bool LogCircuit::operator==(TvmAstNode const& _node) const {
 TvmIfElse::TvmIfElse(bool _withNot, bool _withJmp, Pointer<CodeBlock> const &trueBody,
 					 Pointer<CodeBlock> const &falseBody, int ret) :
 		Gen{false},
-	 	m_withNot{_withNot},
+		m_withNot{_withNot},
 		m_withJmp{_withJmp},
 		m_trueBody(trueBody),
 		m_falseBody(falseBody),
@@ -415,11 +415,11 @@ void While::accept(TvmAstVisitor& _visitor) {
 }
 
 void TryCatch::accept(TvmAstVisitor& _visitor) {
-    if (_visitor.visit(*this))
-    {
-        m_tryBody->accept(_visitor);
-        m_catchBody->accept(_visitor);
-    }
+	if (_visitor.visit(*this))
+	{
+		m_tryBody->accept(_visitor);
+		m_catchBody->accept(_visitor);
+	}
 }
 
 Function::Function(int take, int ret, std::string name, Function::FunctionType type, Pointer<CodeBlock> block,
@@ -512,7 +512,6 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 	const static std::unordered_map<std::string, OpcodeParams> opcodes = {
 		{"ACCEPT", {0, 0}},
 		{"COMMIT", {0, 0}},
-		{"NEWEXCMODEL", {0, 0}},
 		{"PRINTSTR", {0, 0}},
 
 		{"BLOCKLT", {0, 1, true}},
@@ -587,9 +586,15 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"PARSEMSGADDR", {1, 1}},
 		{"PLDDICT", {1, 1}},
 		{"PLDI", {1, 1}},
+		{"PLDILE4", {1, 1}},
+		{"PLDILE8", {1, 1}},
 		{"PLDREF", {1, 1}},
 		{"PLDREFIDX", {1, 1}},
+		{"PLDREFIDX", {1, 1}},
+		{"PLDSLICE", {1, 1}},
 		{"PLDU", {1, 1}},
+		{"PLDULE4", {1, 1}},
+		{"PLDULE8", {1, 1}},
 		{"RAND", {1, 1}},
 		{"SBITS", {1, 1, true}},
 		{"SDEMPTY", {1, 1, true}},
@@ -613,6 +618,8 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"LDDICT", {1, 2}},
 		{"LDGRAMS", {1, 2}},
 		{"LDI", {1, 2}},
+		{"LDILE4", {1, 2}},
+		{"LDILE8", {1, 2}},
 		{"LDMSGADDR", {1, 2}},
 		{"LDONES", {1, 2, true}},
 		{"LDOPTREF", {1, 2}},
@@ -620,6 +627,8 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"LDREFRTOS", {1, 2}},
 		{"LDSLICE", {1, 2}},
 		{"LDU", {1, 2}},
+		{"LDULE4", {1, 2}},
+		{"LDULE8", {1, 2}},
 		{"LDVARINT16", {1, 2}},
 		{"LDVARINT32", {1, 2}},
 		{"LDVARUINT16", {1, 2}},
@@ -662,6 +671,8 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"NEQ", {2, 1, true}},
 		{"OR", {2, 1, true}},
 		{"PLDIX", {2, 1}},
+		{"PLDREFVAR", {2, 1}},
+		{"PLDSLICEX", {2, 1}},
 		{"PLDUX", {2, 1}},
 		{"SCHKBITSQ", {2, 1, true}},
 		{"SCHKREFSQ", {2, 1, true}},
@@ -677,6 +688,8 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"STDICT", {2, 1}},
 		{"STGRAMS", {2, 1}},
 		{"STI", {2, 1}},
+		{"STILE4", {2, 1}},
+		{"STILE8", {2, 1}},
 		{"STIR", {2, 1}},
 		{"STONES", {2, 1}},
 		{"STOPTREF", {2, 1}},
@@ -685,6 +698,8 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"STSLICE", {2, 1}},
 		{"STSLICER", {2, 1}},
 		{"STU", {2, 1}},
+		{"STULE4", {2, 1}},
+		{"STULE8", {2, 1}},
 		{"STUR", {2, 1}},
 		{"STVARINT16", {2, 1}},
 		{"STVARINT32", {2, 1}},
@@ -715,6 +730,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"MULDIVC", {3, 1}},
 		{"MULDIVR", {3, 1}},
 		{"SCHKBITREFSQ", {3, 1, true}},
+		{"SCUTFIRST", {3, 1}},
 		{"SETINDEXVAR", {3, 1}},
 		{"SETINDEXVARQ", {3, 1, true}},
 		{"SSKIPFIRST", {3, 1}},
@@ -757,7 +773,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 			opcode = createNode<GenOpcode>(cmd, 2, 1);
 		}
 	} else {
-		solUnimplemented("StackPusher::push: " + cmd);
+		solUnimplemented("Unknown opcode: " + cmd);
 	}
 	solAssert(opcode != nullptr, "");
 	return opcode;

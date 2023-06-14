@@ -27,9 +27,9 @@
 
 class GlobalParams {
 public:
-    static solidity::langutil::ErrorReporter* g_errorReporter;
-    static solidity::langutil::CharStreamProvider* g_charStreamProvider;
-    static solidity::util::SetOnce<solidity::langutil::TVMVersion> g_tvmVersion;
+	static solidity::langutil::ErrorReporter* g_errorReporter;
+	static solidity::langutil::CharStreamProvider* g_charStreamProvider;
+	static solidity::util::SetOnce<solidity::langutil::TVMVersion> g_tvmVersion;
 };
 
 std::string getPathToFiles(
@@ -48,5 +48,5 @@ void TVMCompilerProceedContract(
 	const std::string& outputFolder,
 	const std::string& filePrefix,
 	bool doPrintFunctionIds,
-    bool doPrivateFunctionIds
+	bool doPrivateFunctionIds
 );

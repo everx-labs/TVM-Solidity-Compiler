@@ -137,7 +137,7 @@ void StructCompiler::structConstructor(
 }
 
 void StructCompiler::tupleToBuilder() {
-    // stack: tuple
+	// stack: tuple
 	const int ss = pusher->stackSize();
 
 	pusher->startContinuation();
@@ -147,7 +147,7 @@ void StructCompiler::tupleToBuilder() {
 	if (n >= 2) {
 		pusher->reverse(n, 0);
 	}
-	pusher->push(+1, "NEWC");
+	*pusher << "NEWC";
 
 	ChainDataEncoder encoder{pusher};
 	DecodePositionAbiV2 position{0, 0, m_types};

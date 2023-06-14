@@ -414,7 +414,7 @@ namespace solidity::frontend
 	public:
 		While(bool _infinite, bool _withBreakOrReturn, Pointer<CodeBlock> const &condition,
 			  Pointer<CodeBlock> const &body
-	  	) :
+		) :
 			m_infinite{_infinite},
 			m_withBreakOrReturn{_withBreakOrReturn},
 			m_condition{condition},
@@ -432,20 +432,23 @@ namespace solidity::frontend
 		Pointer<CodeBlock> m_body;
 	};
 
-    class TryCatch : public TvmAstNode {
-    public:
-        TryCatch(Pointer<CodeBlock> _tryBody, Pointer<CodeBlock> _catchBody) :
-            m_tryBody{std::move(_tryBody)},
-            m_catchBody{std::move(_catchBody)}
-        {}
-        void accept(TvmAstVisitor& _visitor) override;
-        bool operator==(TvmAstNode const&) const override { return false; } // TODO
-        Pointer <CodeBlock> const& tryBody() const { return m_tryBody; }
-        Pointer <CodeBlock> const& catchBody() const { return m_catchBody; }
-    private:
-        Pointer<CodeBlock> m_tryBody;
-        Pointer<CodeBlock> m_catchBody;
-    };
+	class TryCatch : public TvmAstNode {
+	public:
+		TryCatch(Pointer<CodeBlock> _tryBody, Pointer<CodeBlock> _catchBody, bool _saveAltC2) :
+			m_tryBody{std::move(_tryBody)},
+			m_catchBody{std::move(_catchBody)},
+			m_saveAltC2{_saveAltC2}
+		{}
+		void accept(TvmAstVisitor& _visitor) override;
+		bool operator==(TvmAstNode const&) const override { return false; } // TODO
+	Pointer <CodeBlock> const& tryBody() const { return m_tryBody; }
+		Pointer <CodeBlock> const& catchBody() const { return m_catchBody; }
+		bool saveAltC2() const { return m_saveAltC2; }
+	private:
+		Pointer<CodeBlock> m_tryBody;
+		Pointer<CodeBlock> m_catchBody;
+		bool m_saveAltC2{};
+	};
 
 	class Function : public TvmAstNode {
 	public:
@@ -466,7 +469,7 @@ namespace solidity::frontend
 		int take() const { return m_take; }
 		int ret() const { return m_ret; }
 		std::string const& name() const { return m_name; }
-        FunctionDefinition const* functionDefinition() const { return m_function; }
+		FunctionDefinition const* functionDefinition() const { return m_function; }
 		FunctionType type() const { return m_type; }
 		Pointer<CodeBlock> const& block() const { return m_block; }
 	private:
@@ -475,7 +478,7 @@ namespace solidity::frontend
 		std::string m_name;
 		FunctionType m_type{};
 		Pointer<CodeBlock> m_block;
-        FunctionDefinition const* m_function{};
+		FunctionDefinition const* m_function{};
 	};
 
 	class Contract : public TvmAstNode {

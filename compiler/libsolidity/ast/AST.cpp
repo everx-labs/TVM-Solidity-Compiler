@@ -832,6 +832,11 @@ StatementAnnotation& Statement::annotation() const
 	return initAnnotation<StatementAnnotation>();
 }
 
+StatementAnnotation& FreeInlineAssembly::annotation() const
+{
+	return initAnnotation<StatementAnnotation>();
+}
+
 InlineAssemblyAnnotation& InlineAssembly::annotation() const
 {
 	return initAnnotation<InlineAssemblyAnnotation>();

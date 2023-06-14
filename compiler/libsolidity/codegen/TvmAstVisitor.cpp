@@ -97,13 +97,14 @@ bool Printer::visit(TvmException &_node) {
 bool Printer::visit(GenOpcode &_node) {
 	tabs();
 	if (_node.fullOpcode() == "BITNOT") m_out << "NOT";
-	else if (_node.fullOpcode() == "NEWEXCMODEL") m_out << ".blob xf2fe ;; NEWEXCMODEL";
 	else if (_node.fullOpcode() == "TUPLE 1") m_out << "SINGLE";
 	else if (_node.fullOpcode() == "TUPLE 2") m_out << "PAIR";
 	else if (_node.fullOpcode() == "TUPLE 3") m_out << "TRIPLE";
 	else if (_node.fullOpcode() == "UNTUPLE 1") m_out << "UNSINGLE";
 	else if (_node.fullOpcode() == "UNTUPLE 2") m_out << "UNPAIR";
 	else if (_node.fullOpcode() == "UNTUPLE 3") m_out << "UNTRIPLE";
+	else if (_node.fullOpcode() == "STSLICECONST x4_") m_out << "STZERO";
+	else if (_node.fullOpcode() == "STSLICECONST xc_") m_out << "STONE";
 	else if (isIn(_node.opcode(), "INDEX_EXCEP", "INDEX_NOEXCEP")) {
 		int index = boost::lexical_cast<int>(_node.arg());
 		if (index == 0) {
@@ -623,11 +624,15 @@ bool Printer::visit(TvmUntil &_node) {
 }
 
 bool Printer::visit(TryCatch &_node) {
-    _node.tryBody()->accept(*this);
-    _node.catchBody()->accept(*this);
-    tabs();
-    m_out << "TRY" << std::endl;
-    return false;
+	if (_node.saveAltC2()) {
+		tabs();
+		m_out << "SAVEALT C2" << std::endl;
+	}
+	_node.tryBody()->accept(*this);
+	_node.catchBody()->accept(*this);
+	tabs();
+	m_out << ".blob xF2FE ; TRYKEEP" << std::endl;
+	return false;
 }
 
 bool Printer::visit(While &_node) {

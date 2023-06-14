@@ -244,11 +244,11 @@ void DictSet::dictSet() {
 
 	switch (operation) {
 		case SetDictOperation::Set:
-			pusher.push(-4 + 1, opcode);
+			pusher << opcode;
 			break;
 		case SetDictOperation::Replace:
 		case SetDictOperation::Add:
-			pusher.push(-4 + 2, opcode);
+			pusher << opcode;
 			break;
 	}
 }
