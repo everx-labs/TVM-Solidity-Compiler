@@ -75,25 +75,25 @@ ast_vec<ModifierInvocation> TVMFunctionCompiler::functionModifiers() {
 }
 
 void TVMFunctionCompiler::endContinuation2(const bool doDrop) {
-	int delta = m_pusher.stackSize() - m_controlFlowInfo.back().stackSize;
+	int delta = m_pusher.stackSize() - m_controlFlowInfo.back().stackSize();
 	if (doDrop) {
 		m_pusher.drop(delta);
 	} else {
-		m_pusher.push(-delta, ""); // fix stack
+		m_pusher.fixStack(-delta); // fix stack
 	}
 	m_pusher.endContinuation();
 }
 
 bool TVMFunctionCompiler::hasLoop() const {
 	return std::any_of(m_controlFlowInfo.begin(), m_controlFlowInfo.end(), [](const ControlFlowInfo& info){
-		return info.isLoop;
+		return info.isLoop();
 	});
 }
 
 std::optional<ControlFlowInfo> TVMFunctionCompiler::lastAnalyzeFlag() const {
 	int n = m_controlFlowInfo.size();
 	for (int i = n - 1; i >= 0; --i) {
-		if (m_controlFlowInfo.at(i).doAnalyzeFlag) {
+		if (m_controlFlowInfo.at(i).hasAnalyzeFlag()) {
 			return m_controlFlowInfo.at(i);
 		}
 	}
@@ -103,7 +103,7 @@ std::optional<ControlFlowInfo> TVMFunctionCompiler::lastAnalyzeFlag() const {
 std::optional<ControlFlowInfo> TVMFunctionCompiler::lastLoop() const {
 	int n = m_controlFlowInfo.size();
 	for (int i = n - 1; i >= 0; --i) {
-		if (m_controlFlowInfo.at(i).isLoop) {
+		if (m_controlFlowInfo.at(i).isLoop()) {
 			return m_controlFlowInfo.at(i);
 		}
 	}
@@ -113,10 +113,10 @@ std::optional<ControlFlowInfo> TVMFunctionCompiler::lastLoop() const {
 bool TVMFunctionCompiler::lastAnalyzerBeforeLoop() const {
 	int n = m_controlFlowInfo.size();
 	for (int i = n - 1; i >= 0; --i) {
-		if (m_controlFlowInfo.at(i).isLoop) {
+		if (m_controlFlowInfo.at(i).isLoop()) {
 			return false;
 		}
-		if (m_controlFlowInfo.at(i).doAnalyzeFlag) {
+		if (m_controlFlowInfo.at(i).hasAnalyzeFlag()) {
 			return true;
 		}
 	}
@@ -149,15 +149,15 @@ Pointer<Function>
 TVMFunctionCompiler::generateC4ToC7(TVMCompilerContext& ctx) {
 	StackPusher pusher{&ctx};
 	pusher.pushRoot();
-	pusher.push(-1 + 1, "CTOS");
-	pusher.push(-1 + 2, "LDU 256      ; pubkey c4");
+	pusher << "CTOS";
+	pusher << "LDU 256      ; pubkey c4";
 	if (pusher.ctx().storeTimestampInC4()) {
-		pusher.push(+1, "LDU 64       ; pubkey timestamp c4");
+		pusher << "LDU 64       ; pubkey timestamp c4";
 	}
-	pusher.push(+1, "LDU 1      ; ctor flag");
+	pusher << "LDU 1      ; ctor flag";
 	pusher.dropUnder(1, 1); // ignore
 	if (pusher.ctx().usage().hasAwaitCall()) {
-		pusher.push(-1 + 2, "LDI 1       ; await flag");
+		pusher << "LDI 1       ; await flag";
 		pusher.dropUnder(1, 1);
 	}
 	if (!pusher.ctx().notConstantStateVariables().empty()) {
@@ -185,14 +185,14 @@ TVMFunctionCompiler::generateC4ToC7(TVMCompilerContext& ctx) {
 		}
 		solAssert(ss - 1 == pusher.stackSize(), "");
 	} else {
-		pusher.push(-1, "ENDS");
+		pusher << "ENDS";
 	}
 
 	if (pusher.ctx().storeTimestampInC4()) {
 		pusher.setGlob(TvmConst::C7::ReplayProtTime);
 	}
 
-	pusher.push(+1, ""); // fix stack
+	pusher.fixStack(+1); // fix stack
 	pusher.setGlob(TvmConst::C7::TvmPubkey);
 
 	Pointer<CodeBlock> block = pusher.getBlock();
@@ -206,9 +206,9 @@ TVMFunctionCompiler::generateC4ToC7WithInitMemory(TVMCompilerContext& ctx) {
 	TVMFunctionCompiler funCompiler{pusher, pusher.ctx().getContract()};
 
 	pusher.pushRoot();
-	pusher.push(-1 + 1, "CTOS");
-	pusher.push(-1 + 1, "SBITS");
-	pusher.push(-1 + 1, "GTINT 1");
+	pusher << "CTOS";
+	pusher << "SBITS";
+	pusher << "GTINT 1";
 
 	pusher.startContinuation();
 	pusher.pushCall(0, 0, "c4_to_c7");
@@ -217,8 +217,8 @@ TVMFunctionCompiler::generateC4ToC7WithInitMemory(TVMCompilerContext& ctx) {
 	pusher.startContinuation();
 	pusher.pushInt(0);
 	pusher.pushRoot();
-	pusher.push(0, "CTOS");
-	pusher.push(0, "PLDDICT   ; D");
+	pusher << "CTOS";
+	pusher << "PLDDICT   ; D";
 
 	int varQty = 0;
 	bool tooMuchStateVars = pusher.ctx().tooMuchStateVariables();
@@ -255,9 +255,9 @@ TVMFunctionCompiler::generateC4ToC7WithInitMemory(TVMCompilerContext& ctx) {
 	pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::NoPubkeyInC4));
 	pusher.endOpaque(3, 1);
 
-	pusher.push(0, "PLDU 256");
+	pusher << "PLDU 256";
 	pusher.setGlob(TvmConst::C7::TvmPubkey);
-	pusher.push(+1, "PUSHINT 0 ; timestamp");
+	pusher << "PUSHINT 0 ; timestamp";
 	pusher.setGlob(TvmConst::C7::ReplayProtTime);
 
 	for (VariableDeclaration const *variable: pusher.ctx().notConstantStateVariables()) {
@@ -312,12 +312,12 @@ TVMFunctionCompiler::generateMacro(
 	StackPusher pusher{&ctx};
 	std::string name = forceName.has_value() ? forceName.value() : function->name();
 	TVMFunctionCompiler funCompiler{pusher, 0, function, false, true, 0};
-    funCompiler.pushLocation(*function);
+	funCompiler.pushLocation(*function);
 	funCompiler.visitFunctionWithModifiers();
-    funCompiler.pushLocation(*function, true);
-    int take = function->parameters().size();
-    int ret = function->returnParameters().size();
-    return createNode<Function>(take, ret, name, Function::FunctionType::Macro, pusher.getBlock());
+	funCompiler.pushLocation(*function, true);
+	int take = function->parameters().size();
+	int ret = function->returnParameters().size();
+	return createNode<Function>(take, ret, name, Function::FunctionType::Macro, pusher.getBlock());
 }
 
 Pointer<Function>
@@ -327,7 +327,7 @@ TVMFunctionCompiler::generateOnCodeUpgrade(TVMCompilerContext& ctx, FunctionDefi
 	funCompiler.visitFunctionWithModifiers();
 
 	pusher.pushMacroCallInCallRef(0, 0, "c7_to_c4");
-	pusher.push(0, "COMMIT");
+	pusher << "COMMIT";
 	pusher._throw("THROW 0");
 	int take = function->parameters().size();
 	const std::string name = ctx.getFunctionInternalName(function, false);
@@ -391,17 +391,17 @@ TVMFunctionCompiler::generatePublicFunction(TVMCompilerContext& ctx, FunctionDef
 	Pointer<CodeBlock> block;
 
 	TVMFunctionCompiler funCompiler{pusher, 0, function, false, false, 0};
-	pusher.push(+1, ""); // slice with args
-	pusher.push(+1, ""); // functionId
+	pusher.fixStack(+1); // slice with args
+	pusher.fixStack(+1); // functionId
 	pusher.drop(); // drop function id
 	pusher.checkCtorCalled();
 	funCompiler.pushC4ToC7IfNeed();
 
-    funCompiler.pushLocation(*function);
+	funCompiler.pushLocation(*function);
 	const bool isResponsible = function->isResponsible();
 	if (isResponsible) {
 		const int saveStakeSize = pusher.stackSize();
-		pusher.push(+1, "LDU 32"); // callbackId slice
+		pusher << "LDU 32"; // callbackId slice
 		pusher.getGlob(TvmConst::C7::ReturnParams); // callbackId slice c7[4]
 		pusher.blockSwap(1, 2); // slice c7[4] callbackId
 		pusher.setIndexQ(TvmConst::C7::ReturnParam::CallbackFunctionId); // slice c7[4]
@@ -409,7 +409,7 @@ TVMFunctionCompiler::generatePublicFunction(TVMCompilerContext& ctx, FunctionDef
 		solAssert(saveStakeSize == pusher.stackSize(), "");
 	}
 	funCompiler.decodeFunctionParamsAndInitVars(isResponsible);
-    funCompiler.pushLocation(*function, true);
+	funCompiler.pushLocation(*function, true);
 
 	int paramQty = function->parameters().size();
 	int retQty = function->returnParameters().size();
@@ -450,16 +450,16 @@ void TVMFunctionCompiler::generateFunctionWithModifiers(
 Pointer<Function>
 TVMFunctionCompiler::generateGetter(StackPusher &pusher, VariableDeclaration const* vd) {
 	TVMFunctionCompiler funCompiler{pusher, nullptr};
-	pusher.push(+2, ""); // stack: functionId msgBody
+	pusher.fixStack(+2); // stack: functionId msgBody
 	pusher.drop(); // drop function id
-	pusher.push(-1, "ENDS");
+	pusher << "ENDS";
 	pusher.pushMacroCallInCallRef(0, 0, "c4_to_c7");
 	pusher.getGlob(vd);
 
 	// check ext msg
 	pusher.pushS(1);
 	pusher.startContinuation();
-	pusher.push(-1, ""); // fix stack
+	pusher.fixStack(-1); // fix stack
 
 	const std::vector<VariableDeclaration const*> outputs = {vd};
 	auto appendBody = [&](int builderSize) {
@@ -568,7 +568,7 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 	}
 
 	m_pusher.pushS(m_pusher.stackSize());
-	m_pusher.push(-1, ""); // fix stack
+	m_pusher.fixStack(-1); // fix stack
 	bool isResponsible = m_pusher.ctx().getCurrentFunction()->isResponsible();
 
 	// emit for ext
@@ -589,9 +589,9 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 
 		// get external address of sender
 		m_pusher.pushS(m_pusher.stackSize() + 2);
-		m_pusher.push(0, "CTOS");
-		m_pusher.push(+1, "LDU 2");
-		m_pusher.push(+1, "LDMSGADDR");
+		m_pusher << "CTOS";
+		m_pusher << "LDU 2";
+		m_pusher << "LDMSGADDR";
 		m_pusher.drop();
 		m_pusher.popS(1);
 
@@ -603,7 +603,7 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 			nullptr,
 			StackPusher::MsgType::ExternalOut
 		);
-		m_pusher.push(params.size(), ""); // fix stack
+		m_pusher.fixStack(params.size()); // fix stack
 	}
 	m_pusher.endContinuation();
 
@@ -677,8 +677,8 @@ void TVMFunctionCompiler::visitModifierOrFunctionBlock(Block const &body, int ar
 	}
 	acceptBody(body, {{argQty, nameRetQty}});
 	if (locationReturn == LocationReturn::Last) {
-        m_pusher.pollLastRetOpcode();
-    }
+		m_pusher.pollLastRetOpcode();
+	}
 	if (doPushContinuation) {
 		pushLocation(*m_function);
 		if (m_isLibraryWithObj && m_currentModifier == static_cast<int>(m_function->modifiers().size())) {
@@ -686,7 +686,7 @@ void TVMFunctionCompiler::visitModifierOrFunctionBlock(Block const &body, int ar
 			solAssert(argQty > 0, "");
 		}
 		m_pusher.pushContAndCallX(argQty, retQty, false);
-        pushLocation(*m_function, true);
+		pushLocation(*m_function, true);
 	}
 }
 
@@ -727,19 +727,19 @@ void TVMFunctionCompiler::visitFunctionWithModifiers() {
 		}
 
 		// TODO move to function
-		solAssert(!m_function->externalMsg() || !m_function->internalMsg(), "");
+		solAssert(!m_function->isExternalMsg() || !m_function->isInternalMsg(), "");
 
-		if (m_function->externalMsg() || m_function->internalMsg())
+		if (m_function->isExternalMsg() || m_function->isInternalMsg())
 			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
 				"DEPTH",
 				"ADDCONST -5",
 				"PICK",
 			}, 0, 1, true));
 
-		if (m_function->externalMsg()) {
-			m_pusher.push(-1 + 1, "EQINT -1");
+		if (m_function->isExternalMsg()) {
+			m_pusher << "EQINT -1";
 			m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::ByExtMsgOnly));
-		} else if (m_function->internalMsg()) {
+		} else if (m_function->isInternalMsg()) {
 			m_pusher._throw("THROWIF " + toString(TvmConst::RuntimeException::ByIntMsgOnly));
 		}
 	}
@@ -751,7 +751,7 @@ void TVMFunctionCompiler::visitFunctionWithModifiers() {
 
 		StackPusher pusher = m_pusher;
 		pusher.clear();
-		pusher.push(-modSize, ""); // fix stack
+		pusher.fixStack(-modSize); // fix stack
 
 		TVMFunctionCompiler funCompiler{pusher, m_currentModifier, m_function, m_isLibraryWithObj, m_pushArgs, 0};
 		funCompiler.visitModifierOrFunctionBlock(m_function->body(), argQty, retQty, nameRetQty);
@@ -850,7 +850,7 @@ bool TVMFunctionCompiler::visit(VariableDeclarationStatement const &_variableDec
 	m_pusher.getStack().change(-varQty + bad);
 	for (const ASTPointer<VariableDeclaration>& d : variables) {
 		if (d != nullptr) {
-	 		m_pusher.getStack().add(d.get(), true);
+			m_pusher.getStack().add(d.get(), true);
 		}
 	}
 	m_pusher.ensureSize(saveStackSize + varQty - bad, "VariableDeclarationStatement", &_variableDeclarationStatement);
@@ -879,7 +879,7 @@ void TVMFunctionCompiler::acceptBody(Block const& _block, std::optional<std::tup
 			}
 			m_pusher.dropUnder(argQty, nameRetQty);
 		} else {
-			m_pusher.push(-funTrash - argQty, ""); // TODO why -argQty ?
+			m_pusher.fixStack(-funTrash - argQty); // TODO why -argQty ?
 		}
 	} else {
 		const int delta = m_pusher.stackSize() - startStackSize;
@@ -888,7 +888,7 @@ void TVMFunctionCompiler::acceptBody(Block const& _block, std::optional<std::tup
 		if (!_block.statements().empty() && to<Return>(_block.statements().back().get()) == nullptr) {
 			m_pusher.drop(delta);
 		} else {
-			m_pusher.push(-delta, ""); // fix stack
+			m_pusher.fixStack(-delta); // fix stack
 		}
 	}
 
@@ -902,37 +902,48 @@ bool TVMFunctionCompiler::visit(Block const& _block) {
 
 bool TVMFunctionCompiler::visit(ExpressionStatement const& _statement) {
 	if (!*_statement.expression().annotation().isPure) {
-	    pushLocation(_statement);
+		pushLocation(_statement);
 		auto savedStackSize = m_pusher.stackSize();
 		acceptExpr(&_statement.expression(), false);
 		// TODO DELETE FIX ME
 //		m_pusher.ensureSize(savedStackSize, _statement.location().text());
 		m_pusher.ensureSize(savedStackSize, "");
-        pushLocation(_statement, true);
+		pushLocation(_statement, true);
 	}
 	return false;
 }
 
 bool TVMFunctionCompiler::visit(TryStatement const& _tryState) {
-    // try body
-    m_pusher.startContinuation();
-    const int startStackSize = m_pusher.stackSize();
-    _tryState.body().accept(*this);
-    m_pusher.drop(m_pusher.stackSize() - startStackSize);
-    m_pusher.endContinuation();
+	// return flag
+	const int stackSize = m_pusher.stackSize();
+	CFAnalyzer ci{_tryState};
+	ControlFlowInfo info = beforeTryOrIfCheck(ci);
+	m_controlFlowInfo.push_back(info);
 
 	// try body
 	m_pusher.startContinuation();
-    for (ASTPointer<VariableDeclaration> const& variable : _tryState.clause().parameters()->parameters()) {
+	const int startStackSize = m_pusher.stackSize();
+	_tryState.body().accept(*this);
+	m_pusher.drop(m_pusher.stackSize() - startStackSize);
+	m_pusher.endContinuation();
+
+	// try body
+	m_pusher.startContinuation();
+	for (ASTPointer<VariableDeclaration> const& variable : _tryState.clause().parameters()->parameters()) {
 		m_pusher.getStack().add(variable.get(), true);
-    }
+	}
 	_tryState.clause().block().accept(*this);
 	m_pusher.drop(m_pusher.stackSize() - startStackSize);
 	m_pusher.endContinuation();
 
-	m_pusher.tryOpcode();
+	m_pusher.tryOpcode(ci.canReturn() || ci.canBreak());
 
-    return false;
+	// bottom
+	afterTryOrIfCheck(info);
+
+	solAssert(stackSize == m_pusher.stackSize(), "TryStatement fail");
+
+	return false;
 }
 
 bool TVMFunctionCompiler::visit(IfStatement const &_ifStatement) {
@@ -944,22 +955,14 @@ bool TVMFunctionCompiler::visit(IfStatement const &_ifStatement) {
 					 CFAnalyzer(_ifStatement.trueStatement()).doThatAlways() &&
 					 CFAnalyzer(*_ifStatement.falseStatement()).doThatAlways() :
 					 CFAnalyzer(_ifStatement.trueStatement()).doThatAlways();
-	ControlFlowInfo info{};
-	info.isLoop = false;
-	if (canUseJmp) {
-		info.doAnalyzeFlag = false;
-	} else {
-		if (ci.canContinue() || (!hasLoop() && ci.canReturn())) {
-			m_pusher.declRetFlag();
-			info.doAnalyzeFlag = true;
-		}
-	}
-	info.stackSize = m_pusher.stackSize();
+	ControlFlowInfo info = canUseJmp ?
+		ControlFlowInfo{m_pusher.stackSize(), false, false} :
+		beforeTryOrIfCheck(ci);
 	m_controlFlowInfo.push_back(info);
 
 	// condition
 	acceptExpr(&_ifStatement.condition(), true);
-	m_pusher.push(-1, ""); // drop condition
+	m_pusher.fixStack(-1); // drop condition
 	// if
 	m_pusher.startContinuation();
 	_ifStatement.trueStatement().accept(*this);
@@ -983,24 +986,11 @@ bool TVMFunctionCompiler::visit(IfStatement const &_ifStatement) {
 		} else {
 			m_pusher._if();
 		}
-        pushLocation(_ifStatement, true);
+		pushLocation(_ifStatement, true);
 	}
-
-	m_controlFlowInfo.pop_back();
 
 	// bottom
-	if (info.doAnalyzeFlag) {
-		std::optional<ControlFlowInfo> lastAnalyze = lastAnalyzeFlag();
-		m_pusher.startOpaque();
-		if (lastAnalyze.has_value()) {
-			m_pusher.pushS(0);
-			m_pusher.ifret();
-			m_pusher.drop();
-		} else {
-			m_pusher.ifret();
-		}
-		m_pusher.endOpaque(1, 0);
-	}
+	afterTryOrIfCheck(info);
 	m_pusher.ensureSize(saveStackSize, "");
 
 	return false;
@@ -1030,8 +1020,8 @@ void TVMFunctionCompiler::doWhile(WhileStatement const &_whileStatement) {
 
 	// condition
 	acceptExpr(&_whileStatement.condition(), true);
-	m_pusher.push(0, "NOT");
-	m_pusher.push(-1, ""); // drop condition
+	m_pusher << "NOT";
+	m_pusher.fixStack(-1); // drop condition
 	m_pusher.endContinuation();
 
 	m_pusher.until(ci->canBreak() || ci->canReturn());
@@ -1039,23 +1029,23 @@ void TVMFunctionCompiler::doWhile(WhileStatement const &_whileStatement) {
 	m_controlFlowInfo.pop_back();
 
 	// bottom
-	afterLoopCheck(ci, 0, info.doAnalyzeFlag);
+	afterLoopCheck(ci, 0, info.hasAnalyzeFlag());
 
 	m_pusher.ensureSize(saveStackSize, "");
 }
 
 void
 TVMFunctionCompiler::visitForOrWhileCondition(
-    const std::function<void()>& pushCondition
+	const std::function<void()>& pushCondition
 ) {
 	int stackSize = m_pusher.stackSize();
 	m_pusher.startContinuation();
 	if (pushCondition) {
 		pushCondition();
-		m_pusher.push(-1, ""); // fix stack
+		m_pusher.fixStack(-1); // fix stack
 	} else {
-		m_pusher.push(+1, "TRUE");
-		m_pusher.push(-1, ""); // fix stack
+		m_pusher << "TRUE";
+		m_pusher.fixStack(-1); // fix stack
 	}
 	m_pusher.endContinuation();
 	m_pusher.ensureSize(stackSize, "visitForOrWhileCondition");
@@ -1071,7 +1061,7 @@ void TVMFunctionCompiler::afterLoopCheck(const std::unique_ptr<CFAnalyzer>& ci, 
 			m_pusher.pushS(0);
 		}
 		if (ci->canBreak() || ci->canContinue()) {
-			m_pusher.push(0, "EQINT " + toString(TvmConst::RETURN_FLAG));
+			m_pusher << "EQINT " + toString(TvmConst::RETURN_FLAG);
 		}
 		loopFlag.has_value() ? m_pusher.ifRetAlt() : m_pusher.ifret();
 		if (analyzeFlag.has_value()) {
@@ -1080,6 +1070,32 @@ void TVMFunctionCompiler::afterLoopCheck(const std::unique_ptr<CFAnalyzer>& ci, 
 		m_pusher.endOpaque(1, 0);
 	}
 	m_pusher.drop(loopVarQty);
+}
+
+ControlFlowInfo TVMFunctionCompiler::beforeTryOrIfCheck(CFAnalyzer const& ci) {
+	bool hasAnalyzeFlag{};
+	bool isLoop = false;
+	if (ci.canContinue() || (!hasLoop() && ci.canReturn())) {
+		m_pusher.declRetFlag();
+		hasAnalyzeFlag = true;
+	}
+	return ControlFlowInfo{m_pusher.stackSize(), hasAnalyzeFlag, isLoop};
+}
+
+void TVMFunctionCompiler::afterTryOrIfCheck(ControlFlowInfo const& info) {
+	m_controlFlowInfo.pop_back();
+	if (info.hasAnalyzeFlag()) {
+		std::optional<ControlFlowInfo> lastAnalyze = lastAnalyzeFlag();
+		m_pusher.startOpaque();
+		if (lastAnalyze.has_value()) {
+			m_pusher.pushS(0);
+			m_pusher.ifret();
+			m_pusher.drop();
+		} else {
+			m_pusher.ifret();
+		}
+		m_pusher.endOpaque(1, 0);
+	}
 }
 
 bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
@@ -1098,7 +1114,7 @@ bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
 	// condition
 	if (_whileStatement.loopType() == WhileStatement::LoopType::REPEAT) {
 		acceptExpr(&_whileStatement.condition());
-		m_pusher.push(-1, "");
+		m_pusher.fixStack(-1);
 	} else {
 		std::function<void()> pushCondition = [&]() {
 			acceptExpr(&_whileStatement.condition(), true);
@@ -1122,7 +1138,7 @@ bool TVMFunctionCompiler::visit(WhileStatement const &_whileStatement) {
 	m_controlFlowInfo.pop_back();
 
 	// bottom
-	afterLoopCheck(ci, 0, info.doAnalyzeFlag);
+	afterLoopCheck(ci, 0, info.hasAnalyzeFlag());
 
 	m_pusher.ensureSize(saveStackSizeForWhile, "");
 
@@ -1163,7 +1179,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 		solAssert(vds->declarations().size() == 1, "");
 		auto iterVar = vds->declarations().at(0).get();
 		if (arrayType->isByteArrayOrString()) {
-			m_pusher.push(0, "CTOS");
+			m_pusher << "CTOS";
 			m_pusher.pushNull(); // stack: dict value
 			loopVarQty = 2;
 		} else {
@@ -1181,15 +1197,15 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 		dictMinMax.minOrMax(true);
 		// stack: dict minKey(private) minKey(pub) value
 
-		m_pusher.push(-2, ""); // fix stack
+		m_pusher.fixStack(-2); // fix stack
 		auto iterKey = vds->declarations().at(0).get();
 		auto iterVal = vds->declarations().at(1).get();
 		if (iterKey == nullptr)
-			m_pusher.push(+1, "");
+			m_pusher.fixStack(+1);
 		else
 			m_pusher.getStack().add(iterKey, true);
 		if (iterVal == nullptr)
-			m_pusher.push(+1, "");
+			m_pusher.fixStack(+1);
 		else
 			m_pusher.getStack().add(iterVal, true);
 
@@ -1200,7 +1216,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 	}
 	m_pusher.ensureSize(saveStackSize + loopVarQty, "for");
 
-	// header
+	// return flag
 	auto [ci, info] = pushControlFlowFlag(_forStatement.body());
 
 	// condition
@@ -1209,8 +1225,8 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 			if (arrayType->isByteArrayOrString()) {
 				// stack: cell value [flag]
 				m_pusher.pushS(m_pusher.stackSize() - saveStackSize - 1); // stack: cell value [flag] cell
-				m_pusher.push(-1 + 1, "SEMPTY");
-				m_pusher.push(-1 + 1, "NOT");
+				m_pusher << "SEMPTY";
+				m_pusher << "NOT";
 			} else {
 				// stack: dict index value [flag]
 				m_pusher.pushS(m_pusher.stackSize() - saveStackSize - 2); // stack: dict index value [flag] index
@@ -1221,14 +1237,14 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 				m_pusher.pushS(0); // stack: dict index value [flag] newValue newValue
 				m_pusher.popS(
 						m_pusher.stackSize() - saveStackSize - 3); // stack: dict index newValue [flag] newValue
-				m_pusher.push(-1 + 1, "ISNULL");
-				m_pusher.push(-1 + 1, "NOT");
+				m_pusher << "ISNULL";
+				m_pusher << "NOT";
 			}
 		} else if (mappingType) {
 			// stack: dict minKey(private) minKey(pub) value  [flag]
 			m_pusher.pushS(m_pusher.stackSize() - saveStackSize - 2);
-			m_pusher.push(-1 + 1, "ISNULL");
-			m_pusher.push(-1 + 1, "NOT");
+			m_pusher << "ISNULL";
+			m_pusher << "NOT";
 		} else {
 			solUnimplemented("");
 		}
@@ -1247,13 +1263,13 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 
 				m_pusher.startOpaque();
 				m_pusher.pushAsym("LDUQ 8");
-				m_pusher.push(+1, ""); // fix stack
+				m_pusher.fixStack(+1); // fix stack
 				m_pusher.startContinuation();
 				// stack: cell value [flag] slice
-				m_pusher.push(-1 + 1, "PLDREF");
-				m_pusher.push(-1 + 1, "CTOS");
-				m_pusher.push(-1 + 2, "LDU 8");
-				m_pusher.push(-2, ""); // fix stack
+				m_pusher << "PLDREF";
+				m_pusher << "CTOS";
+				m_pusher << "LDU 8";
+				m_pusher.fixStack(-2); // fix stack
 				m_pusher.endContinuation();
 				m_pusher.ifNot();
 				m_pusher.endOpaque(1, 2);
@@ -1276,7 +1292,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 			} else {
 				// stack: dict 0 value [flag]
 				m_pusher.pushS(m_pusher.stackSize() - saveStackSize - 2); // stack: dict index value [flag] index
-				m_pusher.push(0, "INC"); // stack: dict index value [flag] newIndex
+				m_pusher << "INC"; // stack: dict index value [flag] newIndex
 				m_pusher.popS(m_pusher.stackSize() - saveStackSize - 2); // stack: dict newIndex [flag] value
 			}
 		} else if (mappingType) {
@@ -1301,7 +1317,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 	visitBodyOfForLoop(ci, pushStartBody, _forStatement.body(), pushLoopExpression);
 
 	// bottom
-	afterLoopCheck(ci, loopVarQty, info.doAnalyzeFlag);
+	afterLoopCheck(ci, loopVarQty, info.hasAnalyzeFlag());
 	m_pusher.ensureSize(saveStackSize, "for");
 
 	return false;
@@ -1309,14 +1325,15 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 
 std::pair<std::unique_ptr<CFAnalyzer>, ControlFlowInfo> TVMFunctionCompiler::pushControlFlowFlag(Statement const& body) {
 	std::unique_ptr<CFAnalyzer> ci = std::make_unique<CFAnalyzer>(body);
-	ControlFlowInfo info;
-	info.isLoop = true;
-	info.stackSize = -1;
+	bool isLoop = true;
+	int stackSize = -1;
+	bool hasAnalyzeFlag = false;
 	if (ci->canReturn()) {
 		m_pusher.declRetFlag();
-		info.doAnalyzeFlag = true;
+		hasAnalyzeFlag = true;
 	}
-	info.stackSize = m_pusher.stackSize();
+	stackSize = m_pusher.stackSize();
+	ControlFlowInfo info {stackSize, hasAnalyzeFlag, isLoop};
 	m_controlFlowInfo.push_back(info);
 	return {std::move(ci), info};
 }
@@ -1414,7 +1431,7 @@ bool TVMFunctionCompiler::visit(ForStatement const &_forStatement) {
 	visitBodyOfForLoop(ci, {}, _forStatement.body(), pushLoopExpression);
 
 	// bottom
-	afterLoopCheck(ci, haveDeclLoopVar, info.doAnalyzeFlag);
+	afterLoopCheck(ci, haveDeclLoopVar, info.hasAnalyzeFlag());
 	m_pusher.ensureSize(saveStackSize, "for");
 
 	return false;
@@ -1479,24 +1496,15 @@ bool TVMFunctionCompiler::visit(Return const& _return) {
 	if (lastAnalyzeFlag().has_value()) {
 		m_pusher.pushInt(TvmConst::RETURN_FLAG);
 		--revertDelta;
-		m_pusher.push(revertDelta, ""); // fix stack
+		m_pusher.fixStack(revertDelta); // fix stack
 	} else { // all continuation are run by JMPX
-		m_pusher.push(revertDelta, ""); // fix stack
+		m_pusher.fixStack(revertDelta); // fix stack
 	}
 
-
-	int i{};
-	ControlFlowInfo controlFlowInfo;
-	for (i = static_cast<int>(m_controlFlowInfo.size()) - 1; i >= 0; --i) {
-		if (m_controlFlowInfo.at(i).isLoop) {
-			controlFlowInfo = m_controlFlowInfo.at(i);
-			break;
-		}
-	}
-	if (i == -1) {
-		m_pusher.ret();
-	} else {
+	if (hasLoop()) {
 		m_pusher.retAlt();
+	} else {
+		m_pusher.ret();
 	}
 	m_pusher.endRetOrBreakOrCont(retCount);
 
@@ -1504,13 +1512,13 @@ bool TVMFunctionCompiler::visit(Return const& _return) {
 }
 
 bool TVMFunctionCompiler::visit(Break const&) {
-	const int sizeDelta = m_pusher.stackSize() - lastLoop().value().stackSize;
+	const int sizeDelta = m_pusher.stackSize() - lastLoop().value().stackSize();
 	m_pusher.startContinuation();
 
 	m_pusher.drop(sizeDelta);
 	m_pusher.retAlt();
 
-	m_pusher.push(sizeDelta, ""); // fix stack
+	m_pusher.fixStack(sizeDelta); // fix stack
 	m_pusher.endRetOrBreakOrCont(0);
 
 	return false;
@@ -1518,11 +1526,11 @@ bool TVMFunctionCompiler::visit(Break const&) {
 
 bool TVMFunctionCompiler::visit(Continue const&) {
 	bool hasAnalyzer = lastAnalyzerBeforeLoop();
-	const int sizeDelta = m_pusher.stackSize() - lastLoop().value().stackSize;
+	const int sizeDelta = m_pusher.stackSize() - lastLoop().value().stackSize();
 	m_pusher.startContinuation();
 
 	if (hasAnalyzer) {
-		m_pusher.drop(sizeDelta + (lastLoop().value().doAnalyzeFlag ? 1 : 0));
+		m_pusher.drop(sizeDelta + (lastLoop().value().hasAnalyzeFlag() ? 1 : 0));
 		m_pusher.pushInt(TvmConst::CONTINUE_FLAG);
 	} else {
 		m_pusher.drop(sizeDelta);
@@ -1530,7 +1538,7 @@ bool TVMFunctionCompiler::visit(Continue const&) {
 
 	m_pusher.ret();
 
-	m_pusher.push(sizeDelta, ""); // fix stack
+	m_pusher.fixStack(sizeDelta); // fix stack
 	m_pusher.endRetOrBreakOrCont(0);
 	return false;
 }
@@ -1577,9 +1585,9 @@ void TVMFunctionCompiler::setGlobSenderAddressIfNeed() {
 
 void TVMFunctionCompiler::setCtorFlag() {
 	m_pusher.pushRoot();
-	m_pusher.push(0, "CTOS");
-	m_pusher.push(0, "SBITS");
-	m_pusher.push(0, "NEQINT 1");
+	m_pusher << "CTOS";
+	m_pusher << "SBITS";
+	m_pusher << "NEQINT 1";
 	m_pusher.setGlob(TvmConst::C7::ConstructorFlag);
 }
 
@@ -1592,10 +1600,6 @@ void TVMFunctionCompiler::setCopyleftAndTryCatch() {
 		m_pusher.pushSlice(addrSlice);
 		m_pusher.pushInt(type.value());
 		m_pusher << "COPYLEFT";
-	}
-
-	if (m_pusher.ctx().usage().hasTryCatch()) {
-		m_pusher << "NEWEXCMODEL";
 	}
 }
 
@@ -1632,7 +1636,7 @@ Pointer<Function> TVMFunctionCompiler::generateMainExternal(
 	}
 
 	// msg_body
-	pusher.push(+1, "LDU 32 ; funcId body");
+	pusher << "LDU 32 ; funcId body";
 	pusher.exchange(1);
 
 	f.callPublicFunctionOrFallback();
@@ -1648,11 +1652,11 @@ void TVMFunctionCompiler::pushMsgPubkey() {
 
 	if (m_pusher.ctx().pragmaHelper().hasPubkey()) {
 		m_pusher.exchange(1);
-		m_pusher.push(+1, "LDU 1 ; signatureSlice hashMsgSlice hasPubkey msgSlice");
+		m_pusher << "LDU 1 ; signatureSlice hashMsgSlice hasPubkey msgSlice";
 		m_pusher.exchange(1); // signatureSlice hashMsgSlice msgSlice hasPubkey
 
 		m_pusher.startContinuation();
-		m_pusher.push(+1, "LDU 256       ; signatureSlice hashMsgSlice pubkey msgSlice");
+		m_pusher << "LDU 256       ; signatureSlice hashMsgSlice pubkey msgSlice";
 		m_pusher.exchange(3); //  msgSlice hashMsgSlice pubkey signatureSlice
 		m_pusher.exchange(1); //  msgSlice hashMsgSlice signatureSlice pubkey
 		m_pusher.endContinuation();
@@ -1681,12 +1685,12 @@ void TVMFunctionCompiler::pushMsgPubkey() {
 void TVMFunctionCompiler::checkSignatureAndReadPublicKey() {
 	// msgSlice
 
-	m_pusher.push(-1 + 2, "LDU 1 ; haveSign msgSlice");
+	m_pusher << "LDU 1 ; haveSign msgSlice";
 	m_pusher.exchange(1);
 
 	m_pusher.startContinuation();
 	m_pusher.pushInt(512);
-	m_pusher.push(-2 + 2, "LDSLICEX");
+	m_pusher << "LDSLICEX";
 	// signatureSlice msgSlice
 	m_pusher.pushS(0);
 
@@ -1701,11 +1705,11 @@ void TVMFunctionCompiler::checkSignatureAndReadPublicKey() {
 	m_pusher << "ENDC";
 	// signatureSlice msgSlice signedCell
 
-	m_pusher.push(-1 + 1, "HASHCU");
+	m_pusher << "HASHCU";
 	// signatureSlice msgSlice msgHash
 	pushMsgPubkey();
 	// signatureSlice msgSlice msgHash pubkey
-	m_pusher.push(-3 + 1, "CHKSIGNU");
+	m_pusher << "CHKSIGNU";
 	// msgSlice isSigned
 	m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::BadSignature));
 	// msgSlice
@@ -1714,7 +1718,7 @@ void TVMFunctionCompiler::checkSignatureAndReadPublicKey() {
 	if (m_pusher.ctx().pragmaHelper().hasPubkey()) {
 		// External inbound message does not have signature but have public key
 		m_pusher.startContinuation();
-		m_pusher.push(+1, "LDU 1      ; hasPubkey msgSlice");
+		m_pusher << "LDU 1      ; hasPubkey msgSlice";
 		m_pusher.exchange(1);
 		m_pusher._throw("THROWIF " + toString(TvmConst::RuntimeException::MessageHasNoSignButHasPubkey) + " ; msgSlice");
 		m_pusher.endContinuation();
@@ -1726,16 +1730,16 @@ void TVMFunctionCompiler::checkSignatureAndReadPublicKey() {
 
 void TVMFunctionCompiler::defaultReplayProtection() {
 	// msgSlice
-	m_pusher.push(+1, "LDU 64                         ; timestamp msgSlice");
+	m_pusher << "LDU 64                         ; timestamp msgSlice";
 	m_pusher.exchange(1);
 	m_pusher.pushCall(1, 0, "replay_protection_macro");
 }
 
 void TVMFunctionCompiler::expire() {
-	m_pusher.push(+1, "LDU 32  ; expireAt msgSlice");
+	m_pusher << "LDU 32  ; expireAt msgSlice";
 	m_pusher.exchange(1);
-	m_pusher.push(+1, "NOW     ; msgSlice expireAt now");
-	m_pusher.push(-1, "GREATER ; msgSlice expireAt>now");
+	m_pusher << "NOW     ; msgSlice expireAt now";
+	m_pusher << "GREATER ; msgSlice expireAt>now";
 	m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::MessageIsExpired));
 }
 
@@ -1767,29 +1771,29 @@ TVMFunctionCompiler::generateMainInternal(TVMCompilerContext& ctx, ContractDefin
 	funCompiler.setCtorFlag();
 
 	pusher.pushS(2);
-	pusher.push(-1 + 1, "CTOS");
+	pusher << "CTOS";
 	// stack: int_msg_info
 
 	ContactsUsageScanner const &sc = pusher.ctx().usage();
 	if (sc.hasMsgSender() || sc.hasResponsibleFunction() || sc.hasAwaitCall()) {
-		pusher.push(-1 + 2, "LDU 4       ; bounced tail");
-		pusher.push(-1 + 2, "LDMSGADDR   ; bounced src tail");
+		pusher << "LDU 4       ; bounced tail";
+		pusher << "LDMSGADDR   ; bounced src tail";
 		pusher.drop();
 		if (sc.hasAwaitCall()) {
 			pusher.pushMacroCallInCallRef(0, 0, "check_resume");
 		}
 		pusher.setGlob(TvmConst::C7::SenderAddress);
-		pusher.push(0, "MODPOW2 1");
+		pusher << "MODPOW2 1";
 	} else {
-		pusher.push(-1 + 1, "PLDU 4");
-		pusher.push(-1 + 1, "MODPOW2 1");
+		pusher << "PLDU 4";
+		pusher << "MODPOW2 1";
 	}
 	// stack: isBounced
 
 	// set default params for responsible func
 	if (sc.hasResponsibleFunction()) {
 		pusher.getGlob(TvmConst::C7::ReturnParams);
-		pusher.push(+1, "TRUE"); // bounce
+		pusher << "TRUE"; // bounce
 		pusher.setIndexQ(TvmConst::C7::ReturnParam::Bounce);
 		pusher.pushInt(TvmConst::Message::DefaultMsgValue); // tons
 		pusher.setIndexQ(TvmConst::C7::ReturnParam::Value);
@@ -1804,7 +1808,7 @@ TVMFunctionCompiler::generateMainInternal(TVMCompilerContext& ctx, ContractDefin
 	if (!isEmptyFunction(contract->onBounceFunction())) {
 		pusher.startContinuation();
 		pusher.pushS(1);
-		pusher.push(-1 + 2, "LDSLICE 32");
+		pusher << "LDSLICE 32";
 		pusher.dropUnder(1, 1);
 		pusher.pushCall(0, 0, "on_bounce_macro");
 		pusher.endContinuationFromRef();
@@ -1873,7 +1877,7 @@ void TVMFunctionCompiler::pushC4ToC7IfNeed() {
 	// c4_to_c7 if need
 	if (m_function->stateMutability() != StateMutability::Pure) {
 		m_pusher.was_c4_to_c7_called();
-		m_pusher.push(-1, ""); // fix stack
+		m_pusher.fixStack(-1); // fix stack
 		m_pusher.startContinuation();
 		m_pusher.pushCall(0, 0, "c4_to_c7");
 		m_pusher.endContinuationFromRef();
@@ -1925,7 +1929,7 @@ void TVMFunctionCompiler::pushReceiveOrFallback() {
 
 	if (!isEmptyFunction(m_contract->receiveFunction())) {
 		m_pusher.pushS(1);
-		m_pusher.push(0, "SEMPTY     ; isEmpty");
+		m_pusher << "SEMPTY     ; isEmpty";
 		m_pusher.pushS(0);
 		m_pusher.startContinuation();
 		{
@@ -1940,7 +1944,7 @@ void TVMFunctionCompiler::pushReceiveOrFallback() {
 			// funcId body'
 
 			m_pusher.pushS(1); // funcId body' isZero
-			m_pusher.push(0, "EQINT 0 ; funcId body' isZero");
+			m_pusher << "EQINT 0 ; funcId body' isZero";
 			m_pusher.pushS(0); // funcId body' isZero isZero"
 			m_pusher.startContinuation();
 			m_pusher.dropUnder(2, 1);
@@ -1955,7 +1959,7 @@ void TVMFunctionCompiler::pushReceiveOrFallback() {
 		m_pusher.ifJmp();
 	} else {
 		m_pusher.pushS(1);
-		m_pusher.push(0, "SEMPTY     ; isEmpty");
+		m_pusher << "SEMPTY     ; isEmpty";
 		m_pusher.checkIfCtorCalled(true);
 		m_pusher.pushS(1);
 
@@ -1986,8 +1990,8 @@ void TVMFunctionCompiler::buildPublicFunctionSelector(
 	auto pushOne = [&](uint32_t functionId, const std::string& name) {
 		m_pusher.pushS(0);
 		m_pusher.pushInt(functionId);
-		m_pusher.push(-2 + 1, "EQUAL");
-		m_pusher.push(-1, ""); // fix stack
+		m_pusher << "EQUAL";
+		m_pusher.fixStack(-1); // fix stack
 		m_pusher.startContinuation();
 		m_pusher.pushCall(0, 0, name);
 		m_pusher.endContinuationFromRef();
@@ -2009,7 +2013,7 @@ void TVMFunctionCompiler::buildPublicFunctionSelector(
 			} else {
 				m_pusher.pushS(0);
 				m_pusher.pushInt(functionId);
-				m_pusher.push(-2 + 1, "LEQ");
+				m_pusher << "LEQ";
 				m_pusher.startContinuation();
 				buildPublicFunctionSelector(functions, i, j);
 				m_pusher.endContinuationFromRef();
@@ -2021,6 +2025,6 @@ void TVMFunctionCompiler::buildPublicFunctionSelector(
 
 void TVMFunctionCompiler::pushLocation(const ASTNode& node, bool reset) {
 	SourceReference sr = SourceReferenceExtractor::extract(*GlobalParams::g_charStreamProvider, &node.location());
-    const int line = reset ? 0 : sr.position.line + 1;
-    m_pusher.pushLoc(sr.sourceName, line);
+	const int line = reset ? 0 : sr.position.line + 1;
+	m_pusher.pushLoc(sr.sourceName, line);
 }

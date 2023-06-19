@@ -79,6 +79,7 @@ private:
 		bool responsible = false;
 		bool externalMsg = false;
 		bool internalMsg = false;
+		bool assembly = false;
 	};
 
 	/// Struct to share parsed function call arguments.
@@ -133,7 +134,9 @@ private:
 		bool _allowEmpty = true
 	);
 	ASTPointer<Block> parseBlock(bool _allowUncheckedBlock = false, ASTPointer<ASTString> const& _docString = {});
+	ASTPointer<Block> parseAssemblyBlock(ASTPointer<ASTString> const& _docString = {});
 	ASTPointer<Statement> parseStatement(bool _allowUncheckedBlock = false);
+	ASTPointer<Statement> parseAssemblyStatement();
 	ASTPointer<InlineAssembly> parseInlineAssembly(ASTPointer<ASTString> const& _docString = {});
 	ASTPointer<IfStatement> parseIfStatement(ASTPointer<ASTString> const& _docString);
 	ASTPointer<TryStatement> parseTryStatement(ASTPointer<ASTString> const& _docString);

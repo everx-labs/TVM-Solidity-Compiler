@@ -661,6 +661,14 @@ Parser::FunctionHeaderParserResult Parser::parseFunctionHeader(bool _isStateVari
 			result.responsible = true;
 			m_scanner->next();
 		}
+		else if (token == Token::Assembly)
+		{
+			if (result.assembly)
+				parserError(228_error, "assembly already specified.");
+
+			result.assembly = true;
+			m_scanner->next();
+		}
 		else
 			break;
 	}
@@ -735,7 +743,11 @@ ASTPointer<ASTNode> Parser::parseFunctionDefinition(bool _freeFunction)
 		advance();
 	else
 	{
-		block = parseBlock();
+		if (header.assembly) {
+			block = parseAssemblyBlock();
+		} else {
+			block = parseBlock();
+		}
 		nodeFactory.setEndPositionFromNode(block);
 	}
 	return nodeFactory.createNode<FunctionDefinition>(
@@ -756,7 +768,8 @@ ASTPointer<ASTNode> Parser::parseFunctionDefinition(bool _freeFunction)
 		header.isInline,
 		header.responsible,
 		header.externalMsg,
-		header.internalMsg
+		header.internalMsg,
+		header.assembly
 	);
 }
 
@@ -1372,6 +1385,31 @@ ASTPointer<Block> Parser::parseBlock(bool _allowUnchecked, ASTPointer<ASTString>
 	return nodeFactory.createNode<Block>(_docString, unchecked, statements);
 }
 
+ASTPointer<Block> Parser::parseAssemblyBlock(ASTPointer<ASTString> const& _docString)
+{
+	RecursionGuard recursionGuard(*this);
+	ASTNodeFactory nodeFactory(*this);
+	expectToken(Token::LBrace);
+	ASTPointer<Statement> statement;
+	try
+	{
+		statement = parseAssemblyStatement();
+		nodeFactory.markEndPosition();
+	}
+	catch (FatalError const&)
+	{
+		if (
+			!m_errorReporter.hasErrors() ||
+			!m_parserErrorRecovery ||
+			m_errorReporter.hasExcessiveErrors()
+		)
+			BOOST_THROW_EXCEPTION(FatalError()); /* Don't try to recover here. */
+		m_inParserRecovery = true;
+	}
+	expectToken(Token::RBrace);
+	return nodeFactory.createNode<Block>(_docString, false, std::vector<ASTPointer<Statement>>{statement});
+}
+
 ASTPointer<Statement> Parser::parseStatement(bool _allowUnchecked)
 {
 	RecursionGuard recursionGuard(*this);
@@ -1471,6 +1509,27 @@ ASTPointer<Statement> Parser::parseStatement(bool _allowUnchecked)
 	else
 		expectToken(Token::Semicolon);
 	return statement;
+}
+
+ASTPointer<Statement> Parser::parseAssemblyStatement()
+{
+	ASTPointer<ASTString> docString;
+	RecursionGuard recursionGuard(*this);
+	ASTNodeFactory nodeFactory(*this);
+	ASTPointer<Expression> expression;
+	std::vector<ASTPointer<Expression>> lines;
+	while (
+		m_scanner->currentToken() == Token::StringLiteral ||
+		m_scanner->currentToken() == Token::UnicodeStringLiteral ||
+		m_scanner->currentToken() == Token::HexStringLiteral
+	) {
+		lines.push_back(parsePrimaryExpression());
+		if (m_scanner->currentToken() == Token::Comma) {
+			advance();
+		}
+	}
+	nodeFactory.markEndPosition();
+	return nodeFactory.createNode<FreeInlineAssembly>(docString, lines);
 }
 
 ASTPointer<InlineAssembly> Parser::parseInlineAssembly(ASTPointer<ASTString> const& /*_docString*/)

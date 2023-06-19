@@ -19,6 +19,8 @@
 
 namespace solidity::frontend {
 
+class InherHelper;
+
 class TVMTypeChecker : public ASTConstVisitor {
 public:
 	explicit TVMTypeChecker(langutil::ErrorReporter& _errorReporter);
@@ -28,6 +30,7 @@ private:
 	void check_onCodeUpgrade(FunctionDefinition const& f);
 
 public:
+	bool visit(TryStatement const& _node) override;
 	bool visit(VariableDeclaration const& _node) override;
 	bool visit(Mapping const& _mapping) override;
 	bool visit(FunctionDefinition const& fc) override;
@@ -39,6 +42,7 @@ public:
 	void endVisit(ContractDefinition const& ) override;
 
 private:
+	std::unique_ptr<InherHelper> m_inherHelper;
 	langutil::ErrorReporter& m_errorReporter;
 	ContractDefinition const* contractDefinition{};
 };

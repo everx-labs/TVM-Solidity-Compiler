@@ -601,6 +601,14 @@ bool ASTJsonExporter::visit(ArrayTypeName const& _node)
 	return false;
 }
 
+bool ASTJsonExporter::visit(FreeInlineAssembly const& _node)
+{
+	setJsonNode(_node, "FreeInlineAssembly", {
+		make_pair("body", toJson(_node.lines()))
+	});
+	return false;
+}
+
 bool ASTJsonExporter::visit(InlineAssembly const& /*_node*/)
 {
 	return false;

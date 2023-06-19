@@ -104,6 +104,7 @@ public:
 	}
 
 	static IntegerType const* uint(unsigned _bits) { return integer(_bits, IntegerType::Modifier::Unsigned); }
+	static IntegerType const* int_(unsigned _bits) { return integer(_bits, IntegerType::Modifier::Signed); }
 
 	static IntegerType const* uint256() { return uint(256); }
 	static IntegerType const* int256() { return integer(256, IntegerType::Modifier::Signed); }

@@ -46,7 +46,8 @@ protected:
 	void mappingEmpty();
 	bool structMethodCall();
 	void superFunctionCall(MemberAccess const& _node);
-	void typeTypeMethods(MemberAccess const& _node);
+	void userDefinedValueMethods(MemberAccess const& _node);
+	void addressMethods(MemberAccess const& _node);
 	bool libraryCall(MemberAccess const& ma);
 	bool checkForTvmDeployMethods(MemberAccess const& _node, Type::Category category);
 	void tvmBuildIntMsg();
@@ -118,7 +119,7 @@ protected:
 		const Expression *callbackid,
 		const Expression *onerrorid,
 		const Expression *stateInit,
-        const Expression *signBoxHandle,
+		const Expression *signBoxHandle,
 		const Expression *abiVer,
 		const Expression *flags,
 		const CallableDeclaration *functionDefinition,

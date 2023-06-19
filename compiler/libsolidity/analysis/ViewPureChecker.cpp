@@ -53,7 +53,7 @@ bool ViewPureChecker::visit(FunctionDefinition const& _funDef)
 									"Library functions must have default mutability. Delete keyword view or pure.");
 		}
 	}
-	if (_funDef.isFree() && _funDef.stateMutability() != StateMutability::NonPayable) {
+	if (_funDef.isFree() && !_funDef.isInlineAssembly() && _funDef.stateMutability() != StateMutability::NonPayable) {
 		m_errorReporter.warning(228_error, _funDef.location(),
 								"Free functions must have default mutability. Delete keyword view or pure.");
 	}
@@ -82,7 +82,8 @@ void ViewPureChecker::endVisit(FunctionDefinition const& _funDef)
 		!_funDef.isFree() &&
 		!_funDef.isFallback() &&
 		!_funDef.isReceive() &&
-		!_funDef.virtualSemantics()
+		!_funDef.virtualSemantics() &&
+		!_funDef.isInlineAssembly()
 	)
 		m_errorReporter.warning(
 			2018_error,
@@ -264,7 +265,7 @@ void ViewPureChecker::endVisit(FunctionCall const& _functionCall)
 				auto ident = dynamic_cast<Identifier const*>(&_functionCall.expression());
 				if (ident) {
 					auto funcDef = dynamic_cast<FunctionDefinition const*>(ident->annotation().referencedDeclaration);
-					isFree = funcDef && funcDef->isFree();
+					isFree = funcDef && funcDef->isFree() && !funcDef->isInlineAssembly();
 				}
 				if (isFree)
 					mutability = StateMutability::Pure;
@@ -412,6 +413,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::TVM, "setGasLimit"},
 			{MagicType::Kind::TVM, "setcode"},
 			{MagicType::Kind::TVM, "stateInitHash"},
+			{MagicType::Kind::Transaction, "logicaltime"},
 			{MagicType::Kind::Transaction, "storageFee"},
 			{MagicType::Kind::Transaction, "timestamp"},
 		};

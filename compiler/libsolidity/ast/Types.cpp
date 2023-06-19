@@ -1682,7 +1682,10 @@ BoolResult ArrayType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 	if (isImplicitlyConvertibleTo(_convertTo))
 		return true;
 
-	if (isByteArray() && (_convertTo.category() == Category::FixedBytes))
+	if (isByteArrayOrString() && _convertTo.category() == Category::TvmSlice)
+		return true;
+
+	if (isByteArray() && _convertTo.category() == Category::FixedBytes)
 		return true;
 
 	// allow conversion bytes <-> string and bytes -> bytesNN
@@ -1880,14 +1883,24 @@ MemberList::MemberMap ArrayType::nativeMembers(ASTNode const*) const
 
 	if (isByteArrayOrString())
 	{
-		members.emplace_back("toSlice", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::tvmslice()},
-			strings{},
-			strings{{}},
-			FunctionType::Kind::ByteToSlice,
-			StateMutability::Pure
-		));
+		if (isByteArray())
+			members.emplace_back("toSlice", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::tvmslice()},
+				strings{},
+				strings{{}},
+				FunctionType::Kind::ByteToSlice,
+				StateMutability::Pure
+			));
+		else
+			members.emplace_back("toSlice", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::tvmslice()},
+				strings{},
+				strings{{}},
+				FunctionType::Kind::StringToSlice,
+				StateMutability::Pure
+			));
 		members.emplace_back("dataSize", TypeProvider::function(
 				{TypeProvider::uint256()},
 				{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()},
@@ -3117,16 +3130,30 @@ string FunctionType::richIdentifier() const
 	case Kind::StringMethod: id += "stringmethod"; break;
 	case Kind::StringSubstr: id += "stringsubstr"; break;
 	case Kind::StringToLowerCase: id += "stringtolowercase"; break;
+	case Kind::StringToSlice: id += "stringtoslice"; break;
 	case Kind::StringToUpperCase: id += "stringtouppercase"; break;
 
-	case Kind::DecodeFunctionParams: id += "tvmslicedecodefunctionparams"; break;
 	case Kind::TVMSliceCompare: id += "tvmslicecompare"; break;
 	case Kind::TVMSliceDataSize: id += "tvmslicedatasize"; break;
-	case Kind::TVMSliceDecode: id += "tvmslicedecode"; break;
-	case Kind::TVMSliceDecodeQ: id += "tvmslicedecodeq"; break;
-	case Kind::TVMSliceDecodeStateVars: id += "tvmslicedecodestatevars"; break;
 	case Kind::TVMSliceEmpty: id += "tvmsliceempty"; break;
 	case Kind::TVMSliceHas: id += "tvmslicehasxxx"; break;
+	case Kind::TVMSliceLoad: id += "tvmsliceload"; break;
+	case Kind::TVMSliceLoadFunctionParams: id += "tvmsliceloadfunctionparams"; break;
+	case Kind::TVMSliceLoadInt: id += "tvmsliceloadint"; break;
+	case Kind::TVMSliceLoadIntQ: id += "tvmsliceloadintq"; break;
+	case Kind::TVMSliceLoadLE: id += "tvmsliceloadle"; break;
+	case Kind::TVMSliceLoadQ: id += "tvmsliceloadq"; break;
+	case Kind::TVMSliceLoadStateVars: id += "tvmslicedecodestatevars"; break;
+	case Kind::TVMSliceLoadUint: id += "tvmsliceloaduint"; break;
+	case Kind::TVMSliceLoadUintQ: id += "tvmsliceloaduintq"; break;
+	case Kind::TVMSlicePreLoadInt: id += "tvmslicepreloadint"; break;
+	case Kind::TVMSlicePreLoadIntQ: id += "tvmslicepreloadintq"; break;
+	case Kind::TVMSlicePreLoadSlice: id += "tvmslicepreloadslice"; break;
+	case Kind::TVMSlicePreLoadUint: id += "tvmslicepreloaduint"; break;
+	case Kind::TVMSlicePreLoadUintQ: id += "tvmslicepreloaduintq"; break;
+	case Kind::TVMSlicePreload: id += "tvmslicepreload"; break;
+	case Kind::TVMSlicePreloadQ: id += "tvmslicepreloadq"; break;
+	case Kind::TVMSlicePreloadRef: id += "tvmslicepreloadref"; break;
 	case Kind::TVMSliceSize: id += "tvmslicesize"; break;
 	case Kind::TVMSliceSkip: id += "tvmsliceskip"; break;
 
@@ -3146,6 +3173,8 @@ string FunctionType::richIdentifier() const
 
 	case Kind::TVMBuilderMethods: id += "tvmbuildermethods"; break;
 	case Kind::TVMBuilderStore: id += "tvmbuilderstore"; break;
+	case Kind::TVMBuilderStoreInt: id += "tvmbuilderstoreint"; break;
+	case Kind::TVMBuilderStoreUint: id += "tvmbuilderstoreuint"; break;
 
 	case Kind::TVMTuplePush: id += "tvmtuplepush"; break;
 	case Kind::TVMTuplePop: id += "tvmtuplepop"; break;
@@ -3166,8 +3195,8 @@ string FunctionType::richIdentifier() const
 	case Kind::TVMFunctionId: id += "tvmfunctionid"; break;
 	case Kind::TVMHash: id += "tvmhash"; break;
 	case Kind::TVMInitCodeHash: id += "tvminitcodehash"; break;
-	case Kind::TVMLoadRef: id += "tvmloadref"; break;
-	case Kind::TVMLoadSlice: id += "tvmloadslice"; break;
+	case Kind::TVMSliceLoadRef: id += "tvmloadref"; break;
+	case Kind::TVMSliceLoadSlice: id += "tvmloadslice"; break;
 	case Kind::TVMPubkey: id += "tvmpubkey"; break;
 	case Kind::TVMRawConfigParam: id += "tvmrawconfigparam"; break;
 	case Kind::TVMReplayProtInterval: id += "tvmreplayprotinterval"; break;
@@ -4798,7 +4827,7 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 		));
 		members.emplace_back("sign", TypeProvider::function(
 				TypePointers{TypeProvider::integer(256, IntegerType::Modifier::Signed)},
-				TypePointers{TypeProvider::integer(8, IntegerType::Modifier::Signed)},
+				TypePointers{TypeProvider::integer(2, IntegerType::Modifier::Signed)},
 				strings{string("value")},
 				strings{string("sign")},
 				FunctionType::Kind::MathSign,
@@ -4808,9 +4837,10 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 	}
 	case Kind::Transaction:
 		return MemberList::MemberMap({
-			{"origin", TypeProvider::address()},
 			{"gasprice", TypeProvider::uint256()},
-			{"storageFee", TypeProvider::uint(64)},
+			{"logicaltime", TypeProvider::uint(64)},
+			{"origin", TypeProvider::address()},
+			{"storageFee", TypeProvider::uint(120)},
 			{"timestamp", TypeProvider::uint(64)},
 		});
 	case Kind::ABI:
@@ -4970,6 +5000,7 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 			m_typeArgument && (
 					m_typeArgument->category() == Type::Category::Contract ||
 					m_typeArgument->category() == Type::Category::Integer ||
+					m_typeArgument->category() == Type::Category::VarInteger ||
 					m_typeArgument->category() == Type::Category::Enum
 			),
 			"Only enums, contracts or integer types supported for now"
@@ -4996,6 +5027,14 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 			return MemberList::MemberMap({
 				{"min", integerTypePointer},
 				{"max", integerTypePointer},
+			});
+		}
+		else if (m_typeArgument->category() == Type::Category::VarInteger)
+		{
+			VarInteger const* varIntTypePointer = dynamic_cast<VarInteger const*>(m_typeArgument);
+			return MemberList::MemberMap({
+				{"min", varIntTypePointer},
+				{"max", varIntTypePointer},
 			});
 		}
 		else if (m_typeArgument->category() == Type::Category::Enum)
@@ -5106,6 +5145,19 @@ MemberList::MemberMap OptionalType::nativeMembers(ASTNode const*) const
 	return members;
 }
 
+BoolResult TvmSliceType::isExplicitlyConvertibleTo(Type const& _convertTo) const {
+	if (isImplicitlyConvertibleTo(_convertTo))
+		return true;
+
+	if (auto arr = dynamic_cast<ArrayType const*>(&_convertTo)) {
+		if (arr->isByteArrayOrString()) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 TypeResult TvmSliceType::unaryOperatorResult(Token _operator) const  {
 	if (_operator == Token::Delete)
 		return TypeProvider::emptyTuple();
@@ -5115,8 +5167,7 @@ TypeResult TvmSliceType::unaryOperatorResult(Token _operator) const  {
 MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 	MemberList::MemberMap members = {
 		{
-			"dataSize",
-			TypeProvider::function(
+			"dataSize", TypeProvider::function(
 				{TypeProvider::uint256()},
 				{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()},
 				{{}},
@@ -5127,8 +5178,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 			)
 		},
 		{
-			"dataSizeQ",
-			TypeProvider::function(
+			"dataSizeQ", TypeProvider::function(
 				{TypeProvider::uint256()},
 				{TypeProvider::optional(TypeProvider::tuple({TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()}))},
 				{{}},
@@ -5139,8 +5189,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 			)
 		},
 		{
-			"loadOnes",
-			TypeProvider::function(
+			"loadOnes", TypeProvider::function(
 				{},
 				{TypeProvider::uint(10)},
 				{},
@@ -5150,8 +5199,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 			)
 		},
 		{
-			"loadZeroes",
-			TypeProvider::function(
+			"loadZeroes", TypeProvider::function(
 				{},
 				{TypeProvider::uint(10)},
 				{},
@@ -5161,8 +5209,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 			)
 		},
 		{
-			"loadSame",
-			TypeProvider::function(
+			"loadSame", TypeProvider::function(
 				{TypeProvider::uint(1)},
 				{TypeProvider::uint(10)},
 				{{}},
@@ -5171,205 +5218,633 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				StateMutability::Pure
 			)
 		},
+		{
+			"decode", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::TVMSliceLoad,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+			)
+		},
+		{
+			"load", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::TVMSliceLoad,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+			)
+		},
+		{
+			"preload", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::TVMSlicePreload,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+			)
+		},
+		{
+			"decodeQ", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::TVMSliceLoadQ,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+			)
+		},
+		{
+			"loadQ", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::TVMSliceLoadQ,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+			)
+		},
+		{
+			"preloadQ", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::TVMSlicePreloadQ,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+			)
+		},
+		{
+			"decodeFunctionParams", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::TVMSliceLoadFunctionParams,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+			)
+		},
+		{
+			"loadFunctionParams", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::TVMSliceLoadFunctionParams,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+			)
+		},
+		{
+			"decodeStateVars", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::TVMSliceLoadStateVars,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+			)
+		},
+		{
+			"loadStateVars", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::TVMSliceLoadStateVars,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+			)
+		},
+		{
+			"loadUnsigned", TypeProvider::function(
+				TypePointers{TypeProvider::uint(9)},
+				TypePointers{TypeProvider::uint256()},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMSliceLoadUint,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadUint", TypeProvider::function(
+				TypePointers{TypeProvider::uint(9)},
+				TypePointers{TypeProvider::uint256()},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMSliceLoadUint,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadUintQ", TypeProvider::function(
+				TypePointers{TypeProvider::uint(9)},
+				TypePointers{TypeProvider::optional(TypeProvider::uint256())},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMSliceLoadUintQ,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadIntLE2", TypeProvider::function(
+				{},
+				{TypeProvider::int_(16)},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadIntLE4", TypeProvider::function(
+				{},
+				{TypeProvider::int_(32)},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadIntLE8", TypeProvider::function(
+				{},
+				{TypeProvider::int_(64)},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadUintLE2", TypeProvider::function(
+				{},
+				{TypeProvider::uint(16)},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadUintLE4", TypeProvider::function(
+				{},
+				{TypeProvider::uint(32)},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadUintLE8", TypeProvider::function(
+				{},
+				{TypeProvider::uint(64)},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadIntLE4", TypeProvider::function(
+				{},
+				{TypeProvider::int_(32)},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadIntLE8", TypeProvider::function(
+				{},
+				{TypeProvider::int_(64)},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadUintLE4", TypeProvider::function(
+				{},
+				{TypeProvider::uint(32)},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadUintLE8", TypeProvider::function(
+				{},
+				{TypeProvider::uint(64)},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadIntLE4Q", TypeProvider::function(
+				{},
+				{TypeProvider::optional(TypeProvider::int_(32))},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadIntLE8Q", TypeProvider::function(
+				{},
+				{TypeProvider::optional(TypeProvider::int_(64))},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadUintLE4Q", TypeProvider::function(
+				{},
+				{TypeProvider::optional(TypeProvider::uint(32))},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadUintLE8Q", TypeProvider::function(
+				{},
+				{TypeProvider::optional(TypeProvider::uint(64))},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadIntLE4Q", TypeProvider::function(
+				{},
+				{TypeProvider::optional(TypeProvider::int_(32))},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadIntLE8Q", TypeProvider::function(
+				{},
+				{TypeProvider::optional(TypeProvider::int_(64))},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadUintLE4Q", TypeProvider::function(
+				{},
+				{TypeProvider::optional(TypeProvider::uint(32))},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadUintLE8Q", TypeProvider::function(
+				{},
+				{TypeProvider::optional(TypeProvider::uint(64))},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadLE,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadUint", TypeProvider::function(
+				TypePointers{TypeProvider::uint(9)},
+				TypePointers{TypeProvider::uint256()},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMSlicePreLoadUint,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadUintQ", TypeProvider::function(
+				TypePointers{TypeProvider::uint(9)},
+				TypePointers{TypeProvider::optional(TypeProvider::uint256())},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMSlicePreLoadUintQ,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadSigned", TypeProvider::function(
+				TypePointers{TypeProvider::uint(9)},
+				TypePointers{TypeProvider::int256()},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMSliceLoadInt,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadInt", TypeProvider::function(
+				TypePointers{TypeProvider::uint(9)},
+				TypePointers{TypeProvider::int256()},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMSliceLoadInt,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadIntQ", TypeProvider::function(
+				TypePointers{TypeProvider::uint(9)},
+				TypePointers{TypeProvider::optional(TypeProvider::int256())},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMSliceLoadIntQ,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadInt", TypeProvider::function(
+				TypePointers{TypeProvider::uint(9)},
+				TypePointers{TypeProvider::int256()},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMSlicePreLoadInt,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadIntQ", TypeProvider::function(
+				TypePointers{TypeProvider::uint(9)},
+				TypePointers{TypeProvider::optional(TypeProvider::int256())},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMSlicePreLoadIntQ,
+				StateMutability::Pure
+			)
+		},
+		{
+			"hasNBits", TypeProvider::function(
+				TypePointers{TypeProvider::uint(10)},
+				TypePointers{TypeProvider::boolean()},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMSliceHas,
+				StateMutability::Pure
+			)
+		},
+		{
+			"hasNRefs", TypeProvider::function(
+				TypePointers{TypeProvider::uint(2)},
+				TypePointers{TypeProvider::boolean()},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMSliceHas,
+				StateMutability::Pure
+			)
+		},
+		{
+			"hasNBitsAndRefs", TypeProvider::function(
+				TypePointers{TypeProvider::uint(10), TypeProvider::uint(2)},
+				TypePointers{TypeProvider::boolean()},
+				strings{string(), string()},
+				strings{string()},
+				FunctionType::Kind::TVMSliceHas,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadTons", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(128)},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMSliceLoadRef,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadSlice", TypeProvider::function(
+				{TypeProvider::uint(10)},
+				{TypeProvider::tvmslice()},
+				{{}},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadSlice,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadSlice", TypeProvider::function(
+				{TypeProvider::uint(10), TypeProvider::uint(2)},
+				{TypeProvider::tvmslice()},
+				{{},{}},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadSlice,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadSliceQ", TypeProvider::function(
+				{TypeProvider::uint(10)},
+				{TypeProvider::optional(TypeProvider::tvmslice())},
+				{{}},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadSlice,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadSliceQ", TypeProvider::function(
+				{TypeProvider::uint(10), TypeProvider::uint(2)},
+				{TypeProvider::optional(TypeProvider::tvmslice())},
+				{{},{}},
+				{{}},
+				FunctionType::Kind::TVMSliceLoadSlice,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadSlice", TypeProvider::function(
+				{TypeProvider::uint(10)},
+				{TypeProvider::tvmslice()},
+				{{}},
+				{{}},
+				FunctionType::Kind::TVMSlicePreLoadSlice,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadSlice", TypeProvider::function(
+				{TypeProvider::uint(10), TypeProvider::uint(2)},
+				{TypeProvider::tvmslice()},
+				{{},{}},
+				{{}},
+				FunctionType::Kind::TVMSlicePreLoadSlice,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadSliceQ", TypeProvider::function(
+				{TypeProvider::uint(10)},
+				{TypeProvider::optional(TypeProvider::tvmslice())},
+				{{}},
+				{{}},
+				FunctionType::Kind::TVMSlicePreLoadSlice,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadSliceQ", TypeProvider::function(
+				{TypeProvider::uint(10), TypeProvider::uint(2)},
+				{TypeProvider::optional(TypeProvider::tvmslice())},
+				{{},{}},
+				{{}},
+				FunctionType::Kind::TVMSlicePreLoadSlice,
+				StateMutability::Pure
+			)
+		},
+		{
+			"skip", TypeProvider::function(
+				strings{"uint10"},
+				strings{},
+				FunctionType::Kind::TVMSliceSkip,
+				StateMutability::Pure
+			)
+		},
+		{
+			"skip", TypeProvider::function(
+				strings{"uint10", "uint2"},
+				strings{},
+				FunctionType::Kind::TVMSliceSkip,
+				StateMutability::Pure
+			)
+		},
+		{
+			"size", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(10), TypeProvider::uint(2)},
+				strings{},
+				strings{string(), string()},
+				FunctionType::Kind::TVMSliceSize,
+				StateMutability::Pure
+			)
+		},
+		{
+			"empty", TypeProvider::function(
+				{},
+				{TypeProvider::boolean()},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceEmpty,
+				StateMutability::Pure
+			)
+		},
+		{
+			"bits", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(10)},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMSliceSize,
+				StateMutability::Pure
+			)
+		},
+		{
+			"refs", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(2)},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMSliceSize,
+				StateMutability::Pure
+			)
+		},
+		{
+			"depth", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(16)},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMSliceSize,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadRef", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::tvmcell()},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMSliceLoadRef,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadRef", TypeProvider::function(
+				{TypeProvider::uint(2)},
+				{TypeProvider::tvmcell()},
+				{{}},
+				{{}},
+				FunctionType::Kind::TVMSlicePreloadRef,
+				StateMutability::Pure
+			)
+		},
+		{
+			"preloadRef", TypeProvider::function(
+				{},
+				{TypeProvider::tvmcell()},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSlicePreloadRef,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadRefAsSlice", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::tvmslice()},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMSliceLoadRef,
+				StateMutability::Pure
+			)
+		},
+		{
+			"compare", TypeProvider::function(
+				TypePointers{TypeProvider::tvmslice()},
+				TypePointers{TypeProvider::integer(2, IntegerType::Modifier::Signed)},
+				strings{string()},
+				strings{string()},
+				FunctionType::Kind::TVMSliceCompare,
+				StateMutability::Pure
+			)
+		}
 	};
-
-	members.emplace_back("decode", TypeProvider::function(
-			TypePointers{},
-			TypePointers{},
-			strings{},
-			strings{},
-			FunctionType::Kind::TVMSliceDecode,
-			StateMutability::Pure,
-			nullptr, FunctionType::Options::withArbitraryParameters()
-	));
-	members.emplace_back("decodeQ", TypeProvider::function(
-			TypePointers{},
-			TypePointers{},
-			strings{},
-			strings{},
-			FunctionType::Kind::TVMSliceDecodeQ,
-			StateMutability::Pure,
-			nullptr, FunctionType::Options::withArbitraryParameters()
-	));
-
-	members.emplace_back("decodeFunctionParams", TypeProvider::function(
-			TypePointers{},
-			TypePointers{},
-			strings{},
-			strings{},
-			FunctionType::Kind::DecodeFunctionParams,
-			StateMutability::Pure,
-			nullptr, FunctionType::Options::withArbitraryParameters()
-	));
-
-	members.emplace_back("decodeStateVars", TypeProvider::function(
-			TypePointers{},
-			TypePointers{},
-			strings{},
-			strings{},
-			FunctionType::Kind::TVMSliceDecodeStateVars,
-			StateMutability::Pure,
-			nullptr, FunctionType::Options::withArbitraryParameters()
-	));
-
-	members.emplace_back("loadUnsigned", TypeProvider::function(
-			TypePointers{TypeProvider::uint(16)},
-			TypePointers{TypeProvider::uint(8)},
-			strings{string()},
-			strings{string()},
-			FunctionType::Kind::TVMLoadRef,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("loadSigned", TypeProvider::function(
-			TypePointers{TypeProvider::uint(16)},
-			TypePointers{TypeProvider::integer(8, IntegerType::Modifier::Signed)},
-			strings{string()},
-			strings{string()},
-			FunctionType::Kind::TVMLoadRef,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("hasNBits", TypeProvider::function(
-			TypePointers{TypeProvider::uint(16)},
-			TypePointers{TypeProvider::boolean()},
-			strings{string()},
-			strings{string()},
-			FunctionType::Kind::TVMSliceHas,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("hasNRefs", TypeProvider::function(
-			TypePointers{TypeProvider::uint(8)},
-			TypePointers{TypeProvider::boolean()},
-			strings{string()},
-			strings{string()},
-			FunctionType::Kind::TVMSliceHas,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("hasNBitsAndRefs", TypeProvider::function(
-			TypePointers{TypeProvider::uint(16), TypeProvider::uint(8)},
-			TypePointers{TypeProvider::boolean()},
-			strings{string(), string()},
-			strings{string()},
-			FunctionType::Kind::TVMSliceHas,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("loadTons", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::uint(128)},
-			strings{},
-			strings{string()},
-			FunctionType::Kind::TVMLoadRef,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("loadSlice", TypeProvider::function(
-			{TypeProvider::uint256()},
-			{TypeProvider::tvmslice()},
-			{{}},
-			{{}},
-			FunctionType::Kind::TVMLoadSlice,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("loadSlice", TypeProvider::function(
-			{TypeProvider::uint256(), TypeProvider::uint256()},
-			{TypeProvider::tvmslice()},
-			{{},{}},
-			{{}},
-			FunctionType::Kind::TVMLoadSlice,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("skip", TypeProvider::function(
-			strings{"uint"},
-			strings{},
-			FunctionType::Kind::TVMSliceSkip,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("skip", TypeProvider::function(
-			strings{"uint", "uint"},
-			strings{},
-			FunctionType::Kind::TVMSliceSkip,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("size", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::uint(16), TypeProvider::uint(8)},
-			strings{},
-			strings{string(), string()},
-			FunctionType::Kind::TVMSliceSize,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("empty", TypeProvider::function(
-			{},
-			{TypeProvider::boolean()},
-			{},
-			{{}},
-			FunctionType::Kind::TVMSliceEmpty,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("bits", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::uint(16)},
-			strings{},
-			strings{string()},
-			FunctionType::Kind::TVMSliceSize,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("refs", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::uint(8)},
-			strings{},
-			strings{string()},
-			FunctionType::Kind::TVMSliceSize,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("depth", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::uint(16)},
-			strings{},
-			strings{string()},
-			FunctionType::Kind::TVMSliceSize,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("loadRef", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::tvmcell()},
-			strings{},
-			strings{string()},
-			FunctionType::Kind::TVMLoadRef,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("loadRefAsSlice", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::tvmslice()},
-			strings{},
-			strings{string()},
-			FunctionType::Kind::TVMLoadRef,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("compare", TypeProvider::function(
-			TypePointers{TypeProvider::tvmslice()},
-			TypePointers{TypeProvider::integer(8, IntegerType::Modifier::Signed)},
-			strings{string()},
-			strings{string()},
-			FunctionType::Kind::TVMSliceCompare,
-			StateMutability::Pure
-	));
-
 	return members;
 }
 
@@ -5518,8 +5993,7 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 {
 	MemberList::MemberMap members = {
 		{
-			"storeSame",
-			TypeProvider::function(
+			"storeSame", TypeProvider::function(
 				{TypeProvider::uint(10), TypeProvider::uint(1)},
 				{},
 				{{}, {}},
@@ -5528,162 +6002,268 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 				StateMutability::Pure
 			)
 		},
-	};
-
-    members.emplace_back("depth", TypeProvider::function(
-            TypePointers{},
-            TypePointers{TypeProvider::uint(16)},
-            strings{},
-            strings{string()},
-            FunctionType::Kind::TVMBuilderMethods,
-            StateMutability::Pure
-    ));
-
-	members.emplace_back("bits", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::uint(16)},
-			strings{},
-			strings{string()},
-			FunctionType::Kind::TVMBuilderMethods,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("refs", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::uint(8)},
-			strings{},
-			strings{string()},
-			FunctionType::Kind::TVMBuilderMethods,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("size", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::uint(16), TypeProvider::uint(8)},
-			strings{},
-			strings{string(), string()},
-			FunctionType::Kind::TVMBuilderMethods,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("remBits", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::uint(16)},
-			strings{},
-			strings{string()},
-			FunctionType::Kind::TVMBuilderMethods,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("remRefs", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::uint(8)},
-			strings{},
-			strings{string()},
-			FunctionType::Kind::TVMBuilderMethods,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("remBitsAndRefs", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::uint(16), TypeProvider::uint(8)},
-			strings{},
-			strings{string(), string()},
-			FunctionType::Kind::TVMBuilderMethods,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("toCell", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::tvmcell()},
-			strings{},
-			strings{string()},
-			FunctionType::Kind::TVMBuilderMethods,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("toSlice", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::tvmslice()},
-			strings{},
-			strings{string()},
-			FunctionType::Kind::TVMBuilderMethods,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("storeRef", TypeProvider::function(
-			TypePointers{TypeProvider::tvmbuilder()},
-			TypePointers{},
-			strings{string()},
-			strings{},
-			FunctionType::Kind::TVMBuilderMethods,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("storeRef", TypeProvider::function(
-			{TypeProvider::tvmcell()},
-			{},
-			{{}},
-			{},
-			FunctionType::Kind::TVMBuilderMethods,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("storeRef", TypeProvider::function(
-			{TypeProvider::tvmslice()},
-			{},
-			{{}},
-			{},
-			FunctionType::Kind::TVMBuilderMethods,
-			StateMutability::Pure
-	));
-
-	for (const std::string func : {"storeOnes", "storeZeroes"}) {
-		members.emplace_back(func.c_str(), TypeProvider::function(
+		{
+    		"depth", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(16)},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"bits", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(10)},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"refs", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(2)},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"size", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(10), TypeProvider::uint(2)},
+				strings{},
+				strings{string(), string()},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"remBits", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(10)},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"remRefs", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(2)},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"remBitsAndRefs", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(10), TypeProvider::uint(2)},
+				strings{},
+				strings{string(), string()},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"toCell", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::tvmcell()},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"toSlice", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::tvmslice()},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"storeRef", TypeProvider::function(
+				TypePointers{TypeProvider::tvmbuilder()},
+				TypePointers{},
+				strings{string()},
+				strings{},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"storeRef", TypeProvider::function(
+				{TypeProvider::tvmcell()},
+				{},
+				{{}},
+				{},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"storeRef", TypeProvider::function(
+				{TypeProvider::tvmslice()},
+				{},
+				{{}},
+				{},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"storeOnes", TypeProvider::function(
 				{TypeProvider::uint(10)},
 				{},
 				{{}},
 				{},
 				FunctionType::Kind::TVMBuilderMethods,
 				StateMutability::Pure
-		));
-	}
-
-	members.emplace_back("store", TypeProvider::function(
-			TypePointers{},
-			TypePointers{},
-			strings{},
-			strings{},
-			FunctionType::Kind::TVMBuilderStore,
-			StateMutability::Pure,
-			nullptr, FunctionType::Options::withArbitraryParameters()
-	));
-
-	members.emplace_back("storeSigned", TypeProvider::function(
-			TypePointers{TypeProvider::integer(256, IntegerType::Modifier::Signed), TypeProvider::uint(16)},
-			TypePointers{},
-			strings{string(), string()},
-			strings{},
-			FunctionType::Kind::TVMBuilderMethods,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("storeUnsigned", TypeProvider::function(
-			TypePointers{TypeProvider::uint(256), TypeProvider::uint(16)},
-			TypePointers{},
-			strings{string(), string()},
-			strings{},
-			FunctionType::Kind::TVMBuilderMethods,
-			StateMutability::Pure
-	));
-	members.emplace_back("storeTons", TypeProvider::function(
-			TypePointers{TypeProvider::uint(128)},
-			TypePointers{},
-			strings{string()},
-			strings{},
-			FunctionType::Kind::TVMBuilderMethods,
-			StateMutability::Pure
-	));
+			)
+		},
+		{
+			"storeZeroes", TypeProvider::function(
+				{TypeProvider::uint(10)},
+				{},
+				{{}},
+				{},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"store", TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::TVMBuilderStore,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+			)
+		},
+		{
+			"storeSigned", TypeProvider::function(
+				TypePointers{TypeProvider::int256(), TypeProvider::uint(9)},
+				TypePointers{},
+				strings{string(), string()},
+				strings{},
+				FunctionType::Kind::TVMBuilderStoreInt,
+				StateMutability::Pure
+			)
+		},
+		{
+			"storeInt", TypeProvider::function(
+				TypePointers{TypeProvider::int256(), TypeProvider::uint(9)},
+				TypePointers{},
+				strings{string(), string()},
+				strings{},
+				FunctionType::Kind::TVMBuilderStoreInt,
+				StateMutability::Pure
+			)
+		},
+		{
+			"storeUnsigned", TypeProvider::function(
+				TypePointers{TypeProvider::uint256(), TypeProvider::uint(9)},
+				TypePointers{},
+				strings{string(), string()},
+				strings{},
+				FunctionType::Kind::TVMBuilderStoreUint,
+				StateMutability::Pure
+			)
+		},
+		{
+			"storeUint", TypeProvider::function(
+				TypePointers{TypeProvider::uint256(), TypeProvider::uint(9)},
+				TypePointers{},
+				strings{string(), string()},
+				strings{},
+				FunctionType::Kind::TVMBuilderStoreUint,
+				StateMutability::Pure
+			)
+		},
+		{
+			"storeTons", TypeProvider::function(
+				TypePointers{TypeProvider::uint(128)},
+				TypePointers{},
+				strings{string()},
+				strings{},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"storeIntLE2", TypeProvider::function(
+				{TypeProvider::int_(16)},
+				{},
+				{{}},
+				{},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"storeIntLE4", TypeProvider::function(
+				{TypeProvider::integer(32, IntegerType::Modifier::Signed)},
+				{},
+				{{}},
+				{},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"storeIntLE8", TypeProvider::function(
+				{TypeProvider::integer(64, IntegerType::Modifier::Signed)},
+				{},
+				{{}},
+				{},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"storeUintLE2", TypeProvider::function(
+				{TypeProvider::uint(16)},
+				{},
+				{{}},
+				{},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"storeUintLE4", TypeProvider::function(
+				{TypeProvider::uint(32)},
+				{},
+				{{}},
+				{},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"storeUintLE8", TypeProvider::function(
+				{TypeProvider::uint(64)},
+				{},
+				{{}},
+				{},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+	};
 
 	return members;
 }
@@ -5724,6 +6304,14 @@ int VarInteger::maxBitSizeInCell() const {
 		return 5 + (31 * 8);
 	}
 	solUnimplemented("");
+}
+
+bigint VarInteger::minValue() const {
+	return m_int.minValue();
+}
+
+bigint VarInteger::maxValue() const {
+	return m_int.maxValue();
 }
 
 IntegerType const* ExtraCurrencyCollectionType::keyType() const {

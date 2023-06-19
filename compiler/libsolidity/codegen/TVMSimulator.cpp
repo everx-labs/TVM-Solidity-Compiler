@@ -386,9 +386,9 @@ bool Simulator::visit(LogCircuit &_node) {
 }
 
 bool Simulator::visit(TryCatch &/*_node*/) {
-    // TODO implement
-    unableToConvertOpcode();
-    return false;
+	// TODO implement
+	unableToConvertOpcode();
+	return false;
 }
 
 bool Simulator::visit(TvmIfElse &_node) {

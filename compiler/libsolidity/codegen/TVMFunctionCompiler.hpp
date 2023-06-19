@@ -89,6 +89,8 @@ public:
 private:
 	void visitForOrWhileCondition(const std::function<void()>& pushCondition);
 	void afterLoopCheck(const std::unique_ptr<CFAnalyzer>& ci, const int& loopVarQty, bool _doAnalyzeFlag);
+	ControlFlowInfo beforeTryOrIfCheck(CFAnalyzer const& ci);
+	void afterTryOrIfCheck(ControlFlowInfo const& info);
 	bool visitNode(ASTNode const&) override { solUnimplemented("Internal error: unreachable"); }
 
 	bool visit(VariableDeclarationStatement const& _variableDeclarationStatement) override;

@@ -64,13 +64,11 @@ public:
 	bool visit(FunctionCall const& _functionCall) override;
 	bool visit(MemberAccess const &_node) override;
 	bool visit(FunctionDefinition const& fd) override;
-	bool visit(TryStatement const& fd) override;
 
 	bool hasMsgPubkey() const { return m_hasMsgPubkey; }
 	bool hasMsgSender() const { return m_hasMsgSender; }
 	bool hasResponsibleFunction() const { return m_hasResponsibleFunction; }
 	bool hasAwaitCall() const { return m_hasAwaitCall; }
-	bool hasTryCatch() const { return m_hasTryCatch; }
 	std::set<FunctionDefinition const *> const& awaitFunctions() const { return m_awaitFunctions; }
 
 private:
@@ -78,7 +76,6 @@ private:
 	bool m_hasMsgSender{};
 	bool m_hasResponsibleFunction{};
 	bool m_hasAwaitCall{};
-	bool m_hasTryCatch{};
 	std::set<Declaration const*> m_usedFunctions;
 	std::set<FunctionDefinition const*> m_awaitFunctions;
 };
@@ -103,7 +100,8 @@ static bool doesAlways(const Statement* st) {
 		to<Return>(st) ||
 		to<VariableDeclarationStatement>(st) ||
 		to<WhileStatement>(st) ||
-		to<TryStatement>(st)
+		to<TryStatement>(st) ||
+		to<FreeInlineAssembly>(st)
 	)
 		return false;
 	if (auto block = to<Block>(st)) {
@@ -116,7 +114,7 @@ static bool doesAlways(const Statement* st) {
 			return false;
 		return rec(&ifStatement->trueStatement()) && rec(ifStatement->falseStatement());
 	}
-	solUnimplemented( std::string("Unsupported statement type: ") + typeid(*st).name());
+	solUnimplemented(std::string("Unsupported statement type: ") + typeid(*st).name());
 }
 
 class CFAnalyzer: public ASTConstVisitor
@@ -136,9 +134,11 @@ protected:
 	bool visit(ForEachStatement const&) override;
 	bool visit(WhileStatement const&) override;
 	bool visit(ForStatement const&) override;
+
 	void endVisit(ForEachStatement const&) override;
 	void endVisit(WhileStatement const&) override;
 	void endVisit(ForStatement const&) override;
+
 	void endVisit(Return const&) override;
 	void endVisit(Break const&) override;
 	void endVisit(Continue const&) override;

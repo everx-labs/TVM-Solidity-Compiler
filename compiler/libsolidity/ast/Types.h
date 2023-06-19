@@ -176,10 +176,11 @@ public:
 		FixedBytes, Contract, Struct, Function, Enum, UserDefinedValueType, Tuple,
 		Mapping, TypeType, Modifier, Magic, Module,
 		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection, TvmVector, Variant,
-		VarInteger, InitializerList, CallList, // <-- variables of that types can't be declared in solidity contract
+		VarInteger,
+		InitializerList, CallList, // <-- variables of that types can't be declared in solidity contract
 		Optional,
-		Null, // null
-		EmpyMap // emptyMap
+		Null,
+		EmpyMap
 	};
 
 	/// @returns a pointer to _a or _b if the other is implicitly convertible to it or nullptr otherwise
@@ -762,12 +763,11 @@ public:
 	Category category() const override { return Category::TvmSlice; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_tvmslice"; }
+	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
 	TypeResult unaryOperatorResult(Token _operator) const override;
 	std::string toString(bool) const override { return "TvmSlice"; }
-
 	Type const* encodingType() const override { return this; }
 	TypeResult interfaceType(bool) const override { return this; }
-
 	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
 };
 
@@ -811,6 +811,8 @@ public:
 	int maxBitSizeInCell() const;
 	IntegerType const& asIntegerType() const { return m_int; }
 	uint32_t n() const { return m_n; }
+	bigint minValue() const;
+	bigint maxValue() const;
 private:
 	uint32_t m_n{};
 	IntegerType m_int;
@@ -1391,16 +1393,29 @@ public:
 		TVMDataSize, ///< cell.dataSize()
 		TVMDataSizeQ, ///< cell.dataSizeQ()
 
-		DecodeFunctionParams, ///< slice.decodeFunctionParams(function_name)
-		TVMLoadRef, ///< slice.loadRef()
-		TVMLoadSlice, ///< slice.loadSlice()
 		TVMSliceCompare, ///< slice.compare()
 		TVMSliceDataSize, ///< slice.dataSize()
-		TVMSliceDecode, ///< slice.decode(types)
-		TVMSliceDecodeQ, ///< slice.decodeQ(types)
-		TVMSliceDecodeStateVars, ///< slice.decodeStateVars(contract_name)
 		TVMSliceEmpty, ///< slice.empty()
 		TVMSliceHas, ///< slice.hasXXX()
+		TVMSliceLoad, ///< slice.load(types...)
+		TVMSliceLoadFunctionParams, ///< slice.loadFunctionParams(function_name)
+		TVMSliceLoadInt, ///< slice.loadInt()
+		TVMSliceLoadIntQ, ///< slice.loadIntQ()
+		TVMSliceLoadQ, ///< slice.loadQ(types...)
+		TVMSliceLoadRef, ///< slice.loadRef()
+		TVMSliceLoadSlice, ///< slice.loadSlice()
+		TVMSliceLoadStateVars, ///< slice.loadStateVars(contract_name)
+		TVMSliceLoadUint, ///< slice.loadUint()
+		TVMSliceLoadUintQ, ///< slice.loadUintQ()
+		TVMSliceLoadLE, ///< slice.load[U]intLE(4|8)[Q]()
+		TVMSlicePreLoadInt,  ///< slice.preloadInt()
+		TVMSlicePreLoadIntQ, ///< slice.preloadIntQ()
+		TVMSlicePreLoadSlice, ///< slice.preloadSlice()
+		TVMSlicePreLoadUint, ///< slice.preloadUint()
+		TVMSlicePreLoadUintQ, ///< slice.preloadUintQ()
+		TVMSlicePreload, ///< slice.preload(types...)
+		TVMSlicePreloadQ, ///< slice.preloadQ(types...)
+		TVMSlicePreloadRef, ///< slice.preloadRef()
 		TVMSliceSize, ///< slice.size()
 		TVMSliceSkip, ///< slice.skip()
 
@@ -1408,6 +1423,8 @@ public:
 
 		TVMBuilderMethods, ///< builder.*()
 		TVMBuilderStore, ///< builder.store(...)
+		TVMBuilderStoreInt, ///< builder.storeInt()
+		TVMBuilderStoreUint, ///< builder.storeUint()
 
 		TVMTuplePush, ///< tuple.push(...)
 		TVMTuplePop, ///< tuple.pop()
@@ -1522,6 +1539,7 @@ public:
 		StringMethod,  ///< string methods
 		StringSubstr,  ///< string.substr()
 		StringToLowerCase,  ///< string.toLowerCase()
+		StringToSlice, ///< .toSlice()
 		StringToUpperCase,  ///< string.toUpperCase()
 
 		BytesConcat, ///< .concat() on bytes (type type)

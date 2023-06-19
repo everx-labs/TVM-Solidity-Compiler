@@ -93,10 +93,9 @@ bool ControlFlowBuilder::visit(Conditional const& _conditional)
 
 bool ControlFlowBuilder::visit(TryStatement const& _tryStatement)
 {
-	appendControlFlow(_tryStatement.body());
-
-	auto nodes = splitFlow(1);
-    nodes[0] = createFlow(nodes[0], _tryStatement.clause().block());
+	auto nodes = splitFlow(2);
+	nodes[0] = createFlow(nodes[0], _tryStatement.body());
+	nodes[1] = createFlow(nodes[1], _tryStatement.clause());
 	mergeFlow(nodes);
 
 	return false;

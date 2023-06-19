@@ -1,7 +1,76 @@
+### 0.70.0 (2023-06-14)
+
+Compiler features:
+ * Supported [inline assembly](./API.md#assembly). 
+ * Supported overriding `onCodeUpgrade` function.
+ * Supported [User-defined Value Types](https://docs.soliditylang.org/en/latest/types.html#user-defined-value-types). You can also use this type in public functions.
+ * [Supported `type(T).min` and `type(T).max`](API.md#type-information).
+ * New `<TvmBuilder>.store*()` functions:
+   * `<TvmBuilder>.storeIntLE2()`
+   * `<TvmBuilder>.storeIntLE4()`
+   * `<TvmBuilder>.storeIntLE8()`
+   * `<TvmBuilder>.storeUintLE2()`
+   * `<TvmBuilder>.storeUintLE4()`
+   * `<TvmBuilder>.storeUintLE8()`
+ * New `<TvmSlice>.load*()` functions:
+   * `<TvmSlice>.loadIntQ()`
+   * `<TvmSlice>.loadUintQ()`
+   * `<TvmSlice>.loadSliceQ()`
+   * `<TvmSlice>.loadIntLE2()`
+   * `<TvmSlice>.loadIntLE4()`
+   * `<TvmSlice>.loadIntLE8()`
+   * `<TvmSlice>.loadUintLE2()`
+   * `<TvmSlice>.loadUintLE4()`
+   * `<TvmSlice>.loadUintLE8()`
+   * `<TvmSlice>.loadIntLE4Q()`
+   * `<TvmSlice>.loadIntLE8Q()`
+   * `<TvmSlice>.loadUintLE4Q()`
+   * `<TvmSlice>.loadUintLE8Q()`
+ * New `<TvmSlice>.preload*()` functions:
+   * `<TvmSlice>.preload()`
+   * `<TvmSlice>.preloadQ()`
+   * `<TvmSlice>.preloadRef()`
+   * `<TvmSlice>.preloadInt()`
+   * `<TvmSlice>.preloadIntQ()`
+   * `<TvmSlice>.preloadUint()`
+   * `<TvmSlice>.preloadUintQ()`
+   * `<TvmSlice>.preloadSlice()`
+   * `<TvmSlice>.preloadSliceQ()`
+   * `<TvmSlice>.preloadIntLE4()`
+   * `<TvmSlice>.preloadIntLE8()`
+   * `<TvmSlice>.preloadUintLE4()`
+   * `<TvmSlice>.preloadUintLE8()`
+   * `<TvmSlice>.preloadIntLE4Q()`
+   * `<TvmSlice>.preloadIntLE8Q()`
+   * `<TvmSlice>.preloadUintLE4Q()`
+   * `<TvmSlice>.preloadUintLE8Q()`
+ * Supported `variable integer` type in arguments of `math.*` functions.
+ * Supported conversion `bytes`/`string` <=>  `TvmSlice`.
+
+Gas optimizations:
+ * Assorted stack optimizations.
+
+Bugfixes:
+ * Fixed compilation fail if you use `<TvmSlice>.loadSlice(l)` where `l` is constant and `l == 0` or `l > 256`.
+
+Other changes:
+ * Renamed some functions. Old functions are available and marked as deprecated. Renaming:
+   * `<TvmSlice>.decode()` -> `<TvmSlice>.load()`
+   * `<TvmSlice>.decodeQ()` -> `<TvmSlice>.loadQ()`
+   * `<TvmSlice>.decodeFunctionParams()` -> `<TvmSlice>.loadFunctionParams()`
+   * `<TvmSlice>.decodeStateVars()` -> `<TvmSlice>.loadStateVars()`
+   * `<TvmSlice>.loadSigned()` -> `<TvmSlice>.loadInt()`
+   * `<TvmSlice>.loadUnsigned()` -> `<TvmSlice>.loadUint()`
+   * `<TvmBuilder>.storeSigned()` -> `<TvmSlice>.storeInt()`
+   * `<TvmBuilder>.storeUnsigned()` -> `<TvmSlice>.storeUint()`
+ * Improved `try-catch` (experimental feature). 
+ * Now `tx.storageFee` returns `uint120` (not `uint64`). 
+ * Renamed `tx.timestamp` to `tx.logicaltime`. `tx.timestamp` is available and marked as deprecated.
+
 ### 0.69.0 (2023-05-15)
 
 Breaking changes:
-* `pragma AbiHeader time` is no longer allowed for use. Timestamp in header of external message is enabled by default and can be disabled with `pragma AbiHeader notime`.
+ * `pragma AbiHeader time` is no longer allowed for use. Timestamp in header of external message is enabled by default and can be disabled with `pragma AbiHeader notime`.
 
 Compiler features:
  * Supported generating code for The Open Network. Use command line option `--tvm-version ton`. We don't use `ZERO(SWAP|ROTR)IF[NOT][2]`, `COPYLEFT`, `INITCODEHASH`, `MYCODE`, `STORAGEFEE`, `LDCONT`, `STCONT` and another opcodes for ton.
@@ -10,7 +79,7 @@ Optimizations:
  * Improved constant analyzer that compile more optimal code for `require`/`revert` functions and another cases.
 
 Bugfixes:
- * Fixed segmentation fault that could occur in some cases of using `var[U]Int` types.
+ * Fixed segmentation fault that could occur in some cases of using `variable integer` types.
  * Fixed segmentation fault that occurred in constructions `optional(T1, T2) x = null;` and some another cases. 
 
 ### 0.68.0 (2023-04-19)

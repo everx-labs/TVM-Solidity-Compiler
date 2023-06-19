@@ -68,7 +68,7 @@ public:
 	std::optional<Result> optimizeSlice(int idx1) const;
 	static std::optional<Result> optimizeAt1(Pointer<TvmAstNode> const& cmd1, bool m_withUnpackOpaque);
 	static std::optional<Result> optimizeAt2(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2) ;
-    static std::optional<Result> optimizeAt3(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, Pointer<TvmAstNode> const& cmd3, bool m_withUnpackOpaque);
+	static std::optional<Result> optimizeAt3(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, Pointer<TvmAstNode> const& cmd3, bool m_withUnpackOpaque);
 	static std::optional<Result> optimizeAt4(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, Pointer<TvmAstNode> const& cmd3,
 					   Pointer<TvmAstNode> const& cmd4);
 	static std::optional<Result> optimizeAt5(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, Pointer<TvmAstNode> const& cmd3,
@@ -484,7 +484,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt1(Pointer<TvmAstNode> 
 			return false;
 		}
 		return *instructions.at(0) == *gen(isZero ? "PUSHINT 0" : "NULL") &&
-               (!isSwap || *instructions.at(1) == *makeXCH_S(1));
+			   (!isSwap || *instructions.at(1) == *makeXCH_S(1));
 	};
 
 	// PUSHCONT {
@@ -510,7 +510,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt1(Pointer<TvmAstNode> 
 					}
 					if (f(isZero, isSwap, curBranch->instructions())) {
 						Pointer<AsymGen> align = getZeroOrNullAlignment(isZero, !isSwap,
-                                                                        !trueBranch || cmd1IfElse->withNot());
+																		!trueBranch || cmd1IfElse->withNot());
 						solAssert(trueBranch ? true : !cmd1IfElse->withNot(), "");
 						auto emptyBlock = createNode<CodeBlock>(curBranch->type());
 						return Result{1,
@@ -1258,23 +1258,23 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 		}
 	}
 
-    //            ; a b
-    // SWAP       ; b a
-    // gen(0, 1)  ; b a c
-    // ROT        ; a c b
-    // =>
-    // gen(0,1)
-    // SWAP
-    if (isSWAP(cmd1)) {
-        std::optional<std::pair<int, int>> rot = isBLKSWAP(cmd3);
-        if (rot && *rot == std::make_pair(1, 2)) {
-            if (isPureGen01(*cmd2)) {
-                return Result{3, cmd2, makeXCH_S(1)};
-            }
-        }
-    }
+	//            ; a b
+	// SWAP       ; b a
+	// gen(0, 1)  ; b a c
+	// ROT        ; a c b
+	// =>
+	// gen(0,1)
+	// SWAP
+	if (isSWAP(cmd1)) {
+		std::optional<std::pair<int, int>> rot = isBLKSWAP(cmd3);
+		if (rot && *rot == std::make_pair(1, 2)) {
+			if (isPureGen01(*cmd2)) {
+				return Result{3, cmd2, makeXCH_S(1)};
+			}
+		}
+	}
 
-    // TODO delete, fix in stackOpt
+	// TODO delete, fix in stackOpt
 	// Note: breaking stack
 	// DUP
 	// IFREF { CALL $c7_to_c4$ / $upd_only_time_in_c4$ }
@@ -1564,6 +1564,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 				c2 = get(j);
 			}
 
+			// TODO ADD LD[I|U]LE[4|8]
 			if (is(c1, "STZERO")) {
 				bitString += "0";
 				++opcodeQty;
@@ -1598,6 +1599,12 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 				bitString += StrUtils::toBitString(hexSlice);
 				opcodeQty += 2;
 				i = nextCommandLine(j);
+			} else if (c2 && isPUSHINT(c1) && is(c2, "STGRAMS")) {
+				bigint arg = pushintValue(c1);
+				bitString += StrUtils::tonsToBinaryString(arg);
+				opcodeQty += 2;
+				i = nextCommandLine(j);
+				break;
 			} else {
 				break;
 			}

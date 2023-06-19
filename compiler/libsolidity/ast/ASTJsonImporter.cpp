@@ -510,7 +510,13 @@ ASTPointer<FunctionDefinition> ASTJsonImporter::createFunctionDefinition(Json::V
 		createParameterList(member(_node, "parameters")),
 		modifiers,
 		createParameterList(member(_node, "returnParameters")),
-		memberAsBool(_node, "implemented") ? createBlock(member(_node, "body"), false) : nullptr
+		memberAsBool(_node, "implemented") ? createBlock(member(_node, "body"), false) : nullptr,
+		nullopt,
+		false,
+		false,
+		false,
+		false,
+		false
 	);
 }
 

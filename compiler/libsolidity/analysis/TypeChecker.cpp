@@ -524,6 +524,7 @@ TypePointers TypeChecker::typeCheckMetaTypeFunctionAndRetrieveReturnType(Functio
 			wrongType = contractType->isSuper();
 		else if (
 			typeCategory != Type::Category::Integer &&
+			typeCategory != Type::Category::VarInteger &&
 			typeCategory != Type::Category::Enum
 		)
 			wrongType = true;
@@ -719,6 +720,14 @@ bool TypeChecker::isBadAbiType(
 		case Type::Category::VarInteger:
 			break;
 
+		case Type::Category::UserDefinedValueType: {
+			auto userDefType = dynamic_cast<UserDefinedValueType const*>(curType);
+			if (isBadAbiType(origVarLoc, &userDefType->underlyingType(), curVarLoc, usedStructs, doPrintErr)) {
+				return true;
+			}
+			break;
+		}
+
 		default: {
 			printError("ABI doesn't support " + curType->toString() + " type.");
 			return true;
@@ -757,8 +766,8 @@ bool TypeChecker::visit(FunctionDefinition const& _function)
 	if (!_function.modifiers().empty() && _function.isFree())
 		m_errorReporter.syntaxError(5811_error, _function.location(), "Free functions cannot have modifiers.");
 
-	if (_function.externalMsg() || _function.internalMsg()) {
-		if (_function.externalMsg() && _function.internalMsg()) {
+	if (_function.isExternalMsg() || _function.isInternalMsg()) {
+		if (_function.isExternalMsg() && _function.isInternalMsg()) {
 			m_errorReporter.typeError(228_error, _function.location(), R"("internalMsg" and "externalMsg" cannot be used together.)");
 		}
 		if (!_function.functionIsExternallyVisible()) {
@@ -1152,9 +1161,9 @@ void TypeChecker::endVisit(TryStatement const& _tryStatement)
 
     auto printError = [&](SourceLocation const& loc){
         m_errorReporter.typeError(
-				228_error,
-                loc,
-                "Expected `catch (variant value, uint number) { ... }`.");
+			228_error,
+			loc,
+			"Expected `catch (variant value, uint number) { ... }`.");
     };
     if (errArgs.size() != 2) {
         printError(clause.location());
@@ -1163,7 +1172,7 @@ void TypeChecker::endVisit(TryStatement const& _tryStatement)
     if (*errArgs.at(0)->type() != *TypeProvider::variant()) {
         printError(errArgs.at(0)->location());
     }
-    if (*errArgs.at(1)->type() != *TypeProvider::uint256()) {
+    if (*errArgs.at(1)->type() != *TypeProvider::uint(16)) {
         printError(errArgs.at(1)->location());
     }
 }
@@ -3350,11 +3359,11 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 
 		for (const auto & arg : arguments) {
 			Type::Category cat = arg->annotation().type->mobileType()->category();
-			if (cat != Type::Category::Integer) {
+			if (cat != Type::Category::Integer && cat != Type::Category::VarInteger) {
 				m_errorReporter.fatalTypeError(
 					228_error,
 					arg->location(),
-					"Expected an integer type."
+					"Expected an integer or variable integer type."
 				);
 			}
 		}
@@ -3376,11 +3385,11 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 
 		for (const auto & arg : arguments) {
 			Type::Category cat = arg->annotation().type->mobileType()->category();
-			if (cat != Type::Category::Integer && cat != Type::Category::FixedPoint) {
+			if (cat != Type::Category::Integer && cat != Type::Category::FixedPoint && cat != Type::Category::VarInteger) {
 				m_errorReporter.fatalTypeError(
 					228_error,
 					arg->location(),
-					"Expected integer or fixed point type."
+					"Expected integer, variable integer or fixed point type."
 				);
 			}
 		}
@@ -3491,13 +3500,15 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			returnTypes = checkSliceDecode(arguments);
 			break;
 		}
-		case FunctionType::Kind::TVMSliceDecode:
+		case FunctionType::Kind::TVMSliceLoad:
+		case FunctionType::Kind::TVMSlicePreload:
 		{
 			checkAtLeastOneArg();
 			returnTypes = checkSliceDecode(_functionCall.arguments());
 			break;
 		}
-		case FunctionType::Kind::TVMSliceDecodeQ:
+		case FunctionType::Kind::TVMSliceLoadQ:
+		case FunctionType::Kind::TVMSlicePreloadQ:
 		{
 			checkAtLeastOneArg();
 			TypePointers members = checkSliceDecode(_functionCall.arguments()); // TODO make for Q
@@ -3512,7 +3523,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			returnTypes = getReturnTypesForTVMConfig(_functionCall);
 			break;
 		}
-		case FunctionType::Kind::DecodeFunctionParams:
+		case FunctionType::Kind::TVMSliceLoadFunctionParams:
 		{
 			if (arguments.size() != 1) {
 				m_errorReporter.fatalTypeError(
@@ -3563,7 +3574,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			returnTypes = functionType->returnParameterTypes();
 			break;
 		}
-		case FunctionType::Kind::TVMSliceDecodeStateVars:
+		case FunctionType::Kind::TVMSliceLoadStateVars:
 		{
 			if (arguments.size() != 1) {
 				m_errorReporter.fatalTypeError(

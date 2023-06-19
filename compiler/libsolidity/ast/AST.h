@@ -930,11 +930,12 @@ public:
 		std::vector<ASTPointer<ModifierInvocation>> _modifiers,
 		ASTPointer<ParameterList> const& _returnParameters,
 		ASTPointer<Block> const& _body,
-		std::optional<uint32_t> _functionID = {},
-		bool _isInline = false,
-		bool _responsible = false,
-		bool _externalMsg = false,
-		bool _internalMsg = false
+		std::optional<uint32_t> _functionID,
+		bool _isInline,
+		bool _responsible,
+		bool _externalMsg,
+		bool _internalMsg,
+		bool _freeInlineAssembly
 	):
 		CallableDeclaration(_id, _location, _name, std::move(_nameLocation), _visibility, _parameters, _isVirtual, _overrides, _returnParameters),
 		StructurallyDocumented(_documentation),
@@ -945,10 +946,11 @@ public:
 		m_functionModifiers(std::move(_modifiers)),
 		m_body(_body),
 		m_functionID(_functionID),
-		m_isInline(_isInline),
+		m_inline(_isInline),
 		m_responsible{_responsible},
 		m_externalMsg{_externalMsg},
-		m_internalMsg{_internalMsg}
+		m_internalMsg{_internalMsg},
+		m_inlineAssembly{_freeInlineAssembly}
 	{
 		solAssert(_kind == Token::Constructor || _kind == Token::Function ||
 			  _kind == Token::Fallback || _kind == Token::Receive || _kind == Token::onBounce ||
@@ -1015,10 +1017,11 @@ public:
 	}
 
 	std::optional<uint32_t> functionID() const { return m_functionID; }
-	bool isInline() const { return m_isInline; }
+	bool isInline() const { return m_inline; }
 	bool isResponsible() const { return m_responsible; }
-	bool externalMsg() const { return m_externalMsg; }
-	bool internalMsg() const { return m_internalMsg; }
+	bool isExternalMsg() const { return m_externalMsg; }
+	bool isInternalMsg() const { return m_internalMsg; }
+	bool isInlineAssembly() const { return m_inlineAssembly; }
 	FunctionDefinition const& resolveVirtual(
 		ContractDefinition const& _mostDerivedContract,
 		ContractDefinition const* _searchStart = nullptr
@@ -1031,10 +1034,11 @@ private:
 	std::vector<ASTPointer<ModifierInvocation>> m_functionModifiers;
 	ASTPointer<Block> m_body;
 	std::optional<uint32_t> m_functionID;
-	bool m_isInline;
+	bool m_inline{};
 	bool m_responsible{};
 	bool m_externalMsg{};
 	bool m_internalMsg{};
+	bool m_inlineAssembly{};
 };
 
 /**
@@ -1556,6 +1560,23 @@ public:
 	): ASTNode(_id, _location), Documented(_docString) {}
 
 	StatementAnnotation& annotation() const override;
+};
+
+class FreeInlineAssembly: public Statement
+{
+public:
+	explicit FreeInlineAssembly(
+		int64_t _id,
+		SourceLocation const& _location,
+		ASTPointer<ASTString> const& _docString,
+		std::vector<ASTPointer<Expression>> _lines
+	): Statement(_id, _location, _docString), m_lines{_lines} {}
+	void accept(ASTVisitor& _visitor) override;
+	void accept(ASTConstVisitor& _visitor) const override;
+	StatementAnnotation& annotation() const override;
+	std::vector<ASTPointer<Expression>> const& lines() const { return m_lines; }
+private:
+	std::vector<ASTPointer<Expression>> m_lines;
 };
 
 /**

@@ -70,14 +70,14 @@ void TVMCompilerProceedContract(
 	const std::string& outputFolder,
 	const std::string& filePrefix,
 	bool doPrintFunctionIds,
-    bool doPrivateFunctionIds
+	bool doPrivateFunctionIds
 ) {
 	std::string pathToFiles = getPathToFiles(solFileName, outputFolder, filePrefix);
 
 	PragmaDirectiveHelper pragmaHelper{*pragmaDirectives};
 	if (doPrintFunctionIds) {
-        TVMContractCompiler::printFunctionIds(_contract, pragmaHelper);
-    } else if (doPrivateFunctionIds) {
+		TVMContractCompiler::printFunctionIds(_contract, pragmaHelper);
+	} else if (doPrivateFunctionIds) {
 		TVMContractCompiler::printPrivateFunctionIds(_contract, _sourceUnits, pragmaHelper);
 	} else {
 		if (generateCode) {

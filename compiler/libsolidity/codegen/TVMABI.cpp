@@ -502,6 +502,9 @@ Json::Value TVMABI::setupNameTypeComponents(const string &name, const Type *type
 					components = obj["components"];
 				}
 			}
+		} else if (auto userDefType = to<UserDefinedValueType>(type)) {
+			Json::Value obj = setupNameTypeComponents("", &userDefType->underlyingType());
+			typeName = obj["type"].asString();
 		} else {
 			solUnimplemented("");
 		}
@@ -580,6 +583,9 @@ void DecodePositionAbiV2::initTypes(Type const* type) {
 		for (const auto &m : members) {
 			initTypes(m->type());
 		}
+	} else if (type->category() == Type::Category::UserDefinedValueType) {
+		auto userDefType = to<UserDefinedValueType>(type);
+		initTypes(&userDefType->underlyingType());
 	} else {
 		m_types.push_back(type);
 	}
@@ -624,17 +630,18 @@ void ChainDataDecoder::decodePublicFunctionParameters(
 ) {
 	if (isInternal) {
 		DecodePositionAbiV2 position{minBits(isResponsible), 0, types};
-		decodeParameters(types, position, true);
+		decodeParameters(types, position);
 	} else {
 		DecodePositionAbiV2 position{maxBits(isResponsible), 0, types};
-		decodeParameters(types, position, true);
+		decodeParameters(types, position);
 	}
+	*pusher << "ENDS";
 }
 
 void ChainDataDecoder::decodeFunctionParameters(const std::vector<Type const*>& types, bool isResponsible) {
 	pusher->startOpaque();
 	pusher->pushS(1);
-	pusher->push(-1, ""); // fix stack
+	pusher->fixStack(-1); // fix stack
 
 	pusher->startContinuation();
 	decodePublicFunctionParameters(types, isResponsible, false);
@@ -650,13 +657,13 @@ void ChainDataDecoder::decodeFunctionParameters(const std::vector<Type const*>& 
 
 void ChainDataDecoder::decodeData(int offset, int usedRefs, const std::vector<Type const*>& types) {
 	DecodePositionAbiV2 position{offset, usedRefs, types};
-	decodeParameters(types, position, true);
+	decodeParameters(types, position);
+	*pusher << "ENDS";
 }
 
 void ChainDataDecoder::decodeParameters(
 	const std::vector<Type const*>& types,
-	DecodePosition& position,
-	const bool doDropSlice
+	DecodePosition& position
 ) {
 	// slice are on stack
 	solAssert(pusher->stackSize() >= 1, "");
@@ -665,9 +672,6 @@ void ChainDataDecoder::decodeParameters(
 		auto savedStackSize = pusher->stackSize();
 		decodeParameter(type, &position);
 		pusher->ensureSize(savedStackSize + 1, "decodeParameter-2");
-	}
-	if (doDropSlice) {
-		pusher->push(-1, "ENDS"); // only ENDS
 	}
 
 	if (!pusher->hasLock())
@@ -702,9 +706,9 @@ void ChainDataDecoder::decodeParametersQ(
 }
 
 void ChainDataDecoder::loadNextSlice() {
-	pusher->push(-1 + 2, "LDREF");
-	pusher->push(-1, "ENDS"); // only ENDS
-	pusher->push(-1 + 1, "CTOS");
+	*pusher << "LDREF";
+	*pusher << "ENDS"; // only ENDS
+	*pusher << "CTOS";
 }
 
 void ChainDataDecoder::loadNextSliceIfNeed(bool doLoadNextSlice) {
@@ -733,7 +737,7 @@ void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition* positio
 		if (auto enumType = to<EnumType>(type)) {
 			pusher->pushS(1);
 			pusher->pushInt(enumType->enumDefinition().members().size());
-			pusher->push(-1, "GEQ");
+			*pusher << "GEQ";
 			pusher->_throw("THROWIF " + toString(TvmConst::RuntimeException::WrongValueOfEnum));
 		}
 	} else if (
@@ -747,6 +751,8 @@ void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition* positio
 	) {
 		loadNextSliceIfNeed(position->loadNextCell(type));
 		pusher->load(type, false);
+	} else if (auto userDefType = to<UserDefinedValueType>(type)) {
+		decodeParameter(&userDefType->underlyingType(), position);
 	} else {
 		solUnimplemented("Unsupported parameter type for decoding: " + type->toString());
 	}
@@ -783,7 +789,7 @@ void ChainDataDecoder::decodeParameterQ(Type const* type, DecodePosition* positi
 		// val slice -1
 		pusher->pushS(1);
 		pusher->pushInt(enumType->enumDefinition().members().size());
-		pusher->push(-1, "GEQ");
+		*pusher << "GEQ";
 		pusher->_throw("THROWIF " + toString(TvmConst::RuntimeException::WrongValueOfEnum));
 	}
 }
@@ -796,12 +802,12 @@ void ChainDataEncoder::createDefaultConstructorMsgBodyAndAppendToBuilder(const i
 
 	if (bitSizeBuilder < (1023 - 32 - 1)) {
 		pusher->stzeroes(1);
-		pusher->push(0, "STSLICECONST " + ss.str());
+		*pusher << "STSLICECONST " + ss.str();
 	} else {
 		pusher->stones(1);
-		pusher->push(+1, "NEWC");
-		pusher->push(0, "STSLICECONST " + ss.str());
-		pusher->push(-1, "STBREFR");
+		*pusher << "NEWC";
+		*pusher << "STSLICECONST " + ss.str();
+		*pusher << "STBREFR";
 	}
 }
 
@@ -810,7 +816,7 @@ void ChainDataEncoder::createDefaultConstructorMessage2()
 	uint32_t funcID = calculateConstructorFunctionID();
 	std::stringstream ss;
 	ss << "x" << std::hex << std::setfill('0') << std::setw(8) << funcID;
-	pusher->push(0, "STSLICECONST " + ss.str());
+	*pusher << "STSLICECONST " + ss.str();
 }
 
 uint32_t ChainDataEncoder::calculateConstructorFunctionID() {
@@ -850,17 +856,17 @@ std::pair<uint32_t, bool> ChainDataEncoder::calculateFunctionID(const CallableDe
 }
 
 uint32_t ChainDataEncoder::toHash256(std::string const& str) {
-    bytes hash = picosha2::hash256(bytes(
-            str.begin(),
-            str.end()
-    ));
-    uint32_t funcID = 0;
-    for (size_t i = 0; i < 4; i++) {
-        funcID <<= 8u;
-        funcID += hash[i];
-    }
+	bytes hash = picosha2::hash256(bytes(
+			str.begin(),
+			str.end()
+	));
+	uint32_t funcID = 0;
+	for (size_t i = 0; i < 4; i++) {
+		funcID <<= 8u;
+		funcID += hash[i];
+	}
 
-    return funcID;
+	return funcID;
 }
 
 uint32_t ChainDataEncoder::calculateFunctionID(
@@ -944,20 +950,20 @@ uint32_t ChainDataEncoder::calculateFunctionIDWithReason(
 	}
 	bool isManuallyOverridden = functionId.has_value();
 	uint32_t funcID{};
-    if (isManuallyOverridden) {
-        funcID = functionId.value();
-    } else {
-        funcID = calculateFunctionID(name, inputs, outputs);
-        switch (reason) {
-            case ReasonOfOutboundMessage::FunctionReturnExternal:
-                funcID |= 0x80000000;
-                break;
-            case ReasonOfOutboundMessage::EmitEventExternal:
-            case ReasonOfOutboundMessage::RemoteCallInternal:
-                funcID &= 0x7FFFFFFFu;
-                break;
-        }
-    }
+	if (isManuallyOverridden) {
+		funcID = functionId.value();
+	} else {
+		funcID = calculateFunctionID(name, inputs, outputs);
+		switch (reason) {
+			case ReasonOfOutboundMessage::FunctionReturnExternal:
+				funcID |= 0x80000000;
+				break;
+			case ReasonOfOutboundMessage::EmitEventExternal:
+			case ReasonOfOutboundMessage::RemoteCallInternal:
+				funcID &= 0x7FFFFFFFu;
+				break;
+		}
+	}
 	return funcID;
 }
 
@@ -985,7 +991,7 @@ void ChainDataEncoder::createMsgBodyAndAppendToBuilder(
 	if (!doAppend) {
 		position = std::make_unique<DecodePositionAbiV2>(32 + callbackLength, 0, types);
 		pusher->blockSwap(params.size(), 1); // msgBuilder, arg[n-1], ..., arg[1], arg[0]
-		pusher->push(+1, "NEWC"); // msgBuilder, arg[n-1], ..., arg[1], arg[0], builder
+		*pusher << "NEWC"; // msgBuilder, arg[n-1], ..., arg[1], arg[0], builder
 	}
 
 	// arg[n-1], ..., arg[1], arg[0], msgBuilder
@@ -993,7 +999,7 @@ void ChainDataEncoder::createMsgBodyAndAppendToBuilder(
 
 	if (!doAppend) {
 		// msgBuilder, builder
-		pusher->push(-1, "STBREFR");
+		*pusher << "STBREFR";
 	}
 
 	if (!pusher->hasLock())
@@ -1015,16 +1021,16 @@ void ChainDataEncoder::createMsgBody(
 	if (functionId.index() == 0) {
 		std::stringstream ss;
 		ss << "x" << std::hex << std::setfill('0') << std::setw(8) << std::get<0>(functionId);
-		pusher->push(0, "STSLICECONST " + ss.str());
+		*pusher << "STSLICECONST " + ss.str();
 	} else {
 		std::get<1>(functionId)();
-		pusher->push(-1, "STUR 32");
+		*pusher << "STUR 32";
 	}
 
 	if (callbackFunctionId.has_value()) {
 		std::stringstream ss;
 		ss << "x" << std::hex << std::setfill('0') << std::setw(8) << callbackFunctionId.value();
-		pusher->push(0, "STSLICECONST " + ss.str());
+		*pusher << "STSLICECONST " + ss.str();
 	}
 
 	encodeParameters(types, position);
@@ -1055,13 +1061,13 @@ void ChainDataEncoder::encodeParameters(
 			if (position.loadNextCell(type)) {
 				// arg[n-1], ..., arg[1], arg[0], builder
 				pusher->blockSwap(argQty, 1);
-				pusher->push(+1, "NEWC");
+				*pusher << "NEWC";
 			}
 			pusher->store(type, false);
 		}
 	}
 	for (int idx = 0; idx < position.countOfCreatedBuilders(); idx++) {
-		pusher->push(-1, "STBREFR");
+		*pusher << "STBREFR";
 	}
 }
 

@@ -50,6 +50,14 @@ private:
 	std::vector<Declaration const*> m_stackSize;
 };
 
+class InherHelper {
+public:
+	explicit InherHelper(ContractDefinition const* contract);
+	bool isBaseFunction(CallableDeclaration const* d) const;
+private:
+	std::set<CallableDeclaration const*> m_baseFunctions;
+};
+
 class TVMCompilerContext {
 public:
 	TVMCompilerContext(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
@@ -59,7 +67,6 @@ public:
 	bool tooMuchStateVariables() const;
 	std::vector<Type const *> notConstantStateVariableTypes() const;
 	PragmaDirectiveHelper const& pragmaHelper() const;
-	bool hasTimeInAbiHeader() const;
 	bool isStdlib() const;
 	std::string getFunctionInternalName(FunctionDefinition const* _function, bool calledByPoint = true) const;
 	static std::string getLibFunctionName(FunctionDefinition const* _function, bool withObject) ;
@@ -99,8 +106,8 @@ public:
 	}
 	std::map<std::string, std::vector<Type const*>> const& buildTuple() const { return m_tuples; }
 
-    bool getPragmaSaveAllFunctions() const { return m_pragmaSaveAllFunctions; }
-    void setPragmaSaveAllFunctions() { m_pragmaSaveAllFunctions = true; }
+	bool getPragmaSaveAllFunctions() const { return m_pragmaSaveAllFunctions; }
+	void setPragmaSaveAllFunctions() { m_pragmaSaveAllFunctions = true; }
 
 private:
 	// TODO split to several classes
@@ -119,13 +126,13 @@ private:
 	bool m_isFallBackGenerated{};
 	bool m_isReceiveGenerated{};
 	bool m_isOnBounceGenerated{};
-    std::set<CallableDeclaration const*> m_baseFunctions;
-    ContactsUsageScanner m_usage;
+	ContactsUsageScanner m_usage;
 
 	std::set<std::pair<std::string, TupleExpression const*>> m_constArrays;
 	std::set<std::pair<std::string, FunctionCall const*>> m_newArray;
 	std::map<std::string, std::vector<Type const*>> m_tuples;
-    bool m_pragmaSaveAllFunctions{};
+	bool m_pragmaSaveAllFunctions{};
+	InherHelper const m_inherHelper;
 };
 
 class StackPusher {
@@ -158,10 +165,11 @@ public:
 	void push(const Pointer<Stack>& opcode);
 	void push(const Pointer<AsymGen>& opcode);
 	void push(const Pointer<HardCode>& opcode);
+	void pushAsym(Pointer<AsymGen>&& node);
 	void pushAsym(std::string const& opcode);
 	StackPusher& operator<<(std::string const& opcode);
 	void push(std::string const& opcode);
-	void push(int stackDiff, const std::string& cmd);
+	void fixStack(int stackDiff);
 private:
 	void pushCellOrSlice(const Pointer<PushCellOrSlice>& opcode);
 public:
@@ -199,7 +207,7 @@ public:
 	void repeat(bool _withBreakOrReturn);
 	void until(bool withBreakOrReturn);
 	void _while(bool _withBreakOrReturn);
-	void tryOpcode();
+	void tryOpcode(bool saveAltC2);
 	void ret();
 	void retAlt();
 	void ifRetAlt();
@@ -209,7 +217,7 @@ public:
 
 	TVMStack& getStack();
 	void pushLoc(const std::string& file, int line);
-    void pushString(const std::string& str, bool toSlice);
+	void pushString(const std::string& str, bool toSlice);
 	void pushLog();
 	void untuple(int n);
 	void indexWithExcep(int index);
@@ -311,13 +319,13 @@ public:
 		const Type& keyType,
 		const Type& valueType,
 		GetDictOperation op,
-  		const DataType& dataType = DataType::Slice
+		const DataType& dataType = DataType::Slice
 	);
 
 	void pushEmptyArray();
 	void pushNull();
 	void pushEmptyCell();
-	void pushDefaultValue(Type const* type);
+	void pushDefaultValue(Type const* _type);
 	void sendIntMsg(const std::map<int, const Expression *> &exprs,
 					const std::map<int, std::string> &constParams,
 					const std::function<void(int)> &appendBody,
