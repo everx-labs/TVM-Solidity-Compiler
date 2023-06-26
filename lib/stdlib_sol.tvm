@@ -1,7 +1,3 @@
-.globl	insert_pubkey
-.type	insert_pubkey, @function
-CALL $insert_pubkey_macro$
-
 .macro insert_pubkey_macro
 .loc stdlib.sol, 14
 SWAP
@@ -107,10 +103,6 @@ THROWIFNOT 55
 ENDC
 .loc stdlib.sol, 0
 
-.globl	replay_protection
-.type	replay_protection, @function
-CALL $replay_protection_macro$
-
 .macro replay_protection_macro
 .loc stdlib.sol, 61
 GETGLOB 3
@@ -130,36 +122,24 @@ THROWIFNOT 52
 SETGLOB 3
 .loc stdlib.sol, 0
 
-.globl	__tonToGas
-.type	__tonToGas, @function
-CALL $__tonToGas_macro$
-
 .macro __tonToGas_macro
 .loc stdlib.sol, 67
 PUSHPOW2 16
 SWAP
 CALLREF {
-	CALL $__gasGasPrice_macro$
+	.inline ____gasGasPrice_macro
 }
 MULDIV
 .loc stdlib.sol, 0
 
-.globl	__gasToTon
-.type	__gasToTon, @function
-CALL $__gasToTon_macro$
-
 .macro __gasToTon_macro
 .loc stdlib.sol, 71
 CALLREF {
-	CALL $__gasGasPrice_macro$
+	.inline ____gasGasPrice_macro
 }
 PUSHPOW2 16
 MULDIVC
 .loc stdlib.sol, 0
-
-.globl	__gasGasPrice
-.type	__gasGasPrice, @function
-CALL $__gasGasPrice_macro$
 
 .macro __gasGasPrice_macro
 .loc stdlib.sol, 75
@@ -191,10 +171,6 @@ LDU 8
 PLDU 64
 BLKDROP2 4, 1
 .loc stdlib.sol, 0
-
-.globl	__exp
-.type	__exp, @function
-CALL $__exp_macro$
 
 .macro __exp_macro
 .loc stdlib.sol, 83
@@ -233,10 +209,6 @@ WHILE
 .loc stdlib.sol, 93
 BLKDROP2 2, 1
 .loc stdlib.sol, 0
-
-.globl	parseInteger
-.type	parseInteger, @function
-CALL $parseInteger_macro$
 
 .macro parseInteger_macro
 .loc stdlib.sol, 99
@@ -320,10 +292,6 @@ DROP
 BLKDROP2 2, 1
 .loc stdlib.sol, 0
 
-.globl	convertIntToDecStr_short
-.type	convertIntToDecStr_short, @function
-CALL $convertIntToDecStr_short_macro$
-
 .macro convertIntToDecStr_short_macro
 .loc stdlib.sol, 112
 ROTREV
@@ -334,13 +302,9 @@ DUP
 ROLL 5
 LESSINT 0
 CALLREF {
-	CALL $convertIntToDecStr_macro$
+	.inline __convertIntToDecStr_macro
 }
 .loc stdlib.sol, 0
-
-.globl	convertIntToDecStr
-.type	convertIntToDecStr, @function
-CALL $convertIntToDecStr_macro$
 
 .macro convertIntToDecStr_macro
 .loc stdlib.sol, 116
@@ -446,7 +410,7 @@ IFNOT
 ROLL 3
 PUSHINT 10
 CALLREF {
-	CALL $parseInteger_macro$
+	.inline __parseInteger_macro
 }
 .loc stdlib.sol, 132
 DUP
@@ -734,10 +698,6 @@ IFELSE
 BLKDROP 5
 .loc stdlib.sol, 0
 
-.globl	convertAddressToHexString
-.type	convertAddressToHexString, @function
-CALL $convertAddressToHexString_macro$
-
 .macro convertAddressToHexString_macro
 .loc stdlib.sol, 181
 REWRITESTDADDR
@@ -745,7 +705,7 @@ REWRITESTDADDR
 OVER2
 ROLL 3
 CALLREF {
-	CALL $convertIntToHexStr_short_macro$
+	.inline __convertIntToHexStr_short_macro
 }
 POP S3
 POP S3
@@ -796,13 +756,9 @@ TRUE
 DUP
 FALSE
 CALLREF {
-	CALL $convertIntToHexStr_macro$
+	.inline __convertIntToHexStr_macro
 }
 .loc stdlib.sol, 0
-
-.globl	convertFixedPointToString
-.type	convertFixedPointToString, @function
-CALL $convertFixedPointToString_macro$
 
 .macro convertFixedPointToString_macro
 .loc stdlib.sol, 195
@@ -814,7 +770,7 @@ PUSH3 S2, S0, S2
 OR
 THROWIFNOT 69
 CALLREF {
-	CALL $__exp_macro$
+	.inline ____exp_macro
 }
 DIVMOD
 .loc stdlib.sol, 197
@@ -826,7 +782,7 @@ ROLL 7
 SGN
 LESSINT 0
 CALLREF {
-	CALL $convertIntToDecStr_macro$
+	.inline __convertIntToDecStr_macro
 }
 POP S4
 POP S4
@@ -876,13 +832,9 @@ SWAP
 TRUE
 FALSE
 CALLREF {
-	CALL $convertIntToDecStr_macro$
+	.inline __convertIntToDecStr_macro
 }
 .loc stdlib.sol, 0
-
-.globl	convertIntToHexStr_short
-.type	convertIntToHexStr_short, @function
-CALL $convertIntToHexStr_short_macro$
 
 .macro convertIntToHexStr_short_macro
 .loc stdlib.sol, 210
@@ -895,13 +847,9 @@ TRUE
 ROLL 6
 LESSINT 0
 CALLREF {
-	CALL $convertIntToHexStr_macro$
+	.inline __convertIntToHexStr_macro
 }
 .loc stdlib.sol, 0
-
-.globl	convertIntToHexStr
-.type	convertIntToHexStr, @function
-CALL $convertIntToHexStr_macro$
 
 .macro convertIntToHexStr_macro
 .loc stdlib.sol, 214
@@ -1007,7 +955,7 @@ IFNOT
 ROLL 4
 PUSHINT 16
 CALLREF {
-	CALL $parseInteger_macro$
+	.inline __parseInteger_macro
 }
 .loc stdlib.sol, 230
 DUP
@@ -1337,10 +1285,6 @@ IFELSE
 BLKDROP 6
 .loc stdlib.sol, 0
 
-.globl	storeStringInBuilders
-.type	storeStringInBuilders, @function
-CALL $storeStringInBuilders_macro$
-
 .macro storeStringInBuilders_macro
 .loc stdlib.sol, 288
 OVER
@@ -1412,10 +1356,6 @@ STSLICE
 BLKDROP2 3, 1
 .loc stdlib.sol, 0
 
-.globl	assembleList
-.type	assembleList, @function
-CALL $assembleList_macro$
-
 .macro assembleList_macro
 .loc stdlib.sol, 306
 PUSHCONT {
@@ -1451,10 +1391,6 @@ WHILE
 ENDC
 NIP
 .loc stdlib.sol, 0
-
-.globl	__stoi
-.type	__stoi, @function
-CALL $__stoi_macro$
 
 .macro __stoi_macro
 .loc stdlib.sol, 315
@@ -1685,10 +1621,6 @@ IF
 BLKDROP2 2, 1
 .loc stdlib.sol, 0
 
-.globl	strToList
-.type	strToList, @function
-CALL $strToList_macro$
-
 .macro strToList_macro
 .loc stdlib.sol, 370
 TUPLE 0
@@ -1742,10 +1674,6 @@ NEWC
 STSLICE
 .loc stdlib.sol, 0
 
-.globl	bytes_substr
-.type	bytes_substr, @function
-CALL $bytes_substr_macro$
-
 .macro bytes_substr_macro
 .loc stdlib.sol, 385
 PUSH S3
@@ -1779,13 +1707,9 @@ GEQ
 THROWIFNOT 70
 .loc stdlib.sol, 392
 CALLREF {
-	CALL $__subCell_macro$
+	.inline ____subCell_macro
 }
 .loc stdlib.sol, 0
-
-.globl	__substr
-.type	__substr, @function
-CALL $__substr_macro$
 
 .macro __substr_macro
 .loc stdlib.sol, 396
@@ -1817,13 +1741,9 @@ THROWIFNOT 70
 .loc stdlib.sol, 401
 UFITS 256
 CALLREF {
-	CALL $__subCell_macro$
+	.inline ____subCell_macro
 }
 .loc stdlib.sol, 0
-
-.globl	__subCell
-.type	__subCell, @function
-CALL $__subCell_macro$
 
 .macro __subCell_macro
 .loc stdlib.sol, 404
@@ -1946,14 +1866,10 @@ PUSHCONT {
 WHILE
 .loc stdlib.sol, 430
 CALLREF {
-	CALL $assembleList_macro$
+	.inline __assembleList_macro
 }
 BLKDROP2 2, 1
 .loc stdlib.sol, 0
-
-.globl	compareLongStrings
-.type	compareLongStrings, @function
-CALL $compareLongStrings_macro$
 
 .macro compareLongStrings_macro
 .loc stdlib.sol, 437
@@ -2033,15 +1949,11 @@ DROP2
 PUSHINT 0
 .loc stdlib.sol, 0
 
-.globl	concatenateStrings
-.type	concatenateStrings, @function
-CALL $concatenateStrings_macro$
-
 .macro concatenateStrings_macro
 .loc stdlib.sol, 459
 SWAP
 CALLREF {
-	CALL $strToList_macro$
+	.inline __strToList_macro
 }
 .loc stdlib.sol, 460
 ROT
@@ -2049,7 +1961,7 @@ CTOS
 .loc stdlib.sol, 461
 BLKPUSH 3, 2
 CALLREF {
-	CALL $storeStringInBuilders_macro$
+	.inline __storeStringInBuilders_macro
 }
 POP S3
 POP S3
@@ -2066,7 +1978,7 @@ PUSHCONT {
 	.loc stdlib.sol, 464
 	BLKPUSH 3, 2
 	CALLREF {
-		CALL $storeStringInBuilders_macro$
+		.inline __storeStringInBuilders_macro
 	}
 	POP S3
 	POP S3
@@ -2076,13 +1988,9 @@ WHILE
 .loc stdlib.sol, 466
 DROP
 CALLREF {
-	CALL $assembleList_macro$
+	.inline __assembleList_macro
 }
 .loc stdlib.sol, 0
-
-.globl	__strchr
-.type	__strchr, @function
-CALL $__strchr_macro$
 
 .macro __strchr_macro
 .loc stdlib.sol, 469
@@ -2134,10 +2042,6 @@ BLKDROP 3
 NIP
 .loc stdlib.sol, 0
 
-.globl	__strrchr
-.type	__strrchr, @function
-CALL $__strrchr_macro$
-
 .macro __strrchr_macro
 .loc stdlib.sol, 479
 NULL
@@ -2183,10 +2087,6 @@ WHILE
 BLKDROP 3
 NIP
 .loc stdlib.sol, 0
-
-.globl	__strstr
-.type	__strstr, @function
-CALL $__strstr_macro$
 
 .macro __strstr_macro
 .loc stdlib.sol, 514
@@ -2394,10 +2294,6 @@ BLKDROP 6
 BLKDROP2 2, 1
 .loc stdlib.sol, 0
 
-.globl	__toLowerCase
-.type	__toLowerCase, @function
-CALL $__toLowerCase_macro$
-
 .macro __toLowerCase_macro
 .loc stdlib.sol, 549
 NEWC
@@ -2496,10 +2392,6 @@ WHILE
 ENDC
 NIP
 .loc stdlib.sol, 0
-
-.globl	__toUpperCase
-.type	__toUpperCase, @function
-CALL $__toUpperCase_macro$
 
 .macro __toUpperCase_macro
 .loc stdlib.sol, 574
@@ -2600,10 +2492,6 @@ ENDC
 NIP
 .loc stdlib.sol, 0
 
-.globl	stateInitHash
-.type	stateInitHash, @function
-CALL $stateInitHash_macro$
-
 .macro stateInitHash_macro
 .loc stdlib.sol, 599
 NEWC
@@ -2623,5 +2511,70 @@ STU 256
 ENDC
 CTOS
 SHA256U
+.loc stdlib.sol, 0
+
+.macro __forwardFee_macro
+.loc stdlib.sol, 622
+DEPTH
+ADDCONST -3
+PICK
+CTOS
+.loc stdlib.sol, 623
+DUP
+LDU 1
+POP S2
+.loc stdlib.sol, 624
+PUSHCONT {
+	.loc stdlib.sol, 635
+	DROP
+	PUSHINT 0
+	.loc stdlib.sol, 0
+}
+PUSHCONT {
+	.loc stdlib.sol, 629
+	LDU 3
+	LDMSGADDR
+	LDMSGADDR
+	LDVARUINT16
+	LDDICT
+	LDVARUINT16
+	BLKDROP2 6, 1
+	.loc stdlib.sol, 633
+	LDVARUINT16
+	DROP
+	.loc stdlib.sol, 0
+}
+IFELSE
+.loc stdlib.sol, 0
+
+.macro __importFee_macro
+.loc stdlib.sol, 640
+DEPTH
+ADDCONST -3
+PICK
+CTOS
+.loc stdlib.sol, 641
+DUP
+LDU 2
+POP S2
+.loc stdlib.sol, 642
+EQINT 2
+PUSHCONT {
+	.loc stdlib.sol, 645
+	LDMSGADDR
+	LDMSGADDR
+	BLKDROP2 2, 1
+	.loc stdlib.sol, 646
+	LDVARUINT16
+	DROP
+	.loc stdlib.sol, 0
+}
+PUSHCONT {
+	.loc stdlib.sol, 648
+	DROP
+	PUSHINT 0
+	.loc stdlib.sol, 0
+}
+IFELSE
 .loc stdlib.sol, 0
 

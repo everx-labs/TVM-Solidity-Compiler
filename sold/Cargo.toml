@@ -1,7 +1,7 @@
 [package]
 edition = '2021'
 name = 'sold'
-version = '0.70.0'
+version = '0.71.0'
 
 [[bin]]
 name = 'sold'
@@ -16,10 +16,10 @@ serde_json = { features = [ 'unbounded_depth' ], version = '1.0' }
 strip-ansi-escapes = '0.1'
 clap = { features = [ 'derive' ], version = '4.2' }
 serde = { features = [ 'derive' ], version = '1.0' }
-ton_abi = { git = 'https://github.com/tonlabs/ever-abi.git', tag = '2.3.108' }
-ton_block = { git = 'https://github.com/tonlabs/ever-block.git', tag = '1.9.70' }
-ton_types = { git = 'https://github.com/tonlabs/ever-types.git', tag = '2.0.12' }
-tvm_linker = { git = 'https://github.com/tonlabs/TVM-linker.git', tag = '0.20.3' }
+ton_abi = { git = 'https://github.com/tonlabs/ever-abi.git', tag = '2.3.129' }
+ton_block = { git = 'https://github.com/tonlabs/ever-block.git', tag = '1.9.88' }
+ton_types = { git = 'https://github.com/tonlabs/ever-types.git', tag = '2.0.18' }
+tvm_linker = { git = 'https://github.com/tonlabs/TVM-linker.git', tag = '0.20.4' }
 
 [build-dependencies]
 cmake = '0.1'

@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
+ * Copyright (C) 2020-2023 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -11,8 +11,6 @@
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
  */
 /**
- * @author TON Labs <connect@tonlabs.io>
- * @date 2019
  * AST to TVM bytecode contract compiler
  */
 
@@ -211,7 +209,7 @@ TVMFunctionCompiler::generateC4ToC7WithInitMemory(TVMCompilerContext& ctx) {
 	pusher << "GTINT 1";
 
 	pusher.startContinuation();
-	pusher.pushCall(0, 0, "c4_to_c7");
+	pusher.pushMacro(0, 0, "c4_to_c7");
 	pusher.endContinuationFromRef();
 
 	pusher.startContinuation();
@@ -495,7 +493,7 @@ Pointer<Function>
 TVMFunctionCompiler::generatePrivateFunction(TVMCompilerContext& ctx, const std::string& name, FunctionDefinition const* funDef) {
 	StackPusher pusher{&ctx};
 	const std::string macroName = name + "_macro";
-	pusher.pushCall(0, 0, macroName);
+	pusher.pushMacro(0, 0, macroName);
 	return createNode<Function>(0, 0, name, Function::FunctionType::PrivateFunction, pusher.getBlock(), funDef);
 }
 
@@ -507,7 +505,7 @@ Pointer<Function> TVMFunctionCompiler::generateLibraryFunction(
 	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, 0, function, true, true, 0};
 	const std::string macroName = name + "_macro";
-	pusher.pushCall(0, 0, macroName);
+	pusher.pushMacro(0, 0, macroName);
 	return createNode<Function>(0, 0, name, Function::FunctionType::PrivateFunctionWithObj, pusher.getBlock());
 }
 
@@ -929,8 +927,12 @@ bool TVMFunctionCompiler::visit(TryStatement const& _tryState) {
 
 	// try body
 	m_pusher.startContinuation();
-	for (ASTPointer<VariableDeclaration> const& variable : _tryState.clause().parameters()->parameters()) {
-		m_pusher.getStack().add(variable.get(), true);
+	if (_tryState.clause().parameters()) {
+		for (ASTPointer<VariableDeclaration> const& variable : _tryState.clause().parameters()->parameters()) {
+			m_pusher.getStack().add(variable.get(), true);
+		}
+	} else {
+		m_pusher.fixStack(+2);
 	}
 	_tryState.clause().block().accept(*this);
 	m_pusher.drop(m_pusher.stackSize() - startStackSize);
@@ -1732,7 +1734,7 @@ void TVMFunctionCompiler::defaultReplayProtection() {
 	// msgSlice
 	m_pusher << "LDU 64                         ; timestamp msgSlice";
 	m_pusher.exchange(1);
-	m_pusher.pushCall(1, 0, "replay_protection_macro");
+	m_pusher.pushMacro(1, 0, "replay_protection_macro");
 }
 
 void TVMFunctionCompiler::expire() {
@@ -1749,7 +1751,7 @@ void TVMFunctionCompiler::callPublicFunctionOrFallback() {
 	if (m_pusher.ctx().isFallBackGenerated()) {
 		m_pusher.drop(2);
 		m_pusher.startContinuation();
-		m_pusher.pushCall(0, 0, "fallback_macro");
+		m_pusher.pushMacro(0, 0, "fallback_macro");
 		m_pusher.pushRefContAndCallX(0, 0, false);
 	} else {
 		m_pusher._throw("THROW " + toString(TvmConst::RuntimeException::NoFallback));
@@ -1810,7 +1812,7 @@ TVMFunctionCompiler::generateMainInternal(TVMCompilerContext& ctx, ContractDefin
 		pusher.pushS(1);
 		pusher << "LDSLICE 32";
 		pusher.dropUnder(1, 1);
-		pusher.pushCall(0, 0, "on_bounce_macro");
+		pusher.pushMacro(0, 0, "on_bounce_macro");
 		pusher.endContinuationFromRef();
 		pusher.ifJmp();
 	} else {
@@ -1879,7 +1881,7 @@ void TVMFunctionCompiler::pushC4ToC7IfNeed() {
 		m_pusher.was_c4_to_c7_called();
 		m_pusher.fixStack(-1); // fix stack
 		m_pusher.startContinuation();
-		m_pusher.pushCall(0, 0, "c4_to_c7");
+		m_pusher.pushMacro(0, 0, "c4_to_c7");
 		m_pusher.endContinuationFromRef();
 		m_pusher._if();
 	}
@@ -1898,13 +1900,13 @@ void TVMFunctionCompiler::updC4IfItNeeds() {
 		) {
 			m_pusher.pushS(0);
 			m_pusher.startContinuation();
-			m_pusher.pushCall(0, 0, "upd_only_time_in_c4");
+			m_pusher.pushMacro(0, 0, "upd_only_time_in_c4");
 			m_pusher.endContinuationFromRef();
 			m_pusher._if();
 		} else {
 			m_pusher.pushS(0);
 			m_pusher.startContinuation();
-			m_pusher.pushCall(0, 0, "c7_to_c4");
+			m_pusher.pushMacro(0, 0, "c7_to_c4");
 			m_pusher.endContinuationFromRef();
 			m_pusher._if();
 		}
@@ -1954,7 +1956,7 @@ void TVMFunctionCompiler::pushReceiveOrFallback() {
 		m_pusher.endContinuation();
 		m_pusher.ifNot();
 		m_pusher.startContinuation();
-		m_pusher.pushCall(0, 0, "receive_macro");
+		m_pusher.pushMacro(0, 0, "receive_macro");
 		m_pusher.endContinuationFromRef();
 		m_pusher.ifJmp();
 	} else {
@@ -1993,7 +1995,7 @@ void TVMFunctionCompiler::buildPublicFunctionSelector(
 		m_pusher << "EQUAL";
 		m_pusher.fixStack(-1); // fix stack
 		m_pusher.startContinuation();
-		m_pusher.pushCall(0, 0, name);
+		m_pusher.pushMacro(0, 0, name);
 		m_pusher.endContinuationFromRef();
 		m_pusher.ifJmp();
 	};

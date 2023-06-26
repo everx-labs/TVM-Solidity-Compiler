@@ -950,7 +950,7 @@ protected:
 	std::string identifierLocationSuffix() const;
 
 	// TODO DELETE
-	// it's useless parameter in TON
+	// it's useless parameter in TVM
 	bool m_isPointer = true;
 };
 
@@ -1532,9 +1532,11 @@ public:
 		MappingValues,  ///< .values() for a mapping
 
 		OptionalGet,  ///< .get() for optional
-		OptionalSet,  ///< .set() for optional
+		OptionalGetOr,  ///< .getOr() for optional
+		OptionalGetOrDefault,  ///< .getOrDefault() for optional
 		OptionalHasValue,  ///< .hasValue() for optional
 		OptionalReset,  ///< .reset() for optional
+		OptionalSet,  ///< .set() for optional
 
 		StringMethod,  ///< string methods
 		StringSubstr,  ///< string.substr()

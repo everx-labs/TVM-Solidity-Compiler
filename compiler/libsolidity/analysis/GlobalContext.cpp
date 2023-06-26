@@ -45,8 +45,8 @@ int magicVariableToID(std::string const& _name)
 	else if (_name == "block") return -4;
 	else if (_name == "blockhash") return -5;
 	else if (_name == "ecrecover") return -6;
-	else if (_name == "format") return -105;
 	else if (_name == "gasleft") return -7;
+	else if (_name == "format") return -105;
 	else if (_name == "keccak256") return -8;
 	else if (_name == "logtvm") return -102;
 	else if (_name == "math") return -103;
@@ -86,6 +86,7 @@ inline vector<shared_ptr<MagicVariableDeclaration const>> constructMagicVariable
 		magicVarDecl("addmod", TypeProvider::function(strings{"uint256", "uint256", "uint256"}, strings{"uint256"}, FunctionType::Kind::AddMod, StateMutability::Pure)),
 		magicVarDecl("assert", TypeProvider::function(strings{"bool"}, strings{}, FunctionType::Kind::Assert, StateMutability::Pure)),
 		magicVarDecl("block", TypeProvider::magic(MagicType::Kind::Block)),
+		magicVarDecl("gasleft", TypeProvider::function(strings(), {"uint64"}, FunctionType::Kind::GasLeft, StateMutability::Pure)),
 		magicVarDecl("msg", TypeProvider::magic(MagicType::Kind::Message)),
 		magicVarDecl("mulmod", TypeProvider::function(strings{"uint256", "uint256", "uint256"}, strings{"uint256"}, FunctionType::Kind::MulMod, StateMutability::Pure)),
 		magicVarDecl("now", TypeProvider::uint(32)),

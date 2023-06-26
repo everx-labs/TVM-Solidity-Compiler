@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
+ * Copyright (C) 2019-2023 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -9,10 +9,6 @@
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
- */
-/**
- * @author TON Labs <connect@tonlabs.io>
- * @date 2019
  */
 
 #pragma once
@@ -36,6 +32,8 @@ public:
 	bool visit(FunctionDefinition const& fc) override;
 	bool visit(ContractDefinition const& ) override;
 	bool visit(IndexRangeAccess const& ) override;
+	void checkDeprecation(FunctionCall const& _functionCall);
+	void checkSupport(FunctionCall const& _functionCall);
 	bool visit(FunctionCall const& ) override;
 	bool visit(PragmaDirective const& ) override;
 	bool visit(MemberAccess const& ) override;

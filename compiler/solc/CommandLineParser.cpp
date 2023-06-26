@@ -512,7 +512,7 @@ void CommandLineParser::parseOutputSelection()
 po::options_description CommandLineParser::optionsDescription()
 {
 	// Declare the supported options.
-	po::options_description desc((R"(solc, the Ever Solidity commandline compiler.
+	po::options_description desc((R"(solc, the TVM Solidity commandline compiler.
 
 This program comes with ABSOLUTELY NO WARRANTY. This is free software, and you
 are welcome to redistribute it under certain conditions. See 'solc --)" + g_strLicense + R"('

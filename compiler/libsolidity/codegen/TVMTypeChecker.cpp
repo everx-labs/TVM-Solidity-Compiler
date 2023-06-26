@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
+ * Copyright (C) 2020-2023 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -9,10 +9,6 @@
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
- */
-/**
- * @author TON Labs <connect@tonlabs.io>
- * @date 2019
  */
 
 
@@ -210,7 +206,7 @@ bool TVMTypeChecker::visit(const FunctionDefinition &f) {
 		if (f.functionID().value() == 0) {
 			m_errorReporter.typeError(228_error, f.location(), "functionID can't be equal to zero because this value is reserved for receive function.");
 		}
-		if (!f.isPublic() && f.name() != "onCodeUpgrade") {
+		if (!f.functionIsExternallyVisible() && f.name() != "onCodeUpgrade") {
 			m_errorReporter.typeError(228_error, f.location(), "Only public/external functions and function `onCodeUpgrade` can have functionID.");
 		}
 		if (f.isReceive() || f.isFallback() || f.isOnTickTock() || f.isOnBounce()) {
@@ -263,38 +259,17 @@ bool TVMTypeChecker::visit(IndexRangeAccess const& indexRangeAccess) {
 	return true;
 }
 
-bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
+void TVMTypeChecker::checkDeprecation(FunctionCall const& _functionCall) {
 	auto memberAccess = to<MemberAccess>(&_functionCall.expression());
 	ASTString const& memberName = memberAccess ? memberAccess->memberName() : "";
 	Type const* expressionType = _functionCall.expression().annotation().type;
-	std::vector<ASTPointer<Expression const>> const& arguments = _functionCall.arguments();
 	switch (expressionType->category()) {
 	case Type::Category::Function: {
 		auto functionType = to<FunctionType>(expressionType);
-
-		if (functionType->hasDeclaration()) {
-			auto fd = to<FunctionDefinition>(&functionType->declaration());
-			if (fd && fd->name() == "onCodeUpgrade") {
-				if (m_inherHelper->isBaseFunction(fd)) {
-					m_errorReporter.typeError(
-						228_error, _functionCall.location(),
-						"It is forbidden to call base functions of \"onCodeUpgrade\".");
-				}
-			}
-		}
-
 		switch (functionType->kind()) {
-		case FunctionType::Kind::TVMInitCodeHash:
-			if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-				m_errorReporter.typeError(228_error, _functionCall.location(),
-										  "\"tvm.initCodeHash()\"" + isNotSupportedVM);
-			}
-			break;
-		case FunctionType::Kind::TVMCode:
-			if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-				m_errorReporter.typeError(228_error, _functionCall.location(),
-										  "\"tvm.code()\"" + isNotSupportedVM);
-			}
+		case FunctionType::Kind::OptionalReset:
+			m_errorReporter.warning(228_error, _functionCall.location(),
+									"\"<optional(T)>.reset()\" is deprecated. Use \"delete <optional(T)>;\".");
 			break;
 		case FunctionType::Kind::TVMSliceLoad:
 			if (memberName == "decode") {
@@ -357,6 +332,72 @@ bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
 		default:
 			break;
 		}
+		break;
+	}
+	default:
+		break;
+	}
+}
+
+void TVMTypeChecker::checkSupport(FunctionCall const& _functionCall) {
+	Type const* expressionType = _functionCall.expression().annotation().type;
+	switch (expressionType->category()) {
+	case Type::Category::Function: {
+		auto functionType = to<FunctionType>(expressionType);
+		switch (functionType->kind()) {
+		case FunctionType::Kind::GasLeft:
+			if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
+				m_errorReporter.typeError(228_error, _functionCall.location(),
+										  "\"gasleft()\"" + isNotSupportedVM);
+			}
+			break;
+		case FunctionType::Kind::TVMInitCodeHash:
+			if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
+				m_errorReporter.typeError(228_error, _functionCall.location(),
+										  "\"tvm.initCodeHash()\"" + isNotSupportedVM);
+			}
+			break;
+		case FunctionType::Kind::TVMCode:
+			if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
+				m_errorReporter.typeError(228_error, _functionCall.location(),
+										  "\"tvm.code()\"" + isNotSupportedVM);
+			}
+			break;
+		default:
+			break;
+		}
+		break;
+	}
+	default:
+		break;
+	}
+
+	if (_functionCall.isAwait() && *GlobalParams::g_tvmVersion == TVMVersion::ton()) {
+		m_errorReporter.typeError(228_error, _functionCall.location(),
+								  "\"*.await\"" + isNotSupportedVM);
+	}
+}
+
+bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
+	checkDeprecation(_functionCall);
+	checkSupport(_functionCall);
+
+	Type const* expressionType = _functionCall.expression().annotation().type;
+	std::vector<ASTPointer<Expression const>> const& arguments = _functionCall.arguments();
+	switch (expressionType->category()) {
+	case Type::Category::Function: {
+		auto functionType = to<FunctionType>(expressionType);
+
+		if (functionType->hasDeclaration()) {
+			auto fd = to<FunctionDefinition>(&functionType->declaration());
+			if (fd && fd->name() == "onCodeUpgrade") {
+				if (m_inherHelper->isBaseFunction(fd)) {
+					m_errorReporter.typeError(
+						228_error, _functionCall.location(),
+						"It is forbidden to call base functions of \"onCodeUpgrade\".");
+				}
+			}
+		}
 
 		switch (functionType->kind()) {
 		case FunctionType::Kind::TVMSliceLoadInt:
@@ -383,11 +424,6 @@ bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
 	}
 	default:
 		break;
-	}
-
-	if (_functionCall.isAwait() && *GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-		m_errorReporter.typeError(228_error, _functionCall.location(),
-								  "\"*.await\"" + isNotSupportedVM);
 	}
 
 	return true;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
+ * Copyright (C) 2021-2023 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -11,8 +11,6 @@
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
  */
 /**
- * @author TON Labs <connect@tonlabs.io>
- * @date 2021
  * TVM Solidity abstract syntax tree.
  */
 
@@ -280,8 +278,8 @@ namespace solidity::frontend
 		int ret() const override { return 1; }
 		Type type() const  { return m_type; }
 		std::string const &blob() const { return m_blob; }
+		std::string chainBlob() const;
 		Pointer<PushCellOrSlice> child() const { return m_child; }
-		bool equal(PushCellOrSlice const& another) const; // TODO delete
 		void updToRef();
 	private:
 		Type m_type;
@@ -365,7 +363,7 @@ namespace solidity::frontend
 				  Pointer<CodeBlock> const &falseBody,
 				  int ret);
 		void accept(TvmAstVisitor& _visitor) override;
-		bool operator==(TvmAstNode const&) const override { return false; } // TODO
+		bool operator==(TvmAstNode const&) const override;
 		bool withNot() const { return m_withNot; }
 		bool withJmp() const { return m_withJmp; }
 		Pointer<CodeBlock> const& trueBody() const { return m_trueBody; }
@@ -501,7 +499,8 @@ namespace solidity::frontend
 	};
 
 	Pointer<GenOpcode> gen(const std::string& cmd);
-	Pointer<PushCellOrSlice> genPushSlice(const std::string& data);
+	Pointer<PushCellOrSlice> genPushSlice(const std::string& _str);
+	Pointer<PushCellOrSlice> makePushCellOrSlice(std::string const& hexStr, bool toSlice);
 	Pointer<Stack> makeDROP(int cnt = 1);
 	Pointer<Stack> makePOP(int i);
 	Pointer<Stack> makeBLKPUSH(int qty, int index);
@@ -539,7 +538,7 @@ namespace solidity::frontend
 	bool isXCHG(Pointer<TvmAstNode> const& node, int i, int j);
 	std::optional<int> isXCHG_S0(Pointer<TvmAstNode> const& node);
 	std::optional<std::pair<int, int>> isREVERSE(Pointer<TvmAstNode> const& node);
-	Pointer<PushCellOrSlice> isPlainPushSlice(Pointer<TvmAstNode> const& node);
+	Pointer<PushCellOrSlice> isPlainPushSlice(Pointer<TvmAstNode> const& node); // TODO DELETE, support long slices
 
 	int getRootBitSize(PushCellOrSlice const &_node);
 

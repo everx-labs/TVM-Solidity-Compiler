@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
+ * Copyright (C) 2020-2023 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -11,8 +11,6 @@
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
  */
 /**
- * @author TON Labs <connect@tonlabs.io>
- * @date 2021
  * Peephole optimizer
  */
 
@@ -1104,9 +1102,11 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 
 	// LD[I|U] N / LDDICT / LDREF / LD[I|U]X N
 	// DROP
-	if ((is(cmd1, "LDU", "LDI", "LDREF", "LDDICT", "LDUX", "LDIX")) &&
+	if ((is(cmd1, "LDU", "LDI", "LDREF", "LDDICT", "LDUX", "LDIX",
+			"LDSLICE", "LDSLICEX")) &&
 		isDrop(cmd2)
 	) {
+		// TODO add LD[I|U]LE[4|8]
 		int n = isDrop(cmd2).value();
 		Pointer<GenOpcode> newOpcode = gen("P" + cmd1GenOp->fullOpcode());
 		if (n == 1) {
@@ -1122,8 +1122,11 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2,
 											 Pointer<TvmAstNode> const& cmd3, bool m_withUnpackOpaque) {
 	auto isPUSH1 = isPUSH(cmd1);
+	auto cmd1PushCellOrSlice = to<PushCellOrSlice>(cmd1.get());
 	auto isPUSH2 = isPUSH(cmd2);
+	auto cmd2PushCellOrSlice = to<PushCellOrSlice>(cmd2.get());
 	auto cmd3GenOpcode = to<GenOpcode>(cmd3.get());
+	auto cmd3SubProgram = to<SubProgram>(cmd3.get());
 
 	// NEW
 	// s01
@@ -1274,6 +1277,20 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 		}
 	}
 
+
+	if (cmd1PushCellOrSlice && cmd1PushCellOrSlice->type() == PushCellOrSlice::Type::PUSHREF &&
+		cmd2PushCellOrSlice && cmd2PushCellOrSlice->type() == PushCellOrSlice::Type::PUSHREF
+	) {
+		if (cmd3SubProgram) {
+			std::vector<Pointer<TvmAstNode>> const& instructions = cmd3SubProgram->block()->instructions();
+			if (instructions.size() == 1 &&
+				*instructions.at(0) == *createNode<GenOpcode>(".inline __concatenateStrings_macro", 2, 1)) {
+				string hexStr = cmd1PushCellOrSlice->chainBlob() + cmd2PushCellOrSlice->chainBlob();
+				return Result{3, makePushCellOrSlice(hexStr, false)};
+			}
+		}
+	}
+
 	// TODO delete, fix in stackOpt
 	// Note: breaking stack
 	// DUP
@@ -1287,7 +1304,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 			std::vector<Pointer<TvmAstNode>> const &cmds = ifRef->trueBody()->instructions();
 			if (cmds.size() == 1) {
 				if (auto gen = to<GenOpcode>(cmds.at(0).get())) {
-					if (isIn(gen->fullOpcode(), "CALL $c7_to_c4$", "CALL $upd_only_time_in_c4$")) {
+					if (isIn(gen->fullOpcode(), ".inline __c7_to_c4", ".inline __upd_only_time_in_c4")) {
 						return Result{2, cmd2};
 					}
 				}
@@ -1452,7 +1469,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt5(Pointer<TvmAstNode> 
 		std::optional<std::string> slice = StrUtils::unitBitStringToHex(bitStr, "");
 		if (slice.has_value()) {
 			return Result{5,
-					  genPushSlice(*slice),
+					genPushSlice(*slice),
 					gen("NEWC"),
 					gen("STSLICE")};
 		}
@@ -2005,7 +2022,7 @@ std::optional<Result> PrivatePeepholeOptimizer::squashPush(const int idx1) const
 		int n = 0;
 		while (true) {
 			auto cmdI = to<PushCellOrSlice>(get(i).get());
-			if  (cmdI && cmd1PushCellOrSlice->equal(*cmdI))
+			if  (cmdI && *cmd1PushCellOrSlice == *cmdI)
 			{
 				n++;
 				i = nextCommandLine(i);

@@ -450,7 +450,7 @@ impl fmt::Display for TvmVersion {
 }
 
 #[derive(Parser, Debug)]
-#[clap(author, about = "sold, the Ever Solidity commandline driver", long_about = None)]
+#[clap(author, about = "sold, the TVM Solidity commandline driver", long_about = None)]
 #[clap(arg_required_else_help = true)]
 #[clap(version = VERSION.get().unwrap().as_str())]
 pub struct Args {

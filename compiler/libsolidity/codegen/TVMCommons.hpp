@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
+ * Copyright (C) 2019-2023 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -11,8 +11,6 @@
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
  */
 /**
- * @author TON Labs <connect@tonlabs.io>
- * @date 2019
  * Common TVM codegen routines, in particular, types, data structures, scope, stack manipulations, etc.
  */
 
@@ -352,6 +350,7 @@ enum class GetDictOperation {
 	GetFromMapping,
 	GetSetFromMapping,
 	GetAddFromMapping,
+	GetDelFromMapping,
 	GetReplaceFromMapping,
 	GetFromArray,
 	Fetch,
@@ -366,7 +365,7 @@ struct LValueInfo {
 };
 
 DictValueType toDictValueType(const Type::Category& category);
-std::string stringToBytes(const std::string& str);
+std::string stringToHex(const std::string& str);
 std::set<CallableDeclaration const*> getAllBaseFunctions(CallableDeclaration const* f);
 bool isLoc(Pointer<TvmAstNode> const& node);
 std::vector<std::string> split(const std::string &s, char sep = '\n');

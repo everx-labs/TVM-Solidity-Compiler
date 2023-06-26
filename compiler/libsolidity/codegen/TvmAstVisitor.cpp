@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
+ * Copyright (C) 2021-2023 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -11,8 +11,6 @@
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
  */
 /**
- * @author TON Labs <connect@tonlabs.io>
- * @date 2021
  * Visitor for TVM Solidity abstract syntax tree.
  */
 
@@ -103,7 +101,27 @@ bool Printer::visit(GenOpcode &_node) {
 	else if (_node.fullOpcode() == "UNTUPLE 1") m_out << "UNSINGLE";
 	else if (_node.fullOpcode() == "UNTUPLE 2") m_out << "UNPAIR";
 	else if (_node.fullOpcode() == "UNTUPLE 3") m_out << "UNTRIPLE";
-	else if (_node.fullOpcode() == "STSLICECONST x4_") m_out << "STZERO";
+	else if (_node.opcode() == "UNTUPLE") {
+		int ret = boost::lexical_cast<int>(_node.arg());
+		if (ret <= 15) {
+			m_out << "UNTUPLE " << ret;
+		} else {
+			m_out << "PUSHINT " << ret;
+			endL();
+			tabs();
+			m_out << "UNTUPLEVAR";
+		}
+	} else if (_node.opcode() == "UNPACKFIRST") {
+		int ret = boost::lexical_cast<int>(_node.arg());
+		if (ret <= 15) {
+			m_out << "UNPACKFIRST " << ret;
+		} else {
+			m_out << "PUSHINT " << ret;
+			endL();
+			tabs();
+			m_out << "UNPACKFIRSTVAR";
+		}
+	} else if (_node.fullOpcode() == "STSLICECONST x4_") m_out << "STZERO";
 	else if (_node.fullOpcode() == "STSLICECONST xc_") m_out << "STONE";
 	else if (isIn(_node.opcode(), "INDEX_EXCEP", "INDEX_NOEXCEP")) {
 		int index = boost::lexical_cast<int>(_node.arg());
@@ -631,7 +649,7 @@ bool Printer::visit(TryCatch &_node) {
 	_node.tryBody()->accept(*this);
 	_node.catchBody()->accept(*this);
 	tabs();
-	m_out << ".blob xF2FE ; TRYKEEP" << std::endl;
+	m_out << "TRYKEEP" << std::endl;
 	return false;
 }
 

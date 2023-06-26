@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
+ * Copyright (C) 2021-2023 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -11,8 +11,6 @@
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
  */
 /**
- * @author TON Labs <connect@tonlabs.io>
- * @date 2021
  * TVM Solidity abstract syntax tree.
  */
 
@@ -32,6 +30,15 @@
 
 using namespace solidity::frontend;
 using namespace std;
+
+namespace {
+	bool eq(Pointer<TvmAstNode> const& a,Pointer<TvmAstNode> const& b) {
+		if ((a == nullptr) ^ (b == nullptr)) {
+			return false;
+		}
+		return a == nullptr || *a == *b;
+	}
+}
 
 void Loc::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
@@ -260,12 +267,14 @@ void PushCellOrSlice::accept(TvmAstVisitor& _visitor) {
 bool PushCellOrSlice::operator==(TvmAstNode const& _node) const {
 	auto p = to<PushCellOrSlice>(&_node);
 	if (p && std::tie(m_type, m_blob) == std::tie(p->m_type, p->m_blob)) {
-		if (m_child == nullptr && p->m_child == nullptr) {
+		if ((m_child == nullptr) ^ (p->m_child == nullptr)) {
+			return false;
+		}
+		if (m_child == nullptr) {
+			// p->m_child == nullptr also
 			return true;
 		}
-		if (m_child != nullptr && p->m_child != nullptr) {
-			return *m_child.get() == *p->m_child.get();
-		}
+		return *m_child.get() == *p->m_child.get();
 	}
 	return false;
 }
@@ -280,23 +289,15 @@ bool PushCellOrSlice::operator<(TvmAstNode const& _node) const {
 	return std::tie(m_type, m_blob, *m_child) < std::tie(p->m_type, p->m_blob, *p->m_child);
 }
 
-bool PushCellOrSlice::equal(PushCellOrSlice const& another) const {
-	PushCellOrSlice const* a = this;
-	PushCellOrSlice const* b = &another;
-	while (true) {
-		if (a->m_blob != b->m_blob || a->m_type != b->m_type) {
-			return false;
-		}
-		if (!a->m_child && !b->m_child) {
-			return true;
-		}
-		if (!a->m_child || !b->m_child) {
-			return false;
-		}
-		a = a->m_child.get();
-		b = b->m_child.get();
+std::string PushCellOrSlice::chainBlob() const {
+	string s;
+	PushCellOrSlice const* p = this;
+	while (p != nullptr) {
+		solAssert(p->blob().at(0) == 'x');
+		s += p->blob().substr(1);
+		p = p->child().get();
 	}
-	solUnimplemented("");
+	return s;
 }
 
 void PushCellOrSlice::updToRef() {
@@ -390,6 +391,12 @@ void TvmIfElse::accept(TvmAstVisitor& _visitor) {
 			m_falseBody->accept(_visitor);
 		}
 	}
+}
+
+bool TvmIfElse::operator==(TvmAstNode const& _node) const {
+	auto op = to<TvmIfElse>(&_node);
+	return op && eq(m_trueBody, op->m_trueBody) && eq(op->m_falseBody, op->m_falseBody) &&
+		std::tie(m_withNot, m_withJmp, m_ret) == std::tie(op->m_withNot, op->m_withJmp, op->m_ret);
 }
 
 void TvmRepeat::accept(TvmAstVisitor& _visitor) {
@@ -516,6 +523,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 
 		{"BLOCKLT", {0, 1, true}},
 		{"FALSE", {0, 1, true}},
+		{"GASREMAINING", {0, 1}},
 		{"GETPARAM", {0, 1, true}},
 		{"INITCODEHASH", {0, 1, true}},
 		{"LTIME", {0, 1, true}},
@@ -622,7 +630,6 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"LDILE8", {1, 2}},
 		{"LDMSGADDR", {1, 2}},
 		{"LDONES", {1, 2, true}},
-		{"LDOPTREF", {1, 2}},
 		{"LDREF", {1, 2}},
 		{"LDREFRTOS", {1, 2}},
 		{"LDSLICE", {1, 2}},
@@ -692,7 +699,6 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"STILE8", {2, 1}},
 		{"STIR", {2, 1}},
 		{"STONES", {2, 1}},
-		{"STOPTREF", {2, 1}},
 		{"STREF", {2, 1}},
 		{"STREFR", {2, 1}},
 		{"STSLICE", {2, 1}},
@@ -760,6 +766,9 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 	} else if (f("UNTUPLE")) {
 		int ret = boost::lexical_cast<int>(param);
 		opcode = createNode<GenOpcode>(cmd, 1, ret);
+	} else if (f("UNPACKFIRST")) {
+		int ret = boost::lexical_cast<int>(param);
+		opcode = createNode<GenOpcode>(cmd, 1, ret);
 	} else if (f("LSHIFT") || f("RSHIFT")) {
 		if (param.empty()) {
 			opcode = createNode<GenOpcode>(cmd, 2, 1);
@@ -779,6 +788,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 	return opcode;
 }
 
+// TODO DELETE use makePushCellOrSlice
 Pointer<PushCellOrSlice> genPushSlice(const std::string& data) {
 	if (StrUtils::toBitString(data).length() <= TvmConst::MaxPushSliceBitLength)
 		return createNode<PushCellOrSlice>(
@@ -791,6 +801,28 @@ Pointer<PushCellOrSlice> genPushSlice(const std::string& data) {
 		data,
 		nullptr
 	);
+}
+
+Pointer<PushCellOrSlice> makePushCellOrSlice(std::string const& hexStr, bool toSlice) {
+	solAssert(hexStr.size() % 2 == 0, "");
+
+	const int length = hexStr.size();
+	const int symbolQty = ((TvmConst::CellBitLength / 8) * 8) / 4; // one symbol in string == 8 bit. Letter can't be divided by 2 cells
+	PushCellOrSlice::Type type = toSlice ? PushCellOrSlice::Type::PUSHREFSLICE : PushCellOrSlice::Type::PUSHREF;
+	std::vector<std::pair<PushCellOrSlice::Type, std::string>> data;
+	int start = 0;
+	do {
+		std::string slice = hexStr.substr(start, std::min(symbolQty, length - start));
+		data.emplace_back(type, "x" + slice);
+		start += symbolQty;
+		type = PushCellOrSlice::Type::CELL;
+	} while (start < length);
+
+	Pointer<PushCellOrSlice> cell;
+	for (const auto&[t, d] : data | boost::adaptors::reversed) {
+		cell = createNode<PushCellOrSlice>(t, d, cell);
+	}
+	return cell;
 }
 
 Pointer<Stack> makeDROP(int cnt) {

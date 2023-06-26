@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
+ * Copyright (C) 2020-2023 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -11,8 +11,6 @@
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
  */
 /**
- * @author TON Labs <connect@tonlabs.io>
- * @date 2019
  * Function call compiler for TVM
  */
 
@@ -66,6 +64,17 @@ void FunctionCallCompiler::compile() {
 		cast_error(m_functionCall, "Unsupported function call");
 	};
 
+	if (m_funcType) {
+		switch (m_funcType->kind()) {
+			case FunctionType::Kind::GasLeft: {
+				m_pusher << "GASREMAINING";
+				return;
+			}
+			default:
+				break;
+		}
+	}
+
 	if (checkRemoteMethodCall(m_functionCall) ||
 		(_memberAccess != nullptr && libraryCall(*_memberAccess)) ||
 		checkForMappingOrCurrenciesMethods() ||
@@ -81,7 +90,11 @@ void FunctionCallCompiler::compile() {
 	} else if (*m_functionCall.annotation().kind == FunctionCallKind::StructConstructorCall) {
 		structConstructorCall();
 	} else if (*m_functionCall.annotation().kind == FunctionCallKind::TypeConversion) {
-		typeConversion();
+		if (m_arguments.empty()) {
+			createObject();
+		} else {
+			typeConversion();
+		}
 	} else {
 		if (_memberAccess != nullptr) {
 			auto category = getType(&_memberAccess->expression())->category();
@@ -172,7 +185,8 @@ bool FunctionCallCompiler::checkForMappingOrCurrenciesMethods() {
 	const ASTString &memberName = ma->memberName();
 	if (isIn(memberName, "delMin", "delMax")) {
 		mappingDelMinOrMax(memberName == std::string{"delMin"});
-	} else  if (isIn(memberName, "at", "fetch", "exists", "replace", "add", "getSet", "getAdd", "getReplace")) {
+	} else  if (isIn(memberName, "at", "fetch", "exists", "replace", "add",
+									"getSet", "getAdd", "getDel", "getReplace")) {
 		mappingGetSet();
 	} else if (isIn(memberName, "min", "max")) {
 		mappingMinMaxMethod(memberName == std::string{"min"});
@@ -221,6 +235,21 @@ void FunctionCallCompiler::mappingGetSet() {
 		m_pusher.prepareKeyForDictOperations(keyType, false);
 		acceptExpr(&memberAccess->expression()); // index dict
 		m_pusher.getDict(*keyType, *valueType, GetDictOperation::Exist);
+	} else if (isIn(memberName, "getDel")) {
+		const int stackSize = m_pusher.stackSize();
+
+		auto ma = to<MemberAccess>(&m_functionCall.expression());
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&ma->expression(), true);
+
+		pushArgAndConvert(0); // lValue... map key
+		m_pusher.prepareKeyForDictOperations(keyType, false);
+		m_pusher.blockSwap(1, 1); // lValue... key map
+
+		m_pusher.getDict(*keyType, *valueType, GetDictOperation::GetDelFromMapping); // lValue... map' value
+
+		const int cntOfValuesOnStack = m_pusher.stackSize() - stackSize;
+		m_pusher.blockSwap(cntOfValuesOnStack - 1, 1); // value lValue... map'
+		m_exprCompiler.collectLValue(lValueInfo, true, false); // value
 	} else if (isIn(memberName, "replace", "add", "getSet", "getAdd", "getReplace")) {
 		const int stackSize = m_pusher.stackSize();
 		auto ma = to<MemberAccess>(&m_functionCall.expression());
@@ -247,12 +276,14 @@ void FunctionCallCompiler::mappingGetSet() {
 				op = GetDictOperation::GetSetFromMapping;
 			} else if (memberName == "getAdd") {
 				op = GetDictOperation::GetAddFromMapping;
+			} else if (memberName == "getAdd") {
+				op = GetDictOperation::GetDelFromMapping;
 			} else if (memberName == "getReplace") {
 				op = GetDictOperation::GetReplaceFromMapping;
 			} else {
 				solUnimplemented("");
 			}
-			m_pusher.getDict(*keyType, *valueType, op, dataType);
+			m_pusher.getAndSetDict(*keyType, *valueType, op, dataType);
 			// mapLValue... map optValue
 		}
 		const int cntOfValuesOnStack = m_pusher.stackSize() - stackSize;  // mapLValue... map optValue
@@ -2120,26 +2151,55 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 	if (!optional)
 		return false;
 
-	if (_node.memberName() == "hasValue") {
+	auto retTuple = to<TupleType>(m_retType);
+	int retQty = retTuple ? retTuple->components().size() : 1;
+
+	ASTString const &memberName = _node.memberName();
+	if (memberName == "hasValue") {
 		acceptExpr(&_node.expression());
 		m_pusher << "ISNULL";
 		m_pusher << "NOT";
-		return true;
-	}
-
-	if (_node.memberName() == "get") {
+	} else  if (memberName == "get") {
 		acceptExpr(&_node.expression());
 		m_pusher.pushS(0);
 		m_pusher.checkOptionalValue();
-		if (auto tt = to<TupleType>(m_retType)) {
-			m_pusher.untuple(tt->components().size());
+		if (retTuple) {
+			m_pusher.untuple(retTuple->components().size());
 		} else if (optValueAsTuple(m_retType)) {
 			m_pusher.untuple(1);
 		}
-		return true;
-	}
+	} else if (isIn(memberName, "getOr", "getOrDefault")) {
+		int startSize = m_pusher.stackSize();
+		acceptExpr(&_node.expression());
 
-	if (_node.memberName() == "set") {
+		m_pusher.startOpaque();
+		m_pusher.pushS(0);
+		m_pusher << "ISNULL";
+
+		m_pusher.startContinuation();
+		m_pusher.drop();
+		if (memberName == "getOr") {
+			pushArgs();
+		} else if (memberName == "getOrDefault") {
+			m_pusher.pushDefaultValue(optional->valueType());
+		} else {
+			solUnimplemented("");
+		}
+		m_pusher.endContinuation();
+
+		m_pusher.startContinuation();
+		if (retTuple) {
+			m_pusher.untuple(retTuple->components().size());
+		} else if (optValueAsTuple(m_retType)) {
+			m_pusher.untuple(1);
+		}
+		m_pusher.endContinuation();
+
+		m_pusher.ifElse();
+		m_pusher.endOpaque(1, retQty);
+
+		solAssert(startSize + retQty == m_pusher.stackSize(), "");
+	} else if (memberName == "set") {
 		Type const* rightType{};
 		if (m_arguments.size() >= 2) {
 			vector<Type const*> types;
@@ -2154,17 +2214,14 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 		pushArgs(false, false);
 		m_pusher.hardConvert(getType(&_node.expression()), rightType);
 		m_exprCompiler.collectLValue(lValueInfo, true, false);
-		return true;
-	}
-
-	if (_node.memberName() == "reset") {
+	} else if (memberName == "reset") {
 		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), false);
 		m_pusher.pushDefaultValue(optional);
 		m_exprCompiler.collectLValue(lValueInfo, true, false);
-		return true;
+	} else {
+		return false;
 	}
-
-	return false;
+	return true;
 }
 
 void FunctionCallCompiler::cellMethods(MemberAccess const &_node) {
@@ -2776,7 +2833,7 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		m_pusher.fixStack(-1); // fix stack
 
 		m_pusher.startContinuation();
-		m_pusher.pushCall(0, 0, "c7_to_c4");
+		m_pusher.pushMacro(0, 0, "c7_to_c4");
 		m_pusher.endContinuationFromRef();
 		m_pusher.ifNot();
 
@@ -3074,6 +3131,18 @@ bool FunctionCallCompiler::checkAddressThis() {
 		return true;
 	}
 	return false;
+}
+
+void FunctionCallCompiler::createObject() {
+	Type const* resultType = m_functionCall.annotation().type;
+	switch (resultType->category()) {
+	case Type::Category::TvmCell: {
+		m_pusher.pushDefaultValue(resultType);
+		break;
+	}
+	default:
+		solUnimplemented("");
+	}
 }
 
 void FunctionCallCompiler::typeConversion() {
@@ -3711,8 +3780,8 @@ void FunctionCallCompiler::checkStateInit() {
 
 	// code:(Maybe ^Cell) data:(Maybe ^Cell)
 	// library:(HashmapE 256 SimpleLib)
-	m_pusher << "LDOPTREF";
-	m_pusher << "LDOPTREF";
+	m_pusher << "LDDICT";
+	m_pusher << "LDDICT";
 	m_pusher << "LDDICT";
 	m_pusher << "ENDS";
 	m_pusher.drop(3);
@@ -3842,8 +3911,8 @@ void FunctionCallCompiler::buildStateInit(std::map<StateInitMembers, std::functi
 	}
 
 	// stake: data code builder
-	m_pusher << "STOPTREF"; // store code
-	m_pusher << "STOPTREF"; // store data
+	m_pusher << "STDICT"; // store code
+	m_pusher << "STDICT"; // store data
 	m_pusher << "STZERO"; // store library
 	m_pusher << "ENDC";
 	// stack: stateInit
@@ -3917,7 +3986,7 @@ void FunctionCallCompiler::compileLog()
 	auto logstr = m_arguments[0].get();
 	auto literal = to<Literal>(logstr);
 	if (literal && literal->value().size() < 16) {
-		std::string hexStr = stringToBytes(literal->value());
+		std::string hexStr = stringToHex(literal->value());
 		m_pusher << "PRINTSTR x" + hexStr;
 	} else {
 		pushArgs();

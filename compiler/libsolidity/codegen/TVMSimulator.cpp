@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
+ * Copyright (C) 2021-2023 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -11,11 +11,10 @@
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
  */
 /**
- * @author TON Labs <connect@tonlabs.io>
- * @date 2021
  * Simulator of TVM execution
  */
 
+#include "TVMCommons.hpp"
 #include "TVMSimulator.hpp"
 
 using namespace solidity::frontend;
@@ -127,7 +126,7 @@ bool Simulator::visit(GenOpcode &_node) {
 		m_stackSize += _node.ret() - _node.take();
 		m_commands.emplace_back(_node.shared_from_this());
 	}
-	m_wasCall |= _node.opcode() == "CALL";
+	m_wasCall |= isIn(_node.opcode(), "CALL", "EXECUTE", ".inline");
 	return false;
 }
 
