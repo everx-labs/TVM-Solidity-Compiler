@@ -746,9 +746,9 @@ Same as [\<TvmSlice\>.loadQ()](#tvmsliceloadq) but doesn't modify `TvmSlice`.
 
 ```TVMSolidity
 (1)
-<TvmSlice>.preloadInt(uint9 bitSize) returns (int);
+<TvmSlice>.preloadInt(int9 bitSize) returns (int);
 (2)
-<TvmSlice>.preloadIntQ(uint9 bitSize) returns (optional(int));
+<TvmSlice>.preloadIntQ(int9 bitSize) returns (optional(int));
 ```
 
 Same as [\<TvmSlice\>.loadInt() and \<TvmSlice\>.loadIntQ()](#tvmsliceloadint-and-tvmsliceloadintq) but doesn't modify `TvmSlice`.
