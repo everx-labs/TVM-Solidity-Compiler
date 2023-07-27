@@ -318,6 +318,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			member == "add" ||
 			member == "getSet" ||
 			member == "getAdd" ||
+			member == "getDel" ||
 			member == "getReplace") {
 			if (isStateVar)
 				mutability = StateMutability::NonPayable;
@@ -365,6 +366,9 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::Math, "muldivmod"},
 			{MagicType::Kind::Math, "muldivr"},
 			{MagicType::Kind::Math, "sign"},
+			{MagicType::Kind::Message, "body"},
+			{MagicType::Kind::Message, "forwardFee"},
+			{MagicType::Kind::Message, "importFee"},
 			{MagicType::Kind::Message, "createdAt"},
 			{MagicType::Kind::Message, "currencies"},
 			{MagicType::Kind::Message, "data"},
@@ -403,6 +407,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::TVM, "functionId"},
 			{MagicType::Kind::TVM, "hash"},
 			{MagicType::Kind::TVM, "hexdump"},
+			{MagicType::Kind::TVM, "initCodeHash"},
 			{MagicType::Kind::TVM, "insertPubkey"},
 			{MagicType::Kind::TVM, "log"},
 			{MagicType::Kind::TVM, "rawConfigParam"},

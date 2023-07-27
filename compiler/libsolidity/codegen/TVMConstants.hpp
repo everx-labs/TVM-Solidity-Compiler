@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
+ * Copyright (C) 2019-2023 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -11,8 +11,6 @@
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
  */
 /**
- * @author TON Labs <connect@tonlabs.io>
- * @date 2019
  * TVM constants and runtime error codes
  */
 
@@ -75,7 +73,6 @@ namespace TvmConst {
 		const int ArrayIndexOutOfRange = 50;
 		const int ConstructorIsCalledTwice  = 51;
 		const int ReplayProtection  = 52;
-		const int AddressUnpackException = 53;
 		const int PopFromEmptyArray = 54;
 		const int InsertPubkeyException = 55;
 		const int MessageIsExpired = 57;

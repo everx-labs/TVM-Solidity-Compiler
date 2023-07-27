@@ -173,7 +173,7 @@ FunctionDefinition const* ContractDefinition::constructor() const
 
 bool ContractDefinition::canBeDeployed() const
 {
-	// In TON, libraries are also not deployable.
+	// In TVM, libraries are also not deployable.
 	return !abstract() && !isInterface() && !isLibrary();
 }
 

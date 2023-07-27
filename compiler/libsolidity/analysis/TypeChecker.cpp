@@ -1157,24 +1157,26 @@ bool TypeChecker::visit(IfStatement const& _ifStatement)
 void TypeChecker::endVisit(TryStatement const& _tryStatement)
 {
     TryCatchClause const& clause = _tryStatement.clause();
-    std::vector<ASTPointer<VariableDeclaration>> const& errArgs = clause.parameters()->parameters();
+	if (clause.parameters() != nullptr) {
+		std::vector<ASTPointer<VariableDeclaration>> const& errArgs = clause.parameters()->parameters();
 
-    auto printError = [&](SourceLocation const& loc){
-        m_errorReporter.typeError(
-			228_error,
-			loc,
-			"Expected `catch (variant value, uint number) { ... }`.");
-    };
-    if (errArgs.size() != 2) {
-        printError(clause.location());
-        return;
-    }
-    if (*errArgs.at(0)->type() != *TypeProvider::variant()) {
-        printError(errArgs.at(0)->location());
-    }
-    if (*errArgs.at(1)->type() != *TypeProvider::uint(16)) {
-        printError(errArgs.at(1)->location());
-    }
+		auto printError = [&](SourceLocation const& loc){
+			m_errorReporter.typeError(
+				228_error,
+				loc,
+				"Expected `catch (variant value, uint16 number) { ... }`.");
+		};
+		if (errArgs.size() != 2) {
+			printError(clause.location());
+			return;
+		}
+		if (*errArgs.at(0)->type() != *TypeProvider::variant()) {
+			printError(errArgs.at(0)->location());
+		}
+		if (*errArgs.at(1)->type() != *TypeProvider::uint(16)) {
+			printError(errArgs.at(1)->location());
+		}
+	}
 }
 
 bool TypeChecker::visit(WhileStatement const& _whileStatement)
@@ -1901,7 +1903,11 @@ Type const* TypeChecker::typeCheckTypeConversionAndRetrieveReturnType(
 	bool const isPositionalCall = _functionCall.names().empty();
 
 	Type const* resultType = dynamic_cast<TypeType const&>(*expressionType).actualType();
-	if (arguments.size() != 1)
+	if (arguments.empty() && resultType->category() == Type::Category::TvmCell)
+	{
+		// all right
+	}
+	else if (arguments.size() != 1)
 		m_errorReporter.typeError(
 			2558_error,
 			_functionCall.location(),
@@ -2154,6 +2160,7 @@ void TypeChecker::typeCheckTvmEncodeArg(Type const* type, Expression const& node
 		case Type::Category::TvmBuilder:
 		case Type::Category::TvmCell:
 		case Type::Category::TvmSlice:
+		case Type::Category::VarInteger:
 			break;
 		case Type::Category::Optional:
 		{

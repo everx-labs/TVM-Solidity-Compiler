@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
+ * Copyright (C) 2020-2023 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -9,10 +9,6 @@
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
- */
-/**
- * @author TON Labs <connect@tonlabs.io>
- * @date 2019
  */
 
 #pragma once
@@ -220,6 +216,7 @@ public:
 	void pushString(const std::string& str, bool toSlice);
 	void pushLog();
 	void untuple(int n);
+	void unpackFirst(int n);
 	void indexWithExcep(int index);
 	void indexNoexcep(int index);
 	void setIndex(int index);
@@ -264,7 +261,7 @@ public:
 	void pushParameter(std::vector<ASTPointer<VariableDeclaration>> const& params);
 	void pushMacroCallInCallRef(int take, int ret, const std::string& fname);
 	void pushCallOrCallRef(const std::string& functionName, FunctionType const* ft, const std::optional<std::pair<int, int>>& deltaStack = std::nullopt);
-	void pushCall(int take, int ret, const std::string& functionName);
+	void pushMacro(int take, int ret, const std::string& functionName);
 	void computeConstCell(std::string const& expName);
 	void computeConstSlice(std::string const& expName);
 	void drop(int cnt = 1);
@@ -318,8 +315,14 @@ public:
 	void getDict(
 		const Type& keyType,
 		const Type& valueType,
-		GetDictOperation op,
-		const DataType& dataType = DataType::Slice
+		const GetDictOperation op
+	);
+
+	void getAndSetDict(
+		const Type &keyType,
+		const Type &valueType,
+		const GetDictOperation op,
+		const DataType inputValueType
 	);
 
 	void pushEmptyArray();

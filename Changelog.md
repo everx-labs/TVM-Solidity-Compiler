@@ -1,7 +1,31 @@
+### 0.71.0 (2023-07-20)
+
+Bugfixes:
+ * Fixed segmentation fault of the compiler that could occur in some cases of using `try-catch` (experimental feature).
+ * Fixed compilation error in case of using operator `+` for constant strings.
+ * Fixed segmentation fault of the compiler that could occur in the case of using `constructor` with `functionID()`.
+ * Fixed an exception which could occur on contract upgrade in case of state variables number being reduced, yet still exceeding 16.
+
+Breaking changes:
+ * Now [msg.data](API.md#msgdata) returns the whole message instead of the message body. Use [msg.body](API.md#msgbody) to get the message body (payload).
+ * `<address>.unpack` returns `(int32, uint256)` instead of `(int8, uint256)`.
+
+Compiler features:
+ * Supported [<optional(T)>.getOr()](API.md#optionaltgetor) and [<optional(T)>.getOrDefault()](API.md#optionaltgetordefault).
+ * Supported creating empty cell via `TvmCell()`.
+ * Supported `<TvmBuilder>.store()` for `varInt`/`varUint`.
+ * Supported [msg.forwardFee](API.md#msgforwardfee).
+ * Supported [msg.importFee](API.md#msgimportfee).
+ * Supported [gasleft](API.md#gasleft).
+ * Supported [\<mapping\>.getDel()](API.md#mappinggetdel).
+
+Gas optimizations:
+ * Assorted stack optimizations.
+
 ### 0.70.0 (2023-06-14)
 
 Compiler features:
- * Supported [inline assembly](./API.md#assembly). 
+ * Supported [inline assembly](API.md#assembly). 
  * Supported overriding `onCodeUpgrade` function.
  * Supported [User-defined Value Types](https://docs.soliditylang.org/en/latest/types.html#user-defined-value-types). You can also use this type in public functions.
  * [Supported `type(T).min` and `type(T).max`](API.md#type-information).
@@ -643,14 +667,14 @@ Bugfixes:
 
 ### 0.30 (2020-08-21)
 
-APIs for common TON-specific functionality:
+APIs for common TVM-specific functionality:
  * Supported tick and tock transactions. See onTickTock function.
 Bug fixes.
 
 
 ### 0.29 (2020-08-19)
 
-APIs for common TON-specific functionality:
+APIs for common TVM-specific functionality:
  * Supported optional type
  * Added methods for optional type: set, hasValue, get
 
@@ -659,7 +683,7 @@ Changed APIs to handle mappings: fetch, min, max, prev, next and ect.
 
 ### 0.20 (2020-03-30)
 
-APIs for common TON-specific functionality:
+APIs for common TVM-specific functionality:
 
  * Migrated frontend to 0.6.3
  * Native types support
@@ -675,7 +699,7 @@ APIs for common TON-specific functionality:
 
 ### 0.18 (2020-01-30)
 
-APIs for common TON-specific functionality:
+APIs for common TVM-specific functionality:
  * Address constructors and accessors
  * Extended address format that includes workchain ID
    * Members for workchain ID and the actual address part

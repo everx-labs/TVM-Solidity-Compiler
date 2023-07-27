@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
+ * Copyright (C) 2020-2023 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -11,8 +11,6 @@
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
  */
 /**
- * @author TON Labs <connect@tonlabs.io>
- * @date 2019
  * Expression compiler for TVM
  */
 
@@ -675,6 +673,16 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 			"ADDCONST -2",
 			"PICK",
 		}, 0, 1, true));
+	} else if (_node.memberName() == "data") { // msg.data
+		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
+			"DEPTH",
+			"ADDCONST -3",
+			"PICK",
+		}, 0, 1, true));
+	} else if (_node.memberName() == "forwardFee") { // msg.forwardFee
+		m_pusher.pushMacro(0, 1, "__forwardFee_macro");
+	} else if (_node.memberName() == "importFee") { // msg.importFee
+		m_pusher.pushMacro(0, 1, "__importFee_macro");
 	} else  if (isIn(_node.memberName(), "isInternal", "isExternal", "isTickTock")) {
 		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
 			"DEPTH",
@@ -781,7 +789,7 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 			"IFELSE"
 		}, 0, 1, true));
 		m_pusher.pushRefContAndCallX(0, 1, true);
-	} else if (_node.memberName() == "data") {
+	} else if (_node.memberName() == "body") {
 		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
 			"DEPTH",
 			"ADDCONST -4",

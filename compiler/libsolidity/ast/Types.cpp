@@ -507,7 +507,7 @@ MemberList::MemberMap AddressType::nativeMembers(ASTNode const*) const
 	};
 	members.emplace_back("unpack", TypeProvider::function(
 			TypePointers{},
-			TypePointers{TypeProvider::integer(8, IntegerType::Modifier::Signed), TypeProvider::uint256()},
+			TypePointers{TypeProvider::integer(32, IntegerType::Modifier::Signed), TypeProvider::uint256()},
 			strings{},
 			strings{string(), string()},
 			FunctionType::Kind::AddressUnpack,
@@ -537,7 +537,7 @@ MemberList::MemberMap AddressType::nativeMembers(ASTNode const*) const
 				TypeProvider::tvmcell(),
 				TypeProvider::extraCurrencyCollection(),
 				TypeProvider::tvmcell(),
-		 	},
+			},
 			{},
 			{"value", "bounce", "flag", "body", "currencies", "stateInit"},
 			{},
@@ -2097,14 +2097,19 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 			FunctionType::Kind::MappingValues,
 			StateMutability::Pure
 	));
-	members.emplace_back("fetch", TypeProvider::function(
-			TypePointers{keyType},
-			TypePointers{TypeProvider::optional(valueType)},
-			strings{string{}},
-			strings{string{}},
-			FunctionType::Kind::MappingFetch,
-			StateMutability::Pure
-	));
+	for (const std::string name : {"fetch", "getDel"}) {
+		members.emplace_back(
+			name.c_str(),
+			TypeProvider::function(
+				TypePointers{keyType},
+				TypePointers{TypeProvider::optional(valueType)},
+				strings{string{}},
+				strings{string{}},
+				FunctionType::Kind::MappingFetch,
+				StateMutability::Pure
+			)
+		);
+	}
 	members.emplace_back("exists", TypeProvider::function(
 			TypePointers{keyType},
 			TypePointers{TypeProvider::boolean()},
@@ -3123,6 +3128,8 @@ string FunctionType::richIdentifier() const
 	case Kind::StructUnpack: id += "structunpack"; break;
 
 	case Kind::OptionalGet: id += "optionalmethod"; break;
+	case Kind::OptionalGetOr: id += "optionalgetor"; break;
+	case Kind::OptionalGetOrDefault: id += "optionalgetordefault"; break;
 	case Kind::OptionalHasValue: id += "optionalhasvalue"; break;
 	case Kind::OptionalReset: id += "optionalreset"; break;
 	case Kind::OptionalSet: id += "optionalmethod"; break;
@@ -3320,10 +3327,10 @@ string FunctionType::richIdentifier() const
 	case Kind::GoshUnzip: id += "goshunzip"; break;
 	case Kind::GoshZip: id += "goshzip"; break;
 	case Kind::GoshZipDiff: id += "goshzipdiff"; break;
-    case Kind::GoshApplyBinPatch: id += "goshapplybinpatch"; break;
-    case Kind::GoshApplyBinPatchQ: id += "goshapplybinpatchq"; break;
-    case Kind::GoshApplyZipBinPatch: id += "goshapplyzipbinpatch"; break;
-    case Kind::GoshApplyZipBinPatchQ: id += "goshapplyzipbinpatchq"; break;
+	case Kind::GoshApplyBinPatch: id += "goshapplybinpatch"; break;
+	case Kind::GoshApplyBinPatchQ: id += "goshapplybinpatchq"; break;
+	case Kind::GoshApplyZipBinPatch: id += "goshapplyzipbinpatch"; break;
+	case Kind::GoshApplyZipBinPatchQ: id += "goshapplyzipbinpatchq"; break;
 	}
 	id += "_" + stateMutabilityToString(m_stateMutability);
 	id += identifierList(m_parameterTypes) + "returns" + identifierList(m_returnParameterTypes);
@@ -4429,12 +4436,15 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 			{"hasStateInit", TypeProvider::boolean()},
 			{"gas", TypeProvider::uint256()},
 			{"value", TypeProvider::uint(128)},
-			{"data", TypeProvider::tvmslice()},
+			{"data", TypeProvider::tvmcell()},
 			{"sig", TypeProvider::fixedBytes(4)},
 			{"currencies", TypeProvider::extraCurrencyCollection()},
 			{"isExternal", TypeProvider::boolean()},
 			{"isInternal", TypeProvider::boolean()},
 			{"isTickTock", TypeProvider::boolean()},
+			{"body", TypeProvider::tvmslice()},
+			{"forwardFee", TypeProvider::varInteger(16, IntegerType::Modifier::Unsigned)},
+			{"importFee", TypeProvider::varInteger(16, IntegerType::Modifier::Unsigned)},
 		});
 	case Kind::TVM: {
 		MemberList::MemberMap members = {
@@ -4566,12 +4576,12 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 		));
 
 		members.emplace_back("rawConfigParam", TypeProvider::function(
-            {TypeProvider::integer(32, IntegerType::Modifier::Signed)},
-            {TypeProvider::optional(TypeProvider::tvmcell())},
-            {{}},
-            {{}},
-            FunctionType::Kind::TVMRawConfigParam,
-            StateMutability::Pure
+			{TypeProvider::integer(32, IntegerType::Modifier::Signed)},
+			{TypeProvider::optional(TypeProvider::tvmcell())},
+			{{}},
+			{{}},
+			FunctionType::Kind::TVMRawConfigParam,
+			StateMutability::Pure
 		));
 
 		members.emplace_back("buildExtMsg", TypeProvider::function(
@@ -4921,7 +4931,7 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 					type,
 					StateMutability::Pure,
 					nullptr, FunctionType::Options::withArbitraryParameters()
-		  	)});
+			)});
 		}
 
 		for (auto const&[name, type] : std::vector<std::tuple<string, FunctionType::Kind>>{
@@ -4939,7 +4949,7 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 					type,
 					StateMutability::Pure,
 					nullptr, FunctionType::Options::withArbitraryParameters()
-		  	)});
+			)});
 		}
 
 		members.push_back({ "applyPatchQ",
@@ -4953,22 +4963,22 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 				nullptr, FunctionType::Options::withArbitraryParameters()
 		)});
 
-        for (auto const&[name, type] : std::vector<std::tuple<string, FunctionType::Kind>>{
-                {"applyZipPatchQ", FunctionType::Kind::GoshApplyZipPatchQ},
-                {"applyBinPatchQ", FunctionType::Kind::GoshApplyBinPatchQ},
-                {"applyZipBinPatchQ", FunctionType::Kind::GoshApplyZipBinPatchQ},
-        }) {
-            members.push_back({ name.c_str(),
-                TypeProvider::function(
-                    {TypeProvider::bytesMemory(), TypeProvider::bytesMemory()},
-                    {TypeProvider::optional(TypeProvider::bytesMemory())},
-                    {{}, {}},
-                    {{}},
-                    type,
-                    StateMutability::Pure,
+		for (auto const&[name, type] : std::vector<std::tuple<string, FunctionType::Kind>>{
+				{"applyZipPatchQ", FunctionType::Kind::GoshApplyZipPatchQ},
+				{"applyBinPatchQ", FunctionType::Kind::GoshApplyBinPatchQ},
+				{"applyZipBinPatchQ", FunctionType::Kind::GoshApplyZipBinPatchQ},
+		}) {
+			members.push_back({ name.c_str(),
+				TypeProvider::function(
+					{TypeProvider::bytesMemory(), TypeProvider::bytesMemory()},
+					{TypeProvider::optional(TypeProvider::bytesMemory())},
+					{{}, {}},
+					{{}},
+					type,
+					StateMutability::Pure,
 					nullptr, FunctionType::Options::withArbitraryParameters()
-            )});
-        }
+			)});
+		}
 
 		members.push_back({
 			"zip",
@@ -5093,55 +5103,87 @@ Type const* InaccessibleDynamicType::decodingType() const
 
 MemberList::MemberMap OptionalType::nativeMembers(ASTNode const*) const
 {
-	MemberList::MemberMap members;
-	members.emplace_back("hasValue", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::boolean()},
-			strings{},
-			strings{string()},
-			FunctionType::Kind::OptionalHasValue,
-			StateMutability::Pure
-	));
-	members.emplace_back("get", TypeProvider::function(
-			TypePointers{},
-			TypePointers{valueType()},
-			strings{},
-			strings{string()},
-			FunctionType::Kind::OptionalGet,
-			StateMutability::Pure
-	));
-	members.emplace_back("set", TypeProvider::function(
-			TypePointers{valueType()},
-			TypePointers{},
-			strings{string()},
-			strings{},
-			FunctionType::Kind::OptionalSet,
-			StateMutability::Pure
-	));
+	TypePointers comps;
+	strings names;
 	if (auto tuple = dynamic_cast<TupleType const*>(valueType())) {
-		TypePointers input;
-		strings names;
 		for (Type const* comp : tuple->components()) {
-			input.push_back(comp);
-			names.push_back("");
+			comps.emplace_back(comp);
+			names.emplace_back("");
 		}
-		members.emplace_back("set", TypeProvider::function(
-				input,
+	} else {
+		comps.emplace_back(valueType());
+		names.emplace_back("");
+	}
+
+
+	MemberList::MemberMap members = {
+		{
+			"hasValue",
+			TypeProvider::function(
+				{},
+				{TypeProvider::boolean()},
+				{},
+				{{}},
+				FunctionType::Kind::OptionalHasValue,
+				StateMutability::Pure
+			)
+		},
+		{
+			"get",
+			TypeProvider::function(
+				{},
+				{valueType()},
+				{},
+				{{}},
+				FunctionType::Kind::OptionalGet,
+				StateMutability::Pure
+			)
+		},
+		{
+			"getOrDefault",
+			TypeProvider::function(
+				{},
+				{valueType()},
+				{},
+				{{}},
+				FunctionType::Kind::OptionalGetOrDefault,
+				StateMutability::Pure
+			)
+		},
+		{
+			"set",
+			TypeProvider::function(
+				comps,
 				{},
 				names,
 				{},
 				FunctionType::Kind::OptionalSet,
 				StateMutability::Pure
-		));
-	}
-    members.emplace_back("reset", TypeProvider::function(
-            TypePointers{},
-            TypePointers{},
-            strings{},
-            strings{},
-            FunctionType::Kind::OptionalReset,
-            StateMutability::Pure
-    ));
+			)
+		},
+		{
+			"getOr",
+			TypeProvider::function(
+				comps,
+				{valueType()},
+				names,
+				{{}},
+				FunctionType::Kind::OptionalGetOr,
+				StateMutability::Pure
+			)
+		},
+		{
+			"reset",
+			TypeProvider::function(
+				{},
+				{},
+				{},
+				{},
+				FunctionType::Kind::OptionalReset,
+				StateMutability::Pure
+			)
+		}
+	};
 	return members;
 }
 
@@ -5906,16 +5948,16 @@ MemberList::MemberMap Variant::nativeMembers(ASTNode const* /*_currentScope*/) c
 			{},
 			{{}},
 			FunctionType::Kind::VariantIsUint,
-            StateMutability::Pure
+			StateMutability::Pure
 	));
-    members.emplace_back("toUint", TypeProvider::function(
-            {},
-            {TypeProvider::uint256()},
-            {},
-            {{}},
-            FunctionType::Kind::VariantToUint,
-            StateMutability::Pure
-    ));
+	members.emplace_back("toUint", TypeProvider::function(
+			{},
+			{TypeProvider::uint256()},
+			{},
+			{{}},
+			FunctionType::Kind::VariantToUint,
+			StateMutability::Pure
+	));
 	return members;
 }
 
@@ -6003,7 +6045,7 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 			)
 		},
 		{
-    		"depth", TypeProvider::function(
+			"depth", TypeProvider::function(
 				TypePointers{},
 				TypePointers{TypeProvider::uint(16)},
 				strings{},
@@ -6283,12 +6325,12 @@ TypeResult VarInteger::unaryOperatorResult(Token _operator) const {
 }
 
 TypeResult VarInteger::binaryOperatorResult(Token _operator, Type const* _other) const {
-    Type const* resultType = m_int.binaryOperatorResult(_operator, _other);
+	Type const* resultType = m_int.binaryOperatorResult(_operator, _other);
 	if (resultType == nullptr)
 		return nullptr;
-    if (resultType->isImplicitlyConvertibleTo(*this)) {
-        resultType = this;
-    }
+	if (resultType->isImplicitlyConvertibleTo(*this)) {
+		resultType = this;
+	}
 	return resultType;
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
+ * Copyright (C) 2020-2023 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -11,8 +11,6 @@
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
  */
 /**
- * @author TON Labs <connect@tonlabs.io>
- * @date 2019
  * AST to TVM bytecode contract compiler
  */
 
@@ -167,7 +165,7 @@ void TVMConstructorCompiler::c4ToC7WithMemoryInitAndConstructorProtection() {
 	m_pusher.fixStack(-1); // fix stack
 
 	m_pusher.startContinuation();
-	m_pusher.pushCall(0, 0, "c4_to_c7_with_init_storage");
+	m_pusher.pushMacro(0, 0, "c4_to_c7_with_init_storage");
 	m_pusher.endContinuationFromRef();
 	m_pusher._if();
 
@@ -295,26 +293,26 @@ TVMContractCompiler::generateContractCode(
 				if (!ctx.isBaseFunction(_function))
 					functions.push_back(TVMFunctionCompiler::generateOnCodeUpgrade(ctx, _function));
 			} else {
-				if (_function->isPublic()) {
-					bool isBaseMethod = _function != getContractFunctions(contract, _function->name()).back();
-					if (!isBaseMethod) {
-						functions.push_back(TVMFunctionCompiler::generatePublicFunction(ctx, _function));
+				std::string functionName = ctx.getFunctionInternalName(_function);
+				if (!ctx.isStdlib()) {
+					if (_function->isPublic()) {
+						bool isBaseMethod = _function != getContractFunctions(contract, _function->name()).back();
+						if (!isBaseMethod) {
+							functions.push_back(TVMFunctionCompiler::generatePublicFunction(ctx, _function));
 
-						StackPusher pusher{&ctx};
-						ChainDataEncoder encoder{&pusher}; // TODO delete pusher
-						uint32_t functionId = encoder.calculateFunctionIDWithReason(_function,
-																					ReasonOfOutboundMessage::RemoteCallInternal);
-						ctx.addPublicFunction(functionId, _function->name());
+							StackPusher pusher{&ctx};
+							ChainDataEncoder encoder{&pusher}; // TODO delete pusher
+							uint32_t functionId = encoder.calculateFunctionIDWithReason(_function,
+																						ReasonOfOutboundMessage::RemoteCallInternal);
+							ctx.addPublicFunction(functionId, _function->name());
+						}
+					}
+					if (_function->visibility() <= Visibility::Public) {
+						functions.push_back(TVMFunctionCompiler::generatePrivateFunction(ctx, functionName, _function));
 					}
 				}
-				std::string functionName = ctx.getFunctionInternalName(_function);
-				if (_function->visibility() <= Visibility::Public) {
-					functions.push_back(TVMFunctionCompiler::generatePrivateFunction(ctx, functionName, _function));
-				}
-				{
-					const std::string macroName = functionName + "_macro";
-					functions.push_back(TVMFunctionCompiler::generateMacro(ctx, _function, macroName));
-				}
+				const std::string macroName = functionName + "_macro";
+				functions.push_back(TVMFunctionCompiler::generateMacro(ctx, _function, macroName));
 			}
 
 			ctx.setCurrentFunction(nullptr);

@@ -1,14 +1,14 @@
-# **TON Solidity API**
+# **TVM Solidity API**
 
-TON Solidity compiler expands Solidity language with different API functions to facilitate TON
-contract development.
+TVM Solidity compiler expands Solidity language with different API functions to facilitate TVM contract development.
 
 ## Table of Contents
 
 * [Compiler version](#compiler-version)
-* [TON specific types](#ton-specific-types)
-  * [TON units](#ton-units)
+* [TVM specific types](#tvm-specific-types)
+  * [TVM units](#tvm-units)
   * [TvmCell](#tvmcell)
+    * [constructing TvmCell](#constructing-tvmcell)
     * [\<TvmCell\>.depth()](#tvmcelldepth)
     * [\<TvmCell\>.dataSize()](#tvmcelldatasize)
     * [\<TvmCell\>.dataSizeQ()](#tvmcelldatasizeq)
@@ -63,12 +63,13 @@ contract development.
     * [\<TvmBuilder\>.storeRef()](#tvmbuilderstoreref)
     * [\<TvmBuilder\>.storeTons()](#tvmbuilderstoretons)
   * [ExtraCurrencyCollection](#extracurrencycollection)
-  * [optional(Type)](#optionaltype)
+  * [optional(T)](#optionalt)
     * [constructing an optional](#constructing-an-optional)
-    * [\<optional(Type)\>.hasValue()](#optionaltypehasvalue)
-    * [\<optional(Type)\>.get()](#optionaltypeget)
-    * [\<optional(Type)\>.set()](#optionaltypeset)
-    * [\<optional(Type)\>.reset()](#optionaltypereset)
+    * [\<optional(T)\>.hasValue()](#optionalthasvalue)
+    * [\<optional(T)\>.get()](#optionaltget)
+    * [\<optional(T)\>.getOr()](#optionaltgetor)
+    * [\<optional(T)\>.getOrDefault()](#optionaltgetordefault)
+    * [\<optional(T)\>.set()](#optionaltset)
     * [Keyword `null`](#keyword-null)
   * [variant](#variant)
     * [variant.isUint()](#variantisuint)
@@ -78,7 +79,7 @@ contract development.
     * [\<vector(Type)\>.pop()](#vectortypepop)
     * [\<vector(Type)\>.length()](#vectortypelength)
     * [\<vector(Type)\>.empty()](#vectortypeempty)
-* [TON specific control structures](#ton-specific-control-structures)
+* [TVM specific control structures](#tvm-specific-control-structures)
   * [Range-based for loop](#range-based-for-loop)
   * [repeat](#repeat)
   * [try-catch](#try-catch)
@@ -150,6 +151,7 @@ contract development.
     * [\<mapping\>.add()](#mappingadd)
     * [\<mapping\>.getSet()](#mappinggetset)
     * [\<mapping\>.getAdd()](#mappinggetadd)
+    * [\<mapping\>.getDel()](#mappinggetdel)
     * [\<mapping\>.getReplace()](#mappinggetreplace)
     * [\<mapping\>.keys() \<mapping\>.values()](#mappingkeys-mappingvalues)
   * [Fixed point number](#fixed-point-number)
@@ -161,7 +163,7 @@ contract development.
     * [Function call via library name](#function-call-via-library-name)
     * [Function call via object](#function-call-via-object)
 * [Pragmas](#pragmas)
-  * [pragma ton-solidity](#pragma-ton-solidity)
+  * [pragma ever-solidity](#pragma-ever-solidity)
   * [pragma copyleft](#pragma-copyleft)
   * [pragma ignoreIntOverflow](#pragma-ignoreintoverflow)
   * [pragma AbiHeader](#pragma-abiheader)
@@ -201,6 +203,9 @@ contract development.
     * [msg.isInternal, msg.isExternal and msg.isTickTock](#msgisinternal-msgisexternal-and-msgisticktock)
     * [msg.createdAt](#msgcreatedat)
     * [msg.data](#msgdata)
+    * [msg.forwardFee](#msgforwardfee)
+    * [msg.importFee](#msgimportFee)
+    * [msg.body](#msgbody)
     * [msg.hasStateInit](#msghasstateinit)
   * [**tvm** namespace](#tvm-namespace)
     * [TVM instructions](#tvm-instructions)
@@ -278,6 +283,7 @@ contract development.
   * [sha256](#sha256)
   * [gasToValue](#gastovalue)
   * [valueToGas](#valuetogas)
+  * [gasleft](#gasleft)
 * [TVM exception codes](#tvm-exception-codes)
 * [Solidity runtime errors](#solidity-runtime-errors)
 * [Division and rounding](#division-and-rounding)
@@ -288,7 +294,7 @@ contract development.
 
 ### Compiler version
 
-TON Solidity compiler add its current version to the generated code. This version can be obtained:
+TVM Solidity compiler add its current version to the generated code. This version can be obtained:
 
 1) using [tvm_linker](https://github.com/tonlabs/TVM-linker#2-decoding-of-boc-messages-prepared-externally) from a `*.tvc` file:
 
@@ -302,13 +308,30 @@ TON Solidity compiler add its current version to the generated code. This versio
 tonos-cli decode tvc [--tvc] [--boc] <input>
 ```
 
-### TON specific types
+### TVM specific types
 
-TON Solidity compiler expands functionality of some existing types and adds several new TVM specific types: TvmCell, TvmSlice, TvmBuilder and ExtraCurrencyCollection. Full description of these types can be found in [TVM][1] and [TON Blockchain][2] specifications.
+TVM Solidity compiler expands functionality of some existing types and adds several new TVM specific types: TvmCell, TvmSlice, TvmBuilder and ExtraCurrencyCollection. Full description of these types can be found in [TVM][1] and [Blockchain][2] specifications.
 
-#### TON units
+#### TVM units
 
-A literal number can take a suffix to specify a subdenomination of TON currency, where numbers without a postfix are assumed to be nanotons.
+A literal number can take a suffix to specify a subdenomination of currency, where numbers without a postfix are assumed to be nanoevers.
+
+```TVMSolidity
+uint a0 = 1 nano; // a0 == 1 == 1e-9 ever
+uint a1 = 1 nanoever; // a1 == 1 == 1e-9 ever
+uint a3 = 1 ever; // a3 == 1 000 000 000 (1e9)
+uint a4 = 1 Ever; // a4 == 1 000 000 000 (1e9)
+uint a5 = 1 micro; // a5 == 1 000 == 1e-6 ever
+uint a6 = 1 microever; // a6 == 1 000 == 1e-6 ever
+uint a7 = 1 milli; // a7 == 1 000 000 == 1e-3 ever
+uint a8 = 1 milliever; // a8 == 1 000 000 == 1e-3 ever
+uint a9 = 1 kiloever; // a9 == 1 000 000 000 000 (1e12) == 1e3 ever
+uint a10 = 1 kEver; // a10 == 1 000 000 000 000 (1e12) == 1e3 ever
+uint a11 = 1 megaever; // a11 == 1 000 000 000 000 000 (1e15) == 1e6 ever
+uint a12 = 1 MEver; // a12 == 1 000 000 000 000 000 (1e15) == 1e6 ever
+uint a13 = 1 gigaever; // a13 == 1 000 000 000 000 000 000 (1e18) == 1e9 ever
+uint a14 = 1 GEver; // a14 == 1 000 000 000 000 000 000 (1e18) == 1e9 ever
+```
 
 ```TVMSolidity
 uint a0 = 1 nano; // a0 == 1
@@ -326,21 +349,6 @@ uint a11 = 1 megaton; // a11 == 1 000 000 000 000 000 (1e15)
 uint a12 = 1 MTon; // a12 == 1 000 000 000 000 000 (1e15)
 uint a13 = 1 gigaton; // a13 == 1 000 000 000 000 000 000 (1e18)
 uint a14 = 1 GTon; // a14 == 1 000 000 000 000 000 000 (1e18)
-
-uint a0 = 1 nano; // a0 == 1 == 1e-9 ever
-uint a1 = 1 nanoever; // a1 == 1 == 1e-9 ever
-uint a3 = 1 ever; // a3 == 1 000 000 000 (1e9)
-uint a4 = 1 Ever; // a4 == 1 000 000 000 (1e9)
-uint a5 = 1 micro; // a5 == 1 000 == 1e-6 ever
-uint a6 = 1 microever; // a6 == 1 000 == 1e-6 ever
-uint a7 = 1 milli; // a7 == 1 000 000 == 1e-3 ever
-uint a8 = 1 milliever; // a8 == 1 000 000 == 1e-3 ever
-uint a9 = 1 kiloever; // a9 == 1 000 000 000 000 (1e12) == 1e3 ever
-uint a10 = 1 kEver; // a10 == 1 000 000 000 000 (1e12) == 1e3 ever
-uint a11 = 1 megaever; // a11 == 1 000 000 000 000 000 (1e15) == 1e6 ever
-uint a12 = 1 MEver; // a12 == 1 000 000 000 000 000 (1e15) == 1e6 ever
-uint a13 = 1 gigaever; // a13 == 1 000 000 000 000 000 000 (1e18) == 1e9 ever
-uint a14 = 1 GEver; // a14 == 1 000 000 000 000 000 000 (1e18) == 1e9 ever
 ```
 
 #### TvmCell
@@ -350,6 +358,17 @@ operators and functions to work with this type:
 
 Comparison operators:
 `==`, `!=` (evaluate to `bool`)
+
+##### constructing TvmCell
+
+To create empty cell use `TvmCell()`. Example:
+
+```TVMSolidity
+TvmCell cell = ...;
+if (cell == TvmCell()) { // check whether `cell` is empty
+
+}
+```
 
 ##### \<TvmCell\>.depth()
 
@@ -669,7 +688,7 @@ contract B {
 			
 		// pubkey - pubkey of the contract A
 		// timestamp - timestamp that used for replay protection
-		// flag - always equals to true
+		// flag - always is equal to true
 		// a == 111
 		// b == 22
 		// c == 3
@@ -797,7 +816,7 @@ Same as [\<TvmSlice\>.loadSlice() and \<TvmSlice\>.loadSliceQ()](#tvmsliceloadsl
 
 #### TvmBuilder
 
-`TvmBuilder` represents *TVM cell builder* ([TVM][1] - 1.1.3). TON Solidity compiler defines the following
+`TvmBuilder` represents *TVM cell builder* ([TVM][1] - 1.1.3). TVM Solidity compiler defines the following
 functions to work with this type:
 
 ##### \<TvmBuilder\>.toSlice()
@@ -1016,7 +1035,7 @@ optional(uint256) res = curCol.getReplace(key, value);
 uint256 uintValue = curCol[index];
 ```
 
-#### optional(Type)
+#### optional(T)
 
 The template optional type manages an optional contained value, i.e. a value that may or may not be present.
 
@@ -1030,41 +1049,49 @@ opt.set(11); // just sets value
 opt = 22; // just sets value, too
 opt.get() = 33; // if 'opt' has value then set value. Otherwise throws an exception.
 
-optional(uint) another = ...;
+optional(uint) another = 44;
 opt = another;
 ```
 
-##### \<optional(Type)\>.hasValue()
+##### \<optional(T)\>.hasValue()
 
 ```TVMSolidity
-<optional(Type)>.hasValue() returns (bool);
+<optional(T)>.hasValue() returns (bool);
 ```
 
 Checks whether the `optional` contains a value.
 
-##### \<optional(Type)\>.get()
+##### \<optional(T)\>.get()
 
 ```TVMSolidity
-<optional(Type)>.get() returns (Type);
+<optional(T)>.get() returns (T);
 ```
 
 Returns the contained value, if the `optional` contains one. Otherwise, throws an exception.
 
-##### \<optional(Type)\>.set()
+##### \<optional(T)\>.getOr()
 
 ```TVMSolidity
-<optional(Type)>.set(Type value);
+<optional(T)>.getOr(T default) returns (T);
+```
+
+Returns the contained value, if the `optional` contains one. Otherwise, returns `default`.
+
+##### \<optional(T)\>.getOrDefault()
+
+```TVMSolidity
+<optional(T)>.getOrDefault() returns (T);
+```
+
+Returns the contained value, if the `optional` contains one. Otherwise, returns the default value for `T` type.
+
+##### \<optional(T)\>.set()
+
+```TVMSolidity
+<optional(T)>.set(Type value);
 ```
 
 Replaces content of the `optional` with **value**.
-
-##### \<optional(Type)\>.reset()
-
-```TVMSolidity
-<optional(Type)>.reset();
-```
-
-Deletes content of the `optional`.
 
 ##### Keyword `null`
 
@@ -1162,7 +1189,7 @@ vector(uint) vect;
 bool is_empty = vect.empty();
 ```
 
-### TON specific control structures
+### TVM specific control structures
 
 ### Range-based for loop
 
@@ -1276,6 +1303,29 @@ try {
         // Integer overflow
         // It was line: `c = a + b;`
     }
+}
+```
+
+You can pass either of the parameters:
+
+```TVMSolidity
+uint c;
+try {
+    c = a + b;
+} catch (variant , uint16 errorCode) {
+    if (errorCode == 4) {
+
+    }
+}
+```
+
+Or you can pass all parameters:
+
+```TVMSolidity
+uint c;
+try {
+    c = a + b;
+} catch {
 }
 ```
 
@@ -1536,7 +1586,7 @@ If `bytes` object has less than **N** bytes, extra bytes are padded with zero bi
 
 #### string
 
-TON Solidity compiler expands `string` type with the following functions:
+TVM Solidity compiler expands `string` type with the following functions:
 
 **Note**: Due to VM restrictions string length can't exceed `1024 * 127 = 130048` bytes.
 
@@ -1671,14 +1721,14 @@ Placeholder should be specified in such formats:
 * `"{}"` - empty placeholder
 * `"{:[0]<width>{"x","d","X","t"}}"` - placeholder for integers. Fills num with 0 if format starts with "0".
 Formats integer to have specified `width`. Can format integers in decimal ("d" postfix), lower hex ("x")
-or upper hex ("X") form. Format "t" prints number (in nanotons) as a fixed point Ton sum.
+or upper hex ("X") form. Format "t" prints number (in nanoevers) as a fixed point sum.
 
 Warning: this function consumes too much gas, that's why it's better not to use it onchain.
 Example:
 
 ```TVMSolidity
-string str = format("Hello {} 0x{:X} {}  {}.{} tons", 123, 255, address.makeAddrStd(-33,0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF123456789ABCDE), 100500, 32);
-// str == "Hello 123 0xFF -21:7fffffffffffffffffffffffffffffffffffffffffffffffff123456789abcde  100500.32 tons"
+string str = format("Hello {} 0x{:X} {}  {}.{} evers", 123, 255, address.makeAddrStd(-33,0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF123456789ABCDE), 100500, 32);
+// str == "Hello 123 0xFF -21:7fffffffffffffffffffffffffffffffffffffffffffffffff123456789abcde  100500.32 evers"
 str = format("Hello {}", 123); // str == "Hello 123"
 str = format("Hello 0x{:X}", 123); // str == "Hello 0x7B"
 str = format("{}", -123); // str == "-123"
@@ -1689,7 +1739,7 @@ str = format("{:06}", 123); // str == "000123"
 str = format("{:06d}", 123); // str == "000123"
 str = format("{:06X}", 123); // str == "00007B"
 str = format("{:6x}", 123); // str == "    7b"
-uint128 a = 1 ton;
+uint128 a = 1 ever;
 str = format("{:t}", a); // str == "1.000000000"
 a = 123;
 str = format("{:t}", a); // str == "0.000000123"
@@ -1736,7 +1786,7 @@ If `string` object has less than **N** bytes, extra bytes are padded with zero b
 #### address
 
 `address` represents different types of TVM addresses: **addr_none**, **addr_extern**,
-**addr_std** and **addr_var**. TON Solidity compiler expands `address` type with the following
+**addr_std** and **addr_var**. TVM Solidity compiler expands `address` type with the following
 members and functions:
 
 ##### Object creating
@@ -1802,7 +1852,7 @@ Returns the `address` value of **addr_std** or **addr_var** if **addr_var** has 
 address(this).balance returns (uint128);
 ```
 
-Returns balance of the current contract account in nanotons.
+Returns balance of the current contract account in nanoevers.
 
 ##### \<address\>.currencies
 
@@ -1860,11 +1910,11 @@ Checks whether this `address` is of type **addr_none**.
 ##### \<address\>.unpack()
 
 ```TVMSolidity
-<address>.unpack() returns (int8 /*wid*/, uint256 /*value*/);
+<address>.unpack() returns (int32 /*wid*/, uint256 /*value*/);
 ```
 
 Parses `address` containing a valid `MsgAddressInt` (`addr_std`), applies rewriting
-from the anycast (if present) to the same-length prefix of the address, and returns both the
+from the anycast (if exists) to the same-length prefix of the address, and returns both the
 workchain `wid` and the 256-bit address `value`. If the address `value` is not 256-bit, or if
 `address` is not a valid serialization of `MsgAddressInt`, throws a cell deserialization
 [exception](#tvm-exception-codes).
@@ -1874,7 +1924,7 @@ It's wrapper for opcode `REWRITESTDADDR`.
 Example:
 
 ```TVMSolidity
-(int8 wid, uint addr) = address(this).unpack();
+(int32 wid, uint addr) = address(this).unpack();
 ```
 
 ##### \<address\>.transfer()
@@ -1885,7 +1935,7 @@ Example:
 
 Sends an internal outbound message to the `address`. Function parameters:
 
-* `value` (`uint128`) - amount of nanotons sent attached to the message. Note: the sent value is
+* `value` (`uint128`) - amount of nanoevers sent attached to the message. Note: the sent value is
 withdrawn from the contract's balance even if the contract has been called by internal inbound message.
 * `currencies` (`ExtraCurrencyCollection`) - additional currencies attached to the message. Defaults to
 an empty set.
@@ -1938,9 +1988,9 @@ addr.transfer(value, bounce, flag);
 addr.transfer(value, bounce, flag, body);
 addr.transfer(value, bounce, flag, body, c);
 // using named parameters
-destination.transfer({value: 1 ton, bounce: false, flag: 128, body: cell, currencies: c});
-destination.transfer({bounce: false, value: 1 ton, flag: 128, body: cell});
-destination.transfer({value: 1 ton, bounce: false, stateInit: stateInit});
+destination.transfer({value: 1 ever, bounce: false, flag: 128, body: cell, currencies: c});
+destination.transfer({bounce: false, value: 1 ever, flag: 128, body: cell});
+destination.transfer({value: 1 ever, bounce: false, stateInit: stateInit});
 ```
 
 See example of `address.transfer()` usage:
@@ -1949,7 +1999,7 @@ See example of `address.transfer()` usage:
 
 #### mapping
 
-TON Solidity compiler expands `mapping` type with the following functions. In examples
+TVM Solidity compiler expands `mapping` type with the following functions. In examples
 below `\<map\>` defines the object of `mapping(KeyType => ValueType)` type.
 
 Address, bytes, string, bool, contract, enum, fixed bytes, integer and struct types can
@@ -2095,7 +2145,7 @@ containing that key and the associated value. Returns an empty `optional` if the
 <map>.fetch(KeyType key) returns (optional(ValueType));
 ```
 
-Checks whether **key** is present in the `mapping` and returns an `optional` with the associated value.
+Checks whether **key** exists in the `mapping` and returns an `optional` with the associated value.
 Returns an empty `optional` if there is no such key.
 
 ##### \<mapping\>.exists()
@@ -2104,7 +2154,7 @@ Returns an empty `optional` if there is no such key.
 <map>.exists(KeyType key) returns (bool);
 ```
 
-Returns whether **key** is present in the `mapping`.
+Returns whether **key** exists in the `mapping`.
 
 ##### \<mapping\>.empty()
 
@@ -2120,7 +2170,7 @@ Returns whether the `mapping` is empty.
 <map>.replace(KeyType key, ValueType value) returns (bool);
 ```
 
-Sets the value associated with **key** only if **key** is present in the `mapping` and
+Sets the value associated with **key** only if **key** exists in the `mapping` and
 returns the success flag.
 
 ##### \<mapping\>.add()
@@ -2129,7 +2179,7 @@ returns the success flag.
 <map>.add(KeyType key, ValueType value) returns (bool);
 ```
 
-Sets the value associated with **key** only if **key** is not present in the `mapping`.
+Sets the value associated with **key** only if **key** does not exist in the `mapping`.
 
 ##### \<mapping\>.getSet()
 
@@ -2146,9 +2196,18 @@ previous value associated with the **key**, if any. Otherwise, returns an empty 
 <map>.getAdd(KeyType key, ValueType value) returns (optional(ValueType));
 ```
 
-Sets the value associated with **key**, but only if **key** is not present in the `mapping`.
-Returns an `optional` with the old value without changing the dictionary if that value is present
+Sets the value associated with **key**, but only if **key** does not exist in the `mapping`.
+Returns an `optional` with the old value without changing the dictionary if that value exists
 in the `mapping`, otherwise returns an empty `optional`.
+
+##### \<mapping\>.getDel()
+
+```TVMSolidity
+<map>.getDel(KeyType key) returns (optional(ValueType));
+```
+
+Deletes the **key** from the `mapping` **map** and returns an `optional` 
+with the corresponding value. Returns an empty optional if the key does not exist.
 
 ##### \<mapping\>.getReplace()
 
@@ -2156,7 +2215,7 @@ in the `mapping`, otherwise returns an empty `optional`.
 <map>.getReplace(KeyType key, ValueType value) returns (optional(ValueType));
 ```
 
-Sets the value associated with **key**, but only if **key** is present in the `mapping`.
+Sets the value associated with **key**, but only if **key** exists in the `mapping`.
 On success, returns an `optional` with the old value associated with the **key**.
 Otherwise, returns an empty `optional`.
 
@@ -2327,7 +2386,7 @@ contract MyContract {
 
 ##### Function call via object
 
-In TON solidity **arguments of a function call passed by value not by
+In TVM Solidity **arguments of a function call passed by value not by
 reference**. It's effective for numbers and even for huge arrays.
 See ([TVM][1] - A.2.3.2).
 **But if a library function is called like `obj.func(b, c)` then the
@@ -2383,7 +2442,7 @@ contract MyContract {
 
 ### Import
 
-TON Solidity compiler allows user to import remote files using link starting with `http`.
+TVM Solidity compiler allows user to import remote files using link starting with `http`.
 If import file name starts with `http`, then compiler tries to download the file using this
 link and saves it to the folder `.solc_imports`. If compiler fails to create this folder or
 to download the file, then an error is emitted.
@@ -2393,7 +2452,7 @@ to download the file, then an error is emitted.
 Example:
 
 ```TVMSolidity
-pragma ton-solidity >= 0.35.0;
+pragma ever-solidity >= 0.35.0;
 pragma AbiHeader expire;
 pragma AbiHeader pubkey;
 
@@ -2413,13 +2472,13 @@ the pragma to all your files if you want to enable it in your whole project.
 If you import another file, the pragma from that file is not
 automatically applied to the importing file.
 
-#### pragma ton-solidity
+#### pragma ever-solidity
 
 ```TVMSolidity
-pragma ton-solidity >= 0.35.5;      // Check if the compiler version is greater or equal than 0.35.5
-pragma ton-solidity ^ 0.35.5;       // Check if the compiler version is greater or equal than 0.35.5 and less than 0.36.0
-pragma ton-solidity < 0.35.5;       // Check if the compiler version is less than 0.35.5
-pragma ton-solidity >= 0.35.5 < 0.35.7; // Check if the compiler version is equal to either 0.35.5 or 0.35.6
+pragma ever-solidity >= 0.35.5;      // Check if the compiler version is greater or equal than 0.35.5
+pragma ever-solidity ^ 0.35.5;       // Check if the compiler version is greater or equal than 0.35.5 and less than 0.36.0
+pragma ever-solidity < 0.35.5;       // Check if the compiler version is less than 0.35.5
+pragma ever-solidity >= 0.35.5 < 0.35.7; // Check if the compiler version is equal to either 0.35.5 or 0.35.6
 ```
 
 Used to restrict source file compilation to the particular compiler versions.
@@ -2482,16 +2541,16 @@ Here is example of [message expiration time](https://docs.ton.dev/86757ecb2/p/88
 pragma msgValue <value>;
 ```
 
-Allows specifying default value in nanotons attached to the
+Allows specifying default value in nanoevers attached to the
 internal outbound messages used to call another contract. If it's not
-specified, this value is set to 10 000 000 nanotons.
+specified, this value is set to 10 000 000 nanoevers.
 
 Example:
 
 ```TVMSolidity
 pragma msgValue 123456789;
 pragma msgValue 1e8;
-pragma msgValue 10 ton;
+pragma msgValue 10 ever;
 pragma msgValue 10_000_000_123;
 ```
 
@@ -2502,7 +2561,7 @@ pragma upgrade func;
 pragma upgrade oldsol;
 ```
 
-Defines that code is compiled with special selector that is needed to upgrade func/solidity contracts.
+Defines that code is compiled with special selector that is needed to upgrade FunC/Solidity contracts.
 
 ### State variables
 
@@ -2566,8 +2625,8 @@ contract C {
 
 `receive` function is called in two cases:
 
-1. [msg.data](#msgdata) (or message body) is empty.
-2. [msg.data](#msgdata) starts with 32-bit zero. Then message body may contain data,
+1. [msg.body](#msgbody) (or message body) is empty.
+2. [msg.body](#msgbody) starts with 32-bit zero. Then message body may contain data,
 for example [string](#string) with comment.
 
 If in the contract there is no `receive` function then the contract has an implicit empty `receive`
@@ -2580,8 +2639,8 @@ contract Sink {
     uint public msgWithPayload = 0;
     receive() external {
         ++counter;
-        // if the inbound internal message has payload then we can get it using `msg.data`
-        TvmSlice s = msg.data;
+        // if the inbound internal message has payload then we can get it using `msg.body`
+        TvmSlice s = msg.body;
         if (!s.empty()) {
             ++msgWithPayload;
         }
@@ -2590,18 +2649,18 @@ contract Sink {
 
 // file bomber.sol
 contract Bomber {
-    // This function send tons 3 times to the Sink contract. Sink's function receive will handle 
+    // This function send evers 3 times to the Sink contract. Sink's function receive will handle 
     // that messages.
     function f(address addr) pure public {
         tvm.accept();
-        addr.transfer({value: 1 ton}); // message's body is empty
+        addr.transfer({value: 1 ever}); // message's body is empty
 
         TvmBuilder b;
-        addr.transfer({value: 1 ton, body: b.toCell()}); // message's body is empty, too
+        addr.transfer({value: 1 ever, body: b.toCell()}); // message's body is empty, too
 
         b.store(uint32(0), "Thank you for the coffee!");
         // body of the message contains 32-bit zero number and the string
-        addr.transfer({value: 20 ton, body: b.toCell()});
+        addr.transfer({value: 20 ever, body: b.toCell()});
     }
 }
 ```
@@ -2646,20 +2705,20 @@ contract ContractB {
         tvm.accept();
         // The message contains a function id that the contract doesn't contain.
         // There is wrong casting to ContractAnother. `addr` is ContractA's address.
-        ContractAnother(addr).sum{value: 1 ton}(2, 2);
+        ContractAnother(addr).sum{value: 1 ever}(2, 2);
 
         {
             TvmBuilder b;
             b.storeUnsigned(1, 1);
             // Bit-length of the message is equal to 20 bits.
-            addr.transfer({value: 2 ton, body: b.toCell()});
+            addr.transfer({value: 2 ever, body: b.toCell()});
         }
 
         {
             TvmBuilder b;
             b.storeRef(b);
             // Bit-length of the message is equal to zero but the message contains one reference.
-            addr.transfer({value: 1 ton, body: b.toCell()});
+            addr.transfer({value: 1 ever, body: b.toCell()});
         }
 
         TvmBuilder b;
@@ -2667,7 +2726,7 @@ contract ContractB {
         b.store(id, uint(2));
         // ContractA's fallback function won't be called because the message body doesn't contain
         // the second ContractA.f's parameter. It will cause cell underflow exception in ContractA.
-        addr.transfer({value: 1 ton, body: b.toCell()});
+        addr.transfer({value: 1 ever, body: b.toCell()});
     }
 }
 ```
@@ -2974,12 +3033,12 @@ function f(uint n) public responsible pure {
 
 ### External function calls
 
-TON Solidity compiler allows specifying different parameters of the outbound internal message that
+TVM Solidity compiler allows specifying different parameters of the outbound internal message that
 is sent via external function call. Note, all external function calls are asynchronous, so
 callee function will be called after termination of the current transaction.
 `value`, `currencies`, `bounce` or `flag` options can be set. See [\<address\>.transfer()](#addresstransfer)
 where these options are described.
-**Note:** if `value` isn't set, then the default value is equal to 0.01 ton, or 10^7 nanoton. It's equal
+**Note:** if `value` isn't set, then the default value is equal to 0.01 ever, or 10^7 nanoever. It's equal
 to 10_000 units of gas in workchain.
 If the callee function returns some value and marked as `responsible` then `callback` option must be set.
 This callback function will be called by another contract. Remote function will pass its return
@@ -2997,14 +3056,14 @@ interface IContract {
 
 contract Caller {
     function callExt(address addr) public {
-        IContract(addr).f(123); // attached default value: 0.01 ton
-        IContract(addr).f{value: 10 ton}(123);
-        IContract(addr).f{value: 10 ton, flag: 3}(123);
-        IContract(addr).f{value: 10 ton, bounce: true}(123);
+        IContract(addr).f(123); // attached default value: 0.01 ever
+        IContract(addr).f{value: 10 ever}(123);
+        IContract(addr).f{value: 10 ever, flag: 3}(123);
+        IContract(addr).f{value: 10 ever, bounce: true}(123);
         IContract(addr).f{value: 1 micro, bounce: false, flag: 128}(123);
         ExtraCurrencyCollection cc;
         cc[12] = 1000;
-        IContract(addr).f{value: 10 ton, currencies:cc}(123);
+        IContract(addr).f{value: 10 ever, currencies:cc}(123);
     }
 }
 ```
@@ -3024,7 +3083,7 @@ contract RemoteContract {
 contract Caller {
     function test(address addr, uint x) public pure {
         // `getCost` returns result to `onGetCost`
-        RemoteContract(addr).getCost{value: 1 ton, callback: Caller.onGetCost}(x);
+        RemoteContract(addr).getCost{value: 1 ever, callback: Caller.onGetCost}(x);
     }
 
     function onGetCost(uint cost) public {
@@ -3058,7 +3117,7 @@ and [4.1_CurrencyExchange.sol](https://github.com/tonlabs/samples/blob/master/so
 
 #### Synchronous calls
 
-TON Solidity compiler allows user to perform synchronous calls. To do it user should call a remote contract
+TVM Solidity compiler allows user to perform synchronous calls. To do it user should call a remote contract
 function with `.await` suffix. Example:
 
 ```TVMSolidity
@@ -3188,7 +3247,7 @@ msg.value (uint128)
 
 Returns:
 
-* Balance of the inbound message in nanotons for internal message.
+* Balance of the inbound message in nanoevers for internal message.
 * 0 for external message.
 * Undefined value for tick/tock transaction.
 
@@ -3225,10 +3284,38 @@ Returns the field **created_at** of the external inbound message.
 ##### msg.data
 
 ```TVMSolidity
-msg.data (TvmSlice)
+msg.data (TvmCell)
 ```
 
-Returns the payload of an inbound message.
+Returns [the whole message](https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb#L155).
+
+##### msg.forwardFee
+
+```TVMSolidity
+msg.forwardFee (varUint16)
+```
+
+Returns:
+ * the [forward fee](https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb#L126) for the internal inbound message.   
+ * `0` for the external inbound message.   
+
+##### msg.importFee
+
+```TVMSolidity
+msg.importFee (varUint16)
+```
+
+Returns:
+ * the field [import_fee](https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb#L130) for external inbound message. **Note:** field `import_fee` is set offchain by user as they want and does not reflect the real import fee of the message. 
+ * `0` for the internal inbound message.
+
+##### msg.body
+
+```TVMSolidity
+msg.body (TvmSlice)
+```
+
+Returns the payload (message body) of an inbound message.
 
 ##### msg.hasStateInit
 
@@ -3293,7 +3380,7 @@ of `tvm.accept()`.
 tvm.buyGas(uint value);
 ```
 
-Computes the amount of gas that can be bought for `value` nanotons, and sets **g<sub>l</sub>**  
+Computes the amount of gas that can be bought for `value` nanoevers, and sets **g<sub>l</sub>**  
 accordingly in the same way as [tvm.setGasLimit()](#tvmsetgaslimit).
 
 ##### tvm.commit()
@@ -3458,8 +3545,8 @@ tvm.rawReserve(uint value, uint8 flag);
 tvm.rawReserve(uint value, ExtraCurrencyCollection currency, uint8 flag);
 ```
 
-Creates an output action that reserves **reserve** nanotons. It is roughly equivalent to
-create an outbound message carrying **reserve** nanotons to oneself, so that the subsequent output
+Creates an output action that reserves **reserve** nanoevers. It is roughly equivalent to
+create an outbound message carrying **reserve** nanoevers to oneself, so that the subsequent output
 actions would not be able to spend more money than the remainder. It's a wrapper for opcodes
 "RAWRESERVE" and "RAWRESERVEX". See [TVM][1].
 
@@ -3471,22 +3558,22 @@ of the contract before the transaction minus storage fee. Note: `original_balanc
 * `remaining_balance` is contract's current remaining balance at the action phase after some handled
 actions and before handing the "rawReserve" action.
 
-Let's consider how much nanotons (**reserve**) are reserved in all cases of **flag**:
+Let's consider how much nanoevers (**reserve**) are reserved in all cases of **flag**:
 
-* 0 -> `reserve = value` nanotons.
-* 1 -> `reserve = remaining_balance - value` nanotons.
-* 2 -> `reserve = min(value, remaining_balance)` nanotons.
-* 3 = 2 + 1 -> `reserve = remaining_balance - min(value, remaining_balance)` nanotons.
+* 0 -> `reserve = value` nanoevers.
+* 1 -> `reserve = remaining_balance - value` nanoevers.
+* 2 -> `reserve = min(value, remaining_balance)` nanoevers.
+* 3 = 2 + 1 -> `reserve = remaining_balance - min(value, remaining_balance)` nanoevers.
 
-* 4 -> `reserve = original_balance + value` nanotons.
-* 5 = 4 + 1 -> `reserve = remaining_balance - (original_balance + value)` nanotons.
-* 6 = 4 + 2 -> `reserve = min(original_balance + value, remaining_balance) = remaining_balance` nanotons.
-* 7 = 4 + 2 + 1 -> `reserve = remaining_balance - min(original_balance + value, remaining_balance)` nanotons.
+* 4 -> `reserve = original_balance + value` nanoevers.
+* 5 = 4 + 1 -> `reserve = remaining_balance - (original_balance + value)` nanoevers.
+* 6 = 4 + 2 -> `reserve = min(original_balance + value, remaining_balance) = remaining_balance` nanoevers.
+* 7 = 4 + 2 + 1 -> `reserve = remaining_balance - min(original_balance + value, remaining_balance)` nanoevers.
 
-* 12 = 8 + 4 -> `reserve = original_balance - value` nanotons.
-* 13 = 8 + 4 + 1 -> `reserve = remaining_balance - (original_balance - value)` nanotons.
-* 14 = 8 + 4 + 2 -> `reserve = min(original_balance - value, remaining_balance)` nanotons.
-* 15 = 8 + 4 + 2 + 1 -> `reserve = remaining_balance - min(original_balance - value, remaining_balance)` nanotons.
+* 12 = 8 + 4 -> `reserve = original_balance - value` nanoevers.
+* 13 = 8 + 4 + 1 -> `reserve = remaining_balance - (original_balance - value)` nanoevers.
+* 14 = 8 + 4 + 2 -> `reserve = min(original_balance - value, remaining_balance)` nanoevers.
+* 15 = 8 + 4 + 2 + 1 -> `reserve = remaining_balance - min(original_balance - value, remaining_balance)` nanoevers.
 
 All other values of `flag` are invalid.
 
@@ -3503,7 +3590,7 @@ To make it clear, let's consider the order of `reserve` calculation:
 Example:
 
 ```TVMSolidity
-tvm.rawReserve(1 ton, 4 + 8);
+tvm.rawReserve(1 ever, 4 + 8);
 ```
 
 See also: [23_rawReserve.sol](https://github.com/tonlabs/samples/blob/master/solidity/23_rawReserve.sol)
@@ -3544,13 +3631,16 @@ uint256 hash = tvm.hash(bytes);
 ##### tvm.checkSign()
 
 ```TVMSolidity
-tvm.checkSign(uint256 hash, uint256 SignHighPart, uint256 SignLowPart, uint256 pubkey) returns (bool);
-tvm.checkSign(uint256 hash, TvmSlice signature, uint256 pubkey) returns (bool);
+(1)
+tvm.checkSign(uint256 dataHash, uint256 SignHighPart, uint256 SignLowPart, uint256 pubkey) returns (bool);
+(2)
+tvm.checkSign(uint256 dataHash, TvmSlice signature, uint256 pubkey) returns (bool);
+(3)
 tvm.checkSign(TvmSlice data, TvmSlice signature, uint256 pubkey) returns (bool);
 ```
 
 Executes TVM instruction "CHKSIGNU" ([TVM][1] - A.11.6. - F910) for variants 1 and 2.
-This command checks the Ed25519-signature of the **hash** using public key **pubkey**.
+This command checks the Ed25519-signature of the **dataHash** using public key **pubkey**.
 Signature is represented by two uint256 **SignHighPart** and **SignLowPart** in the
 first variant and by the slice **signature** in the second variant.
 In the third variant executes TVM instruction "CHKSIGNS" ([TVM][1] - A.11.6. - F911).
@@ -3560,21 +3650,24 @@ Signature is represented by the slice **signature**.
 Example:
 
 ```TVMSolidity
-uint256 hash;
+// option 1
+uint256 dataHash;
 uint256 SignHighPart;
 uint256 SignLowPart;
 uint256 pubkey;
-bool signatureIsValid = tvm.checkSign(hash, SignHighPart, SignLowPart, pubkey);  // 1 variant
+bool signatureIsValid = tvm.checkSign(dataHash, SignHighPart, SignLowPart, pubkey);
 
-uint256 hash;
+// option 2
+uint256 dataHash;
 TvmSlice signature;
 uint256 pubkey;
-bool signatureIsValid = tvm.checkSign(hash, signature, pubkey);  // 2 variant
+bool signatureIsValid = tvm.checkSign(dataHash, signature, pubkey);
 
+// option 3
 TvmSlice data;
 TvmSlice signature;
 uint256 pubkey;
-bool signatureIsValid = tvm.checkSign(hash, signature, pubkey);  // 3 variant
+bool signatureIsValid = tvm.checkSign(data, signature, pubkey);
 ```
 
 ##### Deploy contract from contract
@@ -3742,7 +3835,7 @@ Examples:
 
 ```TVMSolidity
 TvmCell stateInit = ...;
-address newWallet = new SimpleWallet{value: 1 ton, stateInit: stateInit}(arg0, arg1, ...);
+address newWallet = new SimpleWallet{value: 1 ever, stateInit: stateInit}(arg0, arg1, ...);
 ```
 
 ##### `code` option usage
@@ -3751,7 +3844,7 @@ address newWallet = new SimpleWallet{value: 1 ton, stateInit: stateInit}(arg0, a
 
 ```TVMSolidity
 TvmCell code = ...;
-address newWallet = new SimpleWallet{value: 1 ton, code: code}(arg0, arg1, ...);
+address newWallet = new SimpleWallet{value: 1 ever, code: code}(arg0, arg1, ...);
 ```
 
 The following options can only be used with the `code` option:
@@ -3760,7 +3853,7 @@ The following options can only be used with the `code` option:
 * `varInit` (`initializer list`) - used to set [static](#keyword-static) variables of the new contract.
 * `splitDepth` (`uint8`) - splitting depth. `0 <= splitDepth <= 31`. By default, it has no value.
 
-Example of these options usage:
+Example of usage of these options:
 
 ```TVMSolidity
 // file SimpleWallet.sol
@@ -3774,7 +3867,7 @@ contract SimpleWallet {
 // file containing a contract that deploys a SimpleWallet
 TvmCell code = ...;
 address newWallet = new SimpleWallet{
-    value: 1 ton,
+    value: 1 ever,
     code: code,
     pubkey: 0xe8b1d839abe27b2abb9d4a2943a9143a9c7e2ae06799bd24dec1d7a8891ae5dd,
     splitDepth: 15,
@@ -3801,7 +3894,7 @@ Possible values of the `flag` are described here: [\<address\>.transfer()](#addr
 TvmCell stateInit = ...;
 address newWallet = new SimpleWallet{
     stateInit: stateInit,
-    value: 1 ton,
+    value: 1 ever,
     wid: -1,
     flag: 0
 }(arg0, arg1, ...);
@@ -3972,15 +4065,15 @@ contract Remote {
 
 // deploy the contract
 TvmCell body = tvm.encodeBody(Remote, 100, 200, 300);
-addr.transfer({value: 10 ton, body: body, stateInit: stateInit });
+addr.transfer({value: 10 ever, body: body, stateInit: stateInit });
 
 // call the function
 TvmCell body = tvm.encodeBody(Remote.func, 123, -654);
-addr.transfer({value: 10 ton, body: body});
+addr.transfer({value: 10 ever, body: body});
 
 // call the responsible function
 TvmCell body = tvm.encodeBody(Remote.getCost, onGetCost, 105);
-addr.transfer({value: 10 ton, body: body});
+addr.transfer({value: 10 ever, body: body});
 ```
 
 See also:
@@ -4056,7 +4149,7 @@ but stores special data:
 * on error id - 32 bits;
 * abi version - 8 bits; Can be specified manually and contain full abi version in little endian half bytes (e.g. version = "2.3" -> abiVer: 0x32)
 * header mask - 3 bits in such order: time, expire, pubkey;
-* optional value signBoxHandle - 1 bit (whether value is present) + \[32 bits\];
+* optional value signBoxHandle - 1 bit (whether value exists) + \[32 bits\];
 * control flags byte - 8 bits. 
   Currently used bits:
     1 - override time (dengine will replace time value with current time)
@@ -4398,7 +4491,7 @@ Returns the starting logical time of the current block.
 
 The pseudorandom number generator uses the random seed. The
 initial value of the random seed before a smart contract execution in
-TON Blockchain is a hash of the smart contract address and the global
+TVM compatible blockchains is a hash of the smart contract address and the global
 block random seed. If there are several runs of the same smart contract
 inside a block, then all of these runs will have the same random seed.
 This can be fixed, for example, by running `rnd.shuffle()` (without
@@ -4629,39 +4722,46 @@ valueToGas(uint128 value) returns (uint128 gas)
 valueToGas(uint128 value, int8 wid) returns (uint128 gas)
 ```
 
-Counts how much **gas** could be bought on **value** nanotons in workchain **wid**.
+Counts how much **gas** could be bought on **value** nanoevers in workchain **wid**.
 Throws an exception if **wid** is not equal to `0` or `-1`.
 If `wid` is omitted than used the contract's `wid`.
 
+#### gasleft
+
+```TVMSolidity
+gasleft() returns (uint64)
+```
+
+Returns the remaining gas. Supported only if `CapGasRemainingInsn` capability is set.
+
 ### TVM exception codes
 
-| Name              | Code | Definition                                                                                                                                         |
-|-------------------|:----:|----------------------------------------------------------------------------------------------------------------------------------------------------|
-| Stack underflow   |  2   | Not enough arguments in the stack for a primitive                                                                                                  |
-| Stack overflow    |  3   | More values have been stored on a stack than allowed by this version of TVM                                                                        |
-| Integer overflow  |  4   | Integer does not fit into expected range (by default −2<sup>256</sup> ≤ x < 2<sup>256</sup>), or a division by zero has occurred                   |
-| Range check error |  5   | Integer out of expected range                                                                                                                      |
-| Invalid opcode    |  6   | Instruction or its immediate arguments cannot be decoded                                                                                           |
-| Type check error  |  7   | An argument to a primitive is of incorrect value type                                                                                              |
-| Cell overflow     |  8   | Error in one of the serialization primitives                                                                                                       |
-| Cell underflow    |  9   | Deserialization error                                                                                                                              |
-| Dictionary error  |  10  | Error while deserializing a dictionary object                                                                                                      |
-| Unknown error     |  11  | Unknown error, may be thrown by user programs                                                                                                      |
-| Fatal error       |  12  | Thrown by TVM in situations deemed impossible                                                                                                      |
-| Out of gas        |  13  | Thrown by TVM when the remaining gas (g r ) becomes negative. This exception usually cannot be caught and leads to an immediate termination of TVM |
+| Name              | Code | Definition                                                                                                                                          |
+|-------------------|:----:|-----------------------------------------------------------------------------------------------------------------------------------------------------|
+| Stack underflow   |  2   | Not enough arguments in the stack for a primitive                                                                                                   |
+| Stack overflow    |  3   | More values have been stored on a stack than allowed by this version of TVM                                                                         |
+| Integer overflow  |  4   | Integer does not fit into expected range (by default −2<sup>256</sup> ≤ x < 2<sup>256</sup>), or a division by zero has occurred                    |
+| Range check error |  5   | Integer out of expected range                                                                                                                       |
+| Invalid opcode    |  6   | Instruction or its immediate arguments cannot be decoded                                                                                            |
+| Type check error  |  7   | An argument to a primitive is of incorrect value type                                                                                               |
+| Cell overflow     |  8   | Error in one of the serialization primitives                                                                                                        |
+| Cell underflow    |  9   | Deserialization error                                                                                                                               |
+| Dictionary error  |  10  | Error while deserializing a dictionary object                                                                                                       |
+| Unknown error     |  11  | Unknown error, may be thrown by user programs                                                                                                       |
+| Fatal error       |  12  | Thrown by TVM in situations deemed impossible                                                                                                       |
+| Out of gas        | -14  | Thrown by TVM when the remaining gas (g<sub>r</sub>) becomes negative. This exception cannot be caught and leads to an immediate termination of TVM |
 
 See also: [TVM][1] - 4.5.7
 
 ### Solidity runtime errors
 
-Smart-contract written on solidity can throw runtime errors while execution.
+Smart-contract written in TVM Solidity can throw runtime errors while execution.
 
 Solidity runtime error codes:
   * **40** - External inbound message has an invalid signature. See [tvm.pubkey()](#tvmpubkey) and [msg.pubkey()](#msgpubkey).
   * **50** - Array index or index of [\<mapping\>.at()](#mappingat) is out of range.
   * **51** - Contract's constructor has already been called.
   * **52** - Replay protection exception. See `timestamp` in [pragma AbiHeader](#pragma-abiheader).
-  * **53** - See [\<address\>.unpack()](#addressunpack).
   * **54** - `<array>.pop` call for an empty array.
   * **55** - See [tvm.insertPubkey()](#tvminsertpubkey).
   * **57** - External inbound message is expired. See `expire` in [pragma AbiHeader](#pragma-abiheader).
@@ -4669,12 +4769,12 @@ Solidity runtime error codes:
   * **60** - Inbound message has wrong function id. In the contract there are no functions with such function id and there is no fallback function that could handle the message. See [fallback](#fallback).
   * **61** - Deploying `StateInit` has no public key in `data` field.
   * **62** - Reserved for internal usage.
-  * **63** - See [\<optional(Type)\>.get()](#optionaltypeget).
+  * **63** - See [\<optional(T)\>.get()](#optionaltget).
   * **64** - `tvm.buildExtMSg()` call with wrong parameters. See [tvm.buildExtMsg()](#tvmbuildextmsg).
   * **66** - Convert an integer to a string with width less than number length. See [format()](#format).
   * **67** - See [gasToValue](#gastovalue) and [valueToGas](#valuetogas).
   * **68** - There is no config parameter 20 or 21.
-  * **69** - Zero to the power of zero calculation (`0**0` in solidity style or `0^0`).
+  * **69** - Zero to the power of zero calculation (`0**0` in TVM Solidity style or `0^0`).
   * **70** - `string` method `substr` was called with substr longer than the whole string.
   * **71** - Function marked by `externalMsg` was called by internal message.
   * **72** - Function marked by `internalMsg` was called by external message.
@@ -4735,22 +4835,22 @@ function of special function like `receive`, `fallback`, `onBounce`, `onTickTock
 Before calling contract's function `main_external` does:
 
 1. Checks the message signature. Let's consider how the signature is checked:
-   - If signature is present and `pubkey` header isn't defined then `tvm.pubkey()` is used
+   - If signature exists and `pubkey` header isn't defined then `tvm.pubkey()` is used
    for checking.
-   - If signature isn't present and `pubkey` header isn't defined then signature isn't checked.
-   - If signature is present, `pubkey` header is defined and `pubkey` isn't present in the
+   - If signature isn't exists and `pubkey` header isn't defined then signature isn't checked.
+   - If signature exists, `pubkey` header is defined and `pubkey` isn't exists in the
    message then `tvm.pubkey()` is used for checking.
-   - If signature is present, `pubkey` header is defined and `pubkey` is present in the
+   - If signature exists, `pubkey` header is defined and `pubkey` exists in the
    message then `msg.pubkey()` is used for checking.
-   - If signature isn't present, `pubkey` header is defined and `pubkey` is present in the
+   - If signature isn't exists, `pubkey` header is defined and `pubkey` exists in the
    message then an [exception with code 58](#solidity-runtime-errors) is thrown.
 2. Replay protection:
-   - `time` is present and there is no `afterSignatureCheck` then the contract checks whether
-   `oldTime` < `time` < `now` * 1000 + 30 minutes. If it's true then `oldTime` is updated by new `time`.
+   - [*time* header](#pragma-abiheader) exists (`pragma AbiHeader notime` is not used) then the contract checks whether
+   `oldTime` < `time` < `now * 1000 + 30 minutes`. If it's true then `oldTime` is updated by new `time`.
    Otherwise, an exception is thrown.
    - there is `afterSignatureCheck` (despite usage of `time`) then make your own replay protection.
 3. Message expiration:
-   - `expire` is present and there is no `afterSignatureCheck` then the contract checks whether
+   - `expire` exists and there is no `afterSignatureCheck` then the contract checks whether
    `expire` > `now`.
    - there is `afterSignatureCheck` (despite usage of `expire`) then make your own check.
 

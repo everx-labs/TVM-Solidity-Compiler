@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2022 TON DEV SOLUTIONS LTD.
+ * Copyright (C) 2021-2023 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -9,10 +9,6 @@
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
- */
-/**
- * @author TON Labs <connect@tonlabs.io>
- * @date 2021
  */
 
 #include "DictOperations.hpp"
@@ -93,12 +89,14 @@ void DictPrevNext::prevNext(bool saveOrigKeyAndNoTuple) {
 
 GetFromDict::GetFromDict(StackPusher &pusher, const Type &keyType, const Type &valueType,
 						 const GetDictOperation op,
-						 const DataType &dataType) :
+						 std::optional<DataType> inputValueType) :
 		DictOperation{pusher, keyType, valueType},
 		op{op},
-		dataType{dataType}
+		inputValueType{inputValueType}
 {
-
+	bool hasInputValue = isIn(op,GetDictOperation::GetSetFromMapping, GetDictOperation::GetAddFromMapping,
+		GetDictOperation::GetReplaceFromMapping);
+	solAssert(hasInputValue == inputValueType.has_value());
 }
 
 void GetFromDict::getDict() {
@@ -112,85 +110,101 @@ void GetFromDict::getDict() {
 	int ret{};
 	pusher.startOpaque();
 	switch (op) {
-		case GetDictOperation::GetSetFromMapping:
-		case GetDictOperation::GetAddFromMapping:
-		case GetDictOperation::GetReplaceFromMapping: {
-			take = 4;
-			ret = 2;
-			if (op == GetDictOperation::GetSetFromMapping)
-				opcode += "SETGET";
-			else if (op == GetDictOperation::GetAddFromMapping)
-				opcode += "ADDGET";
-			else if (op == GetDictOperation::GetReplaceFromMapping)
-				opcode += "REPLACEGET";
-			else
-				solUnimplemented("");
+	case GetDictOperation::GetSetFromMapping:
+	case GetDictOperation::GetAddFromMapping:
+	case GetDictOperation::GetReplaceFromMapping: {
+		take = 4;
+		ret = 2;
 
-			bool didUseOpcodeWithRef = false;
-			switch (dataType) {
-				case DataType::Builder:
-					opcode += "B";
-					break;
-				case DataType::Cell:
-					didUseOpcodeWithRef = true;
-					opcode += "REF";
-					break;
-				case DataType::Slice:
-					break;
-			}
-			pusher.pushAsym(opcode);
+		if (op == GetDictOperation::GetSetFromMapping)
+			opcode += "SETGET";
+		else if (op == GetDictOperation::GetAddFromMapping)
+			opcode += "ADDGET";
+		else if (op == GetDictOperation::GetReplaceFromMapping)
+			opcode += "REPLACEGET";
+		else
+			solUnimplemented("");
 
-			StackPusher::DecodeType decodeType{};
-			if (op == GetDictOperation::GetAddFromMapping)
-				decodeType = StackPusher::DecodeType::PushNullOrDecodeValue;
-			else if (
-					op == GetDictOperation::GetSetFromMapping ||
-					op == GetDictOperation::GetReplaceFromMapping
-			)
-				decodeType = StackPusher::DecodeType::DecodeValueOrPushNull;
-			else
-				solUnimplemented("");
-			int ss = pusher.stackSize();
-			pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, didUseOpcodeWithRef, decodeType);
-			solAssert(ss == pusher.stackSize(), "");
+		bool didUseOpcodeWithRef = false;
+		switch (inputValueType.value()) {
+		case DataType::Builder:
+			opcode += "B";
+			break;
+		case DataType::Cell:
+			didUseOpcodeWithRef = true;
+			opcode += "REF";
+			break;
+		case DataType::Slice:
 			break;
 		}
 
-		case GetDictOperation::Exist: {
-			take = 3;
-			ret = 1;
-			opcode += "GET";
-			pusher.pushAsym(opcode);
-			checkExist();
-			break;
+		pusher.pushAsym(opcode);
+
+		StackPusher::DecodeType decodeType{};
+		if (op == GetDictOperation::GetAddFromMapping)
+			decodeType = StackPusher::DecodeType::PushNullOrDecodeValue;
+		else if (
+			op == GetDictOperation::GetSetFromMapping ||
+			op == GetDictOperation::GetReplaceFromMapping
+		)
+			decodeType = StackPusher::DecodeType::DecodeValueOrPushNull;
+		else
+			solUnimplemented("");
+
+		int ss = pusher.stackSize();
+		pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, didUseOpcodeWithRef, decodeType);
+
+		solAssert(ss == pusher.stackSize(), "");
+		break;
+	}
+	case GetDictOperation::Exist: {
+		take = 3;
+		ret = 1;
+		opcode += "GET";
+		pusher.pushAsym(opcode);
+		checkExist();
+		break;
+	}
+	case GetDictOperation::Fetch:
+	case GetDictOperation::GetFromArray:
+	case GetDictOperation::GetFromMapping: {
+		take = 3;
+		ret = 1;
+		opcode += "GET";
+		bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
+		if (isInRef) {
+			opcode += "REF";
 		}
-		case GetDictOperation::Fetch:
-		case GetDictOperation::GetFromArray:
-		case GetDictOperation::GetFromMapping: {
-			take = 3;
-			ret = 1;
-			opcode += "GET";
-			bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
-			if (isInRef) {
-				opcode += "REF";
-			}
-			pusher.pushAsym(opcode);
-			if (op == GetDictOperation::GetFromArray) {
-				pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
-			}
-			StackPusher::DecodeType decodeType{};
-			if (op == GetDictOperation::Fetch) {
-				decodeType = StackPusher::DecodeType::DecodeValueOrPushNull;
-			} else if (op == GetDictOperation::GetFromArray) {
-				decodeType = StackPusher::DecodeType::DecodeValue;
-			} else if (op == GetDictOperation::GetFromMapping) {
-				decodeType = StackPusher::DecodeType::DecodeValueOrPushDefault;
-			} else {
-				solUnimplemented("");
-			}
-			pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, isInRef, decodeType);
-			break;
+		pusher.pushAsym(opcode);
+		if (op == GetDictOperation::GetFromArray) {
+			pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::ArrayIndexOutOfRange));
 		}
+		StackPusher::DecodeType decodeType{};
+		if (op == GetDictOperation::Fetch) {
+			decodeType = StackPusher::DecodeType::DecodeValueOrPushNull;
+		} else if (op == GetDictOperation::GetFromArray) {
+			decodeType = StackPusher::DecodeType::DecodeValue;
+		} else if (op == GetDictOperation::GetFromMapping) {
+			decodeType = StackPusher::DecodeType::DecodeValueOrPushDefault;
+		} else {
+			solUnimplemented("");
+		}
+		pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, isInRef, decodeType);
+		break;
+	}
+	case GetDictOperation::GetDelFromMapping: {
+		take = 3;
+		ret = 2;
+		opcode += "DELGET";
+		bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
+		if (isInRef) {
+			opcode += "REF";
+		}
+		pusher.pushAsym(opcode);
+		StackPusher::DecodeType decodeType = StackPusher::DecodeType::DecodeValueOrPushNull;
+		pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, isInRef, decodeType);
+		break;
+	}
 	}
 	pusher.endOpaque(take, ret);
 
