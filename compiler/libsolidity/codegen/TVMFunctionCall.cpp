@@ -3300,6 +3300,18 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 			return true;
 		}
 
+        case FunctionType::Kind::SHA1: { // "sha1"
+            pushArgAndConvert(0);
+            m_pusher << "SHA1";
+            return true;
+        }
+
+        case FunctionType::Kind::KECCAK256: { // "keccak256"
+            pushArgAndConvert(0);
+            m_pusher << "KECCAK256";
+            return true;
+        }
+
 		case FunctionType::Kind::Selfdestruct: { // "selfdestruct"
 			const std::map<int, std::string> constParams{
 					{TvmConst::int_msg_info::ihr_disabled, "1"},
