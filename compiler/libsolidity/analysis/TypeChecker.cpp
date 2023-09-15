@@ -3929,20 +3929,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			break;
 		}
         case FunctionType::Kind::SHA1:
-        case FunctionType::Kind::KECCAK256: {
-            if (arguments.size() != 1) {
-                m_errorReporter.fatalTypeError(228_error, _functionCall.location(), "Expected one argument.");
-            }
-
-            Type const* argType = arguments.at(0)->annotation().type->mobileType();
-            auto arrayType = dynamic_cast<ArrayType const *>(argType);
-            if (!(arrayType && arrayType->isByteArrayOrString())) {
-                m_errorReporter.fatalTypeError(228_error, arguments.at(0)->location(), "Expected bytes or string type.");
-            }
-            paramTypes.push_back(argType);
-            returnTypes.emplace_back(TypeProvider::uint256());
-            break;
-        }
+        case FunctionType::Kind::KECCAK256:
 		case FunctionType::Kind::SHA256: {
 			if (arguments.size() != 1) {
 				m_errorReporter.fatalTypeError(228_error, _functionCall.location(), "Expected one argument.");
