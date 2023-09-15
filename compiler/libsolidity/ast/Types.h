@@ -1437,7 +1437,6 @@ public:
 		Revert, ///< REVERT
 		ECRecover, ///< CALL to special contract for ecrecover
 		SHA256, ///< CALL to special contract for sha256
-        SHA1, ///< CALL to special contract for sha1
 		RIPEMD160, ///< CALL to special contract for ripemd160
 
 		LogTVM, ///< logtvm(...)
@@ -1773,7 +1772,6 @@ public:
 		{
 		case FunctionType::Kind::KECCAK256:
 		case FunctionType::Kind::SHA256:
-        case FunctionType::Kind::SHA1:
 		case FunctionType::Kind::RIPEMD160:
 		case FunctionType::Kind::BareCall:
 		case FunctionType::Kind::BareCallCode:

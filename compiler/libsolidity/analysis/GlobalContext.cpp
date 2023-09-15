@@ -61,7 +61,6 @@ int magicVariableToID(std::string const& _name)
 	else if (_name == "selfdestruct") return -21;
 	else if (_name == "sha256") return -22;
 	else if (_name == "sha3") return -23;
-    else if (_name == "sha1") return -29;
 	else if (_name == "stoi") return -106;
 	else if (_name == "super") return -25;
 	else if (_name == "tvm") return -101;
@@ -95,8 +94,6 @@ inline vector<shared_ptr<MagicVariableDeclaration const>> constructMagicVariable
 		magicVarDecl("revert", TypeProvider::function(strings(), strings(), FunctionType::Kind::Revert, StateMutability::Pure, FunctionType::Options::withArbitraryParameters())),
 		magicVarDecl("selfdestruct", TypeProvider::function(strings{"address payable"}, strings{}, FunctionType::Kind::Selfdestruct)),
 		magicVarDecl("sha256", TypeProvider::function({}, {}, FunctionType::Kind::SHA256, StateMutability::Pure)),
-        magicVarDecl("keccak256", TypeProvider::function({}, {}, FunctionType::Kind::KECCAK256, StateMutability::Pure)),
-        magicVarDecl("sha1", TypeProvider::function({}, {}, FunctionType::Kind::SHA1, StateMutability::Pure)),
 
 		magicVarDecl("format", TypeProvider::function(strings{}, strings{"string"}, FunctionType::Kind::Format, StateMutability::Pure, FunctionType::Options::withArbitraryParameters())),
 		magicVarDecl("gosh", TypeProvider::magic(MagicType::Kind::Gosh)),

@@ -2634,7 +2634,6 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 			else if (
 				_functionType->kind() == FunctionType::Kind::KECCAK256 ||
 				_functionType->kind() == FunctionType::Kind::SHA256 ||
-                _functionType->kind() == FunctionType::Kind::SHA1 ||
 				_functionType->kind() == FunctionType::Kind::RIPEMD160
 			)
 			{
@@ -2798,7 +2797,6 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 				else if (
 					_functionType->kind() == FunctionType::Kind::KECCAK256 ||
 					_functionType->kind() == FunctionType::Kind::SHA256 ||
-                    _functionType->kind() == FunctionType::Kind::SHA1 ||
 					_functionType->kind() == FunctionType::Kind::RIPEMD160
 				)
 					return {
@@ -3928,8 +3926,6 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			returnTypes = functionType->returnParameterTypes();
 			break;
 		}
-        case FunctionType::Kind::SHA1:
-        case FunctionType::Kind::KECCAK256:
 		case FunctionType::Kind::SHA256: {
 			if (arguments.size() != 1) {
 				m_errorReporter.fatalTypeError(228_error, _functionCall.location(), "Expected one argument.");
