@@ -1575,6 +1575,9 @@ public:
         GoshApplyBinPatchQ,
         GoshApplyZipBinPatch,
         GoshApplyZipBinPatchQ,
+        GoshSHA1,
+        GoshSHA256,
+        GoshKECCAK256,
 	};
 	struct Options
 	{

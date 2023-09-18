@@ -2,3 +2,5 @@ build/
 sold/target/
 target/
 .idea/
+compiler/cmake-build-debug/
+

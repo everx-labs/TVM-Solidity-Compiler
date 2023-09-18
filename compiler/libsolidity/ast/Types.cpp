@@ -3331,6 +3331,9 @@ string FunctionType::richIdentifier() const
 	case Kind::GoshApplyBinPatchQ: id += "goshapplybinpatchq"; break;
 	case Kind::GoshApplyZipBinPatch: id += "goshapplyzipbinpatch"; break;
 	case Kind::GoshApplyZipBinPatchQ: id += "goshapplyzipbinpatchq"; break;
+    case Kind::GoshSHA1: id += "goshsha1"; break;
+    case Kind::GoshSHA256: id += "goshsha256"; break;
+    case Kind::GoshKECCAK256: id += "goshkeccak256"; break;
 	}
 	id += "_" + stateMutabilityToString(m_stateMutability);
 	id += identifierList(m_parameterTypes) + "returns" + identifierList(m_returnParameterTypes);
@@ -4991,6 +4994,43 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 				StateMutability::Pure,
 				nullptr, FunctionType::Options::withArbitraryParameters()
 		)});
+
+        members.push_back({
+			"sha1",
+			TypeProvider::function(
+				{TypeProvider::stringMemory()},
+				{TypeProvider::uint256()},
+				{{}},
+				{{}},
+				FunctionType::Kind::GoshSHA1,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+		)});
+
+        members.push_back({
+			"sha256",
+			TypeProvider::function(
+				{TypeProvider::stringMemory()},
+				{TypeProvider::uint256()},
+				{{}},
+				{{}},
+				FunctionType::Kind::GoshSHA256,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+		)});
+
+        members.push_back({
+			"keccak256",
+			TypeProvider::function(
+				{TypeProvider::stringMemory()},
+				{TypeProvider::uint256()},
+				{{}},
+				{{}},
+				FunctionType::Kind::GoshKECCAK256,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+		)});
+
 		members.push_back({
 			"unzip",
 			TypeProvider::function(

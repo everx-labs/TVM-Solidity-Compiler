@@ -2676,6 +2676,12 @@ void FunctionCallCompiler::goshFunction() {
 				return "DIFF_PATCH_BINARY_ZIP";
 			case FunctionType::Kind::GoshApplyZipBinPatchQ:
 				return "DIFF_PATCH_BINARY_ZIPQ";
+            case FunctionType::Kind::GoshSHA1:
+                return "SHA1";
+            case FunctionType::Kind::GoshSHA256:
+                return "SHA256";
+            case FunctionType::Kind::GoshKECCAK256:
+                return "KECCAK256";
 			default:
 				solUnimplemented("Unsupported function call");
 		}
