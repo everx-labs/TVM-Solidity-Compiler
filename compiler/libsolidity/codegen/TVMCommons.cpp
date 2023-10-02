@@ -45,13 +45,20 @@ std::string functionName(FunctionDefinition const *_function) {
 	return _function->name();
 }
 
+std::string eventName(EventDefinition const* _event) {
+	ContractDefinition const* contract = _event->annotation().contract;
+	if (contract->isLibrary())
+		return contract->name() + "#" + _event->name();
+	return _event->name();
+}
+
 void cast_error(const ASTNode &node, const string &error_message) {
-	GlobalParams::g_errorReporter->fatalParserError(228_error, node.location(), error_message);
+	GlobalParams::g_errorReporter->fatalParserError(9768_error, node.location(), error_message);
 	BOOST_THROW_EXCEPTION(FatalError()); // never throw, just for [[noreturn]]
 }
 
 void fatal_error(const string &error_message) {
-	GlobalParams::g_errorReporter->error(228_error, Error::Type::TypeError, SourceLocation(), error_message);
+	GlobalParams::g_errorReporter->error(5711_error, Error::Type::TypeError, SourceLocation(), error_message);
 	BOOST_THROW_EXCEPTION(FatalError()); // never throw, just for [[noreturn]]
 }
 
@@ -188,18 +195,9 @@ IntegerType const& getArrayKeyType() {
 
 std::tuple<Type const*, Type const*>
 dictKeyValue(Type const* type) {
-	Type const* keyType{};
-	Type const* valueType{};
-	if (auto mapType = to<MappingType>(type)) {
-		keyType = mapType->keyType();
-		valueType = mapType->valueType();
-	} else if (auto ccType = to<ExtraCurrencyCollectionType>(type)) {
-		keyType = ccType->keyType();
-		valueType = ccType->realValueType();
-	} else {
-		solUnimplemented("");
-	}
-	return {keyType, valueType};
+	auto mapType = to<MappingType>(type);
+	solAssert(mapType, "");
+	return {mapType->keyType(), mapType->valueType()};
 }
 
 std::tuple<Type const*, Type const*>
@@ -209,9 +207,6 @@ realDictKeyValue(Type const* type) {
 	if (auto mapType = to<MappingType>(type)) {
 		keyType = mapType->realKeyType();
 		valueType = mapType->valueType();
-	} else if (auto ccType = to<ExtraCurrencyCollectionType>(type)) {
-		keyType = ccType->keyType();
-		valueType = ccType->realValueType();
 	} else {
 		solUnimplemented("");
 	}
@@ -253,10 +248,6 @@ bool isSuper(Expression const *expr) {
 		return identifier->name() == "super";
 	}
 	return false;
-}
-
-bool isMacro(const std::string &functionName) {
-	return boost::ends_with(functionName, "_macro");
 }
 
 bool isAddressThis(const FunctionCall *funCall) {
@@ -315,7 +306,7 @@ bool isEmptyFunction(FunctionDefinition const* f) {
 
 std::vector<VariableDeclaration const*>
 convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr) {
-	std::vector<VariableDeclaration const*>  ret;
+	std::vector<VariableDeclaration const*> ret;
 	for (const auto& v : arr)
 		ret.emplace_back(v.get());
 	return ret;
@@ -358,8 +349,6 @@ DictValueType toDictValueType(const Type::Category& category) {
 			return DictValueType::Contract;
 		case Type::Category::Enum:
 			return DictValueType::Enum;
-		case Type::Category::ExtraCurrencyCollection:
-			return DictValueType::ExtraCurrencyCollection;
 		case Type::Category::FixedBytes:
 			return DictValueType::FixedBytes;
 		case Type::Category::Integer:
@@ -383,18 +372,6 @@ DictValueType toDictValueType(const Type::Category& category) {
 		default:
 			solUnimplemented("");
 	}
-}
-
-// e.g.: hello -> 68656c6c6f
-std::string stringToHex(const std::string& str) {
-	std::string slice;
-	for (char index : str) {
-		std::stringstream ss;
-		ss << std::hex << std::setfill('0') << std::setw(2)
-			<< (static_cast<unsigned>(index) & 0xFFu);
-		slice += ss.str();
-	}
-	return slice;
 }
 
 std::set<CallableDeclaration const*> getAllBaseFunctions(CallableDeclaration const* f) {
@@ -421,7 +398,7 @@ void ABITypeSize::init(Type const* type) {
 		solAssert(ti.isNumeric, "");
 		maxBits = ti.numBits;
 		maxRefs = 0;
-	} else if (auto varInt = to<VarInteger>(type)) {
+	} else if (auto varInt = to<VarIntegerType>(type)) {
 		maxBits = varInt->maxBitSizeInCell();
 		maxRefs = 0;
 	} else if (auto arrayType = to<ArrayType>(type)) {
@@ -460,7 +437,7 @@ void ABITypeSize::init(Type const* type) {
 			maxBits += size.maxBits;
 			maxRefs += size.maxRefs;
 		}
-	} else if (to<MappingType>(type) || to<ExtraCurrencyCollectionType>(type)) {
+	} else if (to<MappingType>(type)) {
 		maxBits = 1;
 		maxRefs = 1;
 	} else if (to<FunctionType>(type)) {
@@ -630,9 +607,7 @@ std::string StrUtils::boolToBinaryString(bool value) {
 	return value ? "1" : "0";
 }
 
-std::string StrUtils::literalToSliceAddress(Literal const* literal) {
-	Type const *type = literal->annotation().type;
-	u256 value = type->literalValue(literal);
+std::string StrUtils::literalToSliceAddress(bigint const& value) {
 	// addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt;
 	std::string s;
 	s += "10";
@@ -662,6 +637,19 @@ std::string StrUtils::toBinString(bigint num) {
 	std::reverse(res.begin(), res.end());
 	return res;
 }
+
+// e.g.: hello -> 68656c6c6f
+std::string StrUtils::stringToHex(const std::string& str) {
+	std::string slice;
+	for (char index : str) {
+		std::stringstream ss;
+		ss << std::hex << std::setfill('0') << std::setw(2)
+		   << (static_cast<unsigned>(index) & 0xFFu);
+		slice += ss.str();
+	}
+	return slice;
+}
+
 
 std::optional<bigint> ExprUtils::constValue(const Expression &_e) {
 	if (*_e.annotation().isPure) {
@@ -696,6 +684,54 @@ std::optional<bool> ExprUtils::constBool(Expression const& _e) {
 		return l->token() == Token::TrueLiteral;
 	}
 	return {};
+}
+
+std::map<bigint, int> const& MathConsts::power2Exp() {
+	static std::map<bigint, int> power2Exp;
+	if (power2Exp.empty()) {
+		bigint p2 = 1;
+		for (int p = 0; p <= 256; ++p) {
+			power2Exp[p2] = p;
+			p2 *= 2;
+		}
+	}
+	return power2Exp;
+}
+
+std::map<bigint, int> const& MathConsts::power2DecExp() {
+	static std::map<bigint, int> power2DecExp;
+	if (power2DecExp.empty()) {
+		bigint p2 = 1;
+		for (int p = 0; p <= 256; ++p) {
+			power2DecExp[p2 - 1] = p;
+			p2 *= 2;
+		}
+	}
+	return power2DecExp;
+}
+
+std::map<bigint, int> const& MathConsts::power2NegExp() {
+	static std::map<bigint, int> power2NegExp;
+	if (power2NegExp.empty()) {
+		bigint p2 = 1;
+		for (int p = 0; p <= 256; ++p) {
+			power2NegExp[-p2] = p;
+			p2 *= 2;
+		}
+	}
+	return power2NegExp;
+}
+
+std::map<int, bigint> const& MathConsts::power10() {
+	static std::map<int, bigint> power10;
+	if (power10.empty()) {
+		bigint p10 = 1;
+		for (int i = 0; i <= 80; ++i) {
+			power10[i] = p10;
+			p10 *= 10;
+		}
+	}
+	return power10;
 }
 
 } // end namespace solidity::frontend

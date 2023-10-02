@@ -74,19 +74,19 @@ Json::Value TVMABI::generateFunctionIdsJson(
 
 Json::Value
 TVMABI::generatePrivateFunctionIdsJson(
-	const ContractDefinition &contract,
+	ContractDefinition const& contract,
 	std::vector<std::shared_ptr<SourceUnit>> _sourceUnits,
-	const PragmaDirectiveHelper &pragmaHelper
+	PragmaDirectiveHelper const& pragmaHelper
 ) {
 	Json::Value ids{Json::arrayValue};
 	Pointer<Contract> codeContract = TVMContractCompiler::generateContractCode(&contract, _sourceUnits, pragmaHelper);
 	for (Pointer<Function> const& fun : codeContract->functions()) {
-		if (fun->type() == Function::FunctionType::PrivateFunction) {
+		if (fun->type() == Function::FunctionType::Fragment && fun->functionId()) {
 			Json::Value func{Json::objectValue};
 			FunctionDefinition const* def = fun->functionDefinition();
 			func["scope"] = def->annotation().contract->name();
 			func["sign"] = def->externalSignature();
-			func["id"] = ChainDataEncoder::toHash256(fun->name());
+			func["id"] = fun->functionId().value();
 			ids.append(func);
 		}
 	}
@@ -95,6 +95,7 @@ TVMABI::generatePrivateFunctionIdsJson(
 
 Json::Value TVMABI::generateABIJson(
 	ContractDefinition const *contract,
+	std::vector<std::shared_ptr<SourceUnit>> const& _sourceUnits,
 	std::vector<PragmaDirective const *> const &pragmaDirectives
 ) {
 	PragmaDirectiveHelper pdh{pragmaDirectives};
@@ -105,6 +106,12 @@ Json::Value TVMABI::generateABIJson(
 
 	for (const auto &_event : contract->definedInterfaceEvents())
 		events.push_back(_event);
+	for (std::shared_ptr<SourceUnit> const& source: _sourceUnits)
+		for (ASTPointer<ASTNode> const &node: source->nodes())
+			if (auto lib = dynamic_cast<ContractDefinition const *>(node.get()))
+				if (lib->isLibrary())
+					for (const auto &event : lib->definedInterfaceEvents())
+						events.push_back(event);
 
 	std::set<std::string> used;
 
@@ -163,12 +170,13 @@ Json::Value TVMABI::generateABIJson(
 		for (const auto &e: events) {
 			const auto &ename = e->name();
 			solAssert(!ename.empty(), "Empty event name!");
-			if (usedEvents.count(ename)) {
+			string name = eventName(e);
+			if (usedEvents.count(name)) {
 				solUnimplemented("Event name duplication!");
 			}
-			usedEvents.insert(ename);
+			usedEvents.insert(name);
 			Json::Value cur;
-			cur["name"] = ename;
+			cur["name"] = name;
 			cur["inputs"] = encodeParams(convertArray(e->parameters()));
 			eventAbi.append(cur);
 		}
@@ -217,10 +225,11 @@ Json::Value TVMABI::generateABIJson(
 
 void TVMABI::generateABI(
 	ContractDefinition const *contract,
+	std::vector<std::shared_ptr<SourceUnit>> const& _sourceUnits,
 	std::vector<PragmaDirective const *> const &pragmaDirectives,
 	ostream *out
 ) {
-	Json::Value root = generateABIJson(contract, pragmaDirectives);
+	Json::Value root = generateABIJson(contract, _sourceUnits, pragmaDirectives);
 
 //	Json::StreamWriterBuilder builder;
 //	const std::string json_file = Json::writeString(builder, root);
@@ -439,7 +448,7 @@ Json::Value TVMABI::setupNameTypeComponents(const string &name, const Type *type
 		if (category == Type::Category::Address || category == Type::Category::Contract) {
 			typeName = "address";
 		} else if (category == Type::Category::VarInteger) {
-			auto varInt = to<VarInteger>(type);
+			auto varInt = to<VarIntegerType>(type);
 			typeName = varInt->toString(false);
 			boost::algorithm::to_lower(typeName);
 		} else if (ti.isNumeric) {
@@ -690,10 +699,10 @@ void ChainDataDecoder::decodeParametersQ(
 		pusher->blockSwap(n, 1);
 		if (n == 1) {
 			if (optValueAsTuple(types.at(0))) {
-				pusher->tuple(1);
+				pusher->makeTuple(1);
 			}
 		} else {
-			pusher->tuple(n);
+			pusher->makeTuple(n);
 		}
 		pusher->blockSwap(1, 1);
 	}
@@ -723,7 +732,7 @@ void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition* positio
 		// members... slice
 		const int memberQty = members.size();
 		pusher->blockSwap(memberQty, 1); // slice members...
-		pusher->tuple(memberQty); // slice struct
+		pusher->makeTuple(memberQty); // slice struct
 		pusher->exchange(1); // ... struct slice
 	} else if (isIntegralType(type)) {
 		TypeInfo ti{type};
@@ -742,7 +751,7 @@ void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition* positio
 		to<MappingType>(type) ||
 		to<OptionalType>(type) ||
 		to<FunctionType>(type) ||
-		to<VarInteger>(type) ||
+		to<VarIntegerType>(type) ||
 		(category == Type::Category::Address || category == Type::Category::Contract)
 	) {
 		loadNextSliceIfNeed(position->loadNextCell(type));
@@ -852,16 +861,12 @@ std::pair<uint32_t, bool> ChainDataEncoder::calculateFunctionID(const CallableDe
 }
 
 uint32_t ChainDataEncoder::toHash256(std::string const& str) {
-	bytes hash = picosha2::hash256(bytes(
-			str.begin(),
-			str.end()
-	));
+	bytes hash = picosha2::hash256(bytes(str.begin(), str.end()));
 	uint32_t funcID = 0;
 	for (size_t i = 0; i < 4; i++) {
 		funcID <<= 8u;
 		funcID += hash[i];
 	}
-
 	return funcID;
 }
 

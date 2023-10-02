@@ -175,7 +175,7 @@ public:
 		Address, Integer, RationalNumber, StringLiteral, Bool, FixedPoint, Array, ArraySlice,
 		FixedBytes, Contract, Struct, Function, Enum, UserDefinedValueType, Tuple,
 		Mapping, TypeType, Modifier, Magic, Module,
-		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, ExtraCurrencyCollection, TvmVector, Variant,
+		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, TvmVector, Variant,
 		VarInteger,
 		InitializerList, CallList, // <-- variables of that types can't be declared in solidity contract
 		Optional,
@@ -793,10 +793,10 @@ public:
 /**
  * The VarInteger type.
  */
-class VarInteger: public Type
+class VarIntegerType: public Type
 {
 public:
-	explicit VarInteger(uint32_t n, IntegerType::Modifier _modifier) : m_n(n), m_int{(n-1)*8, _modifier} {}
+	explicit VarIntegerType(uint32_t _n, IntegerType::Modifier _modifier) : m_n{_n}, m_int{(_n - 1) * 8, _modifier} {}
 	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
 	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
 	Category category() const override { return Category::VarInteger; }
@@ -811,8 +811,6 @@ public:
 	int maxBitSizeInCell() const;
 	IntegerType const& asIntegerType() const { return m_int; }
 	uint32_t n() const { return m_n; }
-	bigint minValue() const;
-	bigint maxValue() const;
 private:
 	uint32_t m_n{};
 	IntegerType m_int;
@@ -850,29 +848,6 @@ public:
 
 	Type const* encodingType() const override { return this; }
 	TypeResult interfaceType(bool) const override { return this; }
-};
-
-/**
- * The ExtraCurrencyCollection type.
- */
-class ExtraCurrencyCollectionType: public Type
-{
-public:
-	explicit ExtraCurrencyCollectionType() {}
-	Category category() const override { return Category::ExtraCurrencyCollection; }
-	bool isValueType() const override { return true; }
-	std::string richIdentifier() const override { return "t_extracurrencycollection"; }
-	TypeResult binaryOperatorResult(Token, Type const*) const override { return nullptr; }
-	std::string toString(bool) const override { return "ExtraCurrencyCollection"; }
-
-	Type const* encodingType() const override { return this; }
-	TypeResult interfaceType(bool) const override { return this; }
-	IntegerType const* keyType() const;
-	IntegerType const* valueType() const;
-	VarInteger const* realValueType() const;
-	TypeResult unaryOperatorResult(Token _operator) const override;
-
-	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
 };
 
 /**

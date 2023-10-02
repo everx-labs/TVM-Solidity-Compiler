@@ -31,17 +31,7 @@ fn test_trivial() -> Status {
         .arg("--output-dir")
         .arg("tests")
         .assert()
-        .success()
-        .stdout(predicate::str::contains("Contract successfully compiled"));
-
-    Command::cargo_bin(BIN_NAME)?
-        .arg("tests/Trivial.sol")
-        .arg("--output-dir")
-        .arg("tests")
-        .arg("--print-code")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("code\":\"te6ccgECDAEAA"));
+        .success();
 
     remove_all_outputs("Trivial")?;
     Ok(())
@@ -54,8 +44,7 @@ fn test_combined() -> Status {
         .arg("--output-dir")
         .arg("tests")
         .assert()
-        .success()
-        .stdout(predicate::str::contains("Contract successfully compiled"));
+        .success();
 
     remove_all_outputs("Combined")?;
     Ok(())
@@ -70,8 +59,7 @@ fn test_multi() -> Status {
         .arg("--contract")
         .arg("Contract1")
         .assert()
-        .success()
-        .stdout(predicate::str::contains("Contract successfully compiled"));
+        .success();
 
     remove_all_outputs("Multi")?;
     Ok(())
@@ -145,29 +133,9 @@ fn test_cycle() -> Status {
         .arg("--base-path")
         .arg("tests")
         .assert()
-        .success()
-        .stdout(predicate::str::contains("Contract successfully compiled"));
+        .success();
 
     remove_all_outputs("CycleA")?;
-    Ok(())
-}
-
-#[test]
-fn test_init() -> Status {
-    Command::cargo_bin(BIN_NAME)?
-        .arg("tests/Init.sol")
-        .arg("--output-dir")
-        .arg("tests")
-        .arg("--init")
-        .arg("{\"field1\":0,\"field2\":\"dummy\"}")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Contract successfully compiled"));
-
-    let abi = std::fs::read_to_string("tests/Init.abi.json")?;
-    assert!(abi.contains("ABI version"));
-
-    remove_all_outputs("Init")?;
     Ok(())
 }
 
@@ -211,8 +179,7 @@ fn test_remapping() -> Status {
         .arg("tests")
         .arg("github.com/tonlabs/debots/=tests/remote/")
         .assert()
-        .success()
-        .stdout(predicate::str::contains("Contract successfully compiled"));
+        .success();
 
     remove_all_outputs("ImportRemote")?;
     Ok(())

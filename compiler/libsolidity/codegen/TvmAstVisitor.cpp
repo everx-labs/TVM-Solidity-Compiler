@@ -152,19 +152,22 @@ bool Printer::visit(PushCellOrSlice &_node) {
 	tabs();
 	switch (_node.type()) {
 		case PushCellOrSlice::Type::PUSHREF_COMPUTE:
-			m_out << "PUSHREF" << std::endl;
+		case PushCellOrSlice::Type::PUSHREFSLICE_COMPUTE: {
+			if (_node.type() == PushCellOrSlice::Type::PUSHREF_COMPUTE)
+				m_out << "PUSHREF { " << std::endl;
+			else
+				m_out << "PUSHREFSLICE {" << std::endl;
+			++m_tab;
 			tabs();
-			m_out << ".compute $" << _node.blob() << "$" << std::endl;
-			return false;
-		case PushCellOrSlice::Type::PUSHREFSLICE_COMPUTE:
-			m_out << "PUSHREFSLICE" << std::endl;
+			m_out << ".inline-computed-cell " << _node.blob() << ", 0" << std::endl;
+			--m_tab;
 			tabs();
-			m_out << ".compute $" << _node.blob() << "$" << std::endl;
+			m_out << "}" << std::endl;
 			return false;
+		}
 		case PushCellOrSlice::Type::PUSHSLICE:
 			m_out << "PUSHSLICE " << _node.blob() << std::endl;
 			return false;
-
 		case PushCellOrSlice::Type::PUSHREF:
 			m_out << "PUSHREF {";
 			break;
@@ -674,56 +677,133 @@ bool Printer::visit(While &_node) {
 }
 
 bool Printer::visit(Contract &_node) {
-	for (const std::string& pragma : _node.pragmas()) {
-		m_out << pragma << std::endl;
-		m_out << std::endl;
+	std::map<uint32_t, std::string> privFuncs = _node.privateFunctions();
+	for (Pointer<Function> const& fun : _node.functions()) {
+		if ((fun->type() == Function::FunctionType::Fragment && fun->functionId().has_value() && _node.saveAllFunction()) ||
+			fun->type() == Function::FunctionType::OnCodeUpgrade
+		) {
+			std::string name = fun->name();
+			uint32_t id = fun->functionId().value();
+			if (privFuncs.count(id) == 0)
+				privFuncs[id] = name;
+			else
+				solAssert(privFuncs[id] == name, "");
+		}
 	}
-	for (const Pointer<Function>& f : _node.functions()){
+	bool hasOnTickTock = false;
+	for (const Pointer<Function>& f : _node.functions()) {
+		hasOnTickTock |= f->name() == "onTickTock";
 		f->accept(*this);
+	}
+
+	if (!_node.isLib()) {
+		if (!hasOnTickTock) {
+			m_out << ".fragment onTickTock, {" << std::endl;
+			m_out << "}" << std::endl;
+			m_out << std::endl;
+		}
+
+		m_out << ".fragment default_data_dict_cell, {" << std::endl;
+		m_out << "	PUSHINT 0" << std::endl;
+		m_out << "	NEWC" << std::endl;
+		m_out << "	STU 256" << std::endl;
+		m_out << "	PUSHINT 0" << std::endl;
+		m_out << "	NEWDICT" << std::endl;
+		m_out << "	PUSHINT 64" << std::endl;
+		m_out << "	DICTUSETB" << std::endl;
+		m_out << "}" << std::endl;
+		m_out << std::endl;
+
+		m_out << "; The code below forms a value of the StateInit type." << std::endl;
+		m_out << ".blob x4_ ; split_depth = nothing" << std::endl;
+		m_out << ".blob x4_ ; special = nothing" << std::endl;
+		m_out << ".blob xc_ ; code = just" << std::endl;
+
+		auto printCode = [&](){
+			tabs(); m_out << ".cell { ; code cell" << std::endl;
+			++m_tab;
+			tabs(); m_out << "PUSHREFCONT {" << std::endl;
+			tabs(); m_out << "	DICTPUSHCONST 32" << std::endl;
+			tabs(); m_out << "	DICTUGETJMPZ" << std::endl;
+			tabs(); m_out << "	THROW 78" << std::endl;
+
+			tabs(); m_out << "	.code-dict-cell 32, {" << std::endl;
+			m_tab += 2;
+			for (auto const& [id, name] : privFuncs) {
+				tabs(); m_out << "x" << std::setfill('0') << std::setw(8) << std::hex << id << " = " << name << "," << std::endl;
+			}
+			m_tab -= 2;
+			tabs(); m_out << "	}" << std::endl;
+
+			tabs(); m_out << "	.cell { ; version" << std::endl;
+			tabs(); m_out << "		.blob x" << StrUtils::stringToHex(_node.version()) << " ; " << _node.version() << std::endl;
+			tabs(); m_out << "	}" << std::endl;
+
+			tabs(); m_out << "}" << std::endl;
+			tabs(); m_out << "POPCTR c3" << std::endl;
+			tabs(); m_out << "DUP" << std::endl;
+			tabs(); m_out << "IFNOTJMPREF {" << std::endl;
+			tabs(); m_out << "	.inline main_internal" << std::endl;
+			tabs(); m_out << "}" << std::endl;
+			tabs(); m_out << "DUP" << std::endl;
+			tabs(); m_out << "EQINT -1" << std::endl;
+			tabs(); m_out << "IFJMPREF {" << std::endl;
+			tabs(); m_out << "	.inline main_external" << std::endl;
+			tabs(); m_out << "}" << std::endl;
+			tabs(); m_out << "DUP" << std::endl;
+			tabs(); m_out << "EQINT -2" << std::endl;
+			tabs(); m_out << "IFJMPREF {" << std::endl;
+			tabs(); m_out << "	.inline onTickTock" << std::endl;
+			tabs(); m_out << "}" << std::endl;
+			tabs(); m_out << "THROW 11" << std::endl;
+			--m_tab;
+			tabs(); m_out << "}" << std::endl; // end code
+		};
+		if (_node.upgradeOldSolidity() || _node.upgradeFunc()) {
+			int func_id = _node.upgradeFunc() ? 1666 : 2;
+			m_out << ".cell { ; wrapper for code" << std::endl;
+			++m_tab;
+			tabs(); m_out << "PUSHINT " << func_id << std::endl;
+			tabs(); m_out << "EQUAL" << std::endl;
+			tabs(); m_out << "THROWIFNOT 79" << std::endl;
+			tabs(); m_out << "PUSHREF" << std::endl;
+			++m_tab;
+			printCode();
+			--m_tab;
+			tabs(); m_out << "DUP" << std::endl;
+			tabs(); m_out << "SETCODE" << std::endl;
+			tabs(); m_out << "CTOS" << std::endl;
+			tabs(); m_out << "PLDREF" << std::endl;
+			tabs(); m_out << "CTOS" << std::endl;
+			tabs(); m_out << "BLESS" << std::endl;
+			tabs(); m_out << "POP C3" << std::endl;
+			tabs(); m_out << "CALL 2" << std::endl;
+			--m_tab;
+			m_out << "}" << std::endl; // end code
+		} else {
+			printCode();
+		}
+
+		m_out << ".blob xc_ ; data = just" << std::endl;
+		m_out << ".cell { " << std::endl;
+		m_out << "	.blob xc_" << std::endl;
+		m_out << "	.cell { " << std::endl;
+		m_out << "		.inline-computed-cell default_data_dict_cell, 0" << std::endl;
+		m_out << "	}" << std::endl;
+		m_out << "}" << std::endl;
+		m_out << ".blob x4_ ; library = hme_empty" << std::endl;
 	}
 	return false;
 }
 
 bool Printer::visit(Function &_node) {
-	const std::string &funName = _node.name();
-	switch (_node.type()) {
-		case Function::FunctionType::PrivateFunction:
-		case Function::FunctionType::PrivateFunctionWithObj:
-			m_out << ".globl\t" << funName << std::endl;
-			m_out << ".type\t" << funName << ", @function" << std::endl;
-			break;
-		case Function::FunctionType::OnCodeUpgrade: {
-			solAssert(_node.functionDefinition(), "");
-			std::optional<uint32_t> id = _node.functionDefinition()->functionID();
-			if (!id.has_value()) {
-				id = ChainDataEncoder::toHash256(funName) & 0x7FFFFFFFu;
-			}
-			m_out << ".internal-alias " << funName << ", " << *id << std::endl
-				  << ".internal " << funName << std::endl;
-			break;
-		}
-		case Function::FunctionType::Macro:
-		case Function::FunctionType::MacroGetter:
-			m_out << ".macro " << funName << std::endl;
-			break;
-		case Function::FunctionType::MainInternal:
-			solAssert(funName == "main_internal", "");
-			m_out << ".internal-alias :main_internal, 0" << std::endl
-				<< ".internal :main_internal" << std::endl;
-			break;
-		case Function::FunctionType::MainExternal:
-			solAssert(funName == "main_external", "");
-			m_out << ".internal-alias :main_external, -1" << std::endl
-				  << ".internal :main_external" << std::endl;
-			break;
-		case Function::FunctionType::OnTickTock:
-			solAssert(funName == "onTickTock", "");
-			m_out << ".internal-alias :onTickTock, -2" << std::endl
-				  << ".internal :onTickTock" << std::endl;
-			break;
-	}
+	std::string const& funName = _node.name();
+	m_out << ".fragment " << funName << ", {" << std::endl;
+	++m_tab;
 	_node.block()->accept(*this);
-	endL();
+	--m_tab;
+	m_out << "}" << std::endl;
+	m_out << std::endl;
 	return false;
 }
 
@@ -741,42 +821,21 @@ void Printer::tabs() {
 }
 
 void Printer::printPushInt(std::string const& str, std::string const& comment) {
-	static std::map<bigint, int> power2;
-	static std::map<bigint, int> power2Dec;
-	static std::map<bigint, int> power2Neg;
-	if (power2.empty()) {
-		bigint p2 = 128;
-		for (int p = 7; p <= 256; ++p) {
-			power2[p2] = p;
-			p2 *= 2;
-		}
-	}
-	if (power2Dec.empty()) {
-		bigint p2 = 256;
-		for (int p = 8; p <= 256; ++p) {
-			power2Dec[p2 - 1] = p;
-			p2 *= 2;
-		}
-	}
-	if (power2Neg.empty()) {
-		bigint p2 = 256;
-		for (int p = 8; p <= 256; ++p) {
-			power2Neg[-p2] = p;
-			p2 *= 2;
-		}
-	}
+	std::map<bigint, int> const& power2Exp = MathConsts::power2Exp();
+	std::map<bigint, int> const& power2DecExp = MathConsts::power2DecExp();
+	std::map<bigint, int> const& power2NegExp = MathConsts::power2NegExp();
 
 	bool didPrint = false;
 	if (str.at(0) != '$') {
 		bigint val = bigint{str};
-		if (power2.count(val)) {
-			m_out << "PUSHPOW2 " << power2.at(val);
+		if (power2Exp.count(val) && power2Exp.at(val) >= 7) {
+			m_out << "PUSHPOW2 " << power2Exp.at(val);
 			didPrint = true;
-		} else if (power2Dec.count(val)) {
-			m_out << "PUSHPOW2DEC " << power2Dec.at(val);
+		} else if (power2DecExp.count(val) && power2DecExp.at(val) >= 8) {
+			m_out << "PUSHPOW2DEC " << power2DecExp.at(val);
 			didPrint = true;
-		} else if (power2Neg.count(val)) {
-			m_out << "PUSHNEGPOW2 " << power2Neg.at(val);
+		} else if (power2NegExp.count(val) && power2NegExp.at(val) >= 8) {
+			m_out << "PUSHNEGPOW2 " << power2NegExp.at(val);
 			didPrint = true;
 		}
 	}

@@ -43,15 +43,13 @@ public:
 	static Pointer<Function> generateBuildTuple(TVMCompilerContext& ctx, std::string const& name, const std::vector<Type const*>& types);
 	static Pointer<Function> generateNewArrays(TVMCompilerContext& ctx, std::string const& name, FunctionCall const* arr);
 	static Pointer<Function> generateConstArrays(TVMCompilerContext& ctx, std::string const& name, TupleExpression const* arr);
-	static Pointer<Function> generateMacro(TVMCompilerContext& ctx, FunctionDefinition const* function, const std::optional<std::string>& forceName = std::nullopt);
+	static Pointer<Function> generateFunction(TVMCompilerContext& ctx, FunctionDefinition const* function, std::string const& name);
 	static Pointer<Function> generateMainExternal(TVMCompilerContext& ctx, ContractDefinition const *contract);
 	static Pointer<Function> generateMainInternal(TVMCompilerContext& ctx, ContractDefinition const *contract);
 	static Pointer<Function> generateCheckResume(TVMCompilerContext& ctx);
 	static Pointer<Function> generateOnCodeUpgrade(TVMCompilerContext& ctx, FunctionDefinition const* function);
 	static Pointer<Function> generateOnTickTock(TVMCompilerContext& ctx, FunctionDefinition const* function);
-	static Pointer<Function> generatePrivateFunction(TVMCompilerContext& ctx, const std::string& name, FunctionDefinition const* funDef);
-	static Pointer<Function> generateLibraryFunction(TVMCompilerContext& ctx, FunctionDefinition const* function, const std::string& name);
-	static Pointer<Function> generateLibraryFunctionMacro(TVMCompilerContext& ctx, FunctionDefinition const* function, const std::string& name);
+	static Pointer<Function> generateLibFunctionWithObject(TVMCompilerContext& ctx, FunctionDefinition const* function);
 	static Pointer<Function> generateReceive(TVMCompilerContext& ctx, FunctionDefinition const* function);
 	static Pointer<Function> generateFallback(TVMCompilerContext& ctx, FunctionDefinition const* function);
 	static Pointer<Function> generateOnBounce(TVMCompilerContext& ctx, FunctionDefinition const* function);

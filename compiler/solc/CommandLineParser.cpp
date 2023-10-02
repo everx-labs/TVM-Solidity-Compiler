@@ -579,6 +579,10 @@ General Information)").c_str(),
 			"Output directory (by default, current directory is used)"
 		)
 		(
+			g_strOverwrite.c_str(),
+			"Overwrite existing files (used together with --ast-compact-json -o)."
+		)
+		(
 			g_strTVMVersion.c_str(),
 			po::value<string>()->value_name("version")->default_value(TVMVersion{}.name()),
 			"Select desired TVM version. Either ever, ton, gosh."

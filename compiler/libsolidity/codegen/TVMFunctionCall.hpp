@@ -67,7 +67,7 @@ protected:
 	bool checkForTvmFunction(MemberAccess const& _node);
 	void abiFunction();
 	void mathFunction(MemberAccess const& _node);
-	bool checkBaseContractCall(MemberAccess const& _node, Type::Category category);
+	bool checkBaseContractCall(MemberAccess const& _node);
 	bool checkAddressThis();
 	void createObject();
 	void typeConversion();

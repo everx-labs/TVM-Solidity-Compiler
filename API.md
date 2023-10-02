@@ -13,6 +13,8 @@ TVM Solidity compiler expands Solidity language with different API functions to 
     * [\<TvmCell\>.dataSize()](#tvmcelldatasize)
     * [\<TvmCell\>.dataSizeQ()](#tvmcelldatasizeq)
     * [\<TvmCell\>.toSlice()](#tvmcelltoslice)
+    * [\<TvmCell\>.exoticToSlice()](#tvmcellexotictoslice)
+    * [\<TvmCell\>.loadExoticCell() and \<TvmCell\>.loadExoticCellQ()](#tvmcellloadexoticcell-and-tvmcellloadexoticcellq)
   * [TvmSlice](#tvmslice)
     * [\<TvmSlice\>.empty()](#tvmsliceempty)
     * [\<TvmSlice\>.size()](#tvmslicesize)
@@ -48,6 +50,7 @@ TVM Solidity compiler expands Solidity language with different API functions to 
   * [TvmBuilder](#tvmbuilder)
     * [\<TvmBuilder\>.toSlice()](#tvmbuildertoslice)
     * [\<TvmBuilder\>.toCell()](#tvmbuildertocell)
+    * [\<TvmBuilder\>.toExoticCell()](#tvmbuildertoexoticcell)
     * [\<TvmBuilder\>.size()](#tvmbuildersize)
     * [\<TvmBuilder\>.bits()](#tvmbuilderbits)
     * [\<TvmBuilder\>.refs()](#tvmbuilderrefs)
@@ -62,7 +65,6 @@ TVM Solidity compiler expands Solidity language with different API functions to 
     * [Store little-endian integers](#store-little-endian-integers)
     * [\<TvmBuilder\>.storeRef()](#tvmbuilderstoreref)
     * [\<TvmBuilder\>.storeTons()](#tvmbuilderstoretons)
-  * [ExtraCurrencyCollection](#extracurrencycollection)
   * [optional(T)](#optionalt)
     * [constructing an optional](#constructing-an-optional)
     * [\<optional(T)\>.hasValue()](#optionalthasvalue)
@@ -83,6 +85,7 @@ TVM Solidity compiler expands Solidity language with different API functions to 
   * [Range-based for loop](#range-based-for-loop)
   * [repeat](#repeat)
   * [try-catch](#try-catch)
+  * [unchecked block](#unchecked-block)
 * [Changes and extensions in Solidity types](#changes-and-extensions-in-solidity-types)
   * [Integers](#integers)
     * [bitSize() and uBitSize()](#bitsize-and-ubitsize)
@@ -284,6 +287,7 @@ TVM Solidity compiler expands Solidity language with different API functions to 
   * [gasToValue](#gastovalue)
   * [valueToGas](#valuetogas)
   * [gasleft](#gasleft)
+* [TVM capabilities](#tvm-capabilities)
 * [TVM exception codes](#tvm-exception-codes)
 * [Solidity runtime errors](#solidity-runtime-errors)
 * [Division and rounding](#division-and-rounding)
@@ -310,7 +314,7 @@ tonos-cli decode tvc [--tvc] [--boc] <input>
 
 ### TVM specific types
 
-TVM Solidity compiler expands functionality of some existing types and adds several new TVM specific types: TvmCell, TvmSlice, TvmBuilder and ExtraCurrencyCollection. Full description of these types can be found in [TVM][1] and [Blockchain][2] specifications.
+TVM Solidity compiler expands functionality of some existing types and adds several new TVM specific types: TvmCell, TvmSlice and TvmBuilder. Full description of these types can be found in [TVM][1] and [Blockchain][2] specifications.
 
 #### TVM units
 
@@ -388,8 +392,33 @@ If **c** is a Null instead of a Cell, returns zero.
 
 Returns the number of distinct cells, data bits in the distinct cells and
 cell references in the distinct cells. If number of the distinct cells
-exceeds `n+1` then a cell overflow [exception](#tvm-exception-codes) is thrown.
+exceeds `n+1`, then a cell overflow [exception](#tvm-exception-codes) is thrown.
 This function is a wrapper for the `CDATASIZE` opcode ([TVM][1] - A.11.7).
+
+If `CapFastStorageStatBugfix` and `CapFastStorageStat` are set, then calculate number of total (not distinct) cells and bits. For example:
+
+```TVMSolidity
+TvmBuilder b2;
+b2.storeOnes(5);
+
+TvmBuilder b;
+b.storeOnes(10);
+b.storeRef(b2);
+b.storeRef(b2);
+b.storeRef(b2);
+
+TvmCell cell = b.toCell();
+(uint cells, uint bits, uint refs) = cell.dataSize(100);
+
+// If `CapFastStorageStatBugfix` and `CapFastStorageStat` are set
+//    cells == 4
+//    bits == 10 + 3 * 5
+//    refs == 3
+// Otherwise:
+//    cells == 2
+//    bits == 5 + 10
+//    refs == 3
+```
 
 #### \<TvmCell\>.dataSizeQ()
 
@@ -399,7 +428,7 @@ This function is a wrapper for the `CDATASIZE` opcode ([TVM][1] - A.11.7).
 
 Returns the number of distinct cells, data bits in the distinct cells and
 cell references in the distinct cells. If number of the distinct cells
-exceeds `n+1` then this function returns an `optional` that has no value.
+exceeds `n+1`, then this function returns an `optional` that has no value.
 This function is a wrapper for the `CDATASIZEQ` opcode ([TVM][1] - A.11.7).
 
 ##### \<TvmCell\>.toSlice()
@@ -408,7 +437,97 @@ This function is a wrapper for the `CDATASIZEQ` opcode ([TVM][1] - A.11.7).
 <TvmCell>.toSlice() returns (TvmSlice);
 ```
 
-Converts a `TvmCell` to `TvmSlice`.
+Converts a `TvmCell` to `TvmSlice`. 
+
+If the cell is exotic, then the cell is automatically loaded and converted to `TvmSlice`. For example:
+
+```
+TvmCell cellProof = ...;
+TvmBuilder b;
+b.store(
+    uint8(3), // type of MerkleProof exotic cell
+    tvm.hash(cellProof),
+    cellProof.depth(),
+    cellProof
+);
+TvmCell merkleProof = b.toExoticCell();
+TvmSlice s = merkleProof.toSlice();
+// `s` has the same data and references as `cellProof`
+```
+If you want load the cell as is, then see [\<TvmCell\>.exoticToSlice()](#tvmcellexotictoslice).
+
+##### \<TvmCell\>.exoticToSlice()
+
+```TVMSolidity
+<TvmCell>.exoticToSlice() returns (TvmSlice, bool)
+```
+
+Converts an ordinary or exotic cell into a `TvmSlice`, as if it were an ordinary cell. A flag is returned indicating whether
+`TvmCell` is exotic. If that be the case, its type can later be deserialized from the first eight bits of `TvmSlice`.
+
+Example: 
+
+```TVMSolidity
+TvmCell cellProof = ...;
+TvmBuilder b;
+b.store(
+    uint8(3), // type of MerkleProof exotic cell
+    tvm.hash(cellProof),
+    cellProof.depth(),
+    cellProof
+);
+
+{
+    // convert builder to exotic cell
+    TvmCell merkleProof = b.toExoticCell();
+    (TvmSlice s, bool isExotic) = merkleProof.exoticToSlice();
+    // isExotic == true
+    uint8 flag = s.load(uint8); // flag == 3
+}
+
+{
+    // convert builder to ordinary cell
+    TvmCell cell = b.toCell();
+    (TvmSlice s, bool isExotic) = cell.exoticToSlice();
+    // isExotic == false
+    uint8 flag = s.load(uint8); // flag == 3
+}
+```
+
+See also:
+ * [\<TvmBuilder\>.toExoticCell()](#tvmbuildertoexoticcell)
+
+
+#### \<TvmCell\>.loadExoticCell() and \<TvmCell\>.loadExoticCellQ()
+
+```TVMSolidity
+(1)
+<TvmCell>.loadExoticCell() returns (TvmCell)
+(2)
+<TvmCell>.loadExoticCellQ() returns (TvmCell cell, bool ok)
+```
+(1) Loads an exotic cell and returns an ordinary cell. If the cell is already ordinary, does nothing. If it cannot be loaded, throws an exception. It is wrapper for opcode `XLOAD`.
+
+(2) Same as (1) but if it cannot be loaded, does not throw exception and `ok` is equal to `false`. It is wrapper for opcode `XLOADQ`.
+
+Example:
+
+```TVMSolidity
+TvmCell cellProof = ...;
+TvmBuilder b;
+b.store(
+    uint8(3), // type of MerkleProof exotic cell
+    tvm.hash(cellProof),
+    cellProof.depth(),
+    cellProof
+);
+
+TvmCell cell = merkleProof.loadExoticCell(); // cell == cellProof
+
+(TvmCell cell, bool ok) = merkleProof.loadExoticCellQ();
+// cell == cellProof
+// ok == true
+```
 
 #### TvmSlice
 
@@ -418,7 +537,7 @@ operators and functions to work with this type:
 Comparison operators:
 `<=`, `<`, `==`, `!=`, `>=`, `>` (evaluate to bool).
 
-Note: only data bits from the root cells are compared. References are ignored.
+**Note:** only data bits from the root cells are compared. References are ignored.
 
 `TvmSlice` can be converted to `bytes`. It costs at least 500 gas units.
 
@@ -462,7 +581,7 @@ Returns the number of references in the `TvmSlice`.
 
 Returns the number of distinct cells, data bits in the distinct cells and
 cell references in the distinct cells. If number of the distinct cells
-exceeds `n+1` then a cell overflow [exception](#tvm-exception-codes) is thrown.
+exceeds `n+1`, then a cell overflow [exception](#tvm-exception-codes) is thrown.
 Note that the returned `count of distinct cells` does not take into
 account the cell that contains the slice itself.
 This function is a wrapper for `SDATASIZE` opcode ([TVM][1] - A.11.7).
@@ -475,7 +594,7 @@ This function is a wrapper for `SDATASIZE` opcode ([TVM][1] - A.11.7).
 
 Returns the number of distinct cells, data bits in the distinct cells and
 cell references in the distinct cells. If number of the distinct cells
-exceeds `n+1` then this function returns an `optional` that has no value.
+exceeds `n+1`, then this function returns an `optional` that has no value.
 Note that the returned `count of distinct cells` does not take into
 account the cell that contains the slice itself.
 This function is a wrapper for `SDATASIZEQ` opcode ([TVM][1] - A.11.7).
@@ -523,7 +642,7 @@ All `load*` functions below modify the `TvmSlice` object. If you wants to load s
 
 Sequentially loads values of the specified types from the `TvmSlice`.
 Supported types: `uintN`, `intN`, `bytesN`, `bool`, `ufixedMxN`, `fixedMxN`, `address`, `contract`,
-`TvmCell`, `bytes`, `string`, `mapping`, `ExtraCurrencyCollection`, `array`, `optional` and 
+`TvmCell`, `bytes`, `string`, `mapping`, `array`, `optional` and 
 `struct`.  Example:
 
 ```TVMSolidity
@@ -637,7 +756,9 @@ Loads (deserializes) **VarUInteger 16** and returns an unsigned 128-bit integer.
 ```
 
 (1) Loads the first `bits` bits from `TvmSlice`.
+
 (2) Loads the first `bits` bits and `refs` references from `TvmSlice`.
+
 (3) and (4) are same as (1) and (2) but return `optional` type.
 
 ###### \<TvmSlice\>.loadFunctionParams()
@@ -704,7 +825,7 @@ contract B {
 
 ```TVMSolidity
 <TvmSlice>.skip(uint10 bits);
-<TvmSlice>.skip(uint10 bits, uint2 refs);
+<TvmSlice>.skip(uint10 bits, uint3 refs);
 ```
 
 Skips the first `bits` bits and `refs` references from the `TvmSlice`.
@@ -835,6 +956,28 @@ Converts a `TvmBuilder` into `TvmSlice`.
 
 Converts a `TvmBuilder` into `TvmCell`.
 
+##### \<TvmBuilder\>.toExoticCell()
+
+```TVMSolidity
+<TvmBuilder>.toExoticCell() returns (TvmCell);
+```
+
+Creates an exotic cell from `TvmBuilder`. It is wrapper for opcodes `TRUE ENDXC`.
+
+Examples:
+
+```TVMSolidity
+TvmCell cellProof = getCell();
+TvmBuilder b;
+b.store(
+    uint8(3), // type of MerkleProof exotic cell
+    tvm.hash(cellProof),
+    cellProof.depth(),
+    cellProof
+);
+TvmCell merkleProof = b.toExoticCell();
+```
+
 ##### \<TvmBuilder\>.size()
 
 ```TVMSolidity
@@ -913,8 +1056,8 @@ For example, `uint8(100), int16(-3), bytes2(0xaabb)` stored as `0x64fffdaabb`.
 * `TvmSlice`/`TvmBuilder` - all data bits and references of the `TvmSlice` or the `TvmBuilder`
 are appended to the `TvmBuilder`, not in a reference as `TvmCell`. To store `TvmSlice`/`TvmBuilder` in
 the references use [\<TvmBuilder\>.storeRef()](#tvmbuilderstoreref).
-* `mapping`/`ExtraCurrencyCollection` - stored according to the [TL-B scheme][3] of `HashmapE`: if map is
-empty then stored as a binary zero, otherwise as a binary one and the dictionary `Hashmap` in a reference.
+* `mapping` - stored according to the [TL-B scheme][3] of `HashmapE`: if map is
+empty, then stored as a binary zero, otherwise as a binary one and the dictionary `Hashmap` in a reference.
 * `array` - stored as a 32 bit value - size of the array and a `HashmapE` that contains all values of
 the array.
 * `optional` - stored as a binary zero if the `optional` doesn't contain value. Otherwise, stored as
@@ -1009,32 +1152,6 @@ See example of how to work with TVM specific types:
 * [Message_construction](https://github.com/tonlabs/samples/blob/master/solidity/15_MessageSender.sol)
 * [Message_parsing](https://github.com/tonlabs/samples/blob/master/solidity/15_MessageReceiver.sol)
 
-#### ExtraCurrencyCollection
-
-ExtraCurrencyCollection represents TVM type ExtraCurrencyCollection. It has the same functions as [**mapping(uint32 => uint256)**](#mapping):
-
-```TVMSolidity
-ExtraCurrencyCollection curCol;
-uint32 key;
-uint256 value;
-optional(uint32, uint256) res = curCol.min();
-optional(uint32, uint256) res = curCol.next(key);
-optional(uint32, uint256) res = curCol.prev(key);
-optional(uint32, uint256) res = curCol.nextOrEq(key);
-optional(uint32, uint256) res = curCol.prevOrEq(key);
-optional(uint32, uint256) res = curCol.delMin();
-optional(uint32, uint256) res = curCol.delMax();
-optional(uint256) optValue = curCol.fetch(key);
-bool exists = curCol.exists(key);
-bool isEmpty = curCol.empty();
-bool success = curCol.replace(key, value);
-bool success = curCol.add(key, value);
-optional(uint256) res = curCol.getSet(key, value);
-optional(uint256) res = curCol.getAdd(key, value);
-optional(uint256) res = curCol.getReplace(key, value);
-uint256 uintValue = curCol[index];
-```
-
 #### optional(T)
 
 The template optional type manages an optional contained value, i.e. a value that may or may not be present.
@@ -1047,7 +1164,7 @@ There are many ways to set a value:
 optional(uint) opt;
 opt.set(11); // just sets value
 opt = 22; // just sets value, too
-opt.get() = 33; // if 'opt' has value then set value. Otherwise throws an exception.
+opt.get() = 33; // if 'opt' has value, then set value. Otherwise throws an exception.
 
 optional(uint) another = 44;
 opt = another;
@@ -1269,7 +1386,7 @@ repeat(a - 1) {
 
 #### try-catch
 
-It is an experimental feature available only in certain blockchain networks.
+[Capabilities](#tvm-capabilities) required: `CapsTvmBugfixes2022`.
 
 The `try` statement allows you to define a block of code to be tested for errors while it is executed. The 
 `catch` statement allows you to define a block of code to be executed, if an error occurs in the try block.
@@ -1328,6 +1445,33 @@ try {
 } catch {
 }
 ```
+
+#### unchecked block
+
+```TVMSolidity
+unchecked {
+    /* */
+}
+```
+
+Turns off reverting on over- and underflow for arithmetic operations in `unchecked` block. It is up to programmer to control range of integer types if they use `unchecked` blocks. For example:
+
+```TVMSolidity
+    function f(uint8 a, uint8 b) pure private returns (uint8) {
+        unchecked {
+            uint8 c = a - b;
+            return c;
+        }
+    }
+    function g(uint8 a, uint8 b) pure private returns (uint8) {
+        uint8 c = a - b;
+        return c;
+    }
+```
+
+The call to `f(2, 3)` will return `-1`, while `g(2, 3)` will cause a failing assertion.
+
+See also: [pragma ignoreIntOverflow](#pragma-ignoreintoverflow).
 
 ### Changes and extensions in Solidity types
 
@@ -1456,7 +1600,7 @@ uint[] arr = new uint[](N); // create 5-length array
 uint[] arr = new uint[](10); // create 10-length array
 ```
 
-Note: If `N` is constant expression or integer literal then the complexity of array creation -
+Note: If `N` is constant expression or integer literal, then the complexity of array creation -
 `O(1)`. Otherwise, `O(N)`.
 
 ##### \<array\>.empty()
@@ -1498,7 +1642,7 @@ bytes a = "abzABZ0129";
 bytes b = hex"01239abf";
 ```
 
-`bytes` can be converted to `TvmSlice`. Warning: if length of the array is greater than 127 then extra bytes are stored in the first reference of the slice. Use [\<TvmSlice\>.loadRef()](#tvmsliceloadref) to load that extra bytes.
+`bytes` can be converted to `TvmSlice`. Warning: if length of the array is greater than 127, then extra bytes are stored in the first reference of the slice. Use [\<TvmSlice\>.loadRef()](#tvmsliceloadref) to load that extra bytes.
 
 ##### \<bytes\>.empty()
 
@@ -1857,7 +2001,7 @@ Returns balance of the current contract account in nanoevers.
 ##### \<address\>.currencies
 
 ```TVMSolidity
-address(this).currencies returns (ExtraCurrencyCollection);
+address(this).currencies returns (mapping(uint32 => varUint32));
 ```
 
 Returns currencies on the balance of the current contract account.
@@ -1919,7 +2063,7 @@ workchain `wid` and the 256-bit address `value`. If the address `value` is not 2
 `address` is not a valid serialization of `MsgAddressInt`, throws a cell deserialization
 [exception](#tvm-exception-codes).
 
-It's wrapper for opcode `REWRITESTDADDR`.
+It is wrapper for opcode `REWRITESTDADDR`.
 
 Example:
 
@@ -1930,17 +2074,17 @@ Example:
 ##### \<address\>.transfer()
 
 ```TVMSolidity
-<address>.transfer(uint128 value, bool bounce, uint16 flag, TvmCell body, ExtraCurrencyCollection currencies, TvmCell stateInit);
+<address>.transfer(uint128 value, bool bounce, uint16 flag, TvmCell body, mapping(uint32 => varUint32) currencies, TvmCell stateInit);
 ```
 
 Sends an internal outbound message to the `address`. Function parameters:
 
 * `value` (`uint128`) - amount of nanoevers sent attached to the message. Note: the sent value is
 withdrawn from the contract's balance even if the contract has been called by internal inbound message.
-* `currencies` (`ExtraCurrencyCollection`) - additional currencies attached to the message. Defaults to
+* `currencies` (`mapping(uint32 => varUint32)`) - additional currencies attached to the message. Defaults to
 an empty set.
 * `bounce` (`bool`) - if it's set and transaction (generated by the internal outbound message) falls
-(only at the computing phase, not at the action phase!) then funds will be returned. Otherwise, (flag isn't
+(only at the computing phase, not at the action phase!), then funds will be returned. Otherwise, (flag isn't
 set or transaction terminated successfully) the address accepts the funds even if the account
 doesn't exist or is frozen. Defaults to `true`.
 * `flag` (`uint16`) - flag that used to send the internal outbound message. Defaults to `0`.
@@ -1979,7 +2123,7 @@ uint128 value = ...;
 bool bounce = ...;
 uint16 flag = ...;
 TvmCell body = ...;
-ExtraCurrencyCollection c = ...;
+mapping(uint32 => varUint32) c = ...;
 TvmCell stateInit = ...;
 // sequential order of parameters
 addr.transfer(value);
@@ -2029,7 +2173,7 @@ Struct `KeyType` can be used to sort keys of the mapping in ascending order. In 
 above addresses in the mapping are sorted by their keys. `x` field of the Point struct
 is used in comparison first, second is `y` and the last is `z`.
 
-If `bytes`, `string` or `TvmCell` types are used as `KeyType` then `mapping` stores
+If `bytes`, `string` or `TvmCell` types are used as `KeyType`, then `mapping` stores
 only hashes of mapping keys. That's why for these types the `delMin`/`min`/`next` and
 another mapping methods return `uint256` as key (not `bytes`/`string`/`TvmCell`).
 
@@ -2135,7 +2279,7 @@ If KeyType is an integer type, argument for this functions can not possibly fit 
 <map>.delMax() returns (optional(KeyType, ValueType));
 ```
 
-If mapping is not empty then this function computes the minimal (maximum) key of the `mapping`,
+If mapping is not empty, then this function computes the minimal (maximum) key of the `mapping`,
 deletes that key and the associated value from the `mapping` and returns an `optional` value
 containing that key and the associated value. Returns an empty `optional` if there is no such key.
 
@@ -2244,8 +2388,10 @@ Operators:
 ```
 
 (1) Returns all mapping's keys/values.
+
 (2) Returns all values of the mapping as an array.
-Note: these functions iterate over the whole mapping, thus the cost is proportional to the 
+
+**Note:** these functions iterate over the whole mapping, thus the cost is proportional to the 
 mapping's size.
 
 ```TVMSolidity
@@ -2263,7 +2409,7 @@ Function types are the types of functions. Variables of function type can be ass
 and function parameters of function type can be used to pass functions to and return functions from
 function calls.
 
-If unassigned variable of function type is called then exception with code 65 is thrown.
+If unassigned variable of function type is called, then exception with code 65 is thrown.
 
 ```TVMSolidity
 function getSum(int a, int b) internal pure returns (int) {
@@ -2281,7 +2427,7 @@ function process(int a, int b, uint8 mode) public returns (int) {
     } else if (mode == 1) {
         fun = getSub;
     }
-    return fun(a, b); // if `fun` isn't initialized then exception is thrown
+    return fun(a, b); // if `fun` isn't initialized, then exception is thrown
 }
 ```
 
@@ -2290,19 +2436,23 @@ function process(int a, int b, uint8 mode) public returns (int) {
 In case of exception state variables of the contract are reverted to the state before
 [tvm.commit()](#tvmcommit) or to the state of the contract before it was called.
 Use error codes that are greater than 100 because other error codes can be
-[reserved](#solidity-runtime-errors).
+[reserved](#solidity-runtime-errors).  
 **Note**: if a nonconstant error code is passed as the function argument and the error code
-is less than 2 then the error code will be set to 100.
+is less than 2, then the error code will be set to 100.
 
 ##### require
 
 ```TVMSolidity
+(1)
 require(bool condition, [uint errorCode = 100, [Type exceptionArgument]]);
+(2)
+require(bool condition, string text);
 ```
 
-**require** function can be used to check the condition and throw an exception if the condition
-is not met. The function takes condition and optional parameters: error code (unsigned integer)
-and the object of any type.
+`require` function can be used to check the condition and throw an exception if the condition
+is not met.  
+(1) Takes condition and optional parameters: error code and the object of any type.  
+(2) Takes condition and error text. Error code will be equal to 100.
 
 Example:
 
@@ -2310,10 +2460,12 @@ Example:
 uint a = 5;
 
 require(a == 5); // ok
+
 require(a == 6); // throws an exception with code 100
 require(a == 6, 101); // throws an exception with code 101
 require(a == 6, 101, "a is not equal to six"); // throws an exception with code 101 and string
 require(a == 6, 101, a); // throws an exception with code 101 and number a
+require(a == 6, "a is not equal to six"); // throws an exception with code 100 and string 
 ```
 
 ##### revert
@@ -2389,7 +2541,7 @@ contract MyContract {
 In TVM Solidity **arguments of a function call passed by value not by
 reference**. It's effective for numbers and even for huge arrays.
 See ([TVM][1] - A.2.3.2).
-**But if a library function is called like `obj.func(b, c)` then the
+**But if a library function is called like `obj.func(b, c)`, then the
 first argument `obj` is passed by reference.**  It's similar to
 the `self` variable in Python.
 The directive `using A for B;` can be used to attach library functions
@@ -2489,7 +2641,7 @@ Used to restrict source file compilation to the particular compiler versions.
 pragma copyleft <type>, <wallet_address>; 
 ```
 
-It is an experimental feature available only in certain blockchain deployments.
+[Capabilities](#tvm-capabilities) required: `CapCopyleft`.
 
 Parameters: 
  * `<type>` (`uint8`) - copyleft type. 
@@ -2510,7 +2662,18 @@ pragma copyleft 0, 0x2cfbdc31c9c4478b61472c72615182e9567595b857b1bba9e0c31cd9942
 pragma ignoreIntOverflow;
 ```
 
-Turns off binary operation result overflow check.
+All arithmetic operations revert on over- and underflow by default. This pragma turns off such behavior. It is up to programmer to control range of integer types if they use the pragma.
+
+For example:
+```TVMSolidity
+pragma ignoreIntOverflow;
+
+uint8 a = 2;
+uint8 b = 3;
+uint8 c = a - b; // c == -1, no exception thrown
+```
+
+See also: [unchecked block](#unchecked-block).
 
 #### pragma AbiHeader
 
@@ -2629,7 +2792,7 @@ contract C {
 2. [msg.body](#msgbody) starts with 32-bit zero. Then message body may contain data,
 for example [string](#string) with comment.
 
-If in the contract there is no `receive` function then the contract has an implicit empty `receive`
+If in the contract there is no `receive` function, then the contract has an implicit empty `receive`
 function.
 
 ```TVMSolidity
@@ -2639,7 +2802,7 @@ contract Sink {
     uint public msgWithPayload = 0;
     receive() external {
         ++counter;
-        // if the inbound internal message has payload then we can get it using `msg.body`
+        // if the inbound internal message has payload, then we can get it using `msg.body`
         TvmSlice s = msg.body;
         if (!s.empty()) {
             ++msgWithPayload;
@@ -2673,10 +2836,10 @@ contract Bomber {
 2. Bit-length of the message is from 1 to 31 (including).
 3. Bit-length of the message is equal to zero, but the message contains reference(s).
 
-**Note**: if the message has correct function id but invalid encoded function parameters then
+**Note**: if the message has correct function id but invalid encoded function parameters, then
 the transaction fail with an exception (e.g. [cell underflow exception](#tvm-exception-codes)).
 
-If in the contract there is no fallback function then contract has implicit fallback function
+If in the contract there is no fallback function, then contract has implicit fallback function
 that throws [exception](#solidity-runtime-errors).
 
 Example:
@@ -2741,22 +2904,33 @@ onBounce(TvmSlice body) external {
 
 `onBounce` function is executed when contract receives a bounced inbound internal message.
 The message is generated by the network if the contract sends an internal message with `bounce: true` and either
-
-* called contract doesn't exist;
-* called contract fails at the storage/credit/computing phase (not at the action phase!)
+ * called contract doesn't exist;
+ * called contract fails at the storage/credit/computing phase (not at the action phase!)
 
 The message is generated only if the remaining message value is enough for sending one back.
 
-`body` is empty or contains at most **256** data bits of the original message (without references).
-The function id takes **32** bits and parameters can take at most **224** bits.
-It depends on the network config. If `onBounce` function is not defined then the contract does
-nothing on receiving a bounced inbound internal message.
+`body` depends on TVM realisation and settings:
+ 1. `body` can be empty.
+ 2. If `CapBounceMsgBody` [capability](#tvm-capabilities) is set, then `body` contains at most 256 data bits of the original message (without references). Note: the function id takes `32` bits and the function's parameters can take at most `224` bits.
+ 3. If `CapBounceMsgBody` and `CapFullBodyInBounced` [capabilities](#tvm-capabilities) are set, then `body` is the same as in the second option, but `body` contains the full original message in the first reference.
 
-If the `onBounce` function throws an exception then another bounced messages are not generated.
+If `onBounce` function is not defined, then the contract does
+nothing on receiving a bounced message.
 
-Example of how to use `onBounce` function:
+If the `onBounce` function throws an exception, then another bounced messages are not generated.
+
+Example of how to use `onBounce` function for option 2:
 
 * [onBounceHandler](https://github.com/tonlabs/samples/blob/master/solidity/16_onBounceHandler.sol)
+
+Example of getting function ID if `CapBounceMsgBody` and `CapFullBodyInBounced` [capabilities](#tvm-capabilities) are set:
+
+```TVMSolidity
+onBounce(TvmSlice body) external {
+    TvmSlice fullBody = body.loadRef().toSlice();
+    uint32 functionId = fullBody.load(uint32);
+}
+```
 
 #### onTickTock
 
@@ -3014,7 +3188,7 @@ be omitted. See [\<address\>.transfer()](#addresstransfer) where these options a
 values are described.
 
 **Note**: if the function `f` below is called with `n = 5` and internal/external message must be
-generated then only one message is sent with result `120` (120 = 5 * 4 * 3 * 2 * 1).
+generated, then only one message is sent with result `120` (120 = 5 * 4 * 3 * 2 * 1).
 
 **Hint:** Use `{value: 0, bounce: false, flag: 64}` for `responsible` function.
 Because `flag: 0` is used by default.
@@ -3040,11 +3214,11 @@ callee function will be called after termination of the current transaction.
 where these options are described.
 **Note:** if `value` isn't set, then the default value is equal to 0.01 ever, or 10^7 nanoever. It's equal
 to 10_000 units of gas in workchain.
-If the callee function returns some value and marked as `responsible` then `callback` option must be set.
+If the callee function returns some value and marked as `responsible`, then `callback` option must be set.
 This callback function will be called by another contract. Remote function will pass its return
 values as function arguments for the callback function. That's why types of return values of the
 callee function must be equal to function arguments of the callback function.
-If the function marked as `responsible` then field `answerId` appears in the list of input parameters of the
+If the function marked as `responsible`, then field `answerId` appears in the list of input parameters of the
 function in `*abi.json` file. `answerId` is function id that will be called.
 
 Example of the external call of the function that returns nothing:
@@ -3061,7 +3235,7 @@ contract Caller {
         IContract(addr).f{value: 10 ever, flag: 3}(123);
         IContract(addr).f{value: 10 ever, bounce: true}(123);
         IContract(addr).f{value: 1 micro, bounce: false, flag: 128}(123);
-        ExtraCurrencyCollection cc;
+        mapping(uint32 => varUint32) cc;
         cc[12] = 1000;
         IContract(addr).f{value: 10 ever, currencies:cc}(123);
     }
@@ -3254,7 +3428,7 @@ Returns:
 ##### msg.currencies
 
 ```TVMSolidity
-msg.currencies (ExtraCurrencyCollection)
+msg.currencies (mapping(uint32 => varUint32))
 ```
 
 Collections of arbitrary currencies contained in the balance of
@@ -3266,7 +3440,7 @@ the inbound message.
 msg.pubkey() returns (uint256);
 ```
 
-Returns public key that is used to check the message signature. If the message isn't signed then it's equal to `0`.
+Returns public key that is used to check the message signature. If the message isn't signed, then it's equal to `0`.
 See also: [Contract execution](#contract-execution), [pragma AbiHeader](#pragma-abiheader).
 
 ##### msg.isInternal, msg.isExternal and msg.isTickTock
@@ -3390,7 +3564,7 @@ tvm.commit();
 ```
 
 Creates a "check point" of the state variables (by copying them from c7 to c4) and register c5.
-If the contract throws an exception at the computing phase then the state variables and register c5
+If the contract throws an exception at the computing phase, then the state variables and register c5
 will roll back to the "check point", and the computing phase will be considered "successful".
 If contract doesn't throw an exception, it has no effect.
 
@@ -3542,7 +3716,7 @@ integer index **paramNumber** as a `TvmCell` and a boolean status.
 
 ```TVMSolidity
 tvm.rawReserve(uint value, uint8 flag);
-tvm.rawReserve(uint value, ExtraCurrencyCollection currency, uint8 flag);
+tvm.rawReserve(uint value, mapping(uint32 => varUint32) currency, uint8 flag);
 ```
 
 Creates an output action that reserves **reserve** nanoevers. It is roughly equivalent to
@@ -3579,11 +3753,11 @@ All other values of `flag` are invalid.
 
 To make it clear, let's consider the order of `reserve` calculation:
 
-1. if `flag` has bit `+8` then `value = -value`.
-2. if `flag` has bit `+4` then `value += original_balance`.
+1. if `flag` has bit `+8`, then `value = -value`.
+2. if `flag` has bit `+4`, then `value += original_balance`.
 3. Check `value >= 0`.
-4. if `flag` has bit `+2` then `value = min(value, remaining_balance)`.
-5. if `flag` has bit `+1` then `value = remaining_balance - value`.
+4. if `flag` has bit `+2`, then `value = min(value, remaining_balance)`.
+5. if `flag` has bit `+1`, then `value = remaining_balance - value`.
 6. `reserve = value`.
 7. Check `0 <= reserve <= remaining_balance`.
 
@@ -3639,13 +3813,15 @@ tvm.checkSign(uint256 dataHash, TvmSlice signature, uint256 pubkey) returns (boo
 tvm.checkSign(TvmSlice data, TvmSlice signature, uint256 pubkey) returns (bool);
 ```
 
-Executes TVM instruction "CHKSIGNU" ([TVM][1] - A.11.6. - F910) for variants 1 and 2.
+Executes TVM instruction "CHKSIGNU" ([TVM][1] - A.11.6. - F910) for options 1 and 2.
 This command checks the Ed25519-signature of the **dataHash** using public key **pubkey**.
 Signature is represented by two uint256 **SignHighPart** and **SignLowPart** in the
-first variant and by the slice **signature** in the second variant.
-In the third variant executes TVM instruction "CHKSIGNS" ([TVM][1] - A.11.6. - F911).
+first option and by the slice **signature** in the second option.
+In the third option executes TVM instruction "CHKSIGNS" ([TVM][1] - A.11.6. - F911).
 This command checks Ed25519-signature of the **data** using public key **pubkey**.
 Signature is represented by the slice **signature**.
+
+If `CapSignatureWithId` [capability](#tvm-capabilities) is set, then TVM use some predefined ID during signature check. Usually ID is `global_id` that can be found in the last block for example. 
 
 Example:
 
@@ -3678,7 +3854,7 @@ bool signatureIsValid = tvm.checkSign(data, signature, pubkey);
 tvm.insertPubkey(TvmCell stateInit, uint256 pubkey) returns (TvmCell);
 ```
 
-Inserts a public key into the `stateInit` data field. If the `stateInit` has wrong format then throws an exception.
+Inserts a public key into the `stateInit` data field. If the `stateInit` has wrong format, then throws an exception.
 
 ##### tvm.buildStateInit()
 
@@ -3698,8 +3874,8 @@ Member `splitDepth` of the tree of cell `StateInit`:
 1) is not set. Has no value.
 2) is set. `0 <= splitDepth <= 31`
 3) Arguments can also be set with names.
-List of possible names:
 
+List of possible names:
 * `code` (`TvmCell`) - defines the code field of the `StateInit`. Must be specified.
 * `data` (`TvmCell`) - defines the data field of the `StateInit`. Conflicts with `pubkey` and
 `varInit`. Can be omitted, in this case data field would be built from `pubkey` and `varInit`.
@@ -3792,6 +3968,7 @@ tvm.stateInitHash(uint256 codeHash, uint256 dataHash, uint16 codeDepth, uint16 d
 ```
 
 Calculates hash of the stateInit for given code and data specifications.
+[Capabilities](#tvm-capabilities) required: `CapInitCodeHash`.
 
 Example:
 
@@ -3881,10 +4058,10 @@ The following options can be used with both `stateInit` and `code`:
 
 * `value` (`uint128`) - funds attached to the outbound internal message, that creates new account.
 This value must be set.
-* `currencies` (`ExtraCurrencyCollection`) - currencies attached to the outbound internal message.
+* `currencies` (`mapping(uint32 => varUint32)`) - currencies attached to the outbound internal message.
 Defaults to an empty set.
 * `bounce` (`bool`) - if it's set and deploy falls (only at the computing phase, not at the action
-phase!) then funds will be returned. Otherwise, (flag isn't set or deploying terminated successfully)
+phase!), then funds will be returned. Otherwise, (flag isn't set or deploying terminated successfully)
 the address accepts the funds. Defaults to `true`.
 * `wid` (`uint8`) - workchain id of the new account address. Defaults to `0`.
 * `flag` (`uint16`) - flag used to send the outbound internal message. Defaults to `0`.
@@ -3920,7 +4097,7 @@ Let's consider how to protect against this problem:
 1. Constructor is called by external message.
 We must Check if we didn't forget to set the public key in the contract and the
 inbound message is signed by that key. If hacker doesn't have your private
-key then he can't sign message to call the constructor.
+key, then he can't sign message to call the constructor.
 See [constructor of WalletProducer](https://github.com/tonlabs/samples/blob/master/solidity/17_ContractProducer.sol).
 2. Constructor is called by internal message.
 We should define static variable in the new contract that will contain
@@ -3929,7 +4106,7 @@ And in the constructor we must check address of the message sender.
 See [function `deployWallet` how to deploy contract](https://github.com/tonlabs/samples/blob/master/solidity/17_ContractProducer.sol).  
 See [constructor of SimpleWallet](https://github.com/tonlabs/samples/blob/master/solidity/17_SimpleWallet.sol).  
 If some contract should deploy plenty of contracts (with some contract's
-public key) then it's a good idea to declare static variable in the deployed
+public key), then it's a good idea to declare static variable in the deployed
 contract. This variable can contain some sequence number. It will allow
 each new contact to have unique `stateInit`.
 See [SimpleWallet](https://github.com/tonlabs/samples/blob/master/solidity/17_SimpleWallet.sol).  
@@ -3943,7 +4120,7 @@ See [SimpleWallet](https://github.com/tonlabs/samples/blob/master/solidity/17_Si
 tvm.code() returns (TvmCell);
 ```
 
-Returns contract's code.
+Returns contract's code. [Capabilities](#tvm-capabilities) required: `CapMycode`.
 
 See [SelfDeployer](https://github.com/tonlabs/samples/blob/master/solidity/21_self_deploy.sol).
 
@@ -3953,7 +4130,7 @@ See [SelfDeployer](https://github.com/tonlabs/samples/blob/master/solidity/21_se
 tvm.codeSalt(TvmCell code) returns (optional(TvmCell) optSalt);
 ```
 
-If **code** contains salt then **optSalt** contains one. Otherwise, **optSalt** doesn't contain any value.
+If **code** contains salt, then **optSalt** contains one. Otherwise, **optSalt** doesn't contain any value.
 
 ##### tvm.setCodeSalt()
 
@@ -4244,14 +4421,14 @@ tvm.buildIntMsg({
     value: uint128,
     call: {function, [callbackFunction,] arg0, arg1, arg2, ...},
     bounce: bool,
-    currencies: ExtraCurrencyCollection
+    currencies: mapping(uint32 => varUint32),
     stateInit: TvmCell
 })
 returns (TvmCell);
 ```
 
 Generates an internal outbound message that contains a function call. The result `TvmCell` can be used to send a
-message using [tvm.sendrawmsg()](#tvmsendrawmsg). If the `function` is `responsible` then
+message using [tvm.sendrawmsg()](#tvmsendrawmsg). If the `function` is `responsible`, then
 `callbackFunction` parameter must be set.
 
 `dest`, `value` and `call` parameters are mandatory. Another parameters can be omitted. See
@@ -4283,7 +4460,7 @@ tvm.sendrawmsg(msg, 2);
 ```
 
 If the function is called by external message and `msg` has a wrong format (for example, the field
-`init` of `Message X` is not valid) then the transaction will be replayed despite the usage of flag 2.
+`init` of `Message X` is not valid), then the transaction will be replayed despite the usage of flag 2.
 It will happen because the transaction will fail at the action phase.
 
 #### **math** namespace
@@ -4461,13 +4638,11 @@ Returns the logical time of the current transaction.
 
 ##### tx.storageFee
 
-It's an experimental feature and is available only in certain blockchain networks.
-
 ```TVMSolidity
 tx.storageFee returns (uint120);
 ```
 
-Returns the storage fee paid in the current transaction.
+Returns the storage fee paid in the current transaction. [Capabilities](#tvm-capabilities) required: `CapStorageFeeToTvm`.
 
 ##### **block** namespace
 
@@ -4506,9 +4681,9 @@ rnd.next([Type limit]) returns (Type);
 Generates a new pseudo-random number.
 
 1) Returns `uint256` number.
-2) If the first argument `limit > 0` then function returns the value in the
-range `0..limit-1`. Else if `limit < 0` then the returned value lies in range
-`limit..-1`. Else if `limit == 0` then it returns `0`.
+2) If the first argument `limit > 0`, then function returns the value in the
+range `0..limit-1`. Else if `limit < 0`, then the returned value lies in range
+`limit..-1`. Else if `limit == 0`, then it returns `0`.
 
 Example:
 
@@ -4547,17 +4722,19 @@ rnd.shuffle();
 ```
 
 Randomizes the random seed.
+
 (1) Mixes the random seed and `someNumber`. The result is set as the random seed.
+
 (2) Mixes the random seed and the logical time of the current transaction.
 The result is set as the random seed.
 
 Example:
 
 ```TVMSolidity
-// (1)
+(1)
 uint256 someNumber = ...;
 rnd.shuffle(someNumber);
-// (2)
+(2)
 rnd.shuffle();
 ```
 
@@ -4592,7 +4769,7 @@ TvmCell cell = abi.encode(uint(1), uint(2), uint(3), uint(4));
 ### **gosh** namespace
 
 All `gosh.*` functions are experimental features and are available only in certain blockchain
-networks.
+networks in which `CapDiff` [capability](#tvm-capabilities) is set.
 
 #### gosh.diff and gosh.zipDiff
 
@@ -4603,7 +4780,8 @@ gosh.diff(string oldText, string newText) returns (string patch)
 (2)
 gosh.zipDiff(bytes oldText, bytes newText) returns (bytes patch)
 ```
-(1) Calculates [patch](https://en.wikipedia.org/wiki/Diff) between `oldText` and `newText`. Example:
+(1) Calculates [patch](https://en.wikipedia.org/wiki/Diff) between `oldText` and `newText`.
+
 (2) It's the same as `gosh.diff` but it calculates `patch` between compressed strings.
 
 
@@ -4630,15 +4808,14 @@ gosh.applyZipBinPatch(bytes oldText, bytes patch) returns (bytes newText)
 gosh.applyZipBinPatchQ(bytes oldText, bytes patch) returns (optional(bytes) newText)
 ```
 
-(1)
-Applies `patch` to the `oldText`. If it's impossible (bad patch), `gosh.applyPatch` throws an exception with type check
-error code (-8) but`gosh.applyPatchQ` returns `null`. Example:
-(2)
-These are the same as `gosh.applyPatch`/`gosh.applyPatchQ` but these functions are applied to binary arrays.
-(3)
-These are the same as `gosh.applyPatch`/`gosh.applyPatchQ` but these functions are applied to compressed strings.
-(4)
-These are the same as `gosh.applyPatch`/`gosh.applyPatchQ` but these functions are applied to compressed binary arrays.
+(1) Applies `patch` to the `oldText`. If it's impossible (bad patch), `gosh.applyPatch` throws an exception with type check
+error code (-8) but`gosh.applyPatchQ` returns `null`.
+
+(2) These are the same as `gosh.applyPatch`/`gosh.applyPatchQ` but these functions are applied to binary arrays.
+
+(3) These are the same as `gosh.applyPatch`/`gosh.applyPatchQ` but these functions are applied to compressed strings.
+
+(4) These are the same as `gosh.applyPatch`/`gosh.applyPatchQ` but these functions are applied to compressed binary arrays.
 
 ```TVMSolidity
 string oldText = ...;
@@ -4687,18 +4864,18 @@ See example of how to use the `selfdestruct` function:
 #### sha256
 
 ```TVMSolidity
-// (1)
+(1)
 sha256(TvmSlice slice) returns (uint256)
-// (2)
+(2)
 sha256(bytes b) returns (uint256)
-// (3)
+(3)
 sha256(string str) returns (uint256)
 ```
 
 1. Computes the SHA-256 hash. If the bit-length of `slice` is not divisible by eight, throws a cell
 underflow [exception](#tvm-exception-codes). References of `slice` are not used to compute the hash. Only data bits located
 in the root cell of `slice` are used.
-2. Computes the SHA-256 hash only for the first 127 bytes. If `bytes.length > 127` then `b[128],
+2. Computes the SHA-256 hash only for the first 127 bytes. If `bytes.length > 127`, then `b[128],
 b[129], b[130] ...` elements are ignored.
 3. Same as for `bytes`: only the first 127 bytes are taken into account.
 
@@ -4731,8 +4908,18 @@ If `wid` is omitted than used the contract's `wid`.
 ```TVMSolidity
 gasleft() returns (uint64)
 ```
+[Capabilities](#tvm-capabilities) required: `CapsTvmBugfixes2022`.
 
-Returns the remaining gas. Supported only if `CapGasRemainingInsn` capability is set.
+Returns the remaining gas. 
+
+### TVM capabilities
+
+Rust implementation of TVM has capabilities. Capabilities are flags that can be set to turn on 
+some features or behavior of TVM. Full list of capabilities can be found in `enum GlobalCapabilities` in [ever-block](https://github.com/tonlabs/ever-block/blob/master/src/config_params.rs) repo.
+Set capabilities store in 8th parameter of the global config of the blockchain. To get it you can use command:
+```bash
+tonos-cli --json getconfig 8
+```
 
 ### TVM exception codes
 
@@ -4778,7 +4965,6 @@ Solidity runtime error codes:
   * **70** - `string` method `substr` was called with substr longer than the whole string.
   * **71** - Function marked by `externalMsg` was called by internal message.
   * **72** - Function marked by `internalMsg` was called by external message.
-  * **73** - The value can't be converted to enum type.
   * **74** - Await answer message has wrong source address.
   * **75** - Await answer message has wrong function id.
   * **76** - Public function was called before constructor.
@@ -4792,10 +4978,10 @@ contract only for updating another contracts.
 Let consider we have `x` and `y` and we want to divide `x` by `y`. Compute the quotient `q` and the
 remainder `r` of the division of `x` by `y`: `x = y*q + r` where `|r| < |y|`.
 
-In TVM there are 3 variants of rounding:
+In TVM there are 3 options of rounding:
 
 * **floor** - quotient `q` is rounded to −∞. `q = ⌊x/y⌋`, `r` has the same sign as `y`. This
-rounding variant is used for operator `/`.
+rounding option is used for operator `/`.
 Example:
 
 ```TVMSolidity
@@ -4835,24 +5021,24 @@ function of special function like `receive`, `fallback`, `onBounce`, `onTickTock
 Before calling contract's function `main_external` does:
 
 1. Checks the message signature. Let's consider how the signature is checked:
-   - If signature exists and `pubkey` header isn't defined then `tvm.pubkey()` is used
+   - If signature exists and `pubkey` header isn't defined, then `tvm.pubkey()` is used
    for checking.
-   - If signature isn't exists and `pubkey` header isn't defined then signature isn't checked.
+   - If signature isn't exists and `pubkey` header isn't defined, then signature isn't checked.
    - If signature exists, `pubkey` header is defined and `pubkey` isn't exists in the
-   message then `tvm.pubkey()` is used for checking.
+   message, then `tvm.pubkey()` is used for checking.
    - If signature exists, `pubkey` header is defined and `pubkey` exists in the
-   message then `msg.pubkey()` is used for checking.
+   message, then `msg.pubkey()` is used for checking.
    - If signature isn't exists, `pubkey` header is defined and `pubkey` exists in the
-   message then an [exception with code 58](#solidity-runtime-errors) is thrown.
+   message, then an [exception with code 58](#solidity-runtime-errors) is thrown.
 2. Replay protection:
-   - [*time* header](#pragma-abiheader) exists (`pragma AbiHeader notime` is not used) then the contract checks whether
-   `oldTime` < `time` < `now * 1000 + 30 minutes`. If it's true then `oldTime` is updated by new `time`.
+   - [*time* header](#pragma-abiheader) exists (`pragma AbiHeader notime` is not used), then the contract checks whether
+   `oldTime` < `time` < `now * 1000 + 30 minutes`. If it's true, then `oldTime` is updated by new `time`.
    Otherwise, an exception is thrown.
-   - there is `afterSignatureCheck` (despite usage of `time`) then make your own replay protection.
+   - there is `afterSignatureCheck` (despite usage of `time`), then make your own replay protection.
 3. Message expiration:
-   - `expire` exists and there is no `afterSignatureCheck` then the contract checks whether
+   - `expire` exists and there is no `afterSignatureCheck`, then the contract checks whether
    `expire` > `now`.
-   - there is `afterSignatureCheck` (despite usage of `expire`) then make your own check.
+   - there is `afterSignatureCheck` (despite usage of `expire`), then make your own check.
 
 See also: [pragma AbiHeader](#pragma-abiheader), [afterSignatureCheck](#aftersignaturecheck).
 

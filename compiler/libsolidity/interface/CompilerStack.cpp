@@ -670,7 +670,7 @@ std::pair<bool, bool> CompilerStack::compile(bool json)
 					if (contract->name() == m_mainContract) {
 						if (m_generateCode && !contract->canBeDeployed()) {
 							m_errorReporter.typeError(
-								228_error,
+								3715_error,
 								contract->location(),
 								"The desired contract isn't deployable (it has not public constructor or it's abstract or it's interface or it's library)."
 							);
@@ -683,7 +683,7 @@ std::pair<bool, bool> CompilerStack::compile(bool json)
 					if (m_generateAbi && !m_generateCode) {
 						if (targetContract != nullptr) {
 							m_errorReporter.typeError(
-								228_error,
+								4605_error,
 								targetContract->location(),
 								SecondarySourceLocation().append("Previous contract:",
 																 contract->location()),
@@ -697,7 +697,7 @@ std::pair<bool, bool> CompilerStack::compile(bool json)
 					} else if (contract->canBeDeployed()) {
 						if (targetContract != nullptr) {
 							m_errorReporter.typeError(
-								228_error,
+								5205_error,
 								targetContract->location(),
 								SecondarySourceLocation().append("Previous deployable contract:",
 																 contract->location()),
@@ -718,7 +718,7 @@ std::pair<bool, bool> CompilerStack::compile(bool json)
 
 		if (!m_mainContract.empty() && targetContract == nullptr) {
 			m_errorReporter.typeError(
-				228_error,
+				1468_error,
 				SourceLocation(),
 				"Source file doesn't contain the desired contract \"" + m_mainContract + "\"."
 			);
@@ -732,7 +732,7 @@ std::pair<bool, bool> CompilerStack::compile(bool json)
 					PragmaDirectiveHelper pragmaHelper{pragmaDirectives};
 					Contract const& c = contract(targetContract->name());
 					if (m_generateAbi) {
-						Json::Value abi = TVMABI::generateABIJson(targetContract, pragmaDirectives);
+						Json::Value abi = TVMABI::generateABIJson(targetContract, getSourceUnits(), pragmaDirectives);
 						c.abi = make_unique<Json::Value>(abi);
 					}
 					if (m_generateCode) {

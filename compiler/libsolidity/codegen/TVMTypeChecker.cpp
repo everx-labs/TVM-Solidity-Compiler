@@ -52,7 +52,7 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 					std::set<CallableDeclaration const*> bf2 = getAllBaseFunctions(f2);
 					if (bf.count(f2) == 0 && bf2.count(f) == 0) {
 						m_errorReporter.typeError(
-							228_error,
+							5042_error,
 							f->location(),
 							SecondarySourceLocation().append("Declaration of the function with the same function ID: ", funcId2Decl.at(id)->location()),
 							"Two functions have the same functionID.");
@@ -74,13 +74,13 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 					overridedFunctions.insert(base);
 					if ((!f->functionID().has_value() && baseFunction->functionID()) || (f->functionID().has_value() && !baseFunction->functionID())) {
 						m_errorReporter.typeError(
-							228_error,
+							2070_error,
 							f->location(),
 							SecondarySourceLocation().append("Declaration of the base function: ", baseFunction->location()),
 							"Both override and base functions should have functionID if it is defined for one of them.");
 					} else if (f->functionID().has_value() && f->functionID() != baseFunction->functionID()) {
 						m_errorReporter.typeError(
-							228_error,
+							7277_error,
 							f->location(),
 							SecondarySourceLocation().append("Declaration of the base function: ", baseFunction->location()),
 							"Override function should have functionID = " + toString(baseFunction->functionID().value()) + ".");
@@ -88,7 +88,7 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 
 					if (baseFunction->isResponsible() != f->isResponsible()) {
 						m_errorReporter.typeError(
-							228_error,
+							9069_error,
 							f->location(),
 							SecondarySourceLocation().append("Declaration of the base function: ", baseFunction->location()),
 							"Both override and base functions should be marked as responsible or not");
@@ -96,7 +96,7 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 
 					if ((!f->functionID().has_value() && baseFunction->functionID()) || (f->functionID().has_value() && !baseFunction->functionID())) {
 						m_errorReporter.typeError(
-							228_error,
+							4142_error,
 							f->location(),
 							SecondarySourceLocation().append("Declaration of the base function: ",
 															 baseFunction->location()),
@@ -105,7 +105,7 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 
 					if ((f->isInternalMsg() ^ baseFunction->isInternalMsg()) || (f->isExternalMsg() ^ baseFunction->isExternalMsg())) {
 						m_errorReporter.typeError(
-							228_error,
+							8096_error,
 							f->location(),
 							SecondarySourceLocation().append("Declaration of the base function: ",
 															 baseFunction->location()),
@@ -136,7 +136,7 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 			if (f->name() == ff->name()) {
 				if (used.count(std::make_pair(f, ff)) == 0) {
 					m_errorReporter.typeError(
-						228_error,
+						3994_error,
 						f->location(),
 						SecondarySourceLocation().append("Another overloaded function is here:", ff->location()),
 						"Function overloading is not supported for public functions.");
@@ -151,16 +151,16 @@ void TVMTypeChecker::checkOverrideAndOverload() {
 void TVMTypeChecker::check_onCodeUpgrade(FunctionDefinition const& f) {
 	const std::string s = "\nfunction onCodeUpgrade(...) (internal|private) { /*...*/ }";
 	if (!f.returnParameters().empty()) {
-		m_errorReporter.typeError(228_error, f.returnParameters().at(0)->location(), "Function mustn't return any parameters. Expected function signature:" + s);
+		m_errorReporter.typeError(5078_error, f.returnParameters().at(0)->location(), "Function mustn't return any parameters. Expected function signature:" + s);
 	}
 	if (f.isPublic()) {
-		m_errorReporter.typeError(228_error, f.location(), "Bad function visibility. Expected function signature:" + s);
+		m_errorReporter.typeError(8861_error, f.location(), "Bad function visibility. Expected function signature:" + s);
 	}
 }
 
 bool TVMTypeChecker::visit(TryStatement const& _tryStatement) {
 	if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-		m_errorReporter.typeError(228_error, _tryStatement.location(),
+		m_errorReporter.typeError(5512_error, _tryStatement.location(),
 								  "\"try-catch\"" + isNotSupportedVM);
 	}
 	return true;
@@ -168,7 +168,7 @@ bool TVMTypeChecker::visit(TryStatement const& _tryStatement) {
 
 bool TVMTypeChecker::visit(VariableDeclaration const& _node) {
 	if (_node.isStateVariable() && _node.type()->category() == Type::Category::TvmSlice) {
-		m_errorReporter.typeError(228_error, _node.location(), "This type can't be used for state variables.");
+		m_errorReporter.typeError(9191_error, _node.location(), "This type can't be used for state variables.");
 	}
 	return true;
 }
@@ -183,7 +183,7 @@ bool TVMTypeChecker::visit(const Mapping &_mapping) {
 				TypeInfo ti {member->type()};
 				if (!ti.isNumeric) {
 					m_errorReporter.typeError(
-						228_error,
+						4522_error,
 						_mapping.keyType().location(),
 						SecondarySourceLocation().append("Bad field: ", member->location()),
 						"If struct type is used as a key type for mapping, then "
@@ -193,7 +193,7 @@ bool TVMTypeChecker::visit(const Mapping &_mapping) {
 				bitLength += ti.numBits;
 			}
 			if (bitLength > TvmConst::CellBitLength) {
-				m_errorReporter.typeError(228_error, _mapping.keyType().location(), "If struct type is used as a key type for mapping, then "
+				m_errorReporter.typeError(6614_error, _mapping.keyType().location(), "If struct type is used as a key type for mapping, then "
 											   "struct must fit in " + toString(TvmConst::CellBitLength) + " bits");
 			}
 		}
@@ -204,18 +204,18 @@ bool TVMTypeChecker::visit(const Mapping &_mapping) {
 bool TVMTypeChecker::visit(const FunctionDefinition &f) {
 	if (f.functionID().has_value()) {
 		if (f.functionID().value() == 0) {
-			m_errorReporter.typeError(228_error, f.location(), "functionID can't be equal to zero because this value is reserved for receive function.");
+			m_errorReporter.typeError(8746_error, f.location(), "functionID can't be equal to zero because this value is reserved for receive function.");
 		}
 		if (!f.functionIsExternallyVisible() && f.name() != "onCodeUpgrade") {
-			m_errorReporter.typeError(228_error, f.location(), "Only public/external functions and function `onCodeUpgrade` can have functionID.");
+			m_errorReporter.typeError(2239_error, f.location(), "Only public/external functions and function `onCodeUpgrade` can have functionID.");
 		}
 		if (f.isReceive() || f.isFallback() || f.isOnTickTock() || f.isOnBounce()) {
-			m_errorReporter.typeError(228_error, f.location(), "functionID isn't supported for receive, fallback, onBounce and onTickTock functions.");
+			m_errorReporter.typeError(1482_error, f.location(), "functionID isn't supported for receive, fallback, onBounce and onTickTock functions.");
 		}
 	}
 
 	if (f.isInline() && f.isPublic()) {
-		m_errorReporter.typeError(228_error, f.location(), "Inline function should have private or internal visibility");
+		m_errorReporter.typeError(2580_error, f.location(), "Inline function should have private or internal visibility");
 	}
 	if (f.name() == "onCodeUpgrade") {
 		check_onCodeUpgrade(f);
@@ -228,23 +228,23 @@ bool TVMTypeChecker::visit(const FunctionDefinition &f) {
 			f.parameters().at(0)->type()->category() != Type::Category::TvmSlice ||
 			f.parameters().at(1)->type()->category() != Type::Category::TvmCell
 		) {
-			m_errorReporter.typeError(228_error, f.location(),
+			m_errorReporter.typeError(8963_error, f.location(),
 									  "Unexpected function parameters." + s);
 		}
 		if (f.returnParameters().size() != 1 ||
 			f.returnParameters().at(0)->type()->category() != Type::Category::TvmSlice) {
-			m_errorReporter.typeError(228_error, f.location(), "Should return TvmSlice." + s);
+			m_errorReporter.typeError(7293_error, f.location(), "Should return TvmSlice." + s);
 		}
 		if (f.visibility() != Visibility::Private) {
-			m_errorReporter.typeError(228_error, f.location(), "Should be marked as private." + s);
+			m_errorReporter.typeError(3640_error, f.location(), "Should be marked as private." + s);
 		}
 		if (!f.isInline()) {
-			m_errorReporter.typeError(228_error, f.location(), "Should be marked as inline." + s);
+			m_errorReporter.typeError(8418_error, f.location(), "Should be marked as inline." + s);
 		}
 	}
 
 	if (!f.isFree() && f.isInlineAssembly()) {
-		m_errorReporter.typeError(228_error, f.location(), "Only free functions can be marked as \"assembly\".");
+		m_errorReporter.typeError(7229_error, f.location(), "Only free functions can be marked as \"assembly\".");
 	}
 
 	return true;
@@ -254,7 +254,7 @@ bool TVMTypeChecker::visit(IndexRangeAccess const& indexRangeAccess) {
 	Type const *baseType = indexRangeAccess.baseExpression().annotation().type;
 	auto baseArrayType = to<ArrayType>(baseType);
 	if (baseType->category() != Type::Category::Array || !baseArrayType->isByteArrayOrString()) {
-		m_errorReporter.typeError(228_error, indexRangeAccess.location(), "Index range access is available only for bytes.");
+		m_errorReporter.typeError(4884_error, indexRangeAccess.location(), "Index range access is available only for bytes.");
 	}
 	return true;
 }
@@ -268,64 +268,64 @@ void TVMTypeChecker::checkDeprecation(FunctionCall const& _functionCall) {
 		auto functionType = to<FunctionType>(expressionType);
 		switch (functionType->kind()) {
 		case FunctionType::Kind::OptionalReset:
-			m_errorReporter.warning(228_error, _functionCall.location(),
+			m_errorReporter.warning(5380_error, _functionCall.location(),
 									"\"<optional(T)>.reset()\" is deprecated. Use \"delete <optional(T)>;\".");
 			break;
 		case FunctionType::Kind::TVMSliceLoad:
 			if (memberName == "decode") {
-				m_errorReporter.warning(228_error, _functionCall.location(),
+				m_errorReporter.warning(9518_error, _functionCall.location(),
 										"\"<TvmSlice>.decode()\" is deprecated. Use \"<TvmSlice>.load()\"");
 			}
 			break;
 		case FunctionType::Kind::TVMSliceLoadQ:
 			if (memberName == "decodeQ") {
-				m_errorReporter.warning(228_error, _functionCall.location(),
+				m_errorReporter.warning(6501_error, _functionCall.location(),
 										"\"<TvmSlice>.decodeQ()\" is deprecated. Use \"<TvmSlice>.loadQ()\"");
 			}
 			break;
 		case FunctionType::Kind::TVMSliceLoadFunctionParams:
 			if (memberName == "decodeFunctionParams") {
-				m_errorReporter.warning(228_error, _functionCall.location(),
+				m_errorReporter.warning(9789_error, _functionCall.location(),
 										"\"<TvmSlice>.decodeFunctionParams()\" is deprecated. Use \"<TvmSlice>.loadFunctionParams()\"");
 			}
 			break;
 		case FunctionType::Kind::TVMSliceLoadStateVars:
 			if (memberName == "decodeStateVars") {
-				m_errorReporter.warning(228_error, _functionCall.location(),
+				m_errorReporter.warning(3738_error, _functionCall.location(),
 										"\"<TvmSlice>.decodeStateVars()\" is deprecated. Use \"<TvmSlice>.loadStateVars()\"");
 			}
 			break;
 		case FunctionType::Kind::TVMSliceLoadUint:
 			if (memberName == "loadUnsigned") {
-				m_errorReporter.warning(228_error, _functionCall.location(),
+				m_errorReporter.warning(5093_error, _functionCall.location(),
 										"\"<TvmSlice>.loadUnsigned()\" is deprecated. Use \"<TvmSlice>.loadUint()\"");
 			}
 			break;
 		case FunctionType::Kind::TVMSliceLoadInt:
 			if (memberName == "loadSigned") {
-				m_errorReporter.warning(228_error, _functionCall.location(),
+				m_errorReporter.warning(1581_error, _functionCall.location(),
 										"\"<TvmSlice>.loadSigned()\" is deprecated. Use \"<TvmSlice>.loadInt()\"");
 			}
 			break;
 		case FunctionType::Kind::TVMBuilderStoreUint:
 			if (memberName == "storeUnsigned") {
-				m_errorReporter.warning(228_error, _functionCall.location(),
+				m_errorReporter.warning(1214_error, _functionCall.location(),
 										"\"<TvmBuilder>.storeUnsigned()\" is deprecated. Use \"<TvmBuilder>.storeUint()\"");
 			}
 			break;
 		case FunctionType::Kind::TVMBuilderStoreInt:
 			if (memberName == "storeSigned") {
-				m_errorReporter.warning(228_error, _functionCall.location(),
+				m_errorReporter.warning(9509_error, _functionCall.location(),
 										"\"<TvmBuilder>.storeSigned()\" is deprecated. Use \"<TvmBuilder>.storeInt()\"");
 			}
 			break;
 		case FunctionType::Kind::ByteToSlice: {
-			m_errorReporter.warning(228_error, _functionCall.location(),
+			m_errorReporter.warning(9791_error, _functionCall.location(),
 									"\"<bytes>.toSlice()\" is deprecated. Use explicit conversion: \"TvmSlice(<bytes>)\"");
 			break;
 		}
 		case FunctionType::Kind::StringToSlice: {
-			m_errorReporter.warning(228_error, _functionCall.location(),
+			m_errorReporter.warning(6953_error, _functionCall.location(),
 									"\"<string>.toSlice()\" is deprecated. Use explicit conversion: \"TvmSlice(<string>)\"");
 			break;
 		}
@@ -347,19 +347,19 @@ void TVMTypeChecker::checkSupport(FunctionCall const& _functionCall) {
 		switch (functionType->kind()) {
 		case FunctionType::Kind::GasLeft:
 			if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-				m_errorReporter.typeError(228_error, _functionCall.location(),
+				m_errorReporter.typeError(5434_error, _functionCall.location(),
 										  "\"gasleft()\"" + isNotSupportedVM);
 			}
 			break;
 		case FunctionType::Kind::TVMInitCodeHash:
 			if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-				m_errorReporter.typeError(228_error, _functionCall.location(),
+				m_errorReporter.typeError(4649_error, _functionCall.location(),
 										  "\"tvm.initCodeHash()\"" + isNotSupportedVM);
 			}
 			break;
 		case FunctionType::Kind::TVMCode:
 			if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-				m_errorReporter.typeError(228_error, _functionCall.location(),
+				m_errorReporter.typeError(7632_error, _functionCall.location(),
 										  "\"tvm.code()\"" + isNotSupportedVM);
 			}
 			break;
@@ -373,7 +373,7 @@ void TVMTypeChecker::checkSupport(FunctionCall const& _functionCall) {
 	}
 
 	if (_functionCall.isAwait() && *GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-		m_errorReporter.typeError(228_error, _functionCall.location(),
+		m_errorReporter.typeError(5601_error, _functionCall.location(),
 								  "\"*.await\"" + isNotSupportedVM);
 	}
 }
@@ -393,13 +393,27 @@ bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
 			if (fd && fd->name() == "onCodeUpgrade") {
 				if (m_inherHelper->isBaseFunction(fd)) {
 					m_errorReporter.typeError(
-						228_error, _functionCall.location(),
+						7993_error, _functionCall.location(),
 						"It is forbidden to call base functions of \"onCodeUpgrade\".");
 				}
 			}
 		}
 
 		switch (functionType->kind()) {
+		case FunctionType::Kind::TVMBuilderStore: {
+			for (ASTPointer<Expression const> const& arg : arguments) {
+				if (auto structType = to<StructType>(arg->annotation().type)) {
+					ABITypeSize size{structType};
+					if (size.maxBits > 1023 || size.maxRefs > 4)
+						m_errorReporter.warning(
+							228_error, arg->location(),
+							"The structure may not fit to the builder."
+							" Store manually structure's members to several builders."
+						);
+				}
+			}
+			break;
+		}
 		case FunctionType::Kind::TVMSliceLoadInt:
 		case FunctionType::Kind::TVMSliceLoadIntQ:
 		case FunctionType::Kind::TVMSliceLoadUint:
@@ -411,7 +425,7 @@ bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
 			const auto& value =  ExprUtils::constValue(*arguments.at(0));
 			if (value.has_value()) {
 				if (value > 256) {
-					m_errorReporter.syntaxError(228_error, arguments.at(0)->location(),
+					m_errorReporter.syntaxError(8838_error, arguments.at(0)->location(),
 											"Too big value. The value must be in the range 0 - 256.");
 				}
 			}
@@ -432,7 +446,7 @@ bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
 bool TVMTypeChecker::visit(PragmaDirective const& _pragma) {
 	if (!_pragma.literals().empty()) {
 		if (_pragma.literals().at(0) == "copyleft" && *GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-			m_errorReporter.typeError(228_error, _pragma.location(),
+			m_errorReporter.typeError(9186_error, _pragma.location(),
 									  "\"pragma copyleft ...\"" + isNotSupportedVM);
 		}
 	}
@@ -448,12 +462,12 @@ bool TVMTypeChecker::visit(MemberAccess const& _memberAccess) {
 		switch (magicType->kind()) {
 		case MagicType::Kind::Transaction: {
 			if (member == "timestamp") {
-				m_errorReporter.warning(228_error, _memberAccess.location(),
+				m_errorReporter.warning(6736_error, _memberAccess.location(),
 										R"("tx.timestamp" is deprecated. Use "tx.logicaltime".)");
 			}
 			if (member == "storageFee") {
 				if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-					m_errorReporter.typeError(228_error, _memberAccess.location(),
+					m_errorReporter.typeError(3428_error, _memberAccess.location(),
 											  "\"tx.storageFee\"" + isNotSupportedVM);
 				}
 			}
@@ -461,7 +475,7 @@ bool TVMTypeChecker::visit(MemberAccess const& _memberAccess) {
 		}
 		case MagicType::Kind::Gosh: {
 			if (*GlobalParams::g_tvmVersion != TVMVersion::gosh()) {
-				m_errorReporter.typeError(228_error, _memberAccess.location(),
+				m_errorReporter.typeError(4065_error, _memberAccess.location(),
 										  "\"gosh." + member + "\"" + isNotSupportedVM);
 			}
 			break;

@@ -455,7 +455,8 @@ BoolResult AddressType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 		return true;
 	else if (dynamic_cast<ContractType const*>(&_convertTo))
 		return true;
-	return isImplicitlyConvertibleTo(_convertTo);
+
+	return false;
 }
 
 string AddressType::toString(bool) const
@@ -591,14 +592,16 @@ BoolResult IntegerType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 		return true;
 	}
 
-	if (_convertTo.category() == Category::VarInteger){
-		IntegerType const& convertTo = dynamic_cast<VarInteger const&>(_convertTo).asIntegerType();
-		if (convertTo.m_bits < m_bits)
+	if (_convertTo.category() == Category::VarInteger)
+	{
+		IntegerType const& convertTo = dynamic_cast<VarIntegerType const&>(_convertTo).asIntegerType();
+		// disallowing unsigned to signed conversion of different bits
+		if (isSigned() != convertTo.isSigned())
 			return false;
-		else if (isSigned())
-			return convertTo.isSigned();
+		else if (convertTo.m_bits < m_bits)
+			return false;
 		else
-			return !convertTo.isSigned() || convertTo.m_bits > m_bits;
+			return true;
 	}
 	else if (_convertTo.category() == category())
 	{
@@ -630,13 +633,22 @@ BoolResult IntegerType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 
 BoolResult IntegerType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 {
-	return _convertTo.category() == category() ||
-		_convertTo.category() == Category::VarInteger ||
-		_convertTo.category() == Category::Address ||
-		_convertTo.category() == Category::Contract ||
-		_convertTo.category() == Category::Enum ||
-		(_convertTo.category() == Category::FixedBytes && numBits() == dynamic_cast<FixedBytesType const&>(_convertTo).numBytes() * 8) ||
-		_convertTo.category() == Category::FixedPoint;
+	if (isImplicitlyConvertibleTo(_convertTo))
+		return true;
+	else if (auto integerType = dynamic_cast<IntegerType const*>(&_convertTo))
+		return (numBits() == integerType->numBits()) || (isSigned() == integerType->isSigned());
+	else if (auto varIntegerType = dynamic_cast<VarIntegerType const*>(&_convertTo))
+		return (numBits() == varIntegerType->asIntegerType().numBits()) || (isSigned() == varIntegerType->asIntegerType().isSigned());
+	else if (dynamic_cast<AddressType const*>(&_convertTo) || dynamic_cast<ContractType const*>(&_convertTo))
+		return !isSigned();
+	else if (auto fixedBytesType = dynamic_cast<FixedBytesType const*>(&_convertTo))
+		return (!isSigned() && (numBits() == fixedBytesType->numBytes() * 8));
+	else if (dynamic_cast<EnumType const*>(&_convertTo))
+		return true;
+	else if (auto fixedPointType = dynamic_cast<FixedPointType const*>(&_convertTo))
+		return (isSigned() == fixedPointType->isSigned()) && (numBits() == fixedPointType->numBits());
+
+	return false;
 }
 
 TypeResult IntegerType::unaryOperatorResult(Token _operator) const
@@ -1046,7 +1058,7 @@ BoolResult RationalNumberType::isImplicitlyConvertibleTo(Type const& _convertTo)
 	{
 		if (isFractional())
 			return false;
-		IntegerType const& targetType = dynamic_cast<VarInteger const&>(_convertTo).asIntegerType();
+		IntegerType const& targetType = dynamic_cast<VarIntegerType const&>(_convertTo).asIntegerType();
 		return fitsIntegerType(m_value.numerator(), targetType);
 	}
 	case Category::Integer:
@@ -1085,8 +1097,13 @@ BoolResult RationalNumberType::isExplicitlyConvertibleTo(Type const& _convertTo)
 	auto category = _convertTo.category();
 	if (category == Category::FixedBytes)
 		return false;
+	else if (dynamic_cast<AddressType const*>(&_convertTo) || dynamic_cast<ContractType const*>(&_convertTo))
+		return	(m_value == 0) ||
+			(!isNegative() &&
+			!isFractional() &&
+			integerType());
 	else if (category == Category::Integer)
-		return true;
+		return false;
 	else if (auto enumType = dynamic_cast<EnumType const*>(&_convertTo))
 		if (isNegative() || isFractional() || m_value >= enumType->numberOfMembers())
 			return false;
@@ -1425,13 +1442,19 @@ BoolResult FixedBytesType::isImplicitlyConvertibleTo(Type const& _convertTo) con
 BoolResult FixedBytesType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 {
 	if (auto arr = dynamic_cast<ArrayType const*>(&_convertTo);
-		arr && arr->isByteArray()
-	) {
+		arr && arr->isByteArray())
 		return true;
-	}
-	return (_convertTo.category() == Category::Integer && numBytes() * 8 == dynamic_cast<IntegerType const&>(_convertTo).numBits()) ||
-		_convertTo.category() == Category::FixedPoint ||
-		_convertTo.category() == category();
+
+	if (_convertTo.category() == category())
+		return true;
+	else if (auto integerType = dynamic_cast<IntegerType const*>(&_convertTo))
+		return (!integerType->isSigned() && integerType->numBits() == numBytes() * 8);
+	else if (dynamic_cast<AddressType const*>(&_convertTo))
+		return numBytes() == 32;
+	else if (auto fixedPointType = dynamic_cast<FixedPointType const*>(&_convertTo))
+		return fixedPointType->numBits() == numBytes() * 8;
+
+	return false;
 }
 
 TypeResult FixedBytesType::unaryOperatorResult(Token _operator) const
@@ -5041,7 +5064,7 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 		}
 		else if (m_typeArgument->category() == Type::Category::VarInteger)
 		{
-			VarInteger const* varIntTypePointer = dynamic_cast<VarInteger const*>(m_typeArgument);
+			VarIntegerType const* varIntTypePointer = dynamic_cast<VarIntegerType const*>(m_typeArgument);
 			return MemberList::MemberMap({
 				{"min", varIntTypePointer},
 				{"max", varIntTypePointer},
@@ -5780,7 +5803,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 		},
 		{
 			"skip", TypeProvider::function(
-				strings{"uint10", "uint2"},
+				strings{"uint10", "uint3"},
 				strings{},
 				FunctionType::Kind::TVMSliceSkip,
 				StateMutability::Pure
@@ -5898,45 +5921,85 @@ TypeResult TvmCellType::unaryOperatorResult(Token _operator) const {
 
 MemberList::MemberMap TvmCellType::nativeMembers(const ASTNode *) const
 {
-	MemberList::MemberMap members;
-
-	members.emplace_back("depth", TypeProvider::function(
-		TypePointers{},
-		TypePointers{TypeProvider::uint(16)},
-		strings{},
-		strings{string()},
-		FunctionType::Kind::TVMCellDepth,
-		StateMutability::Pure
-	));
-
-	members.emplace_back("toSlice", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::tvmslice()},
-			strings{},
-			strings{string()},
-			FunctionType::Kind::TVMCellToSlice,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("dataSize", TypeProvider::function(
-		{TypeProvider::uint256()},
-		{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()},
-		{{}},
-		{{}, {}, {}},
-		FunctionType::Kind::TVMDataSize,
-		StateMutability::Pure
-	));
-
-	members.emplace_back("dataSizeQ", TypeProvider::function(
-			{TypeProvider::uint256()},
-			{TypeProvider::optional(TypeProvider::tuple({TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()}))},
-			{{}},
-			{{}},
-			FunctionType::Kind::TVMDataSize,
-			StateMutability::Pure
-	));
-
-
+	MemberList::MemberMap members = {
+		{
+			"depth",
+			TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(16)},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMCellDepth,
+				StateMutability::Pure
+			)
+		},
+		{
+			"toSlice",
+			TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::tvmslice()},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMCellToSlice,
+				StateMutability::Pure
+			)
+		},
+		{
+			"exoticToSlice",
+			TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::tvmslice(), TypeProvider::boolean()},
+				strings{},
+				strings{string(), string()},
+				FunctionType::Kind::TVMCellToSlice,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadExoticCell",
+			TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::tvmcell()},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMCellToSlice,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadExoticCellQ",
+			TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::tvmcell(), TypeProvider::boolean()},
+				strings{},
+				strings{string(), string()},
+				FunctionType::Kind::TVMCellToSlice,
+				StateMutability::Pure
+			)
+		},
+		{
+			"dataSize",
+			TypeProvider::function(
+				{TypeProvider::uint256()},
+				{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()},
+				{{}},
+				{{}, {}, {}},
+				FunctionType::Kind::TVMDataSize,
+				StateMutability::Pure
+			)
+		},
+		{
+			"dataSizeQ",
+			TypeProvider::function(
+				{TypeProvider::uint256()},
+				{TypeProvider::optional(TypeProvider::tuple({TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()}))},
+				{{}},
+				{{}},
+				FunctionType::Kind::TVMDataSize,
+				StateMutability::Pure
+			)
+		}
+	};
 	return members;
 }
 
@@ -6116,6 +6179,16 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 		},
 		{
 			"toCell", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::tvmcell()},
+				strings{},
+				strings{string()},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"toExoticCell", TypeProvider::function(
 				TypePointers{},
 				TypePointers{TypeProvider::tvmcell()},
 				strings{},
@@ -6310,21 +6383,21 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 	return members;
 }
 
-BoolResult VarInteger::isImplicitlyConvertibleTo(Type const& _convertTo) const {
+BoolResult VarIntegerType::isImplicitlyConvertibleTo(Type const& _convertTo) const {
 	return m_int.isImplicitlyConvertibleTo(_convertTo);
 }
 
-BoolResult VarInteger::isExplicitlyConvertibleTo(Type const& _convertTo) const {
+BoolResult VarIntegerType::isExplicitlyConvertibleTo(Type const& _convertTo) const {
 	return m_int.isExplicitlyConvertibleTo(_convertTo);
 }
 
-TypeResult VarInteger::unaryOperatorResult(Token _operator) const {
+TypeResult VarIntegerType::unaryOperatorResult(Token _operator) const {
 	if (_operator == Token::Delete)
 		return TypeProvider::emptyTuple();
 	return nullptr;
 }
 
-TypeResult VarInteger::binaryOperatorResult(Token _operator, Type const* _other) const {
+TypeResult VarIntegerType::binaryOperatorResult(Token _operator, Type const* _other) const {
 	Type const* resultType = m_int.binaryOperatorResult(_operator, _other);
 	if (resultType == nullptr)
 		return nullptr;
@@ -6334,11 +6407,11 @@ TypeResult VarInteger::binaryOperatorResult(Token _operator, Type const* _other)
 	return resultType;
 }
 
-std::string VarInteger::toString(bool) const {
+std::string VarIntegerType::toString(bool) const {
 	return std::string{} + "var" + (m_int.isSigned()? "Int" : "Uint") + std::to_string(m_n);
 }
 
-int VarInteger::maxBitSizeInCell() const {
+int VarIntegerType::maxBitSizeInCell() const {
 	if (m_n == 16) {
 		return 4 + (15 * 8);
 	}
@@ -6346,34 +6419,4 @@ int VarInteger::maxBitSizeInCell() const {
 		return 5 + (31 * 8);
 	}
 	solUnimplemented("");
-}
-
-bigint VarInteger::minValue() const {
-	return m_int.minValue();
-}
-
-bigint VarInteger::maxValue() const {
-	return m_int.maxValue();
-}
-
-IntegerType const* ExtraCurrencyCollectionType::keyType() const {
-	return TypeProvider::uint(32);
-}
-
-IntegerType const* ExtraCurrencyCollectionType::valueType() const {
-	return TypeProvider::uint(256);
-}
-
-VarInteger const* ExtraCurrencyCollectionType::realValueType() const {
-	return TypeProvider::varInteger(32, IntegerType::Modifier::Unsigned);
-}
-
-MemberList::MemberMap ExtraCurrencyCollectionType::nativeMembers(ASTNode const *) const {
-	MemberList::MemberMap members;
-	appendMapMethods(members, keyType(), valueType(), keyType());
-	return members;
-}
-
-TypeResult ExtraCurrencyCollectionType::unaryOperatorResult(Token _operator) const {
-	return _operator == Token::Delete ? TypeProvider::tuple(std::vector<Type const*>()) : nullptr;
 }
