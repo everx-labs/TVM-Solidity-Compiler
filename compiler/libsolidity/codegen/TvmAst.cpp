@@ -293,8 +293,12 @@ std::string PushCellOrSlice::chainBlob() const {
 	string s;
 	PushCellOrSlice const* p = this;
 	while (p != nullptr) {
-		solAssert(p->blob().at(0) == 'x');
-		s += p->blob().substr(1);
+		if (p->blob().empty()) {
+			solAssert(p->child() == nullptr, "");
+		} else {
+			solAssert(p->blob().at(0) == 'x');
+			s += p->blob().substr(1);
+		}
 		p = p->child().get();
 	}
 	return s;
@@ -429,16 +433,16 @@ void TryCatch::accept(TvmAstVisitor& _visitor) {
 	}
 }
 
-Function::Function(int take, int ret, std::string name, Function::FunctionType type, Pointer<CodeBlock> block,
-				   const FunctionDefinition *_function) :
-		m_take{take},
-		m_ret{ret},
-		m_name{std::move(name)},
-		m_type{type},
-		m_block{std::move(block)},
-		m_function{_function}
+Function::Function(int take, int ret, std::string name, std::optional<uint32_t> _functionId,
+	Function::FunctionType type, Pointer<CodeBlock> block, const FunctionDefinition *_function) :
+	m_take{take},
+	m_ret{ret},
+	m_name{std::move(name)},
+	m_functionId{_functionId},
+	m_type{type},
+	m_block{std::move(block)},
+	m_function{_function}
 {
-	solAssert(type != FunctionType::PrivateFunction || _function != nullptr, "");
 }
 
 void Function::accept(TvmAstVisitor& _visitor) {
@@ -455,10 +459,6 @@ void Contract::accept(TvmAstVisitor& _visitor) {
 			node->accept(_visitor);
 		}
 	}
-}
-
-std::vector<Pointer<Function>>& Contract::functions() {
-	return m_functions;
 }
 
 namespace solidity::frontend {
@@ -535,7 +535,6 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"NOW", {0, 1, true}},
 		{"NULL", {0, 1, true}},
 		{"PUSHINT", {0, 1, true}},
-		{"PUSHPOW2DEC", {0, 1, true}},
 		{"RANDSEED", {0, 1, true}},
 		{"RANDU256", {0, 1}},
 		{"STORAGEFEE", {0, 1, true}},
@@ -622,6 +621,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"UBITSIZE", {1, 1}},
 		{"UFITS", {1, 1}},
 		{"UNZIP", {1, 1}},
+		{"XLOAD", {1, 1}},
 		{"ZIP", {1, 1}},
 
 		{"BBITREFS", {1, 2, true}},
@@ -647,6 +647,8 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"REWRITESTDADDR", {1, 2}},
 		{"SBITREFS", {1, 2, true}},
 		{"TPOP", {1, 2}},
+		{"XCTOS", {1, 2}},
+		{"XLOADQ", {1, 2}},
 
 		{"COPYLEFT", {2, 0}},
 		{"RAWRESERVE", {2, 0}},
@@ -668,6 +670,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"DIV", {2, 1}},
 		{"DIVC", {2, 1}},
 		{"DIVR", {2, 1}},
+		{"ENDXC", {2, 1}},
 		{"EQUAL", {2, 1, true}},
 		{"GEQ", {2, 1, true}},
 		{"GREATER", {2, 1, true}},

@@ -39,7 +39,7 @@ bool TVMAnalyzer::visit(MemberAccess const& _node) {
 		if (funType->bound()) {
 			auto printError = [&]{
 				m_errorReporter.fatalTypeError(
-					228_error,
+					5939_error,
 					_node.location(),
 					"Function references are not supported if the function is called as arg1.fun(arg2, ..., argn)."
 				);
@@ -69,7 +69,7 @@ bool TVMAnalyzer::visit(ContractDefinition const& contract) {
 	for (EventDefinition const* event : contract.definedInterfaceEvents()) {
 		if (used.count(event->name())) {
 			m_errorReporter.declarationError(
-				228_error,
+				2018_error,
 				event->location(),
 				SecondarySourceLocation().append("Another declaration is here:", used.at(event->name())->location()),
 				"Event overriding is not supported."
@@ -101,7 +101,7 @@ bool TVMAnalyzer::visit(Return const& _return) {
 		};
 		if (!hasName("value") || !hasName("bounce") || !hasName("flag")) {
 			m_errorReporter.fatalDeclarationError(
-				228_error,
+				5133_error,
 				_return.location(),
 				std::string{} +
 				"`value`, `bounce` and `flag` options must be explicitly defined for `responsible` functions.\n" +
@@ -133,18 +133,18 @@ void TVMAnalyzer::endVisit(PragmaDirective const& _pragma) {
 
 		auto checkConstInteger = [&](Expression const& _e, SourceLocation const& loc, const std::string& msg, const bigint& max_val){
 			if (_e.annotation().type->category() != Type::Category::RationalNumber) {
-				m_errorReporter.syntaxError(228_error, loc, msg);
+				m_errorReporter.syntaxError(5514_error, loc, msg);
 				return;
 			}
 			auto number = dynamic_cast<RationalNumberType const *>(_e.annotation().type);
 			solAssert(number, "");
 			if (number->isFractional()) {
-				m_errorReporter.syntaxError(228_error, loc, msg);
+				m_errorReporter.syntaxError(8784_error, loc, msg);
 				return;
 			}
 			bigint val = number->value2();
 			if (val < 0 || val >= max_val) {
-				m_errorReporter.syntaxError(228_error, loc, msg);
+				m_errorReporter.syntaxError(5971_error, loc, msg);
 				return;
 			}
 		};

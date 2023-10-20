@@ -2,7 +2,7 @@
 <meta name="description" content="Solidity compiler for TVM">
 <meta name='keywords' content='compiler, smart-contracts, blockchain, solidity, tvm, everscale, everos, venom-blockchain, venom-developer-program'>
 
-# the TVM Solidity compiler
+# The TVM Solidity compiler
 
 [![GitHub](https://img.shields.io/github/license/tonlabs/TON-Solidity-Compiler?style=for-the-badge)](./LICENSE)
 [![Everscale](https://custom-icon-badges.demolab.com/badge/-everscale-13173e?style=for-the-badge&logoColor=yellow&logo=everscale)](https://everscale.network/)
@@ -22,13 +22,13 @@ Port of the Solidity smart-contract [compiler](https://github.com/ethereum/solid
 
 ## Build and Install
 
-Original Instructions about how to build and install the Solidity compiler can be found in the [Solidity documentation](https://solidity.readthedocs.io/en/latest/installing-solidity.html#building-from-source).
-
 ### Sold driver
 
-Documentation is available at [README.md](https://github.com/tonlabs/TON-Solidity-Compiler/blob/master/sold/README.md) (RECOMMENDED).
+We recommend using `sold` to compile smart-contracts. Documentation is available at [README.md](https://github.com/tonlabs/TON-Solidity-Compiler/blob/master/sold/README.md).
 
 ### Building compiler
+
+Original Instructions about how to build and install the Solidity compiler can be found in the [Solidity documentation](https://solidity.readthedocs.io/en/latest/installing-solidity.html#building-from-source).
 
 #### Ubuntu Linux
 
@@ -40,12 +40,6 @@ mkdir build
 cd build
 cmake ../compiler/ -DCMAKE_BUILD_TYPE=Release
 cmake --build . -- -j8
-```
-
-Make other toolchain utilities aware of the language runtime library location via an environment variable: specify path to `stdlib_sol.tvm`.
-
-```shell
-sh ./compiler/scripts/install_lib_variable.sh
 ```
 
 #### Windows 10
@@ -63,14 +57,12 @@ cmake -DBoost_DIR="..\compiler\deps\boost\lib\cmake\Boost-1.77.0" -DCMAKE_MSVC_R
 cmake --build . --config Release -- /m
 ```
 
-To facilitate work with other toolchain utilities add path to `stdlib_sol.tvm` into environment variable `TVM_LINKER_LIB_PATH`.
-
 ## Links
 
+ * [Ever assembler and disassembler](https://github.com/tonlabs/ever-assembler)
  * [Code samples](https://github.com/tonlabs/samples/tree/master/solidity) in TVM Solidity
- * [TVM linker repository](https://github.com/tonlabs/TVM-linker)
  * [tonos-cli](https://github.com/tonlabs/tonos-cli) command line interface for TVM compatible blockchains
- * Example of usage `tonos-cli` for working (deploying, calling and etc.) with TVM compatible blockchains can be found there: [Write smart contract in Solidity](https://docs.ton.dev/86757ecb2/p/950f8a-write-smart-contract-in-solidity)
+ * Example of usage `tonos-cli` for working (deploying, calling etc.) with TVM compatible blockchains can be found there: [Write smart contract in Solidity](https://docs.ton.dev/86757ecb2/p/950f8a-write-smart-contract-in-solidity)
  * [Changelog](https://github.com/tonlabs/TON-Solidity-Compiler/blob/master/Changelog_TON.md)
 
 ## License

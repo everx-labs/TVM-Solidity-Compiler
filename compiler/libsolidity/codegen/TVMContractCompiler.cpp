@@ -70,14 +70,15 @@ void TVMConstructorCompiler::dfs(ContractDefinition const *c) {
 }
 
 Pointer<Function> TVMConstructorCompiler::generateConstructors() {
+	FunctionDefinition const* constructor = m_pusher.ctx().getContract()->constructor();
+	m_pusher.ctx().setCurrentFunction(constructor, "constructor");
+
 	{
 		ChainDataEncoder encode{&m_pusher};
-		uint32_t functionId{};
-		if (FunctionDefinition const* c = m_pusher.ctx().getContract()->constructor()) {
-			functionId = encode.calculateFunctionIDWithReason(c, ReasonOfOutboundMessage::RemoteCallInternal);
-		} else {
-			functionId = encode.calculateConstructorFunctionID();
-		}
+		uint32_t functionId =
+			constructor != nullptr ?
+			encode.calculateFunctionIDWithReason(constructor, ReasonOfOutboundMessage::RemoteCallInternal) :
+			encode.calculateConstructorFunctionID();
 		m_pusher.ctx().addPublicFunction(functionId, "constructor");
 	}
 
@@ -88,12 +89,10 @@ Pointer<Function> TVMConstructorCompiler::generateConstructors() {
 	c4ToC7WithMemoryInitAndConstructorProtection();
 
 	std::vector<ContractDefinition const*> linearizedBaseContracts =
-			m_pusher.ctx().getContract()->annotation().linearizedBaseContracts; // from derived to base
-	for (ContractDefinition const* c : linearizedBaseContracts) {
+		m_pusher.ctx().getContract()->annotation().linearizedBaseContracts; // from derived to base
+	for (ContractDefinition const* c : linearizedBaseContracts)
 		dfs(c);
-	}
 
-	FunctionDefinition const* constructor = linearizedBaseContracts[0]->constructor();
 	int take{};
 	if (constructor == nullptr) {
 		m_pusher << "ENDS";
@@ -102,38 +101,30 @@ Pointer<Function> TVMConstructorCompiler::generateConstructors() {
 		vector<Type const*> types = getParams(constructor->parameters()).first;
 		ChainDataDecoder{&m_pusher}.decodeFunctionParameters(types, false);
 		m_pusher.getStack().change(-static_cast<int>(constructor->parameters().size()));
-		for (const ASTPointer<VariableDeclaration>& variable: constructor->parameters()) {
+		for (const ASTPointer<VariableDeclaration>& variable: constructor->parameters())
 			m_pusher.getStack().add(variable.get(), true);
-		}
 	}
 	solAssert(m_pusher.stackSize() == take, "");
 	std::set<ContractDefinition const*> areParamsOnStack;
-	areParamsOnStack.insert(linearizedBaseContracts[0]);
-	for (ContractDefinition const* c : linearizedBaseContracts | boost::adaptors::reversed) {
-		if (c->constructor() == nullptr || c->constructor()->parameters().empty()) {
+	areParamsOnStack.insert(linearizedBaseContracts.at(0));
+	for (ContractDefinition const* c : linearizedBaseContracts | boost::adaptors::reversed)
+		if (c->constructor() == nullptr || c->constructor()->parameters().empty())
 			areParamsOnStack.insert(c);
-		}
-	}
 
 	bool haveConstructor = false;
 	for (ContractDefinition const* c : linearizedBaseContracts | boost::adaptors::reversed) {
-		if (c->constructor() == nullptr) {
+		if (c->constructor() == nullptr)
 			continue;
-		}
 		haveConstructor = true;
 		for (ContractDefinition const* parent : path[c]) {
 			if (areParamsOnStack.count(parent) == 0) {
 				areParamsOnStack.insert(parent);
-				for (int i = 0; i < static_cast<int>(parent->constructor()->parameters().size()); ++i) {
+				for (size_t i = 0; i < parent->constructor()->parameters().size(); ++i) {
 					TVMExpressionCompiler(m_pusher).acceptExpr((*m_args[parent])[i].get(), true);
 					m_pusher.getStack().add(parent->constructor()->parameters()[i].get(), false);
 				}
 			}
 		}
-
-
-		m_pusher.ctx().setCurrentFunction(c->constructor());
-
 		int take2 = c->constructor()->parameters().size();
 		StackPusher pusher = m_pusher;
 		pusher.clear();
@@ -143,19 +134,17 @@ Pointer<Function> TVMConstructorCompiler::generateConstructors() {
 		m_pusher.add(pusher);
 	}
 
-	if (!haveConstructor) {
+	if (!haveConstructor)
 		m_pusher << "ACCEPT";
-	}
 
 //	solAssert(m_pusher.stackSize() == 0, "");
-
-	m_pusher.pushMacroCallInCallRef(0, 0, "c7_to_c4");
-
+	m_pusher.pushFragmentInCallRef(0, 0, "c7_to_c4");
 	m_pusher._throw("THROW 0");
 
+	m_pusher.ctx().resetCurrentFunction();
 	Pointer<CodeBlock> block = m_pusher.getBlock();
 	// take slice (contains params) and functionID
-	Pointer<Function> f = createNode<Function>(2, 0, "constructor", Function::FunctionType::Macro, block);
+	Pointer<Function> f = createNode<Function>(2, 0, "constructor", nullopt, Function::FunctionType::Fragment, block);
 	return f;
 }
 
@@ -165,7 +154,7 @@ void TVMConstructorCompiler::c4ToC7WithMemoryInitAndConstructorProtection() {
 	m_pusher.fixStack(-1); // fix stack
 
 	m_pusher.startContinuation();
-	m_pusher.pushMacro(0, 0, "c4_to_c7_with_init_storage");
+	m_pusher.pushFragment(0, 0, "c4_to_c7_with_init_storage");
 	m_pusher.endContinuationFromRef();
 	m_pusher._if();
 
@@ -194,6 +183,7 @@ void TVMContractCompiler::printPrivateFunctionIds(
 void TVMContractCompiler::generateABI(
 	const std::string& fileName,
 	ContractDefinition const *contract,
+	std::vector<std::shared_ptr<SourceUnit>> const& _sourceUnits,
 	std::vector<PragmaDirective const *> const &pragmaDirectives
 ) {
 	if (!fileName.empty()) {
@@ -201,11 +191,11 @@ void TVMContractCompiler::generateABI(
 		ofile.open(fileName);
 		if (!ofile)
 			fatal_error("Failed to open the output file: " + fileName);
-		TVMABI::generateABI(contract, pragmaDirectives, &ofile);
+		TVMABI::generateABI(contract, _sourceUnits, pragmaDirectives, &ofile);
 		ofile.close();
 		cout << "ABI was generated and saved to file " << fileName << endl;
 	} else {
-		TVMABI::generateABI(contract, pragmaDirectives);
+		TVMABI::generateABI(contract, _sourceUnits, pragmaDirectives);
 	}
 }
 
@@ -234,30 +224,18 @@ TVMContractCompiler::generateContractCode(
 	std::vector<std::shared_ptr<SourceUnit>> _sourceUnits,
 	PragmaDirectiveHelper const &pragmaHelper
 ) {
-	std::vector<std::string> pragmas;
 	std::vector<Pointer<Function>> functions;
 
 	TVMCompilerContext ctx{contract, pragmaHelper};
 
-	if (!ctx.isStdlib()) {
-		pragmas.emplace_back(std::string{} + ".version sol " + solidity::frontend::VersionNumber);
-	}
-
-	if (pragmaHelper.hasUpgradeFunc()) {
-		pragmas.emplace_back(".pragma selector-func-solidity");
-	}
-	if (pragmaHelper.hasUpgradeOldSol()) {
-		pragmas.emplace_back(".pragma selector-old-sol");
-	}
-
 	fillInlineFunctions(ctx, contract);
 
-	// generate global constructor which inlines all contract constructors
+	// generate global constructor which inlines all contract's constructors
 	if (!ctx.isStdlib()) {
 		StackPusher pusher{&ctx};
 		TVMConstructorCompiler compiler(pusher);
 		Pointer<Function> f = compiler.generateConstructors();
-		functions.push_back(f);
+		functions.emplace_back(f);
 	}
 
 	for (ContractDefinition const* c : contract->annotation().linearizedBaseContracts) {
@@ -268,37 +246,32 @@ TVMContractCompiler::generateContractCode(
 				continue;
 			}
 
-			ctx.setCurrentFunction(_function);
-
 			if (_function->isOnBounce()) {
 				if (!ctx.isOnBounceGenerated()) {
 					ctx.setIsOnBounce();
-					functions.push_back(TVMFunctionCompiler::generateOnBounce(ctx, _function));
+					functions.emplace_back(TVMFunctionCompiler::generateOnBounce(ctx, _function));
 				}
 			} else if (_function->isReceive()) {
 				if (!ctx.isReceiveGenerated()) {
 					ctx.setIsReceiveGenerated();
-					functions.push_back(TVMFunctionCompiler::generateReceive(ctx, _function));
+					functions.emplace_back(TVMFunctionCompiler::generateReceive(ctx, _function));
 				}
 			} else if (_function->isFallback()) {
 				if (!ctx.isFallBackGenerated()) {
 					ctx.setIsFallBackGenerated();
-					functions.push_back(TVMFunctionCompiler::generateFallback(ctx, _function));
+					functions.emplace_back(TVMFunctionCompiler::generateFallback(ctx, _function));
 				}
 			} else if (_function->isOnTickTock()) {
-				functions.push_back(TVMFunctionCompiler::generateOnTickTock(ctx, _function));
-			} else if (isMacro(_function->name())) {
-				functions.push_back(TVMFunctionCompiler::generateMacro(ctx, _function));
+				functions.emplace_back(TVMFunctionCompiler::generateOnTickTock(ctx, _function));
 			} else if (_function->name() == "onCodeUpgrade") {
 				if (!ctx.isBaseFunction(_function))
-					functions.push_back(TVMFunctionCompiler::generateOnCodeUpgrade(ctx, _function));
+					functions.emplace_back(TVMFunctionCompiler::generateOnCodeUpgrade(ctx, _function));
 			} else {
-				std::string functionName = ctx.getFunctionInternalName(_function);
 				if (!ctx.isStdlib()) {
 					if (_function->isPublic()) {
 						bool isBaseMethod = _function != getContractFunctions(contract, _function->name()).back();
 						if (!isBaseMethod) {
-							functions.push_back(TVMFunctionCompiler::generatePublicFunction(ctx, _function));
+							functions.emplace_back(TVMFunctionCompiler::generatePublicFunction(ctx, _function));
 
 							StackPusher pusher{&ctx};
 							ChainDataEncoder encoder{&pusher}; // TODO delete pusher
@@ -307,15 +280,10 @@ TVMContractCompiler::generateContractCode(
 							ctx.addPublicFunction(functionId, _function->name());
 						}
 					}
-					if (_function->visibility() <= Visibility::Public) {
-						functions.push_back(TVMFunctionCompiler::generatePrivateFunction(ctx, functionName, _function));
-					}
 				}
-				const std::string macroName = functionName + "_macro";
-				functions.push_back(TVMFunctionCompiler::generateMacro(ctx, _function, macroName));
+				std::string const functionName = ctx.getFunctionInternalName(_function);
+				functions.emplace_back(TVMFunctionCompiler::generateFunction(ctx, _function, functionName));
 			}
-
-			ctx.setCurrentFunction(nullptr);
 		}
 	}
 
@@ -324,12 +292,12 @@ TVMContractCompiler::generateContractCode(
 		functions.emplace_back(TVMFunctionCompiler::generateC4ToC7WithInitMemory(ctx));
 		{
 			StackPusher pusher{&ctx};
-			Pointer<Function> f = pusher.generateC7ToT4Macro(false);
+			Pointer<Function> f = pusher.generateC7ToC4(false);
 			functions.emplace_back(f);
 		}
 		if (ctx.usage().hasAwaitCall()) {
 			StackPusher pusher{&ctx};
-			Pointer<Function> f = pusher.generateC7ToT4Macro(true);
+			Pointer<Function> f = pusher.generateC7ToC4(true);
 			functions.emplace_back(f);
 		}
 		functions.emplace_back(TVMFunctionCompiler::updateOnlyTime(ctx));
@@ -362,56 +330,37 @@ TVMContractCompiler::generateContractCode(
 		}
 	}
 
-	for (std::shared_ptr<SourceUnit> source: _sourceUnits) {
+	// generate library functions
+	for (std::shared_ptr<SourceUnit> const& source: _sourceUnits) {
 		for (ASTPointer<ASTNode> const &node: source->nodes()) {
 			if (auto lib = dynamic_cast<ContractDefinition const *>(node.get())) {
 				if (lib->isLibrary()) {
 					for (FunctionDefinition const *function : lib->definedFunctions()) {
-						ctx.setCurrentFunction(function);
-
 						if (!function->modifiers().empty()) {
 							cast_error(*function->modifiers().at(0).get(),
 									   "Modifiers for library functions are not supported yet.");
 						}
-
-						if (!function->parameters().empty()) {
-							{
-								const std::string name = TVMCompilerContext::getLibFunctionName(function, true);
-								functions.emplace_back(TVMFunctionCompiler::generateLibraryFunction(ctx, function, name));
-							}
-							{
-								const std::string name = TVMCompilerContext::getLibFunctionName(function, true) + "_macro";
-								functions.emplace_back(TVMFunctionCompiler::generateLibraryFunctionMacro(ctx, function, name));
-							}
-						}
+						if (!function->parameters().empty())
+							functions.emplace_back(TVMFunctionCompiler::generateLibFunctionWithObject(ctx, function));
 						const std::string name = TVMCompilerContext::getLibFunctionName(function, false);
-						functions.emplace_back(TVMFunctionCompiler::generatePrivateFunction(ctx, name, function));
-						functions.emplace_back(TVMFunctionCompiler::generateMacro(ctx, function, name + "_macro"));
-						ctx.setCurrentFunction(nullptr);
+						functions.emplace_back(TVMFunctionCompiler::generateFunction(ctx, function, name));
 					}
 				}
 			}
 		}
 	}
 
-	for (std::shared_ptr<SourceUnit> source: _sourceUnits) {
+	// generate free functions
+	for (std::shared_ptr<SourceUnit> const& source: _sourceUnits) {
 		for (ASTPointer<ASTNode> const &node: source->nodes()) {
 			if (auto function = dynamic_cast<FunctionDefinition const *>(node.get())) {
 				if (function->isFree() && !function->isInlineAssembly()) {
-					ctx.setCurrentFunction(function);
-
 					if (!function->modifiers().empty()) {
 						cast_error(*function->modifiers().at(0).get(),
 								   "Modifiers for free functions are not supported yet.");
 					}
-
-					std::string functionName = ctx.getFunctionInternalName(function);
-					functions.push_back(TVMFunctionCompiler::generatePrivateFunction(ctx, functionName, function));
-
-					const std::string macroName = functionName + "_macro";
-					functions.push_back(TVMFunctionCompiler::generateMacro(ctx, function, macroName));
-
-					ctx.setCurrentFunction(nullptr);
+					const std::string name = ctx.getFunctionInternalName(function);
+					functions.emplace_back(TVMFunctionCompiler::generateFunction(ctx, function, name));
 				}
 			}
 		}
@@ -430,23 +379,41 @@ TVMContractCompiler::generateContractCode(
 		it = ctx.constArrays().begin();
 	}
 
-	for (const auto&[name, arr] : ctx.newArrays()) {
+	for (const auto&[name, arr] : ctx.newArrays())
 		functions.emplace_back(TVMFunctionCompiler::generateNewArrays(ctx, name, arr));
-	}
 
-	for (const auto&[name, types] : ctx.buildTuple()) {
+	for (const auto&[name, types] : ctx.buildTuple())
 		functions.emplace_back(TVMFunctionCompiler::generateBuildTuple(ctx, name, types));
-	}
 
-	if (!ctx.isStdlib()) {
+	if (!ctx.isStdlib())
 		functions.emplace_back(TVMFunctionCompiler::generatePublicFunctionSelector(ctx, contract));
+
+
+	std::map<std::string, Pointer<Function>> functionsInMap;
+	for (const auto& func : functions) {
+		solAssert(functionsInMap.count(func->name()) == 0, "");
+		functionsInMap[func->name()] = func;
+	}
+	std::vector<Pointer<Function>> functionOrder;
+	for (std::string const& funcDef : ctx.callGraph().DAG()) {
+		if (functionsInMap.count(funcDef) == 0) {
+			// TODO check stdlib function or inline function
+			continue;
+		}
+		Pointer<Function> f = functionsInMap.at(funcDef);
+		functionOrder.emplace_back(f);
+		functionsInMap.erase(functionsInMap.find(funcDef));
+	}
+	for (const auto& func : functions) {
+		if (functionsInMap.count(func->name()) != 0)
+			functionOrder.emplace_back(func);
 	}
 
-	if (ctx.getPragmaSaveAllFunctions()) {
-		pragmas.emplace_back(".pragma save-all-private-functions");
-	}
-
-	Pointer<Contract> c = createNode<Contract>(pragmas, functions);
+	Pointer<Contract> c = createNode<Contract>(
+		ctx.isStdlib(), ctx.getPragmaSaveAllFunctions(), pragmaHelper.hasUpgradeFunc(), pragmaHelper.hasUpgradeOldSol(),
+		std::string{"sol "} + solidity::frontend::VersionNumber,
+		functionOrder, ctx.callGraph().privateFunctions()
+	);
 
 	DeleterAfterRet d;
 	c->accept(d);
@@ -508,13 +475,13 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 	std::vector<FunctionDefinition const *> order = inlineFunctionChecker.functionOrder();
 
 	for (FunctionDefinition const * function : order) {
-		ctx.setCurrentFunction(function);
+		const std::string name = functionName(function);
+		ctx.setCurrentFunction(function, name);
 		StackPusher pusher{&ctx};
 		TVMFunctionCompiler::generateFunctionWithModifiers(pusher, function, true);
-		const std::string name = functionName(function);
-
 		Pointer<CodeBlock> body = pusher.getBlock();
 		ctx.addInlineFunction(name, body);
+		ctx.resetCurrentFunction();
 	}
 }
 

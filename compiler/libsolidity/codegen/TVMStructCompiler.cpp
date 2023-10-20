@@ -77,7 +77,7 @@ void StructCompiler::createDefaultStruct() {
 	for (Type const *type: m_types) {
 		pusher->pushDefaultValue(type);
 	}
-	pusher->tuple(m_types.size());
+	pusher->makeTuple(m_types.size());
 }
 
 void StructCompiler::createDefaultStructAsCell() {
@@ -131,7 +131,7 @@ void StructCompiler::structConstructor(
 		}
 	}
 
-	pusher->tuple(m_types.size());
+	pusher->makeTuple(m_types.size());
 }
 
 void StructCompiler::tupleToBuilder() {
@@ -162,7 +162,7 @@ void StructCompiler::convertSliceToTuple() {
 
 	ChainDataDecoder decoder{pusher};
 	decoder.decodeData(0, 0, m_types);
-	pusher->tuple(m_types.size());
+	pusher->makeTuple(m_types.size());
 
 	solAssert(ss == pusher->stackSize(), "");
 }

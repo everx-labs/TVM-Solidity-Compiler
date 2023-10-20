@@ -83,7 +83,6 @@ public:
 
 	static std::optional<std::pair<int, int>> isBLKDROP2(Pointer<TvmAstNode>const& node);
 	static std::optional<int> isPUSH(Pointer<TvmAstNode> const& node);
-	static bool isPUSHINT(Pointer<TvmAstNode> const& node);
 	static bigint pushintValue(Pointer<TvmAstNode> const& node);
 	static int fetchInt(Pointer<TvmAstNode> const& node);
 	static bool isNIP(Pointer<TvmAstNode> const& node);
@@ -528,6 +527,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt1(Pointer<TvmAstNode> 
 }
 
 std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2) {
+	using namespace MathConsts;
 	auto cmd1GenOp = to<GenOpcode>(cmd1.get());
 	auto cmd1Glob = to<Glob>(cmd1.get());
 
@@ -541,11 +541,6 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 	auto _isBLKDROP2 = isBLKDROP2(cmd2);
 	auto isBLKPUSH1 = isBLKPUSH(cmd1);
 	auto isPUSH1 = isPUSH(cmd1);
-
-	std::map<bigint, int> power2;
-	for (int p2 = 2, p = 1; p2 <= 256; p2 *= 2, ++p) {
-		power2[p2] = p;
-	}
 
 	if (isSWAP(cmd1)) {
 		if (is(cmd2, "STU")) return Result{2, gen("STUR " + arg(cmd2))};
@@ -564,7 +559,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 			return Result{2, gen(opcode + " " + arg(cmd2))};
 		}
 	}
-	if (isPUSHINT(cmd1)) {
+	if (is(cmd1, "PUSHINT")) {
 		if (arg(cmd1) == "1") {
 			if (is(cmd2, "ADD")) return Result{2, gen("INC")};
 			if (is(cmd2, "SUB")) return Result{2, gen("DEC")};
@@ -846,27 +841,40 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 		}
 	}
 	if (
-		isPUSHINT(cmd1) && 1 <= pushintValue(cmd1) && pushintValue(cmd1) <= 256 &&
+		is(cmd1, "PUSHINT") && 1 <= pushintValue(cmd1) && pushintValue(cmd1) <= 256 &&
 		(is(cmd2, "RSHIFT") || is(cmd2, "LSHIFT")) && arg(cmd2).empty()
 	) {
 		return Result{2, gen(cmd2GenOpcode->opcode() + " " + arg(cmd1))};
 	}
-	if (isPUSHINT(cmd1) &&
+	if (is(cmd1, "PUSHINT") &&
 		(is(cmd2, "DIV") || is(cmd2, "MUL"))) {
 		bigint val = pushintValue(cmd1);
-		if (power2.count(val)) {
+		if (power2Exp().count(val)) {
 			const std::string& newOp = is(cmd2, "DIV") ? "RSHIFT" : "LSHIFT";
-			return Result{2, gen(newOp + " " + toString(power2.at(val)))};
+			return Result{2, gen(newOp + " " + toString(power2Exp().at(val)))};
 		}
 	}
-	if (isPUSHINT(cmd1) &&
-		is(cmd2, "MOD")) {
+	// PUSHINT 2**N
+	// MOD
+	// =>
+	// MODPOW2 N
+	if (is(cmd1, "PUSHINT") && is(cmd2, "MOD")) {
 		bigint val = pushintValue(cmd1);
-		if (power2.count(val)) {
-			return Result{2, gen("MODPOW2 " + toString(power2.at(val)))};
+		if (power2Exp().count(val)) {
+			return Result{2, gen("MODPOW2 " + toString(power2Exp().at(val)))};
 		}
 	}
-	if (isPUSHINT(cmd1)) {
+	// PUSHINT (2**N)-1
+	// AND
+	// =>
+	// MODPOW2 N
+	if (is(cmd1, "PUSHINT") && is(cmd2, "AND")) {
+		bigint val = pushintValue(cmd1);
+		if (power2DecExp().count(val)) {
+			return Result{2, gen("MODPOW2 " + toString(power2DecExp().at(val)))};
+		}
+	}
+	if (is(cmd1, "PUSHINT")) {
 		bigint val = pushintValue(cmd1);
 		if (-128 <= val && val < 128) {
 			if (is(cmd2, "NEQ"))
@@ -953,7 +961,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 		return Result{2, gen("STONE")};
 	}
 	if (
-		isPUSHINT(cmd1) && pushintValue(cmd1) == 0 &&
+		is(cmd1, "PUSHINT") && pushintValue(cmd1) == 0 &&
 		is(cmd2, "STUR")
 	) {
 		return Result{2,
@@ -968,7 +976,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 	}
 
 	if (
-		isPUSHINT(cmd1) && pushintValue(cmd1) == 1 &&
+		is(cmd1, "PUSHINT") && pushintValue(cmd1) == 1 &&
 		is(cmd2, "STZEROES")
 	) {
 		return Result{2, gen("STZERO")};
@@ -1082,11 +1090,35 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 		return Result{2, makeTHROW("THROW " + cmd2Exc->arg())};
 	}
 
+	// pure gen(1, 1)
+	// DROP N
+	// =>
+	// DROP N
 	if (cmd1GenOp && cmd1GenOp->isPure() &&
 		std::make_pair(cmd1GenOp->take(), cmd1GenOp->ret()) == std::make_pair(1, 1) &&
 		isDrop(cmd2)
 	) {
 		return Result{2, cmd2};
+	}
+
+	// ABS
+	// MODPOW2 256
+	// =>
+	// ABS
+	if (is(cmd1, "ABS") &&
+		cmd2GenOpcode->opcode() == "MODPOW2" && cmd2GenOpcode->arg() == "256"
+	) {
+		return Result{2, gen("ABS")};
+	}
+
+	// MODPOW2 x
+	// MODPOW2 y
+	// =>
+	// MODPOW2 min(x, y)
+	if (is(cmd1, "MODPOW2") && is(cmd2, "MODPOW2")) {
+		int x = fetchInt(cmd1);
+		int y = fetchInt(cmd2);
+		return Result{2, gen("MODPOW2 " + toString(std::min(x, y)))};
 	}
 
 	// BLKPUSH N, 0 / DUP
@@ -1175,7 +1207,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 	// =>
 	// PUSH S(i-1) or gen(0,1)
 	// CMP2
-	if (isPUSHINT(cmd1) && ((isPUSH2 && *isPUSH2 != 0) || isPureGen01(*cmd2))) {
+	if (is(cmd1, "PUSHINT") && ((isPUSH2 && *isPUSH2 != 0) || isPureGen01(*cmd2))) {
 		auto newCmd2 = isPUSH2 ? makePUSH(*isPUSH2 - 1) : cmd2;
 		bigint val = pushintValue(cmd1);
 		if (-128 <= val && val < 128) {
@@ -1193,8 +1225,8 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 		if (-128 <= val - 1 && val - 1 < 128 && is(cmd3, "LEQ"))
 			return Result{3, newCmd2, gen("GTINT " + toString(val - 1))};
 	}
-	if (isPUSHINT(cmd1) &&
-		isPUSHINT(cmd2) &&
+	if (is(cmd1, "PUSHINT") &&
+		is(cmd2, "PUSHINT") &&
 		cmd3GenOpcode && cmd3GenOpcode->opcode() == "MUL"
 	) {
 		bigint a = pushintValue(cmd1);
@@ -1203,8 +1235,8 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 		return Result{3, gen("PUSHINT " + toString(c))};
 	}
 
-	if (isPUSHINT(cmd1) &&
-		isPUSHINT(cmd2) &&
+	if (is(cmd1, "PUSHINT") &&
+		is(cmd2, "PUSHINT") &&
 		cmd3GenOpcode && cmd3GenOpcode->opcode() == "DIV"
 	) {
 		bigint a = pushintValue(cmd1);
@@ -1284,7 +1316,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 		if (cmd3SubProgram) {
 			std::vector<Pointer<TvmAstNode>> const& instructions = cmd3SubProgram->block()->instructions();
 			if (instructions.size() == 1 &&
-				*instructions.at(0) == *createNode<GenOpcode>(".inline __concatenateStrings_macro", 2, 1)) {
+				*instructions.at(0) == *createNode<GenOpcode>(".inline concatenateStrings", 2, 1)) {
 				string hexStr = cmd1PushCellOrSlice->chainBlob() + cmd2PushCellOrSlice->chainBlob();
 				return Result{3, makePushCellOrSlice(hexStr, false)};
 			}
@@ -1304,7 +1336,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 			std::vector<Pointer<TvmAstNode>> const &cmds = ifRef->trueBody()->instructions();
 			if (cmds.size() == 1) {
 				if (auto gen = to<GenOpcode>(cmds.at(0).get())) {
-					if (isIn(gen->fullOpcode(), ".inline __c7_to_c4", ".inline __upd_only_time_in_c4")) {
+					if (isIn(gen->fullOpcode(), ".inline c7_to_c4", ".inline upd_only_time_in_c4")) {
 						return Result{2, cmd2};
 					}
 				}
@@ -1319,7 +1351,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> 
 											 Pointer<TvmAstNode> const& cmd3, Pointer<TvmAstNode> const& cmd4) {
 	auto cmd3Exc = to<TvmException>(cmd3.get());
 
-	if (isPUSHINT(cmd1) && isPUSHINT(cmd3)) {
+	if (is(cmd1, "PUSHINT") && is(cmd3, "PUSHINT")) {
 		if (isAddOrSub(cmd2) && isAddOrSub(cmd4)) {
 			bigint sum = 0;
 			sum += (is(cmd2, "ADD") ? +1 : -1) * pushintValue(cmd1);
@@ -1357,7 +1389,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> 
 			}
 		}
 	}
-	if (isPUSHINT(cmd1) &&
+	if (is(cmd1, "PUSHINT") &&
 		is(cmd2, "NEWC") &&
 		is(cmd3, "STSLICECONST") &&
 		is(cmd4, "STU")) {
@@ -1379,9 +1411,9 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> 
 	) {
 		return Result{4, makePUSHREF(isPlainPushSlice(cmd1)->blob())};
 	}
-	if (isPUSHINT(cmd1) && pushintValue(cmd1) == 0 &&
+	if (is(cmd1, "PUSHINT") && pushintValue(cmd1) == 0 &&
 		is(cmd2, "STUR") &&
-		isPUSHINT(cmd3) && pushintValue(cmd3) == 0 &&
+		is(cmd3, "PUSHINT") && pushintValue(cmd3) == 0 &&
 		is(cmd4, "STUR")
 	) {
 		int bitSize = fetchInt(cmd2) + fetchInt(cmd4);
@@ -1458,7 +1490,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt5(Pointer<TvmAstNode> 
 	// NEWC
 	// STSLICE ?
 	// STU ?
-	if (isPUSHINT(cmd1) &&
+	if (is(cmd1, "PUSHINT") &&
 		isPlainPushSlice(cmd2) &&
 		is(cmd3, "NEWC") &&
 		is(cmd4, "STSLICE") &&
@@ -1561,7 +1593,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 			// NEWC
 			// STU y
 			else if (
-				isPUSHINT(cmd1) &&
+				is(cmd1, "PUSHINT") &&
 				is(cmd2, "NEWC") &&
 				is(cmd3, "STU")
 			) {
@@ -1594,13 +1626,13 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 				bitString += StrUtils::toBitString(arg(c1));
 				++opcodeQty;
 				i = j;
-			} else if (c2 && isPUSHINT(c1) && is(c2, "STUR")) {
+			} else if (c2 && is(c1, "PUSHINT") && is(c2, "STUR")) {
 				bigint num = pushintValue(c1);
 				int len = fetchInt(c2);
 				bitString += StrUtils::toBitString(num, len);
 				opcodeQty += 2;
 				i = nextCommandLine(j);
-			} else if (c2 && isPUSHINT(c1) && is(c2, "STIR")) {
+			} else if (c2 && is(c1, "PUSHINT") && is(c2, "STIR")) {
 				bigint num = pushintValue(c1);
 				int len = fetchInt(c2);
 				bitString += StrUtils::toBitString(num, len);
@@ -1616,7 +1648,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 				bitString += StrUtils::toBitString(hexSlice);
 				opcodeQty += 2;
 				i = nextCommandLine(j);
-			} else if (c2 && isPUSHINT(c1) && is(c2, "STGRAMS")) {
+			} else if (c2 && is(c1, "PUSHINT") && is(c2, "STGRAMS")) {
 				bigint arg = pushintValue(c1);
 				bitString += StrUtils::tonsToBinaryString(arg);
 				opcodeQty += 2;
@@ -2182,7 +2214,7 @@ std::optional<int> PrivatePeepholeOptimizer::isPUSH(Pointer<TvmAstNode> const& n
 }
 
 bigint PrivatePeepholeOptimizer::pushintValue(Pointer<TvmAstNode> const& node) {
-	solAssert(isPUSHINT(node), "");
+	solAssert(is(node, "PUSHINT"), "");
 	auto g = dynamic_pointer_cast<GenOpcode>(node);
 	return bigint{g->arg()};
 }
@@ -2197,20 +2229,6 @@ bool PrivatePeepholeOptimizer::isNIP(Pointer<TvmAstNode> const& node) {
 	return
 	(isPOP(node) && isPOP(node).value() == 1) ||
 	(isBLKDROP2(node) && isBLKDROP2(node).value() == std::make_pair(1, 1));
-}
-
-bool PrivatePeepholeOptimizer::isPUSHINT(Pointer<TvmAstNode> const& node) {
-	auto g = dynamic_pointer_cast<GenOpcode>(node);
-	if (!g || g->opcode() != "PUSHINT")
-		return false;
-	int i = 0;
-	for (char ch : g->arg()) {
-		if (!(isdigit(ch) || (i == 0 && ch=='-'))) {
-			return false; // e.g. PUSHINT $func_name$
-		}
-		++i;
-	}
-	return true;
 }
 
 std::string PrivatePeepholeOptimizer::arg(Pointer<TvmAstNode> const& node) {

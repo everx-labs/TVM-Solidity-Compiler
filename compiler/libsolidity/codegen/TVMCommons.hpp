@@ -50,6 +50,7 @@ constexpr uint64_t str2int(const char* str, int i = 0) {
 }
 
 std::string functionName(FunctionDefinition const* _function);
+std::string eventName(EventDefinition const* _event);
 
 bool isAddressOrContractType(const Type* type);
 bool isUsualArray(const Type* type);
@@ -155,9 +156,6 @@ std::vector<std::pair<FunctionDefinition const*, ContractDefinition const*>>
 getContractFunctionPairs(ContractDefinition const* contract);
 
 bool isSuper(Expression const* expr);
-
-bool isMacro(const std::string& functionName);
-
 bool isAddressThis(const FunctionCall* funCall);
 
 // List of all function but constructors with a given name
@@ -333,7 +331,6 @@ enum class DictValueType {
 	Bool,
 	Contract,
 	Enum,
-	ExtraCurrencyCollection,
 	FixedBytes,
 	FixedPoint,
 	Function,
@@ -365,7 +362,6 @@ struct LValueInfo {
 };
 
 DictValueType toDictValueType(const Type::Category& category);
-std::string stringToHex(const std::string& str);
 std::set<CallableDeclaration const*> getAllBaseFunctions(CallableDeclaration const* f);
 bool isLoc(Pointer<TvmAstNode> const& node);
 std::vector<std::string> split(const std::string &s, char sep = '\n');
@@ -383,14 +379,22 @@ namespace StrUtils {
 	std::string tonsToBinaryString(const u256& value);
 	std::string tonsToBinaryString(bigint value);
 	std::string boolToBinaryString(bool value);
-	std::string literalToSliceAddress(Literal const* literal);
+	std::string literalToSliceAddress(bigint const& value);
 	bigint toBigint(const std::string& binStr);
 	std::string toBinString(bigint num);
+	std::string stringToHex(const std::string& str);
 }
 
 namespace ExprUtils {
 	std::optional<bigint> constValue(Expression const &_e);
 	std::optional<bool> constBool(Expression const &_e);
+}
+
+namespace MathConsts {
+	std::map<bigint, int> const& power2Exp();
+	std::map<bigint, int> const& power2DecExp();
+	std::map<bigint, int> const& power2NegExp();
+	std::map<int, bigint> const& power10();
 }
 
 } // end solidity::frontend

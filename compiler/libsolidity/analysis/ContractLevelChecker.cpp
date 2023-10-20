@@ -135,7 +135,7 @@ void ContractLevelChecker::checkDuplicateFunctions(ContractDefinition const& _co
 		{
 			if (onBounce)
 				m_errorReporter.declarationError(
-						228_error,
+						9645_error,
 						function->location(),
 						SecondarySourceLocation().append("Another declaration is here:", onBounce->location()),
 						"Only one onBounce function is allowed."
@@ -157,7 +157,7 @@ void ContractLevelChecker::checkDuplicateFunctions(ContractDefinition const& _co
 		{
 			if (onTickTock) {
 				m_errorReporter.declarationError(
-						228_error,
+						2306_error,
 						function->location(),
 						SecondarySourceLocation().append("Another declaration is here:", receive->location()),
 						"Only one onTickTock function is allowed."

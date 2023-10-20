@@ -49,12 +49,12 @@ bool ViewPureChecker::visit(FunctionDefinition const& _funDef)
 	m_bestMutabilityAndLocation = {StateMutability::Pure, _funDef.location()};
 	if (ContractDefinition const* contr = _funDef.annotation().contract) {
 		if (contr->isLibrary() && _funDef.stateMutability() != StateMutability::NonPayable) {
-			m_errorReporter.warning(228_error, _funDef.location(),
+			m_errorReporter.warning(3818_error, _funDef.location(),
 									"Library functions must have default mutability. Delete keyword view or pure.");
 		}
 	}
 	if (_funDef.isFree() && !_funDef.isInlineAssembly() && _funDef.stateMutability() != StateMutability::NonPayable) {
-		m_errorReporter.warning(228_error, _funDef.location(),
+		m_errorReporter.warning(4029_error, _funDef.location(),
 								"Free functions must have default mutability. Delete keyword view or pure.");
 	}
 	return true;
@@ -167,13 +167,13 @@ void ViewPureChecker::reportMutability(
 				 "environment or state and thus requires \"view\".";
 		if (funcDecl) {
 			m_errorReporter.typeError(
-				228_error,
+				6669_error,
 				_location,
 				SecondarySourceLocation().append("Function declaration is here", *funcDecl),
 				errText
 			);
 		} else {
-			m_errorReporter.typeError(228_error, _location, errText);
+			m_errorReporter.typeError(7706_error, _location, errText);
 		}
 		m_errors = true;
 	}
@@ -185,13 +185,13 @@ void ViewPureChecker::reportMutability(
 					   "requires the default.";
 		if (funcDecl) {
 			m_errorReporter.typeError(
-				228_error,
+				5861_error,
 				_location,
 				SecondarySourceLocation().append("Function declaration is here", *funcDecl),
 				errText
 			);
 		} else {
-			m_errorReporter.typeError(228_error, _location, errText);
+			m_errorReporter.typeError(9527_error, _location, errText);
 		}
 		m_errors = true;
 	}
@@ -310,7 +310,6 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			if (isStateVar)
 				mutability = StateMutability::View;
 		break;
-	case Type::Category::ExtraCurrencyCollection:
 	case Type::Category::Mapping:
 		if (member == "delMin" ||
 			member == "delMax" ||

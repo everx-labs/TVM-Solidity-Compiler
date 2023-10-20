@@ -82,7 +82,7 @@ void TVMCompilerProceedContract(
 			TVMContractCompiler::generateCodeAndSaveToFile(pathToFiles + ".code", _contract, _sourceUnits, pragmaHelper);
 		}
 		if (generateAbi) {
-			TVMContractCompiler::generateABI(pathToFiles + ".abi.json", &_contract, *pragmaDirectives);
+			TVMContractCompiler::generateABI(pathToFiles + ".abi.json", &_contract, _sourceUnits, *pragmaDirectives);
 		}
 	}
 

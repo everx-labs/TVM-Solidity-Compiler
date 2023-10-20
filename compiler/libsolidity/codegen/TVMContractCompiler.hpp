@@ -50,6 +50,7 @@ public:
 	static void generateABI(
 		const std::string& fileName,
 		ContractDefinition const* contract,
+		std::vector<std::shared_ptr<SourceUnit>> const& _sourceUnits,
 		std::vector<PragmaDirective const *> const& pragmaDirectives
 	);
 	static void generateCodeAndSaveToFile(

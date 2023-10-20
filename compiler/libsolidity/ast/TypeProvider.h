@@ -109,7 +109,7 @@ public:
 	static IntegerType const* uint256() { return uint(256); }
 	static IntegerType const* int256() { return integer(256, IntegerType::Modifier::Signed); }
 
-	static VarInteger const* varInteger(unsigned m, IntegerType::Modifier _modifier);
+	static VarIntegerType const* varInteger(unsigned m, IntegerType::Modifier _modifier);
 	static FixedPointType const* fixedPoint(unsigned m, unsigned n, FixedPointType::Modifier _modifier);
 
 	static StringLiteralType const* stringLiteral(std::string const& literal);
@@ -199,7 +199,7 @@ public:
 
 	static MappingType const* mapping(Type const* _keyType, Type const* _valueType);
 
-	static ExtraCurrencyCollectionType const* extraCurrencyCollection();
+	static MappingType const* extraCurrencyCollection();
 
 	static OptionalType const* optional(Type const* _type);
 
@@ -245,7 +245,7 @@ private:
 	static std::array<std::unique_ptr<FixedBytesType>, 32> const m_bytesM;
 	static std::array<std::unique_ptr<MagicType>, 8> const m_magics;        ///< MagicType's except MetaType
 
-	std::map<std::pair<unsigned, IntegerType::Modifier>, std::unique_ptr<VarInteger>> m_varInterger{};
+	std::map<std::pair<unsigned, IntegerType::Modifier>, std::unique_ptr<VarIntegerType>> m_varInterger{};
 	std::map<std::pair<unsigned, unsigned>, std::unique_ptr<FixedPointType>> m_ufixedMxN{};
 	std::map<std::pair<unsigned, unsigned>, std::unique_ptr<FixedPointType>> m_fixedMxN{};
 	std::map<std::string, std::unique_ptr<StringLiteralType>> m_stringLiteralTypes{};

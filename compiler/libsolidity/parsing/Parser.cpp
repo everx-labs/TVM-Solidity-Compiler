@@ -569,7 +569,7 @@ Parser::FunctionHeaderParserResult Parser::parseFunctionHeader(bool _isStateVari
 		{
 			if (token == Token::Payable)
 			{
-				parserWarning(228_error, "Has no effect. Delete this.");
+				parserWarning(3713_error, "Has no effect. Delete this.");
 			}
 
 			if (result.stateMutability != StateMutability::NonPayable)
@@ -604,7 +604,7 @@ Parser::FunctionHeaderParserResult Parser::parseFunctionHeader(bool _isStateVari
 		{
 			m_scanner->next();
 			if (m_scanner->currentToken() != Token::LParen) {
-				parserError(228_error, "functionID modifier should be specified as: functionID(ID).");
+				parserError(8342_error, "functionID modifier should be specified as: functionID(ID).");
 			}
 			m_scanner->next();
 			ASTPointer<ASTString> literal = getLiteralAndAdvance();
@@ -615,24 +615,24 @@ Parser::FunctionHeaderParserResult Parser::parseFunctionHeader(bool _isStateVari
                 size_t pos = 0;
                 unsigned long id = stoul(*literal, &pos, 0);
                 if (pos != literal->size() || id > std::numeric_limits<std::uint32_t>::max()) {
-                    fatalParserError(228_error, errText.str());
+                    fatalParserError(7164_error, errText.str());
                 } else {
                     result.functionID = static_cast<std::uint32_t>(id);
                 }
             } catch (const std::invalid_argument&) {
-                fatalParserError(228_error, errText.str());
+                fatalParserError(6936_error, errText.str());
             } catch (const std::out_of_range&) {
-                fatalParserError(228_error, errText.str());
+                fatalParserError(2598_error, errText.str());
             }
 
 			if (m_scanner->currentToken() != Token::RParen)
-                fatalParserError(228_error, "functionID modifier should be specified as: functionID(ID).");
+                fatalParserError(3428_error, "functionID modifier should be specified as: functionID(ID).");
 			m_scanner->next();
 		}
 		else if (token == Token::ExternalMsg)
 		{
 			if (result.externalMsg)
-				parserError(228_error, "externalMsg already specified.");
+				parserError(9986_error, "externalMsg already specified.");
 
 			result.externalMsg = true;
 			m_scanner->next();
@@ -640,7 +640,7 @@ Parser::FunctionHeaderParserResult Parser::parseFunctionHeader(bool _isStateVari
 		else if (token == Token::InternalMsg)
 		{
 			if (result.internalMsg)
-				parserError(228_error, "internalMsg already specified.");
+				parserError(7749_error, "internalMsg already specified.");
 
 			result.internalMsg = true;
 			m_scanner->next();
@@ -648,7 +648,7 @@ Parser::FunctionHeaderParserResult Parser::parseFunctionHeader(bool _isStateVari
 		else if (token == Token::Inline)
 		{
 			if (result.isInline)
-				parserError(228_error, "inline already specified.");
+				parserError(4362_error, "inline already specified.");
 
 			result.isInline = true;
 			m_scanner->next();
@@ -656,7 +656,7 @@ Parser::FunctionHeaderParserResult Parser::parseFunctionHeader(bool _isStateVari
 		else if (token == Token::Responsible)
 		{
 			if (result.responsible)
-				parserError(228_error, "responsible already specified.");
+				parserError(5148_error, "responsible already specified.");
 
 			result.responsible = true;
 			m_scanner->next();
@@ -664,7 +664,7 @@ Parser::FunctionHeaderParserResult Parser::parseFunctionHeader(bool _isStateVari
 		else if (token == Token::Assembly)
 		{
 			if (result.assembly)
-				parserError(228_error, "assembly already specified.");
+				parserError(9152_error, "assembly already specified.");
 
 			result.assembly = true;
 			m_scanner->next();
@@ -840,7 +840,7 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 
 	// TODO DELETE THIS FROM HERE
 	if (_options.kind == VarDeclKind::State && dynamic_cast<TvmVector*>(type.get()))
-		fatalParserError(228_error, string(
+		fatalParserError(5069_error, string(
 				"vector type can't be used for state variables."
 		));
 
@@ -889,7 +889,7 @@ ASTPointer<VariableDeclaration> Parser::parseVariableDeclaration(
 		else if (_options.kind == VarDeclKind::State && token == Token::Static)
 		{
 			if (isStatic)
-				parserError(228_error, "Static already specified.");
+				parserError(7494_error, "Static already specified.");
 
 			isStatic = true;
 			m_scanner->next();
@@ -1214,7 +1214,7 @@ ASTPointer<TypeName> Parser::parseTypeName()
 		{
 			if (elemTypeName.token() == Token::Address)
 			{
-				parserWarning(228_error, "Has no effect. Delete this.");
+				parserWarning(7323_error, "Has no effect. Delete this.");
 				nodeFactory.markEndPosition();
 				stateMutability = parseStateMutability();
 			}
@@ -1534,7 +1534,7 @@ ASTPointer<Statement> Parser::parseAssemblyStatement()
 
 ASTPointer<InlineAssembly> Parser::parseInlineAssembly(ASTPointer<ASTString> const& /*_docString*/)
 {
-	m_errorReporter.fatalTypeError(228_error, currentLocation(), "Inline assembly is disabled.");
+	m_errorReporter.fatalTypeError(4277_error, currentLocation(), "Inline assembly is disabled.");
 	return nullptr;
 }
 
@@ -2307,7 +2307,7 @@ Parser::FunctionCallArguments Parser::parseNamedArguments()
 			expectToken(Token::Comma);
 
 		if (m_scanner->currentToken() == Token::ExtMsg) {
-			fatalParserError(228_error, "\"extMsg\" call option is deprecated, use suffix \".extMsg\".\nFor example: Foo(addr).bar{...}(...).extMsg;\n");
+			fatalParserError(3299_error, "\"extMsg\" call option is deprecated, use suffix \".extMsg\".\nFor example: Foo(addr).bar{...}(...).extMsg;\n");
 		}
 
 		auto identifierWithLocation = expectIdentifierWithLocation();
