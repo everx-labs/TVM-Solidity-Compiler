@@ -76,6 +76,19 @@ fn print_data(out: &mut File, value: &serde_json::Value) -> Status {
     Ok(())
 }
 
+fn print_array(out: &mut File, array: &Vec<serde_json::Value>) -> Status {
+    for i in 0..array.len() {
+        write!(out, "\t\t\t\t")?;
+        write!(out, "{}", to_string_pretty_no_indent(&array[i])?)?;
+        if i + 1 == array.len() {
+            writeln!(out)?;
+        } else {
+            writeln!(out, ",")?;
+        }
+    }
+    Ok(())
+}
+
 fn print(out: &mut File, value: &serde_json::Value) -> Status {
     let json = value.as_array().ok_or_else(|| format_err!("ABI parsing failed"))?;
     for f in 0..json.len() {
@@ -91,30 +104,14 @@ fn print(out: &mut File, value: &serde_json::Value) -> Status {
         writeln!(out, "\t\t\t\"inputs\": [")?;
         if let Some(inputs) = function.get("inputs") {
             let array = inputs.as_array().ok_or_else(|| format_err!("ABI parsing failed"))?;
-            for i in 0..array.len() {
-                write!(out, "\t\t\t\t")?;
-                write!(out, "{}", to_string_pretty_no_indent(&array[i])?)?;
-                if i + 1 == array.len() {
-                    writeln!(out)?;
-                } else {
-                    writeln!(out, ",")?;
-                }
-            }
+            print_array(out, array)?;
         }
         writeln!(out, "\t\t\t],")?;
 
         writeln!(out, "\t\t\t\"outputs\": [")?;
         if let Some(outputs) = function.get("outputs") {
             let array = outputs.as_array().ok_or_else(|| format_err!("ABI parsing failed"))?;
-            for o in 0..array.len() {
-                write!(out, "\t\t\t\t")?;
-                write!(out, "{}", to_string_pretty_no_indent(&array[o])?)?;
-                if o + 1 == array.len() {
-                    writeln!(out)?;
-                } else {
-                    writeln!(out, ",")?;
-                }
-            }
+            print_array(out, array)?;
         }
         writeln!(out, "\t\t\t]")?;
 

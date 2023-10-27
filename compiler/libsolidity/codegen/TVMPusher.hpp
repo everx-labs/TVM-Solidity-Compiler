@@ -54,6 +54,30 @@ private:
 	std::set<CallableDeclaration const*> m_baseFunctions;
 };
 
+class FunctionCallGraph : private boost::noncopyable {
+public:
+	// Adds the edge and returns true if the edge doesn't create a loop
+	bool tryToAddEdge(std::string const& _v, std::string const& _to);
+	std::vector<std::string> DAG();
+	void addPrivateFunction(uint32_t id, std::string name) {
+		if (m_privcateFuncs.count(id))
+			solAssert(m_privcateFuncs.at(id) == name);
+		else
+			m_privcateFuncs.emplace(id, name);
+	}
+	std::map<uint32_t, std::string> privateFunctions() const { return m_privcateFuncs; }
+private:
+	bool dfs(std::string const& _v);
+private:
+	std::map<std::string, std::set<std::string>> m_graph;
+	enum class Color {
+		White, Red, Black
+	};
+	std::map<std::string, Color> m_color;
+	std::vector<std::string> m_order;
+	std::map<uint32_t, std::string> m_privcateFuncs;
+};
+
 class TVMCompilerContext {
 public:
 	TVMCompilerContext(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
@@ -73,15 +97,23 @@ public:
 	bool storeTimestampInC4() const;
 	int getOffsetC4() const;
 	std::vector<std::pair<VariableDeclaration const*, int>> getStaticVariables() const;
-	void setCurrentFunction(FunctionDefinition const* f) { m_currentFunction = f; }
-	FunctionDefinition const* getCurrentFunction() { return m_currentFunction; }
+	void setCurrentFunction(FunctionDefinition const* _f, std::string _name) {
+		solAssert(m_currentFunction == nullptr && !m_currentFunctionName.has_value(),  "");
+		m_currentFunction = _f;
+		m_currentFunctionName = _name;
+	}
+	FunctionDefinition const* currentFunction() { return m_currentFunction; }
+	std::string currentFunctionName() { return m_currentFunctionName.value(); }
+	void resetCurrentFunction() {
+		m_currentFunction = nullptr;
+		m_currentFunctionName.reset();
+	}
 	void addInlineFunction(const std::string& name, Pointer<CodeBlock> body);
 	Pointer<CodeBlock> getInlinedFunction(const std::string& name);
 	void addPublicFunction(uint32_t functionId, const std::string& functionName);
 	const std::vector<std::pair<uint32_t, std::string>>& getPublicFunctions();
 
-	bool addAndDoesHaveLoop(FunctionDefinition const* _v, FunctionDefinition const* _to);
-	bool dfs(FunctionDefinition const* v);
+	FunctionCallGraph& callGraph() { return m_callGraph; }
 	bool isFallBackGenerated() const { return m_isFallBackGenerated; }
 	void setIsFallBackGenerated() { m_isFallBackGenerated = true; }
 	bool isReceiveGenerated() const { return m_isReceiveGenerated; }
@@ -105,19 +137,20 @@ public:
 	bool getPragmaSaveAllFunctions() const { return m_pragmaSaveAllFunctions; }
 	void setPragmaSaveAllFunctions() { m_pragmaSaveAllFunctions = true; }
 
+	void startBlock(bool uncheckedBlock) { m_isUncheckedBlock.push(uncheckedBlock); }
+	void endBlock() { m_isUncheckedBlock.pop(); }
+
 private:
 	// TODO split to several classes
 	ContractDefinition const* m_contract{};
 	bool ignoreIntOverflow{};
+	std::stack<bool> m_isUncheckedBlock;
 	PragmaDirectiveHelper const& m_pragmaHelper;
 	std::map<VariableDeclaration const*, int> m_stateVarIndex;
 	FunctionDefinition const* m_currentFunction{};
+	std::optional<std::string> m_currentFunctionName;
 	std::map<std::string, Pointer<CodeBlock>> m_inlinedFunctions;
-	std::map<FunctionDefinition const*, std::set<FunctionDefinition const*>> graph;
-	enum class Color {
-		White, Red, Black
-	};
-	std::map<FunctionDefinition const*, Color> color;
+	FunctionCallGraph m_callGraph;
 	std::vector<std::pair<uint32_t, std::string>> m_publicFunctions;
 	bool m_isFallBackGenerated{};
 	bool m_isReceiveGenerated{};
@@ -141,7 +174,7 @@ public:
 		return ret;
 	}
 
-	void pushInlineFunction(const Pointer<CodeBlock>& block, int take, int ret);
+	void pushInlineFunction(std::string const& name, int take, int ret);
 	void pollLastRetOpcode();
 	bool tryPollEmptyPushCont();
 
@@ -170,7 +203,7 @@ private:
 	void pushCellOrSlice(const Pointer<PushCellOrSlice>& opcode);
 public:
 	void pushSlice(std::string const& data);
-	void pushPrivateFunctionId(FunctionDefinition const& funDef);
+	void pushPrivateFunctionId(FunctionDefinition const& funDef, bool isCalledByPoint);
 	void startContinuation();
 private:
 	void endCont(CodeBlock::Type type);
@@ -221,7 +254,7 @@ public:
 	void indexNoexcep(int index);
 	void setIndex(int index);
 	void setIndexQ(int index);
-	void tuple(int qty);
+	void makeTuple(int qty);
 	void resetAllStateVars();
 	void getGlob(VariableDeclaration const * vd);
 	void getGlob(int index);
@@ -252,16 +285,13 @@ public:
 
 	void store(const Type *type, bool reverse);
 	void pushZeroAddress();
-	Pointer<Function> generateC7ToT4Macro(bool forAwait);
-
-	static bigint pow10(int power);
-
-	void hardConvert(Type const *leftType, Type const *rightType);
+	Pointer<Function> generateC7ToC4(bool forAwait);
+	void convert(Type const *leftType, Type const *rightType);
 	void checkFit(Type const *type);
 	void pushParameter(std::vector<ASTPointer<VariableDeclaration>> const& params);
-	void pushMacroCallInCallRef(int take, int ret, const std::string& fname);
-	void pushCallOrCallRef(const std::string& functionName, FunctionType const* ft, const std::optional<std::pair<int, int>>& deltaStack = std::nullopt);
-	void pushMacro(int take, int ret, const std::string& functionName);
+	void pushFragmentInCallRef(int take, int ret, const std::string& fname);
+	void pushCallOrCallRef(FunctionDefinition const* _functionDef, const std::optional<std::pair<int, int>>& deltaStack, bool isCalledByPoint);
+	void pushFragment(int take, int ret, const std::string& functionName);
 	void computeConstCell(std::string const& expName);
 	void computeConstSlice(std::string const& expName);
 	void drop(int cnt = 1);
@@ -278,7 +308,7 @@ public:
 	int ext_msg_info(const std::set<int> &isParamOnStack, bool isOut);
 	void appendToBuilder(const std::string& bitString);
 	void checkOptionalValue();
-	bool doesFitInOneCellAndHaveNoStruct(Type const* key, Type const* value);
+	static bool doesFitInOneCellAndHaveNoStruct(Type const* key, Type const* value);
 	[[nodiscard]]
 	DataType prepareValueForDictOperations(Type const* keyType, Type const* valueType);
 	[[nodiscard]]
@@ -301,7 +331,6 @@ public:
 		bool saveOrigKeyAndNoTuple = false
 	);
 	static Type const* parseIndexType(Type const* type);
-	static Type const* parseValueType(IndexAccess const& indexAccess);
 
 	void setDict(
 		Type const &keyType,
@@ -374,5 +403,33 @@ private:
 	std::vector<std::vector<Pointer<TvmAstNode>>> m_instructions{};
 	TVMCompilerContext* m_ctx{};
 }; // end StackPusher
+
+class TypeConversion {
+public:
+	TypeConversion(StackPusher& _pusher) : m_pusher{_pusher} { }
+	void convert(Type const* leftType, Type const* rightType);
+private:
+	void integerToInteger(IntegerType const* leftType, IntegerType const* rightType);
+	void fixedPointToInteger(IntegerType const* leftType, FixedPointType const* rightType);
+	void fixedPointToFixedPoint(FixedPointType const* leftType, FixedPointType const* rightType);
+	void integerToFixedPoint(FixedPointType const* leftType, IntegerType const* rightType);
+	void fixedBytesToFixedBytes(FixedBytesType const* leftType, FixedBytesType const* rightType);
+	void bytesToFixedBytes(FixedBytesType const* rightType);
+	void stringLiteralToFixedBytes(FixedBytesType const* leftType, StringLiteralType const* rightType);
+	void fromFixedPoint(Type const* leftType, FixedPointType const* rightType);
+	void convertIntegerToAddress(Type const* t);
+	void convertIntegerToEnum(EnumType const* leftType, IntegerType const* rightType);
+	void fromInteger(Type const* leftType, IntegerType const* rightType);
+	void fromRational(Type const* leftType, RationalNumberType const* rightType);
+	void tupleFromTuple(TupleType const* leftType, TupleType const* rightType);
+	void fromFixedBytesType(Type const* leftType, FixedBytesType const* rightType);
+	void fromArray(Type const* leftType, ArrayType const* rightType);
+	void fromOptional(Type const* leftType, OptionalType const* rightType);
+	void fromSlice(Type const* leftType);
+	void fromTuple(Type const* leftType, TupleType const* rightType);
+	void fromStringLiteral(Type const* leftType, StringLiteralType const* rightType);
+private:
+	StackPusher& m_pusher;
+}; // end TypeConversion
 
 } // end solidity::frontend

@@ -269,9 +269,8 @@ bool StackOptimizer::visit(While &_node) {
 
 bool StackOptimizer::visit(Function &f) {
 	switch (f.type()) {
-		case Function::FunctionType::PrivateFunction:
 		case Function::FunctionType::PrivateFunctionWithObj:
-		case Function::FunctionType::Macro:
+		case Function::FunctionType::Fragment:
 		case Function::FunctionType::OnCodeUpgrade:
 		case Function::FunctionType::OnTickTock: {
 			if (f.name() != "c7_to_c4_for_await") {
@@ -287,7 +286,7 @@ bool StackOptimizer::visit(Function &f) {
 			break;
 		}
 
-		case Function::FunctionType::MacroGetter:
+		case Function::FunctionType::PublicStateVariableGetter:
 		case Function::FunctionType::MainInternal:
 		case Function::FunctionType::MainExternal:
 			break;
@@ -296,7 +295,7 @@ bool StackOptimizer::visit(Function &f) {
 }
 
 bool StackOptimizer::visit(Contract &_node) {
-	for (Pointer<Function> &f: _node.functions()) {
+	for (Pointer<Function> const& f: _node.functions()) {
 		f->accept(*this);
 	}
 	return false;

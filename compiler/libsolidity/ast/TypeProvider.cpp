@@ -721,8 +721,6 @@ Type const* TypeProvider::fromElementaryTypeName(ElementaryTypeNameToken const& 
 		return tvmslice();
 	case Token::TvmBuilder:
 		return tvmbuilder();
-	case Token::ExtraCurrencyCollection:
-		return extraCurrencyCollection();
 	case Token::Bytes:
 		return bytesStorage();
 	case Token::String:
@@ -862,7 +860,7 @@ StringLiteralType const* TypeProvider::stringLiteral(string const& literal)
 		return instance().m_stringLiteralTypes.emplace(literal, make_unique<StringLiteralType>(literal)).first->second.get();
 }
 
-VarInteger const* TypeProvider::varInteger(unsigned m, IntegerType::Modifier _modifier) {
+VarIntegerType const* TypeProvider::varInteger(unsigned m, IntegerType::Modifier _modifier) {
 	auto& map = instance().m_varInterger;
 	auto i = map.find(make_pair(m, _modifier));
 	if (i != map.end())
@@ -870,7 +868,7 @@ VarInteger const* TypeProvider::varInteger(unsigned m, IntegerType::Modifier _mo
 
 	return map.emplace(
 			make_pair(m, _modifier),
-			make_unique<VarInteger>(m, _modifier)
+			make_unique<VarIntegerType>(m, _modifier)
 	).first->second.get();
 
 }
@@ -1053,9 +1051,11 @@ MappingType const* TypeProvider::mapping(Type const* _keyType, Type const* _valu
 	return createAndGet<MappingType>(_keyType, _valueType);
 }
 
-ExtraCurrencyCollectionType const *TypeProvider::extraCurrencyCollection()
+MappingType const *TypeProvider::extraCurrencyCollection()
 {
-	return createAndGet<ExtraCurrencyCollectionType>();
+	auto keyType = TypeProvider::uint(32);
+	auto valueType = TypeProvider::varInteger(32, IntegerType::Modifier::Unsigned);
+	return createAndGet<MappingType>(keyType, valueType);
 }
 
 OptionalType const* TypeProvider::optional(Type const* _type)

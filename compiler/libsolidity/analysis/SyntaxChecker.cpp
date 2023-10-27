@@ -88,7 +88,7 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 		solAssert(m_sourceUnit, "");
 
 		if (_pragma.literals().size() >= 2) {
-			m_errorReporter.warning(228_error, _pragma.location(), "Has no effect. Delete this.");
+			m_errorReporter.warning(9089_error, _pragma.location(), "Has no effect. Delete this.");
 		}
 
 		vector<string> literals(_pragma.literals().begin() + 1, _pragma.literals().end());
@@ -154,13 +154,13 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 				to_string(recommendedVersion.patch()) +
 				string(";\"") +
 				" to set a version of the compiler.";
-		m_errorReporter.warning(228_error, _pragma.location(), errorString);
+		m_errorReporter.warning(6413_error, _pragma.location(), errorString);
 	}
 	else if (_pragma.literals()[0] == "ever" || _pragma.literals()[0] == "ton") // ever-solidity
 	{
 		if (m_versionPragma.has_value()) {
 			m_errorReporter.fatalTypeError(
-				228_error,
+				8884_error,
 				_pragma.location(),
 				SecondarySourceLocation().append("Previous definition:", *m_versionPragma.value()),
 			   "Compiler version is defined more than once.");
@@ -186,7 +186,7 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 		const std::string base = "Correct format: pragma AbiHeader [pubkey|expire|notime]";
 		if (_pragma.literals().size() != 2) {
 			auto err = "Empty pragma. " + base;
-			m_errorReporter.syntaxError(228_error, _pragma.location(), err);
+			m_errorReporter.syntaxError(1112_error, _pragma.location(), err);
 		} else {
 			auto literal = _pragma.literals()[1];
 			if (literal != "pubkey" && literal != "expire" && literal != "notime") {
@@ -195,14 +195,14 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 					err += "\nNote: timestamp in header of external message "
 							"is on by default, so delete this pragma.";
 				}
-				m_errorReporter.syntaxError(228_error, _pragma.location(), err);
+				m_errorReporter.syntaxError(2632_error, _pragma.location(), err);
 			}
 		}
 	}
 	else if (_pragma.literals()[0] == "upgrade")
     {
         if (_pragma.literals().size() != 2 || (_pragma.literals()[1] != "func" && _pragma.literals()[1] != "oldsol")) {
-            m_errorReporter.syntaxError(228_error, _pragma.location(), R"(Unknown pragma. Use: "pragma upgrade func;" or "pragma upgrade oldsol;")");
+            m_errorReporter.syntaxError(3323_error, _pragma.location(), R"(Unknown pragma. Use: "pragma upgrade func;" or "pragma upgrade oldsol;")");
         }
     }
 	else if (_pragma.literals()[0] == "ignoreIntOverflow")
@@ -212,10 +212,10 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 	else if (_pragma.literals()[0] == "msgValue")
 	{
 		if (m_msgValuePragmaFound) {
-			m_errorReporter.syntaxError(228_error, _pragma.location(), "msgValue pragma shouldn't be specified more than once.");
+			m_errorReporter.syntaxError(2995_error, _pragma.location(), "msgValue pragma shouldn't be specified more than once.");
 		}
 		if (_pragma.parameter().empty()) {
-			m_errorReporter.syntaxError(228_error, _pragma.location(), "Correct format: pragma msgValue <value_in_nanoevers>");
+			m_errorReporter.syntaxError(6562_error, _pragma.location(), "Correct format: pragma msgValue <value_in_nanoevers>");
 		}
 		m_msgValuePragmaFound = true;
 	}
@@ -223,7 +223,7 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 	{
 		if (m_FirstCopyleft) {
 			m_errorReporter.declarationError(
-				228_error,
+				1595_error,
 				_pragma.location(),
 				SecondarySourceLocation().append("The previous declaration is here:", *m_FirstCopyleft),
 				"Pragma already defined."

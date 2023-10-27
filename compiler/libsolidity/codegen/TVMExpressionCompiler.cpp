@@ -170,7 +170,7 @@ void TVMExpressionCompiler::visitHonest(TupleExpression const& _tupleExpression,
 
 	for (ASTPointer<Expression> const& expr : components | boost::adaptors::reversed) {
 		compileNewExpr(expr.get());
-		m_pusher.hardConvert(arrayBaseType, expr.get()->annotation().type);
+		m_pusher.convert(arrayBaseType, expr.get()->annotation().type);
 	}
 	// values...
 	m_pusher.pushInt(0);
@@ -215,6 +215,7 @@ bool TVMExpressionCompiler::tryPushConstant(Declaration const* declaration) {
 		return false;
 	}
 	compileNewExpr(variableDeclaration->value().get());
+	m_pusher.convert(declaration->type(), variableDeclaration->value()->annotation().type);
 	return true;
 }
 
@@ -245,7 +246,7 @@ void TVMExpressionCompiler::visit2(Identifier const &_identifier) {
 		// calling this.function() creates an internal message that should be sent to the address of current contract
 		m_pusher << "MYADDR";
 	} else if (auto funDecl = to<FunctionDefinition>(_identifier.annotation().referencedDeclaration)) {
-		m_pusher.pushPrivateFunctionId(*funDecl);
+		m_pusher.pushPrivateFunctionId(*funDecl, false);
 	} else {
 		cast_error(_identifier, "Unsupported identifier: " + name);
 	}
@@ -282,9 +283,10 @@ void TVMExpressionCompiler::compileUnaryOperation(
 		m_pusher << tvmUnaryOperation;
 	}
 
-	if (!isCheckFitUseless(resType, _node.getOperator()) && !m_pusher.ctx().ignoreIntegerOverflow()) {
+	if (!isCheckFitUseless(resType, _node.getOperator()) &&
+		!m_pusher.ctx().ignoreIntegerOverflow()
+	)
 		m_pusher.checkFit(resType);
-	}
 	collectLValue(lValueInfo, true, false);
 }
 
@@ -334,8 +336,9 @@ void TVMExpressionCompiler::visit2(UnaryOperation const &_node) {
 	} else if (op == Token::Sub) {
 		compileNewExpr(&_node.subExpression());
 		m_pusher << "NEGATE";
+		if (!m_pusher.ctx().ignoreIntegerOverflow())
+			m_pusher.checkFit(getType(&_node.subExpression()));
 	} else if (op == Token::BitNot) {
-		compileNewExpr(&_node.subExpression());
 		int numBits = 0;
 		bool isSigned {};
 		auto type = getType(&_node.subExpression());
@@ -346,11 +349,13 @@ void TVMExpressionCompiler::visit2(UnaryOperation const &_node) {
 		} else {
 			cast_error(_node, "~ operation is supported only for numbers.");
 		}
-		if (isSigned)
+		if (isSigned) {
+			compileNewExpr(&_node.subExpression());
 			m_pusher << "BITNOT";
-		else {
-			m_pusher << "PUSHPOW2DEC " + to_string(numBits);
-			m_pusher << "SUBR";
+		} else {
+			m_pusher.pushInt((bigint(1) << numBits) - 1);
+			compileNewExpr(&_node.subExpression());
+			m_pusher << "SUB";
 		}
 	} else if (op == Token::Delete) {
 		compileUnaryDelete(_node);
@@ -390,7 +395,7 @@ void TVMExpressionCompiler::compareSlices(Token op) {
 }
 
 void TVMExpressionCompiler::compareStrings(Token op) {
-	m_pusher.pushMacroCallInCallRef(2, 1, "compareLongStrings_macro");
+	m_pusher.pushFragmentInCallRef(2, 1, "compareLongStrings");
 	switch(op) {
 		case Token::GreaterThan:
 			m_pusher << "ISPOS";
@@ -443,7 +448,7 @@ void TVMExpressionCompiler::visitBinaryOperationForString(
 	if (op == Token::Add) {
 		pushLeft();
 		pushRight();
-		m_pusher.pushMacroCallInCallRef(2, 1, "concatenateStrings_macro");
+		m_pusher.pushFragmentInCallRef(2, 1, "concatenateStrings");
 	} else if (op == Token::Equal || op == Token::NotEqual) {
 		visitBinaryOperationForTvmCell(pushLeft, pushRight, op);
 	} else if (TokenTraits::isCompareOp(op)){
@@ -500,7 +505,8 @@ void TVMExpressionCompiler::visit2(BinaryOperation const &_binaryOperation) {
 	Type const *rt = getType(&rexp);
 	Type const* &commonType = _binaryOperation.annotation().commonType;
 	Type const* leftTargetType = commonType;
-	Type const* rightTargetType = TokenTraits::isShiftOp(op) ? rexp.annotation().type->mobileType() : commonType;
+	Type const* rightTargetType = TokenTraits::isShiftOp(op) || op == Token::Exp ?
+			rexp.annotation().type->mobileType() : commonType;
 
 	if (lt->category() == Type::Category::Function || rt->category() == Type::Category::Function) {
 		solUnimplemented("Unsupported binary operation");
@@ -508,12 +514,12 @@ void TVMExpressionCompiler::visit2(BinaryOperation const &_binaryOperation) {
 
 	auto acceptLeft = [&]() {
 		compileNewExpr(&lexp);
-		m_pusher.hardConvert(leftTargetType, lt);
+		m_pusher.convert(leftTargetType, lt);
 	};
 
 	auto acceptRight = [&]() {
 		compileNewExpr(&rexp);
-		m_pusher.hardConvert(rightTargetType, rt);
+		m_pusher.convert(rightTargetType, rt);
 	};
 
 	if (isString(commonType)) {
@@ -593,7 +599,7 @@ void TVMExpressionCompiler::visitMathBinaryOperation(
 			m_pusher.dup2();
 			m_pusher << "OR";
 			m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::Exponent00));
-			m_pusher.pushMacroCallInCallRef(2, 1, "__exp_macro");
+			m_pusher.pushFragmentInCallRef(2, 1, "__exp");
 		}
 		checkOverflow = true;
 	} else {
@@ -606,7 +612,7 @@ void TVMExpressionCompiler::visitMathBinaryOperation(
 		} else if (op == Token::Mul) {
 			if (commonType->category() == Type::Category::FixedPoint) {
 				int power = to<FixedPointType>(commonType)->fractionalDigits();
-				m_pusher.pushInt(StackPusher::pow10(power));
+				m_pusher.pushInt(MathConsts::power10().at(power));
 				m_pusher << "MULDIV";
 			} else {
 				m_pusher << "MUL";
@@ -620,7 +626,7 @@ void TVMExpressionCompiler::visitMathBinaryOperation(
 		else if (op == Token::Div) {
 			if (commonType->category() == Type::Category::FixedPoint) {
 				int power = to<FixedPointType>(commonType)->fractionalDigits();
-				m_pusher.pushInt(StackPusher::pow10(power)); // res 10^n
+				m_pusher.pushInt(MathConsts::power10().at(power)); // res 10^n
 				m_pusher.exchange(1);
 				m_pusher << "MULDIV";
 			} else {
@@ -646,11 +652,11 @@ void TVMExpressionCompiler::visitMathBinaryOperation(
 		}
 	}
 
-	if (checkOverflow && !m_pusher.ctx().ignoreIntegerOverflow()) {
-		if (!isCheckFitUseless(commonType, op)) {
-			m_pusher.checkFit(commonType);
-		}
-	}
+	if (checkOverflow &&
+		!isCheckFitUseless(commonType, op) &&
+		!m_pusher.ctx().ignoreIntegerOverflow()
+	)
+		m_pusher.checkFit(commonType);
 }
 
 void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
@@ -680,9 +686,9 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 			"PICK",
 		}, 0, 1, true));
 	} else if (_node.memberName() == "forwardFee") { // msg.forwardFee
-		m_pusher.pushMacro(0, 1, "__forwardFee_macro");
+		m_pusher.pushFragment(0, 1, "__forwardFee");
 	} else if (_node.memberName() == "importFee") { // msg.importFee
-		m_pusher.pushMacro(0, 1, "__importFee_macro");
+		m_pusher.pushFragment(0, 1, "__importFee");
 	} else  if (isIn(_node.memberName(), "isInternal", "isExternal", "isTickTock")) {
 		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
 			"DEPTH",
@@ -840,8 +846,8 @@ void TVMExpressionCompiler::visitMagic(MemberAccess const &_memberAccess) {
 			const Type *argType = arg->typeArgument();
 			if (auto const* integerType = dynamic_cast<IntegerType const*>(argType))
 				opcode += toString(member == "min" ? integerType->minValue() : integerType->maxValue());
-			else if (auto const* varInt = dynamic_cast<VarInteger const*>(argType))
-				opcode += toString(member == "min" ? varInt->minValue() : varInt->maxValue());
+			else if (auto const* varInt = dynamic_cast<VarIntegerType const*>(argType))
+				opcode += toString(member == "min" ? varInt->asIntegerType().minValue() : varInt->asIntegerType().maxValue());
 			else if (auto const* enumType = dynamic_cast<EnumType const*>(argType))
 				opcode += toString(member == "min" ? enumType->minValue() : enumType->maxValue());
 			else
@@ -897,7 +903,7 @@ void TVMExpressionCompiler::visit2(MemberAccess const &_node) {
 			auto funType = to<FunctionType>(_node.annotation().type);
 			if (funType) {
 				auto funDef = to<FunctionDefinition>(&funType->declaration());
-				m_pusher.pushPrivateFunctionId(*funDef);
+				m_pusher.pushPrivateFunctionId(*funDef, false);
 				return ;
 			}
 		}
@@ -974,7 +980,7 @@ void TVMExpressionCompiler::visitMemberAccessFixedBytes(MemberAccess const &_nod
 void TVMExpressionCompiler::indexTypeCheck(IndexAccess const &_node) {
 	Type const* baseExprType = _node.baseExpression().annotation().type;
 	Type::Category baseExprCategory = _node.baseExpression().annotation().type->category();
-	if (!isIn(baseExprCategory, Type::Category::Mapping, Type::Category::ExtraCurrencyCollection, Type::Category::TvmVector) && !isUsualArray(baseExprType)) {
+	if (!isIn(baseExprCategory, Type::Category::Mapping, Type::Category::TvmVector) && !isUsualArray(baseExprType)) {
 		cast_error(_node, "Index access is supported only for dynamic arrays, tuples and mappings");
 	}
 }
@@ -999,7 +1005,7 @@ void TVMExpressionCompiler::visit2(IndexRangeAccess const &indexRangeAccess) {
 				m_pusher << "TRUE";
 			}
 
-			m_pusher.pushMacroCallInCallRef(4, 1, "bytes_substr_macro");
+			m_pusher.pushFragmentInCallRef(4, 1, "bytes_substr");
 			return;
 		}
 	}
@@ -1072,9 +1078,8 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 	}
 
 	m_pusher.getDict(*StackPusher::parseIndexType(baseType),
-					 *StackPusher::parseValueType(indexAccess),
-					 baseType->category() == Type::Category::Mapping ||
-					 baseType->category() == Type::Category::ExtraCurrencyCollection ?
+					 *indexAccess.annotation().type,
+					 baseType->category() == Type::Category::Mapping ?
 					 GetDictOperation::GetFromMapping :
 					 GetDictOperation::GetFromArray);
 }
@@ -1164,7 +1169,7 @@ TVMExpressionCompiler::expandLValue(
 				m_pusher.getGlob(vd);
 			}
 		} else if (auto index = to<IndexAccess>(lValueInfo.expressions[i])) {
-			if (isIn(index->baseExpression().annotation().type->category(), Type::Category::Mapping, Type::Category::ExtraCurrencyCollection)) {
+			if (index->baseExpression().annotation().type->category() == Type::Category::Mapping) {
 				// dict1
 				pushIndexAndConvert(*index); // dict1 index
 				m_pusher.prepareKeyForDictOperations(index->indexExpression()->annotation().type, false);
@@ -1176,7 +1181,7 @@ TVMExpressionCompiler::expandLValue(
 				// index dict1 index dict1
 
 				m_pusher.getDict(*StackPusher::parseIndexType(index->baseExpression().annotation().type),
-								 *StackPusher::parseValueType(*index),
+								 *index->annotation().type,
 								 GetDictOperation::GetFromMapping);
 				// index dict1 dict2
 			} else if (index->baseExpression().annotation().type->category() == Type::Category::Array) {
@@ -1245,15 +1250,14 @@ TVMExpressionCompiler::collectLValue(
 				m_pusher.setGlob(vd);
 			}
 		} else if (auto indexAccess = to<IndexAccess>(lValueInfo.expressions[i])) {
-			if (isIn(indexAccess->baseExpression().annotation().type->category(), Type::Category::Mapping, Type::Category::ExtraCurrencyCollection)) {
-				//					pushLog("colMapIndex");
+			if (indexAccess->baseExpression().annotation().type->category() == Type::Category::Mapping) {
 				if (isLast && !haveValueOnStackTop) {
 					// index dict
 					m_pusher.dropUnder(1, 1); // dict
 				} else {
 					// index dict value
 					Type const* keyType = StackPusher::parseIndexType(indexAccess->baseExpression().annotation().type);
-					Type const* valueDictType = StackPusher::parseValueType(*indexAccess);
+					Type const* valueDictType = indexAccess->annotation().type;
 					const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueDictType);
 					m_pusher.rotRev(); // value index dict
 					m_pusher.setDict(*keyType, *valueDictType, dataType); // dict'
@@ -1300,7 +1304,7 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 	if (op == Token::Assign) {
 		auto push_rhs = [&] () {
 			compileNewExpr(&rhs);
-			m_pusher.hardConvert(getType(&lhs), getType(&rhs));
+			m_pusher.convert(getType(&lhs), getType(&rhs));
 			return false;
 		};
 		const int saveStackSize0 = m_pusher.stackSize();
@@ -1317,15 +1321,15 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 	} else {
 		Type const*& commonType = lhs.annotation().type;
 		compileNewExpr(&rhs); // r
-		m_pusher.hardConvert(commonType, rhs.annotation().type);
+		m_pusher.convert(commonType, rhs.annotation().type);
 		const int saveStackSize = m_pusher.stackSize();
 		const LValueInfo lValueInfo = expandLValue(&lhs, true); // r expanded... l
-		m_pusher.hardConvert(commonType, lhs.annotation().type);
+		m_pusher.convert(commonType, lhs.annotation().type);
 		const int expandedLValueSize = m_pusher.stackSize() - saveStackSize - 1;
 		m_pusher.blockSwap(1, expandedLValueSize + 1); // expanded... l r
 
 		if (isString(commonType)) {
-			m_pusher.pushMacroCallInCallRef(2, 1, "concatenateStrings_macro");
+			m_pusher.pushFragmentInCallRef(2, 1, "concatenateStrings");
 		} else {
 			visitMathBinaryOperation(binOp, commonType, nullptr, nullopt);
 		}
@@ -1359,10 +1363,10 @@ bool TVMExpressionCompiler::tryAssignTuple(Assignment const &_assignment) {
 			m_pusher.drop();
 		} else {
 			if (auto rightType = to<TupleType>(rhs.annotation().type)) {
-				m_pusher.hardConvert(leftComp->annotation().type, rightType->components().at(i));
+				m_pusher.convert(leftComp->annotation().type, rightType->components().at(i));
 			} else {
 				solAssert(lhs->components().size() == 1, "");
-				m_pusher.hardConvert(leftComp->annotation().type, rhs.annotation().type);
+				m_pusher.convert(leftComp->annotation().type, rhs.annotation().type);
 			}
 			const int stackSizeForValue = m_pusher.stackSize();
 			const LValueInfo lValueInfo = expandLValue(leftComp.get(), false);
@@ -1407,7 +1411,7 @@ void TVMExpressionCompiler::pushIndexAndConvert(IndexAccess const& indexAccess) 
 	compileNewExpr(arg); // index
 	const auto&[keyT, valT] = dictKeyValue(indexAccess.baseExpression().annotation().type);
 	boost::ignore_unused(valT);
-	m_pusher.hardConvert(keyT, arg->annotation().type);
+	m_pusher.convert(keyT, arg->annotation().type);
 }
 
 

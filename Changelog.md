@@ -1,3 +1,28 @@
+### 0.72.0 (2023-??-??)
+
+Use [sold](https://github.com/tonlabs/TON-Solidity-Compiler/tree/master/sold) to compile contracts. If you used `solc`+`tvm_linker`, then use `solc`+[asm](https://github.com/tonlabs/ever-assembler). Generated `*.code` files have some another format.
+
+Breaking changes:
+ * The conversion for integer type is only allowed when there is at most one change in sign, width or type-category (`int`, `address`, `bytesNN`, etc.). To perform multiple changes, use multiple conversions. See [Solidity v0.8.0 Breaking Changes](https://docs.soliditylang.org/en/v0.8.17/080-breaking-changes.html#new-restrictions). For example, to convert `int8 x;` to `uint` you can use at least two ways: 1) `uint(uint8(x))`, 2) `uint(int(x))`. 
+ * Deleted `ExtraCurrencyCollection` type. Use `mapping(uint32 => varUint32)` instead of it.
+
+Bugfixes:
+ * Fixed bug when recursive calling of library function via object corrupted the stack.
+ * Fixed minor bug that caused compilation failure.
+ * Fixed bug when you use string literals for `bytesN constant`.
+
+Compiler features:
+ * Supported [unchecked blocks](API.md#unchecked-block).
+ * Supported defining events in libraries.
+ * Supported [require(bool condition, string text)](API.md#require).
+ * Supported functions for working with exotic cells:
+   * [\<TvmCell\>.exoticToSlice()](API.md#tvmcellexotictoslice)
+   * [\<TvmCell\>.loadExoticCell() and \<TvmCell\>.loadExoticCellQ()](API.md#tvmcellloadexoticcell-and-tvmcellloadexoticcellq)
+   * [\<TvmBuilder\>.toExoticCell()](API.md#tvmbuildertoexoticcell)
+ * Supported command line option `--overwrite` that is used together with `--ast-compact-json -o` options.
+ * Warning about storing too big structs via `<TvmBuilder>.store()`.
+ * Change function signature `<TvmSlice>.skip(uint10 bits, uint2 refs)` -> `<TvmSlice>.skip(uint10 bits, uint3 refs)` to allow to skip 4 references.
+
 ### 0.71.0 (2023-07-20)
 
 Bugfixes:

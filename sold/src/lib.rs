@@ -8,10 +8,8 @@ use clap::{ValueEnum, Parser};
 use failure::{bail, format_err};
 use serde::Deserialize;
 
-use ton_block::Serializable;
-use ton_types::{Result, SliceData, Status};
-use ton_utils::parser::{ParseEngine, ParseEngineInput};
-use ton_utils::program::Program;
+use ton_types::{Result, Status};
+use ton_labs_assembler::{DbgInfo, Engine, Units};
 
 mod libsolc;
 mod printer;
@@ -205,7 +203,7 @@ fn parse_comp_result(
             let message = if atty::is(atty::Stream::Stderr) && !cfg!(target_family = "windows") {
                 message.to_string()
             } else {
-                let bytes = strip_ansi_escapes::strip(message)?;
+                let bytes = strip_ansi_escapes::strip(message);
                 String::from_utf8(bytes)?
             };
             eprint!("{}", message);
@@ -261,7 +259,7 @@ fn parse_comp_result(
     }
 }
 
-static STDLIB: &[u8] = include_bytes!("../../lib/stdlib_sol.tvm");
+static STDLIB: &'static str = include_str!("../../lib/stdlib_sol.tvm");
 
 fn parse_positional_args(args: Vec<String>) -> Result<(String, Vec<String>)> {
     let mut input = None;
@@ -380,15 +378,23 @@ pub fn build(args: Args) -> Status {
 
     let mut inputs = Vec::new();
     if let Some(lib) = args.lib {
-        let lib_file = File::open(&lib)?;
-        inputs.push(ParseEngineInput { buf: Box::new(lib_file), name: lib });
+        let input = std::fs::read_to_string(lib.clone())?;
+        inputs.push((input, lib));
     } else {
-        inputs.push(ParseEngineInput { buf: Box::new(STDLIB), name: String::from("stdlib_sol.tvm") });
+        inputs.push((STDLIB.to_string(), String::from("stdlib_sol.tvm")));
     }
-    inputs.push(ParseEngineInput { buf: Box::new(assembly.as_bytes()), name: format!("{}/{}", output_dir, assembly_file_name) });
+    inputs.push((assembly, format!("{}/{}", output_dir, assembly_file_name)));
 
-    let mut prog = Program::new(ParseEngine::new_generic(inputs, Some(format!("{}", abi)))?)?;
-
+    let mut engine = Engine::new("");
+    let mut units = Units::new();
+    for (input, filename) in inputs {
+        engine.reset(filename);
+        units = engine.compile_toplevel(&input)
+            .map_err(|e| format_err!("{}", e))?;
+    }
+    let (b, d) = units.finalize();
+    let output = b.into_cell()?;
+    let dbgmap = DbgInfo::from(output.clone(), d);
 
     let output_filename = if output_dir == "." {
         output_tvc
@@ -396,35 +402,13 @@ pub fn build(args: Args) -> Status {
         format!("{}/{}", output_dir, output_tvc)
     };
 
-    prog.set_silent(args.silent);
-    prog.set_print_code(args.print_code);
+    let bytes = ton_types::write_boc(&output)?;
+    let mut file = File::create(output_filename)?;
+    file.write_all(&bytes)?;
 
-    prog.compile_to_file_ex(
-        -1,
-        Some(&output_filename),
-        None,
-    )?;
-    if !args.print_code {
-        let mut dbg_file = File::create(format!("{}/{}.debug.json", output_dir, output_prefix))?;
-        serde_json::to_writer_pretty(&mut dbg_file, &prog.dbgmap)?;
-        writeln!(dbg_file)?;
-    }
-
-    if let Some(params_data) = args.init {
-        let mut state = ton_utils::program::load_from_file(&output_filename)?;
-        let new_data = ton_abi::json_abi::update_contract_data(
-            &serde_json::to_string(abi)?,
-            &params_data,
-            SliceData::load_cell(state.data.clone().unwrap_or_default())?,
-        )?;
-        state.set_data(new_data.into_cell());
-
-        let root_cell = state.write_to_new_cell()?.into_cell()?;
-        let buffer = ton_types::write_boc(&root_cell)?;
-
-        let mut file = File::create(&output_filename)?;
-        file.write_all(&buffer)?;
-    }
+    let mut dbg_file = File::create(format!("{}/{}.debug.json", output_dir, output_prefix))?;
+    serde_json::to_writer_pretty(&mut dbg_file, &dbgmap)?;
+    writeln!(dbg_file)?;
 
     Ok(())
 }
@@ -491,9 +475,6 @@ pub struct Args {
     pub tvm_version: Option<TvmVersion>,
 
     //Output Components:
-    /// Print the code cell to stdout
-    #[clap(long("print-code"), value_parser)]
-    pub print_code: bool,
     /// ABI specification of the contracts
     #[clap(long, value_parser)]
     pub abi_json: bool,
@@ -512,12 +493,4 @@ pub struct Args {
     /// Natspec developer documentation of all contracts.
     #[clap(long, value_parser)]
     pub devdoc: bool,
-
-    // TODO ?
-    /// Set newly generated keypair
-    #[clap(long, value_parser, value_names = &["FILENAME"])]
-    pub init: Option<String>,
-    /// Mute all notifications
-    #[clap(long, value_parser)]
-    pub silent: bool,
 }
