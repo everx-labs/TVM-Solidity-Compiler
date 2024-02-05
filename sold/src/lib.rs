@@ -1,15 +1,18 @@
 use std::fmt;
 use std::fs::File;
 use std::io::Write;
-use std::os::raw::{c_char, c_void};
+use std::os::raw::c_char;
+use std::os::raw::c_void;
 use std::path::Path;
 
-use clap::{ValueEnum, Parser};
-use failure::{bail, format_err};
+use clap::Parser;
+use clap::ValueEnum;
 use serde::Deserialize;
-
-use ton_types::{Result, Status};
-use ton_labs_assembler::{DbgInfo, Engine, Units};
+use tvm_assembler::DbgInfo;
+use tvm_assembler::Engine;
+use tvm_assembler::Units;
+use tvm_types::Result;
+use tvm_types::Status;
 
 mod libsolc;
 mod printer;
@@ -21,12 +24,10 @@ unsafe extern "C" fn read_callback(
     o_contents: *mut *mut c_char,
     o_error: *mut *mut c_char,
 ) {
-    let kind = std::ffi::CStr::from_ptr(kind)
-        .to_string_lossy()
-        .into_owned();
+    let kind = std::ffi::CStr::from_ptr(kind).to_string_lossy().into_owned();
     if kind != "source" {
         *o_error = make_error(format!("Unknown kind \"{}\"", kind));
-        return
+        return;
     }
     let mut success = 0i32;
     let contents_ptr = libsolc::file_reader_read(context, data, &mut success);
@@ -44,18 +45,18 @@ unsafe fn make_error(msg: String) -> *mut c_char {
 }
 
 pub fn solidity_version() -> String {
-    unsafe {
-        std::ffi::CStr::from_ptr(libsolc::solidity_version())
-            .to_string_lossy()
-            .into_owned()
-    }
+    unsafe { std::ffi::CStr::from_ptr(libsolc::solidity_version()).to_string_lossy().into_owned() }
 }
 
 fn to_cstr(s: &str) -> Result<std::ffi::CString> {
-    std::ffi::CString::new(s).map_err(|e| format_err!("Failed to convert: {}", e))
+    std::ffi::CString::new(s).map_err(|e| anyhow::anyhow!("Failed to convert: {}", e))
 }
 
-fn compile(args: &Args, input: &str, remappings: Vec<String>) -> Result<(String, serde_json::Value)> {
+fn compile(
+    args: &Args,
+    input: &str,
+    remappings: Vec<String>,
+) -> Result<(String, serde_json::Value)> {
     let file_reader = unsafe {
         let file_reader = libsolc::file_reader_new();
         if let Some(base_path) = args.base_path.clone() {
@@ -71,10 +72,11 @@ fn compile(args: &Args, input: &str, remappings: Vec<String>) -> Result<(String,
         libsolc::file_reader_add_or_update_file(
             file_reader,
             to_cstr(input)?.as_ptr(),
-            to_cstr(&input_content)?.as_ptr()
+            to_cstr(&input_content)?.as_ptr(),
         );
         if let Some(path) = dunce::canonicalize(Path::new(&input))?.parent() {
-            let path = path.to_str().ok_or_else(|| format_err!("Failed to convert path to string"))?;
+            let path =
+                path.to_str().ok_or_else(|| anyhow::anyhow!("Failed to convert path to string"))?;
             libsolc::file_reader_allow_directory(file_reader, to_cstr(path)?.as_ptr());
         }
         file_reader
@@ -82,41 +84,31 @@ fn compile(args: &Args, input: &str, remappings: Vec<String>) -> Result<(String,
     let source_unit_name = {
         let name = unsafe {
             std::ffi::CStr::from_ptr(libsolc::file_reader_source_unit_name(
-                file_reader, to_cstr(input)?.as_ptr()))
+                file_reader,
+                to_cstr(input)?.as_ptr(),
+            ))
         };
         &name.to_string_lossy().into_owned()
     };
-    let show_function_ids = if args.function_ids {
-        ", \"showFunctionIds\""
-    } else {
-        ""
-    };
-    let show_private_function_ids = if args.private_function_ids {
-        ", \"showPrivateFunctionIds\""
-    } else {
-        ""
-    };
+    let show_function_ids = if args.function_ids { ", \"showFunctionIds\"" } else { "" };
+    let show_private_function_ids =
+        if args.private_function_ids { ", \"showPrivateFunctionIds\"" } else { "" };
     let assembly = if args.abi_json || args.ast_compact_json || args.userdoc || args.devdoc {
         ""
     } else {
         ", \"assembly\""
     };
-    let doc = if args.userdoc || args.devdoc {
-        ", \"userdoc\", \"devdoc\""
-    } else {
-        ""
-    };
+    let doc = if args.userdoc || args.devdoc { ", \"userdoc\", \"devdoc\"" } else { "" };
     let tvm_version = match args.tvm_version {
-        None => {
-            "".to_string()
-        }
+        None => "".to_string(),
         Some(version) => {
             format!(r#""tvmVersion": "{}","#, version)
         }
     };
     let main_contract = args.contract.clone().unwrap_or_default();
     let remappings = remappings_to_json_string(remappings);
-    let input_json = format!(r#"
+    let input_json = format!(
+        r#"
         {{
             "language": "Solidity",
             "settings": {{
@@ -136,7 +128,8 @@ fn compile(args: &Args, input: &str, remappings: Vec<String>) -> Result<(String,
                 }}
             }}
         }}
-    "#);
+    "#
+    );
     let output = unsafe {
         std::ffi::CStr::from_ptr(libsolc::solidity_compile(
             to_cstr(&input_json)?.as_ptr(),
@@ -167,7 +160,7 @@ fn remappings_to_json_string(remappings: Vec<String>) -> String {
 
 macro_rules! parse_error {
     () => {
-        format_err!("Failed to parse compilation result")
+        anyhow::anyhow!("Failed to parse compilation result")
     };
 }
 
@@ -183,20 +176,20 @@ fn parse_comp_result(
     // println!("{}", serde_json::to_string_pretty(&res)?);
 
     if let Some(v) = res.get("errors") {
-        let entries = v.as_array()
-            .ok_or_else(|| parse_error!())?;
+        let entries = v.as_array().ok_or_else(|| parse_error!())?;
         let mut severe = false;
         for entry in entries {
-            let entry = entry.as_object()
-                .ok_or_else(|| parse_error!())?;
-            let severity = entry.get("severity")
+            let entry = entry.as_object().ok_or_else(|| parse_error!())?;
+            let severity = entry
+                .get("severity")
                 .ok_or_else(|| parse_error!())?
                 .as_str()
                 .ok_or_else(|| parse_error!())?;
             if severity == "error" {
                 severe = true;
             }
-            let message = entry.get("humanFormattedMessage")
+            let message = entry
+                .get("humanFormattedMessage")
                 .ok_or_else(|| parse_error!())?
                 .as_str()
                 .ok_or_else(|| parse_error!())?;
@@ -209,7 +202,7 @@ fn parse_comp_result(
             eprint!("{}", message);
         }
         if severe {
-            bail!("Compilation failed")
+            anyhow::bail!("Compilation failed")
         }
     }
 
@@ -225,36 +218,37 @@ fn parse_comp_result(
 
     if let Some(ref contract) = contract {
         if !all.contains_key(contract) {
-            Err(format_err!("Source file doesn't contain the desired contract \"{}\"", contract))
+            Err(anyhow::anyhow!(
+                "Source file doesn't contain the desired contract \"{}\"",
+                contract
+            ))
         } else {
             Ok(all.get(contract).unwrap().clone())
         }
     } else {
-        let mut iter =
-            all.iter().filter(|(_, v)| {
-                if !compile {
-                    true
-                } else if let Some(v) = v.as_object() {
-                    let assembly = v.get("assembly");
-                    if let Some(assembly) = assembly {
-                        !assembly.is_null()
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            });
+        let mut iter = all.iter().filter(|(_, v)| {
+            if !compile {
+                true
+            } else if let Some(v) = v.as_object() {
+                let assembly = v.get("assembly");
+                if let Some(assembly) = assembly { !assembly.is_null() } else { false }
+            } else {
+                false
+            }
+        });
         let qualification = if compile { "deployable " } else { "" };
         let entry = iter.next();
         if let Some(entry) = entry {
             if iter.next().is_some() {
-                Err(format_err!("Source file contains at least two {}contracts. Consider adding the option --contract in compiler command line to select the desired contract", qualification))
+                Err(anyhow::anyhow!(
+                    "Source file contains at least two {}contracts. Consider adding the option --contract in compiler command line to select the desired contract",
+                    qualification
+                ))
             } else {
                 Ok(entry.1.clone())
             }
         } else {
-            Err(format_err!("{}", ERROR_MSG_NO_OUTPUT))
+            Err(anyhow::anyhow!("{}", ERROR_MSG_NO_OUTPUT))
         }
     }
 }
@@ -263,13 +257,13 @@ static STDLIB: &'static str = include_str!("../../lib/stdlib_sol.tvm");
 
 fn parse_positional_args(args: Vec<String>) -> Result<(String, Vec<String>)> {
     let mut input = None;
-    let mut remappings = vec!();
+    let mut remappings = vec![];
     for arg in args {
         if arg.contains('=') {
             remappings.push(arg);
         } else {
             if input.is_some() {
-                bail!("Two or more inputs are given")
+                anyhow::bail!("Two or more inputs are given")
             }
             input = Some(arg)
         }
@@ -277,23 +271,26 @@ fn parse_positional_args(args: Vec<String>) -> Result<(String, Vec<String>)> {
     if let Some(input) = input {
         Ok((input, remappings))
     } else {
-        bail!("No input files are given")
+        anyhow::bail!("No input files are given")
     }
 }
 
 pub fn build(args: Args) -> Status {
     if !args.include_path.is_empty() && args.base_path.is_none() {
-        bail!("--include-path option requires a non-empty base path")
+        anyhow::bail!("--include-path option requires a non-empty base path")
     }
     let output_dir = args.output_dir.clone().unwrap_or_else(|| String::from("."));
     let output_path = Path::new(&output_dir);
     if !output_path.exists() {
-        bail!("Output directory doesn't exist")
+        anyhow::bail!("Output directory doesn't exist")
     }
 
     if let Some(ref output_prefix) = args.output_prefix {
         if output_prefix.contains(std::path::is_separator) {
-            bail!("Invalid output prefix \"{}\". Use option -O to set output directory", output_prefix);
+            anyhow::bail!(
+                "Invalid output prefix \"{}\". Use option -O to set output directory",
+                output_prefix
+            );
         }
     }
 
@@ -305,23 +302,24 @@ pub fn build(args: Args) -> Status {
         &res.1,
         &res.0,
         args.contract,
-        !(args.abi_json || args.ast_compact_json || args.userdoc || args.devdoc )
+        !(args.abi_json || args.ast_compact_json || args.userdoc || args.devdoc),
     )?;
 
     if args.function_ids {
         println!("{}", serde_json::to_string_pretty(&out["functionIds"])?);
-        return Ok(())
+        return Ok(());
     }
 
     if args.private_function_ids {
         println!("{}", serde_json::to_string_pretty(&out["privateFunctionIds"])?);
-        return Ok(())
+        return Ok(());
     }
 
-    let input_file_stem = input_canonical.file_stem()
-        .ok_or_else(|| format_err!("Failed to extract file stem"))?
+    let input_file_stem = input_canonical
+        .file_stem()
+        .ok_or_else(|| anyhow::anyhow!("Failed to extract file stem"))?
         .to_str()
-        .ok_or_else(|| format_err!("Failed to get file stem"))?
+        .ok_or_else(|| anyhow::anyhow!("Failed to get file stem"))?
         .to_string();
     let output_prefix = args.output_prefix.unwrap_or(input_file_stem);
     let output_tvc = format!("{}.tvc", output_prefix);
@@ -335,18 +333,20 @@ pub fn build(args: Args) -> Status {
             println!("User Documentation");
             println!("{}", serde_json::to_string_pretty(&out["userdoc"])?);
         }
-        return Ok(())
+        return Ok(());
     }
 
     if args.ast_compact_json {
-        let all = res.1.as_object()
+        let all = res
+            .1
+            .as_object()
             .ok_or_else(|| parse_error!())?
             .get("sources")
             .ok_or_else(|| parse_error!())?
             .as_object()
             .ok_or_else(|| parse_error!())?;
 
-        let mut array = vec!();
+        let mut array = vec![];
         for (_, val) in all {
             let ast = val
                 .as_object()
@@ -357,7 +357,7 @@ pub fn build(args: Args) -> Status {
         }
         assert_eq!(array.len(), 1);
         println!("{}", serde_json::to_string(&array[0])?);
-        return Ok(())
+        return Ok(());
     }
 
     let abi = &out["abi"];
@@ -365,13 +365,10 @@ pub fn build(args: Args) -> Status {
     let mut abi_file = File::create(output_path.join(&abi_file_name))?;
     printer::print_abi_json_canonically(&mut abi_file, abi)?;
     if args.abi_json {
-        return Ok(())
+        return Ok(());
     }
 
-    let assembly = out["assembly"]
-        .as_str()
-        .ok_or_else(|| parse_error!())?
-        .to_owned();
+    let assembly = out["assembly"].as_str().ok_or_else(|| parse_error!())?.to_owned();
     let assembly_file_name = format!("{}.code", output_prefix);
     let mut assembly_file = File::create(output_path.join(&assembly_file_name))?;
     assembly_file.write_all(assembly.as_bytes())?;
@@ -389,20 +386,16 @@ pub fn build(args: Args) -> Status {
     let mut units = Units::new();
     for (input, filename) in inputs {
         engine.reset(filename);
-        units = engine.compile_toplevel(&input)
-            .map_err(|e| format_err!("{}", e))?;
+        units = engine.compile_toplevel(&input).map_err(|e| anyhow::anyhow!("{}", e))?;
     }
     let (b, d) = units.finalize();
     let output = b.into_cell()?;
     let dbgmap = DbgInfo::from(output.clone(), d);
 
-    let output_filename = if output_dir == "." {
-        output_tvc
-    } else {
-        format!("{}/{}", output_dir, output_tvc)
-    };
+    let output_filename =
+        if output_dir == "." { output_tvc } else { format!("{}/{}", output_dir, output_tvc) };
 
-    let bytes = ton_types::write_boc(&output)?;
+    let bytes = tvm_types::write_boc(&output)?;
     let mut file = File::create(output_filename)?;
     file.write_all(&bytes)?;
 
@@ -446,17 +439,19 @@ pub struct Args {
     /// Contract to build if sources define more than one contract
     #[clap(short, long, value_parser, value_names = &["NAME"])]
     pub contract: Option<String>,
-    /// Use the given path as the root of the source tree instead of the root of the filesystem
+    /// Use the given path as the root of the source tree instead of the root of
+    /// the filesystem
     #[clap(long, value_parser, value_names = &["PATH"])]
     pub base_path: Option<String>,
-    /// Make an additional source directory available to the default import callback.
-    /// Use this option if you want to import contracts whose location is not fixed in relation
-    /// to your main source tree, e.g. third-party libraries installed using a package manager.
-    /// Can be used multiple times.
-    /// Can only be used if base path has a non-empty value.
+    /// Make an additional source directory available to the default import
+    /// callback. Use this option if you want to import contracts whose
+    /// location is not fixed in relation to your main source tree, e.g.
+    /// third-party libraries installed using a package manager. Can be used
+    /// multiple times. Can only be used if base path has a non-empty value.
     #[clap(short('i'), long, value_parser, value_names = &["PATH"])]
     pub include_path: Vec<String>,
-    /// Allow a given path for imports. A list of paths can be supplied by separating them with a comma
+    /// Allow a given path for imports. A list of paths can be supplied by
+    /// separating them with a comma
     #[clap(long, value_parser, value_names = &["PATH"])]
     pub allowed_path: Vec<String>,
     /// Library to use instead of default
@@ -474,7 +469,7 @@ pub struct Args {
     #[clap(long, value_enum)]
     pub tvm_version: Option<TvmVersion>,
 
-    //Output Components:
+    // Output Components:
     /// ABI specification of the contracts
     #[clap(long, value_parser)]
     pub abi_json: bool,
