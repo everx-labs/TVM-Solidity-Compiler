@@ -1,0 +1,26 @@
+# I can't rely on contributors using .editorconfig
+newline_style = "Unix"
+# require the shorthand instead of it being optional
+use_field_init_shorthand = true
+# outdated default — `?` was unstable at the time
+# additionally the `try!` macro is deprecated now
+use_try_shorthand = true
+# Max to use the 100 char width for everything or Default. See https://rust-lang.github.io/rustfmt/?version=v1.4.38&search=#use_small_heuristics
+use_small_heuristics = "Max"
+
+
+version = "Two"
+unstable_features = true
+
+# better grepping
+imports_granularity = "Item"
+group_imports = "StdExternalCrate"
+
+normalize_comments = true
+reorder_impl_items = true
+reorder_modules = true
+wrap_comments = true
+
+format_code_in_doc_comments = true
+format_macro_bodies = true
+format_macro_matchers = true

@@ -1,4 +1,3 @@
 [workspace]
-members = [
-    'sold'
-]
+resolver = "2"
+members = ["sold"]
