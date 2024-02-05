@@ -437,7 +437,7 @@ This function is a wrapper for the `CDATASIZEQ` opcode ([TVM][1] - A.11.7).
 <TvmCell>.toSlice() returns (TvmSlice);
 ```
 
-Converts a `TvmCell` to `TvmSlice`. 
+Converts a `TvmCell` to `TvmSlice`.
 
 If the cell is exotic, then the cell is automatically loaded and converted to `TvmSlice`. For example:
 
@@ -465,7 +465,7 @@ If you want load the cell as is, then see [\<TvmCell\>.exoticToSlice()](#tvmcell
 Converts an ordinary or exotic cell into a `TvmSlice`, as if it were an ordinary cell. A flag is returned indicating whether
 `TvmCell` is exotic. If that be the case, its type can later be deserialized from the first eight bits of `TvmSlice`.
 
-Example: 
+Example:
 
 ```TVMSolidity
 TvmCell cellProof = ...;
@@ -642,7 +642,7 @@ All `load*` functions below modify the `TvmSlice` object. If you wants to load s
 
 Sequentially loads values of the specified types from the `TvmSlice`.
 Supported types: `uintN`, `intN`, `bytesN`, `bool`, `ufixedMxN`, `fixedMxN`, `address`, `contract`,
-`TvmCell`, `bytes`, `string`, `mapping`, `array`, `optional` and 
+`TvmCell`, `bytes`, `string`, `mapping`, `array`, `optional` and
 `struct`.  Example:
 
 ```TVMSolidity
@@ -660,7 +660,7 @@ See also: [\<TvmBuilder\>.store()](#tvmbuilderstore).
 <TvmSlice>.loadQ(TypeA, TypeB, ...) returns (optional(TypeA, TypeB, ...));
 ```
 
-Sequentially decodes values of the specified types from the `TvmSlice` 
+Sequentially decodes values of the specified types from the `TvmSlice`
 if the `TvmSlice` holds sufficient data for all specified types. Otherwise, returns `null`.
 
 ```TVMSolidity
@@ -806,7 +806,7 @@ contract B {
 		TvmSlice s = data.toSlice();
 		(uint256 pubkey, uint64 timestamp, bool flag,
 			uint a, uint b, uint c, uint d, address e, address f) = s.loadStateVars(A);
-			
+
 		// pubkey - pubkey of the contract A
 		// timestamp - timestamp that used for replay protection
 		// flag - always is equal to true
@@ -1230,7 +1230,7 @@ The `variant` type acts like a union for the most common solidity data types. Su
 <variant>.isUint() returns (bool)
 ```
 
-Checks whether `<variant>` holds `uint` type. 
+Checks whether `<variant>` holds `uint` type.
 
 #### variant.toUint()
 
@@ -1388,7 +1388,7 @@ repeat(a - 1) {
 
 [Capabilities](#tvm-capabilities) required: `CapsTvmBugfixes2022`.
 
-The `try` statement allows you to define a block of code to be tested for errors while it is executed. The 
+The `try` statement allows you to define a block of code to be tested for errors while it is executed. The
 `catch` statement allows you to define a block of code to be executed, if an error occurs in the try block.
 `catch` block gets two parameters of type variant and uint16, which contain exception argument and code respectively.
 Example:
@@ -1758,7 +1758,7 @@ Returns byte length of the `string` data.
 <string>.substr(uint from[, uint count]) returns (string);
 ```
 
-Returns the substring starting from the byte with number **from** with byte length **count**.  
+Returns the substring starting from the byte with number **from** with byte length **count**.
 **Note**: if count is not set, then the new `string` will be cut from the **from** byte to the end
 of the string.
 
@@ -1847,8 +1847,8 @@ and 'a'..'z' symbols. Example:
 
 ```TVMSolidity
 string s = "Hello";
-string a = s.toUpperCase(); // a == "HELLO" 
-string b = s.toLowerCase(); // b == "hello" 
+string a = s.toUpperCase(); // a == "HELLO"
+string b = s.toLowerCase(); // b == "hello"
 ```
 
 ##### format()
@@ -2256,7 +2256,7 @@ if (nextPair.hasValue()) {
 }
 
 mapping(uint8 => uint) m;
-optional(uint8, uint) = m.next(-1); // ok, param for next/prev can be negative 
+optional(uint8, uint) = m.next(-1); // ok, param for next/prev can be negative
 optional(uint8, uint) = m.prev(65537); // ok, param for next/prev can not possibly fit to KeyType (uint8 in this case)
 ```
 
@@ -2350,7 +2350,7 @@ in the `mapping`, otherwise returns an empty `optional`.
 <map>.getDel(KeyType key) returns (optional(ValueType));
 ```
 
-Deletes the **key** from the `mapping` **map** and returns an `optional` 
+Deletes the **key** from the `mapping` **map** and returns an `optional`
 with the corresponding value. Returns an empty optional if the key does not exist.
 
 ##### \<mapping\>.getReplace()
@@ -2391,7 +2391,7 @@ Operators:
 
 (2) Returns all values of the mapping as an array.
 
-**Note:** these functions iterate over the whole mapping, thus the cost is proportional to the 
+**Note:** these functions iterate over the whole mapping, thus the cost is proportional to the
 mapping's size.
 
 ```TVMSolidity
@@ -2399,8 +2399,8 @@ mapping(uint16 => uint8) map;
 map[11] = 10;
 map[22] = 20;
 map[33] = 30;
-uint16[] keys = map.keys(); // keys == [11, 22, 33] 
-uint8[] values = map.values(); // values == [10, 20, 30] 
+uint16[] keys = map.keys(); // keys == [11, 22, 33]
+uint8[] values = map.values(); // values == [10, 20, 30]
 ```
 
 #### Function type
@@ -2436,7 +2436,7 @@ function process(int a, int b, uint8 mode) public returns (int) {
 In case of exception state variables of the contract are reverted to the state before
 [tvm.commit()](#tvmcommit) or to the state of the contract before it was called.
 Use error codes that are greater than 100 because other error codes can be
-[reserved](#solidity-runtime-errors).  
+[reserved](#solidity-runtime-errors).
 **Note**: if a nonconstant error code is passed as the function argument and the error code
 is less than 2, then the error code will be set to 100.
 
@@ -2450,8 +2450,8 @@ require(bool condition, string text);
 ```
 
 `require` function can be used to check the condition and throw an exception if the condition
-is not met.  
-(1) Takes condition and optional parameters: error code and the object of any type.  
+is not met.
+(1) Takes condition and optional parameters: error code and the object of any type.
 (2) Takes condition and error text. Error code will be equal to 100.
 
 Example:
@@ -2465,7 +2465,7 @@ require(a == 6); // throws an exception with code 100
 require(a == 6, 101); // throws an exception with code 101
 require(a == 6, 101, "a is not equal to six"); // throws an exception with code 101 and string
 require(a == 6, 101, a); // throws an exception with code 101 and number a
-require(a == 6, "a is not equal to six"); // throws an exception with code 100 and string 
+require(a == 6, "a is not equal to six"); // throws an exception with code 100 and string
 ```
 
 ##### revert
@@ -2638,13 +2638,13 @@ Used to restrict source file compilation to the particular compiler versions.
 #### pragma-copyleft
 
 ```TVMSolidity
-pragma copyleft <type>, <wallet_address>; 
+pragma copyleft <type>, <wallet_address>;
 ```
 
 [Capabilities](#tvm-capabilities) required: `CapCopyleft`.
 
-Parameters: 
- * `<type>` (`uint8`) - copyleft type. 
+Parameters:
+ * `<type>` (`uint8`) - copyleft type.
  * `<wallet_address>` (`uint256`) - author's wallet address in masterchain.
 
 If contract has the `copyleft` pragma, it means that after each transaction some part of validator's fee
@@ -2812,7 +2812,7 @@ contract Sink {
 
 // file bomber.sol
 contract Bomber {
-    // This function send evers 3 times to the Sink contract. Sink's function receive will handle 
+    // This function send evers 3 times to the Sink contract. Sink's function receive will handle
     // that messages.
     function f(address addr) pure public {
         tvm.accept();
@@ -2964,7 +2964,7 @@ function onCodeUpgrade(...) private {
 }
 ```
 
-Function `onCodeUpgrade` had function id = 2 (for compiler <= 0.65.0). Now, it has another id, but you can set 
+Function `onCodeUpgrade` had function id = 2 (for compiler <= 0.65.0). Now, it has another id, but you can set
 `functionID(2)` in new contracts for the `onCodeUpgrade` to upgrade old ones.
 
 See example of how to upgrade code of the contract:
@@ -3074,7 +3074,7 @@ function sum(uint a, uint b) private inline returns (uint) {
 
 To make inline assembler you should mark free function as `assembly`. Function body must contain lines of assembler code separated by commas.
 
-It is up to user to set correct mutability (`pure`, `view` or default), return parameters of the function and so on. 
+It is up to user to set correct mutability (`pure`, `view` or default), return parameters of the function and so on.
 
 ```TVMSolidity
 function checkOverflow(uint a, uint b) assembly pure returns (bool) {
@@ -3093,11 +3093,11 @@ contract Contract {
 }
 ```
 
-You can use inline assembler to support new opcodes in experimental or another implementations of TVM. 
+You can use inline assembler to support new opcodes in experimental or another implementations of TVM.
 
 ```TVMSolidity
 function incomingValue() assembly pure returns (uint) {
-    ".blob xF82B", // it's opcode INCOMINGVALUE 
+    ".blob xF82B", // it's opcode INCOMINGVALUE
 }
 ```
 
@@ -3392,7 +3392,7 @@ uint8 refs = b.refs(); // refs == 1
 
 #### Type information
 
-The expression `type(T)` can be used to retrieve information about the type T. 
+The expression `type(T)` can be used to retrieve information about the type T.
 
 The following properties are available for an integer, variable integer and enum type `T`:
  * `type(T).min` - the smallest value representable by type `T`.
@@ -3470,8 +3470,8 @@ msg.forwardFee (varUint16)
 ```
 
 Returns:
- * the [forward fee](https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb#L126) for the internal inbound message.   
- * `0` for the external inbound message.   
+ * the [forward fee](https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb#L126) for the internal inbound message.
+ * `0` for the external inbound message.
 
 ##### msg.importFee
 
@@ -3480,7 +3480,7 @@ msg.importFee (varUint16)
 ```
 
 Returns:
- * the field [import_fee](https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb#L130) for external inbound message. **Note:** field `import_fee` is set offchain by user as they want and does not reflect the real import fee of the message. 
+ * the field [import_fee](https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb#L130) for external inbound message. **Note:** field `import_fee` is set offchain by user as they want and does not reflect the real import fee of the message.
  * `0` for the internal inbound message.
 
 ##### msg.body
@@ -3554,7 +3554,7 @@ of `tvm.accept()`.
 tvm.buyGas(uint value);
 ```
 
-Computes the amount of gas that can be bought for `value` nanoevers, and sets **g<sub>l</sub>**  
+Computes the amount of gas that can be bought for `value` nanoevers, and sets **g<sub>l</sub>**
 accordingly in the same way as [tvm.setGasLimit()](#tvmsetgaslimit).
 
 ##### tvm.commit()
@@ -3588,7 +3588,7 @@ tvm.getData() returns (TvmCell);
 
 **Note:** Function is experimental.
 
-A dual of the `tvm.setData()`function. It returns value of the `c4` register. Obtaining a raw storage 
+A dual of the `tvm.setData()`function. It returns value of the `c4` register. Obtaining a raw storage
 cell can be useful when upgrading a new version of the contract that introduces an altered data layout.
 
 Manipulation with a raw storage cell requires understanding of the way the compiler stores the data.
@@ -3821,7 +3821,7 @@ In the third option executes TVM instruction "CHKSIGNS" ([TVM][1] - A.11.6. - F9
 This command checks Ed25519-signature of the **data** using public key **pubkey**.
 Signature is represented by the slice **signature**.
 
-If `CapSignatureWithId` [capability](#tvm-capabilities) is set, then TVM use some predefined ID during signature check. Usually ID is `global_id` that can be found in the last block for example. 
+If `CapSignatureWithId` [capability](#tvm-capabilities) is set, then TVM use some predefined ID during signature check. Usually ID is `global_id` that can be found in the last block for example.
 
 Example:
 
@@ -3982,7 +3982,7 @@ uint16 dataDepth = data.depth();
 uint256 hash = tvm.stateInitHash(codeHash, dataHash, codeDepth, dataDepth);
 ```
 
-See also [internal doc](https://github.com/tonlabs/TON-Solidity-Compiler/blob/master/docs/internal/stateInit_hash.md) to read more about this
+See also [internal doc](https://github.com/tonlabs/tvm-solidity-compiler/blob/master/docs/internal/stateInit_hash.md) to read more about this
 function mechanics.
 
 ##### Deploy via new
@@ -3999,7 +3999,7 @@ onchain) and use `code` if you want to create account state in the `new` express
 Constructor function parameters don't influence the address. See
 [New contract address problem](#new-contract-address-problem).
 
-[Step-by-step description how to deploy contracts from the contract here](https://github.com/tonlabs/samples/blob/master/solidity/17_ContractProducer.md).  
+[Step-by-step description how to deploy contracts from the contract here](https://github.com/tonlabs/samples/blob/master/solidity/17_ContractProducer.md).
 
 Examples:
 
@@ -4103,13 +4103,13 @@ See [constructor of WalletProducer](https://github.com/tonlabs/samples/blob/mast
 We should define static variable in the new contract that will contain
 address of the creator. Address of the creator will be a part of the `stateInit`.
 And in the constructor we must check address of the message sender.
-See [function `deployWallet` how to deploy contract](https://github.com/tonlabs/samples/blob/master/solidity/17_ContractProducer.sol).  
-See [constructor of SimpleWallet](https://github.com/tonlabs/samples/blob/master/solidity/17_SimpleWallet.sol).  
+See [function `deployWallet` how to deploy contract](https://github.com/tonlabs/samples/blob/master/solidity/17_ContractProducer.sol).
+See [constructor of SimpleWallet](https://github.com/tonlabs/samples/blob/master/solidity/17_SimpleWallet.sol).
 If some contract should deploy plenty of contracts (with some contract's
 public key), then it's a good idea to declare static variable in the deployed
 contract. This variable can contain some sequence number. It will allow
 each new contact to have unique `stateInit`.
-See [SimpleWallet](https://github.com/tonlabs/samples/blob/master/solidity/17_SimpleWallet.sol).  
+See [SimpleWallet](https://github.com/tonlabs/samples/blob/master/solidity/17_SimpleWallet.sol).
 **Note**: contract's public key (`tvm.pubkey()`) is a part of `stateInit`.
 
 ##### Misc functions from `tvm`
@@ -4327,7 +4327,7 @@ but stores special data:
 * abi version - 8 bits; Can be specified manually and contain full abi version in little endian half bytes (e.g. version = "2.3" -> abiVer: 0x32)
 * header mask - 3 bits in such order: time, expire, pubkey;
 * optional value signBoxHandle - 1 bit (whether value exists) + \[32 bits\];
-* control flags byte - 8 bits. 
+* control flags byte - 8 bits.
   Currently used bits:
     1 - override time (dengine will replace time value with current time)
     2 - override exp (dengine will replace time value with actual expire value)
@@ -4475,7 +4475,7 @@ math.min(T a, T b, ...) returns (T);
 math.max(T a, T b, ...) returns (T);
 ```
 
-Returns the minimal (maximal) value of the passed arguments. 
+Returns the minimal (maximal) value of the passed arguments.
 
 ##### math.minmax()
 
@@ -4652,7 +4652,7 @@ Returns the storage fee paid in the current transaction. [Capabilities](#tvm-cap
 block.timestamp returns (uint32);
 ```
 
-Returns the current Unix time. Unix time is the same for the all transactions from one block. 
+Returns the current Unix time. Unix time is the same for the all transactions from one block.
 
 ##### block.logicaltime
 
@@ -4910,12 +4910,12 @@ gasleft() returns (uint64)
 ```
 [Capabilities](#tvm-capabilities) required: `CapsTvmBugfixes2022`.
 
-Returns the remaining gas. 
+Returns the remaining gas.
 
 ### TVM capabilities
 
-Rust implementation of TVM has capabilities. Capabilities are flags that can be set to turn on 
-some features or behavior of TVM. Full list of capabilities can be found in `enum GlobalCapabilities` in [ever-block](https://github.com/tonlabs/ever-block/blob/master/src/config_params.rs) repo.
+Rust implementation of TVM has capabilities. Capabilities are flags that can be set to turn on
+some features or behavior of TVM. Full list of capabilities can be found in `enum GlobalCapabilities` in [ever-block](https://github.com/tvmlabs/tvm-block/blob/master/src/config_params.rs) repo.
 Set capabilities store in 8th parameter of the global config of the blockchain. To get it you can use command:
 ```bash
 tonos-cli --json getconfig 8
@@ -4970,7 +4970,7 @@ Solidity runtime error codes:
   * **76** - Public function was called before constructor.
   * **77** - It's impossible to convert `variant` type to target type. See [variant.toUint()](#varianttouint).
   * **78** - There's no private function with the function id.
-  * **79** - You are deploying contract that uses [pragma upgrade func/oldsol](#pragma-upgrade-funcoldsol). Use the 
+  * **79** - You are deploying contract that uses [pragma upgrade func/oldsol](#pragma-upgrade-funcoldsol). Use the
 contract only for updating another contracts.
 
 ### Division and rounding

@@ -1,9 +1,9 @@
 ### 0.72.0 (2023-??-??)
 
-Use [sold](https://github.com/tonlabs/TON-Solidity-Compiler/tree/master/sold) to compile contracts. If you used `solc`+`tvm_linker`, then use `solc`+[asm](https://github.com/tonlabs/ever-assembler). Generated `*.code` files have some another format.
+Use [sold](https://github.com/tonlabs/tvm-solidity-compiler/tree/master/sold) to compile contracts. If you used `solc`+`tvm_linker`, then use `solc`+[asm](https://github.com/tvmlabs/tvm-assembler). Generated `*.code` files have some another format.
 
 Breaking changes:
- * The conversion for integer type is only allowed when there is at most one change in sign, width or type-category (`int`, `address`, `bytesNN`, etc.). To perform multiple changes, use multiple conversions. See [Solidity v0.8.0 Breaking Changes](https://docs.soliditylang.org/en/v0.8.17/080-breaking-changes.html#new-restrictions). For example, to convert `int8 x;` to `uint` you can use at least two ways: 1) `uint(uint8(x))`, 2) `uint(int(x))`. 
+ * The conversion for integer type is only allowed when there is at most one change in sign, width or type-category (`int`, `address`, `bytesNN`, etc.). To perform multiple changes, use multiple conversions. See [Solidity v0.8.0 Breaking Changes](https://docs.soliditylang.org/en/v0.8.17/080-breaking-changes.html#new-restrictions). For example, to convert `int8 x;` to `uint` you can use at least two ways: 1) `uint(uint8(x))`, 2) `uint(int(x))`.
  * Deleted `ExtraCurrencyCollection` type. Use `mapping(uint32 => varUint32)` instead of it.
 
 Bugfixes:
@@ -50,7 +50,7 @@ Gas optimizations:
 ### 0.70.0 (2023-06-14)
 
 Compiler features:
- * Supported [inline assembly](API.md#assembly). 
+ * Supported [inline assembly](API.md#assembly).
  * Supported overriding `onCodeUpgrade` function.
  * Supported [User-defined Value Types](https://docs.soliditylang.org/en/latest/types.html#user-defined-value-types). You can also use this type in public functions.
  * [Supported `type(T).min` and `type(T).max`](API.md#type-information).
@@ -112,8 +112,8 @@ Other changes:
    * `<TvmSlice>.loadUnsigned()` -> `<TvmSlice>.loadUint()`
    * `<TvmBuilder>.storeSigned()` -> `<TvmSlice>.storeInt()`
    * `<TvmBuilder>.storeUnsigned()` -> `<TvmSlice>.storeUint()`
- * Improved `try-catch` (experimental feature). 
- * Now `tx.storageFee` returns `uint120` (not `uint64`). 
+ * Improved `try-catch` (experimental feature).
+ * Now `tx.storageFee` returns `uint120` (not `uint64`).
  * Renamed `tx.timestamp` to `tx.logicaltime`. `tx.timestamp` is available and marked as deprecated.
 
 ### 0.69.0 (2023-05-15)
@@ -129,7 +129,7 @@ Optimizations:
 
 Bugfixes:
  * Fixed segmentation fault that could occur in some cases of using `variable integer` types.
- * Fixed segmentation fault that occurred in constructions `optional(T1, T2) x = null;` and some another cases. 
+ * Fixed segmentation fault that occurred in constructions `optional(T1, T2) x = null;` and some another cases.
 
 ### 0.68.0 (2023-04-19)
 
@@ -187,7 +187,7 @@ Compiler features:
 
 ### 0.64.0 (2022-08-18)
 
-Fixed build [sold](https://github.com/tonlabs/TON-Solidity-Compiler/tree/master/sold) for Windows and macOS.
+Fixed build [sold](https://github.com/tonlabs/tvm-solidity-compiler/tree/master/sold) for Windows and macOS.
 
 Compiler features:
  * Supported [ABI v2.3](https://github.com/tonlabs/ton-labs-abi/blob/master/docs/ABI_2.3_spec.md).
