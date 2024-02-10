@@ -35,6 +35,7 @@ public:
 	explicit CHCSmtLib2Interface(
 		std::map<util::h256, std::string> const& _queryResponses = {},
 		frontend::ReadCallback::Callback _smtCallback = {},
+		SMTSolverChoice _enabledSolvers = SMTSolverChoice::All(),
 		std::optional<unsigned> _queryTimeout = {}
 	);
 
@@ -49,6 +50,8 @@ public:
 	std::tuple<CheckResult, Expression, CexGraph> query(Expression const& _expr) override;
 
 	void declareVariable(std::string const& _name, SortPointer const& _sort) override;
+
+	std::string dumpQuery(Expression const& _expr);
 
 	std::vector<std::string> unhandledQueries() const { return m_unhandledQueries; }
 
@@ -65,6 +68,9 @@ private:
 
 	void write(std::string _data);
 
+	std::string createQueryAssertion(std::string name);
+	std::string createHeaderAndDeclarations();
+
 	/// Communicates with the solver via the callback. Throws SMTSolverError on error.
 	std::string querySolver(std::string const& _input);
 
@@ -78,6 +84,7 @@ private:
 	std::vector<std::string> m_unhandledQueries;
 
 	frontend::ReadCallback::Callback m_smtCallback;
+	SMTSolverChoice m_enabledSolvers;
 
 	std::map<Sort const*, std::string> m_sortNames;
 };

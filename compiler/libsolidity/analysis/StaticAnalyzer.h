@@ -37,9 +37,6 @@ class ErrorReporter;
 namespace solidity::frontend
 {
 
-class ConstructorUsesAssembly;
-
-
 /**
  * The module that performs static analysis on the AST.
  * In this context, static analysis is anything that can produce warnings which can help
@@ -70,7 +67,6 @@ private:
 	bool visit(Identifier const& _identifier) override;
 	bool visit(Return const& _return) override;
 	bool visit(MemberAccess const& _memberAccess) override;
-	bool visit(InlineAssembly const& _inlineAssembly) override;
 	bool visit(BinaryOperation const& _operation) override;
 	bool visit(FunctionCall const& _functionCall) override;
 
@@ -83,10 +79,6 @@ private:
 	/// Pairs of AST ids and pointers are used as keys to ensure a deterministic order
 	/// when traversing.
 	std::map<std::pair<size_t, VariableDeclaration const*>, int> m_localVarUseCount;
-
-	/// Cache that holds information about whether a contract's constructor
-	/// uses inline assembly.
-	std::unique_ptr<ConstructorUsesAssembly> m_constructorUsesAssembly;
 
 	FunctionDefinition const* m_currentFunction = nullptr;
 

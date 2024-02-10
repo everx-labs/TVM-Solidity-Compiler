@@ -220,12 +220,14 @@ vector<ContractDefinition const *> getContractsChain(ContractDefinition const *c
 	return contracts;
 }
 
-std::vector<VariableDeclaration const *> notConstantStateVariables(ContractDefinition const* _contract) {
+std::vector<VariableDeclaration const *> stateVariables(ContractDefinition const* _contract,
+														bool _onlyNoStorage) {
 	std::vector<VariableDeclaration const *> variableDeclarations;
 	std::vector<ContractDefinition const *> mainChain = getContractsChain(_contract);
 	for (ContractDefinition const * contract: mainChain) {
 		for (VariableDeclaration const *variable: contract->stateVariables()) {
-			if (!variable->isConstant()) {
+			if (!variable->isConstant() && (_onlyNoStorage == variable->isNoStorage())
+			) {
 				variableDeclarations.push_back(variable);
 			}
 		}

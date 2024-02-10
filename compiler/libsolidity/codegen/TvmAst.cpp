@@ -158,7 +158,7 @@ bool HardCode::operator==(TvmAstNode const& _node) const {
 	return g && std::tie(m_code, m_take, m_ret) == std::tie(g->m_code, g->m_take, g->m_ret);
 }
 
-GenOpcode::GenOpcode(const std::string& opcode, int take, int ret, bool _isPure) : Gen{_isPure},  m_take{take}, m_ret{ret} {
+StackOpcode::StackOpcode(const std::string& opcode, int take, int ret, bool _isPure) : Gen{_isPure}, m_take{take}, m_ret{ret} {
 	vector<string> lines = split(opcode, ';');
 	solAssert(lines.size() <= 2, "");
 
@@ -173,11 +173,11 @@ GenOpcode::GenOpcode(const std::string& opcode, int take, int ret, bool _isPure)
 }
 
 
-void GenOpcode::accept(TvmAstVisitor& _visitor) {
+void StackOpcode::accept(TvmAstVisitor& _visitor) {
 	_visitor.visit(*this);
 }
 
-std::string GenOpcode::fullOpcode() const {
+std::string StackOpcode::fullOpcode() const {
 	std::string ret = m_opcode;
 	if (!m_arg.empty())
 		ret += " " + m_arg;
@@ -186,8 +186,8 @@ std::string GenOpcode::fullOpcode() const {
 	return ret;
 }
 
-bool GenOpcode::operator==(TvmAstNode const& _node) const {
-	auto gen = to<GenOpcode>(&_node);
+bool StackOpcode::operator==(TvmAstNode const& _node) const {
+	auto gen = to<StackOpcode>(&_node);
 	if (gen) {
 		if (
 			(isIn(fullOpcode(), "TRUE", "PUSHINT -1") && isIn(gen->fullOpcode(), "TRUE", "PUSHINT -1")) ||
@@ -462,7 +462,7 @@ void Contract::accept(TvmAstVisitor& _visitor) {
 }
 
 namespace solidity::frontend {
-Pointer<GenOpcode> gen(const std::string& cmd) {
+Pointer<StackOpcode> gen(const std::string& cmd) {
 	std::string op;
 	std::string param;
 	{
@@ -602,6 +602,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"PLDU", {1, 1}},
 		{"PLDULE4", {1, 1}},
 		{"PLDULE8", {1, 1}},
+		{"POW2", {1, 1}},
 		{"RAND", {1, 1}},
 		{"SBITS", {1, 1, true}},
 		{"SDEMPTY", {1, 1, true}},
@@ -755,34 +756,34 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"SPLIT", {3, 2}}
 	};
 
-	Pointer<GenOpcode> opcode;
+	Pointer<StackOpcode> opcode;
 	if (opcodes.count(op)) {
 		OpcodeParams params = opcodes.at(op);
-		opcode = createNode<GenOpcode>(cmd, params.take, params.ret, params.isPure);
+		opcode = createNode<StackOpcode>(cmd, params.take, params.ret, params.isPure);
 	} else if (dictSet()) {
-		opcode = createNode<GenOpcode>(cmd, 4, 1);
+		opcode = createNode<StackOpcode>(cmd, 4, 1);
 	} else if (dictReplaceOrAdd()) {
-		opcode = createNode<GenOpcode>(cmd, 4, 2);
+		opcode = createNode<StackOpcode>(cmd, 4, 2);
 	} else if (f("TUPLE")) {
 		int ret = boost::lexical_cast<int>(param);
-		opcode = createNode<GenOpcode>(cmd, ret, 1);
+		opcode = createNode<StackOpcode>(cmd, ret, 1);
 	} else if (f("UNTUPLE")) {
 		int ret = boost::lexical_cast<int>(param);
-		opcode = createNode<GenOpcode>(cmd, 1, ret);
+		opcode = createNode<StackOpcode>(cmd, 1, ret);
 	} else if (f("UNPACKFIRST")) {
 		int ret = boost::lexical_cast<int>(param);
-		opcode = createNode<GenOpcode>(cmd, 1, ret);
+		opcode = createNode<StackOpcode>(cmd, 1, ret);
 	} else if (f("LSHIFT") || f("RSHIFT")) {
 		if (param.empty()) {
-			opcode = createNode<GenOpcode>(cmd, 2, 1);
+			opcode = createNode<StackOpcode>(cmd, 2, 1);
 		} else {
-			opcode = createNode<GenOpcode>(cmd, 1, 1);
+			opcode = createNode<StackOpcode>(cmd, 1, 1);
 		}
 	} else if (f("MULRSHIFT")) {
 		if (param.empty()) {
-			opcode = createNode<GenOpcode>(cmd, 3, 1);
+			opcode = createNode<StackOpcode>(cmd, 3, 1);
 		} else {
-			opcode = createNode<GenOpcode>(cmd, 2, 1);
+			opcode = createNode<StackOpcode>(cmd, 2, 1);
 		}
 	} else {
 		solUnimplemented("Unknown opcode: " + cmd);
@@ -948,10 +949,10 @@ Pointer<PushCellOrSlice> makePUSHREF(const std::string& data) {
 	return createNode<PushCellOrSlice>(PushCellOrSlice::Type::PUSHREF, data, nullptr);
 }
 
-Pointer<Stack> makeREVERSE(int i, int j) {
-	solAssert(i >= 2, "");
-	solAssert(j >= 0, "");
-	return createNode<Stack>(Stack::Opcode::REVERSE, i, j);
+Pointer<Stack> makeREVERSE(int qty, int index) {
+	solAssert(qty >= 2, "");
+	solAssert(index >= 0, "");
+	return createNode<Stack>(Stack::Opcode::REVERSE, qty, index);
 }
 
 Pointer<Stack> makeROT() {
@@ -965,10 +966,6 @@ Pointer<Stack> makeROTREV() {
 Pointer<Stack> makeBLKSWAP(int down, int top) {
 	solAssert(down >= 1 && top >= 1, "");
 	return createNode<Stack>(Stack::Opcode::BLKSWAP, down, top);
-}
-
-Pointer<Stack> makeTUCK() {
-	return createNode<Stack>(Stack::Opcode::TUCK);
 }
 
 Pointer<Stack> makePUXC(int i, int j) {
@@ -991,6 +988,7 @@ Pointer<TvmIfElse> flipIfElse(TvmIfElse const& node) {
 }
 
 bool isPureGen01(TvmAstNode const& node) {
+	// See also isSimpleCommand
 	auto gen = to<Gen>(&node);
 	return gen && gen->isPure() && gen->take() == 0 && gen->ret() == 1;
 }
@@ -1055,18 +1053,34 @@ std::optional<int> isPOP(Pointer<TvmAstNode> const& node) {
 	return {};
 }
 
-std::optional<std::pair<int, int>> isBLKPUSH(Pointer<TvmAstNode> const& node) {
-	auto stack = to<Stack>(node.get());
-	if (stack) {
+std::optional<int> isPUSH(Pointer<TvmAstNode> const& node) {
+	if (auto stack = to<Stack>(node.get())) {
 		switch (stack->opcode()) {
-			case Stack::Opcode::BLKPUSH:
-				return {{stack->i(), stack->j()}};
-			case Stack::Opcode::PUSH_S:
-				if (stack->i() == 0)
-					return {{1, 0}};
-				break;
-			default:
-				break;
+		case Stack::Opcode::PUSH_S:
+			return stack->i();
+		case Stack::Opcode::BLKPUSH:
+			if (stack->i() == 1)
+				return stack->j();
+			break;
+		default:
+			break;
+		}
+	}
+	return {};
+}
+
+std::optional<std::pair<int, int>> isBLKPUSH(Pointer<TvmAstNode> const& node) {
+	if (auto stack = to<Stack>(node.get())) {
+		switch (stack->opcode()) {
+		case Stack::Opcode::BLKPUSH:
+			return {{stack->i(), stack->j()}};
+		case Stack::Opcode::PUSH_S:
+			if (stack->i() == 0)
+				return {{1, 0}};
+			break;
+		// TODO add PUSH_S and PUSH2_S
+		default:
+			break;
 		}
 	}
 	return {};
@@ -1152,6 +1166,91 @@ Pointer<AsymGen> getZeroOrNullAlignment(bool isZero, bool isSwap, bool isNot) {
 	if (isNot)
 		cmd += "NOT";
 	return std::make_shared<AsymGen>(cmd);
+}
+
+int OpcodeUtils::gasCost(Stack const& opcode) {
+	int i = opcode.i();
+	int j = opcode.j();
+	//int k = opcode.k();
+	switch (opcode.opcode()) {
+	case Stack::Opcode::POP_S:
+		return 18;
+	case Stack::Opcode::DROP: {
+		int n = i;
+		if (n == 1 || n == 2)
+			return 18; // "DROP" "DROP2"
+		if (n <= 15)
+			return 26; // BLKDROP
+		return 18 + 18; // PUSHINT N + DROPX
+	}
+	case Stack::Opcode::BLKDROP2: {
+		if (i > 15 || j > 15)
+			solUnimplemented("");
+		return 26;
+	}
+	case Stack::Opcode::BLKSWAP: {
+		int bottom = i;
+		int top = j;
+		if (bottom == 1 && top == 1) {
+			return 18; // SWAP
+		} else if (bottom == 1 && top == 2) {
+			return 18; // "ROT";
+		} else if (bottom == 2 && top == 1) {
+			return 18; // "ROTREV";
+		} else if (bottom == 2 && top == 2) {
+			return 18; // "SWAP2";
+		} else if (1 <= bottom && bottom <= 16 && 1 <= top && top <= 16) {
+			return 26; // "ROLL " "ROLLREV " "BLKSWAP"
+		} else {
+			solUnimplemented(""); // "ROLLX" "ROLLREVX" "BLKSWX"
+		}
+	}
+	case Stack::Opcode::BLKPUSH: {
+		if ((i == 2 && j == 1) || (i == 2 && j == 3)) {
+			return 18; // "DUP2" "OVER2"
+		} else {
+			if (i > 15)
+				solAssert(j == 0, "");
+			int rest = i;
+			int cost = 0;
+			while (rest > 0) {
+				cost += 26; // "BLKPUSH "
+				rest -= 15;
+			}
+			return cost;
+		}
+	}
+	case Stack::Opcode::PUSH2_S:
+		if ((i == 1 && j == 0) || (i == 3 && j == 2))
+			return 18; // "DUP2" "OVER2"
+		return 26; // "PUSH2"
+	case Stack::Opcode::REVERSE:
+		if ((i == 2 && j == 0) || (i == 3 && j == 0))
+			return 18; // "SWAP" "XCHG S2"
+		else if (2 <= i && i <= 17 && 0 <= j && j <= 15)
+			return 26; // "REVERSE"
+		solUnimplemented("");
+	case Stack::Opcode::XCHG:
+		if (i == 0 || i == 1)
+			return 18; // "XCHG Sj" "XCHG s1, Sj"
+		return 26; // XCHG Si, Sj
+	case Stack::Opcode::PUSH_S:
+		return 18;
+	case Stack::Opcode::XCHG3:
+	case Stack::Opcode::XCHG2:
+	case Stack::Opcode::XCPU:
+	case Stack::Opcode::PUXC:
+		return 26;
+	case Stack::Opcode::PUSH3_S:
+	case Stack::Opcode::XC2PU:
+	case Stack::Opcode::XCPU2:
+	case Stack::Opcode::PUXC2:
+	case Stack::Opcode::XCPUXC:
+	case Stack::Opcode::PUXCPU:
+	case Stack::Opcode::PU2XC:
+		return 34;
+	}
+	solUnimplemented("");
 }
 
 } // end solidity::frontend

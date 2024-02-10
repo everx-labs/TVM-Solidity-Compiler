@@ -1,4 +1,57 @@
-### 0.72.0 (2023-??-??)
+### 0.73.0 (2024-02-12)
+
+Update compiler frontend (from original version 0.8.17 to 0.8.24). Full changelog can be found [here](./compiler/Changelog.md).
+
+Breaking changes:
+ * Supported [ABI 2.4](https://github.com/tonlabs/ever-abi/blob/master/CHANGELOG.md#version-240).
+ * Deleted `tvm.insertPubkey()` function.
+ * Deleted `address.makeAddrNone()` function. Use [address.addrNone](./API.md#addressaddrnone).
+ * Default value for `address` type was `address(0)` but now it is [address.addrNone](./API.md#addressaddrnone).
+ * `byteN` in `*abi.json` file marked as `fixedbytesN`. See [ABI.md](https://github.com/tonlabs/ever-abi/blob/master/docs/ABI.md#fixedbytesn).
+ * [abi.encodeStateInit()](./API.md#abiencodestateinit), [abi.encodeData()](./API.md#abiencodedata) functions and [Deploy via new](./API.md#deploy-via-new) generate contract's data in the new format. To deploy old contracts (with version < 0.72.0) from new ones (with version >= 0.72.0) use [abi.encodeOldDataInit()](./API.md#abiencodeolddatainit).
+ * [format()](API.md#format) no longer throws an exception if formatted value exceeds the specified width. E.g. `format("{:1d}", 10) == "10"` now is correct, no exception.
+ * Functions and constructions previously working with `uint128` value, now using `varUint16`:
+   * [\<address\>.transfer()](API.md#addresstransfer)
+   * [deploy via **new**](API.md#deploy-via-new)
+   * [external function calls](API.md#external-function-calls)
+   * [\<address\>.balance](API.md#addressbalance)
+   * [msg.value](API.md#msgvalue)
+   * [abi.encodeIntMsg()](API.md#abiencodeintmsg)
+   * [return](API.md#return)
+ * Control construction [repeat](API.md#repeat) takes `uint31` instead of `uint256`.
+ * Supported [\<Integer\>.cast()](API.md#integercast) and changed conversion.
+
+Bugfixes:
+ * Fixed compiler assert fault that occurred in the case of using [user-defined value types](https://docs.soliditylang.org/en/latest/types.html#user-defined-value-types) as return parameter of public/external function.
+ * Fixed segmentation fault of the compiler that could occur in some cases of using invalid rational number (too large or division by zero), e.g. `math.muldiv(2**500, 1, 1);`.
+ * Now [\<string\>.substr()](API.md#stringsubstr) does not throw an exception if `pos + count > string.byteLength()`.
+ * Fixed minor bugs in TypeChecker.
+
+Compiler features:
+ * Supported defining operators for a [user-defined type](API.md#user-defined-type).
+ * Supported [keyword nostorage](API.md#keyword-nostorage).
+ * Now you can use the keyword [coins](API.md#varint-and-varuint) as an alias for `varUint16`
+
+Gas optimizations:
+ * Optimized functions that work with strings: concatenation, substring, format etc.
+ * Assorted stack optimizations.
+
+Other changes:
+ * Renamed some functions. Old functions are available and marked as deprecated. Renaming:
+   * `tvm.buildDataInit()` -> `abi.encodeData()`
+   * `<TvmSlice>.loadStateVars()` -> `abi.decodeData()`
+   * `tvm.buildStateInit()` -> `abi.encodeStateInit()`
+   * `tvm.stateInitHash()` -> `abi.stateInitHash()`
+   * `tvm.codeSalt()` -> `abi.codeSalt()`
+   * `tvm.setCodeSalt()` -> `abi.setCodeSalt()`
+   * `tvm.functionId()` -> `abi.functionId()`
+   * `tvm.buildExtMsg()` -> `abi.encodeExtMsg()`
+   * `tvm.buildIntMsg()` -> `abi.encodeIntMsg()`
+   * `tvm.encodeBody()` -> `abi.encodeBody()`
+   * `<TvmSlice>.loadFunctionParams()` -> `abi.decodeFunctionParams()`
+ * Marked functions `<TvmSlice>.loadTons()` and `<TvmBuilder>.storeTons()` as deprecated. Use `<TvmSlice>.load()` and `<TvmBuilder>.store()` that take `varUint16` type.
+
+### 0.72.0 (2023-10-31)
 
 Use [sold](https://github.com/tonlabs/TON-Solidity-Compiler/tree/master/sold) to compile contracts. If you used `solc`+`tvm_linker`, then use `solc`+[asm](https://github.com/tonlabs/ever-assembler). Generated `*.code` files have some another format.
 

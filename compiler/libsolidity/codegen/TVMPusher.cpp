@@ -63,7 +63,7 @@ void StackPusher::pushLog() {
 
 // TODO move to function compiler
 Pointer<Function> StackPusher::generateC7ToC4(bool forAwait) {
-	const std::vector<Type const *>& memberTypes = m_ctx->notConstantStateVariableTypes();
+	const std::vector<Type const *>& memberTypes = m_ctx->c4StateVariableTypes();
 	const int stateVarQty = memberTypes.size();
 	if (ctx().tooMuchStateVariables()) {
 		const int saveStack = stackSize();
@@ -75,13 +75,11 @@ Pointer<Function> StackPusher::generateC7ToC4(bool forAwait) {
 		drop(TvmConst::C7::FirstIndexForVariables);
 		solAssert(saveStack + stateVarQty == stackSize(), "");
 	} else {
-		for (int i = stateVarQty - 1; i >= 0; --i) {
+		for (int i = stateVarQty - 1; i >= 0; --i)
 			getGlob(TvmConst::C7::FirstIndexForVariables + i);
-		}
 	}
-	if (ctx().storeTimestampInC4()) {
+	if (ctx().storeTimestampInC4())
 		getGlob(TvmConst::C7::ReplayProtTime);
-	}
 	getGlob(TvmConst::C7::TvmPubkey);
 	*this << "NEWC";
 	*this << "STU 256";
@@ -704,7 +702,7 @@ StackPusher& StackPusher::operator<<(std::string const& opcode) {
 }
 
 void StackPusher::push(std::string const& cmd) {
-	Pointer<GenOpcode> opcode = gen(cmd);
+	Pointer<StackOpcode> opcode = gen(cmd);
 	change(opcode->take(), opcode->ret());
 	m_instructions.back().push_back(opcode);
 }
@@ -976,14 +974,15 @@ void StackPusher::makeTuple(int qty) {
 	} else {
 		solAssert(qty <= 255, "");
 		pushInt(qty);
-		auto opcode = createNode<GenOpcode>("TUPLEVAR", qty + 1, 1);
+		auto opcode = createNode<StackOpcode>("TUPLEVAR", qty + 1, 1);
 		m_instructions.back().push_back(opcode);
 		change(qty + 1, 1);
 	}
 }
 
 void StackPusher::resetAllStateVars() {
-	std::vector<VariableDeclaration const *> const stateVariables = ctx().notConstantStateVariables();
+	std::vector<VariableDeclaration const *> const stateVariables = ctx().c4StateVariables();
+	std::vector<VariableDeclaration const *> const nostorageStateVariables = ctx().nostorageStateVars();
 	if (m_ctx->tooMuchStateVariables()) {
 		pushC7();
 		*this << "FALSE";
@@ -991,12 +990,18 @@ void StackPusher::resetAllStateVars() {
 		unpackFirst(TvmConst::C7::FirstIndexForVariables);
 		for (VariableDeclaration const *variable: stateVariables)
 			pushDefaultValue(variable->type());
-		const int stateVarQty = stateVariables.size();
+		for (VariableDeclaration const *variable: nostorageStateVariables)
+			pushDefaultValue(variable->type());
+		const int stateVarQty = stateVariables.size() + nostorageStateVariables.size();
 		makeTuple(TvmConst::C7::FirstIndexForVariables + stateVarQty);
 		popC7();
 	} else {
 		for (VariableDeclaration const *variable: stateVariables)
 			pushDefaultValue(variable->type());
+		for (VariableDeclaration const *variable: nostorageStateVariables)
+			pushDefaultValue(variable->type());
+		for (VariableDeclaration const *variable: nostorageStateVariables | boost::adaptors::reversed)
+			setGlob(variable);
 		for (VariableDeclaration const *variable: stateVariables | boost::adaptors::reversed)
 			setGlob(variable);
 	}
@@ -1051,7 +1056,7 @@ void StackPusher::popC7() {
 }
 
 void StackPusher::execute(int take, int ret) {
-	auto opcode = createNode<GenOpcode>("EXECUTE", take, ret);
+	auto opcode = createNode<StackOpcode>("EXECUTE", take, ret);
 	change(take, ret);
 	m_instructions.back().push_back(opcode);
 }
@@ -1072,11 +1077,6 @@ void StackPusher::pushS(int i) {
 	solAssert(i >= 0, "");
 	m_instructions.back().push_back(makePUSH(i));
 	change(+1);
-}
-
-void StackPusher::dup2() {
-	m_instructions.back().push_back(makePUSH2(1, 0));
-	change(+2);
 }
 
 void StackPusher::pushS2(int i, int j) {
@@ -1106,7 +1106,7 @@ bool StackPusher::fastLoad(const Type* type) {
 				*this << "LDDICT";
 			} else {
 				startOpaque();
-				const int saveStakeSize = stackSize();
+				const int saveStackSize = stackSize();
 				auto opt = to<OptionalType>(type);
 
 				auto f = [&](bool reverseOrder) {
@@ -1144,7 +1144,7 @@ bool StackPusher::fastLoad(const Type* type) {
 				endContinuation();
 				fixStack(-1); // fix stack
 				if (!hasLock()) {
-					solAssert(saveStakeSize == stackSize(), "");
+					solAssert(saveStackSize == stackSize(), "");
 				}
 
 				startContinuation();
@@ -1153,13 +1153,13 @@ bool StackPusher::fastLoad(const Type* type) {
 				endContinuation();
 				fixStack(-1); // fix stack
 				if (!hasLock()) {
-					solAssert(saveStakeSize == stackSize(), "");
+					solAssert(saveStackSize == stackSize(), "");
 				}
 
 				ifElse();
 				fixStack(+1); // fix stack
 				if (!hasLock()) {
-					solAssert(saveStakeSize + 1 == stackSize(), "");
+					solAssert(saveStackSize + 1 == stackSize(), "");
 				}
 				endOpaque(1, 2);
 			}
@@ -1595,9 +1595,10 @@ void StackPusher::checkFit(Type const *type) {
 	switch (type->category()) {
 	case Type::Category::Integer: {
 		auto it = to<IntegerType>(type);
-		if (it->isSigned())
-			*this << "FITS " + toString(it->numBits());
-		else
+		if (it->isSigned()) {
+			if (it->numBits() != 257)
+				*this << "FITS " + toString(it->numBits());
+		} else
 			*this << "UFITS " + toString(it->numBits());
 		break;
 	}
@@ -1609,14 +1610,27 @@ void StackPusher::checkFit(Type const *type) {
 			*this << "UFITS " + toString(fp->numBits());
 		break;
 	}
-
 	case Type::Category::VarInteger: {
 		auto varInt = to<VarIntegerType>(type);
 		checkFit(&varInt->asIntegerType());
 		break;
 	}
+	case Type::Category::Enum: {
+		auto enumType = to<EnumType>(type);
+		int size = enumType->numberOfMembers();
+		// TODO special case if size == 2**p
+		pushS(0);
+		pushInt(size); // x x size
+		*this << "LESS"; // x x<size
+		pushS(1); // x x<size x
+		pushInt(-1); // x x<size x -1
+		*this << "GREATER"; // x x<size x>-1
+		*this << "AND"; // x (x<size && x>-1)
+		this->_throw("THROWIFNOT 4");
+		break;
+	}
 	default:
-		solUnimplemented("");
+		solUnimplemented(type->humanReadableName());
 		break;
 	}
 }
@@ -1658,7 +1672,7 @@ void StackPusher::pushCallOrCallRef(
 void StackPusher::pushFragment(int take, int ret, const std::string& functionName) {
 	solAssert(!ctx().callGraph().tryToAddEdge(ctx().currentFunctionName(), functionName), "");
 	change(take, ret);
-	auto opcode = createNode<GenOpcode>(".inline " + functionName, take, ret);
+	auto opcode = createNode<StackOpcode>(".inline " + functionName, take, ret);
 	m_instructions.back().push_back(opcode);
 }
 
@@ -2133,8 +2147,14 @@ void TVMCompilerContext::initMembers(ContractDefinition const *contract) {
 	m_contract = contract;
 
 	ignoreIntOverflow = m_pragmaHelper.hasIgnoreIntOverflow();
-	for (VariableDeclaration const *variable: notConstantStateVariables()) {
-		m_stateVarIndex[variable] = TvmConst::C7::FirstIndexForVariables + m_stateVarIndex.size();
+	auto const c4StateVars = c4StateVariables();
+	for (VariableDeclaration const *variable : c4StateVars) {
+		int index = TvmConst::C7::FirstIndexForVariables + m_stateVarIndex.size();
+		m_stateVarIndex[variable] = index;
+	}
+	for (VariableDeclaration const *variable : nostorageStateVars()) {
+		int index = TvmConst::C7::FirstIndexForVariables + m_stateVarIndex.size();
+		m_stateVarIndex[variable] = index;
 	}
 }
 
@@ -2151,17 +2171,21 @@ int TVMCompilerContext::getStateVarIndex(VariableDeclaration const *variable) co
 	return m_stateVarIndex.at(variable);
 }
 
-std::vector<VariableDeclaration const *> TVMCompilerContext::notConstantStateVariables() const {
-	return ::notConstantStateVariables(getContract());
+std::vector<VariableDeclaration const *> TVMCompilerContext::c4StateVariables() const {
+	return ::stateVariables(getContract(), false);
+}
+
+std::vector<VariableDeclaration const *> TVMCompilerContext::nostorageStateVars() const {
+	return ::stateVariables(getContract(), true);
 }
 
 bool TVMCompilerContext::tooMuchStateVariables() const {
-	return notConstantStateVariables().size() >= TvmConst::C7::FirstIndexForVariables + 6;
+	return c4StateVariables().size() + nostorageStateVars().size() >= TvmConst::C7::FirstIndexForVariables + 6;
 }
 
-std::vector<Type const *> TVMCompilerContext::notConstantStateVariableTypes() const {
+std::vector<Type const *> TVMCompilerContext::c4StateVariableTypes() const {
 	std::vector<Type const *> types;
-	for (VariableDeclaration const * var : notConstantStateVariables()) {
+	for (VariableDeclaration const * var : c4StateVariables()) {
 		types.emplace_back(var->type());
 	}
 	return types;
@@ -2249,7 +2273,7 @@ int TVMCompilerContext::getOffsetC4() const {
 std::vector<std::pair<VariableDeclaration const*, int>> TVMCompilerContext::getStaticVariables() const {
 	int shift = 0;
 	std::vector<std::pair<VariableDeclaration const*, int>> res;
-	for (VariableDeclaration const* v : notConstantStateVariables()) {
+	for (VariableDeclaration const* v : c4StateVariables()) {
 		if (v->isStatic()) {
 			res.emplace_back(v, TvmConst::C4::PersistenceMembersStartIndex + shift++);
 		}
@@ -2299,7 +2323,7 @@ void StackPusher::pushDefaultValue(Type const* _type) {
 	switch (cat) {
 		case Type::Category::Address:
 		case Type::Category::Contract:
-			pushZeroAddress();
+			pushSlice("x2_"); // addr_none$00 = MsgAddressExt;
 			break;
 		case Type::Category::Bool:
 		case Type::Category::FixedBytes:

@@ -21,7 +21,7 @@ source unit is assigned a unique *source unit name* which is an opaque and unstr
 When you use the :ref:`import statement <import>`, you specify an *import path* that references a
 source unit name.
 
-.. index:: ! import callback, ! Host Filesystem Loader
+.. index:: ! import callback, ! Host Filesystem Loader, ! --no-import-callback
 .. _import-callback:
 
 Import Callback
@@ -36,11 +36,12 @@ An import callback is free to interpret source unit names in an arbitrary way, n
 If there is no callback available when one is needed or if it fails to locate the source code,
 compilation fails.
 
-The command-line compiler provides the *Host Filesystem Loader* - a rudimentary callback
+By default, the command-line compiler provides the *Host Filesystem Loader* - a rudimentary callback
 that interprets a source unit name as a path in the local filesystem.
+This callback can be disabled using the ``--no-import-callback`` command-line option.
 The `JavaScript interface <https://github.com/ethereum/solc-js>`_ does not provide any by default,
 but one can be provided by the user.
-This mechanism can be used to obtain source code from locations other then the local filesystem
+This mechanism can be used to obtain source code from locations other than the local filesystem
 (which may not even be accessible, e.g. when the compiler is running in a browser).
 For example the `Remix IDE <https://remix.ethereum.org/>`_ provides a versatile callback that
 lets you `import files from HTTP, IPFS and Swarm URLs or refer directly to packages in NPM registry
@@ -139,7 +140,7 @@ The initial content of the VFS depends on how you invoke the compiler:
 
 #. **Standard input**
 
-   On the command line it is also possible to provide the source by sending it to compiler's
+   On the command-line it is also possible to provide the source by sending it to compiler's
    standard input:
 
    .. code-block:: bash
@@ -197,7 +198,7 @@ source unit name.
 
     A source unit name is just an identifier and even if its value happens to look like a path, it
     is not subject to the normalization rules you would typically expect in a shell.
-    Any ``/./`` or ``/../`` seguments or sequences of multiple slashes remain a part of it.
+    Any ``/./`` or ``/../`` segments or sequences of multiple slashes remain a part of it.
     When the source is provided via Standard JSON interface it is entirely possible to associate
     different content with source unit names that would refer to the same file on disk.
 
@@ -248,19 +249,15 @@ and is bounded by two path separators.
 A separator is a forward slash or the beginning/end of the string.
 For example in ``./abc/..//`` there are three path segments: ``.``, ``abc`` and ``..``.
 
-The compiler computes a source unit name from the import path in the following way:
+The compiler resolves the import into a source unit name based on the import path, in the following way:
 
-1. First a prefix is computed
+#. We start with the source unit name of the importing source unit.
+#. The last path segment with preceding slashes is removed from the resolved name.
+#. Then, for every segment in the import path, starting from the leftmost one:
 
-    - Prefix is initialized with the source unit name of the importing source unit.
-    - The last path segment with preceding slashes is removed from the prefix.
-    - Then, the leading part of the normalized import path, consisting only of ``/`` and ``.``
-      characters is considered.
-      For every ``..`` segment found in this part the last path segment with preceding slashes is
-      removed from the prefix.
-
-2. Then the prefix is prepended to the normalized import path.
-   If the prefix is non-empty, a single slash is inserted between it and the import path.
+    - If the segment is ``.``, it is skipped.
+    - If the segment is ``..``, the last path segment with preceding slashes is removed from the resolved name.
+    - Otherwise, the segment (preceded by a single slash if the resolved name is not empty), is appended to the resolved name.
 
 The removal of the last path segment with preceding slashes is understood to
 work as follows:
@@ -268,14 +265,10 @@ work as follows:
 1. Everything past the last slash is removed (i.e. ``a/b//c.sol`` becomes ``a/b//``).
 2. All trailing slashes are removed (i.e. ``a/b//`` becomes ``a/b``).
 
-The normalization rules are the same as for UNIX paths, namely:
-
-- All the internal ``.`` segments are removed.
-- Every internal ``..`` segment backtracks one level up in the hierarchy.
-- Multiple slashes are squashed into a single one.
-
-Note that normalization is performed only on the import path.
-The source unit name of the importing module that is used for the prefix remains unnormalized.
+Note that the process normalizes the part of the resolved source unit name that comes from the import path according
+to the usual rules for UNIX paths, i.e. all ``.`` and ``..`` are removed and multiple slashes are
+squashed into a single one.
+On the other hand, the part that comes from the source unit name of the importing module remains unnormalized.
 This ensures that the ``protocol://`` part does not turn into ``protocol:/`` if the importing file
 is identified with a URL.
 
@@ -353,13 +346,13 @@ of the compiler.
 CLI Path Normalization and Stripping
 ------------------------------------
 
-On the command line the compiler behaves just as you would expect from any other program:
+On the command-line the compiler behaves just as you would expect from any other program:
 it accepts paths in a format native to the platform and relative paths are relative to the current
 working directory.
-The source unit names assigned to files whose paths are specified on the command line, however,
+The source unit names assigned to files whose paths are specified on the command-line, however,
 should not change just because the project is being compiled on a different platform or because the
 compiler happens to have been invoked from a different directory.
-To achieve this, paths to source files coming from the command line must be converted to a canonical
+To achieve this, paths to source files coming from the command-line must be converted to a canonical
 form, and, if possible, made relative to the base path or one of the include paths.
 
 The normalization rules are as follows:
@@ -416,7 +409,7 @@ The resulting file path becomes the source unit name.
     Prior to version 0.8.8, CLI path stripping was not performed and the only normalization applied
     was the conversion of path separators.
     When working with older versions of the compiler it is recommended to invoke the compiler from
-    the base path and to only use relative paths on the command line.
+    the base path and to only use relative paths on the command-line.
 
 .. index:: ! allowed paths, ! --allow-paths, remapping; target
 .. _allowed-paths:
@@ -429,7 +422,7 @@ locations that are considered safe by default:
 
 - Outside of Standard JSON mode:
 
-  - The directories containing input files listed on the command line.
+  - The directories containing input files listed on the command-line.
   - The directories used as :ref:`remapping <import-remapping>` targets.
     If the target is not a directory (i.e does not end with ``/``, ``/.`` or ``/..``) the directory
     containing the target is used instead.
@@ -523,7 +516,7 @@ you can use the following in your source file:
 
 The compiler will look for the file in the VFS under ``dapp-bin/library/math.sol``.
 If the file is not available there, the source unit name will be passed to the Host Filesystem
-Loader, which will then look in ``/project/dapp-bin/library/iterable_mapping.sol``.
+Loader, which will then look in ``/project/dapp-bin/library/math.sol``.
 
 .. warning::
 
@@ -559,7 +552,7 @@ you checked out to ``/project/dapp-bin_old``, then you can run:
 This means that all imports in ``module2`` point to the old version but imports in ``module1``
 point to the new version.
 
-Here are the detailed rules governing the behaviour of remappings:
+Here are the detailed rules governing the behavior of remappings:
 
 #. **Remappings only affect the translation between import paths and source unit names.**
 

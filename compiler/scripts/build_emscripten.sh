@@ -28,13 +28,14 @@
 
 set -e
 
-if test -z "$1"; then
-    BUILD_DIR="emscripten_build"
-else
-    BUILD_DIR="$1"
+params=""
+if (( $# != 0 )); then
+    params="$(printf "%q " "${@}")"
 fi
 
-# solbuildpackpusher/solidity-buildpack-deps:emscripten-13
+# solbuildpackpusher/solidity-buildpack-deps:emscripten-16
+# NOTE: Without `safe.directory` git would assume it's not safe to operate on /root/project since it's owned by a different user.
+# See https://github.blog/2022-04-12-git-security-vulnerability-announced/
 docker run -v "$(pwd):/root/project" -w /root/project \
-    solbuildpackpusher/solidity-buildpack-deps@sha256:f1c13f3450d1f2e53ea18ac1ac1a17e932573cb9a5ccd0fd9ef6dd44f6402fa9 \
-    ./scripts/ci/build_emscripten.sh "$BUILD_DIR"
+    solbuildpackpusher/solidity-buildpack-deps@sha256:19fcb5ac029bbc27ec36e10f7d14ea224d8010145f9690562ef084fd16146b0c \
+    /bin/bash -c "git config --global --add safe.directory /root/project && ./scripts/ci/build_emscripten.sh ${params}"

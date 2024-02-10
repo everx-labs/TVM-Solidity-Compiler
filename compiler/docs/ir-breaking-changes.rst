@@ -15,13 +15,13 @@ The IR-based code generator was introduced with an aim to not only allow
 code generation to be more transparent and auditable but also
 to enable more powerful optimization passes that span across functions.
 
-You can enable it on the command line using ``--via-ir``
+You can enable it on the command-line using ``--via-ir``
 or with the option ``{"viaIR": true}`` in standard-json and we
 encourage everyone to try it out!
 
 For several reasons, there are tiny semantic differences between the old
 and the IR-based code generator, mostly in areas where we would not
-expect people to rely on this behaviour anyway.
+expect people to rely on this behavior anyway.
 This section highlights the main differences between the old and the IR-based codegen.
 
 Semantic Only Changes
@@ -29,6 +29,8 @@ Semantic Only Changes
 
 This section lists the changes that are semantic-only, thus potentially
 hiding new and different behavior in existing code.
+
+.. _state-variable-initialization-order:
 
 - The order of state variable initialization has changed in case of inheritance.
 
@@ -122,8 +124,8 @@ hiding new and different behavior in existing code.
           modifier mod() { _; _; }
       }
 
-  If you execute ``f(0)`` in the old code generator, it will return ``2``, while
-  it will return ``1`` when using the new code generator.
+  If you execute ``f(0)`` in the old code generator, it will return ``1``, while
+  it will return ``0`` when using the new code generator.
 
   .. code-block:: solidity
 
@@ -174,8 +176,8 @@ hiding new and different behavior in existing code.
 
   The function ``preincr_u8(1)`` returns the following values:
 
-  - Old code generator: 3 (``1 + 2``) but the return value is unspecified in general
-  - New code generator: 4 (``2 + 2``) but the return value is not guaranteed
+  - Old code generator: ``3`` (``1 + 2``) but the return value is unspecified in general
+  - New code generator: ``4`` (``2 + 2``) but the return value is not guaranteed
 
   .. index:: ! evaluation order; function arguments
 
@@ -247,7 +249,7 @@ hiding new and different behavior in existing code.
           }
       }
 
-  The function `f()` behaves as follows:
+  The function ``f()`` behaves as follows:
 
   - Old code generator: runs out of gas while zeroing the array contents after the large memory allocation
   - New code generator: reverts due to free memory pointer overflow (does not run out of gas)

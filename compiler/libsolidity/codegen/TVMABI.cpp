@@ -13,7 +13,7 @@
 
 #include <boost/algorithm/string.hpp>
 
-#include "libsolutil/picosha2.h"
+#include <libsolutil/picosha2.h>
 #include <libsolidity/ast/TypeProvider.h>
 #include <libsolidity/analysis/TypeChecker.h>
 
@@ -48,7 +48,7 @@ Json::Value TVMABI::generateFunctionIdsJson(
 	if (map.count("constructor") == 0) {
 		map["constructor"] = encoder.calculateConstructorFunctionID();
 	}
-	for (VariableDeclaration const* vd : ctx.notConstantStateVariables()) {
+	for (VariableDeclaration const* vd : ctx.c4StateVariables()) {
 		if (vd->isPublic()) {
 			std::vector<VariableDeclaration const*> outputs = {vd};
 			uint32_t functionId = encoder.calculateFunctionIDWithReason(
@@ -81,10 +81,10 @@ TVMABI::generatePrivateFunctionIdsJson(
 	Json::Value ids{Json::arrayValue};
 	Pointer<Contract> codeContract = TVMContractCompiler::generateContractCode(&contract, _sourceUnits, pragmaHelper);
 	for (Pointer<Function> const& fun : codeContract->functions()) {
+		FunctionDefinition const* def = fun->functionDefinition();
 		if (fun->type() == Function::FunctionType::Fragment && fun->functionId()) {
 			Json::Value func{Json::objectValue};
-			FunctionDefinition const* def = fun->functionDefinition();
-			func["scope"] = def->annotation().contract->name();
+			func["scope"] = def->isFree() ? "" : def->annotation().contract->name();
 			func["sign"] = def->externalSignature();
 			func["id"] = fun->functionId().value();
 			ids.append(func);
@@ -117,7 +117,7 @@ Json::Value TVMABI::generateABIJson(
 
 	Json::Value root(Json::objectValue);
 	root["ABI version"] = 2;
-	root["version"] = "2.3";
+	root["version"] = "2.4";
 
 	// header
 	{
@@ -148,7 +148,7 @@ Json::Value TVMABI::generateABIJson(
 		}
 
 		// add public state variables to functions
-		for (VariableDeclaration const* vd : ctx.notConstantStateVariables()) {
+		for (VariableDeclaration const* vd : ctx.c4StateVariables()) {
 			if (vd->isPublic()) {
 				functions.append(toJson(vd->name(), {}, {vd}));
 			}
@@ -183,17 +183,6 @@ Json::Value TVMABI::generateABIJson(
 		root["events"] = eventAbi;
 	}
 
-	// data
-	{
-		Json::Value data(Json::arrayValue);
-		for (const auto &[v, index] : ctx.getStaticVariables()) {
-			Json::Value cur = setupNameTypeComponents(v->name(), v->type());
-			cur["key"] = index;
-			data.append(cur);
-		}
-		root["data"] = data;
-	}
-
 	// fields
 	{
 		Json::Value fields(Json::arrayValue);
@@ -210,11 +199,26 @@ Json::Value TVMABI::generateABIJson(
 			Json::Value field(Json::objectValue);
 			field["name"] = name;
 			field["type"] = type;
+			field["init"] = name == "_pubkey";
 			fields.append(field);
 		}
 
-		for (VariableDeclaration const* stateVar : ctx.notConstantStateVariables()) {
-			Json::Value cur = setupNameTypeComponents(stateVar->name(), stateVar->type());
+		std::vector<VariableDeclaration const *> stateVars = ctx.c4StateVariables();
+		std::set<std::string> usedNames;
+		std::vector<std::tuple<std::string, Type const*, bool>> namesTypes;
+		for (VariableDeclaration const * var : stateVars | boost::adaptors::reversed) {
+			std::string name = var->name();
+			if (usedNames.count(name) != 0)
+				name = var->annotation().contract->name() + "$" + var->name();
+			solAssert(usedNames.count(name) == 0, "");
+			usedNames.insert(name);
+			namesTypes.emplace_back(name, var->type(), var->isStatic());
+		}
+		std::reverse(namesTypes.begin(), namesTypes.end());
+
+		for (auto const&[name, type, isStatic] : namesTypes) {
+			Json::Value cur = setupNameTypeComponents(name, type);
+			cur["init"] = isStatic;
 			fields.append(cur);
 		}
 		root["fields"] = fields;
@@ -255,10 +259,6 @@ void TVMABI::generateABI(
 
 	*out << "\t" << R"("functions": [)" << "\n";
 	print(root["functions"], out);
-	*out << "\t" << "],\n";
-
-	*out << "\t" << R"("data": [)" << "\n";
-	printData(root["data"], out);
 	*out << "\t" << "],\n";
 
 	*out << "\t" << R"("events": [)" << "\n";
@@ -451,6 +451,8 @@ Json::Value TVMABI::setupNameTypeComponents(const string &name, const Type *type
 			auto varInt = to<VarIntegerType>(type);
 			typeName = varInt->toString(false);
 			boost::algorithm::to_lower(typeName);
+		} else if (auto* fixedBytesType = to<FixedBytesType>(type)) {
+			typeName = "fixedbytes" + toString(fixedBytesType->numBytes());
 		} else if (ti.isNumeric) {
 			if (to<BoolType>(type)) {
 				typeName = "bool";
@@ -1038,12 +1040,12 @@ void ChainDataEncoder::createMsgBody(
 }
 
 // arg[n-1], ..., arg[1], arg[0], builder
-// Target: create and append to msgBuilder the message body
+// Target: create and append to `builder` the args
 void ChainDataEncoder::encodeParameters(
 	const std::vector<Type const *> & _types,
 	DecodePositionAbiV2 &position
 ) {
-	// builder must be situated on top stack
+	// builder must be located on the top of stack
 	std::vector<Type const *> typesOnStack{_types.rbegin(), _types.rend()};
 	while (!typesOnStack.empty()) {
 		const int argQty = typesOnStack.size();
@@ -1058,6 +1060,8 @@ void ChainDataEncoder::encodeParameters(
 			for (const ASTPointer<VariableDeclaration>& m : members | boost::adaptors::reversed) {
 				typesOnStack.push_back(m->type());
 			}
+		} else if (auto userDefType = to<UserDefinedValueType>(type)) {
+			typesOnStack.push_back(&userDefType->underlyingType());
 		} else {
 			if (position.loadNextCell(type)) {
 				// arg[n-1], ..., arg[1], arg[0], builder

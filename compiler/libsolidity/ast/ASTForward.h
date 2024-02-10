@@ -68,7 +68,6 @@ class Mapping;
 class Optional;
 class TvmVector;
 class ArrayTypeName;
-class InlineAssembly;
 class Statement;
 class Block;
 class PlaceholderStatement;
@@ -100,6 +99,15 @@ class Identifier;
 class ElementaryTypeNameExpression;
 class Literal;
 class StructuredDocumentation;
+
+/// Experimental Solidity nodes
+/// @{
+class TypeClassDefinition;
+class TypeClassInstantiation;
+class TypeClassName;
+class TypeDefinition;
+class Builtin;
+/// @}
 
 class VariableScope;
 

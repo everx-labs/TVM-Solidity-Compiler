@@ -23,6 +23,7 @@ disable=
     no-else-return,
     pointless-string-statement,
     redefined-outer-name,
+    superfluous-parens,
     too-few-public-methods,
     too-many-arguments,
     too-many-branches,
@@ -62,3 +63,7 @@ expected-line-ending-format=LF
 
 # Maximum number of characters on a single line.
 max-line-length=130
+
+[MISCELLANEOUS]
+
+notes=XXX,TMP

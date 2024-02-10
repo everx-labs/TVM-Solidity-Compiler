@@ -19,10 +19,8 @@
 #include <libsolidity/analysis/ControlFlowBuilder.h>
 #include <libsolidity/ast/ASTUtils.h>
 
-using namespace solidity;
 using namespace solidity::langutil;
 using namespace solidity::frontend;
-using namespace std;
 
 ControlFlowBuilder::ControlFlowBuilder(CFG::NodeContainer& _nodeContainer, FunctionFlow const& _functionFlow, ContractDefinition const* _contract):
 	m_nodeContainer(_nodeContainer),
@@ -34,13 +32,13 @@ ControlFlowBuilder::ControlFlowBuilder(CFG::NodeContainer& _nodeContainer, Funct
 }
 
 
-unique_ptr<FunctionFlow> ControlFlowBuilder::createFunctionFlow(
+std::unique_ptr<FunctionFlow> ControlFlowBuilder::createFunctionFlow(
 	CFG::NodeContainer& _nodeContainer,
 	FunctionDefinition const& _function,
 	ContractDefinition const* _contract
 )
 {
-	auto functionFlow = make_unique<FunctionFlow>();
+	auto functionFlow = std::make_unique<FunctionFlow>();
 	functionFlow->entry = _nodeContainer.newNode();
 	functionFlow->exit = _nodeContainer.newNode();
 	functionFlow->revert = _nodeContainer.newNode();
@@ -61,17 +59,53 @@ bool ControlFlowBuilder::visit(BinaryOperation const& _operation)
 		case Token::And:
 		{
 			visitNode(_operation);
+			solAssert(*_operation.annotation().userDefinedFunction == nullptr);
 			appendControlFlow(_operation.leftExpression());
 
 			auto nodes = splitFlow<2>();
 			nodes[0] = createFlow(nodes[0], _operation.rightExpression());
 			mergeFlow(nodes, nodes[1]);
-
 			return false;
 		}
 		default:
-			return ASTConstVisitor::visit(_operation);
+		{
+			if (*_operation.annotation().userDefinedFunction != nullptr)
+			{
+				visitNode(_operation);
+				_operation.leftExpression().accept(*this);
+				_operation.rightExpression().accept(*this);
+
+				m_currentNode->functionDefinition = *_operation.annotation().userDefinedFunction;
+
+				auto nextNode = newLabel();
+
+				connect(m_currentNode, nextNode);
+				m_currentNode = nextNode;
+				return false;
+			}
+		}
 	}
+	return ASTConstVisitor::visit(_operation);
+}
+
+bool ControlFlowBuilder::visit(UnaryOperation const& _operation)
+{
+	solAssert(!!m_currentNode);
+
+	if (*_operation.annotation().userDefinedFunction != nullptr)
+	{
+		visitNode(_operation);
+		_operation.subExpression().accept(*this);
+		m_currentNode->functionDefinition = *_operation.annotation().userDefinedFunction;
+
+		auto nextNode = newLabel();
+
+		connect(m_currentNode, nextNode);
+		m_currentNode = nextNode;
+		return false;
+	}
+
+	return ASTConstVisitor::visit(_operation);
 }
 
 bool ControlFlowBuilder::visit(Conditional const& _conditional)
@@ -333,8 +367,7 @@ bool ControlFlowBuilder::visit(FunctionCall const& _functionCall)
 				_functionCall.expression().accept(*this);
 				ASTNode::listAccept(_functionCall.arguments(), *this);
 
-				solAssert(!m_currentNode->functionCall);
-				m_currentNode->functionCall = &_functionCall;
+				m_currentNode->functionDefinition = ASTNode::resolveFunctionCall(_functionCall, m_contract);
 
 				auto nextNode = newLabel();
 
@@ -351,6 +384,8 @@ bool ControlFlowBuilder::visit(FunctionCall const& _functionCall)
 
 bool ControlFlowBuilder::visit(ModifierInvocation const& _modifierInvocation)
 {
+	solAssert(m_contract, "Free functions cannot have modifiers");
+
 	if (auto arguments = _modifierInvocation.arguments())
 		for (auto& argument: *arguments)
 			appendControlFlow(*argument);
@@ -442,12 +477,6 @@ bool ControlFlowBuilder::visit(FunctionTypeName const& _functionTypeName)
 	// Do not visit the parameters and return values of a function type name.
 	// We do not want to consider them as variable declarations for the control flow graph.
 	return false;
-}
-
-bool ControlFlowBuilder::visit(InlineAssembly const& /*_inlineAssembly*/)
-{
-	solAssert(!!m_currentNode, "");
-	return true;
 }
 
 bool ControlFlowBuilder::visit(VariableDeclaration const& _variableDeclaration)

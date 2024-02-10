@@ -395,7 +395,7 @@ void TVMExpressionCompiler::compareSlices(Token op) {
 }
 
 void TVMExpressionCompiler::compareStrings(Token op) {
-	m_pusher.pushFragmentInCallRef(2, 1, "compareLongStrings");
+	m_pusher.pushFragmentInCallRef(2, 1, "__compareStrings");
 	switch(op) {
 		case Token::GreaterThan:
 			m_pusher << "ISPOS";
@@ -448,7 +448,7 @@ void TVMExpressionCompiler::visitBinaryOperationForString(
 	if (op == Token::Add) {
 		pushLeft();
 		pushRight();
-		m_pusher.pushFragmentInCallRef(2, 1, "concatenateStrings");
+		m_pusher.pushFragmentInCallRef(2, 1, "__concatenateStrings");
 	} else if (op == Token::Equal || op == Token::NotEqual) {
 		visitBinaryOperationForTvmCell(pushLeft, pushRight, op);
 	} else if (TokenTraits::isCompareOp(op)){
@@ -522,6 +522,14 @@ void TVMExpressionCompiler::visit2(BinaryOperation const &_binaryOperation) {
 		m_pusher.convert(rightTargetType, rt);
 	};
 
+	if (_binaryOperation.userDefinedFunctionType()) {
+		acceptLeft();
+		acceptRight();
+		FunctionDefinition const* functionDef = *_binaryOperation.annotation().userDefinedFunction;
+		m_pusher.pushCallOrCallRef(functionDef, std::nullopt, false);
+		return ;
+	}
+
 	if (isString(commonType)) {
 		visitBinaryOperationForString(acceptLeft, acceptRight, op);
 		return;
@@ -550,11 +558,9 @@ void TVMExpressionCompiler::visit2(BinaryOperation const &_binaryOperation) {
 	if (op == Token::SHR) cast_error(_binaryOperation, "Unsupported operation >>>");
 	if (op == Token::Comma) cast_error(_binaryOperation, "Unsupported operation ,");
 
-	const auto& val = ExprUtils::constValue(_binaryOperation.rightExpression());
-	std::optional<bigint> rightValue;
-	if (val.has_value())
-		rightValue = val;
-	visitMathBinaryOperation(op, commonType, acceptRight, rightValue);
+	const auto& leftValue = ExprUtils::constValue(_binaryOperation.leftExpression());
+	const auto& rightValue = ExprUtils::constValue(_binaryOperation.rightExpression());
+	visitMathBinaryOperation(op, commonType, leftValue, acceptRight, rightValue);
 }
 
 bool TVMExpressionCompiler::isCheckFitUseless(Type const* commonType, Token op) {
@@ -572,6 +578,7 @@ bool TVMExpressionCompiler::isCheckFitUseless(Type const* commonType, Token op) 
 void TVMExpressionCompiler::visitMathBinaryOperation(
 	const Token op,
 	Type const* commonType,
+	const std::optional<bigint>& leftValue,
 	const std::function<void()>& pushRight,
 	const std::optional<bigint>& rightValue
 ) {
@@ -595,11 +602,18 @@ void TVMExpressionCompiler::visitMathBinaryOperation(
 				solUnimplemented("");
 			}
 		} else {
-			pushRight();
-			m_pusher.dup2();
-			m_pusher << "OR";
-			m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::Exponent00));
-			m_pusher.pushFragmentInCallRef(2, 1, "__exp");
+			if (leftValue.has_value() && leftValue == 2) {
+				m_pusher.drop();
+				pushRight();
+				m_pusher << "POW2";
+			} else {
+				pushRight();
+				m_pusher.pushS(1);
+				m_pusher.pushS(1);
+				m_pusher << "OR";
+				m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::Exponent00));
+				m_pusher.pushFragmentInCallRef(2, 1, "__exp");
+			}
 		}
 		checkOverflow = true;
 	} else {
@@ -642,7 +656,12 @@ void TVMExpressionCompiler::visitMathBinaryOperation(
 		else if (op == Token::BitAnd) m_pusher << "AND";
 		else if (op == Token::BitOr) m_pusher << "OR";
 		else if (op == Token::SHL) {
-			m_pusher << "LSHIFT";
+			if (leftValue.has_value() && leftValue == 1) {
+				m_pusher.dropUnder(1, 1);
+				m_pusher << "POW2";
+			} else {
+				m_pusher << "LSHIFT";
+			}
 			checkOverflow = true;
 		}
 		else if (op == Token::SAR) m_pusher << "RSHIFT";
@@ -812,7 +831,7 @@ void TVMExpressionCompiler::visitMagic(MemberAccess const &_memberAccess) {
 	};
 
 	Type const* exprType = _memberAccess.expression().annotation().type;
-	auto magicType = dynamic_cast<MagicType const*>(exprType);
+	auto magicType = to<MagicType>(exprType);
 	ASTString const& member = _memberAccess.memberName();
 
 	switch (magicType->kind()) {
@@ -841,14 +860,14 @@ void TVMExpressionCompiler::visitMagic(MemberAccess const &_memberAccess) {
 	}
 	case MagicType::Kind::MetaType: {
 		if (member == "min" || member == "max") {
-			auto const* arg = dynamic_cast<MagicType const*>(_memberAccess.expression().annotation().type);
+			auto const* arg = to<MagicType>(_memberAccess.expression().annotation().type);
 			string opcode = "PUSHINT ";
 			const Type *argType = arg->typeArgument();
-			if (auto const* integerType = dynamic_cast<IntegerType const*>(argType))
+			if (auto const* integerType = to<IntegerType>(argType))
 				opcode += toString(member == "min" ? integerType->minValue() : integerType->maxValue());
-			else if (auto const* varInt = dynamic_cast<VarIntegerType const*>(argType))
+			else if (auto const* varInt = to<VarIntegerType>(argType))
 				opcode += toString(member == "min" ? varInt->asIntegerType().minValue() : varInt->asIntegerType().maxValue());
-			else if (auto const* enumType = dynamic_cast<EnumType const*>(argType))
+			else if (auto const* enumType = to<EnumType>(argType))
 				opcode += toString(member == "min" ? enumType->minValue() : enumType->maxValue());
 			else
 				solAssert(false, "min/max not available for the given type.");
@@ -892,14 +911,19 @@ void TVMExpressionCompiler::visit2(MemberAccess const &_node) {
 
 	if (category == Type::Category::TypeType) {
 		auto typeType = to<TypeType>(_node.expression().annotation().type);
-		if (auto enumType = dynamic_cast<EnumType const *>(typeType->actualType())) {
-			unsigned int value = enumType->memberValue(_node.memberName());
+		auto actualType = typeType->actualType();
+		if (actualType->category() == Type::Category::Address) {
+			solAssert(memberName == "addrNone", "");
+			m_pusher.pushSlice("x2_");
+			return;
+		}
+		if (auto enumType = to<EnumType>(actualType)) {
+			unsigned int value = enumType->memberValue(memberName);
 			m_pusher << "PUSHINT " + toString(value);
 			return;
 		}
-
-		auto conType = to<ContractType>(typeType->actualType());
-		if (conType->contractDefinition().isLibrary()) {
+		auto conType = to<ContractType>(actualType);
+		if (conType != nullptr && conType->contractDefinition().isLibrary()) {
 			auto funType = to<FunctionType>(_node.annotation().type);
 			if (funType) {
 				auto funDef = to<FunctionDefinition>(&funType->declaration());
@@ -907,11 +931,9 @@ void TVMExpressionCompiler::visit2(MemberAccess const &_node) {
 				return ;
 			}
 		}
-
 		if (fold_constants(&_node)) {
 			return;
 		}
-
 		if (tryPushConstant(_node.annotation().referencedDeclaration)) {
 			return;
 		}
@@ -991,21 +1013,19 @@ void TVMExpressionCompiler::visit2(IndexRangeAccess const &indexRangeAccess) {
 		auto baseArrayType = to<ArrayType>(baseType);
 		if (baseArrayType->isByteArrayOrString()) {
 			acceptExpr(&indexRangeAccess.baseExpression()); // bytes
-			if (indexRangeAccess.startExpression()) {
+			if (indexRangeAccess.startExpression())
 				compileNewExpr(indexRangeAccess.startExpression());
-			}
-			else {
+			else
 				m_pusher.pushInt(0);
-			}
+
 			if (indexRangeAccess.endExpression()) {
 				compileNewExpr(indexRangeAccess.endExpression());
-				m_pusher << "FALSE";
+				m_pusher.pushFragmentInCallRef(3, 1, "__arraySlice");
 			} else {
-				m_pusher.pushInt(0);
+				m_pusher.pushInt(0xFFFF'FFFF);
 				m_pusher << "TRUE";
+				m_pusher.pushFragmentInCallRef(4, 1, "__subCell");
 			}
-
-			m_pusher.pushFragmentInCallRef(4, 1, "bytes_substr");
 			return;
 		}
 	}
@@ -1329,9 +1349,9 @@ bool TVMExpressionCompiler::tryAssignLValue(Assignment const &_assignment) {
 		m_pusher.blockSwap(1, expandedLValueSize + 1); // expanded... l r
 
 		if (isString(commonType)) {
-			m_pusher.pushFragmentInCallRef(2, 1, "concatenateStrings");
+			m_pusher.pushFragmentInCallRef(2, 1, "__concatenateStrings");
 		} else {
-			visitMathBinaryOperation(binOp, commonType, nullptr, nullopt);
+			visitMathBinaryOperation(binOp, commonType, nullopt, nullptr, nullopt);
 		}
 
 		if (isCurrentResultNeeded()) {

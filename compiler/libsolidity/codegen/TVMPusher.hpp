@@ -83,9 +83,10 @@ public:
 	TVMCompilerContext(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper);
 	void initMembers(ContractDefinition const* contract);
 	int getStateVarIndex(VariableDeclaration const *variable) const;
-	std::vector<VariableDeclaration const *> notConstantStateVariables() const;
+	std::vector<VariableDeclaration const *> c4StateVariables() const;
+	std::vector<VariableDeclaration const *> nostorageStateVars() const;
 	bool tooMuchStateVariables() const;
-	std::vector<Type const *> notConstantStateVariableTypes() const;
+	std::vector<Type const *> c4StateVariableTypes() const;
 	PragmaDirectiveHelper const& pragmaHelper() const;
 	bool isStdlib() const;
 	std::string getFunctionInternalName(FunctionDefinition const* _function, bool calledByPoint = true) const;
@@ -268,8 +269,7 @@ public:
 	void setGlob(int index);
 	void setGlob(VariableDeclaration const * vd);
 	void pushS(int i);
-	void dup2();
-	void pushS2(int i, int j);
+	void pushS2(int i, int j); // TODO delete
 	void popS(int i);
 	void pushInt(const bigint& i);
 	void stzeroes(int qty);

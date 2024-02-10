@@ -40,6 +40,7 @@ FunctionCallCompiler::FunctionCallCompiler(
 	m_pusher{m_pusher},
 	m_exprCompiler{m_pusher},
 	m_functionCall{_functionCall},
+	m_memberAccess{to<MemberAccess>(&m_functionCall.expression())},
 	m_arguments{_functionCall.arguments()},
 	m_funcType{to<FunctionType>(m_functionCall.expression().annotation().type)},
 	m_retType{m_functionCall.annotation().type},
@@ -59,7 +60,6 @@ void FunctionCallCompiler::structConstructorCall() {
 }
 
 void FunctionCallCompiler::compile() {
-	auto _memberAccess = to<MemberAccess>(&m_functionCall.expression());
 	auto reportError = [&](){
 		cast_error(m_functionCall, "Unsupported function call");
 	};
@@ -76,14 +76,14 @@ void FunctionCallCompiler::compile() {
 	}
 
 	if (checkRemoteMethodCall(m_functionCall) ||
-		(_memberAccess != nullptr && libraryCall(*_memberAccess)) ||
+		(m_memberAccess != nullptr && libraryCall(*m_memberAccess)) ||
 		checkForMappingOrCurrenciesMethods() ||
 		checkNewExpression() ||
 		checkAddressThis() ||
 		checkSolidityUnits() ||
 		checkLocalFunctionOrLibCallOrFuncVarCall()) {
 		// do nothing
-	} else if (_memberAccess != nullptr && getType(&_memberAccess->expression())->category() == Type::Category::Struct) {
+	} else if (m_memberAccess != nullptr && getType(&m_memberAccess->expression())->category() == Type::Category::Struct) {
 		if (!structMethodCall()) {
 			reportError();
 		}
@@ -96,63 +96,76 @@ void FunctionCallCompiler::compile() {
 			typeConversion();
 		}
 	} else {
-		if (_memberAccess != nullptr) {
-			auto category = getType(&_memberAccess->expression())->category();
-			auto ident = to<Identifier>(&_memberAccess->expression());
+		if (m_memberAccess != nullptr) {
+			auto category = getType(&m_memberAccess->expression())->category();
+			auto ident = to<Identifier>(&m_memberAccess->expression());
 			if (category == Type::Category::Array) {
-				arrayMethods(*_memberAccess);
+				arrayMethods(*m_memberAccess);
 			} else if (category == Type::Category::TvmSlice) {
-				sliceMethods(*_memberAccess);
+				sliceMethods(*m_memberAccess);
 			} else if (category == Type::Category::TvmBuilder) {
-				builderMethods(*_memberAccess);
+				builderMethods(*m_memberAccess);
 			} else if (
-				checkForTvmVectorMethods(*_memberAccess, category) ||
-				checkForOptionalMethods(*_memberAccess))
+				checkForTvmVectorMethods(*m_memberAccess, category) ||
+				checkForOptionalMethods(*m_memberAccess))
 			{
 				// nothing
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "tvm") {
-				if (m_funcType->kind() == FunctionType::Kind::TVMBuildIntMsg) {
-					tvmBuildIntMsg();
-				} else if (m_funcType->kind() == FunctionType::Kind::TVMBuildDataInit) {
-					tvmBuildDataInit();
-				} else if (m_funcType->kind() == FunctionType::Kind::TVMBuildExtMsg) {
-					tvmBuildMsgMethod();
+				if (m_funcType->kind() == FunctionType::Kind::ABIBuildIntMsg) {
+					abiBuildIntMsg();
+				} else if (m_funcType->kind() == FunctionType::Kind::ABIEncodeData) {
+					abiBuildDataInit();
+				} else if (m_funcType->kind() == FunctionType::Kind::ABIBuildExtMsg) {
+					abiBuildExtMsg();
 				} else if (
-					checkForTvmSendFunction(*_memberAccess) ||
-					checkForTvmConfigParamFunction(*_memberAccess) ||
-					checkForTvmFunction(*_memberAccess) ||
-					checkForTvmDeployMethods(*_memberAccess, category)
+					checkForTvmSendFunction(*m_memberAccess) ||
+					checkForTvmConfigParamFunction(*m_memberAccess) ||
+					checkForTvmFunction(*m_memberAccess) ||
+					checkTvmABIDeployMethods(category)
 				) {
 					// do nothing
 				} else {
 					reportError();
 				}
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "rnd") {
-				rndFunction(*_memberAccess);
+				rndFunction(*m_memberAccess);
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "gosh") {
 				goshFunction();
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "msg") {
-				msgFunction(*_memberAccess);
+				msgFunction(*m_memberAccess);
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "abi") {
-				abiFunction();
+				if (m_funcType->kind() == FunctionType::Kind::ABIDecodeData)
+					abiDecodeData();
+				else if (m_funcType->kind() == FunctionType::Kind::ABIEncodeBody)
+					abiEncodeBody();
+				else if (m_funcType->kind() == FunctionType::Kind::ABIBuildIntMsg)
+					abiBuildIntMsg();
+				else if (m_funcType->kind() == FunctionType::Kind::ABIBuildExtMsg)
+					abiBuildExtMsg();
+				else if (m_funcType->kind() == FunctionType::Kind::ABIEncodeData)
+					abiBuildDataInit();
+				else if (!checkTvmABIDeployMethods(category))
+					abiFunction();
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "math") {
-				mathFunction(*_memberAccess);
+				mathFunction(*m_memberAccess);
 			} else if (category == Type::Category::Address) {
 				addressMethod();
 			} else if (category == Type::Category::TvmCell) {
-				cellMethods(*_memberAccess);
+				cellMethods(*m_memberAccess);
+			} else if (category == Type::Category::Integer) {
+				integerMethods();
 			} else if (category == Type::Category::Variant) {
-				variantMethods(*_memberAccess);
-			} else if (isSuper(&_memberAccess->expression())) {
-				superFunctionCall(*_memberAccess);
+				variantMethods(*m_memberAccess);
+			} else if (isSuper(&m_memberAccess->expression())) {
+				superFunctionCall(*m_memberAccess);
 			} else if (category == Type::Category::TypeType) {
-				Type const* actualType = to<TypeType>(_memberAccess->expression().annotation().type)->actualType();
-				if (checkBaseContractCall(*_memberAccess)) {
+				Type const* actualType = to<TypeType>(m_memberAccess->expression().annotation().type)->actualType();
+				if (checkBaseContractCall(*m_memberAccess)) {
 					// nothing
 				} else if (to<UserDefinedValueType>(actualType)) {
-					userDefinedValueMethods(*_memberAccess);
+					userDefinedValueMethods(*m_memberAccess);
 				} else if (to<AddressType>(actualType)) {
-					addressMethods(*_memberAccess);
+					addressMethods(*m_memberAccess);
 				} else {
 					reportError();
 				}
@@ -177,12 +190,10 @@ void FunctionCallCompiler::arrayPush(StackPusher& pusher, Type const* arrayBaseT
 }
 
 bool FunctionCallCompiler::checkForMappingOrCurrenciesMethods() {
-	auto expr = &m_functionCall.expression();
-	auto ma = to<MemberAccess>(expr);
-	if (ma == nullptr || !to<MappingType>(ma->expression().annotation().type))
+	if (m_memberAccess == nullptr || !to<MappingType>(m_memberAccess->expression().annotation().type))
 		return false;
 
-	const ASTString &memberName = ma->memberName();
+	const ASTString &memberName = m_memberAccess->memberName();
 	if (isIn(memberName, "delMin", "delMax")) {
 		mappingDelMinOrMax(memberName == std::string{"delMin"});
 	} else  if (isIn(memberName, "at", "fetch", "exists", "replace", "add",
@@ -204,28 +215,24 @@ bool FunctionCallCompiler::checkForMappingOrCurrenciesMethods() {
 }
 
 void FunctionCallCompiler::mappingDelMinOrMax(bool isDelMin) {
-	auto memberAccess = to<MemberAccess>(&m_functionCall.expression());
-
 	Type const* keyType{};
 	Type const* valueType{};
-	std::tie(keyType, valueType) = dictKeyValue(memberAccess->expression().annotation().type);
+	std::tie(keyType, valueType) = dictKeyValue(m_memberAccess->expression().annotation().type);
 
-	DelMinOrMax d{m_pusher, *keyType, *valueType, isDelMin, memberAccess};
+	DelMinOrMax d{m_pusher, *keyType, *valueType, isDelMin, m_memberAccess};
 	d.delMinOrMax();
 }
 
 void FunctionCallCompiler::mappingGetSet() {
-	auto memberAccess = to<MemberAccess>(&m_functionCall.expression());
-
 	Type const* keyType{};
 	Type const* valueType{};
-	std::tie(keyType, valueType) = dictKeyValue(memberAccess->expression().annotation().type);
+	std::tie(keyType, valueType) = dictKeyValue(m_memberAccess->expression().annotation().type);
 
-	const ASTString &memberName = memberAccess->memberName();
+	const ASTString &memberName = m_memberAccess->memberName();
 	if (isIn(memberName, "fetch", "at")) {
 		pushArgs(); // index
 		m_pusher.prepareKeyForDictOperations(keyType, false);
-		acceptExpr(&memberAccess->expression()); // index dict
+		acceptExpr(&m_memberAccess->expression()); // index dict
 		if (memberName == "fetch")
 			m_pusher.getDict(*keyType, *valueType, GetDictOperation::Fetch);
 		else
@@ -233,13 +240,11 @@ void FunctionCallCompiler::mappingGetSet() {
 	} else if (memberName == "exists") {
 		pushArgs(); // index
 		m_pusher.prepareKeyForDictOperations(keyType, false);
-		acceptExpr(&memberAccess->expression()); // index dict
+		acceptExpr(&m_memberAccess->expression()); // index dict
 		m_pusher.getDict(*keyType, *valueType, GetDictOperation::Exist);
 	} else if (isIn(memberName, "getDel")) {
 		const int stackSize = m_pusher.stackSize();
-
-		auto ma = to<MemberAccess>(&m_functionCall.expression());
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&ma->expression(), true);
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
 
 		pushArgAndConvert(0); // lValue... map key
 		m_pusher.prepareKeyForDictOperations(keyType, false);
@@ -252,8 +257,7 @@ void FunctionCallCompiler::mappingGetSet() {
 		m_exprCompiler.collectLValue(lValueInfo, true, false); // value
 	} else if (isIn(memberName, "replace", "add", "getSet", "getAdd", "getReplace")) {
 		const int stackSize = m_pusher.stackSize();
-		auto ma = to<MemberAccess>(&m_functionCall.expression());
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&ma->expression(), true); // lValue... map
+		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true); // lValue... map
 		pushArgAndConvert(1); // lValue... map value
 		const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueType); // lValue... map value'
 		pushArgAndConvert(0); // mapLValue... map value key
@@ -295,46 +299,40 @@ void FunctionCallCompiler::mappingGetSet() {
 }
 
 void FunctionCallCompiler::mappingMinMaxMethod(bool isMin) {
-	auto expr = &m_functionCall.expression();
-	auto memberAccess = to<MemberAccess>(expr);
-
 	Type const* keyType{};
 	Type const* valueType{};
-	std::tie(keyType, valueType) = dictKeyValue(memberAccess->expression().annotation().type);
+	std::tie(keyType, valueType) = dictKeyValue(m_memberAccess->expression().annotation().type);
 
-	acceptExpr(&memberAccess->expression()); // dict
+	acceptExpr(&m_memberAccess->expression()); // dict
 
 	DictMinMax compiler{m_pusher, *keyType, *valueType, isMin};
 	compiler.minOrMax();
 }
 
 void FunctionCallCompiler::mappingPrevNextMethods() {
-	auto expr = &m_functionCall.expression();
-	auto memberAccess = to<MemberAccess>(expr);
 	Type const* keyType{};
 	Type const* valueType{};
-	std::tie(keyType, valueType) = dictKeyValue(memberAccess->expression().annotation().type);
+	std::tie(keyType, valueType) = dictKeyValue(m_memberAccess->expression().annotation().type);
 
 	pushArgAndConvert(0); // index
 	m_pusher.prepareKeyForDictOperations(keyType, true); // index'
-	acceptExpr(&memberAccess->expression()); // index' dict
+	acceptExpr(&m_memberAccess->expression()); // index' dict
 	m_pusher.pushInt(dictKeyLength(keyType)); // index' dict nbits
 
-	DictPrevNext compiler{m_pusher, *keyType, *valueType, memberAccess->memberName()};
+	DictPrevNext compiler{m_pusher, *keyType, *valueType, m_memberAccess->memberName()};
 	compiler.prevNext();
 }
 
 void FunctionCallCompiler::mappingKeysOrValues(bool areKeys) {
 	m_pusher.pushEmptyArray();
 
-	auto ma = to<MemberAccess>(&m_functionCall.expression());
-	acceptExpr(&ma->expression());
+	acceptExpr(&m_memberAccess->expression());
 	// array map
 	m_pusher.pushS(0);
 	// array map map
 	Type const* mapKeyType{};
 	Type const* mapValueType{};
-	std::tie(mapKeyType, mapValueType) = realDictKeyValue(ma->expression().annotation().type);
+	std::tie(mapKeyType, mapValueType) = realDictKeyValue(m_memberAccess->expression().annotation().type);
 	DictMinMax compiler{m_pusher, *mapKeyType, *mapValueType, true};
 	compiler.minOrMax();
 	// array map minPair
@@ -388,9 +386,7 @@ void FunctionCallCompiler::mappingKeysOrValues(bool areKeys) {
 }
 
 void FunctionCallCompiler::mappingEmpty() {
-	auto expr = &m_functionCall.expression();
-	auto ma = to<MemberAccess>(expr);
-	acceptExpr(&ma->expression());
+	acceptExpr(&m_memberAccess->expression());
 	m_pusher << "DICTEMPTY";
 }
 
@@ -436,8 +432,6 @@ void FunctionCallCompiler::addressMethods(MemberAccess const &_node) {
 			m_pusher << "ENDC";
 			m_pusher << "CTOS"; // extAddress
 		}
-	} else if (_node.memberName() == "makeAddrNone") {
-		m_pusher.pushSlice("x2_");
 	} else if (_node.memberName() == "makeAddrStd") {
 		const auto& wid = ExprUtils::constValue(*m_arguments.at(0));
 		const auto& val = ExprUtils::constValue(*m_arguments.at(1));
@@ -478,10 +472,10 @@ bool FunctionCallCompiler::libraryCall(MemberAccess const& ma) {
 			} else {
 				// using MathLib for uint;
 				// a.add(b);
-				const int stakeSize0 = m_pusher.stackSize();
+				const int stackSize0 = m_pusher.stackSize();
 				const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&ma.expression(), true);
-				const int stakeSize1 = m_pusher.stackSize();
-				const int lValueQty = stakeSize1 - stakeSize0;
+				const int stackSize1 = m_pusher.stackSize();
+				const int lValueQty = stackSize1 - stackSize0;
 
 				pushArgs();
 				m_pusher.pushCallOrCallRef(
@@ -501,55 +495,106 @@ bool FunctionCallCompiler::libraryCall(MemberAccess const& ma) {
 }
 
 std::function<void()> FunctionCallCompiler::generateDataSection(
+	bool data_map_supported,
 	const std::function<void()>& pushKey,
 	Expression const* vars,
 	ContractType const* ct
 ) {
-	return [pushKey, this, vars, ct]() {
-		// creat dict with variable values
-		m_pusher << "NEWDICT";
-		// stake: builder dict
+	auto getDeclAndIndex =
+		[](std::vector<std::pair<VariableDeclaration const*, int>> staticVars, const std::string& name)
+	{
+		auto pos = find_if(staticVars.begin(), staticVars.end(), [&](auto v) {
+			return v.first->name() == name;
+		});
+		solAssert(pos != staticVars.end(), "");
+		return *pos;
+	};
 
-		IntegerType keyType = getKeyTypeOfC4();
-		Type const* valueType = TypeProvider::uint256();
+	if (data_map_supported) {
+		return [pushKey, this, vars, ct, getDeclAndIndex]() {
+			// creat dict with variable values
+			m_pusher << "NEWDICT";
+			// stack: builder dict
+			IntegerType keyType = getKeyTypeOfC4();
+			Type const* valueType = TypeProvider::uint256();
 
-		pushKey();
-		const DataType& dataType = m_pusher.prepareValueForDictOperations(&keyType, valueType);
-		m_pusher.pushInt(0); // index of pubkey
-		// stack: dict value key
-		m_pusher.rot();
-		// stack: value key dict
-		m_pusher.setDict(getKeyTypeOfC4(), *valueType, dataType);
-		// stack: dict'
-		if (vars) {
+			pushKey();
+			const DataType& dataType = m_pusher.prepareValueForDictOperations(&keyType, valueType);
+			m_pusher.pushInt(0); // index of pubkey
+			// stack: dict value key
+			m_pusher.rot();
+			// stack: value key dict
+			m_pusher.setDict(getKeyTypeOfC4(), *valueType, dataType);
+			// stack: dict'
+			if (vars) {
+				std::vector<PragmaDirective const *> _pragmaDirectives;
+				PragmaDirectiveHelper pragmaHelper{_pragmaDirectives};
+				TVMCompilerContext cc{&ct->contractDefinition(), pragmaHelper};
+				std::vector<std::pair<VariableDeclaration const*, int>> staticVars = cc.getStaticVariables();
+				auto initVars = to<InitializerList>(vars);
+				for (size_t i = 0; i < initVars->names().size(); ++i) {
+					const ASTPointer<ASTString> &name = initVars->names().at(i);
+					const auto &[varDecl, varIndex] = getDeclAndIndex(staticVars, *name);
+					valueType = varDecl->type();
+					pushExprAndConvert(initVars->options().at(i).get(), valueType); // stack: dict value
+					const DataType& dataType2 = m_pusher.prepareValueForDictOperations(&keyType, valueType);
+					m_pusher.pushInt(varIndex);
+					// stack: dict value key
+					m_pusher.rot();
+					// stack: value key dict
+					m_pusher.setDict(getKeyTypeOfC4(), *varDecl->type(), dataType2);
+					// stack: dict'
+				}
+			}
+			m_pusher << "NEWC";
+			m_pusher << "STDICT";
+			m_pusher << "ENDC";
+		};
+	} else {
+		return [pushKey, this, vars, ct, getDeclAndIndex]() {
 			std::vector<PragmaDirective const *> _pragmaDirectives;
 			PragmaDirectiveHelper pragmaHelper{_pragmaDirectives};
-			TVMCompilerContext cc{&ct->contractDefinition(), pragmaHelper};
-			std::vector<std::pair<VariableDeclaration const*, int>> staticVars = cc.getStaticVariables();
-			auto getDeclAndIndex = [&](const std::string& name) {
-				auto pos = find_if(staticVars.begin(), staticVars.end(), [&](auto v) { return v.first->name() == name; });
-				solAssert(pos != staticVars.end(), "");
-				return *pos;
-			};
-			auto initVars = to<InitializerList>(vars);
-			for (size_t i = 0; i < initVars->names().size(); ++i) {
-				const ASTPointer<ASTString> &name = initVars->names().at(i);
-				const auto &[varDecl, varIndex] = getDeclAndIndex(*name);
-				valueType = varDecl->type();
-				pushExprAndConvert(initVars->options().at(i).get(), valueType); // stack: dict value
-				const DataType& dataType2 = m_pusher.prepareValueForDictOperations(&keyType, valueType);
-				m_pusher.pushInt(varIndex);
-				// stack: dict value key
-				m_pusher.rot();
-				// stack: value key dict
-				m_pusher.setDict(getKeyTypeOfC4(), *varDecl->type(), dataType2);
-				// stack: dict'
+			solAssert(ct, "ct == null");
+			TVMCompilerContext ctx{&ct->contractDefinition(), pragmaHelper};
+
+			std::map<VariableDeclaration const*, Expression const*> varValue;
+			if (vars != nullptr) {
+				std::vector<std::pair<VariableDeclaration const*, int>> staticVars = ctx.getStaticVariables();
+				auto initVars = to<InitializerList>(vars);
+				for (size_t i = 0; i < initVars->names().size(); ++i) {
+					const ASTPointer<ASTString> &name = initVars->names().at(i);
+					const auto &[varDecl, varIndex] = getDeclAndIndex(staticVars, *name);
+					varValue[varDecl] = initVars->options().at(i).get();
+				}
 			}
-		}
-		m_pusher << "NEWC";
-		m_pusher << "STDICT";
-		m_pusher << "ENDC";
-	};
+
+			std::vector<VariableDeclaration const *> stateVars = ctx.c4StateVariables();
+			for (VariableDeclaration const* var : stateVars | boost::adaptors::reversed) {
+				if (varValue.count(var) == 0)
+					m_pusher.pushDefaultValue(var->type());
+				else
+					pushExprAndConvert(varValue.at(var), var->type());
+			}
+
+			if (ctx.storeTimestampInC4())
+				m_pusher.pushInt(0);
+			pushKey();
+			m_pusher << "NEWC";
+			m_pusher << "STU 256";
+			if (ctx.storeTimestampInC4())
+				m_pusher << "STU 64";
+			m_pusher << "STZERO"; // constructor flag
+			if (ctx.usage().hasAwaitCall())
+				m_pusher << "STZERO";
+			const std::vector<Type const *>& memberTypes = ctx.c4StateVariableTypes();
+			if (!memberTypes.empty()) {
+				ChainDataEncoder encoder{&m_pusher};
+				DecodePositionAbiV2 position{ctx.getOffsetC4(), ctx.usage().hasAwaitCall() ? 1 : 0, memberTypes};
+				encoder.encodeParameters(memberTypes, position);
+			}
+			m_pusher << "ENDC";
+		};
+	}
 }
 
 bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCall) {
@@ -1010,7 +1055,7 @@ void FunctionCallCompiler::generateExtInboundMsg(
 	solAssert(stackSize + 1 == m_pusher.stackSize(), "");
 }
 
-void FunctionCallCompiler::tvmBuildIntMsg() {
+void FunctionCallCompiler::abiBuildIntMsg() {
 	const int stackSize = m_pusher.stackSize();
 
 	int destArg = -1;
@@ -1118,7 +1163,7 @@ void FunctionCallCompiler::tvmBuildIntMsg() {
 	solAssert(m_pusher.stackSize() == stackSize + 1, "");
 }
 
-void FunctionCallCompiler::tvmBuildDataInit() {
+void FunctionCallCompiler::abiBuildDataInit() {
 	const int stackSize = m_pusher.stackSize();
 	int keyArg = -1;
 	int varArg = -1;
@@ -1152,13 +1197,16 @@ void FunctionCallCompiler::tvmBuildDataInit() {
 		}
 	};
 	ContractType const* ct{};
-	if (varArg != -1) {
-		Type const* type = m_arguments[contrArg]->annotation().type;
+	if (contrArg != -1) {
+		Type const* type = m_arguments.at(contrArg)->annotation().type;
 		auto tt = dynamic_cast<const TypeType*>(type);
 		type = tt->actualType();
 		ct = to<ContractType>(type);
 	}
+
+	bool data_map_supported = m_memberAccess->memberName() == "encodeOldDataInit";
 	generateDataSection(
+		data_map_supported,
 		pushKey,
 		varArg != -1 ? m_arguments[varArg].get() : nullptr,
 		ct
@@ -1167,7 +1215,7 @@ void FunctionCallCompiler::tvmBuildDataInit() {
 	solAssert(m_pusher.stackSize() == stackSize + 1, "");
 }
 
-void FunctionCallCompiler::tvmBuildMsgMethod() {
+void FunctionCallCompiler::abiBuildExtMsg() {
 	int destArg = -1;
 	int callArg = -1;
 	int timeArg = -1;
@@ -1247,12 +1295,11 @@ void FunctionCallCompiler::tvmBuildMsgMethod() {
 										  functionDefinition, funcCall->arguments());
 }
 
-bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, Type::Category category) {
-	if (category != Type::Category::Magic || ((m_funcType->kind() != FunctionType::Kind::TVMDeploy)
-			&& m_funcType->kind() != FunctionType::Kind::TVMBuildStateInit))
+bool FunctionCallCompiler::checkTvmABIDeployMethods(Type::Category category) {
+	if (category != Type::Category::Magic)
 		return false;
 
-	if (_node.memberName() == "buildStateInit") {
+	if (m_funcType->kind() == FunctionType::Kind::ABIEncodeStateInit) {
 		int keyArg = -1;
 		int varArg = -1;
 		int contrArg = -1;
@@ -1326,29 +1373,64 @@ bool FunctionCallCompiler::checkForTvmDeployMethods(MemberAccess const &_node, T
 					type = tt->actualType();
 					ct = to<ContractType>(type);
 				}
-				exprs[StateInitMembers::Data] = generateDataSection(pushKey,
+				exprs[StateInitMembers::Data] = generateDataSection(false, pushKey,
 																	hasVars ? m_arguments[varArg].get() : nullptr,
 																	ct);
 			}
 		}
 
-		buildStateInit(exprs);
+		encodeStateInit(exprs);
 		return true;
 	}
 
-	if (_node.memberName() == "insertPubkey") {
+	if (m_funcType->kind() == FunctionType::Kind::ABIStateInitHash) {
 		pushArgs();
-		m_pusher.pushFragmentInCallRef(2, 1, "insert_pubkey");
-		return true;
-	}
-
-	if (_node.memberName() == "stateInitHash") {
-		pushArgs();
-		m_pusher.pushFragmentInCallRef(4, 1, "stateInitHash");
+		m_pusher.pushFragmentInCallRef(4, 1, "__stateInitHash");
 		return true;
 	}
 
 	return false;
+}
+
+void FunctionCallCompiler::abiDecodeData() {
+	pushArgAndConvert(1);
+	decodeData();
+}
+
+int FunctionCallCompiler::decodeData() {
+	std::vector<Type const*> stateVarTypes;
+	auto retTuple = to<TupleType>(m_retType);
+	for (Type const* type : retTuple->components()) {
+		stateVarTypes.push_back(type);
+	}
+
+	// lvalue.. slice
+	ChainDataDecoder decoder{&m_pusher};
+	decoder.decodeData(0, 0, stateVarTypes);
+	// lvalue.. stateVars...
+	return stateVarTypes.size();
+}
+
+int FunctionCallCompiler::decodeFunctionParams() {
+	CallableDeclaration const *functionDefinition = getFunctionDeclarationOrConstructor(
+					m_arguments.at(0).get());
+	if (functionDefinition) {
+		// lvalue.. slice
+		auto fd = to<FunctionDefinition>(functionDefinition);
+		bool isResponsible = fd->isResponsible();
+		if (isResponsible) {
+			m_pusher << "LDU 32";
+		}
+		// lvalue.. callback slice
+		ChainDataDecoder decoder{&m_pusher};
+		vector<Type const *> types = getParams(functionDefinition->parameters()).first;
+		decoder.decodePublicFunctionParameters(types, isResponsible, true);
+
+		return functionDefinition->parameters().size() + (isResponsible ? 1 : 0);
+	}
+
+	m_pusher << "ENDS";
+	return 0;
 }
 
 void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
@@ -1426,36 +1508,9 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true);
 		int paramQty = -1;
 		if (isIn(memberName, "loadFunctionParams", "decodeFunctionParams")) {
-			CallableDeclaration const *functionDefinition = getFunctionDeclarationOrConstructor(
-					m_arguments.at(0).get());
-			if (functionDefinition) {
-
-				// lvalue.. slice
-				auto fd = to<FunctionDefinition>(functionDefinition);
-				bool isResponsible = fd->isResponsible();
-				if (isResponsible) {
-					m_pusher << "LDU 32";
-				}
-				// lvalue.. callback slice
-				ChainDataDecoder decoder{&m_pusher};
-				vector<Type const *> types = getParams(functionDefinition->parameters()).first;
-				decoder.decodePublicFunctionParameters(types, isResponsible, true);
-
-				paramQty = functionDefinition->parameters().size() + (isResponsible ? 1 : 0);
-			}
+			paramQty = decodeFunctionParams();
 		} else if (isIn(memberName, "loadStateVars", "decodeStateVars")) {
-			std::vector<Type const*> stateVarTypes;
-			auto retTuple = to<TupleType>(m_retType);
-			for (Type const* type : retTuple->components()) {
-				stateVarTypes.push_back(type);
-			}
-
-			// lvalue.. slice
-			ChainDataDecoder decoder{&m_pusher};
-			decoder.decodeData(0, 0, stateVarTypes);
-			// lvalue.. stateVars...
-
-			paramQty = stateVarTypes.size();
+			paramQty = decodeData();
 		} else {
 			solUnimplemented("");
 		}
@@ -1533,7 +1588,8 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 			} else if (memberName == "loadTons") {
 				opcode = "LDGRAMS";
 			} else if (memberName == "loadSlice") {
-				if (m_arguments.size() == 1) {
+				const auto& value2 = m_arguments.size() == 2 ? ExprUtils::constValue(*m_arguments[1]) : nullopt;
+				if (m_arguments.size() == 1 || (value2.has_value() && value2.value() == 0)) {
 					if (value.has_value() && 0 < value && value <= 256) {
 						m_pusher << "LDSLICE " + value->str();
 					} else {
@@ -2078,10 +2134,10 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 		acceptExpr(&_node.expression());
 		pushArgs();
 		if (m_arguments.size() == 1) {
-			m_pusher.pushFragmentInCallRef(2, 1, "__substr_from");
-		} else {
-			m_pusher.pushFragmentInCallRef(3, 1, "__substr_from_count");
+			m_pusher.pushInt(0xFFFF'FFFF);
 		}
+		m_pusher << "TRUE";
+		m_pusher.pushFragmentInCallRef(4, 1, "__subCell");
 	} else if (_node.memberName() == "find") {
 		acceptExpr(&_node.expression());
 		pushArgs();
@@ -2147,7 +2203,7 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 	} else if (_node.memberName() == "append") {
 		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true);
 		pushArgAndConvert(0);
-		m_pusher.pushFragmentInCallRef(2, 1, "concatenateStrings");
+		m_pusher.pushFragmentInCallRef(2, 1, "__concatenateStrings");
 		m_exprCompiler.collectLValue(lValueInfo, true, false);
 	} else {
 		solUnimplemented("");
@@ -2255,6 +2311,18 @@ void FunctionCallCompiler::cellMethods(MemberAccess const &_node) {
 		solUnimplemented("");
 }
 
+void FunctionCallCompiler::integerMethods() {
+	acceptExpr(&m_memberAccess->expression());
+	switch (m_funcType->kind()) {
+	case FunctionType::Kind::IntCast: {
+		m_pusher.convert(m_retType, m_memberAccess->expression().annotation().type);
+		break;
+	}
+	default:
+		solUnimplemented("");
+	}
+}
+
 void FunctionCallCompiler::variantMethods(MemberAccess const& _node) {
 
 	auto isUint = [&](){
@@ -2289,8 +2357,7 @@ void FunctionCallCompiler::variantMethods(MemberAccess const& _node) {
 }
 
 void FunctionCallCompiler::addressMethod() {
-	auto _node = to<MemberAccess>(&m_functionCall.expression());
-	if (_node->memberName() == "transfer") { // addr.transfer(...)
+	if (m_memberAccess->memberName() == "transfer") { // addr.transfer(...)
 		std::map<int, Expression const *> exprs;
 		std::map<int, std::string> constParams{{TvmConst::int_msg_info::ihr_disabled, "1"}, {TvmConst::int_msg_info::bounce, "1"}};
 		std::function<void(int)> appendBody;
@@ -2327,7 +2394,7 @@ void FunctionCallCompiler::addressMethod() {
 			};
 		};
 
-		exprs[TvmConst::int_msg_info::dest] = &_node->expression();
+		exprs[TvmConst::int_msg_info::dest] = &m_memberAccess->expression();
 
 		int argumentQty = static_cast<int>(m_arguments.size());
 		if (!m_names.empty() || argumentQty == 0) {
@@ -2390,26 +2457,26 @@ void FunctionCallCompiler::addressMethod() {
 			}
 		}
 		m_pusher.sendIntMsg(exprs, constParams, appendBody, pushSendrawmsgFlag, false, 0, appendStateInit);
-	} else if (_node->memberName() == "isStdZero") {
-		acceptExpr(&_node->expression());
+	} else if (m_memberAccess->memberName() == "isStdZero") {
+		acceptExpr(&m_memberAccess->expression());
 		m_pusher.pushZeroAddress();
 		m_pusher << "SDEQ";
-	} else if (_node->memberName() == "isExternZero") {
-		acceptExpr(&_node->expression());
+	} else if (m_memberAccess->memberName() == "isExternZero") {
+		acceptExpr(&m_memberAccess->expression());
 		m_pusher.pushSlice("x401_");
 		m_pusher << "SDEQ";
-	} else if (_node->memberName() == "isNone") {
-		acceptExpr(&_node->expression());
+	} else if (m_memberAccess->memberName() == "isNone") {
+		acceptExpr(&m_memberAccess->expression());
 		m_pusher.pushSlice("x2_");
 		m_pusher << "SDEQ";
-	} else if (_node->memberName() == "unpack") {
-		acceptExpr(&_node->expression());
+	} else if (m_memberAccess->memberName() == "unpack") {
+		acceptExpr(&m_memberAccess->expression());
 		m_pusher << "REWRITESTDADDR";
-	} else if (_node->memberName() == "getType") {
-		acceptExpr(&_node->expression());
+	} else if (m_memberAccess->memberName() == "getType") {
+		acceptExpr(&m_memberAccess->expression());
 		m_pusher << "PLDU 2";
-	} else if (_node->memberName() == "isStdAddrWithoutAnyCast") {
-		acceptExpr(&_node->expression());
+	} else if (m_memberAccess->memberName() == "isStdAddrWithoutAnyCast") {
+		acceptExpr(&m_memberAccess->expression());
 		// t = (2, u, x, s); check t[0] == 2 and t[1] is null
 		m_pusher << "PARSEMSGADDR";
 		m_pusher.pushS(0);
@@ -2697,6 +2764,193 @@ void FunctionCallCompiler::goshFunction() {
 	m_pusher << opcode;
 }
 
+void FunctionCallCompiler::codeSalt() {
+		pushArgs();
+		string getSaltFromUsualSelector = R"(
+			PLDREF
+			CTOS
+
+			PUSHSLICE xPrivateOpcode0
+			SDBEGINSX
+
+			LDDICT
+			NIP
+
+			LDU 10
+			NIP
+
+			PUSHSLICE xPrivateOpcode1
+			SDBEGINSX
+
+			DUP
+			SREFS
+			GTINT 1
+			PUSHCONT {
+				PLDREFIDX 1
+			}
+			PUSHCONT {
+				DROP
+				NULL
+			}
+			IFELSE
+)";
+		string code = R"(
+CALLREF {
+	CTOS
+	PUSH S0
+	PUSHSLICE xSelectorRootCodeCell
+	SDEQ
+	PUSHREFCONT {
+		PLDREFIDX 1
+		CTOS
+		CALLREF {
+			getSaltFromUsualSelector
+		}
+	}
+	PUSHREFCONT {
+		getSaltFromUsualSelector
+	}
+	IFELSE
+}
+)";
+		boost::replace_all(code, "SelectorRootCodeCell", TvmConst::Selector::RootCodeCell());
+		boost::replace_all(code, "getSaltFromUsualSelector", getSaltFromUsualSelector);
+		boost::replace_all(code, "PrivateOpcode0", TvmConst::Selector::PrivateOpcode0());
+		boost::replace_all(code, "PrivateOpcode1", TvmConst::Selector::PrivateOpcode1());
+		std::vector<string> codeLines = split(code);
+		m_pusher.push(createNode<HardCode>(codeLines, 1, 1, false));
+}
+
+void FunctionCallCompiler::setCodeSalt() {
+			pushArgAndConvert(0);
+		m_pusher << "CTOS"; // sliceCode
+		pushArgAndConvert(1); // sliceCode salt
+		string insertSaltInUsualSelector = R"(
+			LDREFRTOS  ; selfCallCode salt restUsualSelector intSelector
+
+			PUSHSLICE xPrivateOpcode0
+			SDBEGINSX
+			LDDICT     ; selfCallCode salt restUsualSelector dict intSelector
+			LDU 10
+			NIP
+			DUP
+			SREFS      ; selfCallCode salt restUsualSelector dict intSelector refs
+			PUSHCONT {
+				LDREF
+			}
+			PUSHCONT {
+				PUSHREF {
+				}
+				SWAP
+			}
+			IFELSE
+						; selfCallCode salt restUsualSelector dict version intSelector
+			PUSHSLICE xPrivateOpcode1
+			SDBEGINSX
+			DROP
+						; selfCallCode salt restUsualSelector dict version
+			SWAP        ; selfCallCode salt restUsualSelector version dict
+			NEWC        ; selfCallCode salt restUsualSelector version dict builder
+			STSLICECONST xPrivateOpcode0 ; DICTPUSHCONST
+			STDICT
+			PUSHINT 32
+			STUR 10
+			STSLICECONST xPrivateOpcode1 ; DICTUGETJMPZ THROW 78
+			STREF       ; selfCallCode salt restUsualSelector builder
+			XCHG S1, S2 ; selfCallCode restUsualSelector salt builder
+			STREF       ; selfCallCode restUsualSelector builder
+			NEWC        ; selfCallCode restUsualSelector builder usualBuilder
+			STBREF      ; selfCallCode restUsualSelector usualBuilder
+			STSLICE     ; selfCallCode usualBuilder
+)";
+
+		string code = R"(
+CALLREF {
+	PUSH S1
+	PUSHSLICE xSelectorRootCodeCell
+	SDEQ
+	PUSHREFCONT {
+		SWAP      ; salt sliceCode
+		LDREF
+		LDREF
+		DROP         ; salt selfCallCode usualSelector
+		XCHG S1, S2  ; selfCallCode salt usualSelector
+		CTOS         ; selfCallCode salt usualSelector
+		CALLREF {
+			insertSaltInUsualSelector
+		}
+		NEWC        ; selfCallCode usualBuilder mainBuilder
+		STSLICECONST xSelectorRootCodeCell
+		XCHG S1, S2 ; usualBuilder selfCallCode mainBuilder
+		STREF
+		STBREF
+		ENDC
+	}
+	PUSHREFCONT {
+		SWAP
+		CALLREF {
+			insertSaltInUsualSelector
+		}
+		ENDC
+	}
+	IFELSE
+}
+)";
+		boost::replace_all(code, "insertSaltInUsualSelector", insertSaltInUsualSelector);
+		boost::replace_all(code, "SelectorRootCodeCell", TvmConst::Selector::RootCodeCell());
+		boost::replace_all(code, "PrivateOpcode0", TvmConst::Selector::PrivateOpcode0());
+		boost::replace_all(code, "PrivateOpcode1", TvmConst::Selector::PrivateOpcode1());
+		std::vector<string> codeLines = split(code);
+		m_pusher.push(createNode<HardCode>(codeLines, 2, 1, false));
+}
+
+void FunctionCallCompiler::functionId() {
+	auto callDef = getFunctionDeclarationOrConstructor(m_arguments.at(0).get());
+	ChainDataEncoder encoder(&m_pusher);
+	uint32_t funcID;
+	if (callDef == nullptr) {
+		funcID = encoder.calculateConstructorFunctionID();
+	} else {
+		bool isManuallyOverridden{};
+		std::tie(funcID, isManuallyOverridden) = encoder.calculateFunctionID(callDef);
+		if (!isManuallyOverridden) {
+			funcID &= 0x7FFFFFFFu;
+		}
+	}
+	m_pusher.pushInt(funcID);
+}
+
+void FunctionCallCompiler::abiEncodeBody() {
+	CallableDeclaration const* callDef = getFunctionDeclarationOrConstructor(m_arguments.at(0).get());
+	if (callDef == nullptr) { // if no constructor (default constructor)
+		m_pusher << "NEWC";
+		ChainDataEncoder{&m_pusher}.createDefaultConstructorMessage2();
+	} else {
+		auto funcDef = to<FunctionDefinition>(callDef);
+		const bool needCallback = funcDef->isResponsible();
+		const int shift = needCallback ? 1 : 0;
+		std::optional<uint32_t> callbackFunctionId;
+		if (needCallback) {
+			CallableDeclaration const* callback = getFunctionDeclarationOrConstructor(m_arguments.at(1).get());
+			callbackFunctionId = ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(callback, ReasonOfOutboundMessage::RemoteCallInternal);
+		}
+		const ast_vec<VariableDeclaration> &parameters = callDef->parameters();
+		std::vector<Type const *> types = getParams(parameters).first;
+		DecodePositionAbiV2 position{32, 0, types};
+		for (int i = m_arguments.size() - 1; i >= 1 + shift; --i) {
+			acceptExpr(m_arguments.at(i).get());
+		}
+		m_pusher << "NEWC";
+		ChainDataEncoder{&m_pusher}.createMsgBody(
+			convertArray(parameters),
+			ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(callDef, ReasonOfOutboundMessage::RemoteCallInternal),
+			callbackFunctionId,
+			position
+		);
+	}
+	m_pusher << "ENDC";
+}
+
 bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 	if (_node.memberName() == "pubkey") { // tvm.pubkey
 		m_pusher.getGlob(TvmConst::C7::TvmPubkey);
@@ -2792,48 +3046,9 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 	} else if (_node.memberName() == "resetStorage") { //tvm.resetStorage
 		m_pusher.resetAllStateVars();
 	} else if (_node.memberName() == "functionId") { // tvm.functionId
-		auto callDef = getFunctionDeclarationOrConstructor(m_arguments.at(0).get());
-		ChainDataEncoder encoder(&m_pusher);
-		uint32_t funcID;
-		if (callDef == nullptr) {
-			funcID = encoder.calculateConstructorFunctionID();
-		} else {
-			bool isManuallyOverridden{};
-			std::tie(funcID, isManuallyOverridden) = encoder.calculateFunctionID(callDef);
-			if (!isManuallyOverridden) {
-				funcID &= 0x7FFFFFFFu;
-			}
-		}
-		m_pusher.pushInt(funcID);
+		functionId();
 	} else if (_node.memberName() == "encodeBody") { // tvm.encodeBody
-		CallableDeclaration const* callDef = getFunctionDeclarationOrConstructor(m_arguments.at(0).get());
-		if (callDef == nullptr) { // if no constructor (default constructor)
-			m_pusher << "NEWC";
-			ChainDataEncoder{&m_pusher}.createDefaultConstructorMessage2();
-		} else {
-			auto funcDef = to<FunctionDefinition>(callDef);
-			const bool needCallback = funcDef->isResponsible();
-			const int shift = needCallback ? 1 : 0;
-			std::optional<uint32_t> callbackFunctionId;
-			if (needCallback) {
-				CallableDeclaration const* callback = getFunctionDeclarationOrConstructor(m_arguments.at(1).get());
-				callbackFunctionId = ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(callback, ReasonOfOutboundMessage::RemoteCallInternal);
-			}
-			const ast_vec<VariableDeclaration> &parameters = callDef->parameters();
-			std::vector<Type const *> types = getParams(parameters).first;
-			DecodePositionAbiV2 position{32, 0, types};
-			for (int i = m_arguments.size() - 1; i >= 1 + shift; --i) {
-				acceptExpr(m_arguments.at(i).get());
-			}
-			m_pusher << "NEWC";
-			ChainDataEncoder{&m_pusher}.createMsgBody(
-				convertArray(parameters),
-				ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(callDef, ReasonOfOutboundMessage::RemoteCallInternal),
-				callbackFunctionId,
-				position
-			);
-		}
-		m_pusher << "ENDC";
+		abiEncodeBody();
 	} else if (_node.memberName() == "rawReserve") {
 		pushArgs();
 		int n = m_arguments.size();
@@ -2855,141 +3070,9 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 	} else if (_node.memberName() == "code") {
 		m_pusher << "MYCODE";
 	} else if (_node.memberName() == "codeSalt") {
-		pushArgs();
-		string getSaltFromUsualSelector = R"(
-			PLDREF
-			CTOS
-
-			PUSHSLICE xPrivateOpcode0
-			SDBEGINSX
-
-			LDDICT
-			NIP
-
-			LDU 10
-			NIP
-
-			PUSHSLICE xPrivateOpcode1
-			SDBEGINSX
-
-			DUP
-			SREFS
-			GTINT 1
-			PUSHCONT {
-				PLDREFIDX 1
-			}
-			PUSHCONT {
-				DROP
-				NULL
-			}
-			IFELSE
-)";
-		string code = R"(
-CALLREF {
-	CTOS
-	PUSH S0
-	PUSHSLICE xSelectorRootCodeCell
-	SDEQ
-	PUSHREFCONT {
-		PLDREFIDX 1
-		CTOS
-		CALLREF {
-			getSaltFromUsualSelector
-		}
-	}
-	PUSHREFCONT {
-		getSaltFromUsualSelector
-	}
-	IFELSE
-}
-)";
-		boost::replace_all(code, "SelectorRootCodeCell", TvmConst::Selector::RootCodeCell());
-		boost::replace_all(code, "getSaltFromUsualSelector", getSaltFromUsualSelector);
-		boost::replace_all(code, "PrivateOpcode0", TvmConst::Selector::PrivateOpcode0());
-		boost::replace_all(code, "PrivateOpcode1", TvmConst::Selector::PrivateOpcode1());
-		std::vector<string> codeLines = split(code);
-		m_pusher.push(createNode<HardCode>(codeLines, 1, 1, false));
+		codeSalt();
 	} else if (_node.memberName() == "setCodeSalt") {
-		pushArgAndConvert(0);
-		m_pusher << "CTOS"; // sliceCode
-		pushArgAndConvert(1); // sliceCode salt
-		string insertSaltInUsualSelector = R"(
-			LDREFRTOS  ; selfCallCode salt restUsualSelector intSelector
-
-			PUSHSLICE xPrivateOpcode0
-			SDBEGINSX
-			LDDICT     ; selfCallCode salt restUsualSelector dict intSelector
-			LDU 10
-			NIP
-			DUP
-			SREFS      ; selfCallCode salt restUsualSelector dict intSelector refs
-			PUSHCONT {
-				LDREF
-			}
-			PUSHCONT {
-				PUSHREF {
-				}
-				SWAP
-			}
-			IFELSE
-						; selfCallCode salt restUsualSelector dict version intSelector
-			PUSHSLICE xPrivateOpcode1
-			SDBEGINSX
-			DROP
-						; selfCallCode salt restUsualSelector dict version
-			SWAP        ; selfCallCode salt restUsualSelector version dict
-			NEWC        ; selfCallCode salt restUsualSelector version dict builder
-			STSLICECONST xPrivateOpcode0 ; DICTPUSHCONST
-			STDICT
-			PUSHINT 32
-			STUR 10
-			STSLICECONST xPrivateOpcode1 ; DICTUGETJMPZ THROW 78
-			STREF       ; selfCallCode salt restUsualSelector builder
-			XCHG S1, S2 ; selfCallCode restUsualSelector salt builder
-			STREF       ; selfCallCode restUsualSelector builder
-			NEWC        ; selfCallCode restUsualSelector builder usualBuilder
-			STBREF      ; selfCallCode restUsualSelector usualBuilder
-			STSLICE     ; selfCallCode usualBuilder
-)";
-
-		string code = R"(
-CALLREF {
-	PUSH S1
-	PUSHSLICE xSelectorRootCodeCell
-	SDEQ
-	PUSHREFCONT {
-		SWAP      ; salt sliceCode
-		LDREF
-		LDREF
-		DROP         ; salt selfCallCode usualSelector
-		XCHG S1, S2  ; selfCallCode salt usualSelector
-		CTOS         ; selfCallCode salt usualSelector
-		CALLREF {
-			insertSaltInUsualSelector
-		}
-		NEWC        ; selfCallCode usualBuilder mainBuilder
-		STSLICECONST xSelectorRootCodeCell
-		XCHG S1, S2 ; usualBuilder selfCallCode mainBuilder
-		STREF
-		STBREF
-		ENDC
-	}
-	PUSHREFCONT {
-		SWAP
-		CALLREF {
-			insertSaltInUsualSelector
-		}
-		ENDC
-	}
-	IFELSE
-}
-)";
-		boost::replace_all(code, "insertSaltInUsualSelector", insertSaltInUsualSelector);
-		boost::replace_all(code, "SelectorRootCodeCell", TvmConst::Selector::RootCodeCell());
-		boost::replace_all(code, "PrivateOpcode0", TvmConst::Selector::PrivateOpcode0());
-		boost::replace_all(code, "PrivateOpcode1", TvmConst::Selector::PrivateOpcode1());
-		std::vector<string> codeLines = split(code);
-		m_pusher.push(createNode<HardCode>(codeLines, 2, 1, false));
+		setCodeSalt();
 	} else if (_node.memberName() == "replayProtTime") {
 		m_pusher.getGlob(TvmConst::C7::ReplayProtTime);
 	} else if (_node.memberName() == "setReplayProtTime") {
@@ -3013,45 +3096,62 @@ CALLREF {
 
 void FunctionCallCompiler::abiFunction() {
 	switch (m_funcType->kind()) {
-		case FunctionType::Kind::ABIEncode: {
-			std::vector<Type const *> types;
-			for (ASTPointer<Expression const> const& arg : m_arguments) {
-				types.emplace_back(arg->annotation().type->mobileType());
-			}
-			DecodePositionAbiV2 position{0, 0, types};
-
-			for (ASTPointer<Expression const> const& arg : m_arguments | boost::adaptors::reversed) {
-				acceptExpr(arg.get());
-			}
-			m_pusher << "NEWC";
-			ChainDataEncoder encoder{&m_pusher};
-			encoder.encodeParameters(types, position);
-			m_pusher << "ENDC";
-			break;
+	case FunctionType::Kind::ABIEncode: {
+		std::vector<Type const *> types;
+		for (ASTPointer<Expression const> const& arg : m_arguments) {
+			types.emplace_back(arg->annotation().type->mobileType());
 		}
-		case FunctionType::Kind::ABIDecode: {
-			std::vector<Type const*> types;
-			auto te = to<TupleExpression>(m_arguments.at(1).get());
-			if (te) {
-				for (const ASTPointer<Expression>& e : te->components()) {
-					auto const* argTypeType = dynamic_cast<TypeType const*>(e->annotation().type);
-					Type const* actualType = argTypeType->actualType();
-					types.emplace_back(actualType);
-				}
-			} else {
-				auto const* argTypeType = dynamic_cast<TypeType const*>(m_arguments.at(1)->annotation().type);
+		DecodePositionAbiV2 position{0, 0, types};
+
+		for (ASTPointer<Expression const> const& arg : m_arguments | boost::adaptors::reversed) {
+			acceptExpr(arg.get());
+		}
+		m_pusher << "NEWC";
+		ChainDataEncoder encoder{&m_pusher};
+		encoder.encodeParameters(types, position);
+		m_pusher << "ENDC";
+		break;
+	}
+	case FunctionType::Kind::ABIDecode: {
+		std::vector<Type const*> types;
+		auto te = to<TupleExpression>(m_arguments.at(1).get());
+		if (te) {
+			for (const ASTPointer<Expression>& e : te->components()) {
+				auto const* argTypeType = dynamic_cast<TypeType const*>(e->annotation().type);
 				Type const* actualType = argTypeType->actualType();
 				types.emplace_back(actualType);
 			}
-
-			acceptExpr(m_arguments.at(0).get());
-			m_pusher << "CTOS";
-			ChainDataDecoder decoder{&m_pusher};
-			decoder.decodeData(0, 0, types);
-			break;
+		} else {
+			auto const* argTypeType = dynamic_cast<TypeType const*>(m_arguments.at(1)->annotation().type);
+			Type const* actualType = argTypeType->actualType();
+			types.emplace_back(actualType);
 		}
-		default:
-			cast_error(m_functionCall, "Not supported");
+
+		acceptExpr(m_arguments.at(0).get());
+		m_pusher << "CTOS";
+		ChainDataDecoder decoder{&m_pusher};
+		decoder.decodeData(0, 0, types);
+		break;
+	}
+	case FunctionType::Kind::ABICodeSalt: {
+		codeSalt();
+		break;
+	}
+	case FunctionType::Kind::ABISetCodeSalt: {
+		setCodeSalt();
+		break;
+	}
+	case FunctionType::Kind::ABIFunctionId: {
+		functionId();
+		break;
+	}
+	case FunctionType::Kind::ABIDecodeFunctionParams: {
+		pushArgAndConvert(1);
+		decodeFunctionParams();
+		break;
+	}
+	default:
+		cast_error(m_functionCall, "Not supported");
 	}
 }
 
@@ -3142,12 +3242,11 @@ bool FunctionCallCompiler::checkAddressThis() {
 }
 
 void FunctionCallCompiler::createObject() {
-	Type const* resultType = m_functionCall.annotation().type;
-	switch (resultType->category()) {
-	case Type::Category::TvmCell: {
-		m_pusher.pushDefaultValue(resultType);
+	switch (m_retType->category()) {
+	case Type::Category::TvmCell:
+	case Type::Category::TvmBuilder:
+		m_pusher.pushDefaultValue(m_retType);
 		break;
-	}
 	default:
 		solUnimplemented("");
 	}
@@ -3156,14 +3255,13 @@ void FunctionCallCompiler::createObject() {
 void FunctionCallCompiler::typeConversion() {
 	solAssert(m_arguments.size() == 1, "");
 	Type const* argType = m_arguments[0]->annotation().type;
-	Type const* resultType = m_functionCall.annotation().type;
 
 	if (auto funCall = to<FunctionCall>(m_arguments[0].get())) {
 		if (*funCall->annotation().kind == FunctionCallKind::TypeConversion && funCall->arguments().size() == 1) {
 			// c(b(a)), e.g. uint8 x; int(uint(x));
 			auto a = to<IntegerType>(funCall->arguments().at(0)->annotation().type);
 			auto b = to<IntegerType>(funCall->annotation().type);
-			auto c = to<IntegerType>(resultType);
+			auto c = to<IntegerType>(m_retType);
 			if (a && b && c) {
 				if (!a->isSigned() && !b->isSigned() && c->isSigned() &&
 					a->numBits() < b->numBits() && b->numBits() == c->numBits()
@@ -3176,9 +3274,51 @@ void FunctionCallCompiler::typeConversion() {
 		}
 	}
 
+	auto getDigits = [](Type const* type)-> int {
+		if (auto fix = to<FixedPointType>(type))
+			return fix->fractionalDigits();
+		if (isIn(type->category(), Type::Category::Integer, Type::Category::VarInteger, Type::Category::Enum))
+			return 0;
+		solUnimplemented("");
+	};
+
+	auto adjustDigits = [&]() {
+		int const delta = getDigits(m_retType) - getDigits(argType->mobileType());
+		if (delta > 0) {
+			m_pusher.pushInt(MathConsts::power10().at(delta));
+			m_pusher << "MUL";
+		}
+		if (delta < 0) {
+			m_pusher.pushInt(MathConsts::power10().at(-delta));
+			m_pusher << "DIV";
+		}
+	};
+
 	solAssert(m_arguments.size() == 1, "");
 	acceptExpr(m_arguments.at(0).get());
-	m_pusher.convert(resultType, argType);
+	switch (m_retType->category()) {
+	case Type::Category::Enum:
+	case Type::Category::FixedPoint:
+	case Type::Category::Integer:
+	case Type::Category::VarInteger:
+		if (argType->category() == Type::Category::FixedBytes) {
+			// do nothing
+		} else {
+			adjustDigits();
+			if (!argType->isImplicitlyConvertibleTo(*m_retType))
+				m_pusher.checkFit(m_retType);
+		}
+		break;
+	case Type::Category::Address:
+	case Type::Category::Contract:
+	case Type::Category::FixedBytes:
+	case Type::Category::Array:
+	case Type::Category::TvmSlice:
+		m_pusher.convert(m_retType, argType);
+		break;
+	default:
+		solUnimplemented(m_retType->humanReadableName());
+	}
 }
 
 bool FunctionCallCompiler::checkLocalFunctionOrLibCall(const Identifier *identifier) {
@@ -3351,6 +3491,7 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 			return true;
 		}
 		case FunctionType::Kind::Format: {
+			const int stackSize = m_pusher.stackSize();
 			auto literal = to<Literal>(m_arguments[0].get());
 			std::string formatStr = literal->value();
 			size_t pos = 0;
@@ -3360,7 +3501,7 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 				size_t close_pos = formatStr.find('}', pos);
 				if (pos == string::npos || close_pos == string::npos)
 					break;
-				if ((formatStr[pos + 1] != ':') && (close_pos != pos + 1)) {
+				if (formatStr[pos + 1] != ':' && close_pos != pos + 1) {
 					pos++;
 					continue;
 				}
@@ -3371,30 +3512,30 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 				formatStr = formatStr.substr(close_pos + 1);
 				pos = 0;
 			}
-			// create new vector(TvmBuilder)
-			m_pusher.pushDefaultValue(TypeProvider::tvmtuple(TypeProvider::tvmbuilder()));
-			// create new builder to store data in it
+			// stack: Stack(TvmBuilder)
 			m_pusher << "NEWC";
+			m_pusher << "NULL";
+			m_pusher << "TUPLE 2";
 
 			auto pushConstStr = [&](const string& constStr) {
 				if (!constStr.empty()) {
 					size_t maxSlice = TvmConst::CellBitLength / 8;
 					for(size_t i = 0; i  < constStr.length(); i += maxSlice) {
 						m_pusher.pushString(constStr.substr(i, min(maxSlice, constStr.length() - i)), true);
-						// stack: BldrList builder Slice
-						m_pusher.pushFragmentInCallRef(3, 2, "storeStringInBuilders");
+						// stack: Stack(TvmBuilder) slice
+						m_pusher.pushFragmentInCallRef(2, 1, "__appendSliceToStringBuilder");
 					}
-					// stack: BldrList builder
+					// stack: Stack(TvmBuilder) slice
 				}
 			};
 			for (size_t it = 0; it < substrings.size(); it++) {
-				// stack: vector(TvmBuilder) builder
+				// stack: Stack(TvmBuilder)
 				pushConstStr(substrings[it].first);
 
 				Type::Category cat = m_arguments[it + 1]->annotation().type->category();
 				Type const *argType = m_arguments[it + 1]->annotation().type;
 				if (cat == Type::Category::Integer || cat == Type::Category::RationalNumber) {
-					// stack: vector(TvmBuilder) builder
+					// stack: Stack(TvmBuilder)
 					std::string format = substrings[it].second;
 					bool leadingZeroes = !format.empty() && (format[0] == '0');
 					bool isHex = !format.empty() && (format.back() == 'x' || format.back() == 'X');
@@ -3407,65 +3548,50 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 						int width = 0;
 						if (format.length() > 0)
 							width = std::stoi(format);
-						if (width < 0)
-							solUnimplemented("Width should be a positive integer.");
-						auto mt = m_arguments[it + 1]->annotation().type->mobileType();
-						auto isInt = dynamic_cast<IntegerType const *>(mt);
+						if (width < 0 || width > 127)
+							cast_error(m_functionCall, "Width should be in range of 0 to 127.");
 						acceptExpr(m_arguments[it + 1].get());
-						if (isInt->isSigned())
-							m_pusher << "ABS";
+						// stack: stack x
 						m_pusher.pushInt(width);
 						m_pusher << (leadingZeroes ? "TRUE" : "FALSE");
+						// stack: stack x width leadingZeroes
 						if (isHex) {
 							if (isLower)
 								m_pusher << "TRUE";
 							else
 								m_pusher << "FALSE";
-						}
-						if (isInt->isSigned()) {
-							acceptExpr(m_arguments[it + 1].get());
-							m_pusher << "ISNEG";
+							m_pusher.pushFragmentInCallRef(5, 1, "__convertIntToHexString");
 						} else {
-							m_pusher << "FALSE";
+							m_pusher.pushFragmentInCallRef(4, 1, "__convertIntToString");
 						}
-						// stack: vector(TvmBuilder) builder abs(number) width leadingZeroes addMinus
-						if (isHex) {
-							m_pusher.pushFragmentInCallRef(7, 2, "convertIntToHexStr");
-						} else {
-							m_pusher.pushFragmentInCallRef(6, 2, "convertIntToDecStr");
-						}
-						// stack: vector(TvmBuilder) builder
 					} else {
 						acceptExpr(m_arguments[it + 1].get());
 						m_pusher.pushInt(9);
-						m_pusher.pushFragmentInCallRef(4, 2, "convertFixedPointToString");
+						m_pusher.pushInt(MathConsts::power10().at(9));
+						m_pusher.pushFragmentInCallRef(4, 1, "__convertFixedPointToString");
 					}
 				} else if (cat == Type::Category::Address) {
-					// stack: vector(TvmBuilder) builder
 					acceptExpr(m_arguments[it + 1].get());
-					// stack: vector(TvmBuilder) builder address
-					m_pusher.pushFragmentInCallRef(3, 2, "convertAddressToHexString");
-					// stack: vector(TvmBuilder) builder
+					m_pusher.pushFragmentInCallRef(2, 1, "__convertAddressToHexString");
 				} else if (isStringOrStringLiteralOrBytes(argType)) {
-					// stack: vector(TvmBuilder) builder
 					acceptExpr(m_arguments[it + 1].get());
-					// stack: vector(TvmBuilder) builder string(cell)
 					m_pusher << "CTOS";
-					// stack: vector(TvmBuilder) builder string(slice)
-					m_pusher.pushFragmentInCallRef(3, 2, "storeStringInBuilders");
-					// stack: vector(TvmBuilder) builder
+					m_pusher.pushFragmentInCallRef(2, 1, "__appendStringToStringBuilder");
 				} else if (cat == Type::Category::FixedPoint) {
 					int power = to<FixedPointType>(argType)->fractionalDigits();
 					acceptExpr(m_arguments[it + 1].get());
 					m_pusher.pushInt(power);
-					m_pusher.pushFragmentInCallRef(4, 2, "convertFixedPointToString");
+					m_pusher.pushInt(MathConsts::power10().at(power));
+					m_pusher.pushFragmentInCallRef(4, 1, "__convertFixedPointToString");
 				} else {
 					cast_error(*m_arguments[it + 1].get(), "Unsupported argument type");
 				}
 			}
 			pushConstStr(formatStr);
 
-			m_pusher.pushFragmentInCallRef(2, 1, "assembleList");
+			m_pusher.pushFragmentInCallRef(1, 1, "__makeString");
+
+			solAssert(stackSize + 1 == m_pusher.stackSize(), "");
 			return true;
 		}
 		case FunctionType::Kind::Stoi: {
@@ -3483,9 +3609,9 @@ bool FunctionCallCompiler::checkLocalFunctionOrLibCallOrFuncVarCall() {
 	auto expr = &m_functionCall.expression();
 	if (auto identifier = to<Identifier>(expr); identifier && checkLocalFunctionOrLibCall(identifier)) {
 	} else if (expr->annotation().type->category() == Type::Category::Function) {
-		if (auto ma = to<MemberAccess>(expr)) {
-			auto category = getType(&ma->expression())->category();
-			if (category == Type::Category::TypeType || isSuper(&ma->expression())) {
+		if (m_memberAccess) {
+			auto category = getType(&m_memberAccess->expression())->category();
+			if (category == Type::Category::TypeType || isSuper(&m_memberAccess->expression())) {
 				// calling of base/super method or typeTypeMethods
 				return false;
 			}
@@ -3536,6 +3662,7 @@ bool FunctionCallCompiler::createNewContract() {
 		bool hasVars = varInit != nullptr;
 		auto ct = to<ContractType>(newExpr->typeName().annotation().type);
 		stateInitExprs[StateInitMembers::Data] = generateDataSection(
+			false,
 			pushKey,
 			hasVars ? varInit : nullptr,
 			ct
@@ -3551,7 +3678,7 @@ bool FunctionCallCompiler::createNewContract() {
 			};
 		}
 
-		buildStateInit(stateInitExprs);
+		encodeStateInit(stateInitExprs);
 
 		// stack: stateInit
 		solAssert(ss + 1 == m_pusher.stackSize(), "");
@@ -3765,8 +3892,7 @@ bool FunctionCallCompiler::checkNewExpression() {
 	if (to<NewExpression>(&m_functionCall.expression()) == nullptr) {
 		return false;
 	}
-	Type const *resultType = m_functionCall.annotation().type;
-	if (resultType->category() == Type::Category::Contract) {
+	if (m_retType->category() == Type::Category::Contract) {
 		cast_error(m_functionCall, R"(Unsupported contract creating. Use call options: "stateInit", "value", "flag")");
 	}
 
@@ -3777,7 +3903,7 @@ bool FunctionCallCompiler::checkNewExpression() {
 void FunctionCallCompiler::creatArrayWithDefaultValue() {
 	std::optional<bigint> num = ExprUtils::constValue(*m_arguments.at(0));
 	if (num.has_value() && num.value() == 0) {
-		auto arrayType = to<ArrayType>(m_functionCall.annotation().type);
+		auto arrayType = to<ArrayType>(m_retType);
 		m_pusher.pushDefaultValue(arrayType);
 		return ;
 	}
@@ -3799,7 +3925,7 @@ void FunctionCallCompiler::creatArrayWithDefaultValue() {
 
 void FunctionCallCompiler::honestArrayCreation(bool onlyDict) {
 	const int stackSize = m_pusher.stackSize();
-	auto arrayType = to<ArrayType>(m_functionCall.annotation().type);
+	auto arrayType = to<ArrayType>(m_retType);
 	IntegerType const& key = getArrayKeyType();
 	Type const* arrayBaseType = arrayType->baseType();
 
@@ -3836,18 +3962,17 @@ void FunctionCallCompiler::honestArrayCreation(bool onlyDict) {
 }
 
 bool FunctionCallCompiler::structMethodCall() {
-	auto ma = to<MemberAccess>(&m_functionCall.expression());
-	if (ma->memberName() != "unpack") {
+	if (m_memberAccess->memberName() != "unpack") {
 		return false;
 	}
-	acceptExpr(&ma->expression());
-	auto structType = to<StructType>(getType(&ma->expression()));
+	acceptExpr(&m_memberAccess->expression());
+	auto structType = to<StructType>(getType(&m_memberAccess->expression()));
 	int memberQty = structType->structDefinition().members().size();
 	m_pusher.untuple(memberQty);
 	return true;
 }
 
-void FunctionCallCompiler::buildStateInit(std::map<StateInitMembers, std::function<void()>> exprs) {
+void FunctionCallCompiler::encodeStateInit(std::map<StateInitMembers, std::function<void()>> exprs) {
 	solAssert(exprs.count(StateInitMembers::Special) == 0, "");
 	solAssert(exprs.count(StateInitMembers::Library) == 0, "");
 	solAssert(exprs.count(StateInitMembers::Code) == 1, "Code must present");
@@ -3864,7 +3989,7 @@ void FunctionCallCompiler::buildStateInit(std::map<StateInitMembers, std::functi
 	// stack: code
 	exprs.at(StateInitMembers::Code)();
 
-	// stake: data code
+	// stack: data code
 	// let's store split_depth and special options
 	if (exprs.count(StateInitMembers::SplitDepth) > 0) {
 		exprs.at(StateInitMembers::SplitDepth)();
@@ -3874,11 +3999,11 @@ void FunctionCallCompiler::buildStateInit(std::map<StateInitMembers, std::functi
 		m_pusher.stzeroes(1);
 	} else {
 		m_pusher << "NEWC";
-		// stake: data code builder
+		// stack: data code builder
 		m_pusher << "STSLICECONST x2_"; // no split_depth and no special // 0 0
 	}
 
-	// stake: data code builder
+	// stack: data code builder
 	m_pusher << "STDICT"; // store code
 	m_pusher << "STDICT"; // store data
 	m_pusher << "STZERO"; // store library
