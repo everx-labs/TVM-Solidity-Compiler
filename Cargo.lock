@@ -1233,7 +1233,7 @@ dependencies = [
 [[package]]
 name = "ton_labs_assembler"
 version = "1.4.15"
-source = "git+https://github.com/tonlabs/ever-assembler.git?tag=1.4.15#0d0db5b69a5eec932dd53b83fb6c02c89897c1fe"
+source = "git+https://github.com/gosh-sh/ever-assembler.git?branch=feature/gosh_hash#0dc4172f82ea5cc862dfb759dcbb69958fb548ef"
 dependencies = [
  "clap",
  "failure",
@@ -1276,8 +1276,8 @@ dependencies = [
 
 [[package]]
 name = "ton_vm"
-version = "1.8.211"
-source = "git+https://github.com/tonlabs/ever-vm.git?tag=1.8.211#ca3e6e70793a86ec20d27d1463030ca864bf1f59"
+version = "1.8.212"
+source = "git+https://github.com/gosh-sh/ever-vm.git?branch=feature/gosh_hash#21f6a970e88c10f9e570487b46db3e96bc04c396"
 dependencies = [
  "ed25519 1.5.3",
  "ed25519-dalek 1.0.1",

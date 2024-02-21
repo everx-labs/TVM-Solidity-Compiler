@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - ci
+    tags:
+      - "gosh_[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build_linux:
+    name: Build ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - run: |
+          sudo apt update
+          sudo apt install -y build-essential libboost-all-dev
+
+      - run: |
+          cargo build -r --target ${{ matrix.target }}
+          ./target/${{ matrix.target }}/release/sold --version
+          cd target/${{ matrix.target }}/release
+          tar czvf sold-${{ matrix.target }}.tar.gz sold
+
+      - name: Publish
+        uses: softprops/action-gh-release@v1
+        with:
+          prerelease: true
+          files: |
+            target/${{ matrix.target }}/release/sold-${{ matrix.target }}.tar.gz
+          tag_name: ${{ github.ref_name }}-${{ github.run_number }}
+
+  build_mac:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.image }}
+    strategy:
+      matrix:
+        target:
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+        include:
+          - target: x86_64-apple-darwin
+            image: macos-13
+          - target: aarch64-apple-darwin
+            image: macos-14
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - run: |
+          brew install boost
+
+      - run: |
+          cargo build -r --target ${{ matrix.target }}
+          ./target/${{ matrix.target }}/release/sold --version
+          cd target/${{ matrix.target }}/release
+          tar czvf sold-${{ matrix.target }}.tar.gz sold
+
+      - name: Publish
+        uses: softprops/action-gh-release@v1
+        with:
+          prerelease: true
+          files: |
+            target/${{ matrix.target }}/release/sold-${{ matrix.target }}.tar.gz
+          tag_name: ${{ github.ref_name }}-${{ github.run_number }}
