@@ -68,7 +68,7 @@ packagename=solc
 # This needs to be a still active release
 static_build_distribution=focal
 
-DISTRIBUTIONS="focal jammy kinetic"
+DISTRIBUTIONS="focal jammy lunar mantic"
 
 if is_release
 then
@@ -127,7 +127,7 @@ mv solidity solc
 mkdir -p ./solc/deps/downloads/ 2>/dev/null || true
 wget -O ./solc/deps/downloads/jsoncpp-1.9.3.tar.gz https://github.com/open-source-parsers/jsoncpp/archive/1.9.3.tar.gz
 wget -O ./solc/deps/downloads/range-v3-0.12.0.tar.gz https://github.com/ericniebler/range-v3/archive/0.12.0.tar.gz
-wget -O ./solc/deps/downloads/fmt-8.0.1.tar.gz https://github.com/fmtlib/fmt/archive/8.0.1.tar.gz
+wget -O ./solc/deps/downloads/fmt-9.1.0.tar.gz https://github.com/fmtlib/fmt/archive/9.1.0.tar.gz
 
 # Determine version
 cd solc
@@ -173,7 +173,7 @@ Build-Depends: ${SMTDEPENDENCY}debhelper (>= 9.0.0),
                scons
 Standards-Version: 3.9.5
 Homepage: https://ethereum.org
-Vcs-Git: git://github.com/ethereum/solidity.git
+Vcs-Git: https://github.com/ethereum/solidity.git
 Vcs-Browser: https://github.com/ethereum/solidity
 
 Package: solc
@@ -217,7 +217,7 @@ override_dh_shlibdeps:
 	dh_shlibdeps --dpkg-shlibdeps-params=--ignore-missing-info
 
 override_dh_auto_configure:
-	dh_auto_configure -- -DTESTS=OFF ${CMAKE_OPTIONS}
+	dh_auto_configure -- -DTESTS=OFF -DFETCHCONTENT_FULLY_DISCONNECTED=OFF ${CMAKE_OPTIONS}
 EOF
 cat <<EOF > debian/copyright
 Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/

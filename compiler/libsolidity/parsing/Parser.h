@@ -40,15 +40,16 @@ class Parser: public langutil::ParserBase
 public:
 	explicit Parser(
 		langutil::ErrorReporter& _errorReporter,
-		langutil::EVMVersion _evmVersion,
-		bool _errorRecovery = false
+		langutil::EVMVersion _evmVersion
 	):
-		ParserBase(_errorReporter, _errorRecovery),
+		ParserBase(_errorReporter),
 		m_evmVersion(_evmVersion)
 	{}
 
 	ASTPointer<SourceUnit> parse(langutil::CharStream& _charStream);
 
+	/// Returns the maximal AST node ID assigned so far
+	int64_t maxID() const { return m_currentNodeID; }
 private:
 	class ASTNodeFactory;
 
@@ -80,6 +81,7 @@ private:
 		bool externalMsg = false;
 		bool internalMsg = false;
 		bool assembly = false;
+		ASTPointer<Expression> experimentalReturnExpression;
 	};
 
 	/// Struct to share parsed function call arguments.
@@ -94,7 +96,7 @@ private:
 	///@name Parsing functions for the AST nodes
 	void parsePragmaVersion(langutil::SourceLocation const& _location, std::vector<Token> const& _tokens, std::vector<std::string> const& _literals);
 	ASTPointer<StructuredDocumentation> parseStructuredDocumentation();
-	ASTPointer<PragmaDirective> parsePragmaDirective();
+	ASTPointer<PragmaDirective> parsePragmaDirective(bool _finishedParsingTopLevelPragmas);
 	ASTPointer<ImportDirective> parseImportDirective();
 	/// @returns an std::pair<ContractKind, bool>, where
 	/// result.second is set to true, if an abstract contract was parsed, false otherwise.
@@ -105,7 +107,7 @@ private:
 	ASTPointer<OverrideSpecifier> parseOverrideSpecifier();
 	StateMutability parseStateMutability();
 	FunctionHeaderParserResult parseFunctionHeader(bool _isStateVariable);
-	ASTPointer<ASTNode> parseFunctionDefinition(bool _freeFunction = false);
+	ASTPointer<ASTNode> parseFunctionDefinition(bool _freeFunction = false, bool _allowBody = true);
 	ASTPointer<StructDefinition> parseStructDefinition();
 	ASTPointer<EnumDefinition> parseEnumDefinition();
 	ASTPointer<UserDefinedValueTypeDefinition> parseUserDefinedValueTypeDefinition();
@@ -137,7 +139,6 @@ private:
 	ASTPointer<Block> parseAssemblyBlock(ASTPointer<ASTString> const& _docString = {});
 	ASTPointer<Statement> parseStatement(bool _allowUncheckedBlock = false);
 	ASTPointer<Statement> parseAssemblyStatement();
-	ASTPointer<InlineAssembly> parseInlineAssembly(ASTPointer<ASTString> const& _docString = {});
 	ASTPointer<IfStatement> parseIfStatement(ASTPointer<ASTString> const& _docString);
 	ASTPointer<TryStatement> parseTryStatement(ASTPointer<ASTString> const& _docString);
 	ASTPointer<TryCatchClause> parseCatchClause();
@@ -169,12 +170,25 @@ private:
 	ASTPointer<Expression> parseLeftHandSideExpression(
 		ASTPointer<Expression> const& _partiallyParsedExpression = ASTPointer<Expression>()
 	);
+	ASTPointer<Expression> parseLiteral();
 	ASTPointer<Expression> parsePrimaryExpression();
 	std::vector<ASTPointer<Expression>> parseFunctionCallListArguments(langutil::Token endToken = Token::RParen);
 
 	FunctionCallArguments parseFunctionCallArguments();
 	FunctionCallArguments parseNamedArguments();
 	std::pair<ASTPointer<ASTString>, langutil::SourceLocation> expectIdentifierWithLocation();
+	///@}
+
+	///@{
+	///@name Specialized parsing functions for the AST nodes of experimental solidity.
+	ASTPointer<VariableDeclarationStatement> parsePostfixVariableDeclarationStatement(
+		ASTPointer<ASTString> const& _docString
+	);
+	ASTPointer<VariableDeclaration> parsePostfixVariableDeclaration();
+	ASTPointer<TypeClassDefinition> parseTypeClassDefinition();
+	ASTPointer<TypeClassInstantiation> parseTypeClassInstantiation();
+	ASTPointer<TypeDefinition> parseTypeDefinition();
+	ASTPointer<TypeClassName> parseTypeClassName();
 	///@}
 
 	///@{
@@ -228,6 +242,13 @@ private:
 	ASTPointer<ASTString> getLiteralAndAdvance();
 	///@}
 
+	bool isQuotedPath() const;
+	bool isStdlibPath() const;
+
+	int tokenPrecedence(Token _token) const;
+
+	ASTPointer<ASTString> getStdlibImportPathAndAdvance();
+
 	/// Creates an empty ParameterList at the current location (used if parameters can be omitted).
 	ASTPointer<ParameterList> createEmptyParameterList();
 
@@ -236,8 +257,8 @@ private:
 	langutil::EVMVersion m_evmVersion;
 	/// Counter for the next AST node ID
 	int64_t m_currentNodeID = 0;
-	
-	bool m_insideFunctionDefenition = false;
+	/// Flag that indicates whether experimental mode is enabled in the current source unit
+	bool m_experimentalSolidityEnabledInCurrentSourceUnit = false;
 };
 
 }

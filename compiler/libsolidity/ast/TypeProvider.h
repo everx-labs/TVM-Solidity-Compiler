@@ -93,10 +93,6 @@ public:
 
 	static IntegerType const* integer(unsigned _bits, IntegerType::Modifier _modifier)
 	{
-		if (_bits == 257 && _modifier == IntegerType::Modifier::Signed) {
-			return m_int257.get();
-		}
-
 		if (_modifier == IntegerType::Modifier::Unsigned)
 			return m_uintM.at(_bits - 1).get();
 		else
@@ -109,7 +105,9 @@ public:
 	static IntegerType const* uint256() { return uint(256); }
 	static IntegerType const* int256() { return integer(256, IntegerType::Modifier::Signed); }
 
+	static VarIntegerType const* coins();
 	static VarIntegerType const* varInteger(unsigned m, IntegerType::Modifier _modifier);
+
 	static FixedPointType const* fixedPoint(unsigned m, unsigned n, FixedPointType::Modifier _modifier);
 
 	static StringLiteralType const* stringLiteral(std::string const& literal);
@@ -119,19 +117,6 @@ public:
 	static TupleType const* tuple(std::vector<Type const*> members);
 
 	static TupleType const* emptyTuple() noexcept { return &m_emptyTuple; }
-
-	static ReferenceType const* withLocation(ReferenceType const* _type, bool _isPointer);
-
-	/// @returns a copy of @a _type having the same location as this (and is not a pointer type)
-	///          if _type is a reference type and an unmodified copy of _type otherwise.
-	///          This function is mostly useful to modify inner types appropriately.
-	static Type const* withLocationIfReference(Type const* _type, bool _isPointer = false)
-	{
-		if (auto refType = dynamic_cast<ReferenceType const*>(_type))
-			return withLocation(refType, _isPointer);
-
-		return _type;
-	}
 
 	/// @returns the internally-facing or externally-facing type of a function or the type of a function declaration.
 	static FunctionType const* function(FunctionDefinition const& _function, FunctionType::Kind _kind = FunctionType::Kind::Declaration);
@@ -197,7 +182,7 @@ public:
 
 	static MagicType const* meta(Type const* _type);
 
-	static MappingType const* mapping(Type const* _keyType, Type const* _valueType);
+	static MappingType const* mapping(Type const* _keyType, ASTString _keyName, Type const* _valueType, ASTString _valueName);
 
 	static MappingType const* extraCurrencyCollection();
 
@@ -239,8 +224,7 @@ private:
 	static AddressType const m_address;
 	static InitializerListType const m_initializerList;
 	static CallListType const m_callList;
-	static std::unique_ptr<IntegerType> const m_int257;
-	static std::array<std::unique_ptr<IntegerType>, 256> const m_intM;
+	static std::array<std::unique_ptr<IntegerType>, 257> const m_intM;
 	static std::array<std::unique_ptr<IntegerType>, 256> const m_uintM;
 	static std::array<std::unique_ptr<FixedBytesType>, 32> const m_bytesM;
 	static std::array<std::unique_ptr<MagicType>, 8> const m_magics;        ///< MagicType's except MetaType

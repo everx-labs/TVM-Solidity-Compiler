@@ -41,21 +41,13 @@ pub fn print_abi_json_canonically(out: &mut File, value: &serde_json::Value) -> 
     print(out, &root["functions"])?;
     writeln!(out, "\t],")?;
 
-    writeln!(out, "\t\"data\": [")?;
-    print_data(out, &root["data"])?;
-    writeln!(out, "\t],")?;
-
     writeln!(out, "\t\"events\": [")?;
     print(out, &root["events"])?;
+    writeln!(out, "\t],")?;
 
-    if root.contains_key("fields") {
-        writeln!(out, "\t],")?;
-        writeln!(out, "\t\"fields\": [")?;
-        print_data(out, &root["fields"])?;
-        writeln!(out, "\t]")?;
-    } else {
-        writeln!(out, "\t]")?;
-    }
+    writeln!(out, "\t\"fields\": [")?;
+    print_data(out, &root["fields"])?;
+    writeln!(out, "\t]")?;
 
     writeln!(out, "}}")?;
     Ok(())

@@ -104,7 +104,7 @@ void GetFromDict::getDict() {
 	// if op == GetSetFromMapping than stack: value key dict keyLength
 	// else                            stack: key dict keyLength
 
-	const int saveStake = pusher.stackSize();
+	const int saveStack = pusher.stackSize();
 	std::string opcode = "DICT" + typeToDictChar(&keyType);
 	int take{};
 	int ret{};
@@ -208,7 +208,7 @@ void GetFromDict::getDict() {
 	}
 	pusher.endOpaque(take, ret);
 
-	pusher.ensureSize(saveStake -take + ret);
+	pusher.ensureSize(saveStack - take + ret);
 }
 
 void GetFromDict::checkExist() {

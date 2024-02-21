@@ -104,6 +104,9 @@ tmp_dir=$(mktemp -d -t bytecode-reports-XXXXXX)
 solcjs_dir="$tmp_dir/solcjs"
 script_dir="$solidity_dir/scripts"
 
+# Set locale to C to prevent it from affecting glob sort order.
+export LC_ALL=C
+
 cd "$tmp_dir"
 
 git clone https://github.com/ethereum/solc-js.git "$solcjs_dir"
@@ -157,7 +160,7 @@ for binary_name in $platform_binaries; do
                 "$solidity_version_and_commit"
 
             # shellcheck disable=SC2035
-            ./prepare_report.js --strip-smt-pragmas *.sol > "${report_dir}/report-${binary_name}.txt"
+            ./prepare_report.js --strip-smt-pragmas *.sol --report-file "${report_dir}/report-${binary_name}.txt"
         else
             yul_optimizer_flags=()
             if [[ $solidity_version == 0.6.0 ]] || [[ $solidity_version == 0.6.1 ]]; then

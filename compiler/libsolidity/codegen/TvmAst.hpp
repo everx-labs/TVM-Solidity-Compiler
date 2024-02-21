@@ -74,9 +74,17 @@ public:
 		REVERSE, //  REVERSE 2, 0  |  REVERSE 3, 0
 		XCHG,    //  XCHG S0 S1    |  XCHG S0 S2,
 
-		TUCK,
+		//  Compound stack manipulation primitives
+		XCHG3,
+		XCHG2,
+		XCPU,  //XCPU s1,s1 == TUCK
 		PUXC,
-		XCPU,
+		XC2PU,
+		XCPU2,
+		PUXC2,
+		XCPUXC,
+		PUXCPU,
+		PU2XC
 	};
 	explicit Stack(Opcode opcode, int i = -1, int j = -1, int k = -1);
 	void accept(TvmAstVisitor& _visitor) override;
@@ -178,9 +186,9 @@ private:
 	int m_ret{};
 };
 
-class GenOpcode : public Gen {
+class StackOpcode : public Gen {
 public:
-	explicit GenOpcode(const std::string& opcode, int take, int ret, bool _isPure = false);
+	explicit StackOpcode(const std::string& opcode, int take, int ret, bool _isPure = false);
 	void accept(TvmAstVisitor& _visitor) override;
 	std::string fullOpcode() const;
 	std::string const &opcode() const { return m_opcode; }
@@ -261,7 +269,7 @@ public:
 		PUSHREFSLICE_COMPUTE,
 		PUSHREF,
 		PUSHREFSLICE,
-		CELL,
+		CELL, // TODO DELETE
 		PUSHSLICE
 	};
 	PushCellOrSlice(Type type, std::string blob, Pointer<PushCellOrSlice> child) :
@@ -519,7 +527,7 @@ private:
 	std::map<uint32_t, std::string> m_privateFunctions;
 };
 
-Pointer<GenOpcode> gen(const std::string& cmd);
+Pointer<StackOpcode> gen(const std::string& cmd);
 Pointer<PushCellOrSlice> genPushSlice(const std::string& _str);
 Pointer<PushCellOrSlice> makePushCellOrSlice(std::string const& hexStr, bool toSlice);
 Pointer<Stack> makeDROP(int cnt = 1);
@@ -541,11 +549,10 @@ Pointer<Glob> makeGetGlob(int i);
 Pointer<Glob> makeSetGlob(int i);
 Pointer<Stack> makeBLKDROP2(int droppedCount, int leftCount);
 Pointer<PushCellOrSlice> makePUSHREF(const std::string& data = "");
-Pointer<Stack> makeREVERSE(int i, int j);
+Pointer<Stack> makeREVERSE(int qty, int index);
 Pointer<Stack> makeROT();
 Pointer<Stack> makeROTREV();
 Pointer<Stack> makeBLKSWAP(int down, int top);
-Pointer<Stack> makeTUCK();
 Pointer<Stack> makePUXC(int i, int j);
 Pointer<Stack> makeXCPU(int i, int j);
 Pointer<TvmIfElse> flipIfElse(TvmIfElse const& node);
@@ -555,6 +562,7 @@ bool isSWAP(Pointer<TvmAstNode> const& node);
 std::optional<std::pair<int, int>> isBLKSWAP(Pointer<TvmAstNode> const& node);
 std::optional<int> isDrop(Pointer<TvmAstNode> const& node);
 std::optional<int> isPOP(Pointer<TvmAstNode> const& node);
+std::optional<int> isPUSH(Pointer<TvmAstNode> const& node);
 std::optional<std::pair<int, int>> isBLKPUSH(Pointer<TvmAstNode> const& node);
 bool isXCHG(Pointer<TvmAstNode> const& node, int i, int j);
 std::optional<int> isXCHG_S0(Pointer<TvmAstNode> const& node);
@@ -564,5 +572,9 @@ Pointer<PushCellOrSlice> isPlainPushSlice(Pointer<TvmAstNode> const& node); // T
 int getRootBitSize(PushCellOrSlice const &_node);
 
 Pointer<AsymGen> getZeroOrNullAlignment(bool isZero, bool isSwap, bool isNot);
+
+namespace OpcodeUtils{
+	int gasCost(Stack const& opcode);
+}
 
 }	// end solidity::frontend

@@ -196,7 +196,7 @@ void UsingForDirective::accept(ASTVisitor& _visitor)
 {
 	if (_visitor.visit(*this))
 	{
-		listAccept(functionsOrLibrary(), _visitor);
+		listAccept(m_functionsOrLibrary, _visitor);
 		if (m_typeName)
 			m_typeName->accept(_visitor);
 	}
@@ -207,7 +207,7 @@ void UsingForDirective::accept(ASTConstVisitor& _visitor) const
 {
 	if (_visitor.visit(*this))
 	{
-		listAccept(functionsOrLibrary(), _visitor);
+		listAccept(m_functionsOrLibrary, _visitor);
 		if (m_typeName)
 			m_typeName->accept(_visitor);
 	}
@@ -267,6 +267,8 @@ void FunctionDefinition::accept(ASTVisitor& _visitor)
 		m_parameters->accept(_visitor);
 		if (m_returnParameters)
 			m_returnParameters->accept(_visitor);
+		if (m_experimentalReturnExpression)
+			m_experimentalReturnExpression->accept(_visitor);
 		listAccept(m_functionModifiers, _visitor);
 		if (m_body)
 			m_body->accept(_visitor);
@@ -285,6 +287,8 @@ void FunctionDefinition::accept(ASTConstVisitor& _visitor) const
 		m_parameters->accept(_visitor);
 		if (m_returnParameters)
 			m_returnParameters->accept(_visitor);
+		if (m_experimentalReturnExpression)
+			m_experimentalReturnExpression->accept(_visitor);
 		listAccept(m_functionModifiers, _visitor);
 		if (m_body)
 			m_body->accept(_visitor);
@@ -298,6 +302,8 @@ void VariableDeclaration::accept(ASTVisitor& _visitor)
 	{
 		if (m_typeName)
 			m_typeName->accept(_visitor);
+		if (m_typeExpression)
+			m_typeExpression->accept(_visitor);
 		if (m_overrides)
 			m_overrides->accept(_visitor);
 		if (m_value)
@@ -310,9 +316,10 @@ void VariableDeclaration::accept(ASTConstVisitor& _visitor) const
 {
 	if (_visitor.visit(*this))
 	{
-		if (m_typeName) {
+		if (m_typeName)
 			m_typeName->accept(_visitor);
-		}
+		if (m_typeExpression)
+			m_typeExpression->accept(_visitor);
 		if (m_overrides)
 			m_overrides->accept(_visitor);
 		if (m_value)
@@ -550,18 +557,6 @@ void FreeInlineAssembly::accept(ASTVisitor& _visitor)
 }
 
 void FreeInlineAssembly::accept(ASTConstVisitor& _visitor) const
-{
-	_visitor.visit(*this);
-	_visitor.endVisit(*this);
-}
-
-void InlineAssembly::accept(ASTVisitor& _visitor)
-{
-	_visitor.visit(*this);
-	_visitor.endVisit(*this);
-}
-
-void InlineAssembly::accept(ASTConstVisitor& _visitor) const
 {
 	_visitor.visit(*this);
 	_visitor.endVisit(*this);
@@ -1182,5 +1177,115 @@ void Literal::accept(ASTConstVisitor& _visitor) const
 	_visitor.visit(*this);
 	_visitor.endVisit(*this);
 }
+
+/// Experimental Solidity nodes
+/// @{
+void TypeClassDefinition::accept(ASTVisitor& _visitor)
+{
+	if (_visitor.visit(*this))
+	{
+		m_typeVariable->accept(_visitor);
+		if (m_documentation)
+			m_documentation->accept(_visitor);
+		listAccept(m_subNodes, _visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void TypeClassDefinition::accept(ASTConstVisitor& _visitor) const
+{
+	if (_visitor.visit(*this))
+	{
+		m_typeVariable->accept(_visitor);
+		if (m_documentation)
+			m_documentation->accept(_visitor);
+		listAccept(m_subNodes, _visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void TypeClassInstantiation::accept(ASTVisitor& _visitor)
+{
+	if (_visitor.visit(*this))
+	{
+		m_typeConstructor->accept(_visitor);
+		if (m_argumentSorts)
+			m_argumentSorts->accept(_visitor);
+		m_class->accept(_visitor);
+		listAccept(m_subNodes, _visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void TypeClassInstantiation::accept(ASTConstVisitor& _visitor) const
+{
+	if (_visitor.visit(*this))
+	{
+		m_typeConstructor->accept(_visitor);
+		if (m_argumentSorts)
+			m_argumentSorts->accept(_visitor);
+		m_class->accept(_visitor);
+		listAccept(m_subNodes, _visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void TypeDefinition::accept(ASTVisitor& _visitor)
+{
+	if (_visitor.visit(*this))
+	{
+		if (m_arguments)
+			m_arguments->accept(_visitor);
+		if (m_typeExpression)
+			m_typeExpression->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void TypeDefinition::accept(ASTConstVisitor& _visitor) const
+{
+	if (_visitor.visit(*this))
+	{
+		if (m_arguments)
+			m_arguments->accept(_visitor);
+		if (m_typeExpression)
+			m_typeExpression->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+
+void TypeClassName::accept(ASTVisitor& _visitor)
+{
+	if (_visitor.visit(*this))
+	{
+		if (auto* path = std::get_if<ASTPointer<IdentifierPath>>(&m_name))
+			(*path)->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void TypeClassName::accept(ASTConstVisitor& _visitor) const
+{
+	if (_visitor.visit(*this))
+	{
+		if (auto* path = std::get_if<ASTPointer<IdentifierPath>>(&m_name))
+			(*path)->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void Builtin::accept(ASTVisitor& _visitor)
+{
+	_visitor.visit(*this);
+	_visitor.endVisit(*this);
+}
+
+void Builtin::accept(ASTConstVisitor& _visitor) const
+{
+	_visitor.visit(*this);
+	_visitor.endVisit(*this);
+}
+/// @}
 
 }

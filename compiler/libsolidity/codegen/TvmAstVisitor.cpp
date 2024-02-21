@@ -20,7 +20,6 @@
 #include <libsolidity/codegen/TvmAstVisitor.hpp>
 #include <liblangutil/Exceptions.h>
 #include "TVMCommons.hpp"
-#include "TVMABI.hpp"
 
 using namespace solidity::frontend;
 
@@ -70,7 +69,7 @@ bool Printer::visit(TvmReturn &_node) {
 	if (_node.withAlt()) {
 		m_out << "ALT";
 	}
-	endL();
+	m_out << std::endl;
 	return false;
 }
 
@@ -92,9 +91,11 @@ bool Printer::visit(TvmException &_node) {
 	return false;
 }
 
-bool Printer::visit(GenOpcode &_node) {
+bool Printer::visit(StackOpcode &_node) {
 	tabs();
 	if (_node.fullOpcode() == "BITNOT") m_out << "NOT";
+	//else if (_node.fullOpcode() == "STVARUINT16") m_out << "STGRAMS";
+	//else if (_node.fullOpcode() == "LDVARUINT16") m_out << "LDGRAMS";
 	else if (_node.fullOpcode() == "TUPLE 1") m_out << "SINGLE";
 	else if (_node.fullOpcode() == "TUPLE 2") m_out << "PAIR";
 	else if (_node.fullOpcode() == "TUPLE 3") m_out << "TRIPLE";
@@ -106,8 +107,7 @@ bool Printer::visit(GenOpcode &_node) {
 		if (ret <= 15) {
 			m_out << "UNTUPLE " << ret;
 		} else {
-			m_out << "PUSHINT " << ret;
-			endL();
+			m_out << "PUSHINT " << ret << std::endl;
 			tabs();
 			m_out << "UNTUPLEVAR";
 		}
@@ -116,8 +116,7 @@ bool Printer::visit(GenOpcode &_node) {
 		if (ret <= 15) {
 			m_out << "UNPACKFIRST " << ret;
 		} else {
-			m_out << "PUSHINT " << ret;
-			endL();
+			m_out << "PUSHINT " << ret << std::endl;
 			tabs();
 			m_out << "UNPACKFIRSTVAR";
 		}
@@ -178,10 +177,10 @@ bool Printer::visit(PushCellOrSlice &_node) {
 			m_out << ".cell {";
 			break;
 	}
-	endL();
+	m_out << std::endl;
 
 	++m_tab;
-	if (!_node.blob().empty()) {
+	if (!_node.blob().empty() && _node.blob() != "x") {
 		tabs();
 		m_out << ".blob " << _node.blob() << std::endl;
 	}
@@ -237,7 +236,7 @@ bool Printer::visit(Glob &_node) {
 			m_out << "POP C7";
 			break;
 	}
-	endL();
+	m_out << std::endl;
 	return false;
 }
 
@@ -281,181 +280,203 @@ bool Printer::visit(Stack &_node) {
 	};
 
 	switch (_node.opcode()) {
-		case Stack::Opcode::DROP: {
-			drop(i);
-			break;
-		}
-		case Stack::Opcode::PUSH_S:
-			solAssert(j == -1, "");
-			if (i == 0) {
-				m_out << "DUP";
-			} else if (i == 1) {
-				m_out << "OVER";
-			} else {
-				m_out << "PUSH S" << i;
-			}
-			break;
-		case Stack::Opcode::XCHG: {
-			if (i == 0) {
-				if (j == 1) {
-					m_out << "SWAP";
-				} else {
-					m_out << "XCHG S" << j;
-				}
-			} else {
-				m_out << "XCHG S" << i << ", S" << j;
-			}
-			break;
-		}
-		case Stack::Opcode::BLKDROP2:
-			if (i > 15 || j > 15) {
-				printPushInt(i);
-				m_out << std::endl;
-				tabs();
-				printPushInt(j);
-				m_out << std::endl;
-				tabs();
-				m_out << "BLKSWX" << std::endl;
-				tabs();
-				drop(i);
-			} else {
-				solAssert((i >= 2 && j >= 1) || (i >= 1 && j >= 2), "");
-				m_out << "BLKDROP2";
-				printIndexes();
-			}
-			break;
-		case Stack::Opcode::PUSH2_S:
-			if (i == 1 && j == 0)
-				m_out << "DUP2";
-			else if (i == 3 && j == 2)
-				m_out << "OVER2";
-			else {
-				m_out << "PUSH2";
-				printSS();
-			}
-			break;
-		case Stack::Opcode::POP_S:
-			if (i == 1) {
-				m_out << "NIP";
-			} else {
-				m_out << "POP";
-				printSS();
-			}
-			break;
-		case Stack::Opcode::BLKSWAP: {
-			int bottom = _node.i();
-			int top = _node.j();
-			if (bottom == 1 && top == 1) {
-				m_out << "SWAP";
-			} else if (bottom == 1 && top == 2) {
-				m_out << "ROT";
-			} else if (bottom == 2 && top == 1) {
-				m_out << "ROTREV";
-			} else if (bottom == 2 && top == 2) {
-				m_out << "SWAP2";
-			} else if (1 <= bottom && bottom <= 16 && 1 <= top && top <= 16) {
-				if (bottom == 1) {
-					m_out << "ROLL " << top;
-				} else if (top == 1) {
-					m_out << "ROLLREV " << bottom;
-				} else {
-					m_out << "BLKSWAP";
-					printIndexes();
-				}
-			} else {
-				if (bottom == 1) {
-					printPushInt(top);
-					m_out << std::endl;
-					tabs();
-					m_out << "ROLLX";
-				} else if (top == 1) {
-					printPushInt(bottom);
-					m_out << std::endl;
-					tabs();
-					m_out << "ROLLREVX";
-				} else {
-					printPushInt(bottom);
-					m_out << std::endl;
-					tabs();
-					printPushInt(top);
-					m_out << std::endl;
-					tabs();
-					m_out << "BLKSWX";
-				}
-			}
-			break;
-		}
-		case Stack::Opcode::REVERSE:
-			solAssert(2 <= i, "");
-			if (i == 2 && j == 0) {
-				m_out << "SWAP";
-			} else if (i == 3 && j == 0) {
-				m_out << "XCHG S2";
-			} else if (2 <= i && i <= 17 && 0 <= j && j <= 15) {
-				m_out << "REVERSE";
-				printIndexes();
-			} else {
-				printPushInt(i);
-				m_out << std::endl;
-				tabs();
-				printPushInt(j);
-				m_out << std::endl;
-				tabs();
-				m_out << "REVX";
-			}
-			break;
-		case Stack::Opcode::BLKPUSH:
-			if (i == 2 && j == 1) {
-				m_out << "DUP2";
-			} else if (i == 2 && j == 3) {
-				m_out << "OVER2";
-			} else {
-				if (i > 15)
-					solAssert(j == 0, "");
-				int rest = i;
-				bool first = true;
-				while (rest > 0) {
-					if (!first) {
-						m_out << std::endl;
-						tabs();
-					}
-					m_out << "BLKPUSH " << std::min(15, rest) << ", " << j;
-
-					rest -= 15;
-					first = false;
-				}
-			}
-			break;
-		case Stack::Opcode::PUSH3_S:
-			m_out << "PUSH3";
-			printSS();
-			break;
-
-		case Stack::Opcode::TUCK:
-			m_out << "TUCK";
-			break;
-
-		case Stack::Opcode::PUXC:
-			m_out << "PUXC S" << i << ", S" << j;
-			break;
-
-		case Stack::Opcode::XCPU:
-			m_out << "XCPU S" << i << ", S" << j;
-			break;
+	case Stack::Opcode::DROP: {
+		drop(i);
+		break;
 	}
-	endL();
+	case Stack::Opcode::PUSH_S:
+		solAssert(j == -1, "");
+		if (i == 0) {
+			m_out << "DUP";
+		} else if (i == 1) {
+			m_out << "OVER";
+		} else {
+			m_out << "PUSH S" << i;
+		}
+		break;
+	case Stack::Opcode::XCHG: {
+		if (i == 0) {
+			if (j == 1) {
+				m_out << "SWAP";
+			} else {
+				m_out << "XCHG S" << j;
+			}
+		} else {
+			m_out << "XCHG S" << i << ", S" << j;
+		}
+		break;
+	}
+	case Stack::Opcode::BLKDROP2:
+		if (i > 15 || j > 15) {
+			printPushInt(i);
+			m_out << std::endl;
+			tabs();
+			printPushInt(j);
+			m_out << std::endl;
+			tabs();
+			m_out << "BLKSWX" << std::endl;
+			tabs();
+			drop(i);
+		} else {
+			solAssert((i >= 2 && j >= 1) || (i >= 1 && j >= 2), "");
+			m_out << "BLKDROP2";
+			printIndexes();
+		}
+		break;
+	case Stack::Opcode::PUSH2_S:
+		if (i == 1 && j == 0)
+			m_out << "DUP2";
+		else if (i == 3 && j == 2)
+			m_out << "OVER2";
+		else {
+			m_out << "PUSH2";
+			printSS();
+		}
+		break;
+	case Stack::Opcode::POP_S:
+		if (i == 1) {
+			m_out << "NIP";
+		} else {
+			m_out << "POP";
+			printSS();
+		}
+		break;
+	case Stack::Opcode::BLKSWAP: {
+		int bottom = _node.i();
+		int top = _node.j();
+		if (bottom == 1 && top == 1) {
+			m_out << "SWAP";
+		} else if (bottom == 1 && top == 2) {
+			m_out << "ROT";
+		} else if (bottom == 2 && top == 1) {
+			m_out << "ROTREV";
+		} else if (bottom == 2 && top == 2) {
+			m_out << "SWAP2";
+		} else if (1 <= bottom && bottom <= 16 && 1 <= top && top <= 16) {
+			if (bottom == 1) {
+				m_out << "ROLL " << top;
+			} else if (top == 1) {
+				m_out << "ROLLREV " << bottom;
+			} else {
+				m_out << "BLKSWAP";
+				printIndexes();
+			}
+		} else {
+			if (bottom == 1) {
+				printPushInt(top);
+				m_out << std::endl;
+				tabs();
+				m_out << "ROLLX";
+			} else if (top == 1) {
+				printPushInt(bottom);
+				m_out << std::endl;
+				tabs();
+				m_out << "ROLLREVX";
+			} else {
+				printPushInt(bottom);
+				m_out << std::endl;
+				tabs();
+				printPushInt(top);
+				m_out << std::endl;
+				tabs();
+				m_out << "BLKSWX";
+			}
+		}
+		break;
+	}
+	case Stack::Opcode::REVERSE:
+		solAssert(2 <= i, "");
+		if (i == 2 && j == 0) {
+			m_out << "SWAP";
+		} else if (i == 3 && j == 0) {
+			m_out << "XCHG S2";
+		} else if (2 <= i && i <= 17 && 0 <= j && j <= 15) {
+			m_out << "REVERSE";
+			printIndexes();
+		} else {
+			printPushInt(i);
+			m_out << std::endl;
+			tabs();
+			printPushInt(j);
+			m_out << std::endl;
+			tabs();
+			m_out << "REVX";
+		}
+		break;
+	case Stack::Opcode::BLKPUSH:
+		if (i == 2 && j == 1) {
+			m_out << "DUP2";
+		} else if (i == 2 && j == 3) {
+			m_out << "OVER2";
+		} else {
+			if (i > 15)
+				solAssert(j == 0, "");
+			int rest = i;
+			bool first = true;
+			while (rest > 0) {
+				if (!first) {
+					m_out << std::endl;
+					tabs();
+				}
+				m_out << "BLKPUSH " << std::min(15, rest) << ", " << j;
+
+				rest -= 15;
+				first = false;
+			}
+		}
+		break;
+	case Stack::Opcode::PUSH3_S:
+		m_out << "PUSH3";
+		printSS();
+		break;
+	case Stack::Opcode::PUXC:
+		m_out << "PUXC S" << i << ", S" << j;
+		break;
+	case Stack::Opcode::XCPU:
+		if (i == 1 && j == 1)
+			m_out << "TUCK";
+		else
+			m_out << "XCPU S" << i << ", S" << j;
+		break;
+	case Stack::Opcode::XC2PU:
+		m_out << "XC2PU S" << i << ", S" << j << ", S" << k;
+		break;
+	case Stack::Opcode::XCHG2:
+		m_out << "XCHG2 S" << i << ", S" << j;
+		break;
+	case Stack::Opcode::XCHG3:
+		m_out << "XCHG3 S" << i << ", S" << j << ", S" << k;
+		break;
+	case Stack::Opcode::XCPU2:
+		m_out << "XCPU2 S" << i << ", S" << j << ", S" << k;
+		break;
+	case Stack::Opcode::PUXC2:
+		m_out << "PUXC2 S" << i << ", S" << j << ", S" << k;
+		break;
+	case Stack::Opcode::PUXCPU:
+		m_out << "PUXCPU S" << i << ", S" << j << ", S" << k;
+		break;
+	case Stack::Opcode::XCPUXC:
+		m_out << "XCPUXC S" << i << ", S" << j << ", S" << k;
+		break;
+	case Stack::Opcode::PU2XC:
+		m_out << "PU2XC S" << i << ", S" << j << ", S" << k;
+		break;
+	}
+
+	m_out << std::endl;
 	return false;
 }
 
 bool Printer::visit(CodeBlock &_node) {
 	switch (_node.type()) {
-		case CodeBlock::Type::None:
-			break;
-		default:
-			tabs();
-			m_out << CodeBlock::toString(_node.type()) << " {" << std::endl;
-			++m_tab;
-			break;
+	case CodeBlock::Type::None:
+		break;
+	default:
+		tabs();
+		m_out << CodeBlock::toString(_node.type()) << " {" << std::endl;
+		++m_tab;
+		break;
 	}
 
 	for (Pointer<TvmAstNode> const& inst : _node.instructions()) {
@@ -477,38 +498,38 @@ bool Printer::visit(CodeBlock &_node) {
 
 bool Printer::visit(SubProgram &_node) {
 	switch (_node.block()->type()) {
-		case CodeBlock::Type::None:
-			solUnimplemented("");
-		case CodeBlock::Type::PUSHCONT:
-			_node.block()->accept(*this);
+	case CodeBlock::Type::None:
+		solUnimplemented("");
+	case CodeBlock::Type::PUSHCONT:
+		_node.block()->accept(*this);
 
-			tabs();
-			if (_node.isJmp()) {
-				m_out << "JMPX";
-			} else {
-				m_out << "CALLX";
-			}
-			endL();
+		tabs();
+		if (_node.isJmp()) {
+			m_out << "JMPX";
+		} else {
+			m_out << "CALLX";
+		}
+		m_out << std::endl;
 
-			break;
-		case CodeBlock::Type::PUSHREFCONT:
-			tabs();
-			if (_node.isJmp()) {
-				m_out << "JMPREF {";
-			} else {
-				m_out << "CALLREF {";
-			}
-			endL();
+		break;
+	case CodeBlock::Type::PUSHREFCONT:
+		tabs();
+		if (_node.isJmp()) {
+			m_out << "JMPREF {";
+		} else {
+			m_out << "CALLREF {";
+		}
+		m_out << std::endl;
 
-			++m_tab;
-			for (Pointer<TvmAstNode> const& i : _node.block()->instructions()) {
-				i->accept(*this);
-			}
-			--m_tab;
+		++m_tab;
+		for (Pointer<TvmAstNode> const& i : _node.block()->instructions()) {
+			i->accept(*this);
+		}
+		--m_tab;
 
-			tabs();
-			m_out << "}" << std::endl;
-			break;
+		tabs();
+		m_out << "}" << std::endl;
+		break;
 	}
 	return false;
 }
@@ -540,73 +561,79 @@ bool Printer::visit(LogCircuit &_node) {
 
 bool Printer::visit(TvmIfElse &_node) {
 	if (_node.falseBody() == nullptr) {
-		switch (_node.trueBody()->type()) {
-			case CodeBlock::Type::None:
-				solUnimplemented("");
-				break;
-			case CodeBlock::Type::PUSHCONT:
-				_node.trueBody()->accept(*this);
+	switch (_node.trueBody()->type()) {
+		case CodeBlock::Type::None:
+			solUnimplemented("");
+			break;
+		case CodeBlock::Type::PUSHCONT:
+			_node.trueBody()->accept(*this);
 
-				tabs();
-				m_out << "IF";
-				if (_node.withNot())
-					m_out << "NOT";
-				if (_node.withJmp())
-					m_out << "JMP";
-				endL();
+			tabs();
+			m_out << "IF";
+			if (_node.withNot())
+				m_out << "NOT";
+			if (_node.withJmp())
+				m_out << "JMP";
+			m_out << std::endl;
 
-				break;
-			case CodeBlock::Type::PUSHREFCONT:
-				tabs();
-				m_out << "IF";
-				if (_node.withNot())
-					m_out << "NOT";
-				if (_node.withJmp())
-					m_out << "JMP";
-				m_out << "REF {";
-				endL();
+			break;
+		case CodeBlock::Type::PUSHREFCONT:
+			tabs();
+			m_out << "IF";
+			if (_node.withNot())
+				m_out << "NOT";
+			if (_node.withJmp())
+				m_out << "JMP";
+			m_out << "REF {" << std::endl;
 
-				++m_tab;
-				for (Pointer<TvmAstNode> const& i : _node.trueBody()->instructions()) {
-					i->accept(*this);
-				}
-				--m_tab;
+			++m_tab;
+			for (Pointer<TvmAstNode> const& i : _node.trueBody()->instructions()) {
+				i->accept(*this);
+			}
+			--m_tab;
 
-				tabs();
-				m_out << "}" << std::endl;
-				break;
+			tabs();
+			m_out << "}" << std::endl;
+			break;
 		}
 	} else {
 		if (_node.trueBody()->type() == CodeBlock::Type::PUSHREFCONT &&
 			_node.falseBody()->type() == CodeBlock::Type::PUSHREFCONT
 		) {
+			tabs();
 			m_out << "IFREFELSEREF" << std::endl;
 			for (Pointer<CodeBlock> const& body : {_node.trueBody(), _node.falseBody()}) {
+				tabs();
 				m_out << "{" << std::endl;
 				++m_tab;
 				for (Pointer<TvmAstNode> const &n: body->instructions()) {
 					n->accept(*this);
 				}
 				--m_tab;
+				tabs();
 				m_out << "}" << std::endl;
 			}
 		} else  if (_node.trueBody()->type() == CodeBlock::Type::PUSHREFCONT) {
 			_node.falseBody()->accept(*this);
+			tabs();
 			m_out << "IFREFELSE {" << std::endl;
 			++m_tab;
 			for (Pointer<TvmAstNode> const& n : _node.trueBody()->instructions()) {
 				n->accept(*this);
 			}
 			--m_tab;
+			tabs();
 			m_out << "}" << std::endl;
 		} else  if (_node.falseBody()->type() == CodeBlock::Type::PUSHREFCONT) {
 			_node.trueBody()->accept(*this);
+			tabs();
 			m_out << "IFELSEREF {" << std::endl;
 			++m_tab;
 			for (Pointer<TvmAstNode> const& n : _node.falseBody()->instructions()) {
 				n->accept(*this);
 			}
 			--m_tab;
+			tabs();
 			m_out << "}" << std::endl;
 		} else {
 			_node.trueBody()->accept(*this);
@@ -615,8 +642,7 @@ bool Printer::visit(TvmIfElse &_node) {
 				solUnimplemented("");
 
 			tabs();
-			m_out << "IFELSE";
-			endL();
+			m_out << "IFELSE" << std::endl;
 		}
 	}
 	return false;
@@ -703,17 +729,6 @@ bool Printer::visit(Contract &_node) {
 			m_out << std::endl;
 		}
 
-		m_out << ".fragment default_data_dict_cell, {" << std::endl;
-		m_out << "	PUSHINT 0" << std::endl;
-		m_out << "	NEWC" << std::endl;
-		m_out << "	STU 256" << std::endl;
-		m_out << "	PUSHINT 0" << std::endl;
-		m_out << "	NEWDICT" << std::endl;
-		m_out << "	PUSHINT 64" << std::endl;
-		m_out << "	DICTUSETB" << std::endl;
-		m_out << "}" << std::endl;
-		m_out << std::endl;
-
 		m_out << "; The code below forms a value of the StateInit type." << std::endl;
 		m_out << ".blob x4_ ; split_depth = nothing" << std::endl;
 		m_out << ".blob x4_ ; special = nothing" << std::endl;
@@ -786,10 +801,7 @@ bool Printer::visit(Contract &_node) {
 
 		m_out << ".blob xc_ ; data = just" << std::endl;
 		m_out << ".cell { " << std::endl;
-		m_out << "	.blob xc_" << std::endl;
-		m_out << "	.cell { " << std::endl;
-		m_out << "		.inline-computed-cell default_data_dict_cell, 0" << std::endl;
-		m_out << "	}" << std::endl;
+		m_out << "	.inline-computed-cell default_data_cell, 0" << std::endl;
 		m_out << "}" << std::endl;
 		m_out << ".blob x4_ ; library = hme_empty" << std::endl;
 	}
@@ -809,10 +821,6 @@ bool Printer::visit(Function &_node) {
 
 bool Printer::visitNode(TvmAstNode const&) {
 	solUnimplemented("");
-}
-
-void Printer::endL() {
-	m_out << std::endl;
 }
 
 void Printer::tabs() {
@@ -1003,9 +1011,8 @@ bool LogCircuitExpander::isPureOperation(Pointer<TvmAstNode> const& op) {
 		return true;
 	}
 
-	auto stack = to<Stack>(op.get());
-	if (stack && stack->opcode() == Stack::Opcode::PUSH_S) {
-		int index = stack->i();
+	if (auto push = isPUSH(op)) {
+		int index = *push;
 		if (index + 1 < m_stackSize) {
 			m_newInst.emplace_back(makePUSH(index));
 		} else {

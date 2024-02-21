@@ -21,11 +21,18 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 
 #include <boost/operators.hpp>
 
+
+namespace solidity::evmasm
+{
+/// Virtual machine bytecode instruction. Forward declared from libevmasm/Instruction.h
+enum class Instruction: uint8_t;
+}
 
 namespace solidity::langutil
 {
@@ -50,10 +57,13 @@ public:
 	static EVMVersion istanbul() { return {Version::Istanbul}; }
 	static EVMVersion berlin() { return {Version::Berlin}; }
 	static EVMVersion london() { return {Version::London}; }
+	static EVMVersion paris() { return {Version::Paris}; }
+	static EVMVersion shanghai() { return {Version::Shanghai}; }
+	static EVMVersion cancun() { return {Version::Cancun}; }
 
 	static std::optional<EVMVersion> fromString(std::string const& _version)
 	{
-		for (auto const& v: {homestead(), tangerineWhistle(), spuriousDragon(), byzantium(), constantinople(), petersburg(), istanbul(), berlin(), london()})
+		for (auto const& v: {homestead(), tangerineWhistle(), spuriousDragon(), byzantium(), constantinople(), petersburg(), istanbul(), berlin(), london(), paris(), shanghai(), cancun()})
 			if (_version == v.name())
 				return v;
 		return std::nullopt;
@@ -75,6 +85,9 @@ public:
 		case Version::Istanbul: return "istanbul";
 		case Version::Berlin: return "berlin";
 		case Version::London: return "london";
+		case Version::Paris: return "paris";
+		case Version::Shanghai: return "shanghai";
+		case Version::Cancun: return "cancun";
 		}
 		return "INVALID";
 	}
@@ -88,17 +101,23 @@ public:
 	bool hasChainID() const { return *this >= istanbul(); }
 	bool hasSelfBalance() const { return *this >= istanbul(); }
 	bool hasBaseFee() const { return *this >= london(); }
+	bool hasBlobBaseFee() const { return *this >= cancun(); }
+	bool hasPrevRandao() const { return *this >= paris(); }
+	bool hasPush0() const { return *this >= shanghai(); }
+	bool hasBlobHash() const { return *this >= cancun(); }
+	bool hasMcopy() const { return *this >= cancun(); }
+	bool supportsTransientStorage() const { return *this >= cancun(); }
 
 	/// Whether we have to retain the costs for the call opcode itself (false),
 	/// or whether we can just forward easily all remaining gas (true).
 	bool canOverchargeGasForCall() const { return *this >= tangerineWhistle(); }
 
 private:
-	enum class Version { Homestead, TangerineWhistle, SpuriousDragon, Byzantium, Constantinople, Petersburg, Istanbul, Berlin, London };
+	enum class Version { Homestead, TangerineWhistle, SpuriousDragon, Byzantium, Constantinople, Petersburg, Istanbul, Berlin, London, Paris, Shanghai, Cancun };
 
 	EVMVersion(Version _version): m_version(_version) {}
 
-	Version m_version = Version::London;
+	Version m_version = Version::Shanghai;
 };
 
 }

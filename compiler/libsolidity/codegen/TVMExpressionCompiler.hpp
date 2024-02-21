@@ -68,6 +68,7 @@ protected:
 	void visitMathBinaryOperation(
 		Token op,
 		Type const* commonType,
+		const std::optional<bigint>& leftValue,
 		const std::function<void()>& pushRight,
 		const std::optional<bigint>& rightValue
 	);

@@ -32,7 +32,6 @@
 
 #include "license.h"
 
-using namespace std;
 using namespace solidity;
 using namespace solidity::util;
 
@@ -43,21 +42,21 @@ using solidity::frontend::StandardCompiler;
 namespace
 {
 
-// The strings in this list must not be resized after they have been added here (via solidity_alloc()), because
+// The std::strings in this list must not be resized after they have been added here (via solidity_alloc()), because
 // this may potentially change the pointer that was passed to the caller from solidity_alloc().
-static list<string> solidityAllocations;
+static std::list<std::string> solidityAllocations;
 
 /// Find the equivalent to @p _data in the list of allocations of solidity_alloc(),
 /// removes it from the list and returns its value.
 ///
 /// If any invalid argument is being passed, it is considered a programming error
 /// on the caller-side and hence, will call abort() then.
-string takeOverAllocation(char const* _data)
+std::string takeOverAllocation(char const* _data)
 {
 	for (auto iter = begin(solidityAllocations); iter != end(solidityAllocations); ++iter)
 		if (iter->data() == _data)
 		{
-			string chunk = std::move(*iter);
+			std::string chunk = std::move(*iter);
 			solidityAllocations.erase(iter);
 			return chunk;
 		}
@@ -65,11 +64,11 @@ string takeOverAllocation(char const* _data)
 	abort();
 }
 
-/// Resizes a std::string to the proper length based on the occurrence of a zero terminator.
-void truncateCString(string& _data)
+/// Resizes a std::std::string to the proper length based on the occurrence of a zero terminator.
+void truncateCString(std::string& _data)
 {
 	size_t pos = _data.find('\0');
-	if (pos != string::npos)
+	if (pos != std::string::npos)
 		_data.resize(pos);
 }
 
@@ -78,7 +77,7 @@ ReadCallback::Callback wrapReadCallback(CStyleReadFileCallback _readCallback, vo
 	ReadCallback::Callback readCallback;
 	if (_readCallback)
 	{
-		readCallback = [=](string const& _kind, string const& _data)
+		readCallback = [=](std::string const& _kind, std::string const& _data)
 		{
 			char* contents_c = nullptr;
 			char* error_c = nullptr;
@@ -107,7 +106,7 @@ ReadCallback::Callback wrapReadCallback(CStyleReadFileCallback _readCallback, vo
 	return readCallback;
 }
 
-string compile(string _input, CStyleReadFileCallback _readCallback, void* _readContext)
+std::string compile(std::string _input, CStyleReadFileCallback _readCallback, void* _readContext)
 {
 	StandardCompiler compiler(wrapReadCallback(_readCallback, _readContext));
 	return compiler.compile(std::move(_input));
@@ -119,7 +118,7 @@ extern "C"
 {
 extern char const* solidity_license() noexcept
 {
-	static string fullLicenseText = otherLicenses + licenseText;
+	static std::string fullLicenseText = otherLicenses + licenseText;
 	return fullLicenseText.c_str();
 }
 
@@ -202,7 +201,7 @@ extern void file_reader_add_or_update_file(void *p, const char* path, const char
 extern char* file_reader_source_unit_name(void *p, const char* path) noexcept
 {
 	FileReader *fileReader = (FileReader *)p;
-	string name = fileReader->cliPathToSourceUnitName(boost::filesystem::path(path));
+	std::string name = fileReader->cliPathToSourceUnitName(boost::filesystem::path(path));
 #ifdef FILE_READER_DEBUG
 	cout << "file_reader_source_unit_name " << path << " " << name << endl;
 #endif

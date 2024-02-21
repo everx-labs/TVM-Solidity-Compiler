@@ -40,7 +40,6 @@ protected:
 		void endVisit(frontend::Identifier const& _node) override;
 		void endVisit(frontend::IdentifierPath const& _node) override;
 		void endVisit(frontend::FunctionCall const& _node) override;
-		void endVisit(frontend::InlineAssembly const& _node) override;
 
 		void endVisit(frontend::ContractDefinition const& _node) override
 		{
@@ -104,7 +103,6 @@ protected:
 	void extractNameAndDeclaration(frontend::IdentifierPath const& _identifierPath, int _cursorBytePosition);
 	void extractNameAndDeclaration(frontend::ImportDirective const& _importDirective, int _cursorBytePosition);
 	void extractNameAndDeclaration(frontend::FunctionCall const& _functionCall, int _cursorBytePosition);
-	void extractNameAndDeclaration(frontend::InlineAssembly const& _inlineAssembly, int _cursorBytePosition);
 
 	// Node to rename
 	frontend::Declaration const* m_declarationToRename = nullptr;

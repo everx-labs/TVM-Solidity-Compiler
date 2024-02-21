@@ -19,44 +19,44 @@
 #include <libsolidity/codegen/TvmAstVisitor.hpp>
 
 namespace solidity::frontend {
-	class StackOptimizer : public TvmAstVisitor {
-	public:
-		bool visit(DeclRetFlag &_node) override;
-		bool visit(Opaque &_node) override;
-		bool visit(HardCode &_node) override;
-		bool visit(Loc &_node) override;
-		bool visit(TvmReturn &_node) override;
-		bool visit(ReturnOrBreakOrCont &_node) override;
-		bool visit(TvmException &_node) override;
-		bool visit(GenOpcode &_node) override;
-		bool visit(PushCellOrSlice &_node) override;
-		bool visit(Glob &_node) override;
-		bool visit(Stack &_node) override;
-		bool visit(CodeBlock &_node) override;
-		bool visit(SubProgram &_node) override;
-		bool visit(LogCircuit &_node) override;
-		bool visit(TvmIfElse &_node) override;
-		bool visit(TvmRepeat &_node) override;
-		bool visit(TvmUntil &_node) override;
-		bool visit(TryCatch &_node) override;
-		bool visit(While &_node) override;
-		bool visit(Function &_node) override;
-		bool visit(Contract &_node) override;
-		void endVisit(CodeBlock &_node) override;
-	protected:
-		bool visitNode(TvmAstNode const&) override;
-		void endVisitNode(TvmAstNode const&) override;
-	private:
-		bool successfullyUpdate(int index, std::vector<Pointer<TvmAstNode>>& instructions);
-		void initStack(int size);
-		void delta(int delta);
-		int size();
-		int scopeSize();
-		void startScope();
-		void endScope();
-	private:
-		bool m_didSome{};
-		std::vector<int> m_stackSize;
-	};
+class StackOptimizer : public TvmAstVisitor {
+public:
+	bool visit(DeclRetFlag &_node) override;
+	bool visit(Opaque &_node) override;
+	bool visit(HardCode &_node) override;
+	bool visit(Loc &_node) override;
+	bool visit(TvmReturn &_node) override;
+	bool visit(ReturnOrBreakOrCont &_node) override;
+	bool visit(TvmException &_node) override;
+	bool visit(StackOpcode &_node) override;
+	bool visit(PushCellOrSlice &_node) override;
+	bool visit(Glob &_node) override;
+	bool visit(Stack &_node) override;
+	bool visit(CodeBlock &_node) override;
+	bool visit(SubProgram &_node) override;
+	bool visit(LogCircuit &_node) override;
+	bool visit(TvmIfElse &_node) override;
+	bool visit(TvmRepeat &_node) override;
+	bool visit(TvmUntil &_node) override;
+	bool visit(TryCatch &_node) override;
+	bool visit(While &_node) override;
+	bool visit(Function &_node) override;
+	bool visit(Contract &_node) override;
+	void endVisit(CodeBlock &_node) override;
+protected:
+	bool visitNode(TvmAstNode const&) override;
+	void endVisitNode(TvmAstNode const&) override;
+private:
+	bool successfullyUpdate(int index, std::vector<Pointer<TvmAstNode>>& instructions);
+	void initStack(int size);
+	void delta(int delta);
+	int size();
+	int scopeSize();
+	void startScope();
+	void endScope();
+private:
+	bool m_didSome{};
+	std::vector<int> m_stackSize;
+};
 } // end solidity::frontend
 

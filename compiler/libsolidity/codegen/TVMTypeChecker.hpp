@@ -27,7 +27,7 @@ private:
 
 public:
 	bool visit(TryStatement const& _node) override;
-	bool visit(VariableDeclaration const& _node) override;
+	bool visit(VariableDeclaration const& _variable) override;
 	bool visit(Mapping const& _mapping) override;
 	bool visit(FunctionDefinition const& fc) override;
 	bool visit(ContractDefinition const& ) override;

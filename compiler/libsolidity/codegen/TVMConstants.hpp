@@ -74,7 +74,6 @@ namespace TvmConst {
 		const int ConstructorIsCalledTwice  = 51;
 		const int ReplayProtection  = 52;
 		const int PopFromEmptyArray = 54;
-		const int InsertPubkeyException = 55;
 		const int MessageIsExpired = 57;
 		const int MessageHasNoSignButHasPubkey = 58;
 		const int NoFallback = 60;
