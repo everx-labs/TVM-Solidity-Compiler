@@ -1,13 +1,14 @@
 [package]
 edition = '2021'
 name = 'sold'
-version = '0.72.0'
+version = '0.72.1'
 
 [[bin]]
 name = 'sold'
 path = 'src/main.rs'
 
 [dependencies]
+anyhow = "1.0.81"
 atty = '0.2'
 dunce = '1.0'
 failure = '0.1'
@@ -16,10 +17,10 @@ serde_json = { features = [ 'unbounded_depth' ], version = '1.0' }
 strip-ansi-escapes = '0.2'
 clap = { features = [ 'derive' ], version = '4.3' }
 serde = { features = [ 'derive' ], version = '1.0' }
-ton_abi = { git = 'https://github.com/tonlabs/ever-abi.git', tag = '2.3.147' }
-ton_block = { git = 'https://github.com/tonlabs/ever-block.git', tag = '1.9.104' }
-ton_types = { git = 'https://github.com/tonlabs/ever-types.git', tag = '2.0.28' }
-ton_labs_assembler = { features = [ 'gosh' ], git = 'https://github.com/gosh-sh/ever-assembler.git', branch = 'feature/gosh_hash' }
+tvm_abi = { git = 'https://github.com/tvmlabs/tvm-sdk.git', tag = 'rc-1.47.0' }
+tvm_assembler = { git = 'https://github.com/tvmlabs/tvm-sdk.git', tag = 'rc-1.47.0' }
+tvm_block = { git = 'https://github.com/tvmlabs/tvm-sdk.git', tag = 'rc-1.47.0' }
+tvm_types = { git = 'https://github.com/tvmlabs/tvm-sdk.git', tag = 'rc-1.47.0' }
 
 [build-dependencies]
 cmake = '0.1'

@@ -834,6 +834,8 @@ void TVMExpressionCompiler::visitMagic(MemberAccess const &_memberAccess) {
 			m_pusher << "NOW";
 		} else if (member == "logicaltime") {
 			m_pusher << "BLOCKLT";
+		} else if (member == "seqno") {
+			m_pusher << "SEQNO";
 		} else {
 			unsupportedMagic();
 		}

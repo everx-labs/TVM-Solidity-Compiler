@@ -4447,6 +4447,7 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 	case Kind::Block:
 		return MemberList::MemberMap({
 			{"logicaltime", TypeProvider::uint(64)},
+			{"seqno", TypeProvider::uint(32)},
 			{"timestamp", TypeProvider::uint(32)},
 			{"difficulty", TypeProvider::uint256()},
 			{"number", TypeProvider::uint256()},

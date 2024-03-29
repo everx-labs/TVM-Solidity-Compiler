@@ -13,10 +13,10 @@
 use std::fs::File;
 use std::io::Write;
 
-use failure::format_err;
+use anyhow::format_err;
 use serde::Serialize;
 
-use ton_types::{Result, Status};
+use tvm_types::{Result, Status};
 
 pub fn print_abi_json_canonically(out: &mut File, value: &serde_json::Value) -> Status {
     let root = value.as_object().ok_or_else(|| format_err!("ABI parsing failed"))?;

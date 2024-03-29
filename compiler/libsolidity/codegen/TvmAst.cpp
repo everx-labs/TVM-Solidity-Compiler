@@ -522,6 +522,7 @@ Pointer<GenOpcode> gen(const std::string& cmd) {
 		{"PRINTSTR", {0, 0}},
 
 		{"BLOCKLT", {0, 1, true}},
+		{"SEQNO", {0, 1, true}},
 		{"FALSE", {0, 1, true}},
 		{"GASREMAINING", {0, 1}},
 		{"GETPARAM", {0, 1, true}},

@@ -4654,6 +4654,14 @@ block.timestamp returns (uint32);
 
 Returns the current Unix time. Unix time is the same for the all transactions from one block. 
 
+##### block.seqno
+
+```TVMSolidity
+block.seqno returns (uint32);
+```
+
+Returns the seq no of the current block.
+
 ##### block.logicaltime
 
 ```TVMSolidity

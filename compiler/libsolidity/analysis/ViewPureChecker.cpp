@@ -339,6 +339,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::ABI, "encodeWithSignature"},
 			{MagicType::Kind::Block, "blockhash"},
 			{MagicType::Kind::Block, "logicaltime"},
+			{MagicType::Kind::Block, "seqno"},
 			{MagicType::Kind::Block, "timestamp"},
 			{MagicType::Kind::Gosh, "applyBinPatch"},
 			{MagicType::Kind::Gosh, "applyBinPatchQ"},
