@@ -87,12 +87,12 @@ private:
 		bool _abiEncoderV2
 	);
 
-	void typeCheckTVMBuildStateInit(
+	void typeCheckABIEncodeStateInit(
 		FunctionCall const& _functionCall,
 		const std::function<bool(const std::string&)>& hasName,
 		const std::function<int(const std::string&)>& findName
 	);
-	void typeCheckTVMBuildDataInit(
+	void typeCheckABIEncodeData(
 		FunctionCall const& _functionCall,
 		const std::function<bool(const std::string&)>& hasName,
 		const std::function<int(const std::string&)>& findName
@@ -141,7 +141,8 @@ private:
 	static ContractType const* getContractType(Expression const* expr);
 	FunctionDefinition const* checkPubFunctionAndGetDefinition(Expression const& arg, bool printError = false);
 	FunctionDefinition const* checkPubFunctionOrContractTypeAndGetDefinition(Expression const& arg);
-	void checkInitList(InitializerList const *list, ContractType const *ct);
+	void checkInitList(InitializerList const* list, ContractType const& ct,
+					   langutil::SourceLocation const& _functionCallLocation);
 	void checkCallList(
 		std::vector<Expression const*> const& arguments,
 		FunctionCall const& _functionCall,
@@ -195,7 +196,6 @@ private:
 	bool visit(EventDefinition const& _eventDef) override;
 	bool visit(ErrorDefinition const& _errorDef) override;
 	void endVisit(FunctionTypeName const& _funType) override;
-	bool visit(InlineAssembly const& _inlineAssembly) override;
 	bool visit(IfStatement const& _ifStatement) override;
 	void endVisit(TryStatement const& _tryStatement) override;
 	bool visit(WhileStatement const& _whileStatement) override;

@@ -16,6 +16,8 @@
 
 #include <boost/format.hpp>
 
+#include <libsolidity/ast/TypeProvider.h>
+
 #include "PeepholeOptimizer.hpp"
 #include "StackOpcodeSquasher.hpp"
 #include "TVM.hpp"
@@ -27,6 +29,8 @@ using namespace std;
 using namespace solidity::util;
 
 namespace solidity::frontend {
+
+bool PeepholeOptimizer::withBlockPush = false;
 
 struct Result {
 
@@ -48,16 +52,17 @@ struct Result {
 
 class PrivatePeepholeOptimizer {
 public:
-	explicit PrivatePeepholeOptimizer(std::vector<Pointer<TvmAstNode>> instructions, bool _withUnpackOpaque, bool _optimizeSlice) :
+	explicit PrivatePeepholeOptimizer(std::vector<Pointer<TvmAstNode>> instructions, bool _withUnpackOpaque, bool _optimizeSlice, bool _withTuck) :
 		m_instructions{std::move(instructions)},
 		m_withUnpackOpaque{_withUnpackOpaque},
-		m_optimizeSlice{_optimizeSlice}
+		m_optimizeSlice{_optimizeSlice},
+		m_withTuck{_withTuck}
 	{
 	}
 	vector<Pointer<TvmAstNode>> const &instructions() const { return m_instructions; }
 
 	int nextCommandLine(int idx) const;
-	static int nextCommandLine(int idx, std::vector<Pointer<TvmAstNode>> instructions);
+	static int nextCommandLine(int idx, std::vector<Pointer<TvmAstNode>> const& instructions);
 	Pointer<TvmAstNode> get(int idx) const;
 	bool valid(int idx) const;
 	void remove(int idx);
@@ -65,7 +70,7 @@ public:
 	std::optional<Result> optimizeAt(int idx1) const;
 	std::optional<Result> optimizeSlice(int idx1) const;
 	static std::optional<Result> optimizeAt1(Pointer<TvmAstNode> const& cmd1, bool m_withUnpackOpaque);
-	static std::optional<Result> optimizeAt2(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2) ;
+	static std::optional<Result> optimizeAt2(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, bool _withTuck);
 	static std::optional<Result> optimizeAt3(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, Pointer<TvmAstNode> const& cmd3, bool m_withUnpackOpaque);
 	static std::optional<Result> optimizeAt4(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, Pointer<TvmAstNode> const& cmd3,
 					   Pointer<TvmAstNode> const& cmd4);
@@ -82,7 +87,6 @@ public:
 	bool optimize(const std::function<std::optional<Result>(int)> &f);
 
 	static std::optional<std::pair<int, int>> isBLKDROP2(Pointer<TvmAstNode>const& node);
-	static std::optional<int> isPUSH(Pointer<TvmAstNode> const& node);
 	static bigint pushintValue(Pointer<TvmAstNode> const& node);
 	static int fetchInt(Pointer<TvmAstNode> const& node);
 	static bool isNIP(Pointer<TvmAstNode> const& node);
@@ -103,13 +107,17 @@ private:
 	std::vector<Pointer<TvmAstNode>> m_instructions{};
 	bool m_withUnpackOpaque{};
 	bool m_optimizeSlice{};
+	bool m_withTuck{};
 };
 
 int PrivatePeepholeOptimizer::nextCommandLine(int idx) const {
+	if (idx == -1) {
+		return -1;
+	}
 	return nextCommandLine(idx + 1, m_instructions);
 }
 
-int PrivatePeepholeOptimizer::nextCommandLine(int idx, std::vector<Pointer<TvmAstNode>> instructions) {
+int PrivatePeepholeOptimizer::nextCommandLine(int idx, std::vector<Pointer<TvmAstNode>> const& instructions) {
 	solAssert(0 <= idx, "");
 	int n = instructions.size();
 	while (idx < n) {
@@ -167,8 +175,10 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeSlice(int idx1) const {
 }
 
 std::optional<Result> PrivatePeepholeOptimizer::optimizeAt(const int idx1) const {
+	std::optional<Result> res;
 	if (m_optimizeSlice) {
-		return optimizeSlice(idx1);
+		res = optimizeSlice(idx1);
+		if (res) return res;
 	}
 
 	int idx2 = nextCommandLine(idx1);
@@ -184,8 +194,6 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt(const int idx1) const
 	Pointer<TvmAstNode> const &cmd5 = get(idx5);
 	Pointer<TvmAstNode> const &cmd6 = get(idx6);
 
-	std::optional<Result> res;
-
 	res = optimizeAt1(cmd1, m_withUnpackOpaque);
 	if (res) return res;
 
@@ -193,7 +201,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt(const int idx1) const
 	if (res) return res;
 
 	if (!cmd2) return {};
-	res = optimizeAt2(cmd1, cmd2);
+	res = optimizeAt2(cmd1, cmd2, m_withTuck);
 	if (res) return res;
 
 	if (!cmd3) return {};
@@ -217,7 +225,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt(const int idx1) const
 
 std::optional<Result> PrivatePeepholeOptimizer::optimizeAt1(Pointer<TvmAstNode> const& cmd1, bool m_withUnpackOpaque) {
 	auto cmd1CodeBlock = to<CodeBlock>(cmd1.get());
-	auto cmd1GenOpcode = to<GenOpcode>(cmd1.get());
+	auto cmd1GenOpcode = to<StackOpcode>(cmd1.get());
 	auto cmd1IfElse = to<TvmIfElse>(cmd1.get());
 	auto cmd1Sub = to<SubProgram>(cmd1.get());
 
@@ -417,12 +425,22 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt1(Pointer<TvmAstNode> 
 			int fi = nextCommandLine(0, f);
 			Pointer<TvmAstNode> a = t.at(ti);
 			Pointer<TvmAstNode> b = f.at(fi);
-			if (isPureGen01(*a) &&
-				isPureGen01(*b) &&
-				std::dynamic_pointer_cast<GenOpcode>(a) &&
-				std::dynamic_pointer_cast<GenOpcode>(b)
+			if ((isPureGen01(*a) && to<StackOpcode>(a.get())) ||
+				to<Glob>(a.get()) ||
+				to<PushCellOrSlice>(a.get()) ||
+				isPUSH(a)
 			) {
-				return Result{1, a, b, gen("CONDSEL")};
+				Pointer<TvmAstNode> newB;
+				if (to<StackOpcode>(b.get()) ||
+					to<Glob>(b.get()) ||
+					to<PushCellOrSlice>(b.get())
+				) {
+					newB = b;
+				} else if (auto index = isPUSH(b)) {
+					newB = makePUSH(*index + 2); // +2 because flag and value from first branch
+				}
+				if (newB)
+					return Result{1, a, newB, gen("CONDSEL")};
 			}
 		}
 	}
@@ -526,13 +544,13 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt1(Pointer<TvmAstNode> 
 	return {};
 }
 
-std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2) {
+std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> const& cmd1, Pointer<TvmAstNode> const& cmd2, bool _withTuck) {
 	using namespace MathConsts;
-	auto cmd1GenOp = to<GenOpcode>(cmd1.get());
+	auto cmd1GenOp = to<StackOpcode>(cmd1.get());
 	auto cmd1Glob = to<Glob>(cmd1.get());
 
 	auto cmd2Exc = to<TvmException>(cmd2.get());
-	auto cmd2GenOpcode = to<GenOpcode>(cmd2.get());
+	auto cmd2GenOpcode = to<StackOpcode>(cmd2.get());
 	auto cmd2Glob = to<Glob>(cmd2.get());
 	auto cmd2IfElse = to<TvmIfElse>(cmd2.get());
 	auto cmd1Ret = to<TvmReturn>(cmd1.get());
@@ -590,6 +608,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 			return Result{2, makeBLKDROP2(n, 1)};
 		}
 	}
+
 	// SWAP
 	// POP S2
 	//
@@ -597,6 +616,10 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 	if (isSWAP(cmd1) && isPOP(cmd2) && isPOP(cmd2).value() == 2) {
 		return Result{2, makeBLKDROP2(1, 2)};
 	}
+	// PUSH Si | gen01
+	// DROP N
+	//
+	// DROP N-1
 	if ((isPUSH(cmd1) || isPureGen01(*cmd1)) && isDrop(cmd2)) {
 		int qty = isDrop(cmd2).value();
 		if (qty == 1) {
@@ -608,7 +631,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 
 	// BLKPUSH N, index / DROP
 	// BLKDROP N
-	if (isBLKPUSH1 && isDrop(cmd2)) {
+	if (PeepholeOptimizer::withBlockPush && isBLKPUSH1 && isDrop(cmd2)) {
 		auto [qty, index] = isBLKPUSH1.value();
 		int diff = qty - isDrop(cmd2).value();
 		if (diff == 0)
@@ -643,6 +666,20 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 	if (isPureGen01(*cmd1) && _isBLKDROP2) {
 		auto [down, up] = _isBLKDROP2.value();
 		return Result{2, makeBLKDROP2(down, up - 1), cmd1};
+	}
+	// PUSH SN
+	// BLKDROP2 down, top
+	// =>
+	// BLKDROP2 down, top-1
+	// PUSH S?
+	if (_withTuck && isPUSH(cmd1) && _isBLKDROP2) {
+		int n = *isPUSH(cmd1);
+		auto [down, top] = _isBLKDROP2.value();
+		if (n < top) {
+			return Result{2, makeBLKDROP2(down, top - 1), cmd1};
+		} else if (n >= down + top - 1) {
+			return Result{2, makeBLKDROP2(down, top - 1), makePUSH(n - down)};
+		}
 	}
 	// BLKPUSH
 	// BLKDROP2
@@ -816,23 +853,51 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 	{
 		return Result{2};
 	}
+	// SETGLOB N
+	// GETGLOB N
+	//
+	// DUP
+	// SETGLOB N
 	if (cmd1Glob && cmd1Glob->opcode() == Glob::Opcode::SetOrSetVar &&
 		cmd2Glob && cmd2Glob->opcode() == Glob::Opcode::GetOrGetVar &&
 		cmd1Glob->index() == cmd2Glob->index()
 	) {
 		return Result{2, makePUSH(0), makeSetGlob(cmd1Glob->index())};
 	}
+	// PUSHINT N
+	// ADDCONST ? | INC | DEC
+	//
+	// PUSHINT (N+delta)
+	if (is(cmd1, "PUSHINT") && isConstAdd(cmd2)) {
+		bigint n = pushintValue(cmd1);
+		bigint delta = getAddNum(cmd2);
+		// TODO check overflow
+		return Result{2, gen("PUSHINT " + toString(n + delta))};
+	}
+	// PUSHINT N
+	// UFITS ? | FITS ?
+	//
+	// PUSHINT N
+	if (is(cmd1, "PUSHINT") && (is(cmd2, "UFITS") || is(cmd2, "FITS"))) {
+		bigint n = pushintValue(cmd1);
+		int bits = fetchInt(cmd2);
+		auto type = TypeProvider::integer(bits,
+										  is(cmd2, "UFITS") ? IntegerType::Modifier::Unsigned :
+										  						IntegerType::Modifier::Signed);
+		if (type->minValue() <= n && n <= type->maxValue())
+			return Result{2, gen("PUSHINT " + toString(n))};
+	}
 	if (isConstAdd(cmd1) && isConstAdd(cmd2)) {
 		int final_add = getAddNum(cmd1) + getAddNum(cmd2);
 		if (-128 <= final_add && final_add <= 127)
 			return Result{2, gen("ADDCONST " + std::to_string(final_add))};
 	}
-	if ((is(cmd1, "INDEX_NOEXCEP") || is(cmd1, "INDEX_EXCEP")) && 0 <= strToInt(arg(cmd1)) && strToInt(arg(cmd1)) <= 3 &&
-		(is(cmd2, "INDEX_NOEXCEP") || is(cmd2, "INDEX_EXCEP")) && 0 <= strToInt(arg(cmd2)) && strToInt(arg(cmd2)) <= 3) {
+	if ((is(cmd1, "INDEX_NOEXCEP") || is(cmd1, "INDEX_EXCEP")) && 0 <= fetchInt(cmd1) && fetchInt(cmd1) <= 3 &&
+		(is(cmd2, "INDEX_NOEXCEP") || is(cmd2, "INDEX_EXCEP")) && 0 <= fetchInt(cmd2) && fetchInt(cmd2) <= 3) {
 		return Result{2, gen("INDEX2 " + arg(cmd1) + ", " + arg(cmd2))};
 	}
 	if (is(cmd1, "INDEX2") &&
-		(is(cmd2, "INDEX_NOEXCEP") || is(cmd2, "INDEX_EXCEP")) && 0 <= strToInt(arg(cmd2)) && strToInt(arg(cmd2)) <= 3
+		(is(cmd2, "INDEX_NOEXCEP") || is(cmd2, "INDEX_EXCEP")) && 0 <= fetchInt(cmd2) && fetchInt(cmd2) <= 3
 	) {
 		auto [i, j] = getIndexes(arg(cmd1));
 		if (0 <= i && i <= 3 &&
@@ -940,6 +1005,16 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 		if (is(cmd1, "EQUAL")) return Result{2, gen("NEQ")};
 		if (is(cmd1, "NEQ")) return Result{2, gen("EQUAL")};
 
+		if (is(cmd1, "LESSINT")) {  // !(x < value) => x >= value => x > value-1
+			int value = fetchInt(cmd1);
+			if (-128 <= value - 1 && value - 1 < 128)
+				return Result{2, gen("GTINT " + toString(value - 1))};
+		}
+		if (is(cmd1, "GTINT")) {  // !(x > value) => x <= value => x < value+1
+			int value = fetchInt(cmd1);
+			if (-128 <= value + 1 && value + 1 < 128)
+				return Result{2, gen("LESSINT " + toString(value + 1))};
+		}
 		if (is(cmd1, "EQINT")) return Result{2, gen("NEQINT " + arg(cmd1))};
 		if (is(cmd1, "NEQINT")) return Result{2, gen("EQINT " + arg(cmd1))};
 
@@ -1039,7 +1114,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 			if (lc->type() == LogCircuit::Type::AND && lc->body()->instructions().size() == 2) {
 				auto cmd2_0 = lc->body()->instructions().at(0);
 				auto cmd2_1 = lc->body()->instructions().at(1);
-				auto _true = to<GenOpcode>(cmd2_1.get());
+				auto _true = to<StackOpcode>(cmd2_1.get());
 				if (isDrop(cmd2_0) == 1 && _true && _true->opcode() == "TRUE") {
 					return Result{2};
 				}
@@ -1051,8 +1126,8 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 	// AND
 	// =>
 	//
-	auto _true = to<GenOpcode>(cmd1.get());
-	auto _and = to<GenOpcode>(cmd2.get());
+	auto _true = to<StackOpcode>(cmd1.get());
+	auto _and = to<StackOpcode>(cmd2.get());
 	if (_true && _true->opcode() == "TRUE" &&
 		_and && _and->opcode() == "AND") {
 		return Result{2};
@@ -1106,7 +1181,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 	// =>
 	// ABS
 	if (is(cmd1, "ABS") &&
-		cmd2GenOpcode->opcode() == "MODPOW2" && cmd2GenOpcode->arg() == "256"
+		cmd2GenOpcode && cmd2GenOpcode->opcode() == "MODPOW2" && cmd2GenOpcode->arg() == "256"
 	) {
 		return Result{2, gen("ABS")};
 	}
@@ -1125,7 +1200,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 	// BLKPUSH Q, 0 / DUP
 	// =>
 	// BLKPUSH N+Q, 0
-	if (isBLKPUSH(cmd1) && isBLKPUSH(cmd2)) {
+	if (PeepholeOptimizer::withBlockPush && isBLKPUSH(cmd1) && isBLKPUSH(cmd2)) {
 		auto [qty0, index0] = isBLKPUSH(cmd1).value();
 		auto [qty1, index1] = isBLKPUSH(cmd2).value();
 		if (index0 == 0 && index1 == 0 && qty0 + qty1 <= 15)
@@ -1140,12 +1215,23 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 	) {
 		// TODO add LD[I|U]LE[4|8]
 		int n = isDrop(cmd2).value();
-		Pointer<GenOpcode> newOpcode = gen("P" + cmd1GenOp->fullOpcode());
+		Pointer<StackOpcode> newOpcode = gen("P" + cmd1GenOp->fullOpcode());
 		if (n == 1) {
 			return Result{2, newOpcode};
 		} else {
 			return Result{2, {newOpcode, makeDROP(n - 1)}};
 		}
+	}
+
+	// 26 + 118 gas units
+	// PLDREF
+	// CTOS
+	// =>
+	// 118 + 18 gas units
+	// LDREFRTOS
+	// NIP
+	if (is(cmd1, "PLDREF") && is(cmd2, "CTOS")) {
+		return Result{2, gen("LDREFRTOS"), makeBLKDROP2(1, 1)};
 	}
 
 	return {};
@@ -1157,7 +1243,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 	auto cmd1PushCellOrSlice = to<PushCellOrSlice>(cmd1.get());
 	auto isPUSH2 = isPUSH(cmd2);
 	auto cmd2PushCellOrSlice = to<PushCellOrSlice>(cmd2.get());
-	auto cmd3GenOpcode = to<GenOpcode>(cmd3.get());
+	auto cmd3GenOpcode = to<StackOpcode>(cmd3.get());
 	auto cmd3SubProgram = to<SubProgram>(cmd3.get());
 
 	// NEW
@@ -1225,16 +1311,33 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 		if (-128 <= val - 1 && val - 1 < 128 && is(cmd3, "LEQ"))
 			return Result{3, newCmd2, gen("GTINT " + toString(val - 1))};
 	}
+	// PUSHINT A
+	// PUSHINT B
+	// ADD | MUL
+	//
+	// PUSHINT A+B | PUSHINT A*B
 	if (is(cmd1, "PUSHINT") &&
 		is(cmd2, "PUSHINT") &&
-		cmd3GenOpcode && cmd3GenOpcode->opcode() == "MUL"
+		cmd3GenOpcode && isIn(cmd3GenOpcode->opcode(), "ADD", "MUL", "MAX")
 	) {
 		bigint a = pushintValue(cmd1);
 		bigint b = pushintValue(cmd2);
-		bigint c = a * b;
+		bigint c;
+		if (cmd3GenOpcode->opcode() == "ADD")
+			c = a + b;
+		else if (cmd3GenOpcode->opcode() == "MUL")
+			c = a * b;
+		else if (cmd3GenOpcode->opcode() == "MAX")
+			c = std::max(a, b);
+		else
+			solUnimplemented("");
 		return Result{3, gen("PUSHINT " + toString(c))};
 	}
-
+	// PUSHINT A
+	// PUSHINT B
+	// DIV
+	//
+	// PUSHINT A/B
 	if (is(cmd1, "PUSHINT") &&
 		is(cmd2, "PUSHINT") &&
 		cmd3GenOpcode && cmd3GenOpcode->opcode() == "DIV"
@@ -1244,6 +1347,35 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 		if (a >= 0 && b > 0) { // note in TVM  -9 / 2 == -5
 			bigint c = a / b;
 			return Result{3, gen("PUSHINT " + toString(c))};
+		}
+	}
+
+	// PUSHINT
+	// PUSH SN / gen01
+	// ADD / MUL
+	//
+	// PUSH S(N-1) / gen01
+	// ADDCONST / MULCONST
+	if (is(cmd1, "PUSHINT") &&
+		(is(cmd3, "ADD") || is(cmd3, "MUL"))
+	) {
+		bigint val = pushintValue(cmd1);
+		if (-128 <= val && val <= 127) {
+			if ((isPureGen01(*cmd2) && to<StackOpcode>(cmd2.get())) ||
+				to<Glob>(cmd2.get()) ||
+				isPUSH(cmd2)
+			) {
+				Pointer<TvmAstNode> newCmd;
+				if (to<StackOpcode>(cmd2.get()) ||
+					to<Glob>(cmd2.get())
+				) {
+					newCmd = cmd2;
+				} else if (auto index = isPUSH(cmd2); index.has_value() && *index > 0) {
+					newCmd = makePUSH(*index - 1);
+				}
+				if (newCmd)
+					return Result{3,  newCmd, gen((is(cmd3, "ADD") ? "ADDCONST " : "MULCONST ") + toString(val))};
+			}
 		}
 	}
 
@@ -1281,7 +1413,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 	// =>
 	// gen(0, 1)
 	// BLKPUSH N+1, 0
-	if (
+	if (PeepholeOptimizer::withBlockPush && // ?
 		isPureGen01(*cmd1) &&
 		isBLKPUSH(cmd2) &&
 		isPureGen01(*cmd3) &&
@@ -1316,7 +1448,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 		if (cmd3SubProgram) {
 			std::vector<Pointer<TvmAstNode>> const& instructions = cmd3SubProgram->block()->instructions();
 			if (instructions.size() == 1 &&
-				*instructions.at(0) == *createNode<GenOpcode>(".inline concatenateStrings", 2, 1)) {
+				*instructions.at(0) == *createNode<StackOpcode>(".inline __concatenateStrings", 2, 1)) {
 				string hexStr = cmd1PushCellOrSlice->chainBlob() + cmd2PushCellOrSlice->chainBlob();
 				return Result{3, makePushCellOrSlice(hexStr, false)};
 			}
@@ -1335,7 +1467,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 		) {
 			std::vector<Pointer<TvmAstNode>> const &cmds = ifRef->trueBody()->instructions();
 			if (cmds.size() == 1) {
-				if (auto gen = to<GenOpcode>(cmds.at(0).get())) {
+				if (auto gen = to<StackOpcode>(cmds.at(0).get())) {
 					if (isIn(gen->fullOpcode(), ".inline c7_to_c4", ".inline upd_only_time_in_c4")) {
 						return Result{2, cmd2};
 					}
@@ -1356,6 +1488,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> 
 			bigint sum = 0;
 			sum += (is(cmd2, "ADD") ? +1 : -1) * pushintValue(cmd1);
 			sum += (is(cmd4, "ADD") ? +1 : -1) * pushintValue(cmd3);
+			// TODO DELETE
 			return Result{4, gen("PUSHINT " + toString(sum)), gen("ADD")};
 		}
 	}
@@ -1371,6 +1504,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> 
 						   gen("STSLICE")};
 		}
 	}
+	// TODO if value on the top of the stack < 0
 	// ADDCONST/INC/DEC
 	// UFIT/FIT N
 	// ADDCONST/INC/DEC
@@ -1389,6 +1523,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt4(Pointer<TvmAstNode> 
 			}
 		}
 	}
+
 	if (is(cmd1, "PUSHINT") &&
 		is(cmd2, "NEWC") &&
 		is(cmd3, "STSLICECONST") &&
@@ -1638,6 +1773,11 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 				bitString += StrUtils::toBitString(num, len);
 				opcodeQty += 2;
 				i = nextCommandLine(j);
+			} else if (c2 && is(c1, "PUSHINT") && is(c2, "STVARUINT16", "STGRAMS")) {
+				bigint num = pushintValue(c1);
+				bitString += StrUtils::tonsToBinaryString(num);
+				opcodeQty += 2;
+				i = nextCommandLine(j);
 			} else if (c2 && is(c1, "PUSHINT") && is(c2, "STZEROES")) {
 				int len = fetchInt(c1);
 				bitString += std::string(len, '0');
@@ -1648,12 +1788,6 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 				bitString += StrUtils::toBitString(hexSlice);
 				opcodeQty += 2;
 				i = nextCommandLine(j);
-			} else if (c2 && is(c1, "PUSHINT") && is(c2, "STGRAMS")) {
-				bigint arg = pushintValue(c1);
-				bitString += StrUtils::tonsToBinaryString(arg);
-				opcodeQty += 2;
-				i = nextCommandLine(j);
-				break;
 			} else {
 				break;
 			}
@@ -1785,6 +1919,29 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 		}
 	}
 
+	// BLKSWAP n, 1
+	// POP n+1
+	// ...
+	// POP n+1 // n times
+	// =>
+	// BLKDROP2 n, n+1
+	if (isBLKSWAP(cmd1) && idx2 != -1) {
+		auto [n, up] = isBLKSWAP(cmd1).value();
+		if (up == 1) {
+			int index = idx2;
+			bool ok = true;
+			int i = 0;
+			for (; ok && i < n && index != -1; ++i, index = nextCommandLine(index)) {
+				auto cmd = get(index);
+				ok &= isPOP(cmd).has_value() && isPOP(cmd) == n + 1;
+			}
+			ok &= i == n;
+			if (ok) {
+				return Result{n + 1, makeBLKDROP2(n, n + 1)};
+			}
+		}
+	}
+
 	// ROLL n
 	// ROLL n+1
 	// ROLL n+2
@@ -1816,34 +1973,45 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 
 	// squash stack opcodes
 	{
-		StackState bestState{};
-		int bestQty{};
+		struct BestResult {
+			StackState bestState;
+			int bestStartStackSize = 0;
+			int bestOpcodeQty = 0;
+		};
+		std::optional<BestResult> bestResult;
 
-		StackState state;
-		int i = idx1;
-		int qty = 0;
-		while (true) {
-			if (i == -1)
-				break;
-			auto stack = to<Stack>(get(i).get());
-			if (!stack)
-				break;
-			if (!state.apply(*stack)) {
-				break;
+		for (int startStackSize = 0; startStackSize <= StackState::MAX_STACK_DEPTH; ++startStackSize)
+		{
+			StackState state{startStackSize};
+			int i = idx1;
+			int gasCost = 0;
+			int opcodeQty = 0;
+			while (true) {
+				if (i == -1)
+					break;
+				auto stack = to<Stack>(get(i).get());
+				if (!stack)
+					break;
+				if (!state.apply(*stack)) {
+					break;
+				}
+
+				++opcodeQty;
+				gasCost += OpcodeUtils::gasCost(*stack);
+				auto newGasCost = StackOpcodeSquasher::gasCost(startStackSize, state, m_withTuck);
+				if (newGasCost.has_value() && newGasCost < gasCost) {
+					bestResult = BestResult{state, startStackSize, opcodeQty};
+				}
+
+				i = nextCommandLine(i);
 			}
-
-			++qty;
-			int steps = StackOpcodeSquasher::steps(state);
-			if (steps != -1 && steps < qty) {
-				bestState = state;
-				bestQty = qty;
-			}
-
-			i = nextCommandLine(i);
 		}
 
-		if (bestQty != 0) {
-			return Result{bestQty, StackOpcodeSquasher::recover(bestState)};
+		if (bestResult.has_value()) {
+			auto newOpcodes = StackOpcodeSquasher::recover(bestResult.value().bestStartStackSize,
+														   bestResult.value().bestState,
+														   m_withTuck);
+			return Result{bestResult.value().bestOpcodeQty, newOpcodes};
 		}
 	}
 
@@ -1908,6 +2076,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 						}
 						break;
 					}
+					// TODO implement another cases
 					default:
 						ok = false;
 						break;
@@ -2000,7 +2169,7 @@ std::optional<Result> PrivatePeepholeOptimizer::squashPush(const int idx1) const
 	auto cmd1Gen = to<Gen>(cmd1.get());
 	auto cmd1PushCellOrSlice = to<PushCellOrSlice>(cmd1.get());
 
-	if (isPUSH(cmd1) && isPUSH(cmd2)) {
+	if (PeepholeOptimizer::withBlockPush && isPUSH(cmd1) && isPUSH(cmd2)) {
 		int i = idx1, n = 0;
 		while (isPUSH(get(i)) && isPUSH(get(i)).value() == isPUSH(cmd1).value()) {
 			n++;
@@ -2011,7 +2180,7 @@ std::optional<Result> PrivatePeepholeOptimizer::squashPush(const int idx1) const
 		}
 	}
 
-	if (isPUSH(cmd1) && isPUSH(cmd2) && isPUSH(cmd3)) {
+	if (PeepholeOptimizer::withBlockPush && isPUSH(cmd1) && isPUSH(cmd2) && isPUSH(cmd3)) {
 		const int si = *isPUSH(cmd1);
 		const int sj = *isPUSH(cmd2) - 1 == -1? si : *isPUSH(cmd2) - 1;
 		const int sk = *isPUSH(cmd3) - 2 == -1? si : (
@@ -2021,7 +2190,8 @@ std::optional<Result> PrivatePeepholeOptimizer::squashPush(const int idx1) const
 			return Result{3, makePUSH3(si, sj, sk)};
 		}
 	}
-	if (isPUSH(cmd1) && isPUSH(cmd2)) {
+
+	if (PeepholeOptimizer::withBlockPush && isPUSH(cmd1) && isPUSH(cmd2)) {
 		const int si = *isPUSH(cmd1);
 		const int sj = *isPUSH(cmd2) - 1 == -1? si : *isPUSH(cmd2) - 1;
 		if (si <= 15 && sj <= 15) {
@@ -2031,7 +2201,7 @@ std::optional<Result> PrivatePeepholeOptimizer::squashPush(const int idx1) const
 
 	// TODO delete
 	// squash PUSHINT, NEWDICT, NILL, FALSE, TRUE, (PUSHINT 0 NEWDICT PAIR) etc
-	if (isPureGen01(*cmd1)) {
+	if (PeepholeOptimizer::withBlockPush && isPureGen01(*cmd1)) {
 		int i = idx1;
 		int n = 0;
 		while (true) {
@@ -2049,7 +2219,7 @@ std::optional<Result> PrivatePeepholeOptimizer::squashPush(const int idx1) const
 	}
 
 	// squash PUSHREF/PUSHREFSLICE/CELL
-	if (cmd1PushCellOrSlice) {
+	if (PeepholeOptimizer::withBlockPush && cmd1PushCellOrSlice) {
 		int i = idx1;
 		int n = 0;
 		while (true) {
@@ -2067,42 +2237,34 @@ std::optional<Result> PrivatePeepholeOptimizer::squashPush(const int idx1) const
 		}
 	}
 
-	// SWAP
-	// OVER
-	// =>
-	// TUCK
-	if (isXCHG_S0(cmd1) && isXCHG_S0(cmd1).value() == 1 &&
-		isPUSH(cmd2) && *isPUSH(cmd2) == 1
-	) {
-		return Result{2, makeTUCK()};
-	}
-
-	// PUSH Si
-	// SWAP
-	// =>
-	// PUXC Si, S-1
-	if (isPUSH(cmd1) &&
-		isXCHG_S0(cmd2) && isXCHG_S0(cmd2).value() == 1
-	) {
-		int i = *isPUSH(cmd1);
-		if (0 <= i && i <= 15)
-			return Result{2, makePUXC(i, -1)};
-	}
-
-	// XCHG Si
-	// PUSH Sj
-	// =>
-	// XCPU Si, Sj
-	if (m_optimizeSlice &&
-		isXCHG_S0(cmd1) && cmd2 && isPUSH(cmd2)
-	) {
-		int i = isXCHG_S0(cmd1).value();
-		int j = isPUSH(cmd2).value();
-		if (
-			0 <= i && i <= 15 &&
-			0 <= j && j <= 15
+	if (m_withTuck) {
+		// PUSH Si
+		// SWAP
+		// =>
+		// PUXC Si, S-1
+		if (isPUSH(cmd1) &&
+			isXCHG_S0(cmd2) && isXCHG_S0(cmd2).value() == 1
 		) {
-			return Result{2, makeXCPU(i, j)};
+			int i = *isPUSH(cmd1);
+			if (0 <= i && i <= 15)
+				return Result{2, makePUXC(i, -1)};
+		}
+
+		// XCHG Si
+		// PUSH Sj
+		// =>
+		// XCPU Si, Sj
+		if (m_optimizeSlice &&
+			isXCHG_S0(cmd1) && cmd2 && isPUSH(cmd2)
+		) {
+			int i = isXCHG_S0(cmd1).value();
+			int j = isPUSH(cmd2).value();
+			if (
+				0 <= i && i <= 15 &&
+				0 <= j && j <= 15
+			) {
+				return Result{2, makeXCPU(i, j)};
+			}
 		}
 	}
 
@@ -2201,26 +2363,14 @@ std::optional<std::pair<int, int>> PrivatePeepholeOptimizer::isBLKDROP2(Pointer<
 	return std::nullopt;
 }
 
-std::optional<int> PrivatePeepholeOptimizer::isPUSH(Pointer<TvmAstNode> const& node) {
-	auto stack = to<Stack>(node.get());
-	if (isStack(node, Stack::Opcode::PUSH_S)) {
-		return stack->i();
-	}
-	if (isStack(node, Stack::Opcode::BLKPUSH)) {
-		if (stack->i() == 1)
-			return stack->j();
-	}
-	return {};
-}
-
 bigint PrivatePeepholeOptimizer::pushintValue(Pointer<TvmAstNode> const& node) {
 	solAssert(is(node, "PUSHINT"), "");
-	auto g = dynamic_pointer_cast<GenOpcode>(node);
+	auto g = dynamic_pointer_cast<StackOpcode>(node);
 	return bigint{g->arg()};
 }
 
 int PrivatePeepholeOptimizer::fetchInt(Pointer<TvmAstNode> const& node) {
-	auto g = dynamic_pointer_cast<GenOpcode>(node);
+	auto g = dynamic_pointer_cast<StackOpcode>(node);
 	return strToInt(g->arg());
 }
 
@@ -2232,14 +2382,14 @@ bool PrivatePeepholeOptimizer::isNIP(Pointer<TvmAstNode> const& node) {
 }
 
 std::string PrivatePeepholeOptimizer::arg(Pointer<TvmAstNode> const& node) {
-	auto g = dynamic_pointer_cast<GenOpcode>(node);
+	auto g = dynamic_pointer_cast<StackOpcode>(node);
 	solAssert(g, "");
 	return g->arg();
 }
 
 template<class ...Args>
 bool PrivatePeepholeOptimizer::is(Pointer<TvmAstNode> const& node, Args&&... cmd) {
-	auto g = to<GenOpcode>(node.get());
+	auto g = to<StackOpcode>(node.get());
 	return g && isIn(g->opcode(), std::forward<Args>(cmd)...);
 }
 
@@ -2256,13 +2406,13 @@ bool PrivatePeepholeOptimizer::isExc(Pointer<TvmAstNode> const& node, Args&&... 
 }
 
 bool PrivatePeepholeOptimizer::isConstAdd(Pointer<TvmAstNode> const& node) {
-	auto gen = to<GenOpcode>(node.get());
+	auto gen = to<StackOpcode>(node.get());
 	return gen && isIn(gen->opcode(), "INC", "DEC", "ADDCONST");
 }
 
 int PrivatePeepholeOptimizer::getAddNum(Pointer<TvmAstNode> const& node) {
 	solAssert(isConstAdd(node), "");
-	auto gen = to<GenOpcode>(node.get());
+	auto gen = to<StackOpcode>(node.get());
 	solAssert(gen, "");
 	if (gen->opcode() == "INC") {
 		return +1;
@@ -2283,10 +2433,10 @@ bool PrivatePeepholeOptimizer::isStack(Pointer<TvmAstNode> const& node, Stack::O
 
 
 bool PrivatePeepholeOptimizer::isSimpleCommand(Pointer<TvmAstNode> const& node) {
+	// See also isPureGen01
 	auto gen = to<Gen>(node.get());
-	// TODO add another Gen
 	return gen &&
-		(to<GenOpcode>(gen) || to<PushCellOrSlice>(gen) || to<Glob>(gen) || to<Opaque>(gen) || to<HardCode>(gen)) &&
+		   (to<StackOpcode>(gen) || to<PushCellOrSlice>(gen) || to<Glob>(gen) || to<Opaque>(gen) || to<HardCode>(gen)) &&
 		gen->take() == 0 && gen->ret() == 1;
 }
 
@@ -2295,7 +2445,7 @@ bool PrivatePeepholeOptimizer::isAddOrSub(Pointer<TvmAstNode> const& node) {
 }
 
 bool PrivatePeepholeOptimizer::isCommutative(Pointer<TvmAstNode> const& node) {
-	auto g = dynamic_pointer_cast<GenOpcode>(node);
+	auto g = dynamic_pointer_cast<StackOpcode>(node);
 	return g && isIn(g->fullOpcode(),
 					 "ADD",
 					 "AND",
@@ -2310,7 +2460,23 @@ bool PrivatePeepholeOptimizer::isCommutative(Pointer<TvmAstNode> const& node) {
 	);
 }
 
+bool PeepholeOptimizer::visit(CodeBlock &_node) {
+	optimizeBlock(_node);
+	return true;
+}
+
 void PeepholeOptimizer::endVisit(CodeBlock &_node) {
+	optimizeBlock(_node);
+}
+
+bool PeepholeOptimizer::visit(Function &/*_node*/) {
+	//if (_node.name() == "")
+	//	_node.block()->accept(*this);
+	//return false;
+	return true;
+}
+
+void PeepholeOptimizer::optimizeBlock(CodeBlock &_node) const {
 	{
 		std::optional<Result> r = PrivatePeepholeOptimizer::optimizeAt1(_node.shared_from_this(), m_withUnpackOpaque);
 		if (r && r.value().commands.size() == 1) {
@@ -2322,7 +2488,7 @@ void PeepholeOptimizer::endVisit(CodeBlock &_node) {
 
 	std::vector<Pointer<TvmAstNode>> instructions = _node.instructions();
 
-	PrivatePeepholeOptimizer optimizer{instructions, m_withUnpackOpaque, m_optimizeSlice};
+	PrivatePeepholeOptimizer optimizer{instructions, m_withUnpackOpaque, m_optimizeSlice, m_withTuck};
 	optimizer.optimize([&](int index){
 		return optimizer.unsquash(m_withUnpackOpaque, index);
 	});

@@ -47,8 +47,8 @@ non-persistent area where function arguments are stored, and behaves mostly like
 
 .. _data-location-assignment:
 
-Data location and assignment behaviour
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Data location and assignment behavior
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Data locations are not only relevant for persistency of data, but also for the semantics of assignments:
 
@@ -133,8 +133,12 @@ It is possible to mark state variable arrays ``public`` and have Solidity create
 The numeric index becomes a required parameter for the getter.
 
 Accessing an array past its end causes a failing assertion. Methods ``.push()`` and ``.push(value)`` can be used
-to append a new element at the end of the array, where ``.push()`` appends a zero-initialized element and returns
+to append a new element at the end of a dynamically-sized array, where ``.push()`` appends a zero-initialized element and returns
 a reference to it.
+
+.. note::
+    Dynamically-sized arrays can only be resized in storage.
+    In memory, such arrays can be of arbitrary size but the size cannot be changed once an array is allocated.
 
 .. index:: ! string, ! bytes
 
@@ -231,7 +235,7 @@ with the :ref:`default value<default-value>`.
         }
     }
 
-.. index:: ! array;literals, ! inline;arrays
+.. index:: ! literal;array, ! inline;arrays
 
 Array Literals
 ^^^^^^^^^^^^^^
@@ -368,7 +372,7 @@ Array Members
 
 .. note::
     In EVM versions before Byzantium, it was not possible to access
-    dynamic arrays return from function calls. If you call functions
+    dynamic arrays returned from function calls. If you call functions
     that return dynamic arrays, make sure to use an EVM that is set to
     Byzantium mode.
 
@@ -578,10 +582,10 @@ and the assignment will effectively garble the length of ``x``.
 To be safe, only enlarge bytes arrays by at most one element during a single
 assignment and do not simultaneously index-access the array in the same statement.
 
-While the above describes the behaviour of dangling storage references in the
+While the above describes the behavior of dangling storage references in the
 current version of the compiler, any code with dangling references should be
-considered to have *undefined behaviour*. In particular, this means that
-any future version of the compiler may change the behaviour of code that
+considered to have *undefined behavior*. In particular, this means that
+any future version of the compiler may change the behavior of code that
 involves dangling references.
 
 Be sure to avoid dangling references in your code!
@@ -637,7 +641,7 @@ Array slices are useful to ABI-decode secondary data passed in function paramete
         /// after doing basic validation on the address argument.
         function forward(bytes calldata payload) external {
             bytes4 sig = bytes4(payload[:4]);
-            // Due to truncating behaviour, bytes4(payload) performs identically.
+            // Due to truncating behavior, bytes4(payload) performs identically.
             // bytes4 sig = bytes4(payload);
             if (sig == bytes4(keccak256("setOwner(address)"))) {
                 address owner = abi.decode(payload[4:], (address));
@@ -682,11 +686,11 @@ shown in the following example:
             uint fundingGoal;
             uint numFunders;
             uint amount;
-            mapping (uint => Funder) funders;
+            mapping(uint => Funder) funders;
         }
 
         uint numCampaigns;
-        mapping (uint => Campaign) campaigns;
+        mapping(uint => Campaign) campaigns;
 
         function newCampaign(address payable beneficiary, uint goal) public returns (uint campaignID) {
             campaignID = numCampaigns++; // campaignID is return variable

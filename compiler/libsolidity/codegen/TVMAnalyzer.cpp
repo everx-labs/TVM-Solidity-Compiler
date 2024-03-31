@@ -36,7 +36,7 @@ bool TVMAnalyzer::analyze(const SourceUnit &_sourceUnit)
 bool TVMAnalyzer::visit(MemberAccess const& _node) {
 	auto funType = to<FunctionType>(_node.annotation().type);
 	if (funType) {
-		if (funType->bound()) {
+		if (funType->hasBoundFirstArgument()) {
 			auto printError = [&]{
 				m_errorReporter.fatalTypeError(
 					5939_error,

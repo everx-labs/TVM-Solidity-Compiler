@@ -1,0 +1,5 @@
+abstract contract C {
+	constructor() {
+	}
+}
+// ----

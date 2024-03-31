@@ -47,7 +47,7 @@ cd TON-Solidity-Compiler
 compiler\scripts\install_deps.ps1
 mkdir build
 cd build
-cmake -DBoost_DIR="..\compiler\deps\boost\lib\cmake\Boost-1.77.0" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ..\compiler
+cmake -DBOOST_ROOT="..\compiler\deps\boost\" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ..\compiler
 cmake --build . --config Release -- /m
 ```
 

@@ -14,48 +14,68 @@
 #pragma once
 
 #include "TvmAst.hpp"
+#include <map>
 #include <unordered_map>
 
 namespace solidity::frontend {
 
-	class StackState {
-	public:
-		constexpr static int maxStackDepth = 9;
+constexpr static int MAX_NEW_OPCODES = 3;
 
-		StackState();
-		bool apply(Stack const& opcode);
-		bool operator==(const StackState &other) const {
-			return m_values == other.m_values;
-		}
-		bool operator!=(const StackState &other) const {
-			return m_values != other.m_values;
-		}
-		std::size_t getHash() const { return m_hash; }
-	private:
-		std::size_t m_hash{};
-		std::array<int8_t, maxStackDepth> m_values{};
-	};
+class StackState {
+public:
+	constexpr static int MAX_STACK_DEPTH = 9;
 
-	class StackOpcodeSquasher {
-	public:
-		static int steps(StackState const& _state);
-	private:
-		static void init();
-	public:
-		static std::vector<Pointer<TvmAstNode>> recover(StackState state);
-	private:
-		static std::unordered_map<StackState, int8_t> m_dp;
-		static std::unordered_map<StackState, std::pair<StackState, Pointer<Stack>>> m_prev;
+	explicit StackState(int _size);
+	explicit StackState(int8_t _size, std::array<int8_t, MAX_STACK_DEPTH> _values) : m_size{_size}, m_values{_values} {
+		updHash();
+	}
+	bool apply(Stack const& opcode);
+	bool operator==(const StackState &other) const {
+		if (m_size != other.m_size)
+			return false;
+		for (int i = 0; i < m_size; ++i)
+			if (m_values[i] != other.m_values[i])
+				return false;
+		return true;
+	}
+	bool operator!=(const StackState &other) const {
+		return !operator==(other);
+	}
+	std::size_t getHash() const { return m_hash; }
+	int8_t size() const { return m_size; }
+	std::array<int8_t, MAX_STACK_DEPTH> const& values() const { return m_values; }
+private:
+	void updHash();
+private:
+	std::size_t m_hash{};
+	int8_t m_size;
+	std::array<int8_t, MAX_STACK_DEPTH> m_values{};
+};
+
+class StackOpcodeSquasher {
+public:
+	static std::optional<int> gasCost(int startStackSize, StackState const& _state, bool _withCompoundOpcodes);
+private:
+	static void init();
+public:
+	static std::vector<Pointer<TvmAstNode>> recover(int startStackSize, StackState state, bool _withCompoundOpcodes);
+	struct DpState {
+		int gasCost;
+		StackState prevState;
+		Pointer<Stack> opcode;
 	};
+private:
+	static std::array<std::array<std::unordered_map<StackState, DpState>, StackState::MAX_STACK_DEPTH + 1>, 2> m_dp;
+};
 } // end solidity::frontend
 
 namespace std {
 
 template <>
 struct hash<solidity::frontend::StackState> {
-	std::size_t operator()(const solidity::frontend::StackState& k) const {
-		return k.getHash();
-	}
+std::size_t operator()(const solidity::frontend::StackState& k) const {
+	return k.getHash();
+}
 };
 
 }

@@ -26,14 +26,21 @@ void Simulator::run(const std::vector<Pointer<TvmAstNode>>::const_iterator _beg,
 		auto nextIter = m_iter + 1;
 		if (nextIter != _end && isPopAndDrop(*m_iter, *nextIter)) {
 			solAssert(m_isDropped, "");
-			solAssert(!m_unableToConvertOpcode, "");
+			solAssert(m_ableToConvertOpcode, "");
 			m_iter += 2;
 			break;
 		}
 
 		auto node = m_iter->get();
 		node->accept(*this);
-		if (m_unableToConvertOpcode || m_isDropped) {
+		if (m_wasSet && m_stopSimulationIfSet) {
+			break;
+		}
+		if (m_wasMoved && m_stopSimulationIfMoved) {
+			++m_iter;
+			break;
+		}
+		if (!m_ableToConvertOpcode || m_isDropped) {
 			++m_iter;
 			break;
 		}
@@ -48,7 +55,6 @@ void Simulator::run(const std::vector<Pointer<TvmAstNode>>::const_iterator _beg,
 
 bool Simulator::visit(AsymGen &/*_node*/) {
 	solUnimplemented("");
-	return false;
 }
 
 bool Simulator::visit(DeclRetFlag &_node) {
@@ -97,7 +103,7 @@ bool Simulator::visit(ReturnOrBreakOrCont &_node) {
 	}
 	m_wasReturnBreakContinue = true;
 	Simulator sim{_node.body()->instructions().begin(), _node.body()->instructions().end(), m_stackSize, m_segment};
-	if (sim.m_unableToConvertOpcode || !sim.m_isDropped) {
+	if (!sim.m_ableToConvertOpcode || !sim.m_isDropped) {
 		// check if value has been dropped because in otherwise, this value is from scope that hasn't been dropped
 		unableToConvertOpcode();
 	} else {
@@ -119,7 +125,7 @@ bool Simulator::visit(TvmException &_node) {
 	return false;
 }
 
-bool Simulator::visit(GenOpcode &_node) {
+bool Simulator::visit(StackOpcode &_node) {
 	if (_node.take() > rest()) {
 		unableToConvertOpcode();
 	} else {
@@ -173,176 +179,202 @@ bool Simulator::visit(Stack &_node) {
 	int newj = j < maxDownIndex ? j : j - m_segment;
 	int newk = k < maxDownIndex ? k : k - m_segment;
 	switch (_node.opcode()) {
-		case Stack::Opcode::PUSH_S: {
-			if (minUpIndex <= i && i <= maxDownIndex) {
-				unableToConvertOpcode();
-			} else if (i < maxDownIndex) {
+	case Stack::Opcode::PUSH_S: {
+		if (minUpIndex <= i && i <= maxDownIndex) {
+			unableToConvertOpcode();
+		} else if (i < maxDownIndex) {
+			m_commands.emplace_back(_node.shared_from_this());
+			++m_stackSize;
+		} else if (i > maxDownIndex) {
+			m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi));
+			++m_stackSize;
+		}
+		break;
+	}
+	case Stack::Opcode::POP_S: {
+		if (m_segment == 1 && i == 1 && m_stackSize == 2) { // it equals to BLKDROP2 1, 1
+			m_isDropped = true;
+		} else if (rest() == 0) {
+			unableToConvertOpcode();
+		} else if (i == maxDownIndex && m_segment == 1) {
+			m_wasSet = true;
+			--m_stackSize; // TODO delete this
+			// don't push to m_commands, just ignore the opcode
+		} else if (i < minUpIndex) {
+			--m_stackSize;
+			m_commands.emplace_back(_node.shared_from_this());
+		} else if (i > maxDownIndex) {
+			// here _node.i() >= 2
+			--m_stackSize;
+			m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi));
+		} else {
+			unableToConvertOpcode();
+		}
+		break;
+	}
+	case Stack::Opcode::DROP: {
+		int n = i;
+		if (m_stackSize <= n) {
+			m_isDropped = true;
+			if (n - m_segment > 0)
+				m_commands.emplace_back(makeDROP(n - m_segment));
+		} else if (rest() >= n) {
+			m_stackSize -= n;
+			m_commands.emplace_back(makeDROP(n));
+		} else {
+			unableToConvertOpcode();
+		}
+		break;
+	}
+
+	case Stack::Opcode::BLKDROP2: {
+		int drop = i;
+		int rest = j;
+		if (rest >= m_stackSize) {
+			m_commands.emplace_back(makeBLKDROP2(drop, rest - m_segment));
+		} else if (rest <= this->rest() && rest + drop >= m_stackSize) {
+			if (drop - m_segment > 0) {
+				m_commands.emplace_back(makeBLKDROP2(drop - m_segment, rest));
+			}
+			m_isDropped = true;
+		} else if (rest + drop <= this->rest()) {
+			m_commands.emplace_back(makeBLKDROP2(drop, rest));
+			m_stackSize -= drop;
+		} else {
+			unableToConvertOpcode();
+		}
+		break;
+	}
+	case Stack::Opcode::BLKPUSH: {
+		int n = i;
+		int maxDownPushIndex = j;
+		int minUpPushIndex = maxDownPushIndex - n + 1; // include
+		if (std::max(minUpIndex, minUpPushIndex) > std::min(maxDownIndex, maxDownPushIndex)) {
+			m_commands.emplace_back(makeBLKPUSH(n, newj));
+			m_stackSize += n;
+		} else {
+			unableToConvertOpcode();
+		}
+		break;
+	}
+	case Stack::Opcode::REVERSE: {
+		int n = i;
+		int minUpReverseIndex = j;
+		int maxDownReverseIndex = minUpReverseIndex + n - 1; // include
+		if (m_segment == 1 && minUpReverseIndex <= m_stackSize - 1 && m_stackSize - 1 <= maxDownReverseIndex) {
+			if (i - 1 >= 2)
+				m_commands.emplace_back(makeREVERSE(i - 1, j));
+			m_stackSize = minUpReverseIndex + (maxDownReverseIndex - (m_stackSize - 1)) + 1;
+		} else if (std::max(minUpIndex, minUpReverseIndex) > std::min(maxDownIndex, maxDownReverseIndex)) {
+			if (maxDownIndex < minUpReverseIndex) {
+				m_commands.emplace_back(makeREVERSE(n, j - m_segment));
+			} else {
 				m_commands.emplace_back(_node.shared_from_this());
-				++m_stackSize;
-			} else if (i > maxDownIndex) {
-				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi));
-				++m_stackSize;
 			}
-			break;
+		} else {
+			unableToConvertOpcode();
 		}
-		case Stack::Opcode::POP_S: {
-			if (m_segment == 1 && i == 1 && m_stackSize == 2) { // it equals to BLKDROP2 1, 1
-				m_isDropped = true;
-			} else if (rest() == 0) {
-				unableToConvertOpcode();
-			} else if (i == maxDownIndex && m_segment == 1) {
-				m_wasSet = true;
-				--m_stackSize; // TODO delete this
-				// don't push to m_commands, just ignore the opcode
-			} else if (i < minUpIndex) {
-				--m_stackSize;
-				m_commands.emplace_back(_node.shared_from_this());
-			} else if (i > maxDownIndex) {
-				// here _node.i() >= 2
-				--m_stackSize;
-				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi));
-			} else {
-				unableToConvertOpcode();
+		break;
+	}
+	case Stack::Opcode::BLKSWAP: {
+		// int down = i;
+		// int up = j;
+		if (i == 1 && j + i == m_stackSize && m_segment == 1 && m_stopSimulationIfMoved) {
+			m_wasMoved = true; // TODO call unableToConvertOpcode with reason: moved, set, etc
+		} else if (j <= rest() && i + j >= m_stackSize) {
+			if (i - m_segment >= 1)
+				m_commands.emplace_back(makeBLKSWAP(i - m_segment, j));
+			m_stackSize -= j;
+		} else if (i + j <= rest()) {
+			m_commands.emplace_back(makeBLKSWAP(i, j));
+		} else if (j >= m_stackSize) {
+			if (j - m_segment >= 1) {
+				m_commands.emplace_back(makeBLKSWAP(i, j - m_segment));
 			}
-			break;
+			m_stackSize += i; // we take i elements and push ones to the top of the stack
+		} else {
+			unableToConvertOpcode();
 		}
-		case Stack::Opcode::DROP: {
-			int n = i;
-			if (m_stackSize <= n) {
-				m_isDropped = true;
-				if (n - m_segment > 0)
-					m_commands.emplace_back(makeDROP(n - m_segment));
-			} else if (rest() >= n) {
-				m_stackSize -= n;
-				m_commands.emplace_back(makeDROP(n));
-			} else {
-				unableToConvertOpcode();
+		break;
+	}
+	case Stack::Opcode::XCHG:
+		solAssert(i < j, "");
+		solAssert(j != -1, "");
+		if (m_segment == 1 && i == m_stackSize - 1) {
+			if (j >= 2) {
+				m_commands.emplace_back(makeREVERSE(j, 0));
+				if (j - i - 1 >= 1)
+					m_commands.emplace_back(makeBLKSWAP(j - i - 1, 1));
+				m_commands.emplace_back(makeREVERSE(j, 0));
 			}
-			break;
+			m_stackSize = j + 1;
+		} else if (m_segment == 1 && j == m_stackSize - 1) {
+			if (i > 0)
+				m_commands.emplace_back(makeBLKSWAP(1, i));
+			if (j - 1 >= 1)
+				m_commands.emplace_back(makeBLKSWAP(j - 1, 1));
+			m_stackSize = i + 1;
+		} else if ((minUpIndex <= i && i <= maxDownIndex) ||
+			(minUpIndex <= j && j <= maxDownIndex)) { // it's ok if j==-1
+			unableToConvertOpcode();
+		} else {
+			m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj));
 		}
+		break;
+	case Stack::Opcode::PUSH2_S:
+		if ((minUpIndex <= i && i <= maxDownIndex) ||
+			(minUpIndex <= j && j <= maxDownIndex)) {
+			unableToConvertOpcode();
+		} else {
+			m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj));
+		}
+		m_stackSize += 2;
+		break;
+	case Stack::Opcode::PUSH3_S:
+		if ((minUpIndex <= i && i <= maxDownIndex) ||
+			(minUpIndex <= j && j <= maxDownIndex) ||
+			(minUpIndex <= k && k <= maxDownIndex)) {
+			unableToConvertOpcode();
+		} else {
+			m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj, newk));
+		}
+		m_stackSize += 3;
+		break;
 
-		case Stack::Opcode::BLKDROP2: {
-			int drop = i;
-			int rest = j;
-			if (rest >= m_stackSize) {
-				m_commands.emplace_back(makeBLKDROP2(drop, rest - m_segment));
-			} else if (rest <= this->rest() && rest + drop >= m_stackSize) {
-				if (drop - m_segment > 0) {
-					m_commands.emplace_back(makeBLKDROP2(drop - m_segment, rest));
-				}
-				m_isDropped = true;
-			} else if (rest + drop <= this->rest()) {
-				m_commands.emplace_back(makeBLKDROP2(drop, rest));
-				m_stackSize -= drop;
-			} else {
-				unableToConvertOpcode();
-			}
-			break;
+	case Stack::Opcode::PUXC:
+		if ((minUpIndex <= i && i <= maxDownIndex) ||
+			(minUpIndex <= j && j <= maxDownIndex) ||  // note: it's false if j==-1
+			rest() == 0 // because we make PUSH Si, SWAP ...
+		) {
+			unableToConvertOpcode();
+		} else {
+			m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj));
+			++m_stackSize;
 		}
-		case Stack::Opcode::BLKPUSH: {
-			int n = i;
-			int maxDownPushIndex = j;
-			int minUpPushIndex = maxDownPushIndex - n + 1; // include
-			if (std::max(minUpIndex, minUpPushIndex) > std::min(maxDownIndex, maxDownPushIndex)) {
-				m_commands.emplace_back(makeBLKPUSH(n, newj));
-				m_stackSize += n;
-			} else {
-				unableToConvertOpcode();
-			}
-			break;
-		}
-		case Stack::Opcode::REVERSE: {
-			int n = i;
-			int minUpReverseIndex = j;
-			int maxDownReverseIndex = minUpReverseIndex + n - 1; // include
-			if (std::max(minUpIndex, minUpReverseIndex) > std::min(maxDownIndex, maxDownReverseIndex)) {
-				if (maxDownIndex < minUpReverseIndex) {
-					m_commands.emplace_back(makeREVERSE(n, j - m_segment));
-				} else {
-					m_commands.emplace_back(_node.shared_from_this());
-				}
-			} else {
-				unableToConvertOpcode();
-			}
-			break;
-		}
-		case Stack::Opcode::BLKSWAP:
-			if (i == 1 && j + i == m_stackSize) {
-				unableToConvertOpcode();
-				if (m_segment == 1) {
-					m_wasMoved = true;
-				}
-			} else if (i + j <= rest()) {
-				m_commands.emplace_back(makeBLKSWAP(i, j));
-			 } else if (j >= m_stackSize) {
-				if (j - m_segment >= 1) {
-					m_commands.emplace_back(makeBLKSWAP(i, j - m_segment));
-				}
-				m_stackSize += i; // we take i element and push ones to the top of the stack
-			} else {
-				unableToConvertOpcode();
-			}
-			break;
-		case Stack::Opcode::XCHG:
-			if ((minUpIndex <= i && i <= maxDownIndex) ||
-				(minUpIndex <= j && j <= maxDownIndex)) { // it's ok if j==-1
-				unableToConvertOpcode();
-			} else {
-				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj));
-			}
-			break;
-		case Stack::Opcode::PUSH2_S:
-			if ((minUpIndex <= i && i <= maxDownIndex) ||
-				(minUpIndex <= j && j <= maxDownIndex)) {
-				unableToConvertOpcode();
-			} else {
-				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj));
-			}
-			m_stackSize += 2;
-			break;
-		case Stack::Opcode::PUSH3_S:
-			if ((minUpIndex <= i && i <= maxDownIndex) ||
-				(minUpIndex <= j && j <= maxDownIndex) ||
-				(minUpIndex <= k && k <= maxDownIndex)) {
-				unableToConvertOpcode();
-			} else {
-				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj, newk));
-			}
-			m_stackSize += 3;
-			break;
+		break;
 
-		case Stack::Opcode::TUCK:
-			if (rest() >= 2) {
-				m_commands.emplace_back(_node.shared_from_this());
-				++m_stackSize;
-			} else {
-				unableToConvertOpcode();
-			}
-			break;
-
-		case Stack::Opcode::PUXC:
-			if ((minUpIndex <= i && i <= maxDownIndex) ||
-				(minUpIndex <= j && j <= maxDownIndex) ||  // note: it's false if j==-1
-				rest() == 0 // because we make PUSH Si, SWAP ...
-			) {
-				unableToConvertOpcode();
-			} else {
-				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj));
-				++m_stackSize;
-			}
-			break;
-
-		case Stack::Opcode::XCPU: {
-			if ((minUpIndex <= i && i <= maxDownIndex) ||
-				(minUpIndex <= j && j <= maxDownIndex)
-			) {
-				unableToConvertOpcode();
-			} else {
-				m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj));
-				++m_stackSize;
-			}
-			break;
+	case Stack::Opcode::XCPU: {
+		if ((minUpIndex <= i && i <= maxDownIndex) ||
+			(minUpIndex <= j && j <= maxDownIndex)
+		) {
+			unableToConvertOpcode();
+		} else {
+			m_commands.emplace_back(createNode<Stack>(_node.opcode(), newi, newj));
+			++m_stackSize;
 		}
+		break;
+	}
+	case Stack::Opcode::PUXC2:
+	case Stack::Opcode::XC2PU:
+	case Stack::Opcode::XCPU2:
+	case Stack::Opcode::XCHG2:
+	case Stack::Opcode::XCPUXC:
+	case Stack::Opcode::PUXCPU:
+	case Stack::Opcode::PU2XC:
+	case Stack::Opcode::XCHG3: {
+		// TODO implement
+		unableToConvertOpcode();
+	}
 	}
 
 	return false;
@@ -485,7 +517,7 @@ void Simulator::endVisit(CodeBlock &/*_node*/) {
 std::optional<std::pair<Pointer<CodeBlock>, bool>>
 Simulator::trySimulate(CodeBlock const& body, int begStackSize, int /*endStackSize*/) {
 	Simulator sim{body.instructions().begin(), body.instructions().end(), begStackSize, m_segment};
-	if (sim.m_unableToConvertOpcode || sim.m_wasSet) {
+	if (!sim.m_ableToConvertOpcode || sim.m_wasSet) {
 		unableToConvertOpcode();
 		return {};
 	}
@@ -511,7 +543,7 @@ bool Simulator::isPopAndDrop(Pointer<TvmAstNode> const& a, Pointer<TvmAstNode> c
 }
 
 bool Simulator::success() const {
-	if (m_unableToConvertOpcode) {
+	if (!m_ableToConvertOpcode) {
 		return false;
 	}
 	return m_isDropped && !m_wasSet;

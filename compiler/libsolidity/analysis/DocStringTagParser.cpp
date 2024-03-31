@@ -37,7 +37,6 @@
 #include <regex>
 #include <string_view>
 
-using namespace std;
 using namespace solidity;
 using namespace solidity::langutil;
 using namespace solidity::frontend;
@@ -67,7 +66,7 @@ bool DocStringTagParser::validateDocStringsUsingTypes(SourceUnit const& _sourceU
 					if (tagName == "return")
 					{
 						returnTagsVisited++;
-						vector<string> returnParameterNames;
+						std::vector<std::string> returnParameterNames;
 
 						if (auto const* varDecl = dynamic_cast<VariableDeclaration const*>(&_node))
 						{
@@ -82,8 +81,8 @@ bool DocStringTagParser::validateDocStringsUsingTypes(SourceUnit const& _sourceU
 						else
 							continue;
 
-						string content = tagValue.content;
-						string firstWord = content.substr(0, content.find_first_of(" \t"));
+						std::string content = tagValue.content;
+						std::string firstWord = content.substr(0, content.find_first_of(" \t"));
 
 						if (returnTagsVisited > returnParameterNames.size())
 							m_errorReporter.docstringParsingError(
@@ -94,7 +93,7 @@ bool DocStringTagParser::validateDocStringsUsingTypes(SourceUnit const& _sourceU
 							);
 						else
 						{
-							string const& parameter = returnParameterNames.at(returnTagsVisited - 1);
+							std::string const& parameter = returnParameterNames.at(returnTagsVisited - 1);
 							if (!parameter.empty() && parameter != firstWord)
 								m_errorReporter.docstringParsingError(
 									5856_error,
@@ -113,7 +112,7 @@ bool DocStringTagParser::validateDocStringsUsingTypes(SourceUnit const& _sourceU
 
 bool DocStringTagParser::visit(ContractDefinition const& _contract)
 {
-	static set<string> const validTags = set<string>{"author", "title", "dev", "notice"};
+	static std::set<std::string> const validTags = std::set<std::string>{"author", "title", "dev", "notice"};
 	parseDocStrings(_contract, _contract.annotation(), validTags, "contracts");
 
 	return true;
@@ -163,88 +162,13 @@ bool DocStringTagParser::visit(ErrorDefinition const& _error)
 	return true;
 }
 
-bool DocStringTagParser::visit(InlineAssembly const& _assembly)
-{
-	if (!_assembly.documentation())
-		return true;
-	StructuredDocumentation documentation{-1, _assembly.location(), _assembly.documentation()};
-	ErrorList errors;
-	ErrorReporter errorReporter{errors};
-	auto docTags = DocStringParser{documentation, errorReporter}.parse();
-
-	if (!errors.empty())
-	{
-		SecondarySourceLocation ssl;
-		for (auto const& error: errors)
-			if (error->comment())
-				ssl.append(
-					*error->comment(),
-					_assembly.location()
-				);
-		m_errorReporter.warning(
-			7828_error,
-			_assembly.location(),
-			"Inline assembly has invalid NatSpec documentation.",
-			ssl
-		);
-	}
-
-	for (auto const& [tagName, tagValue]: docTags)
-	{
-		if (tagName == "solidity")
-		{
-			vector<string> values;
-			boost::split(values, tagValue.content, isWhiteSpace);
-
-			set<string> valuesSeen;
-			set<string> duplicates;
-			for (auto const& value: values | ranges::views::filter(not_fn(&string::empty)))
-				if (valuesSeen.insert(value).second)
-				{
-					if (value == "memory-safe-assembly")
-					{
-						if (_assembly.annotation().markedMemorySafe)
-							m_errorReporter.warning(
-								8544_error,
-								_assembly.location(),
-								"Inline assembly marked as memory safe using both a NatSpec tag and an assembly flag. "
-								"If you are not concerned with backwards compatibility, only use the assembly flag, "
-								"otherwise only use the NatSpec tag."
-							);
-						_assembly.annotation().markedMemorySafe = true;
-					}
-					else
-						m_errorReporter.warning(
-							8787_error,
-							_assembly.location(),
-							"Unexpected value for @solidity tag in inline assembly: " + value
-						);
-				}
-				else if (duplicates.insert(value).second)
-					m_errorReporter.warning(
-						4377_error,
-						_assembly.location(),
-						"Value for @solidity tag in inline assembly specified multiple times: " + value
-					);
-		}
-		else
-			m_errorReporter.warning(
-				6269_error,
-				_assembly.location(),
-				"Unexpected NatSpec tag \"" + tagName + "\" with value \"" + tagValue.content + "\" in inline assembly."
-			);
-	}
-
-	return true;
-}
-
 void DocStringTagParser::checkParameters(
 	CallableDeclaration const& _callable,
 	StructurallyDocumented const& _node,
 	StructurallyDocumentedAnnotation& _annotation
 )
 {
-	set<string> validParams;
+	std::set<std::string> validParams;
 	for (auto const& p: _callable.parameters())
 		validParams.insert(p->name());
 	if (_callable.returnParameterList())
@@ -268,7 +192,7 @@ void DocStringTagParser::handleConstructor(
 	StructurallyDocumentedAnnotation& _annotation
 )
 {
-	static set<string> const validTags = set<string>{"author", "dev", "notice", "param"};
+	static std::set<std::string> const validTags = std::set<std::string>{"author", "dev", "notice", "param"};
 	parseDocStrings(_node, _annotation, validTags, "constructor");
 	checkParameters(_callable, _node, _annotation);
 }
@@ -279,10 +203,10 @@ void DocStringTagParser::handleCallable(
 	StructurallyDocumentedAnnotation& _annotation
 )
 {
-	static set<string> const validEventTags = set<string>{"dev", "notice", "return", "param"};
-	static set<string> const validErrorTags = set<string>{"dev", "notice", "param"};
-	static set<string> const validModifierTags = set<string>{"dev", "notice", "param", "inheritdoc"};
-	static set<string> const validTags = set<string>{"dev", "notice", "return", "param", "inheritdoc"};
+	static std::set<std::string> const validEventTags = std::set<std::string>{"dev", "notice", "return", "param"};
+	static std::set<std::string> const validErrorTags = std::set<std::string>{"dev", "notice", "param"};
+	static std::set<std::string> const validModifierTags = std::set<std::string>{"dev", "notice", "param", "inheritdoc"};
+	static std::set<std::string> const validTags = std::set<std::string>{"dev", "notice", "return", "param", "inheritdoc"};
 
 	if (dynamic_cast<EventDefinition const*>(&_callable))
 		parseDocStrings(_node, _annotation, validEventTags, "events");
@@ -299,8 +223,8 @@ void DocStringTagParser::handleCallable(
 void DocStringTagParser::parseDocStrings(
 	StructurallyDocumented const& _node,
 	StructurallyDocumentedAnnotation& _annotation,
-	set<string> const& _validTags,
-	string const& _nodeName
+	std::set<std::string> const& _validTags,
+	std::string const& _nodeName
 )
 {
 	if (!_node.documentation())
@@ -310,7 +234,7 @@ void DocStringTagParser::parseDocStrings(
 
 	for (auto const& [tagName, tagValue]: _annotation.docTags)
 	{
-		string_view static constexpr customPrefix("custom:");
+		std::string_view static constexpr customPrefix("custom:");
 		if (tagName == "custom" || tagName == "custom:")
 			m_errorReporter.docstringParsingError(
 				6564_error,
@@ -319,7 +243,7 @@ void DocStringTagParser::parseDocStrings(
 			);
 		else if (boost::starts_with(tagName, customPrefix) && tagName.size() > customPrefix.size())
 		{
-			regex static const customRegex("^custom:[a-z][a-z-]*$");
+			std::regex static const customRegex("^custom:[a-z][a-z-]*$");
 			if (!regex_match(tagName, customRegex))
 				m_errorReporter.docstringParsingError(
 					2968_error,

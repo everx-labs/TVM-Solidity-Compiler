@@ -83,8 +83,6 @@ private:
 
 	bool visit(UnaryOperation const& _operation) override;
 
-	bool visit(InlineAssembly const& _inlineAssembly) override;
-
 	bool visit(PlaceholderStatement const& _placeholderStatement) override;
 
 	bool visit(ContractDefinition const& _contract) override;
@@ -97,6 +95,8 @@ private:
 
 	bool visit(StructDefinition const& _struct) override;
 	bool visit(Literal const& _literal) override;
+
+	bool visitNode(ASTNode const&) override;
 
 	langutil::ErrorReporter& m_errorReporter;
 

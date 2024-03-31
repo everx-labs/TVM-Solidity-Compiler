@@ -20,13 +20,13 @@
 
 namespace solidity::frontend {
 
-
+class PublicFunctionSelector;
 
 class TVMFunctionCompiler: public ASTConstVisitor, private boost::noncopyable
 {
-private:
+protected:
 	TVMFunctionCompiler(StackPusher& pusher, ContractDefinition const *contract);
-
+private:
 	TVMFunctionCompiler(
 		StackPusher& pusher,
 		int modifier,
@@ -39,7 +39,7 @@ private:
 public:
 	static Pointer<Function> updateOnlyTime(TVMCompilerContext& ctx);
 	static Pointer<Function> generateC4ToC7(TVMCompilerContext& ctx);
-	static Pointer<Function> generateC4ToC7WithInitMemory(TVMCompilerContext& ctx);
+	static Pointer<Function> generateDefaultC4(TVMCompilerContext& ctx);
 	static Pointer<Function> generateBuildTuple(TVMCompilerContext& ctx, std::string const& name, const std::vector<Type const*>& types);
 	static Pointer<Function> generateNewArrays(TVMCompilerContext& ctx, std::string const& name, FunctionCall const* arr);
 	static Pointer<Function> generateConstArrays(TVMCompilerContext& ctx, std::string const& name, TupleExpression const* arr);
@@ -127,7 +127,8 @@ private:
 	void updC4IfItNeeds();
 	void pushReceiveOrFallback();
 
-	void buildPublicFunctionSelector(const std::vector<std::pair<uint32_t, std::string>>& functions, int left, int right);
+	void buildPublicFunctionSelector(const std::vector<std::pair<uint32_t, std::string>>& functions, int left, int right,
+									 PublicFunctionSelector const& pfs);
     void pushLocation(const ASTNode& node, bool reset = false);
 
 private:
@@ -140,6 +141,37 @@ private:
 	ContractDefinition const *m_contract{};
 	const bool m_isLibraryWithObj{};
 	const bool m_pushArgs{};
+};
+
+class TVMConstructorCompiler: public TVMFunctionCompiler {
+	StackPusher& m_pusher;
+	std::map<ContractDefinition const*, std::vector<ContractDefinition const*>> path;
+	std::vector<ContractDefinition const*> dfsOrder;
+	std::map<ContractDefinition const*, bool> used;
+	std::map<ContractDefinition const*, std::vector<ASTPointer<Expression>> const*> m_args;
+
+public:
+	explicit TVMConstructorCompiler(StackPusher& pusher);
+	void dfs(ContractDefinition const* c);
+	Pointer<Function> generateConstructors();
+private:
+	void beginConstructor();
+};
+
+class PublicFunctionSelector {
+public:
+	explicit PublicFunctionSelector(int n);
+	std::vector<int> const& groupSizes(int n) const { return prev.at(n); }
+private:
+	void dfs(int pos, int n);
+private:
+	std::vector<int> curGroupSize;
+	const int INF = 1e9;
+	const int OK_JMP = 18 + 23 + 18 + 126;  // DUP / PUSHINT ? / LEQ / IFJMPREF
+	const int FAIL_JMP = 18 + 23 + 18 + 26; // DUP / PUSHINT ? / LEQ / IFJMPREF
+	std::vector<int> maxPath;
+	std::vector<int> sumPaths;
+	std::vector<std::vector<int>> prev;
 };
 
 } // end solidity::frontend

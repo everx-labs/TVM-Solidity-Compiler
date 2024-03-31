@@ -63,7 +63,7 @@ bool StackOptimizer::visit(TvmException &_node) {
 	return false;
 }
 
-bool StackOptimizer::visit(GenOpcode &_node) {
+bool StackOptimizer::visit(StackOpcode &_node) {
 	delta(- _node.take() + _node.ret());
 	return false;
 }
@@ -98,38 +98,39 @@ bool StackOptimizer::visit(Glob &_node) {
 bool StackOptimizer::visit(Stack &_node) {
 	int delta{};
 	switch (_node.opcode()) {
-		case Stack::Opcode::DROP:
-		case Stack::Opcode::BLKDROP2:
-			delta = - _node.i();
-			break;
-
-		case Stack::Opcode::POP_S:
-			delta = -1;
-			break;
-
-		case Stack::Opcode::BLKPUSH:
-			delta = _node.i();
-			break;
-		case Stack::Opcode::PUSH2_S:
-			delta = 2;
-			break;
-		case Stack::Opcode::PUSH3_S:
-			delta = 3;
-			break;
-		case Stack::Opcode::PUSH_S:
-			delta = 1;
-			break;
-
-		case Stack::Opcode::BLKSWAP:
-		case Stack::Opcode::REVERSE:
-		case Stack::Opcode::XCHG:
-			break;
-
-		case Stack::Opcode::TUCK:
-		case Stack::Opcode::PUXC:
-		case Stack::Opcode::XCPU:
-			delta = 1;
-			break;
+	case Stack::Opcode::BLKPUSH:
+		delta = _node.i();
+		break;
+	case Stack::Opcode::DROP:
+	case Stack::Opcode::BLKDROP2:
+		delta = - _node.i();
+		break;
+	case Stack::Opcode::POP_S:
+		delta = -1;
+		break;
+	case Stack::Opcode::BLKSWAP:
+	case Stack::Opcode::REVERSE:
+	case Stack::Opcode::XCHG:
+	case Stack::Opcode::XCHG2:
+	case Stack::Opcode::XCHG3:
+		break;
+	case Stack::Opcode::PUXC:
+	case Stack::Opcode::XCPU:
+	case Stack::Opcode::XC2PU:
+	case Stack::Opcode::PUXC2:
+	case Stack::Opcode::XCPUXC:
+	case Stack::Opcode::PUSH_S:
+		delta = 1;
+		break;
+	case Stack::Opcode::PUSH2_S:
+	case Stack::Opcode::XCPU2:
+	case Stack::Opcode::PUXCPU:
+	case Stack::Opcode::PU2XC:
+		delta = 2;
+		break;
+	case Stack::Opcode::PUSH3_S:
+		delta = 3;
+		break;
 	}
 	this->delta(delta);
 	return false;
@@ -318,8 +319,11 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 	if (to<Loc>(op.get()))
 		return false;
 
+	size_t index2 = index + 1;
+	while (index2 < instructions.size() && isLoc(instructions.at(index2)))
+		++index2;
+
 	auto stack = to<Stack>(op.get());
-	bool cmd1IsPUSH= stack && stack->opcode() == Stack::Opcode::PUSH_S;
 	bool ok = false;
 	std::vector<Pointer<TvmAstNode>> commands;
 
@@ -332,7 +336,7 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 	if (auto gen = to<Gen>(op.get());
 		gen && gen->isPure() && std::make_pair(gen->take(), gen->ret()) == std::make_pair(0, 1)
 	) {
-		Simulator sim{instructions.begin() + index + 1, instructions.end(), 1, 1};
+		Simulator sim{instructions.begin() + index + 1, instructions.end(), 1, 1, false, true};
 		bool good = true;
 		{
 			auto glob = to<Glob>(op.get());
@@ -351,6 +355,129 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 				++iter
 			) {
 				commands.emplace_back(*iter);
+			}
+		}
+	}
+
+	// DUP
+	// ...
+	// POP Si
+	// =>
+	// ...
+	// BLKSWAP i-1, 1
+	if (!ok && isPUSH(op) && isPUSH(op).value() == 0) {
+		Simulator sim{instructions.begin() + index + 1, instructions.end(), 2, 1, true};
+		if (sim.wasSet()) {
+			ok = true;
+			commands.insert(commands.end(), sim.commands().begin(), sim.commands().end());
+			auto iter = sim.getIter();
+			auto popSi = isPOP(*iter);
+			solAssert(popSi && *popSi >= 2, "");
+			commands.emplace_back(makeBLKSWAP(*popSi - 1, 1));
+			++iter;
+			for ( ; iter != instructions.end(); ++iter) {
+				commands.emplace_back(*iter);
+			}
+		}
+	}
+
+	// ROLLREV X
+	// ...
+	// POP Si
+	// =>
+	// DROP
+	// ...
+	// BLKSWAP 1, i-1
+	if (!ok && isBLKSWAP(op)) {
+		auto [bottom, top] = isBLKSWAP(op).value();
+		if (top == 1) {
+			Simulator sim{instructions.begin() + index + 1, instructions.end(), bottom + 1, 1, true};
+			if (sim.wasSet()) {
+				ok = true;
+				commands.emplace_back(makeDROP());
+				commands.insert(commands.end(), sim.commands().begin(), sim.commands().end());
+				auto iter = sim.getIter();
+				auto popSi = isPOP(*iter);
+				solAssert(popSi && *popSi >= 2, "");
+				commands.emplace_back(makeBLKSWAP(*popSi - 1, 1));
+				++iter;
+				for ( ; iter != instructions.end(); ++iter) {
+					commands.emplace_back(*iter);
+				}
+			}
+		}
+	}
+
+	// gen01
+	// ...
+	// POP Si
+	// =>
+	// ...
+	// BLKSWAP 1, i-1
+	if (!ok && isPureGen01(*op)) {
+		Simulator sim{instructions.begin() + index + 1, instructions.end(), 1, 1, true};
+		if (sim.wasSet()) {
+			ok = true;
+			commands.insert(commands.end(), sim.commands().begin(), sim.commands().end());
+			auto iter = sim.getIter();
+			auto popSi = isPOP(*iter);
+			solAssert(popSi && *popSi >= 2, "");
+			commands.emplace_back(makeBLKSWAP(*popSi - 1, 1));
+			++iter;
+			for ( ; iter != instructions.end(); ++iter) {
+				commands.emplace_back(*iter);
+			}
+		}
+	}
+
+	// BLKSWAP N, 1
+	// PUSH S[N]
+	// ...
+	// POP S?
+	// =>
+	// ...
+	// BLKSWAP ?, 1
+	if (!ok && isBLKSWAP(op) && isBLKSWAP(op).value().second == 1) {
+		int const n = isBLKSWAP(op).value().first;
+		if (index2 != instructions.size()) {
+			auto pushS = isPUSH(instructions.at(index2));
+			if (pushS && pushS.value() == n) {
+				Simulator sim{instructions.begin() + index2 + 1, instructions.end(), n + 2, 1, true};
+				if (sim.wasSet()) {
+					ok = true;
+					commands.insert(commands.end(), instructions.begin() + index + 1, instructions.begin() + index2);
+					commands.insert(commands.end(), sim.commands().begin(), sim.commands().end());
+					auto iter = sim.getIter();
+					auto popSi = isPOP(*iter);
+					solAssert(popSi && *popSi >= 2, "");
+					commands.emplace_back(makeBLKSWAP(*popSi - 1, 1));
+					++iter;
+					for ( ; iter != instructions.end(); ++iter) {
+						commands.emplace_back(*iter);
+					}
+				}
+			}
+		}
+	}
+
+	// POP S[i]
+	// PUSH S[i-1]
+	// ...
+	// POP S?
+	// =>
+	// ...
+	// POP S?
+	if (!ok && isPOP(op)) {
+		if (index2 != instructions.size()) {
+			auto pushS = isPUSH(instructions.at(index2));
+			if (pushS && *pushS + 1 == *isPOP(op)) {
+				Simulator sim{instructions.begin() + index2 + 1, instructions.end(), *isPOP(op) + 1, 1, true};
+				if (sim.wasSet()) {
+					ok = true;
+					// we take original commands because we don't remove value from stack
+					commands.insert(commands.end(), instructions.begin() + index + 1, instructions.begin() + index2);
+					commands.insert(commands.end(), instructions.begin() + index2 + 1, instructions.end());
+				}
 			}
 		}
 	}
@@ -402,10 +529,15 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 		}
 	}
 
-	if (!ok && cmd1IsPUSH) {
+	if (!ok && isPUSH(op)) {
 		int Si = stack->i();
 
-		// try to delete values
+		// PUSH Si
+		// ... S[0..i-1] aren not used anymore
+		// =>
+		// BLKDROP i
+		// PUSH S0
+		// ...
 		if (Si <= scopeSize() && Si > 0) {
 			Simulator sim{instructions.begin() + index + 1, instructions.end(), Si + 1, Si};
 			if (sim.success()) {
@@ -433,6 +565,10 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 		}
 	}
 
+	// gen01
+	// ...
+	// =>
+	// ...
 	if (!ok && isPureGen01(*op)) {
 		int startStackSize = 1;
 		Simulator sim{instructions.begin() + index + 1, instructions.end(), startStackSize, 1};
@@ -442,6 +578,11 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 		}
 	}
 
+	// Delete useless variable from the stack
+	// ...
+	// =>
+	// DROP
+	// ...
 	if (!ok && !isDrop(op)) {
 		bool isPrevFlag{};
 		if (index > 0) {
@@ -458,7 +599,30 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 			}
 		}
 	}
+	// TODO : fails for NIP IFRET
+	// Delete useless variable from the stack
+	// ...
+	// =>
+	// NIP
+	// ...
+	//if (!ok && !isPOP(op) && !isDrop(op)) {
+	//	if (scopeSize() >= 2) {
+	//		auto beg = instructions.begin() + index;
+	//		Simulator sim{beg, instructions.end(), 2, 1};
+	//		if (sim.success()) {
+	//			ok = true;
+	//			commands.emplace_back(makeBLKDROP2(1, 1));
+	//			commands.insert(commands.end(), sim.commands().begin(), sim.commands().end());
+	//		}
+	//	}
+	//}
 
+	// Delete useless variable from the stack
+	// DROP N
+	// ...
+	// =>
+	// DROP N+1
+	// ...
 	if (!ok && isDrop(op)) {
 		int n = isDrop(op).value();
 		auto beg = instructions.begin() + index + 1;

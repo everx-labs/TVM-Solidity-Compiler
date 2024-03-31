@@ -29,7 +29,6 @@
 
 #include <range/v3/view/transform.hpp>
 
-using namespace std;
 using namespace solidity::langutil;
 using namespace solidity::frontend;
 
@@ -169,7 +168,7 @@ void DeclarationTypeChecker::endVisit(UserDefinedTypeName const& _typeName)
 		m_errorReporter.fatalTypeError(
 			5172_error,
 			_typeName.location(),
-			"Name has to refer to a struct, enum or contract."
+			"Name has to refer to a user-defined type."
 		);
 	}
 }
@@ -221,14 +220,54 @@ void DeclarationTypeChecker::endVisit(Mapping const& _mapping)
 	// key type is checked in TVMTypeChecker::visit(const Mapping &_mapping)
 
 	Type const* keyType = _mapping.keyType().annotation().type;
+	ASTString keyName = _mapping.keyName();
+
 	Type const* valueType = _mapping.valueType().annotation().type;
+	ASTString valueName = _mapping.valueName();
 
-	// Convert key type to memory.
-	keyType = TypeProvider::withLocationIfReference(keyType);
+	_mapping.annotation().type = TypeProvider::mapping(keyType, keyName, valueType, valueName);
 
-	// Convert value type to storage reference.
-	valueType = TypeProvider::withLocationIfReference(valueType);
-	_mapping.annotation().type = TypeProvider::mapping(keyType, valueType);
+	// Check if parameter names are conflicting.
+	if (!keyName.empty())
+	{
+		auto childMappingType = dynamic_cast<MappingType const*>(valueType);
+		ASTString currentValueName = valueName;
+		bool loop = true;
+		while (loop)
+		{
+			bool isError = false;
+			// Value type is a mapping.
+			if (childMappingType)
+			{
+				// Compare top mapping's key name with child mapping's key name.
+				ASTString childKeyName = childMappingType->keyName();
+				if (keyName == childKeyName)
+					isError = true;
+
+				auto valueType = childMappingType->valueType();
+				currentValueName = childMappingType->valueName();
+				childMappingType = dynamic_cast<MappingType const*>(valueType);
+			}
+			else
+			{
+				// Compare top mapping's key name with the value name.
+				if (keyName == currentValueName)
+					isError = true;
+
+				loop = false; // We arrived at the end of mapping recursion.
+			}
+
+			// Report error.
+			if (isError)
+			{
+				m_errorReporter.declarationError(
+					1809_error,
+					_mapping.location(),
+					"Conflicting parameter name \"" + keyName + "\" in mapping."
+				);
+			}
+		}
+	}
 }
 
 void DeclarationTypeChecker::endVisit(Optional const& _optional)
@@ -272,10 +311,10 @@ void DeclarationTypeChecker::endVisit(ArrayTypeName const& _typeName)
 
 	if (Expression const* length = _typeName.length())
 	{
-		optional<rational> lengthValue;
+		std::optional<rational> lengthValue;
 		if (length->annotation().type && length->annotation().type->category() == Type::Category::RationalNumber)
 			lengthValue = dynamic_cast<RationalNumberType const&>(*length->annotation().type).value();
-		else if (optional<ConstantEvaluator::TypedRational> value = ConstantEvaluator::evaluate(m_errorReporter, *length))
+		else if (std::optional<ConstantEvaluator::TypedRational> value = ConstantEvaluator::evaluate(m_errorReporter, *length))
 			lengthValue = value->value;
 
 		if (!lengthValue)
@@ -331,12 +370,6 @@ void DeclarationTypeChecker::endVisit(VariableDeclaration const& _variable)
 		);
 
 	Type const* type = _variable.typeName().annotation().type;
-	if (auto ref = dynamic_cast<ReferenceType const*>(type))
-	{
-		bool isPointer = !_variable.isStateVariable();
-		type = TypeProvider::withLocation(ref, isPointer);
-	}
-
 	_variable.annotation().type = type;
 }
 
@@ -354,7 +387,7 @@ bool DeclarationTypeChecker::visit(UsingForDirective const& _usingFor)
 					m_errorReporter.typeError(
 						4167_error,
 						function->location(),
-						"Only file-level functions and library functions can be bound to a type in a \"using\" statement"
+						"Only file-level functions and library functions can be attached to a type in a \"using\" statement"
 					);
 			}
 			else

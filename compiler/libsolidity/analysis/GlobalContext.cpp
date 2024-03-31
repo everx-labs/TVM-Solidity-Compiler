@@ -29,8 +29,6 @@
 #include <libsolidity/ast/Types.h>
 #include <memory>
 
-using namespace std;
-
 namespace solidity::frontend
 {
 
@@ -67,6 +65,7 @@ int magicVariableToID(std::string const& _name)
 	else if (_name == "tx") return -26;
 	else if (_name == "type") return -27;
 	else if (_name == "this") return -28;
+	else if (_name == "blobhash") return -29;
 	else if (_name == "gasToValue") return -60;
 	else if (_name == "valueToGas") return -61;
 	else if (_name == "bitSize") return -62;
@@ -75,13 +74,13 @@ int magicVariableToID(std::string const& _name)
 		solAssert(false, "Unknown magic variable: \"" + _name + "\".");
 }
 
-inline vector<shared_ptr<MagicVariableDeclaration const>> constructMagicVariables()
+inline std::vector<std::shared_ptr<MagicVariableDeclaration const>> constructMagicVariables(langutil::EVMVersion _evmVersion)
 {
-	static auto const magicVarDecl = [](string const& _name, Type const* _type) {
-		return make_shared<MagicVariableDeclaration>(magicVariableToID(_name), _name, _type);
+	static auto const magicVarDecl = [](std::string const& _name, Type const* _type) {
+		return std::make_shared<MagicVariableDeclaration>(magicVariableToID(_name), _name, _type);
 	};
 
-	return {
+	std::vector<std::shared_ptr<MagicVariableDeclaration const>> magicVariableDeclarations = {
 		magicVarDecl("abi", TypeProvider::magic(MagicType::Kind::ABI)),
 		magicVarDecl("addmod", TypeProvider::function(strings{"uint256", "uint256", "uint256"}, strings{"uint256"}, FunctionType::Kind::AddMod, StateMutability::Pure)),
 		magicVarDecl("assert", TypeProvider::function(strings{"bool"}, strings{}, FunctionType::Kind::Assert, StateMutability::Pure)),
@@ -103,8 +102,8 @@ inline vector<shared_ptr<MagicVariableDeclaration const>> constructMagicVariable
 		magicVarDecl("stoi", TypeProvider::function(
 				TypePointers{TypeProvider::stringStorage()},
 				TypePointers{TypeProvider::optional(TypeProvider::integer(256, IntegerType::Modifier::Signed))},
-				strings{string()},
-				strings{string()},
+				strings{std::string()},
+				strings{std::string()},
 				FunctionType::Kind::Stoi,
 				StateMutability::Pure)
 				),
@@ -126,11 +125,19 @@ inline vector<shared_ptr<MagicVariableDeclaration const>> constructMagicVariable
 		magicVarDecl("bitSize", TypeProvider::function({"int"}, {"uint16"}, FunctionType::Kind::BitSize, StateMutability::Pure)),
 		magicVarDecl("uBitSize", TypeProvider::function({"uint"}, {"uint16"}, FunctionType::Kind::UBitSize, StateMutability::Pure)),
 	};
+
+	if (_evmVersion >= langutil::EVMVersion::cancun())
+		magicVariableDeclarations.push_back(
+			magicVarDecl("blobhash", TypeProvider::function(strings{"uint256"}, strings{"bytes32"}, FunctionType::Kind::BlobHash, StateMutability::View))
+		);
+
+	return magicVariableDeclarations;
 }
 
 }
 
-GlobalContext::GlobalContext(): m_magicVariables{constructMagicVariables()}
+GlobalContext::GlobalContext(langutil::EVMVersion _evmVersion):
+	m_magicVariables{constructMagicVariables(_evmVersion)}
 {
 }
 
@@ -139,9 +146,9 @@ void GlobalContext::setCurrentContract(ContractDefinition const& _contract)
 	m_currentContract = &_contract;
 }
 
-vector<Declaration const*> GlobalContext::declarations() const
+std::vector<Declaration const*> GlobalContext::declarations() const
 {
-	vector<Declaration const*> declarations;
+	std::vector<Declaration const*> declarations;
 	declarations.reserve(m_magicVariables.size());
 	for (ASTPointer<MagicVariableDeclaration const> const& variable: m_magicVariables)
 		declarations.push_back(variable.get());
@@ -156,7 +163,7 @@ MagicVariableDeclaration const* GlobalContext::currentThis() const
 		if (m_currentContract)
 			type = TypeProvider::contract(*m_currentContract);
 		m_thisPointer[m_currentContract] =
-			make_shared<MagicVariableDeclaration>(magicVariableToID("this"), "this", type);
+			std::make_shared<MagicVariableDeclaration>(magicVariableToID("this"), "this", type);
 	}
 	return m_thisPointer[m_currentContract].get();
 }
@@ -169,7 +176,7 @@ MagicVariableDeclaration const* GlobalContext::currentSuper() const
 		if (m_currentContract)
 			type = TypeProvider::typeType(TypeProvider::contract(*m_currentContract, true));
 		m_superPointer[m_currentContract] =
-			make_shared<MagicVariableDeclaration>(magicVariableToID("super"), "super", type);
+			std::make_shared<MagicVariableDeclaration>(magicVariableToID("super"), "super", type);
 	}
 	return m_superPointer[m_currentContract].get();
 }

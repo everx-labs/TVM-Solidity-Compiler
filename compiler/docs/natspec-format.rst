@@ -46,7 +46,7 @@ for the purposes of NatSpec.
 
 -  For Vyper, use ``"""`` indented to the inner contents with bare
    comments. See the `Vyper
-   documentation <https://vyper.readthedocs.io/en/latest/natspec.html>`__.
+   documentation <https://docs.vyperlang.org/en/latest/natspec.html>`__.
 
 The following example shows a contract and a function using all available tags.
 
@@ -58,7 +58,7 @@ The following example shows a contract and a function using all available tags.
 
   This may change in the future.
 
-.. code-block:: Solidity
+.. code-block:: solidity
 
     // SPDX-License-Identifier: GPL-3.0
     pragma solidity >=0.8.2 < 0.9.0;
@@ -153,10 +153,6 @@ to the end-user as:
     This function will multiply 10 by 7
 
 if a function is being called and the input ``a`` is assigned a value of 10.
-
-Specifying these dynamic expressions is outside the scope of the Solidity
-documentation and you may read more at
-`the radspec project <https://github.com/aragon/radspec>`__.
 
 .. _header-inheritance:
 

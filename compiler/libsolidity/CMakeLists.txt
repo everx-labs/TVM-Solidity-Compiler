@@ -63,6 +63,7 @@ set(sources
 	ast/CallGraph.cpp
 	ast/CallGraph.h
 	ast/ExperimentalFeatures.h
+	ast/UserDefinableOperators.h
 	ast/Types.cpp
 	ast/Types.h
 	ast/TypeProvider.cpp
@@ -78,10 +79,14 @@ set(sources
 	interface/Natspec.h
 	interface/OptimiserSettings.h
 	interface/ReadFile.h
+	interface/SMTSolverCommand.cpp
+	interface/SMTSolverCommand.h
 	interface/StandardCompiler.cpp
 	interface/StandardCompiler.h
 	interface/Version.cpp
 	interface/Version.h
+	lsp/DocumentHoverHandler.cpp
+	lsp/DocumentHoverHandler.h
 	lsp/FileRepository.cpp
 	lsp/FileRepository.h
 	lsp/GotoDefinition.cpp
@@ -103,7 +108,27 @@ set(sources
 	parsing/Parser.cpp
 	parsing/Parser.h
 	parsing/Token.h
-
+	experimental/analysis/Analysis.cpp
+	experimental/analysis/Analysis.h
+	experimental/analysis/DebugWarner.cpp
+	experimental/analysis/DebugWarner.h
+	experimental/analysis/FunctionDependencyAnalysis.cpp
+	experimental/analysis/FunctionDependencyAnalysis.h
+	experimental/analysis/TypeClassRegistration.cpp
+	experimental/analysis/TypeClassRegistration.h
+	experimental/analysis/TypeInference.cpp
+	experimental/analysis/TypeInference.h
+	experimental/analysis/TypeRegistration.cpp
+	experimental/analysis/TypeRegistration.h
+	experimental/analysis/SyntaxRestrictor.cpp
+	experimental/analysis/SyntaxRestrictor.h
+	experimental/ast/FunctionCallGraph.h
+	experimental/ast/Type.cpp
+	experimental/ast/Type.h
+	experimental/ast/TypeSystem.cpp
+	experimental/ast/TypeSystem.h
+	experimental/ast/TypeSystemHelper.cpp
+	experimental/ast/TypeSystemHelper.h
 
 	codegen/DictOperations.cpp
 	codegen/DictOperations.hpp
@@ -151,4 +176,4 @@ set(sources
 )
 
 add_library(solidity ${sources})
-target_link_libraries(solidity PUBLIC langutil solutil Boost::boost Boost::filesystem Boost::system fmt::fmt-header-only)
+target_link_libraries(solidity PUBLIC langutil solutil Boost::boost Boost::filesystem Boost::system fmt::fmt-header-only Threads::Threads)

@@ -71,13 +71,15 @@ class GlobalContext;
 class Natspec;
 class DeclarationContainer;
 class PragmaDirective;
+namespace experimental
+{
+class Analysis;
+}
 
 /**
  * Easy to use and self-contained Solidity compiler with as few header dependencies as possible.
  * It holds state and can be used to either step through the compilation stages (and abort e.g.
  * before compilation to bytecode) or run the whole compilation in one call.
- * If error recovery is active, it is possible to progress through the stages even when
- * there are errors. In any case, producing code is only possible without errors.
  */
 class CompilerStack: public langutil::CharStreamProvider
 {
@@ -91,7 +93,7 @@ public:
 		SourcesSet,
 		Parsed,
 		ParsedAndImported,
-		AnalysisPerformed,
+		AnalysisSuccessful,
 		CompilationSuccessful
 	};
 
@@ -107,6 +109,13 @@ public:
 		None
 	};
 
+	enum class CompilationSourceType {
+		/// Regular compilation from Solidity source files.
+		Solidity,
+		/// Compilation from an imported Solidity AST.
+		SolidityAST,
+	};
+
 	/// Creates a new compiler stack.
 	/// @param _readFile callback used to read files for import statements. Must return
 	/// and must not emit exceptions.
@@ -120,9 +129,7 @@ public:
 	/// @returns the current state.
 	State state() const { return m_stackState; }
 
-	bool hasError() const { return m_hasError; }
-
-	bool compilationSuccessful() const { return m_stackState >= CompilationSuccessful; }
+	virtual bool compilationSuccessful() const { return m_stackState >= CompilationSuccessful; }
 
 	/// Resets the compiler to an empty state. Unless @a _keepSettings is set to true,
 	/// all settings are reset as well.
@@ -147,14 +154,6 @@ public:
 	/// Sets whether to strip revert strings, add additional strings or do nothing at all.
 	void setRevertStringBehaviour(RevertStrings _revertStrings);
 
-	/// Set whether or not parser error is desired.
-	/// When called without an argument it will revert to the default.
-	/// Must be set before parsing.
-	void setParserErrorRecovery(bool _wantErrorRecovery = false)
-	{
-		m_parserErrorRecovery = _wantErrorRecovery;
-	}
-
 	/// Sets the pipeline to go through the Yul IR or not.
 	/// Must be set before parsing.
 	void setViaIR(bool _viaIR);
@@ -176,7 +175,7 @@ public:
 	}
 
 	void setMainContract(std::string mainContract) {
-		// TODO DELETE USE setRequestedContractNames
+		// TODO DELETE USE setRequestedContractNames ?
 		m_mainContract = mainContract;
 	}
 
@@ -213,9 +212,6 @@ public:
 
 	/// Enable generation of Yul IR code.
 	void enableIRGeneration(bool _enable = true) { m_generateIR = _enable; }
-
-	/// Enable experimental generation of Ewasm code. If enabled, IR is also generated.
-	void enableEwasmGeneration(bool _enable = true) { m_generateEwasm = _enable; }
 
 	/// @arg _metadataLiteralSources When true, store sources as literals in the contract metadata.
 	/// Must be set before parsing.
@@ -254,8 +250,15 @@ public:
 	/// @returns false on error.
 	std::pair<bool, bool> compile(bool json = false);
 
+	/// Checks whether experimental analysis is on; used in SyntaxTests to skip compilation in case it's ``true``.
+	/// @returns true if experimental analysis is set
+	bool isExperimentalAnalysis() const
+	{
+		return !!m_experimentalAnalysis;
+	}
+
 	/// @returns the list of sources (paths) used
-	std::vector<std::string> sourceNames() const;
+	virtual std::vector<std::string> sourceNames() const;
 
 	/// @returns a mapping assigning each source name its index inside the vector returned
 	/// by sourceNames().
@@ -276,10 +279,10 @@ public:
 	// std::vector<std::string> const& unhandledSMTLib2Queries() const { return m_unhandledSMTLib2Queries; }
 
 	/// @returns a list of the contract names in the sources.
-	std::vector<std::string> contractNames() const;
+	virtual std::vector<std::string> contractNames() const;
 
 	/// @returns either the contract's name or a mixture of its name and source file, sanitized for filesystem use
-	std::string const filesystemFriendlyName(std::string const& _contractName) const;
+	virtual std::string const filesystemFriendlyName(std::string const& _contractName) const;
 
 	/// @returns the IR representation of a contract.
 	std::string const& yulIR(std::string const& _contractName) const;
@@ -287,26 +290,13 @@ public:
 	/// @returns the optimized IR representation of a contract.
 	std::string const& yulIROptimized(std::string const& _contractName) const;
 
-	/// @returns the Ewasm text representation of a contract.
-	std::string const& ewasm(std::string const& _contractName) const;
-
 	/// @returns the string that provides a mapping between bytecode and sourcecode or a nullptr
 	/// if the contract does not (yet) have bytecode.
-	std::string const* sourceMapping(std::string const& _contractName) const;
+	virtual std::string const* sourceMapping(std::string const& _contractName) const;
 
 	/// @returns the string that provides a mapping between runtime bytecode and sourcecode.
 	/// if the contract does not (yet) have bytecode.
-	std::string const* runtimeSourceMapping(std::string const& _contractName) const;
-
-	/// @return a verbose text representation of the assembly.
-	/// @arg _sourceCodes is the map of input files to source code strings
-	/// Prerequisite: Successful compilation.
-	std::string assemblyString(std::string const& _contractName, StringMap const& _sourceCodes = StringMap()) const;
-
-	/// @returns a JSON representation of the assembly.
-	/// @arg _sourceCodes is the map of input files to source code strings
-	/// Prerequisite: Successful compilation.
-	Json::Value assemblyJSON(std::string const& _contractName) const;
+	virtual std::string const* runtimeSourceMapping(std::string const& _contractName) const;
 
 	/// @returns a JSON representing the contract ABI.
 	/// Prerequisite: Successful call to parse or compile.
@@ -344,9 +334,16 @@ public:
 	bytes cborMetadata(std::string const& _contractName, bool _forIR) const;
 
 	/// Changes the format of the metadata appended at the end of the bytecode.
-	/// This is mostly a workaround to avoid bytecode and gas differences between compiler builds
-	/// caused by differences in metadata. Should only be used for testing.
 	void setMetadataFormat(MetadataFormat _metadataFormat) { m_metadataFormat = _metadataFormat; }
+
+	bool isExperimentalSolidity() const;
+
+	experimental::Analysis const& experimentalAnalysis() const;
+
+	static MetadataFormat defaultMetadataFormat()
+	{
+		return VersionIsRelease ? MetadataFormat::WithReleaseVersionTag : MetadataFormat::WithPrereleaseVersionTag;
+	}
 
 private:
 	/// The state per source unit. Filled gradually during parsing.
@@ -370,7 +367,6 @@ private:
 		std::shared_ptr<Compiler> compiler;
 		std::string yulIR; ///< Yul IR code.
 		std::string yulIROptimized; ///< Optimized Yul IR code.
-		std::string ewasm; ///< Experimental Ewasm text representation
 		util::LazyInit<std::string const> metadata; ///< The metadata json that will be hashed into the chain.
 		mutable std::unique_ptr<Json::Value const> code;
 		mutable std::unique_ptr<Json::Value const> abi;
@@ -393,16 +389,43 @@ private:
 	/// @returns the newly loaded sources.
 	StringMap loadMissingSources(SourceUnit const& _ast);
 	std::string applyRemapping(std::string const& _path, std::string const& _context);
-	void resolveImports();
+	bool resolveImports();
 
 	/// Store the contract definitions in m_contracts.
 	void storeContractDefinitions();
+
+	/// Annotate internal dispatch function Ids
+	void annotateInternalFunctionIDs();
 
 	/// @returns true if the source is requested to be compiled.
 	bool isRequestedSource(std::string const& _sourceName) const;
 
 	/// @returns true if the contract is requested to be compiled.
 	bool isRequestedContract(ContractDefinition const& _contract) const;
+
+	/// Perform the analysis steps of legacy language mode.
+	/// @returns false on error.
+	bool analyzeLegacy(bool _noErrorsSoFar);
+
+	/// Perform the analysis steps of experimental language mode.
+	/// @returns false on error.
+	bool analyzeExperimental();
+
+	/// Compile a single contract.
+	/// @param _otherCompilers provides access to compilers of other contracts, to get
+	///                        their bytecode if needed. Only filled after they have been compiled.
+	void compileContract(
+		ContractDefinition const& _contract,
+		std::map<ContractDefinition const*, std::shared_ptr<Compiler const>>& _otherCompilers
+	);
+
+	/// Generate Yul IR for a single contract.
+	/// The IR is stored but otherwise unused.
+	void generateIR(ContractDefinition const& _contract);
+
+	/// Generate EVM representation for a single contract.
+	/// Depends on output generated by generateIR.
+	void generateEVMFromIR(ContractDefinition const& _contract);
 
 	/// Links all the known library addresses in the available objects. Any unknown
 	/// library will still be kept as an unlinked placeholder in the objects.
@@ -461,30 +484,27 @@ private:
 	std::map<std::string, std::set<std::string>> m_requestedContractNames;
 	bool m_generateEvmBytecode = true;
 	bool m_generateIR = false;
-	bool m_generateEwasm = false;
 	std::map<std::string, util::h160> m_libraries;
 	ImportRemapper m_importRemapper;
 	std::map<std::string const, Source> m_sources;
 	// if imported, store AST-JSONS for each filename
 	std::map<std::string, Json::Value> m_sourceJsons;
-	// std::vector<std::string> m_unhandledSMTLib2Queries;
-	// std::map<util::h256, std::string> m_smtlib2Responses;
+	std::optional<int64_t> m_maxAstId;
 	std::shared_ptr<GlobalContext> m_globalContext;
 	std::vector<Source const*> m_sourceOrder;
 	std::map<std::string const, Contract> m_contracts;
 
 	langutil::ErrorList m_errorList;
 	langutil::ErrorReporter m_errorReporter;
+	std::unique_ptr<experimental::Analysis> m_experimentalAnalysis;
 	bool m_metadataLiteralSources = false;
 	MetadataHash m_metadataHash = MetadataHash::IPFS;
 	langutil::DebugInfoSelection m_debugInfoSelection = langutil::DebugInfoSelection::Default();
-	bool m_parserErrorRecovery = false;
 	State m_stackState = Empty;
 	bool m_importedSources = false;
 	/// Whether or not there has been an error during processing.
 	/// If this is true, the stack will refuse to generate code.
 	bool m_hasError = false;
-	MetadataFormat m_metadataFormat = VersionIsRelease ? MetadataFormat::WithReleaseVersionTag : MetadataFormat::WithPrereleaseVersionTag;
 
 	std::string m_mainContract;
 	bool m_generateAbi{};
@@ -495,6 +515,9 @@ private:
 	bool m_doPrintFunctionIds = false;
     bool m_doPrivateFunctionIds = false;
 	solidity::langutil::TVMVersion m_tvmVersion;
+
+	CompilationSourceType m_compilationSourceType = CompilationSourceType::Solidity;
+	MetadataFormat m_metadataFormat = defaultMetadataFormat();
 };
 
 }

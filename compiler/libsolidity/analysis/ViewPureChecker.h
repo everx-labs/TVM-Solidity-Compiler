@@ -54,6 +54,8 @@ private:
 
 	bool visit(FunctionDefinition const& _funDef) override;
 	void endVisit(FunctionDefinition const& _funDef) override;
+	void endVisit(BinaryOperation const& _binaryOperation) override;
+	void endVisit(UnaryOperation const& _unaryOperation) override;
 	bool visit(ModifierDefinition const& _modifierDef) override;
 	void endVisit(ModifierDefinition const& _modifierDef) override;
 	void endVisit(Identifier const& _identifier) override;
@@ -63,7 +65,6 @@ private:
 	void endVisit(IndexRangeAccess const& _indexAccess) override;
 	void endVisit(ModifierInvocation const& _modifier) override;
 	void endVisit(FunctionCall const& _functionCall) override;
-	void endVisit(InlineAssembly const& _inlineAssembly) override;
 
 	/// Called when an element of mutability @a _mutability is encountered.
 	/// Creates appropriate warnings and errors and sets @a m_currentBestMutability.
@@ -74,6 +75,7 @@ private:
 	);
 
 	bool isStateVariable(Expression const&  expression) const;
+	void reportFunctionCallMutability(StateMutability _mutability, langutil::SourceLocation const& _location);
 	/// Determines the mutability of modifier if not already cached.
 	MutabilityAndLocation const& modifierMutability(ModifierDefinition const& _modifier);
 

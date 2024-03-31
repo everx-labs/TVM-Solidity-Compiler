@@ -69,6 +69,10 @@ private:
 	ASTPointer<T> convertJsonToASTNode(Json::Value const& _node);
 
 	langutil::SourceLocation createNameSourceLocation(Json::Value const& _node);
+	/// @returns source location of a mapping key name
+	langutil::SourceLocation createKeyNameSourceLocation(Json::Value const& _node);
+	/// @returns source location of a mapping value name
+	langutil::SourceLocation createValueNameSourceLocation(Json::Value const& _node);
 
 	/// \defgroup nodeCreators JSON to AST-Nodes
 	///@{
@@ -96,7 +100,6 @@ private:
 	ASTPointer<FunctionTypeName> createFunctionTypeName(Json::Value const& _node);
 	ASTPointer<Mapping> createMapping(Json::Value const& _node);
 	ASTPointer<ArrayTypeName> createArrayTypeName(Json::Value const& _node);
-	ASTPointer<InlineAssembly> createInlineAssembly(Json::Value const& _node);
 	ASTPointer<Block> createBlock(Json::Value const& _node, bool _unchecked);
 	ASTPointer<PlaceholderStatement> createPlaceholderStatement(Json::Value const& _node);
 	ASTPointer<IfStatement> createIfStatement(Json::Value const& _node);
