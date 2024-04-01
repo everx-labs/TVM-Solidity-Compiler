@@ -1137,6 +1137,7 @@ dependencies = [
 [[package]]
 name = "tvm_block"
 version = "1.47.0"
+source = "git+https://github.com/tvmlabs/tvm-sdk.git?tag=rc-1.47.0#726e9096cdeb57e8b37ff08a83e0da06e7f9b944"
 dependencies = [
  "anyhow",
  "base64",
@@ -1155,6 +1156,7 @@ dependencies = [
 [[package]]
 name = "tvm_types"
 version = "1.47.0"
+source = "git+https://github.com/tvmlabs/tvm-sdk.git?tag=rc-1.47.0#726e9096cdeb57e8b37ff08a83e0da06e7f9b944"
 dependencies = [
  "aes-ctr",
  "anyhow",
@@ -1183,6 +1185,7 @@ dependencies = [
 [[package]]
 name = "tvm_vm"
 version = "1.47.0"
+source = "git+https://github.com/tvmlabs/tvm-sdk.git?tag=rc-1.47.0#726e9096cdeb57e8b37ff08a83e0da06e7f9b944"
 dependencies = [
  "anyhow",
  "ed25519",
@@ -1445,11 +1448,3 @@ dependencies = [
  "quote",
  "syn 2.0.57",
 ]
-
-[[patch.unused]]
-name = "tvm_block_json"
-version = "1.47.0"
-
-[[patch.unused]]
-name = "tvm_executor"
-version = "1.47.0"
