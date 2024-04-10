@@ -624,6 +624,13 @@ bool ASTJsonExporter::visit(TvmVector const& _node) {
 	return false;
 }
 
+bool ASTJsonExporter::visit(TvmStack const& _node) {
+	setJsonNode(_node, "stack", {
+		std::make_pair("type", toJson(_node.type())),
+	});
+	return false;
+}
+
 bool ASTJsonExporter::visit(ArrayTypeName const& _node)
 {
 	setJsonNode(_node, "ArrayTypeName", {
@@ -1129,6 +1136,8 @@ std::string ASTJsonExporter::literalTokenKind(Token _token)
 		return "bool";
 	case Token::EmptyMap:
 		return "mapping";
+	case Token::TVMNaN:
+		return "NaN";
 	case Token::NullLiteral:
 		return "optional";
 	default:

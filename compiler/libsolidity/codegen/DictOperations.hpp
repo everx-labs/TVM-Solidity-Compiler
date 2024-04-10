@@ -19,7 +19,7 @@
 #include <libsolidity/ast/AST.h>
 #include <libsolidity/ast/ASTVisitor.h>
 
-#include "TVMCommons.hpp"
+#include <libsolidity/codegen/TVMCommons.hpp>
 
 namespace solidity::frontend {
 

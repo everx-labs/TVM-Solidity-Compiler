@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include "TvmAstVisitor.hpp"
+#include <libsolidity/codegen/TvmAstVisitor.hpp>
 
 namespace solidity::frontend {
 	class PeepholeOptimizer : public TvmAstVisitor {

@@ -14,7 +14,7 @@
 #include <chrono>
 #include <deque>
 
-#include "StackOpcodeSquasher.hpp"
+#include <libsolidity/codegen/StackOpcodeSquasher.hpp>
 
 using namespace solidity::frontend;
 using namespace std;

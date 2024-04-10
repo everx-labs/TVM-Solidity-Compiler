@@ -55,7 +55,7 @@ void SyntaxChecker::endVisit(SourceUnit const& _sourceUnit)
 		SemVerVersion recommendedVersion{std::string(VersionString)};
 		if (!recommendedVersion.isPrerelease())
 			errorString +=
-				" Consider adding \"pragma ever-solidity ^" +
+				" Consider adding \"pragma tvm-solidity ^" +
 				std::to_string(recommendedVersion.major()) +
 				std::string(".") +
 				std::to_string(recommendedVersion.minor()) +
@@ -141,7 +141,7 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 		SemVerVersion recommendedVersion{std::string(VersionString)};
 		std::string errorString =
 				"It's deprecated."
-				" Consider adding \"pragma ever-solidity ^" +
+				" Consider adding \"pragma tvm-solidity ^" +
 				std::to_string(recommendedVersion.major()) +
 				std::string(".") +
 				std::to_string(recommendedVersion.minor()) +
@@ -151,7 +151,7 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 				" to set a version of the compiler.";
 		m_errorReporter.warning(6413_error, _pragma.location(), errorString);
 	}
-	else if (_pragma.literals()[0] == "ever" || _pragma.literals()[0] == "ton") // ever-solidity
+	else if (_pragma.literals()[0] == "ever" || _pragma.literals()[0] == "ton" || _pragma.literals()[0] == "tvm")
 	{
 		if (m_versionPragma.has_value()) {
 			m_errorReporter.fatalTypeError(
@@ -479,6 +479,9 @@ bool SyntaxChecker::visit(FunctionDefinition const& _function)
 	if (m_sourceUnit && m_sourceUnit->experimentalSolidity())
 		// Handled in experimental::SyntaxRestrictor instead.
 		return true;
+
+	if (!_function.isFree() && _function.isInlineAssembly())
+		m_errorReporter.fatalTypeError(7229_error, _function.location(), "Only free functions can be marked as \"assembly\".");
 
 	if (!_function.isFree() && !_function.isConstructor() && _function.noVisibilitySpecified())
 	{

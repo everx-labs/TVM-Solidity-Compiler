@@ -18,9 +18,9 @@
 
 #include <libsolidity/ast/TypeProvider.h>
 
-#include "TVM.hpp"
-#include "TVMCommons.hpp"
-#include "TVMConstants.hpp"
+#include <libsolidity/codegen/TVM.hpp>
+#include <libsolidity/codegen/TVMCommons.hpp>
+#include <libsolidity/codegen/TVMConstants.hpp>
 
 using namespace std;
 using namespace solidity::langutil;
@@ -268,19 +268,6 @@ bool isAddressThis(const FunctionCall *funCall) {
 	return false;
 }
 
-vector<FunctionDefinition const *> getContractFunctions(ContractDefinition const *contract, const string &funcName) {
-	vector<FunctionDefinition const*> result;
-	for (auto &[functionDefinition, contractDefinition] : getContractFunctionPairs(contract)) {
-		(void)contractDefinition;	// suppress unused variable error
-		if (functionDefinition->isConstructor()) {
-			continue;
-		}
-		if (functionName(functionDefinition) == funcName)
-			result.push_back(functionDefinition);
-	}
-	return result;
-}
-
 CallableDeclaration const* getFunctionDeclarationOrConstructor(Expression const* expr, bool quiet) {
 	auto f = to<FunctionType>(expr->annotation().type);
 	if (f) {
@@ -400,8 +387,8 @@ void ABITypeSize::init(Type const* type) {
 		solAssert(ti.isNumeric, "");
 		maxBits = ti.numBits;
 		maxRefs = 0;
-	} else if (auto varInt = to<VarIntegerType>(type)) {
-		maxBits = varInt->maxBitSizeInCell();
+	} else if (auto varint = to<VarIntegerType>(type)) {
+		maxBits = varint->maxBitSizeInCell();
 		maxRefs = 0;
 	} else if (auto arrayType = to<ArrayType>(type)) {
 		if (arrayType->isByteArrayOrString()) {
@@ -654,6 +641,7 @@ std::string StrUtils::stringToHex(const std::string& str) {
 
 
 std::optional<bigint> ExprUtils::constValue(const Expression &_e) {
+	// TODO see ConstantEvaluator ?
 	if (*_e.annotation().isPure) {
 		if (auto memberAccess = to<MemberAccess>(&_e)) {
 			if (auto variable = dynamic_cast<VariableDeclaration const *>(memberAccess->annotation().referencedDeclaration)) {
@@ -734,6 +722,57 @@ std::map<int, bigint> const& MathConsts::power10() {
 		}
 	}
 	return power10;
+}
+
+namespace {
+std::pair<bool, int> getSignAndBits(Type const* type) {
+	bool isSigned = false;
+	int numBits = 0;
+	if (auto intResult = to<IntegerType>(type)) {
+		isSigned = intResult->isSigned();
+		numBits = intResult->numBits();
+	} else if (auto qintResult = to<QIntegerType>(type)) {
+		isSigned = qintResult->asIntegerType()->isSigned();
+		numBits = qintResult->asIntegerType()->numBits();
+	} else if (auto varintResult = to<VarIntegerType>(type)) {
+		isSigned = varintResult->asIntegerType().isSigned();
+		numBits = varintResult->asIntegerType().numBits();
+	} else if (auto fixedResult = to<FixedPointType>(type)) {
+		isSigned = fixedResult->isSigned();
+		numBits = fixedResult->numBits();
+	} else
+		solUnimplemented(type->toString());
+	return {isSigned, numBits};
+}
+}
+
+bool isFitUselessUnary(Type const* common, Token op) {
+	auto const [isSigned, numBits] = getSignAndBits(common);
+	return
+		(
+			!isSigned &&
+			numBits == 256 &&
+			op == Token::Inc
+		);
+}
+
+bool isFitUseless(Type const* left, Type const* right, Type const* common, Token op) {
+	bool const isLeftSigned = getSignAndBits(left->mobileType()).first;
+	bool const isRightSigned = getSignAndBits(right->mobileType()).first;
+	auto const [isSigned, numBits] = getSignAndBits(common);
+	return
+		(
+			!isSigned &&
+			numBits == 256 &&
+			isIn(op, Token::Add, Token::Exp, Token::Mul, Token::SHL)
+		)
+		||
+		(
+			// we should throw an overflow exception if case of type(SignType).min / -1,
+			// e.g. -128/-1 does not fit into int8
+			(!isLeftSigned || !isRightSigned) &&
+			op == Token::Div
+		);
 }
 
 } // end namespace solidity::frontend

@@ -15,8 +15,8 @@
  */
 
 
-#include "TVM.hpp"
-#include "TVMContractCompiler.hpp"
+#include <libsolidity/codegen/TVM.hpp>
+#include <libsolidity/codegen/TVMContractCompiler.hpp>
 
 using namespace std;
 using namespace solidity::frontend;

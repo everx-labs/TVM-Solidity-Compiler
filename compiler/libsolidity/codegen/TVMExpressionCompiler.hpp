@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include "TVMPusher.hpp"
+#include <libsolidity/codegen/TVMPusher.hpp>
 
 namespace solidity::frontend {
 
@@ -31,7 +31,7 @@ public:
 		Expression const* const _expr,
 		const bool withExpandLastValue
 	);
-	void collectLValue(const LValueInfo &lValueInfo, bool haveValueOnStackTop, bool isValueBuilder);
+	void collectLValue(const LValueInfo &lValueInfo, bool haveValueOnStackTop);
 
 protected:
 	bool acceptExpr(const Expression* expr);
@@ -64,9 +64,11 @@ protected:
 	);
 	void visitLogicalShortCircuiting(BinaryOperation const &_binaryOperation);
 	void visit2(BinaryOperation const& _node);
-	static bool isCheckFitUseless(Type const* type, Token op);
+protected:
 	void visitMathBinaryOperation(
 		Token op,
+		Type const* leftType,
+		Type const* rightType,
 		Type const* commonType,
 		const std::optional<bigint>& leftValue,
 		const std::function<void()>& pushRight,
@@ -84,7 +86,6 @@ protected:
 	void visit2(FunctionCall const& _functionCall);
 	void visit2(Conditional const& _conditional);
 	bool fold_constants(const Expression *expr);
-	static bool isOptionalGet(Expression const* expr);
 
 	bool tryAssignLValue(Assignment const& _assignment);
 	bool tryAssignTuple(Assignment const& _assignment);

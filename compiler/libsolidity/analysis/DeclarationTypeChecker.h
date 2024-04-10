@@ -58,6 +58,7 @@ private:
 	void endVisit(Mapping const& _mapping) override;
 	void endVisit(Optional const& _optional) override;
 	void endVisit(TvmVector const& _tvmVector) override;
+	void endVisit(TvmStack const& _tvmStack) override;
 	void endVisit(ArrayTypeName const& _typeName) override;
 	void endVisit(VariableDeclaration const& _variable) override;
 	bool visit(EnumDefinition const& _enum) override;

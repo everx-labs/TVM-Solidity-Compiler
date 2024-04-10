@@ -19,7 +19,7 @@
 
 #include <libsolidity/codegen/TvmAstVisitor.hpp>
 #include <liblangutil/Exceptions.h>
-#include "TVMCommons.hpp"
+#include <libsolidity/codegen/TVMCommons.hpp>
 
 using namespace solidity::frontend;
 
@@ -94,6 +94,7 @@ bool Printer::visit(TvmException &_node) {
 bool Printer::visit(StackOpcode &_node) {
 	tabs();
 	if (_node.fullOpcode() == "BITNOT") m_out << "NOT";
+	else if (_node.fullOpcode() == "QBITNOT") m_out << "QNOT";
 	//else if (_node.fullOpcode() == "STVARUINT16") m_out << "STGRAMS";
 	//else if (_node.fullOpcode() == "LDVARUINT16") m_out << "LDGRAMS";
 	else if (_node.fullOpcode() == "TUPLE 1") m_out << "SINGLE";

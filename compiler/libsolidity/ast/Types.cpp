@@ -302,7 +302,37 @@ Type const* Type::commonType(Type const* _a, Type const* _b)
 {
 	if (!_a || !_b)
 		return nullptr;
-	else if (_a->mobileType() && _b->isImplicitlyConvertibleTo(*_a->mobileType()))
+
+	if (_a->category() == Type::Category::QInteger ||
+		_b->category() == Type::Category::QInteger
+	) {
+		if (_b->category() == Type::Category::QInteger)
+			std::swap(_a, _b);
+		auto a = dynamic_cast<QIntegerType const*>(_a);
+		auto comType = commonType(a->asIntegerType(), _b);
+		if (comType == nullptr)
+			return comType;
+		if (comType->category() == Type::Category::Integer) {
+			auto comIntType = dynamic_cast<IntegerType const *>(comType);
+			return TypeProvider::qInteger(
+				comIntType->numBits(),
+				comIntType->isSigned() ? IntegerType::Modifier::Signed : IntegerType::Modifier::Unsigned
+			);
+		}
+		solAssert(comType->category() == Type::Category::QInteger, "");
+		return comType;
+	}
+
+	if (_b->category() == Type::Category::Null)
+		std::swap(_a, _b);
+	if (_a->category() == Type::Category::Null) {
+		if (_b->category() == Type::Category::Null || _b->category() == Type::Category::Optional)
+			return _b;
+		else if (_b->mobileType())
+			return TypeProvider::optional(_b->mobileType());
+	}
+
+	if (_a->mobileType() && _b->isImplicitlyConvertibleTo(*_a->mobileType()))
 		return _a->mobileType();
 	else if (_b->mobileType() && _a->isImplicitlyConvertibleTo(*_b->mobileType()))
 		return _b->mobileType();
@@ -481,9 +511,8 @@ std::string AddressType::richIdentifier() const
 
 BoolResult AddressType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 {
-	if (Type::isImplicitlyConvertibleTo(_convertTo)) {
+	if (Type::isImplicitlyConvertibleTo(_convertTo))
 		return true;
-	}
 
 	return _convertTo.category() == category();
 }
@@ -605,6 +634,23 @@ bool isValidShiftAndAmountType(Token _operator, Type const& _shiftAmountType)
 		return false;
 }
 
+// Same as `isValidShiftAndAmountType` but we check whether shiftAmount <= 1023 bits
+bool isValidShiftAndAmountTypeForQuite(Token _operator, Type const& _shiftAmountType)
+{
+	// Disable >>> here.
+	if (_operator == Token::SHR)
+		return false;
+	else if (IntegerType const* otherInt = dynamic_cast<decltype(otherInt)>(&_shiftAmountType))
+		return !otherInt->isSigned() && otherInt->numBits() <= 10;
+	else if (QIntegerType const* otherQInt = dynamic_cast<decltype(otherQInt)>(&_shiftAmountType))
+		return !otherQInt->asIntegerType()->isSigned() && otherQInt->asIntegerType()->numBits() <= 10;
+	else if (RationalNumberType const* otherRat = dynamic_cast<decltype(otherRat)>(&_shiftAmountType))
+		return !otherRat->isFractional() && otherRat->integerType() && !otherRat->integerType()->isSigned() &&
+			 otherRat->value2() <= 1023;
+	else
+		return false;
+}
+
 }
 
 IntegerType::IntegerType(unsigned _bits, IntegerType::Modifier _modifier):
@@ -633,6 +679,11 @@ BoolResult IntegerType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 	if (_convertTo.category() == Category::VarInteger)
 	{
 		IntegerType const& convertTo = dynamic_cast<VarIntegerType const&>(_convertTo).asIntegerType();
+		return maxValue() <= convertTo.maxValue() && minValue() >= convertTo.minValue();
+	}
+	else if (_convertTo.category() == Category::QInteger)
+	{
+		IntegerType const& convertTo = *dynamic_cast<QIntegerType const&>(_convertTo).asIntegerType();
 		return maxValue() <= convertTo.maxValue() && minValue() >= convertTo.minValue();
 	}
 	else if (_convertTo.category() == category())
@@ -758,6 +809,7 @@ TypeResult IntegerType::binaryOperatorResult(Token _operator, Type const* _other
 		_other->category() != Category::RationalNumber &&
 		_other->category() != Category::FixedPoint &&
 		_other->category() != Category::VarInteger &&
+		_other->category() != Category::QInteger &&
 		_other->category() != category()
 	)
 		return nullptr;
@@ -819,9 +871,8 @@ std::string FixedPointType::richIdentifier() const
 
 BoolResult FixedPointType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 {
-	if (Type::isImplicitlyConvertibleTo(_convertTo)) {
+	if (Type::isImplicitlyConvertibleTo(_convertTo))
 		return true;
-	}
 
 	if (_convertTo.category() == category())
 	{
@@ -1090,9 +1141,8 @@ std::tuple<bool, rational> RationalNumberType::isValidLiteral(Literal const& _li
 
 BoolResult RationalNumberType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 {
-	if (Type::isImplicitlyConvertibleTo(_convertTo)) {
+	if (Type::isImplicitlyConvertibleTo(_convertTo))
 		return true;
-	}
 
 	switch (_convertTo.category())
 	{
@@ -1109,6 +1159,13 @@ BoolResult RationalNumberType::isImplicitlyConvertibleTo(Type const& _convertTo)
 			return false;
 		IntegerType const& targetType = dynamic_cast<IntegerType const&>(_convertTo);
 		return fitsIntegerType(m_value.numerator(), targetType);
+	}
+	case Category::QInteger:
+	{
+		if (isFractional())
+			return false;
+		QIntegerType const& targetType = dynamic_cast<QIntegerType const&>(_convertTo);
+		return fitsIntegerType(m_value.numerator(), *targetType.asIntegerType());
 	}
 	case Category::FixedPoint:
 	{
@@ -1178,7 +1235,7 @@ TypeResult RationalNumberType::binaryOperatorResult(Token _operator, Type const*
 		{
 			if (!isValidShiftAndAmountType(_operator, *_other))
 				return nullptr;
-			return isNegative() ? TypeProvider::int256() : TypeProvider::uint256();
+			return isNegative() ? TypeProvider::int257() : TypeProvider::uint256();
 		}
 		else if (Token::Exp == _operator)
 		{
@@ -1190,7 +1247,7 @@ TypeResult RationalNumberType::binaryOperatorResult(Token _operator, Type const*
 			else if (dynamic_cast<FixedPointType const*>(_other))
 				return TypeResult::err("Exponent is fractional.");
 
-			return isNegative() ? TypeProvider::int256() : TypeProvider::uint256();
+			return isNegative() ? TypeProvider::int257() : TypeProvider::uint256();
 		}
 		else
 		{
@@ -1387,9 +1444,8 @@ StringLiteralType::StringLiteralType(std::string _value):
 
 BoolResult StringLiteralType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 {
-	if (Type::isImplicitlyConvertibleTo(_convertTo)) {
+	if (Type::isImplicitlyConvertibleTo(_convertTo))
 		return true;
-	}
 
 	if (auto fixedBytes = dynamic_cast<FixedBytesType const*>(&_convertTo))
 	{
@@ -1471,9 +1527,8 @@ FixedBytesType::FixedBytesType(unsigned _bytes): m_bytes(_bytes)
 
 BoolResult FixedBytesType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 {
-	if (Type::isImplicitlyConvertibleTo(_convertTo)) {
+	if (Type::isImplicitlyConvertibleTo(_convertTo))
 		return true;
-	}
 
 	if (_convertTo.category() != category())
 		return false;
@@ -1563,6 +1618,16 @@ u256 BoolType::literalValue(Literal const* _literal) const
 		solAssert(false, "Bool type constructed from non-boolean literal.");
 }
 
+BoolResult BoolType::isImplicitlyConvertibleTo(Type const& _convertTo) const {
+	if (Type::isImplicitlyConvertibleTo(_convertTo))
+		return true;
+
+	if (_convertTo.category() == Type::Category::QBool)
+		return true;
+
+	return false;
+}
+
 TypeResult BoolType::unaryOperatorResult(Token _operator) const
 {
 	if (_operator == Token::Delete)
@@ -1575,10 +1640,13 @@ TypeResult BoolType::unaryOperatorResult(Token _operator) const
 
 TypeResult BoolType::binaryOperatorResult(Token _operator, Type const* _other) const
 {
-	if (category() != _other->category())
+	bool hasQBool = _other->category() == Type::Category::QBool;
+	if (category() != _other->category() && !hasQBool)
 		return nullptr;
 	if (_operator == Token::Equal || _operator == Token::NotEqual || _operator == Token::And || _operator == Token::Or)
-		return _other;
+		return hasQBool ?
+				dynamic_cast<Type const*>(TypeProvider::qBool()) :
+				dynamic_cast<Type const*>(TypeProvider::boolean());
 	else
 		return nullptr;
 }
@@ -1593,9 +1661,8 @@ Type const* ContractType::encodingType() const
 
 BoolResult ContractType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 {
-	if (Type::isImplicitlyConvertibleTo(_convertTo)) {
+	if (Type::isImplicitlyConvertibleTo(_convertTo))
 		return true;
-	}
 
 	if (m_super)
 		return false;
@@ -1697,9 +1764,8 @@ void ArrayType::clearCache() const
 
 BoolResult ArrayType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 {
-	if (Type::isImplicitlyConvertibleTo(_convertTo)) {
+	if (Type::isImplicitlyConvertibleTo(_convertTo))
 		return true;
-	}
 
 	if (_convertTo.category() != category())
 		return false;
@@ -2402,9 +2468,8 @@ Type const* StructType::encodingType() const
 
 BoolResult StructType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 {
-	if (Type::isImplicitlyConvertibleTo(_convertTo)) {
+	if (Type::isImplicitlyConvertibleTo(_convertTo))
 		return true;
-	}
 
 	if (_convertTo.category() != category())
 		return false;
@@ -3194,7 +3259,6 @@ std::string FunctionType::richIdentifier() const
 	case Kind::LogTVM: id += "logtvm"; break;
 	case Kind::TVMAccept: id += "tvmaccept"; break;
 
-	case Kind::ABIBuildExtMsg: id += "abibuildextmsg"; break;
 	case Kind::ABIBuildIntMsg: id += "abibuildintmsg"; break;
 	case Kind::ABICodeSalt: id += "abicodesalt"; break;
 	case Kind::ABIDecodeFunctionParams: id += "abidecodefunctionparams"; break;
@@ -3212,10 +3276,23 @@ std::string FunctionType::richIdentifier() const
 	case Kind::TVMBuilderStoreTons: id += "tvmbuilderstoretons"; break;
 	case Kind::TVMBuilderStoreUint: id += "tvmbuilderstoreuint"; break;
 
-	case Kind::TVMTuplePush: id += "tvmtuplepush"; break;
-	case Kind::TVMTuplePop: id += "tvmtuplepop"; break;
-	case Kind::TVMTupleLength: id += "tvmtuplelength"; break;
-	case Kind::TVMTupleEmpty: id += "tvmtupleempty"; break;
+	case Kind::StringBuilderToString: id += "stringbuildertostring"; break;
+	case Kind::StringBuilderAppendByte: id += "stringbuilderappendbyte"; break;
+	case Kind::StringBuilderAppendByteNTimes: id += "stringbuilderappendbytentimes"; break;
+	case Kind::StringBuilderAppendString: id += "stringbuilderappendstring"; break;
+
+	case Kind::TVMVectorEmpty: id += "tvmvectorempty"; break;
+	case Kind::TVMVectorLast: id += "tvmvectorlast"; break;
+	case Kind::TVMVectorLength: id += "tvmvectorlength"; break;
+	case Kind::TVMVectorPop: id += "tvmvectorpop"; break;
+	case Kind::TVMVectorPush: id += "tvmvectorpush"; break;
+
+	case Kind::TVMStackEmpty: id += "tvmstackempty"; break;
+	case Kind::TVMStackPop: id += "tvmstackpop"; break;
+	case Kind::TVMStackPush: id += "tvmstackpush"; break;
+	case Kind::TVMStackReverse: id += "tvmstackreverse"; break;
+	case Kind::TVMStackSort: id += "tvmstacksort"; break;
+	case Kind::TVMStackTop: id += "tvmstacktop"; break;
 
 	case Kind::TVMBuyGas: id += "tvmbuygas"; break;
 	case Kind::TVMChecksign: id += "tvmchecksign"; break;
@@ -3242,6 +3319,12 @@ std::string FunctionType::richIdentifier() const
 	case Kind::AddressTransfer: id += "tvmtransfer"; break;
 
 	case Kind::TXtimestamp: id += "txtimestamp"; break;
+
+	case Kind::QIsNaN: id += "qisnan"; break;
+	case Kind::QGet: id += "qget"; break;
+	case Kind::QGetOr: id += "qgetor"; break;
+	case Kind::QGetOrDefault: id += "qgetordefault"; break;
+	case Kind::QToOptional: id += "qtooptional"; break;
 
 	case Kind::VariantIsUint: id += "variantisuint"; break;
 	case Kind::VariantToUint: id += "varianttouint"; break;
@@ -3391,9 +3474,8 @@ BoolResult FunctionType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 
 BoolResult FunctionType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 {
-	if (Type::isImplicitlyConvertibleTo(_convertTo)) {
+	if (Type::isImplicitlyConvertibleTo(_convertTo))
 		return true;
-	}
 
 	if (_convertTo.category() != category())
 		return false;
@@ -4040,9 +4122,8 @@ Type const* MappingType::realKeyType() const
 
 BoolResult MappingType::isImplicitlyConvertibleTo(Type const& _other) const
 {
-	if (Type::isImplicitlyConvertibleTo(_other)) {
+	if (Type::isImplicitlyConvertibleTo(_other))
 		return true;
-	}
 
 	if (_other.category() != category())
 		return false;
@@ -4165,6 +4246,22 @@ std::string EmptyMapType::canonicalName() const {
 std::vector<std::tuple<std::string, Type const*>> MappingType::makeStackItems() const
 {
 	return {std::make_tuple("slot", TypeProvider::uint256())};
+}
+
+BoolResult NanType::isImplicitlyConvertibleTo(Type const& _other) const
+{
+	return _other.category() == Type::Category::QInteger ||
+			_other.category() == Type::Category::QBool;
+}
+
+std::string NanType::richIdentifier() const
+{
+	return "NaN";
+}
+
+std::string NanType::toString(bool) const
+{
+	return "NaN";
 }
 
 std::string TypeType::richIdentifier() const
@@ -4617,38 +4714,6 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 				FunctionType::Kind::TVMRawConfigParam,
 				StateMutability::Pure
 			)},
-			{"buildExtMsg", TypeProvider::function(
-				TypePointers{TypeProvider::address(),
-							 TypeProvider::callList(),
-							 TypeProvider::uint(32),
-							 TypeProvider::uint(8),
-							 TypeProvider::uint(32),
-							 TypeProvider::optional(TypeProvider::uint(32)),
-							 TypeProvider::uint(64),
-							 TypeProvider::uint(32),
-							 TypeProvider::optional(TypeProvider::uint256()),
-							 TypeProvider::boolean(),
-							 TypeProvider::tvmcell(),
-							 TypeProvider::uint(8)},
-				TypePointers{TypeProvider::tvmcell()},
-				strings{std::string("dest"),			// mandatory
-						std::string("call"),			// mandatory
-						std::string("callbackId"),	// mandatory
-						std::string("abiVer"),		// can be omitted
-						std::string("onErrorId"),	    // mandatory
-						std::string("signBoxHandle"),	// can be omitted
-						std::string("time"),			// can be omitted
-						std::string("expire"),		// can be omitted
-						std::string("pubkey"),		// can be omitted
-						std::string("sign"),			// can be omitted
-						std::string("stateInit"),	// can be omitted
-						std::string("flags")},	// can be omitted
-				strings{std::string()},
-				FunctionType::Kind::ABIBuildExtMsg,
-				StateMutability::Pure,
-				nullptr,
-				FunctionType::Options::withArbitraryParameters()
-			)},
 			{"buildIntMsg", TypeProvider::function(
 				{
 					TypeProvider::address(),
@@ -4774,91 +4839,92 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 			{
 				"divr",
 				TypeProvider::function(
-						{}, {}, {}, {}, FunctionType::Kind::MathDivR, StateMutability::Pure
+					{}, {}, {}, {}, FunctionType::Kind::MathDivR, StateMutability::Pure
 				)
 			}
 		};
 		members.emplace_back("max", TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::MathMax,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::MathMax,
+			StateMutability::Pure,
+			nullptr, FunctionType::Options::withArbitraryParameters()
 		));
 		members.emplace_back("min", TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::MathMin,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::MathMin,
+			StateMutability::Pure,
+			nullptr, FunctionType::Options::withArbitraryParameters()
 		));
 		members.emplace_back("minmax", TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::MathMinMax,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::MathMinMax,
+			StateMutability::Pure,
+			nullptr, FunctionType::Options::withArbitraryParameters()
 		));
 		for(const std::string code : {"muldiv", "muldivr", "muldivc"}) {
 			members.emplace_back(code.c_str(), TypeProvider::function(
-					TypePointers{},
-					TypePointers{},
-					strings{},
-					strings{},
-					FunctionType::Kind::MathMulDiv,
-					StateMutability::Pure,
-					nullptr, FunctionType::Options::withArbitraryParameters()
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::MathMulDiv,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
 			));
 		}
 		members.emplace_back("muldivmod", TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::MathMulDivMod,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::MathMulDivMod,
+			StateMutability::Pure,
+			nullptr, FunctionType::Options::withArbitraryParameters()
 		));
 		members.emplace_back("divmod", TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::MathDivMod,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::MathDivMod,
+			StateMutability::Pure,
+			nullptr, FunctionType::Options::withArbitraryParameters()
 		));
 		members.emplace_back("abs", TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::MathAbs,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::MathAbs,
+			StateMutability::Pure,
+			nullptr, FunctionType::Options::withArbitraryParameters()
 		));
 		members.emplace_back("modpow2", TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::MathModpow2,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::MathModpow2,
+			StateMutability::Pure,
+			nullptr, FunctionType::Options::withArbitraryParameters()
 		));
 		members.emplace_back("sign", TypeProvider::function(
-				TypePointers{TypeProvider::integer(257, IntegerType::Modifier::Signed)},
-				TypePointers{TypeProvider::integer(2, IntegerType::Modifier::Signed)},
-				strings{std::string("value")},
-				strings{std::string("sign")},
-				FunctionType::Kind::MathSign,
-				StateMutability::Pure
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::MathSign,
+			StateMutability::Pure,
+			nullptr, FunctionType::Options::withArbitraryParameters()
 		));
 		return members;
 	}
@@ -5013,38 +5079,6 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 				FunctionType::Kind::ABIFunctionId,
 				StateMutability::Pure,
 				nullptr, FunctionType::Options::withArbitraryParameters()
-			)},
-			{"encodeExtMsg", TypeProvider::function(
-				TypePointers{TypeProvider::address(),
-							 TypeProvider::callList(),
-							 TypeProvider::uint(32),
-							 TypeProvider::uint(8),
-							 TypeProvider::uint(32),
-							 TypeProvider::optional(TypeProvider::uint(32)),
-							 TypeProvider::uint(64),
-							 TypeProvider::uint(32),
-							 TypeProvider::optional(TypeProvider::uint256()),
-							 TypeProvider::boolean(),
-							 TypeProvider::tvmcell(),
-							 TypeProvider::uint(8)},
-				TypePointers{TypeProvider::tvmcell()},
-				strings{std::string("dest"),			// mandatory
-						std::string("call"),			// mandatory
-						std::string("callbackId"),	// mandatory
-						std::string("abiVer"),		// can be omitted
-						std::string("onErrorId"),	    // mandatory
-						std::string("signBoxHandle"),	// can be omitted
-						std::string("time"),			// can be omitted
-						std::string("expire"),		// can be omitted
-						std::string("pubkey"),		// can be omitted
-						std::string("sign"),			// can be omitted
-						std::string("stateInit"),	// can be omitted
-						std::string("flags")},	// can be omitted
-				strings{std::string()},
-				FunctionType::Kind::ABIBuildExtMsg,
-				StateMutability::Pure,
-				nullptr,
-				FunctionType::Options::withArbitraryParameters()
 			)},
 			{"encodeIntMsg", TypeProvider::function(
 				{
@@ -5223,10 +5257,10 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 		}
 		else if (m_typeArgument->category() == Type::Category::VarInteger)
 		{
-			VarIntegerType const* varIntTypePointer = dynamic_cast<VarIntegerType const*>(m_typeArgument);
+			VarIntegerType const* varintTypePointer = dynamic_cast<VarIntegerType const*>(m_typeArgument);
 			return MemberList::MemberMap({
-				{"min", varIntTypePointer},
-				{"max", varIntTypePointer},
+				{"min", varintTypePointer},
+				{"max", varintTypePointer},
 			});
 		}
 		else if (m_typeArgument->category() == Type::Category::Enum)
@@ -5785,7 +5819,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 		{
 			"loadSigned", TypeProvider::function(
 				TypePointers{TypeProvider::uint(9)},
-				TypePointers{TypeProvider::int256()},
+				TypePointers{TypeProvider::int257()},
 				strings{std::string()},
 				strings{std::string()},
 				FunctionType::Kind::TVMSliceLoadInt,
@@ -5795,7 +5829,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 		{
 			"loadInt", TypeProvider::function(
 				TypePointers{TypeProvider::uint(9)},
-				TypePointers{TypeProvider::int256()},
+				TypePointers{TypeProvider::int257()},
 				strings{std::string()},
 				strings{std::string()},
 				FunctionType::Kind::TVMSliceLoadInt,
@@ -5805,7 +5839,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 		{
 			"loadIntQ", TypeProvider::function(
 				TypePointers{TypeProvider::uint(9)},
-				TypePointers{TypeProvider::optional(TypeProvider::int256())},
+				TypePointers{TypeProvider::optional(TypeProvider::int257())},
 				strings{std::string()},
 				strings{std::string()},
 				FunctionType::Kind::TVMSliceLoadIntQ,
@@ -5815,7 +5849,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 		{
 			"preloadInt", TypeProvider::function(
 				TypePointers{TypeProvider::uint(9)},
-				TypePointers{TypeProvider::int256()},
+				TypePointers{TypeProvider::int257()},
 				strings{std::string()},
 				strings{std::string()},
 				FunctionType::Kind::TVMSlicePreLoadInt,
@@ -5825,7 +5859,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 		{
 			"preloadIntQ", TypeProvider::function(
 				TypePointers{TypeProvider::uint(9)},
-				TypePointers{TypeProvider::optional(TypeProvider::int256())},
+				TypePointers{TypeProvider::optional(TypeProvider::int257())},
 				strings{std::string()},
 				strings{std::string()},
 				FunctionType::Kind::TVMSlicePreLoadIntQ,
@@ -6191,44 +6225,64 @@ TypeResult TvmVectorType::unaryOperatorResult(Token _operator) const {
 
 MemberList::MemberMap TvmVectorType::nativeMembers(const ASTNode *) const
 {
-	MemberList::MemberMap members;
-
-	members.emplace_back("push", TypeProvider::function(
-			TypePointers{valueType()},
-			TypePointers{},
-			strings{std::string()},
-			strings{},
-			FunctionType::Kind::TVMTuplePush,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("length", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::uint(8)},
-			strings{},
-			strings{std::string("length")},
-			FunctionType::Kind::TVMTupleLength,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("pop", TypeProvider::function(
-			TypePointers{},
-			TypePointers{valueType()},
-			strings{},
-			strings{std::string("last")},
-			FunctionType::Kind::TVMTuplePop,
-			StateMutability::Pure
-	));
-
-	members.emplace_back("empty", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::boolean()},
-			strings{},
-			strings{std::string("is_empty")},
-			FunctionType::Kind::TVMTupleLength,
-			StateMutability::Pure
-	));
-
+	MemberList::MemberMap members =
+	{
+		{
+			"push",
+			TypeProvider::function(
+				TypePointers{valueType()},
+				TypePointers{},
+				strings{std::string()},
+				strings{},
+				FunctionType::Kind::TVMVectorPush,
+				StateMutability::Pure
+			)
+		},
+		{
+			"length",
+			TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint(8)},
+				strings{},
+				strings{std::string("length")},
+				FunctionType::Kind::TVMVectorLength,
+				StateMutability::Pure
+			)
+		},
+		{
+			"pop",
+			TypeProvider::function(
+				TypePointers{},
+				TypePointers{valueType()},
+				strings{},
+				strings{std::string("last")},
+				FunctionType::Kind::TVMVectorPop,
+				StateMutability::Pure
+			)
+		},
+		{
+			"empty",
+			TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::boolean()},
+				strings{},
+				strings{std::string("is_empty")},
+				FunctionType::Kind::TVMVectorEmpty,
+				StateMutability::Pure
+			)
+		},
+		{
+			"last",
+			TypeProvider::function(
+				TypePointers{},
+				TypePointers{valueType()},
+				strings{},
+				strings{std::string("last")},
+				FunctionType::Kind::TVMVectorLast,
+				StateMutability::Pure
+			)
+		}
+	};
 	return members;
 }
 
@@ -6238,6 +6292,94 @@ std::string TvmVectorType::toString(bool _short) const {
 
 std::string TvmVectorType::richIdentifier() const {
 	return "t_vector_" + valueType()->richIdentifier();
+}
+
+TypeResult TvmStackType::unaryOperatorResult(Token _operator) const {
+	if (_operator == Token::Delete)
+		return TypeProvider::emptyTuple();
+	return nullptr;
+}
+
+MemberList::MemberMap TvmStackType::nativeMembers(const ASTNode *) const
+{
+	MemberList::MemberMap members =
+	{
+		{
+			"push",
+			TypeProvider::function(
+				TypePointers{valueType()},
+				TypePointers{},
+				strings{std::string()},
+				strings{},
+				FunctionType::Kind::TVMStackPush,
+				StateMutability::Pure
+			)
+		},
+		{
+			"pop",
+			TypeProvider::function(
+				TypePointers{},
+				TypePointers{valueType()},
+				strings{},
+				strings{std::string("last")},
+				FunctionType::Kind::TVMStackPop,
+				StateMutability::Pure
+			)
+		},
+		{
+			"empty",
+			TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::boolean()},
+				strings{},
+				strings{std::string("is_empty")},
+				FunctionType::Kind::TVMStackEmpty,
+				StateMutability::Pure
+			)
+		},
+		{
+			"top",
+			TypeProvider::function(
+				TypePointers{},
+				TypePointers{valueType()},
+				strings{},
+				strings{std::string("last")},
+				FunctionType::Kind::TVMStackTop,
+				StateMutability::Pure
+			)
+		},
+		{
+			"sort",
+			TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::TVMStackSort,
+				StateMutability::Pure
+			)
+		},
+		{
+			"reverse",
+			TypeProvider::function(
+				TypePointers{},
+				TypePointers{},
+				strings{},
+				strings{},
+				FunctionType::Kind::TVMStackReverse,
+				StateMutability::Pure
+			)
+		}
+	};
+	return members;
+}
+
+std::string TvmStackType::toString(bool _short) const {
+	return "stack(" + valueType()->toString(_short) + ")";
+}
+
+std::string TvmStackType::richIdentifier() const {
+	return "t_stack_" + valueType()->richIdentifier();
 }
 
 TypeResult TvmBuilderType::unaryOperatorResult(Token _operator) const {
@@ -6429,7 +6571,7 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 		},
 		{
 			"storeSigned", TypeProvider::function(
-				TypePointers{TypeProvider::int256(), TypeProvider::uint(9)},
+				TypePointers{TypeProvider::int257(), TypeProvider::uint(9)},
 				TypePointers{},
 				strings{std::string(), std::string()},
 				strings{},
@@ -6439,7 +6581,7 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 		},
 		{
 			"storeInt", TypeProvider::function(
-				TypePointers{TypeProvider::int256(), TypeProvider::uint(9)},
+				TypePointers{TypeProvider::int257(), TypeProvider::uint(9)},
 				TypePointers{},
 				strings{std::string(), std::string()},
 				strings{},
@@ -6542,6 +6684,58 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 	return members;
 }
 
+TypeResult StringBuilderType::unaryOperatorResult(Token _operator) const {
+	if (_operator == Token::Delete)
+		return TypeProvider::emptyTuple();
+	return nullptr;
+}
+
+MemberList::MemberMap StringBuilderType::nativeMembers(const ASTNode *) const {
+	MemberList::MemberMap members = {
+		{
+			"toString", TypeProvider::function(
+				{},
+				{TypeProvider::stringMemory()},
+				{},
+				{{}},
+				FunctionType::Kind::StringBuilderToString,
+				StateMutability::Pure
+			)
+		},
+		{
+			"append", TypeProvider::function(
+				{TypeProvider::fixedBytes(1)},
+				{},
+				{{}},
+				{},
+				FunctionType::Kind::StringBuilderAppendByte,
+				StateMutability::Pure
+			)
+		},
+		{
+			"append", TypeProvider::function(
+				{TypeProvider::fixedBytes(1), TypeProvider::uint(31)},
+				{},
+				{{}, {}},
+				{},
+				FunctionType::Kind::StringBuilderAppendByteNTimes,
+				StateMutability::Pure
+			)
+		},
+		{
+			"append", TypeProvider::function(
+				{TypeProvider::stringMemory()},
+				{},
+				{{}},
+				{},
+				FunctionType::Kind::StringBuilderAppendString,
+				StateMutability::Pure
+			)
+		},
+	};
+	return members;
+}
+
 BoolResult VarIntegerType::isImplicitlyConvertibleTo(Type const& _convertTo) const {
 	return m_int.isImplicitlyConvertibleTo(_convertTo);
 }
@@ -6551,9 +6745,16 @@ BoolResult VarIntegerType::isExplicitlyConvertibleTo(Type const& _convertTo) con
 }
 
 TypeResult VarIntegerType::unaryOperatorResult(Token _operator) const {
+	// "delete" is ok for all integer types
 	if (_operator == Token::Delete)
-		return TypeProvider::emptyTuple();
-	return nullptr;
+		return TypeResult{TypeProvider::emptyTuple()};
+		// unary negation only on signed types
+	else if (_operator == Token::Sub)
+		return m_int.isSigned() ? TypeResult{this} : TypeResult::err("Unary negation is only allowed for signed integers.");
+	else if (_operator == Token::Inc || _operator == Token::Dec || _operator == Token::BitNot)
+		return TypeResult{this};
+	else
+		return TypeResult::err("");
 }
 
 TypeResult VarIntegerType::binaryOperatorResult(Token _operator, Type const* _other) const {
@@ -6567,7 +6768,7 @@ TypeResult VarIntegerType::binaryOperatorResult(Token _operator, Type const* _ot
 }
 
 std::string VarIntegerType::toString(bool) const {
-	return std::string{} + "var" + (m_int.isSigned()? "Int" : "Uint") + std::to_string(m_n);
+	return std::string{"var"} + (m_int.isSigned()? "" : "u") + "int" + std::to_string(m_n);
 }
 
 int VarIntegerType::maxBitSizeInCell() const {
@@ -6578,4 +6779,189 @@ int VarIntegerType::maxBitSizeInCell() const {
 		return 5 + (31 * 8);
 	}
 	solUnimplemented("");
+}
+
+BoolResult QIntegerType::isImplicitlyConvertibleTo(Type const& _other) const {
+	if (Type::isImplicitlyConvertibleTo(_other))
+		return true;
+
+	if (category() == _other.category()) {
+		auto const& other = dynamic_cast<QIntegerType const&>(_other);
+		if (m_int->isImplicitlyConvertibleTo(*other.m_int))
+			return true;
+	}
+
+	return false;
+}
+
+bool QIntegerType::operator==(Type const& _other) const {
+	if (_other.category() != category())
+		return false;
+	auto const& other = dynamic_cast<QIntegerType const&>(_other);
+	return m_int == other.m_int;
+}
+
+TypeResult QIntegerType::unaryOperatorResult(Token _operator) const  {
+	// "delete" is ok for all integer types
+	if (_operator == Token::Delete)
+		return TypeResult{TypeProvider::emptyTuple()};
+		// unary negation only on signed types
+	else if (_operator == Token::Sub)
+		return m_int->isSigned() ? TypeResult{this} : TypeResult::err("Unary negation is only allowed for signed integers.");
+	else if (_operator == Token::Inc || _operator == Token::Dec || _operator == Token::BitNot)
+		return TypeResult{this};
+	else
+		return TypeResult::err("");
+}
+
+TypeResult QIntegerType::binaryOperatorResult(Token _operator, Type const* _other) const {
+	// See TypeResult IntegerType::binaryOperatorResult(Token _operator, Type const* _other) const
+	if (
+		_other->category() != Category::RationalNumber &&
+		_other->category() != Category::FixedPoint &&
+		_other->category() != Category::VarInteger &&
+		_other->category() != Category::Integer &&
+		_other->category() != category()
+	)
+		return nullptr;
+	if (TokenTraits::isShiftOp(_operator))
+	{
+		// Shifts are not symmetric with respect to the type
+		if (isValidShiftAndAmountTypeForQuite(_operator, *_other))
+			return this;
+		else
+			return nullptr;
+	}
+	else if (Token::Exp == _operator)
+	{
+		if (auto otherIntType = dynamic_cast<IntegerType const*>(_other))
+		{
+			if (otherIntType->isSigned())
+				return TypeResult::err("Exponentiation power is not allowed to be a signed integer type.");
+		}
+		else if (dynamic_cast<FixedPointType const*>(_other))
+			return nullptr;
+		else if (auto rationalNumberType = dynamic_cast<RationalNumberType const*>(_other))
+		{
+			if (rationalNumberType->isFractional())
+				return TypeResult::err("Exponent is fractional.");
+			if (!rationalNumberType->integerType())
+				return TypeResult::err("Exponent too large.");
+			if (rationalNumberType->isNegative())
+				return TypeResult::err("Exponentiation power is not allowed to be a negative integer literal.");
+		}
+		return this;
+	}
+
+	auto commonType = Type::commonType(this, _other); //might be an integer or fixed point
+	if (!commonType)
+		return nullptr;
+
+	// All integer types can be compared
+	if (TokenTraits::isCompareOp(_operator))
+		return commonType;
+	if (TokenTraits::isBooleanOp(_operator))
+		return nullptr;
+	return commonType;
+}
+
+namespace {
+MemberList::MemberMap qTypeNativeMembers(Type const* underType) {
+	MemberList::MemberMap members = {
+		{
+			"isNaN", TypeProvider::function(
+				{},
+				{TypeProvider::boolean()},
+				{},
+				{{}},
+				FunctionType::Kind::QIsNaN,
+				StateMutability::Pure
+			)
+		},
+		{
+			"get", TypeProvider::function(
+				{},
+				{underType},
+				{},
+				{{}},
+				FunctionType::Kind::QGet,
+				StateMutability::Pure
+			)
+		},
+		{
+			"getOr", TypeProvider::function(
+				{underType},
+				{underType},
+				{{}},
+				{{}},
+				FunctionType::Kind::QGetOr,
+				StateMutability::Pure
+			)
+		},
+		{
+			"getOrDefault", TypeProvider::function(
+				{},
+				{underType},
+				{},
+				{{}},
+				FunctionType::Kind::QGetOrDefault,
+				StateMutability::Pure
+			)
+		},
+		{
+			"toOptional", TypeProvider::function(
+				{},
+				{TypeProvider::optional(underType)},
+				{},
+				{{}},
+				FunctionType::Kind::QToOptional,
+				StateMutability::Pure
+			)
+		}
+	};
+	return members;
+}
+}
+
+MemberList::MemberMap QIntegerType::nativeMembers(ASTNode const*) const {
+	return qTypeNativeMembers(m_int.get());
+}
+
+std::string QIntegerType::toString(bool f) const {
+	if (m_int == nullptr)
+		return "NaN";
+	return "q" + m_int->toString(f);
+}
+
+BoolResult QBoolType::isImplicitlyConvertibleTo(Type const& _convertTo) const {
+	if (Type::isImplicitlyConvertibleTo(_convertTo))
+		return true;
+
+	return false;
+}
+
+TypeResult QBoolType::unaryOperatorResult(Token _operator) const {
+	if (_operator == Token::Delete)
+		return TypeProvider::emptyTuple();
+	else if (_operator == Token::Not)
+		return this;
+	else
+		return nullptr;
+}
+
+TypeResult QBoolType::binaryOperatorResult(Token _operator, Type const* _other) const {
+	if (category() != _other->category() && _other->category() != Type::Category::Bool)
+		return nullptr;
+	if (_operator == Token::Equal || _operator == Token::NotEqual || _operator == Token::And || _operator == Token::Or)
+		return TypeProvider::qBool();
+	else
+		return nullptr;
+}
+
+MemberList::MemberMap QBoolType::nativeMembers(ASTNode const*) const {
+	return qTypeNativeMembers(TypeProvider::boolean());
+}
+
+std::string QBoolType::toString(bool) const {
+	return "qbool";
 }

@@ -13,8 +13,8 @@
 
 #include <boost/range/adaptor/map.hpp>
 
-#include "TVMInlineFunctionChecker.hpp"
-#include "TVMCommons.hpp"
+#include <libsolidity/codegen/TVMInlineFunctionChecker.hpp>
+#include <libsolidity/codegen/TVMCommons.hpp>
 
 using namespace solidity::frontend;
 

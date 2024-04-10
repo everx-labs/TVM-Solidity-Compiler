@@ -1945,9 +1945,14 @@ void TypeChecker::endVisit(BinaryOperation const& _operation)
 
 	// By default use the type we'd expect from correct code. This way we can continue analysis
 	// of other expressions in a sensible way in case of a non-fatal error.
+	Type const* boolType;
+	if (commonType->category() == Type::Category::QInteger || commonType->category() == Type::Category::QBool)
+		boolType = TypeProvider::qBool();
+	else
+		boolType = TypeProvider::boolean();
 	Type const* resultType =
 		TokenTraits::isCompareOp(_operation.getOperator()) ?
-		TypeProvider::boolean() :
+		boolType :
 		commonType;
 
 	if (operatorDefinition)
@@ -2285,43 +2290,95 @@ void TypeChecker::checkNeedCallback(FunctionType const* callee, ASTNode const& n
 	}
 }
 
-void TypeChecker::typeCheckTvmEncodeArg(Type const* type, Expression const& node) {
+TypeChecker::Result TypeChecker::canStoreToBuilder(Type const* type, bool _topType) {
 	switch (type->category()) {
-		case Type::Category::RationalNumber:
-			m_errorReporter.typeError(
-					6332_error,
-					node.location(),
-					"Cannot perform encoding for a literal."
-					" Please convert it to an explicit type first."
-			);
-			break;
-		case Type::Category::Address:
-		case Type::Category::Array:
-		case Type::Category::Bool:
-		case Type::Category::Contract:
-		case Type::Category::Enum:
-		case Type::Category::FixedBytes:
-		case Type::Category::Integer:
-		case Type::Category::Mapping:
-		case Type::Category::StringLiteral:
-		case Type::Category::Struct:
-		case Type::Category::TvmBuilder:
-		case Type::Category::TvmCell:
-		case Type::Category::TvmSlice:
-		case Type::Category::VarInteger:
-			break;
-		case Type::Category::Optional:
+	case Type::Category::Function: {
+		// External functions are not supported yet.
+		return {true, std::nullopt};
+	}
+	case Type::Category::Tuple: {
+		auto tupleType = dynamic_cast<TupleType const*>(type);
+		for (Type const* comp : tupleType->components())
 		{
-			Type const *valueType = dynamic_cast<OptionalType const*>(type)->valueType();
-			typeCheckTvmEncodeArg(valueType, node);
-			break;
+			auto res = canStoreToBuilder(comp, false);
+			if (!res.ok)
+				return {false, res.location.has_value() ? res.location : std::nullopt};
 		}
-		default:
+		return {true, std::nullopt};
+	}
+	case Type::Category::RationalNumber:
+		return {false, std::nullopt};
+	case Type::Category::Struct:
+	{
+		auto structType = dynamic_cast<StructType const*>(type);
+		StructDefinition const& structDefinition = structType->structDefinition();
+		for (auto const& memberDecl : structDefinition.members()) {
+			auto res = canStoreToBuilder(memberDecl->type(), false);
+			if (!res.ok)
+				return {false, res.location.has_value() ? res.location : memberDecl->location()};
+		}
+		return {true, std::nullopt};
+	}
+	case Type::Category::Optional:
+	{
+		Type const *valueType = dynamic_cast<OptionalType const*>(type)->valueType();
+		auto res = canStoreToBuilder(valueType, false);
+		if (!res.ok)
+			return {false, res.location.has_value() ? res.location : std::nullopt};
+		return {true, std::nullopt};
+	}
+	case Type::Category::TvmBuilder:
+	case Type::Category::TvmSlice:
+		return {_topType, std::nullopt};
+	case Type::Category::Address:
+	case Type::Category::Array:
+	case Type::Category::Bool:
+	case Type::Category::Contract:
+	case Type::Category::Enum:
+	case Type::Category::FixedBytes:
+	case Type::Category::FixedPoint:
+	case Type::Category::Integer:
+	case Type::Category::Mapping:
+	case Type::Category::StringLiteral:
+	case Type::Category::TvmCell:
+	case Type::Category::VarInteger:
+		return {true, std::nullopt};
+	default:
+		return {false, std::nullopt};
+	}
+}
+
+void TypeChecker::typeCheckTvmEncodeArg(Type const* type, SourceLocation const& _location,
+										std::string const& errMsg, bool isStateVar) {
+	auto res = canStoreToBuilder(type, true);
+	if (isStateVar && (type->category() == Type::Category::TvmSlice || type->category() == Type::Category::TvmBuilder))
+		res.ok = false;
+	if (res.ok)
+		return;
+	switch (type->category()) {
+	case Type::Category::RationalNumber:
+		m_errorReporter.typeError(
+			6332_error,
+			_location,
+			"Cannot perform storing for a literal."
+			" Please convert it to an explicit type first."
+		);
+		break;
+	default:
+		if (res.location)
 			m_errorReporter.typeError(
-					9100_error,
-					node.location(),
-					"Encoding for a " + node.annotation().type->toString(true) + " isn't supported."
+				2562_error,
+				_location,
+				SecondarySourceLocation().append("Declaration of unsupported member:", res.location.value()),
+				errMsg
 			);
+		else
+			m_errorReporter.typeError(
+				6820_error,
+				_location,
+				errMsg
+			);
+		break;
 	}
 }
 
@@ -2329,7 +2386,8 @@ void TypeChecker::typeCheckTvmEncodeFunctions(FunctionCall const& _functionCall)
 	std::vector<ASTPointer<Expression const>> const &arguments = _functionCall.arguments();
 	for (const auto & argument : arguments) {
 		auto const &argType = type(*argument);
-		typeCheckTvmEncodeArg(argType, *argument);
+		std::string const errText = "Storing for \"" + argType->toString(true) + "\" is not supported.";
+		typeCheckTvmEncodeArg(argType, argument->location(), errText, false);
 	}
 }
 
@@ -2721,7 +2779,6 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 				ma->memberName() == "encodeData" ||
 				ma->memberName() == "encodeOldDataInit" ||
 				ma->memberName() == "buildExtMsg" ||
-				ma->memberName() == "encodeExtMsg" ||
 				ma->memberName() == "encodeIntMsg" ||
 				ma->memberName() == "buildIntMsg")
 			isFunctionWithDefaultValues = true;
@@ -3015,8 +3072,6 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 
 	auto functionCallOpt = dynamic_cast<const FunctionCallOptions *>(&_functionCall.expression());
 	if (functionCallOpt) {
-		bool isExternalInboundMessage = _functionCall.isExtMsg();
-
 		std::vector<std::string> arr;
 		auto fold = [&]() {
 			std::string s;
@@ -3031,9 +3086,7 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 		};
 		const bool isNewExpression = dynamic_cast<const NewExpression *>(&functionCallOpt->expression()) != nullptr;
 
-		if (isExternalInboundMessage) {
-			arr = {"time", "expire", "call", "sign", "pubkey", "abiVer", "callbackId", "onErrorId", "stateInit","signBoxHandle", "flags"};
-		} else if (isNewExpression) {
+		if (isNewExpression) {
 			arr = {"stateInit", "code", "pubkey", "varInit", "splitDepth", "wid", "value", "currencies", "bounce", "flag"};
 		} else {
 			arr = {"value", "currencies", "bounce", "flag", "callback"};
@@ -3045,18 +3098,14 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 			std::string const &name = *(names[i]);
 			if (std::find(arr.begin(), arr.end(), name) == arr.end()) {
 				m_errorReporter.typeError(
-						4187_error,
-						functionCallOpt->location(),
-						"Unknown option \"" + name + "\". " +
-						"Valid options are " + fold() + "."
+					4187_error,
+					functionCallOpt->location(),
+					"Unknown option \"" + name + "\". " +
+					"Valid options are " + fold() + "."
 				);
 			}
-			if (name == "pubkey") {
-				if (isExternalInboundMessage)
-					expectType(*options[i], *TypeProvider::optional(TypeProvider::uint256()));
-				else
-					expectType(*options[i], *TypeProvider::uint256());
-			}
+			if (name == "pubkey")
+				expectType(*options[i], *TypeProvider::uint256());
 		}
 		auto getId = [&](std::string const & param) {
 			auto it = find_if(names.begin(), names.end(), [&](auto el){
@@ -3066,32 +3115,10 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 		};
 
 		auto callback = getId("callback");
-		if (callback != -1 && _functionCall.isAwait())
-			m_errorReporter.typeError(
-					8276_error,
-					_functionCall.location(),
-					R"("callback" option can't be set for await call.)"
-					);
-		auto callbackId = getId("callbackId");
-		auto onErrorId = getId("onErrorId");
 		auto expressionFunctionType = dynamic_cast<FunctionType const*>(type(functionCallOpt->expression()));
-		if (!_functionCall.isExtMsg() && callback == -1 &&
-				!expressionFunctionType->returnParameterTypes().empty() &&
-				!_functionCall.isAwait()) {
+		if (callback == -1 && !expressionFunctionType->returnParameterTypes().empty())
 			checkNeedCallback(expressionFunctionType, *functionCallOpt);
-		}
-		if (isExternalInboundMessage &&
-		(callbackId == -1 || onErrorId == -1)) {
-			m_errorReporter.typeError(
-					3365_error,
-					functionCallOpt->location(),
-					R"("callbackId" and "onErrorId" options must be set.)"
-			);
-		}
-
-
 	}
-
 }
 
 FunctionDefinition const*
@@ -3290,97 +3317,6 @@ void TypeChecker::checkCallList(
 	}
 }
 
-void TypeChecker::checkBuildExtMsg(FunctionCall const& _functionCall) {
-	std::vector<ASTPointer<Expression const>> const& arguments = _functionCall.arguments();
-	std::vector<ASTPointer<ASTString>> const &argumentNames = _functionCall.names();
-	auto findName = [&](const ASTString& optName) {
-		auto it = std::find_if(argumentNames.begin(), argumentNames.end(),
-							   [&](const ASTPointer<ASTString> &name) {
-								   return *name == optName;
-							   });
-		return it == argumentNames.end()  ? -1 : it - argumentNames.begin();
-	};
-
-
-	for (const std::string name: {"dest", "call", "callbackId", "onErrorId"}) {
-		int index = findName(name);
-		if (index == -1){
-			m_errorReporter.fatalTypeError(
-					2651_error,
-					_functionCall.location(),
-					"Parameter \"" + name + "\" must be set."
-			);
-		}
-	}
-
-	if (
-		int SignIndex = findName("sign");
-		SignIndex != -1
-	){
-		auto const& ann = arguments[SignIndex]->annotation();
-		if (ann.type->category() != Type::Category::Bool || !*ann.isPure) {
-			m_errorReporter.typeError(
-					9588_error,
-					arguments[SignIndex]->location(),
-					"\"sign\" parameter must have a constant boolean type."
-			);
-		}
-	}
-
-	FunctionDefinition const *remoteFunction{};
-	int indexCall = findName("call");
-	if (indexCall != -1) {
-		auto callList = dynamic_cast<CallList const*>(arguments.at(indexCall).get());
-		if (callList) {
-			std::vector<Expression const*> params;
-			params.push_back(callList->function());
-			for (const ASTPointer<Expression const>& p : callList->arguments()) {
-				params.push_back(p.get());
-			}
-			checkCallList(params, _functionCall, true);
-			remoteFunction = checkPubFunctionOrContractTypeAndGetDefinition(*callList->function());
-		}
-	}
-
-	int callbackIndex = findName("callbackId");
-	int errorIndex = findName("onErrorId");
-	FunctionDefinition const* callBackFunction{};
-	FunctionDefinition const* errorFunction{};
-	for (std::string name : std::vector<std::string>{"callbackId", "onErrorId"}) {
-		if (
-			int nameIndex = findName(name);
-			nameIndex != -1
-		) {
-			auto const& ann = arguments.at(nameIndex)->annotation();
-			auto intType = dynamic_cast<IntegerType const*>(ann.type->mobileType());
-			if (name == "callbackId") {
-				callBackFunction = checkPubFunctionAndGetDefinition(*arguments.at(nameIndex));
-			}
-			if (name == "onErrorId") {
-				errorFunction = checkPubFunctionAndGetDefinition(*arguments.at(nameIndex));
-			}
-			if (!(callBackFunction || (intType && !intType->isSigned() && intType->numBits() <= 32))) {
-				m_errorReporter.typeError(
-					1693_error,
-					arguments[nameIndex]->location(),
-					std::string{} +
-					"Invalid type for argument in function call. " +
-					"Expected functionID of uint32 type or just function name (ContractName.functionName or functionName)."
-				);
-			}
-		}
-	}
-
-
-	if (callbackIndex != -1 && remoteFunction != nullptr && callBackFunction != nullptr) {
-		checkRemoteAndCallBackFunctions(remoteFunction, callBackFunction, arguments.at(callbackIndex)->location());
-	}
-
-	if (errorFunction) {
-		checkOnErrorId(errorFunction, arguments.at(errorIndex)->location());
-	}
-}
-
 void TypeChecker::checkRemoteAndCallBackFunctions(
 	FunctionDefinition const* calleeDefinition,
 	FunctionDefinition const* callbackFunc,
@@ -3420,27 +3356,6 @@ void TypeChecker::checkRemoteAndCallBackFunctions(
 						.append("Parameter of the callback function:", callbackFunc->parameters().at(p)->location()),
 				toString(p + 1) + R"(th parameters of callback and callee functions have different types.)"
 			);
-		}
-	}
-}
-
-void TypeChecker::checkOnErrorId(FunctionDefinition const* errorFunction, langutil::SourceLocation const& _location) {
-	auto badOnErrorFunction = [&]() {
-		m_errorReporter.typeError(
-				2992_error,
-				_location,
-				SecondarySourceLocation().append("Parameters of the error function:", errorFunction->location()),
-				"Error function must take (uint32 sdkError, uint32 exitCode)."
-		);
-	};
-	std::vector<ASTPointer<VariableDeclaration>> const& params = errorFunction->parameters();
-	if (params.size() != 2) {
-		badOnErrorFunction();
-	}
-	for (ASTPointer<VariableDeclaration> const& v : params) {
-		auto intType = dynamic_cast<IntegerType const*>(v->type());
-		if (!intType || intType->numBits() != 32) {
-			badOnErrorFunction();
 		}
 	}
 }
@@ -3523,7 +3438,8 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			functionType->kind() == FunctionType::Kind::ByteArrayPush
 		)
 			isLValue = functionType->parameterTypes().empty();
-		else if (functionType->kind() == FunctionType::Kind::OptionalGet)
+		else if (functionType->kind() == FunctionType::Kind::OptionalGet ||
+				functionType->kind() == FunctionType::Kind::TVMStackTop)
 			isLValue = true;
 		break;
 
@@ -3565,7 +3481,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 
 	funcCallAnno.isLValue = isLValue;
 
-	auto checkArgNumAndIsInteger = [&](
+	auto checkArgNumAndIsIntOrVarInt = [&](
 		std::vector<ASTPointer<Expression const>> const& arguments,
 		size_t arguments_cnt,
 		const std::function<bool(size_t, size_t)>& cmpOperator,
@@ -3573,7 +3489,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 	){
 		if (!cmpOperator(arguments.size(), arguments_cnt)) {
 			m_errorReporter.fatalTypeError(
-				8309_error,
+				1482_error,
 				_functionCall.location(),
 				errorMsg
 			);
@@ -3584,7 +3500,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			Type::Category cat = t->mobileType()->category();
 			if (cat != Type::Category::Integer && cat != Type::Category::VarInteger) {
 				m_errorReporter.fatalTypeError(
-					4283_error,
+					5329_error,
 					arg->location(),
 					"Expected an integer or variable integer type."
 				);
@@ -3592,7 +3508,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		}
 	};
 
-	auto checkArgQtyAndIsIntOrVarIntOrFixedPoint = [&](
+	auto checkArgNumAndIsIntOrQintOrVarInt = [&](
 		std::vector<ASTPointer<Expression const>> const& arguments,
 		size_t arguments_cnt,
 		const std::function<bool(size_t, size_t)>& cmpOperator,
@@ -3600,21 +3516,50 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 	){
 		if (!cmpOperator(arguments.size(), arguments_cnt)) {
 			m_errorReporter.fatalTypeError(
-				1040_error,
+				4529_error,
 				_functionCall.location(),
 				errorMsg
 			);
 		}
 
 		for (const auto & arg : arguments) {
+			auto t = arg->annotation().type;
+			Type::Category cat = t->mobileType()->category();
+			if (cat != Type::Category::Integer && cat != Type::Category::VarInteger && cat != Type::Category::QInteger) {
+				m_errorReporter.fatalTypeError(
+					5640_error,
+					arg->location(),
+					"Expected an integer, qinteger or variable integer type."
+				);
+			}
+		}
+	};
+
+	auto checkArgQtyAndIsIntOrQIntOrVarIntOrFixedPoint = [&](
+		std::vector<ASTPointer<Expression const>> const& arguments,
+		size_t arguments_cnt,
+		const std::function<bool(size_t, size_t)>& cmpOperator,
+		const std::string& errorMsg
+	){
+		if (!cmpOperator(arguments.size(), arguments_cnt))
+			m_errorReporter.fatalTypeError(
+					9838_error,
+				_functionCall.location(),
+				errorMsg
+			);
+
+		for (const auto & arg : arguments) {
 			Type::Category cat = arg->annotation().type->mobileType()->category();
-			if (cat != Type::Category::Integer && cat != Type::Category::FixedPoint && cat != Type::Category::VarInteger) {
+			if (cat != Type::Category::Integer &&
+				cat != Type::Category::QInteger &&
+				cat != Type::Category::FixedPoint &&
+				cat != Type::Category::VarInteger
+			)
 				m_errorReporter.fatalTypeError(
 					5943_error,
 					arg->location(),
-					"Expected integer, variable integer or fixed point type."
+					"Expected integer, qinteger, variable integer or fixed point type."
 				);
-			}
 		}
 	};
 
@@ -3876,7 +3821,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		}
 		case FunctionType::Kind::RndNext:
 		{
-			checkArgNumAndIsInteger(arguments, 1, std::less_equal<>(), "Expected at most one argument.");
+			checkArgNumAndIsIntOrVarInt(arguments, 1, std::less_equal<>(), "Expected at most one argument.");
 			if (arguments.empty()) {
 				returnTypes.push_back(TypeProvider::uint256());
 			} else {
@@ -3889,7 +3834,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		case FunctionType::Kind::MathMin:
 		case FunctionType::Kind::MathMax:
 		{
-			checkArgQtyAndIsIntOrVarIntOrFixedPoint(arguments, 2, std::greater_equal<>(), "Expected at least two arguments.");
+			checkArgQtyAndIsIntOrQIntOrVarIntOrFixedPoint(arguments, 2, std::greater_equal<>(), "Expected at least two arguments.");
 			Type const* result = getCommonType(arguments);
 			paramTypes = TypePointers(arguments.size(), result);
 			returnTypes.push_back(result);
@@ -3897,7 +3842,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		}
 		case FunctionType::Kind::MathMinMax:
 		{
-			checkArgQtyAndIsIntOrVarIntOrFixedPoint(arguments, 2, std::equal_to<>(), "Expected two arguments.");
+			checkArgQtyAndIsIntOrQIntOrVarIntOrFixedPoint(arguments, 2, std::equal_to<>(), "Expected two arguments.");
 			Type const* result = getCommonType(arguments);
 			paramTypes = TypePointers(arguments.size(), result);
 			returnTypes.push_back(result);
@@ -3907,7 +3852,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		case FunctionType::Kind::MathDivR:
 		case FunctionType::Kind::MathDivC:
 		{
-			checkArgQtyAndIsIntOrVarIntOrFixedPoint(arguments, 2, std::equal_to<>(), "Expected two arguments.");
+			checkArgQtyAndIsIntOrQIntOrVarIntOrFixedPoint(arguments, 2, std::equal_to<>(), "Expected two arguments.");
 			checkAllAreNotFractions(arguments);
 			Type const* result = getCommonType(arguments);
 			paramTypes = TypePointers(arguments.size(), result);
@@ -3916,7 +3861,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		}
 		case FunctionType::Kind::MathDivMod:
 		{
-			checkArgNumAndIsInteger(arguments, 2, std::equal_to<>(), "Expected two arguments.");
+			checkArgNumAndIsIntOrQintOrVarInt(arguments, 2, std::equal_to<>(), "Expected two arguments.");
 			Type const* result = getCommonType(arguments);
 			paramTypes.push_back(result);
 			paramTypes.push_back(result);
@@ -3927,7 +3872,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		case FunctionType::Kind::MathMulDiv:
 		case FunctionType::Kind::MathMulDivMod:
 		{
-			checkArgNumAndIsInteger(arguments, 3, std::equal_to<>(), "Expected three arguments.");
+			checkArgNumAndIsIntOrQintOrVarInt(arguments, 3, std::equal_to<>(), "Expected three arguments.");
 			Type const* result = getCommonType(arguments);
 			paramTypes.push_back(result);
 			paramTypes.push_back(result);
@@ -3940,17 +3885,19 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		}
 		case FunctionType::Kind::MathAbs:
 		{
-			checkArgQtyAndIsIntOrVarIntOrFixedPoint(arguments, 1, std::equal_to<>(), "Expected one argument.");
+			checkArgQtyAndIsIntOrQIntOrVarIntOrFixedPoint(arguments, 1, std::equal_to<>(), "Expected one argument.");
 			Type const* argType = arguments.at(0)->annotation().type->mobileType();
 			Type::Category cat = argType->category();
 			paramTypes.push_back(argType);
 
-			if (cat == Type::Category::Integer || cat == Type::Category::VarInteger) {
+			if (cat == Type::Category::Integer || cat == Type::Category::VarInteger || cat == Type::Category::QInteger) {
 				IntegerType const* intType;
 				if (cat == Type::Category::Integer)
 					intType = dynamic_cast<IntegerType const*>(argType);
 				else if (cat == Type::Category::VarInteger)
 					intType = &dynamic_cast<VarIntegerType const*>(argType)->asIntegerType();
+				else if (cat == Type::Category::QInteger)
+					intType = dynamic_cast<QIntegerType const*>(argType)->asIntegerType();
 				else
 					solUnimplemented("");
 				if (!intType->isSigned())
@@ -3965,7 +3912,10 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 						arguments.at(0)->location(),
 						"Too low type."
 					);
-				returnTypes.push_back(TypeProvider::integer(intType->numBits() - 1, IntegerType::Modifier::Unsigned));
+				if (cat == Type::Category::QInteger)
+					returnTypes.push_back(TypeProvider::qInteger(intType->numBits() - 1, IntegerType::Modifier::Unsigned));
+				else
+					returnTypes.push_back(TypeProvider::integer(intType->numBits() - 1, IntegerType::Modifier::Unsigned));
 			} else if (cat == Type::Category::FixedPoint) {
 				auto fixed = dynamic_cast<FixedPointType const*>(argType);
 				if (!fixed->isSigned())
@@ -3979,22 +3929,35 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 					fixed->fractionalDigits(),
 					FixedPointType::Modifier::Unsigned
 				));
-			}
+			} else
+				solUnimplemented("");
 			break;
 		}
 		case FunctionType::Kind::MathModpow2:
 		{
-			checkArgNumAndIsInteger(arguments, 2, std::equal_to<>(), "Expected two arguments.");
+			checkArgNumAndIsIntOrQintOrVarInt(arguments, 2, std::equal_to<>(), "Expected two arguments.");
 			bool isConst = *arguments[1]->annotation().isPure;
 			if (!isConst) {
 				m_errorReporter.fatalTypeError(
-						8650_error,
-						arguments.at(1)->location(),
-						"Expected a constant integer type but got " +
-						arguments[1]->annotation().type->toString() + "."
+					8650_error,
+					arguments.at(1)->location(),
+					"Expected a constant integer type but got " +
+					arguments[1]->annotation().type->toString() + "."
 				);
 			}
+
 			returnTypes.push_back(arguments.at(0)->annotation().type->mobileType());
+			break;
+		}
+		case FunctionType::Kind::MathSign:
+		{
+			checkArgNumAndIsIntOrQintOrVarInt(arguments, 1, std::equal_to<>(), "Expected one argument.");
+			Type const* argType = arguments.at(0)->annotation().type;
+			paramTypes.emplace_back(argType->mobileType());
+			if (argType->category() == Type::Category::QInteger)
+				returnTypes.emplace_back(TypeProvider::qInteger(2, IntegerType::Modifier::Signed));
+			else
+				returnTypes.emplace_back(TypeProvider::integer(2, IntegerType::Modifier::Signed));
 			break;
 		}
 		case FunctionType::Kind::ABIEncode:
@@ -4020,7 +3983,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				} else {
 					auto arg0Type = arguments[0]->annotation().type;
 					if (keyType->category() == Type::Category::Integer) {
-						checkArgNumAndIsInteger(arguments, 1, std::equal_to<>(), "Expected one argument.");
+						checkArgNumAndIsIntOrVarInt(arguments, 1, std::equal_to<>(), "Expected one argument.");
 					} else if (!arg0Type->isImplicitlyConvertibleTo(*keyType)) {
 						auto errorMsg = "Type " +
 										arg0Type->toString() +
@@ -4116,14 +4079,6 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			}
 
 			typeCheckFunctionCall(_functionCall, functionType);
-			returnTypes = functionType->returnParameterTypes();
-			break;
-		}
-		case FunctionType::Kind::ABIBuildExtMsg: {
-			checkHasNamedParams();
-			checkBuildExtMsg(_functionCall);
-
-			typeCheckFunctionCall(_functionCall, functionType, {"callbackId", "onErrorId"});
 			returnTypes = functionType->returnParameterTypes();
 			break;
 		}
@@ -4285,9 +4240,8 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			break;
 		}
 		case FunctionType::Kind::TVMHash: {
-			if (arguments.size() != 1) {
+			if (arguments.size() != 1)
 				m_errorReporter.typeError(1218_error, _functionCall.location(), "Expected one argument.");
-			}
 			auto type = arguments[0]->annotation().type->mobileType();
 			auto cat = type->category();
 			if (!isByteArrayOrString(type) && cat != Type::Category::TvmCell && cat != Type::Category::TvmSlice) {
@@ -4299,6 +4253,30 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			}
 			paramTypes.push_back(type);
 			returnTypes.push_back(TypeProvider::uint256());
+			break;
+		}
+		case FunctionType::Kind::TVMStackSort: {
+			if (arguments.size() != 1)
+				m_errorReporter.typeError(9470_error, _functionCall.location(), "Expected one argument.");
+			auto type = arguments[0]->annotation().type;
+			auto funType = to<FunctionType>(type);
+			auto ma = dynamic_cast<MemberAccess const*>(&_functionCall.expression());
+			auto const valueType = to<TvmStackType>(ma->expression().annotation().type)->valueType();
+			if (!funType ||
+				funType->parameterTypes().size() != 2 ||
+				*funType->parameterTypes().at(0) != *valueType ||
+				*funType->parameterTypes().at(1) != *valueType ||
+				funType->returnParameterTypes().size() != 1 ||
+				*funType->returnParameterTypes().at(0) != *TypeProvider::boolean()
+			) {
+				auto valueStr = valueType->toString();
+				m_errorReporter.typeError(
+					6306_error,
+					arguments[0]->location(),
+					"Expected \"function(" + valueStr + ", " + valueStr + ") private/internal returns(bool)\" type."
+				);
+			}
+			paramTypes.push_back(type);
 			break;
 		}
 		case FunctionType::Kind::IntCast: {
@@ -4324,9 +4302,8 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		default:
 		{
 			typeCheckFunctionCall(_functionCall, functionType);
-			if (functionType->kind() != FunctionType::Kind::External || _functionCall.isAwait()) {
+			if (functionType->kind() != FunctionType::Kind::External)
 				returnTypes = functionType->returnParameterTypes();
-			}
 			break;
 		}
 		}
@@ -4352,29 +4329,9 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 
 	if (functionType != nullptr &&
 		dynamic_cast<FunctionCallOptions const*>(&_functionCall.expression()) == nullptr &&
-		functionType->kind() == FunctionType::Kind::External && !_functionCall.isAwait())
+		functionType->kind() == FunctionType::Kind::External)
 	{
 		checkNeedCallback(functionType, _functionCall);
-	}
-
-	if (_functionCall.isAwait()) {
-		if (functionType == nullptr || functionType->kind() != FunctionType::Kind::External) {
-			m_errorReporter.fatalTypeError(
-				5451_error,
-				_functionCall.location(),
-				"\".await\" is supported only for external function calls."
-			);
-		}
-		if (functionType) {
-			auto fd = dynamic_cast<FunctionDefinition const*>(&functionType->declaration());
-			if (fd && !fd->isResponsible()) {
-				m_errorReporter.fatalTypeError(
-					9054_error,
-					_functionCall.location(),
-					"\".await\" is supported only for responsible functions."
-				);
-			}
-		}
 	}
 
 	return false;
@@ -4411,24 +4368,17 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	int setVarInit = -1;
 	int setWid = -1;
 	int setCallback = -1;
-	int setSign = -1;
-	int setExpire = -1;
-	int setTime = -1;
-	int setOnError = -1;
-    int setSignHandler = -1;
-	int setAbiVer = -1;
-	int setFlags = -1;
 
 	FunctionType::Kind kind = expressionFunctionType->kind();
 
 	bool isLib = false;
-	if (expressionFunctionType->hasDeclaration()) {
-		if (auto func = dynamic_cast<FunctionDefinition const *>(&expressionFunctionType->declaration())) {
-			if (func->annotation().contract->isLibrary()) {
+	if (expressionFunctionType->hasDeclaration())
+		if (auto func = dynamic_cast<FunctionDefinition const *>(&expressionFunctionType->declaration()))
+		{
+			ContractDefinition const* contract = func->annotation().contract;
+			if (contract != nullptr && contract->isLibrary())
 				isLib = true;
-			}
 		}
-	}
 	if (
 		!isLib &&
 		kind != FunctionType::Kind::Creation &&
@@ -4466,7 +4416,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	if (isNewExpression)
 		arr = {"stateInit", "code", "pubkey", "varInit", "splitDepth", "wid", "value", "currencies", "bounce", "flag"};
 	else
-		arr = {"time", "expire", "call", "sign",  "pubkey", "abiVer", "callbackId", "onErrorId", "stateInit", "signBoxHandle", "value", "currencies", "bounce", "flag", "callback", "flags"};
+		arr = {"call", "pubkey", "stateInit", "value", "currencies", "bounce", "flag", "callback"};
 	auto fold = [&](){
 		std::string s;
 		for (size_t i = 0; i < arr.size(); ++i) {
@@ -4488,68 +4438,11 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 				"Unknown option \"" + name + "\". " +
 				"Valid options are " + fold() + "."
 			);
-			// check type of option
-		} else if (name == "sign") {
-			expectType(*options[i], *TypeProvider::boolean());
-			setCheckOption(setSign, "sign", i);
-			if (!*options[i]->annotation().isPure)
-				m_errorReporter.typeError(
-					5289_error,
-					_functionCallOptions.location(),
-					R"(Option "sign" can be specified only with constant bool value.)");
 		} else if (name == "pubkey") {
 			setCheckOption(setPubkey, "pubkey", i);
-		} else if (name == "signBoxHandle") {
-			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(32)));
-			setCheckOption(setSignHandler, "signBoxHandle", i);
-		} else if (name == "abiVer") {
-			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(8)));
-			setCheckOption(setAbiVer, "abiVer", i);
-		} else if (name == "flags") {
-			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(8)));
-			setCheckOption(setFlags, "flags", i);
 		} else if (name == "stateInit") {
 			expectType(*options[i], *TypeProvider::optional(TypeProvider::tvmcell()));
 			setCheckOption(setStateInit, "stateInit", i);
-		} else if (name == "callbackId") {
-			ASTPointer<const Expression> const& exp = options.at(i);
-			exp->accept(*this);
-			FunctionDefinition const* callBackFunction = checkPubFunctionAndGetDefinition(*exp);
-			auto intType = dynamic_cast<IntegerType const*>(type(*exp.get())->mobileType());
-			if (!(callBackFunction || (intType && !intType->isSigned() && intType->numBits() <= 32))) {
-				m_errorReporter.typeError(
-					3344_error,
-					options.at(i)->location(),
-					"Expected functionID of uint32 type or just function name (ContractName.functionName or functionName)."
-				);
-			}
-			auto remoteFunction = dynamic_cast<FunctionDefinition const*>(&expressionFunctionType->declaration());
-			if (callBackFunction) {
-				checkRemoteAndCallBackFunctions(remoteFunction, callBackFunction, options.at(i)->location());
-			}
-			setCheckOption(setCallback, "callbackId", i);
-		} else if (name == "onErrorId") {
-			ASTPointer<const Expression> const& exp = options.at(i);
-			exp->accept(*this);
-			FunctionDefinition const* errorFunDef = checkPubFunctionAndGetDefinition(*exp);
-			auto intType = dynamic_cast<IntegerType const*>(type(*exp.get())->mobileType());
-			if (!(errorFunDef || (intType && !intType->isSigned() && intType->numBits() <= 32))) {
-				m_errorReporter.typeError(
-					7946_error,
-					options.at(i)->location(),
-					"Expected functionID of uint32 type or just function name (ContractName.functionName or functionName)."
-				);
-			}
-			if (errorFunDef) {
-				checkOnErrorId(errorFunDef, options.at(i)->location());
-			}
-			setCheckOption(setOnError, "onErrorId", i);
-		} else if (name == "expire") {
-			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(32)));
-			setCheckOption(setExpire, "expire", i);
-		} else if (name == "time") {
-			expectType(*options[i], *TypeProvider::optional(TypeProvider::uint(64)));
-			setCheckOption(setTime, "time", i);
 		} else if (name == "bounce") {
 			expectType(*options[i], *TypeProvider::boolean());
 			setCheckOption(setBounce, "bounce", i);
@@ -5064,7 +4957,7 @@ bool TypeChecker::visit(IndexAccess const& _access)
 			expectType(*index, *TypeProvider::uint256());
 		}
 		resultType = actualType.valueType();
-		isLValue = false;
+		isLValue = true;
 		break;
 	}
 	default:

@@ -84,6 +84,19 @@ void ElementaryTypeNameToken::assertDetails(Token _baseType, unsigned const& _fi
 			"No elementary type " + std::string(TokenTraits::toString(_baseType)) + std::to_string(_first) + "."
 		);
 	}
+	else if (_baseType == Token::QUIntM || _baseType == Token::QIntM)
+	{
+		unsigned bitLength = _baseType == Token::QUIntM ? 256 : 257;
+		solAssert(_second == 0, "There should not be a second size argument to type " + std::string(TokenTraits::toString(_baseType)) + ".");
+		solAssert(
+			_first <= bitLength,
+			"No elementary type " + std::string(TokenTraits::toString(_baseType)) + std::to_string(_first) + "."
+		);
+	}
+	else if (_baseType == Token::QBool)
+	{
+		// all right
+	}
 	else if (_baseType == Token::UFixedMxN || _baseType == Token::FixedMxN)
 	{
 		solAssert(
@@ -91,7 +104,8 @@ void ElementaryTypeNameToken::assertDetails(Token _baseType, unsigned const& _fi
 			"No elementary type " + std::string(TokenTraits::toString(_baseType)) + std::to_string(_first) + "x" + std::to_string(_second) + "."
 		);
 	}
-	else if (_baseType == Token::VarUintM || _baseType == Token::VarIntM)
+	else if (_baseType == Token::VarUintM || _baseType == Token::VarIntM ||
+			_baseType == Token::VaruintM || _baseType == Token::VarintM)
 	{
 		solAssert(_first == 16 || _first == 32, "");
 	}
@@ -193,12 +207,18 @@ std::tuple<Token, unsigned int, unsigned int> fromIdentifierOrKeyword(std::strin
 		int m = parseSize(positionM, positionX);
 		Token keyword = keywordByName(baseType);
 
-
-		if (keyword == Token::VarUint || keyword == Token::VarInt) {
+		if (keyword == Token::VarUint || keyword == Token::VarInt ||
+			keyword == Token::Varuint || keyword == Token::Varint) {
 			if (m == 16 || m == 32) {
 				if (keyword == Token::VarUint)
 					return std::make_tuple(Token::VarUintM, m, 0);
-				return std::make_tuple(Token::VarIntM, m, 0);
+				if (keyword == Token::Varuint)
+					return std::make_tuple(Token::VaruintM, m, 0);
+				if (keyword == Token::VarInt)
+					return std::make_tuple(Token::VarIntM, m, 0);
+				if (keyword == Token::Varint)
+					return std::make_tuple(Token::VarintM, m, 0);
+				solUnimplemented("");
 			}
 		}
 		else if (keyword == Token::Bytes)
@@ -216,6 +236,21 @@ std::tuple<Token, unsigned int, unsigned int> fromIdentifierOrKeyword(std::strin
 				else
 					return std::make_tuple(Token::IntM, m, 0);
 			}
+		}
+		else if (keyword == Token::QUInt || keyword == Token::QInt)
+		{
+			int bitLength = keyword == Token::QUInt ? 256 : 257;
+			if (0 < m && m <= bitLength && positionX == _literal.end())
+			{
+				if (keyword == Token::QUInt)
+					return std::make_tuple(Token::QUIntM, m, 0);
+				else
+					return std::make_tuple(Token::QIntM, m, 0);
+			}
+		}
+		else if (keyword == Token::QBool)
+		{
+			return std::make_tuple(Token::QBool, 0, 0);
 		}
 		else if (keyword == Token::UFixed || keyword == Token::Fixed)
 		{

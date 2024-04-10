@@ -20,15 +20,15 @@
 
 #include <liblangutil/SourceReferenceExtractor.h>
 
-#include "DictOperations.hpp"
-#include "TVMABI.hpp"
-#include "TVMAnalyzer.hpp"
-#include "TVMConstants.hpp"
-#include "TVMExpressionCompiler.hpp"
-#include "TVMFunctionCall.hpp"
-#include "TVMFunctionCompiler.hpp"
-#include "TVMStructCompiler.hpp"
-#include "TVM.hpp"
+#include <libsolidity/codegen/DictOperations.hpp>
+#include <libsolidity/codegen/TVMABI.hpp>
+#include <libsolidity/codegen/TVMAnalyzer.hpp>
+#include <libsolidity/codegen/TVMConstants.hpp>
+#include <libsolidity/codegen/TVMExpressionCompiler.hpp>
+#include <libsolidity/codegen/TVMFunctionCall.hpp>
+#include <libsolidity/codegen/TVMFunctionCompiler.hpp>
+#include <libsolidity/codegen/TVMStructCompiler.hpp>
+#include <libsolidity/codegen/TVM.hpp>
 
 using namespace solidity::frontend;
 using namespace solidity::langutil;
@@ -154,10 +154,6 @@ TVMFunctionCompiler::generateC4ToC7(TVMCompilerContext& ctx) {
 		pusher << "LDU 64       ; pubkey timestamp c4";
 	}
 	pusher << "LDU 1      ; ctor flag";
-	if (pusher.ctx().usage().hasAwaitCall()) {
-		pusher << "LDI 1       ; await flag";
-		pusher.dropUnder(1, 1);
-	}
 
 	pusher.getStack().change(+1); // slice
 	// slice on stack
@@ -170,7 +166,7 @@ TVMFunctionCompiler::generateC4ToC7(TVMCompilerContext& ctx) {
 	const int ss = pusher.stackSize();
 	ChainDataDecoder decoder{&pusher};
 	decoder.decodeData(pusher.ctx().getOffsetC4(),
-					   pusher.ctx().usage().hasAwaitCall() ? 1 : 0,
+					   0,
 					   stateVarTypes);
 
 	int const varQty = stateVarTypes.size();
@@ -222,13 +218,10 @@ Pointer<Function> TVMFunctionCompiler::generateDefaultC4(TVMCompilerContext& ctx
 	if (ctx.storeTimestampInC4())
 		pusher << "STU 64";
 	pusher << "STZERO"; // constructor flag
-	if (ctx.usage().hasAwaitCall()) {
-		pusher << "STZERO";
-	}
 	const std::vector<Type const *>& memberTypes = ctx.c4StateVariableTypes();
 	if (!memberTypes.empty()) {
 		ChainDataEncoder encoder{&pusher};
-		DecodePositionAbiV2 position{ctx.getOffsetC4(), ctx.usage().hasAwaitCall() ? 1 : 0, memberTypes};
+		DecodePositionAbiV2 position{ctx.getOffsetC4(), 0, memberTypes};
 		encoder.encodeParameters(memberTypes, position);
 	}
 	pusher << "ENDC";
@@ -477,10 +470,9 @@ TVMFunctionCompiler::generatePublicFunctionSelector(TVMCompilerContext& ctx, Con
 
 Pointer<Function> TVMFunctionCompiler::generateLibFunctionWithObject(
 	TVMCompilerContext& ctx,
-	FunctionDefinition const* function
+	FunctionDefinition const* function,
+	std::string const& name
 ) {
-	bool const withObject = true;
-	const std::string name = TVMCompilerContext::getLibFunctionName(function, withObject);
 	ctx.setCurrentFunction(function, name);
 	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, 0, function, true, true, 0};
@@ -1774,13 +1766,10 @@ TVMFunctionCompiler::generateMainInternal(TVMCompilerContext& ctx, ContractDefin
 	// stack: int_msg_info
 
 	ContactsUsageScanner const &sc = pusher.ctx().usage();
-	if (sc.hasMsgSender() || sc.hasResponsibleFunction() || sc.hasAwaitCall()) {
+	if (sc.hasMsgSender() || sc.hasResponsibleFunction()) {
 		pusher << "LDU 4       ; bounced tail";
 		pusher << "LDMSGADDR   ; bounced src tail";
 		pusher.drop();
-		if (sc.hasAwaitCall()) {
-			pusher.pushFragmentInCallRef(0, 0, "check_resume");
-		}
 		pusher.setGlob(TvmConst::C7::SenderAddress);
 		pusher << "MODPOW2 1";
 	} else {
@@ -1822,52 +1811,6 @@ TVMFunctionCompiler::generateMainInternal(TVMCompilerContext& ctx, ContractDefin
 	funCompiler.callPublicFunctionOrFallback();
 	ctx.resetCurrentFunction();
 	return createNode<Function>(0, 0, name, nullopt, Function::FunctionType::MainInternal, pusher.getBlock());
-}
-
-Pointer<Function> TVMFunctionCompiler::generateCheckResume(TVMCompilerContext& ctx) {
-	std::string const name = "check_resume";
-	ctx.setCurrentFunction(nullptr, name);
-	StackPusher pusher{&ctx};
-	// TODO: unite check resume and c4_to_c7 for not to parse c4 2 times
-	std::string code = R"(PUSHROOT
-CTOS
-PUSHINT offset
-LDSLICEX  ; beg_slice end_slice
-LDI 1
-SWAP
-PUSHCONT {
-	LDREFRTOS   ; beg_slice end_slice ref_slice
-	XCHG S2     ; ref_slice end beg
-	NEWC
-	STSLICE
-	STZERO
-	STSLICE
-	ENDC
-	POPROOT
-	LDMSGADDR
-	ROTREV
-	SDEQ
-	THROWIFNOT TvmConst::RuntimeException::WrongAwaitAddress
-	LDCONT
-	DROP
-	NIP
-	CALLREF {
-		.inline c4_to_c7
-	}
-	CALLX
-}
-PUSHCONT {
-	DROP2
-}
-IFELSE
-)";
-	solAssert(!ctx.callGraph().tryToAddEdge(ctx.currentFunctionName(), "c4_to_c7"), "");
-	boost::replace_all(code, "TvmConst::RuntimeException::WrongAwaitAddress", toString(TvmConst::RuntimeException::WrongAwaitAddress));
-	boost::replace_all(code, "offset", toString(256 + (pusher.ctx().storeTimestampInC4() ? 64 : 0) + 1));
-	vector<string> lines = split(code);
-	pusher.push(createNode<HardCode>(lines, 0, 0, false));
-	ctx.resetCurrentFunction();
-	return createNode<Function>(0, 0, name, nullopt, Function::FunctionType::Fragment, pusher.getBlock());
 }
 
 bool TVMFunctionCompiler::visit(PlaceholderStatement const &) {

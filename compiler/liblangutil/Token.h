@@ -144,7 +144,6 @@ namespace solidity::langutil
 	K(Anonymous, "anonymous", 0)                                       \
 	K(As, "as", 0)                                                     \
 	K(Assembly, "assembly", 0)                                         \
-	K(Await, "await", 0)                                               \
 	K(Break, "break", 0)                                               \
 	K(Catch, "catch", 0)                                               \
 	K(Constant, "constant", 0)                                         \
@@ -157,7 +156,6 @@ namespace solidity::langutil
 	K(Emit, "emit", 0)                                                 \
 	K(Event, "event", 0)                                               \
 	K(External, "external", 0)                                         \
-	K(ExtMsg, "extMsg", 0)                                             \
 	K(Fallback, "fallback", 0)                                         \
 	K(onBounce, "onBounce", 0)                                         \
 	K(For, "for", 0)                                                   \
@@ -180,6 +178,7 @@ namespace solidity::langutil
 	K(NoStorage, "nostorage", 0)                                       \
 	K(Optional, "optional", 0)                                         \
 	K(TvmVector, "vector", 0)                                          \
+	K(TvmStack, "stack", 0)                                            \
 	K(Override, "override", 0)                                         \
 	K(Payable, "payable", 0)                                           \
 	K(Public, "public", 0)                                             \
@@ -239,6 +238,9 @@ namespace solidity::langutil
 	/* type keywords*/                                                 \
 	K(Int, "int", 0)                                                   \
 	K(UInt, "uint", 0)                                                 \
+	K(QInt, "qint", 0)                                                 \
+	K(QUInt, "quint", 0)                                               \
+    K(QBool, "qbool", 0)                                               \
 	K(Bytes, "bytes", 0)                                               \
 	K(String, "string", 0)                                             \
 	K(Address, "address", 0)                                           \
@@ -246,19 +248,26 @@ namespace solidity::langutil
 	K(TvmCell, "TvmCell", 0)                                           \
 	K(TvmSlice, "TvmSlice", 0)                                         \
 	K(TvmBuilder, "TvmBuilder", 0)                                     \
+	K(StringBuilder, "StringBuilder", 0)                               \
 	K(Variant, "variant", 0)                                           \
 	K(Fixed, "fixed", 0)                                               \
 	K(UFixed, "ufixed", 0)                                             \
 	T(IntM, "intM", 0)                                                 \
 	T(UIntM, "uintM", 0)                                               \
+	T(QIntM, "qintM", 0)                                               \
+	T(QUIntM, "quintM", 0)                                             \
 	T(BytesM, "bytesM", 0)                                             \
 	T(FixedMxN, "fixedMxN", 0)                                         \
 	T(UFixedMxN, "ufixedMxN", 0)                                       \
 	K(VarInt, "varInt", 0)                                             \
+	K(Varint, "varint", 0)                                             \
 	T(VarIntM, "varIntM", 0)                                           \
+	T(VarintM, "varintM", 0)                                           \
 	K(VarUint, "varUint", 0)                                           \
-	K(coins, "coins", 0)                                               \
+	K(Varuint, "varuint", 0)                                           \
 	T(VarUintM, "varUintM", 0)                                         \
+	T(VaruintM, "varuintM", 0)                                         \
+	K(coins, "coins", 0)                                               \
 	T(TypesEnd, nullptr, 0) /* used as type enum end marker */         \
 	\
 	/* Literals */                                                     \
@@ -293,6 +302,7 @@ namespace solidity::langutil
 	K(Mutable, "mutable", 0)                                           \
 	K(NullLiteral, "null", 0)                                          \
 	K(EmptyMap, "emptyMap", 0)                                         \
+	K(TVMNaN, "NaN", 0)                                                \
 	K(Of, "of", 0)                                                     \
 	K(Partial, "partial", 0)                                           \
 	K(Promise, "promise", 0)                                           \
