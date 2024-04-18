@@ -31,7 +31,7 @@
 #include <boost/range/adaptor/reversed.hpp>
 #include <utility>
 
-#include "TvmAst.hpp"
+#include <libsolidity/codegen/TvmAst.hpp>
 
 namespace solidity::frontend {
 
@@ -99,30 +99,39 @@ struct TypeInfo {
 	bool isSigned{};
 	int numBits{};
 	Type::Category category{};
+	bool isQuiet{};
 
 	explicit TypeInfo(const Type* type) {
+		category = type->category();
+		isNumeric = true;
 		if (auto* integerType = to<IntegerType>(type)) {
-			isNumeric = true;
 			isSigned = integerType->isSigned();
 			numBits = int(integerType->numBits());
+		} else if (auto* qintegerType = to<QIntegerType>(type)) {
+			isSigned = qintegerType->asIntegerType()->isSigned();
+			numBits = int(qintegerType->asIntegerType()->numBits());
+			isQuiet = true;
+		} else if (auto* varint = to<VarIntegerType>(type)) {
+			isSigned = varint->asIntegerType().isSigned();
+			numBits = int(varint->asIntegerType().numBits());
 		} else if (to<BoolType>(type)) {
-			isNumeric = true;
 			isSigned = true;
 			numBits = 1;
+		} else if (to<QBoolType>(type)) {
+			isSigned = true;
+			numBits = 1;
+			isQuiet = true;
 		} else if (auto* fixedBytesType = to<FixedBytesType>(type)) {
-			isNumeric = true;
 			isSigned = false;
 			numBits = 8 * static_cast<int>(fixedBytesType->numBytes());
 		} else if (auto enumType = to<EnumType>(type)) {
-			isNumeric = true;
 			isSigned = false;
 			numBits = bitsForEnum(enumType->numberOfMembers());
 		} else if (auto* fp = to<FixedPointType>(type)) {
-			isNumeric = true;
 			isSigned = fp->isSigned();
 			numBits = int(fp->numBits());
-		}
-		category = type->category();
+		} else
+			isNumeric = false;
 	}
 };
 
@@ -157,9 +166,6 @@ getContractFunctionPairs(ContractDefinition const* contract);
 
 bool isSuper(Expression const* expr);
 bool isAddressThis(const FunctionCall* funCall);
-
-// List of all function but constructors with a given name
-std::vector<FunctionDefinition const*> getContractFunctions(ContractDefinition const* contract, const std::string& funcName);
 
 FunctionDefinition const* getSuperFunction(
 	const ContractDefinition* currentContract,
@@ -397,4 +403,6 @@ namespace MathConsts {
 	std::map<int, bigint> const& power10();
 }
 
+bool isFitUselessUnary(Type const* common, Token op);
+bool isFitUseless(Type const* left, Type const* right, Type const* common, Token op);
 } // end solidity::frontend

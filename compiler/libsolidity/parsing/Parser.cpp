@@ -39,7 +39,7 @@
 #include <tuple>
 #include <vector>
 
-#include "libsolidity/codegen/TVMConstants.hpp"
+#include <libsolidity/codegen/TVMConstants.hpp>
 
 using namespace solidity::langutil;
 using namespace std::string_literals;
@@ -260,7 +260,7 @@ ASTPointer<PragmaDirective> Parser::parsePragmaDirective(bool const _finishedPar
 	nodeFactory.markEndPosition();
 	expectToken(Token::Semicolon);
 
-	if (literals.size() >= 3 && (literals[0] == "ton" || literals[0] == "ever"))
+	if (literals.size() >= 3 && (literals[0] == "ton" || literals[0] == "ever" || literals[0] == "tvm"))
 	{
 		parsePragmaVersion(
 			nodeFactory.location(),
@@ -1273,6 +1273,10 @@ ASTPointer<TypeName> Parser::parseTypeName()
 	ASTNodeFactory nodeFactory(*this);
 	ASTPointer<TypeName> type;
 	Token token = m_scanner->currentToken();
+	if (token == Token::VarInt) parserWarning(7184_error, R"("Deprecated. Use "varint".)");
+	if (token == Token::VarUint) parserWarning(1832_error, R"("Deprecated. Use "varuint".)");
+	if (token == Token::VarIntM) parserWarning(4875_error, R"("Deprecated. Use "varintM".)");
+	if (token == Token::VarUintM) parserWarning(8909_error, R"("Deprecated. Use "varuintM".)");
 	if (TokenTraits::isElementaryTypeName(token))
 	{
 		unsigned firstSize;
@@ -1309,6 +1313,8 @@ ASTPointer<TypeName> Parser::parseTypeName()
 		type = parseOptional();
 	else if (token == Token::TvmVector)
 		type = parseTvmVector();
+	else if (token == Token::TvmStack)
+		type = parseTvmStack();
 	else if (token == Token::Identifier)
 		type = parseUserDefinedTypeName();
 	else
@@ -1405,6 +1411,18 @@ ASTPointer<TvmVector> Parser::parseTvmVector()
 	expectToken(Token::RParen);
 	nodeFactory.markEndPosition();
 	return nodeFactory.createNode<TvmVector>(type);
+}
+
+ASTPointer<TvmStack> Parser::parseTvmStack()
+{
+	RecursionGuard recursionGuard(*this);
+	ASTNodeFactory nodeFactory(*this);
+	expectToken(Token::TvmStack);
+	expectToken(Token::LParen);
+	ASTPointer<TypeName> type = parseTypeName();
+	expectToken(Token::RParen);
+	nodeFactory.markEndPosition();
+	return nodeFactory.createNode<TvmStack>(type);
 }
 
 ASTPointer<ParameterList> Parser::parseParameterList(
@@ -1768,8 +1786,7 @@ ASTPointer<EmitStatement> Parser::parseEmitStatement(ASTPointer<ASTString> const
 		eventName,
 		functionCallArguments.arguments,
 		functionCallArguments.parameterNames,
-		functionCallArguments.parameterNameLocations,
-		FunctionCall::Kind::Usual
+		functionCallArguments.parameterNameLocations
 	);
 	// TODO DELETE add optionList.location
 	return nodeFactory.createNode<EmitStatement>(_docString, eventCall, optionList.arguments, optionList.parameterNames);
@@ -1804,8 +1821,7 @@ ASTPointer<RevertStatement> Parser::parseRevertStatement(ASTPointer<ASTString> c
 		errorName,
 		functionCallArguments.arguments,
 		functionCallArguments.parameterNames,
-		functionCallArguments.parameterNameLocations,
-		FunctionCall::Kind::Usual
+		functionCallArguments.parameterNameLocations
 	);
 	return nodeFactory.createNode<RevertStatement>(_docString, errorCall);
 }
@@ -2373,21 +2389,11 @@ ASTPointer<Expression> Parser::parseLeftHandSideExpression(
 			advance();
 			auto functionCallArguments = parseFunctionCallArguments();
 			expectToken(Token::RParen);
-			FunctionCall::Kind kind = FunctionCall::Kind::Usual;
-			auto nextToken = m_scanner->peekNextToken();
-			if (m_scanner->currentToken() == Token::Period && (nextToken == Token::Await || nextToken == Token::ExtMsg))
-			{
-				bool isAwait = m_scanner->peekNextToken() == Token::Await;
-				m_scanner->next();
-				m_scanner->next();
-				kind = isAwait ? FunctionCall::Kind::Await : FunctionCall::Kind::ExtMsg;
-			}
 			nodeFactory.markEndPosition();
 			expression = nodeFactory.createNode<FunctionCall>(
 				expression, functionCallArguments.arguments,
 				functionCallArguments.parameterNames,
-				functionCallArguments.parameterNameLocations,
-				kind
+				functionCallArguments.parameterNameLocations
 			);
 			break;
 		}
@@ -2479,6 +2485,7 @@ ASTPointer<Expression> Parser::parsePrimaryExpression()
 	case Token::FalseLiteral:
 	case Token::NullLiteral:
 	case Token::EmptyMap:
+	case Token::TVMNaN:
 		nodeFactory.markEndPosition();
 		expression = nodeFactory.createNode<Literal>(token, getLiteralAndAdvance());
 		break;
@@ -2606,10 +2613,6 @@ Parser::FunctionCallArguments Parser::parseNamedArguments()
 		if (!first)
 			expectToken(Token::Comma);
 
-		if (m_scanner->currentToken() == Token::ExtMsg) {
-			fatalParserError(3299_error, "\"extMsg\" call option is deprecated, use suffix \".extMsg\".\nFor example: Foo(addr).bar{...}(...).extMsg;\n");
-		}
-
 		auto identifierWithLocation = expectIdentifierWithLocation();
 		// Add name
 		ret.parameterNames.emplace_back(std::move(identifierWithLocation.first));
@@ -2667,6 +2670,7 @@ bool Parser::variableDeclarationStart()
 		currentToken == Token::Mapping ||
 		currentToken == Token::Optional ||
 		currentToken == Token::TvmVector ||
+		currentToken == Token::TvmStack ||
 		currentToken == Token::LBrack ||
 		TokenTraits::isElementaryTypeName(currentToken) ||
 		(currentToken == Token::Function && m_scanner->peekNextToken() == Token::LParen);
@@ -2719,7 +2723,8 @@ Parser::LookAheadInfo Parser::peekStatementType() const
 	Token token(m_scanner->currentToken());
 	bool mightBeTypeName = (TokenTraits::isElementaryTypeName(token) || token == Token::Identifier);
 
-	if (token == Token::Mapping || token == Token::Optional || token == Token::TvmVector || token == Token::Function || token == Token::Var || token == Token::LBrack)
+	if (token == Token::Mapping || token == Token::Optional || token == Token::TvmVector || token == Token::TvmStack ||
+		token == Token::Function || token == Token::Var || token == Token::LBrack)
 		return LookAheadInfo::VariableDeclaration;
 	if (mightBeTypeName)
 	{

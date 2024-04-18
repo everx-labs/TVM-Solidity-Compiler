@@ -24,7 +24,7 @@
 #include <liblangutil/Exceptions.h>
 
 #include <boost/noncopyable.hpp>
-#include "libsolidity/ast/AST.h"
+#include <libsolidity/ast/AST.h>
 
 template <class T>
 using Pointer = std::shared_ptr<T>;

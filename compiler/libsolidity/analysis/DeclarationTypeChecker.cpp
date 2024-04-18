@@ -294,7 +294,16 @@ void DeclarationTypeChecker::endVisit(TvmVector const& _tvmVector)
 		return;
 
 	TypeName const& type = _tvmVector.type();
-	_tvmVector.annotation().type = TypeProvider::tvmtuple(type.annotation().type);
+	_tvmVector.annotation().type = TypeProvider::tvmVector(type.annotation().type);
+}
+
+void DeclarationTypeChecker::endVisit(TvmStack const& _tvmStack)
+{
+	if (_tvmStack.annotation().type)
+		return;
+
+	TypeName const& type = _tvmStack.type();
+	_tvmStack.annotation().type = TypeProvider::tvmStack(type.annotation().type);
 }
 
 void DeclarationTypeChecker::endVisit(ArrayTypeName const& _typeName)
@@ -380,6 +389,12 @@ bool DeclarationTypeChecker::visit(UsingForDirective const& _usingFor)
 		for (ASTPointer<IdentifierPath> const& function: _usingFor.functionsOrLibrary())
 			if (auto functionDefinition = dynamic_cast<FunctionDefinition const*>(function->annotation().referencedDeclaration))
 			{
+				if (functionDefinition->isInlineAssembly())
+					m_errorReporter.typeError(
+						1167_error,
+						function->location(),
+						"Only file-level functions (not assembly) and library functions can be attached to a type in a \"using\" statement."
+					);
 				if (!functionDefinition->isFree() && !(
 					dynamic_cast<ContractDefinition const*>(functionDefinition->scope()) &&
 					dynamic_cast<ContractDefinition const*>(functionDefinition->scope())->isLibrary()

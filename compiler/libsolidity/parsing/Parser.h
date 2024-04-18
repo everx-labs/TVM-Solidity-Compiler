@@ -131,6 +131,7 @@ private:
 	ASTPointer<Mapping> parseMapping();
 	ASTPointer<Optional> parseOptional();
 	ASTPointer<TvmVector> parseTvmVector();
+	ASTPointer<TvmStack> parseTvmStack();
 	ASTPointer<ParameterList> parseParameterList(
 		VarDeclParserOptions const& _options = {},
 		bool _allowEmpty = true

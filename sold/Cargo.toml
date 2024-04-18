@@ -1,7 +1,7 @@
 [package]
 edition = '2021'
 name = 'sold'
-version = '0.73.0'
+version = '0.74.0'
 
 [[bin]]
 name = 'sold'
@@ -11,22 +11,22 @@ path = 'src/main.rs'
 atty = '0.2'
 dunce = '1.0'
 failure = '0.1'
-once_cell = '1.18'
+once_cell = '1.19'
 serde_json = { features = [ 'unbounded_depth' ], version = '1.0' }
 strip-ansi-escapes = '0.2'
-clap = { features = [ 'derive' ], version = '4.3' }
+clap = { features = [ 'derive' ], version = '4.5' }
 serde = { features = [ 'derive' ], version = '1.0' }
-ton_abi = { git = 'https://github.com/tonlabs/ever-abi.git', tag = '2.4.14' }
-ton_block = { git = 'https://github.com/tonlabs/ever-block.git', tag = '1.9.122' }
-ton_types = { git = 'https://github.com/tonlabs/ever-types.git', tag = '2.0.32' }
-ton_labs_assembler = { features = [ 'gosh' ], git = 'https://github.com/tonlabs/ever-assembler.git', tag = '1.4.39' }
+ton_abi = { git = 'https://github.com/tonlabs/ever-abi.git', tag = '2.4.25' }
+ton_block = { git = 'https://github.com/tonlabs/ever-block.git', tag = '1.9.141' }
+ton_types = { git = 'https://github.com/tonlabs/ever-types.git', tag = '2.0.39' }
+ton_labs_assembler = { features = [ 'gosh' ], git = 'https://github.com/tonlabs/ever-assembler.git', tag = '1.4.52' }
 
 [build-dependencies]
 cmake = '0.1'
 
 [dev-dependencies]
 assert_cmd = '2.0'
-predicates = '3.0'
+predicates = '3.1'
 
 [lib]
 name = 'sold_lib'

@@ -79,6 +79,7 @@ public:
 	virtual bool visit(Mapping& _node) { return visitNode(_node); }
 	virtual bool visit(Optional& _node) { return visitNode(_node); }
 	virtual bool visit(TvmVector& _node) { return visitNode(_node); }
+	virtual bool visit(TvmStack& _node) { return visitNode(_node); }
 	virtual bool visit(ArrayTypeName& _node) { return visitNode(_node); }
 	virtual bool visit(FreeInlineAssembly& _node) { return visitNode(_node); }
 	virtual bool visit(Block& _node) { return visitNode(_node); }
@@ -150,6 +151,7 @@ public:
 	virtual void endVisit(Mapping& _node) { endVisitNode(_node); }
 	virtual void endVisit(Optional& _node) { endVisitNode(_node); }
 	virtual void endVisit(TvmVector& _node) { endVisitNode(_node); }
+	virtual void endVisit(TvmStack& _node) { endVisitNode(_node); }
 	virtual void endVisit(ArrayTypeName& _node) { endVisitNode(_node); }
 	virtual void endVisit(FreeInlineAssembly& _node) { endVisitNode(_node); }
 	virtual void endVisit(Block& _node) { endVisitNode(_node); }
@@ -243,6 +245,7 @@ public:
 	virtual bool visit(Mapping const& _node) { return visitNode(_node); }
 	virtual bool visit(Optional const& _node) { return visitNode(_node); }
 	virtual bool visit(TvmVector const& _node) { return visitNode(_node); }
+	virtual bool visit(TvmStack const& _node) { return visitNode(_node); }
 	virtual bool visit(ArrayTypeName const& _node) { return visitNode(_node); }
 	virtual bool visit(Block const& _node) { return visitNode(_node); }
 	virtual bool visit(PlaceholderStatement const& _node) { return visitNode(_node); }
@@ -314,6 +317,7 @@ public:
 	virtual void endVisit(Mapping const& _node) { endVisitNode(_node); }
 	virtual void endVisit(Optional const& _node) { endVisitNode(_node); }
 	virtual void endVisit(TvmVector const& _node) { endVisitNode(_node); }
+	virtual void endVisit(TvmStack const& _node) { endVisitNode(_node); }
 	virtual void endVisit(ArrayTypeName const& _node) { endVisitNode(_node); }
 	virtual void endVisit(Block const& _node) { endVisitNode(_node); }
 	virtual void endVisit(PlaceholderStatement const& _node) { endVisitNode(_node); }

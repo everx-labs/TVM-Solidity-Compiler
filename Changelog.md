@@ -1,3 +1,31 @@
+### 0.74.0 (2024-04-11)
+
+Breaking changes:
+ * Now `int` is alias for `int257`, not for `int256`. That's why `*loadInt*` functions return `int257` and `*storeInt*` functions take `int257`.
+ * Deleted debots supporting.
+ * Now [vector](API.md#vectort) can contain at least 255 elements.
+
+Bugfixes:
+ * Fixed minor bugs in TypeChecker.
+ * Fixed compilation fail when you have private and public functions with the same name in the contract.
+ * Fixed another minor bugs.
+
+Compiler features:
+ * Supported [quiet arithmetic](./API.md#quiet-arithmetic).
+ * Supported [StringBuilder](./API.md#stringbuilder).
+ * Supported [int257](API.md#integers).
+ * Supported [\<vector(T)\>.last()](API.md#vectortlast).
+ * Supported [stack(T)](API.md#stackt).
+ * Supported unary operators (`++`, `--`, `-`, `delete` and `~`) for [varint and varuint](API.md#varint-and-varuint).
+ * Supported [Free function call via object](API.md#free-function-call-via-object).
+
+Other changes:
+ * Renamed some types. Old types are available and marked as deprecated. Renaming:
+   * `varInt` -> `varint` 
+   * `varUint` -> `varuint` 
+   * `varIntM` -> `varintM`
+   * `varUintM` -> `varuintM`
+
 ### 0.73.0 (2024-02-12)
 
 Update compiler frontend (from original version 0.8.17 to 0.8.24). Full changelog can be found [here](./compiler/Changelog.md).
@@ -53,7 +81,7 @@ Other changes:
 
 ### 0.72.0 (2023-10-31)
 
-Use [sold](https://github.com/tonlabs/TON-Solidity-Compiler/tree/master/sold) to compile contracts. If you used `solc`+`tvm_linker`, then use `solc`+[asm](https://github.com/tonlabs/ever-assembler). Generated `*.code` files have some another format.
+Use [sold](https://github.com/tonlabs/TVM-Solidity-Compiler/tree/master/sold) to compile contracts. If you used `solc`+`tvm_linker`, then use `solc`+[asm](https://github.com/tonlabs/ever-assembler). Generated `*.code` files have some another format.
 
 Breaking changes:
  * The conversion for integer type is only allowed when there is at most one change in sign, width or type-category (`int`, `address`, `bytesNN`, etc.). To perform multiple changes, use multiple conversions. See [Solidity v0.8.0 Breaking Changes](https://docs.soliditylang.org/en/v0.8.17/080-breaking-changes.html#new-restrictions). For example, to convert `int8 x;` to `uint` you can use at least two ways: 1) `uint(uint8(x))`, 2) `uint(int(x))`. 
@@ -240,7 +268,7 @@ Compiler features:
 
 ### 0.64.0 (2022-08-18)
 
-Fixed build [sold](https://github.com/tonlabs/TON-Solidity-Compiler/tree/master/sold) for Windows and macOS.
+Fixed build [sold](https://github.com/tonlabs/TVM-Solidity-Compiler/tree/master/sold) for Windows and macOS.
 
 Compiler features:
  * Supported [ABI v2.3](https://github.com/tonlabs/ton-labs-abi/blob/master/docs/ABI_2.3_spec.md).

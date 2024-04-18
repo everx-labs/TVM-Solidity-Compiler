@@ -66,16 +66,12 @@ public:
 	bool hasMsgPubkey() const { return m_hasMsgPubkey; }
 	bool hasMsgSender() const { return m_hasMsgSender; }
 	bool hasResponsibleFunction() const { return m_hasResponsibleFunction; }
-	bool hasAwaitCall() const { return m_hasAwaitCall; }
-	std::set<FunctionDefinition const *> const& awaitFunctions() const { return m_awaitFunctions; }
 
 private:
 	bool m_hasMsgPubkey{};
 	bool m_hasMsgSender{};
 	bool m_hasResponsibleFunction{};
-	bool m_hasAwaitCall{};
 	std::set<Declaration const*> m_usedFunctions;
-	std::set<FunctionDefinition const*> m_awaitFunctions;
 };
 
 template <typename T>

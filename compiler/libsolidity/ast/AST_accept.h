@@ -528,6 +528,24 @@ void TvmVector::accept(ASTConstVisitor& _visitor) const
 	_visitor.endVisit(*this);
 }
 
+void TvmStack::accept(ASTVisitor& _visitor)
+{
+	if (_visitor.visit(*this))
+	{
+		m_type->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
+void TvmStack::accept(ASTConstVisitor& _visitor) const
+{
+	if (_visitor.visit(*this))
+	{
+		m_type->accept(_visitor);
+	}
+	_visitor.endVisit(*this);
+}
+
 void ArrayTypeName::accept(ASTVisitor& _visitor)
 {
 	if (_visitor.visit(*this))

@@ -258,7 +258,8 @@ void ViewPureChecker::endVisit(FunctionCall const& _functionCall)
 			if (ma) {
 				if (auto libFunction = dynamic_cast<FunctionDefinition const *>(ma->annotation().referencedDeclaration)) {
 					DeclarationAnnotation const &da = libFunction->annotation();
-					if (da.contract->isLibrary()) {
+					ContractDefinition const* contract = da.contract;
+					if (contract && contract->isLibrary()) {
 						isLibCall = true;
 						auto t = ma->expression().annotation().type;
 						if (t->category() == Type::Category::TypeType) {
@@ -350,7 +351,6 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::ABI, "encodeBody"},
 			{MagicType::Kind::ABI, "encodeCall"},
 			{MagicType::Kind::ABI, "encodeData"},
-			{MagicType::Kind::ABI, "encodeExtMsg"},
 			{MagicType::Kind::ABI, "encodeIntMsg"},
 			{MagicType::Kind::ABI, "encodeOldDataInit"},
 			{MagicType::Kind::ABI, "encodePacked"},

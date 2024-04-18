@@ -1577,11 +1577,32 @@ class TvmVector: public TypeName
 {
 public:
 	TvmVector(
-			int64_t _id,
-			SourceLocation const& _location,
-			ASTPointer<TypeName> const& _type
+		int64_t _id,
+		SourceLocation const& _location,
+		ASTPointer<TypeName> const& _type
 	):
-			TypeName(_id, _location), m_type(_type) {}
+		TypeName(_id, _location), m_type(_type) {}
+	void accept(ASTVisitor& _visitor) override;
+	void accept(ASTConstVisitor& _visitor) const override;
+
+	TypeName const& type() const { return *m_type.get(); }
+
+private:
+	ASTPointer<TypeName> m_type;
+};
+
+/**
+ * stack(Type)
+ */
+class TvmStack: public TypeName
+{
+public:
+	TvmStack(
+		int64_t _id,
+		SourceLocation const& _location,
+		ASTPointer<TypeName> const& _type
+	):
+		TypeName(_id, _location), m_type(_type) {}
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 
@@ -2307,23 +2328,16 @@ private:
 class FunctionCall: public Expression
 {
 public:
-	enum class Kind {
-		Await,
-		ExtMsg,
-		Usual
-	};
-
 	FunctionCall(
 		int64_t _id,
 		SourceLocation const& _location,
 		ASTPointer<Expression> _expression,
 		std::vector<ASTPointer<Expression>> _arguments,
 		std::vector<ASTPointer<ASTString>> _names,
-		std::vector<SourceLocation> _nameLocations,
-		Kind kind
+		std::vector<SourceLocation> _nameLocations
 	):
 		Expression(_id, _location), m_expression(std::move(_expression)), m_arguments(std::move(_arguments)),
-		   m_names(std::move(_names)), m_nameLocations(std::move(_nameLocations)), m_kind(kind)
+		   m_names(std::move(_names)), m_nameLocations(std::move(_nameLocations))
 	{
 		solAssert(m_nameLocations.size() == m_names.size());
 	}
@@ -2343,15 +2357,12 @@ public:
 	std::vector<SourceLocation> const& nameLocations() const { return m_nameLocations; }
 
 	FunctionCallAnnotation& annotation() const override;
-	bool isAwait() const { return m_kind == Kind::Await; }
-	bool isExtMsg() const { return m_kind == Kind::ExtMsg; }
 
 private:
 	ASTPointer<Expression> m_expression;
 	std::vector<ASTPointer<Expression>> m_arguments;
 	std::vector<ASTPointer<ASTString>> m_names;
 	std::vector<SourceLocation> m_nameLocations;
-	Kind m_kind;
 };
 
 

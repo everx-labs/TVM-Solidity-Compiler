@@ -18,7 +18,7 @@
 
 #include <variant>
 
-#include "TVMCommons.hpp"
+#include <libsolidity/codegen/TVMCommons.hpp>
 
 namespace solidity::frontend {
 

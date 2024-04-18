@@ -18,12 +18,12 @@
 
 #include <libsolidity/ast/TypeProvider.h>
 
-#include "PeepholeOptimizer.hpp"
-#include "StackOpcodeSquasher.hpp"
-#include "TVM.hpp"
-#include "TVMConstants.hpp"
-#include "TVMPusher.hpp"
-#include "TvmAst.hpp"
+#include <libsolidity/codegen/PeepholeOptimizer.hpp>
+#include <libsolidity/codegen/StackOpcodeSquasher.hpp>
+#include <libsolidity/codegen/TVM.hpp>
+#include <libsolidity/codegen/TVMConstants.hpp>
+#include <libsolidity/codegen/TVMPusher.hpp>
+#include <libsolidity/codegen/TvmAst.hpp>
 
 using namespace std;
 using namespace solidity::util;
@@ -911,12 +911,18 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(Pointer<TvmAstNode> 
 	) {
 		return Result{2, gen(cmd2GenOpcode->opcode() + " " + arg(cmd1))};
 	}
+	// PUSHINT 2**N
+	// DIV / MUL
+	// =>
+	// RSHIFT N / LSHIFT N
 	if (is(cmd1, "PUSHINT") &&
 		(is(cmd2, "DIV") || is(cmd2, "MUL"))) {
 		bigint val = pushintValue(cmd1);
 		if (power2Exp().count(val)) {
-			const std::string& newOp = is(cmd2, "DIV") ? "RSHIFT" : "LSHIFT";
-			return Result{2, gen(newOp + " " + toString(power2Exp().at(val)))};
+			std::string const& newOp = is(cmd2, "DIV") ? "RSHIFT" : "LSHIFT";
+			int const n = power2Exp().at(val);
+			if (n > 0)
+				return Result{2, gen(newOp + " " + toString(n))};
 		}
 	}
 	// PUSHINT 2**N

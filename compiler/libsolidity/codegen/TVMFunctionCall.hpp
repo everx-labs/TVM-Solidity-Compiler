@@ -46,11 +46,10 @@ protected:
 	void superFunctionCall(MemberAccess const& _node);
 	void userDefinedValueMethods(MemberAccess const& _node);
 	void addressMethods(MemberAccess const& _node);
-	bool libraryCall(MemberAccess const& ma);
+	bool libraryCall();
 	bool checkTvmABIDeployMethods(Type::Category category);
 	void abiBuildIntMsg();
 	void abiBuildDataInit();
-	void abiBuildExtMsg();
 	void abiDecodeData();
 	int decodeData();
 	int decodeFunctionParams();
@@ -58,7 +57,10 @@ protected:
 	void arrayMethods(MemberAccess const& _node);
 	bool checkForOptionalMethods(MemberAccess const& _node);
 	void builderMethods(MemberAccess const& _node);
-	bool checkForTvmVectorMethods(MemberAccess const& _node, Type::Category category);
+	void qIntOrBoolMethods();
+	void stringBuilderMethods();
+	void tvmVectorMethods();
+	void tvmStackMethods();
 	void cellMethods(MemberAccess const& _node);
 	void integerMethods();
 	void variantMethods(MemberAccess const& _node);
@@ -114,26 +116,8 @@ protected:
 		ContractType const* ct
 	);
 	bool checkRemoteMethodCall(FunctionCall const &_functionCall);
-	void checkExtMsgSend();
 	std::string getDefaultMsgValue();
 	static const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
-	void acceptExprOrPushFunctionId(Expression const* onerrorid);
-	void generateExtInboundMsg(
-		bool addSignature,
-		const Expression * destination,
-		const Expression *pubkey,
-		const Expression *expire,
-		const Expression *time,
-		const Expression *callbackid,
-		const Expression *onerrorid,
-		const Expression *stateInit,
-		const Expression *signBoxHandle,
-		const Expression *abiVer,
-		const Expression *flags,
-		const CallableDeclaration *functionDefinition,
-		const ast_vec<Expression const>& arguments
-	);
-
 
 	void pushArgs(bool reversed = false, bool doConvert = true);
 	void pushArgAndConvert(int index, const std::string& name = "");

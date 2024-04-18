@@ -17,11 +17,11 @@
 #include <libsolidity/ast/TypeProvider.h>
 #include <libsolidity/analysis/TypeChecker.h>
 
-#include "TVMABI.hpp"
-#include "TVMPusher.hpp"
-#include "TVM.hpp"
-#include "TVMConstants.hpp"
-#include "TVMContractCompiler.hpp"
+#include <libsolidity/codegen/TVMABI.hpp>
+#include <libsolidity/codegen/TVMPusher.hpp>
+#include <libsolidity/codegen/TVM.hpp>
+#include <libsolidity/codegen/TVMConstants.hpp>
+#include <libsolidity/codegen/TVMContractCompiler.hpp>
 
 using namespace solidity::frontend;
 using namespace std;
@@ -154,12 +154,6 @@ Json::Value TVMABI::generateABIJson(
 			}
 		}
 
-		for (FunctionDefinition const* fd : ctx.usage().awaitFunctions()) {
-			std::string name = "_await_" + fd->annotation().contract->name() + "_" + fd->name();
-			functions.append(toJson(name, convertArray(fd->returnParameters()), {}));
-		}
-
-
 		root["functions"] = functions;
 	}
 
@@ -191,9 +185,6 @@ Json::Value TVMABI::generateABIJson(
 			offset.emplace_back("_timestamp", "uint64");
 		}
 		offset.emplace_back("_constructorFlag", "bool");
-		if (ctx.usage().hasAwaitCall()) {
-			offset.emplace_back("_await", "optional(cell)");
-		}
 
 		for (const auto& [name, type] : offset) {
 			Json::Value field(Json::objectValue);
@@ -448,9 +439,8 @@ Json::Value TVMABI::setupNameTypeComponents(const string &name, const Type *type
 		if (category == Type::Category::Address || category == Type::Category::Contract) {
 			typeName = "address";
 		} else if (category == Type::Category::VarInteger) {
-			auto varInt = to<VarIntegerType>(type);
-			typeName = varInt->toString(false);
-			boost::algorithm::to_lower(typeName);
+			auto varint = to<VarIntegerType>(type);
+			typeName = varint->toString(false);
 		} else if (auto* fixedBytesType = to<FixedBytesType>(type)) {
 			typeName = "fixedbytes" + toString(fixedBytesType->numBytes());
 		} else if (ti.isNumeric) {

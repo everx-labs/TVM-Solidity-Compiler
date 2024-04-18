@@ -14,8 +14,8 @@
  * Simulator of TVM execution
  */
 
-#include "TVMCommons.hpp"
-#include "TVMSimulator.hpp"
+#include <libsolidity/codegen/TVMCommons.hpp>
+#include <libsolidity/codegen/TVMSimulator.hpp>
 
 using namespace solidity::frontend;
 

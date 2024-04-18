@@ -16,11 +16,11 @@
 
 #include <boost/format.hpp>
 
-#include "TvmAst.hpp"
-#include "TVMCommons.hpp"
-#include "TVMConstants.hpp"
-#include "StackOptimizer.hpp"
-#include "TVMSimulator.hpp"
+#include <libsolidity/codegen/TvmAst.hpp>
+#include <libsolidity/codegen/TVMCommons.hpp>
+#include <libsolidity/codegen/TVMConstants.hpp>
+#include <libsolidity/codegen/StackOptimizer.hpp>
+#include <libsolidity/codegen/TVMSimulator.hpp>
 
 namespace solidity::frontend {
 
@@ -270,27 +270,25 @@ bool StackOptimizer::visit(While &_node) {
 
 bool StackOptimizer::visit(Function &f) {
 	switch (f.type()) {
-		case Function::FunctionType::PrivateFunctionWithObj:
-		case Function::FunctionType::Fragment:
-		case Function::FunctionType::OnCodeUpgrade:
-		case Function::FunctionType::OnTickTock: {
-			if (f.name() != "c7_to_c4_for_await") {
-				for (int iter = 0; iter < TvmConst::IterStackOptQty; ++iter) {
-					m_didSome = false;
-					m_stackSize.clear();
-					initStack(f.take());
-					f.block()->accept(*this);
-					if (!m_didSome)
-						break;
-				}
-			}
-			break;
+	case Function::FunctionType::PrivateFunctionWithObj:
+	case Function::FunctionType::Fragment:
+	case Function::FunctionType::OnCodeUpgrade:
+	case Function::FunctionType::OnTickTock: {
+		for (int iter = 0; iter < TvmConst::IterStackOptQty; ++iter) {
+			m_didSome = false;
+			m_stackSize.clear();
+			initStack(f.take());
+			f.block()->accept(*this);
+			if (!m_didSome)
+				break;
 		}
+		break;
+	}
 
-		case Function::FunctionType::PublicStateVariableGetter:
-		case Function::FunctionType::MainInternal:
-		case Function::FunctionType::MainExternal:
-			break;
+	case Function::FunctionType::PublicStateVariableGetter:
+	case Function::FunctionType::MainInternal:
+	case Function::FunctionType::MainExternal:
+		break;
 	}
 	return false;
 }

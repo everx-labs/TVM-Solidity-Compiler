@@ -21,12 +21,12 @@
 
 #include <liblangutil/Exceptions.h>
 
-#include "TVM.hpp"
-#include "TVMCommons.hpp"
-#include "TVMConstants.hpp"
-#include "TVMPusher.hpp"
-#include "TvmAst.hpp"
-#include "TvmAstVisitor.hpp"
+#include <libsolidity/codegen/TVM.hpp>
+#include <libsolidity/codegen/TVMCommons.hpp>
+#include <libsolidity/codegen/TVMConstants.hpp>
+#include <libsolidity/codegen/TVMPusher.hpp>
+#include <libsolidity/codegen/TvmAst.hpp>
+#include <libsolidity/codegen/TvmAstVisitor.hpp>
 
 using namespace solidity::frontend;
 using namespace std;
@@ -473,8 +473,8 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 	if (*GlobalParams::g_tvmVersion == langutil::TVMVersion::ton())
 		solAssert(!isIn(op, "COPYLEFT", "INITCODEHASH", "MYCODE", "LDCONT", "STCONT"), "");
 
-	auto f = [&](const std::string& pattert) {
-		return op == pattert;
+	auto f = [&](std::string const& pattern) {
+		return op == pattern;
 	};
 
 	auto dictReplaceOrAdd = [&]() {
@@ -531,10 +531,10 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"MYCODE", {0, 1, true}},
 		{"NEWC", {0, 1, true}},
 		{"NEWDICT", {0, 1, true}},
-		{"NIL", {0, 1, true}},
 		{"NOW", {0, 1, true}},
 		{"NULL", {0, 1, true}},
 		{"PUSHINT", {0, 1, true}},
+		{"PUSHNAN", {0, 1, true}},
 		{"RANDSEED", {0, 1, true}},
 		{"RANDU256", {0, 1}},
 		{"STORAGEFEE", {0, 1, true}},
@@ -553,6 +553,7 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"BDEPTH", {1, 1}},
 		{"BINDUMP", {1, 1}},
 		{"BITNOT", {1, 1}}, // pseudo opcode. Alias for NOT
+		{"QBITNOT", {1, 1, true}}, // pseudo opcode. Alias for QNOT
 		{"BITSIZE", {1, 1, true}},
 		{"BLESS", {1, 1}},
 		{"BREFS", {1, 1, true}},
@@ -562,6 +563,7 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"CONFIGOPTPARAM", {1, 1, true}},
 		{"CTOS", {1, 1}},
 		{"DEC", {1, 1}},
+		{"QDEC", {1, 1, true}},
 		{"DICTEMPTY", {1, 1, true}},
 		{"ENDC", {1, 1}},
 		{"EQINT", {1, 1, true}},
@@ -573,23 +575,27 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"HASHSU", {1, 1, true}},
 		{"HEXDUMP", {1, 1}},
 		{"INC", {1, 1}},
+		{"QINC", {1, 1, true}},
 		{"INDEX2", {1, 1}},
 		{"INDEX3", {1, 1}},
 		{"INDEX_EXCEP", {1, 1}},
 		{"INDEX_NOEXCEP", {1, 1, true}},
+		{"ISNAN", {1, 1, true}},
 		{"ISNEG", {1, 1, true}},
 		{"ISNNEG", {1, 1, true}},
 		{"ISNPOS", {1, 1, true}},
 		{"ISNULL", {1, 1, true}},
-		{"ISPOS", {1, 1, true}},
-		{"ISZERO", {1, 1, true}},
+		{"ISPOS", {1, 1, true}}, // TODO GTINT 0 and for another
 		{"LAST", {1, 1}},
 		{"LESSINT", {1, 1, true}},
 		{"MODPOW2", {1, 1}},
+		{"QMODPOW2", {1, 1, true}},
 		{"MULCONST", {1, 1}},
 		{"NEGATE", {1, 1}},
+		{"QNEGATE", {1, 1, true}},
 		{"NEQINT", {1, 1, true}},
 		{"NOT", {1, 1, true}}, // logical not
+		{"QNOT", {1, 1, true}}, // logical not
 		{"PARSEMSGADDR", {1, 1}},
 		{"PLDDICT", {1, 1}},
 		{"PLDI", {1, 1}},
@@ -603,12 +609,15 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"PLDULE4", {1, 1}},
 		{"PLDULE8", {1, 1}},
 		{"POW2", {1, 1}},
+		{"QFITS", {1, 1, true}},
+		{"QUFITS", {1, 1, true}},
 		{"RAND", {1, 1}},
 		{"SBITS", {1, 1, true}},
 		{"SDEMPTY", {1, 1, true}},
 		{"SDEPTH", {1, 1}},
 		{"SEMPTY", {1, 1, true}},
 		{"SGN", {1, 1, true}},
+		{"QSGN", {1, 1, true}},
 		{"SHA256U", {1, 1, true}},
 		{"SREFS", {1, 1, true}},
 		{"STONE", {1, 1}},
@@ -653,7 +662,9 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"SENDRAWMSG", {2, 0}},
 
 		{"ADD", {2, 1}},
+		{"QADD", {2, 1, true}},
 		{"AND", {2, 1, true}},
+		{"QAND", {2, 1, true}},
 		{"CMP", {2, 1, true}},
 		{"DIFF", {2, 1}},
 		{"DIFF_PATCH", {2, 1}},
@@ -666,21 +677,35 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"DIFF_PATCH_ZIPQ", {2, 1, true}},
 		{"DIFF_ZIP", {2, 1}},
 		{"DIV", {2, 1}},
+		{"QDIV", {2, 1, true}},
 		{"DIVC", {2, 1}},
+		{"QDIVC", {2, 1, true}},
 		{"DIVR", {2, 1}},
+		{"QDIVR", {2, 1, true}},
 		{"ENDXC", {2, 1}},
 		{"EQUAL", {2, 1, true}},
+		{"QEQUAL", {2, 1, true}},
 		{"GEQ", {2, 1, true}},
+		{"QGEQ", {2, 1, true}},
 		{"GREATER", {2, 1, true}},
+		{"QGREATER", {2, 1, true}},
 		{"INDEXVAR", {2, 1}}, // only for vector
 		{"LEQ", {2, 1, true}},
+		{"QLEQ", {2, 1, true}},
 		{"LESS", {2, 1, true}},
+		{"QLESS", {2, 1, true}},
 		{"MAX", {2, 1, true}},
+		{"QMAX", {2, 1, true}},
 		{"MIN", {2, 1, true}},
+		{"QMIN", {2, 1, true}},
 		{"MOD", {2, 1}},
+		{"QMOD", {2, 1, true}},
 		{"MUL", {2, 1}},
+		{"QMUL", {2, 1, true}},
 		{"NEQ", {2, 1, true}},
+		{"QNEQ", {2, 1, true}},
 		{"OR", {2, 1, true}},
+		{"QOR", {2, 1, true}},
 		{"PLDIX", {2, 1}},
 		{"PLDREFVAR", {2, 1}},
 		{"PLDSLICEX", {2, 1}},
@@ -717,16 +742,20 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"STVARUINT32", {2, 1}},
 		{"STZEROES", {2, 1}},
 		{"SUB", {2, 1}},
-		{"SUBR", {2, 1}},
+		{"QSUB", {2, 1, true}},
+		{"SUBR", {2, 1}}, // TODO add QSUBR ?
 		{"TPUSH", {2, 1}},
 		{"XOR", {2, 1, true}},
+		{"QXOR", {2, 1, true}},
 
 		{"DIVMOD", {2, 2}},
+		{"QDIVMOD", {2, 2, true}},
 		{"LDIX", {2, 2}},
 		{"LDSAME", {2, 2, true}},
 		{"LDSLICEX", {2, 2}},
 		{"LDUX", {2, 2}},
 		{"MINMAX", {2, 2, true}},
+		{"QMINMAX", {2, 2, true}},
 
 		{"CDATASIZE", {2, 3}},
 		{"SDATASIZE", {2, 3}},
@@ -737,13 +766,17 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"CHKSIGNU", {3, 1}},
 		{"CONDSEL", {3, 1}},
 		{"MULDIV", {3, 1}},
+		{"QMULDIV", {3, 1, true}},
 		{"MULDIVC", {3, 1}},
+		{"QMULDIVC", {3, 1, true}},
 		{"MULDIVR", {3, 1}},
+		{"QMULDIVR", {3, 1, true}},
 		{"SCHKBITREFSQ", {3, 1, true}},
 		{"SCUTFIRST", {3, 1}},
 		{"SETINDEXVAR", {3, 1}},
 		{"SETINDEXVARQ", {3, 1, true}},
 		{"SSKIPFIRST", {3, 1}},
+		{"STIX", {3, 1}},
 		{"STIXR", {3, 1}},
 		{"STSAME", {3, 1}},
 		{"STUX", {3, 1}},
@@ -753,6 +786,7 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"DICTIDEL", {3, 2}},
 		{"DICTUDEL", {3, 2}},
 		{"MULDIVMOD", {3, 2}},
+		{"QMULDIVMOD", {3, 2, true}},
 		{"SPLIT", {3, 2}}
 	};
 
@@ -773,21 +807,18 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 	} else if (f("UNPACKFIRST")) {
 		int ret = boost::lexical_cast<int>(param);
 		opcode = createNode<StackOpcode>(cmd, 1, ret);
-	} else if (f("LSHIFT") || f("RSHIFT")) {
-		if (param.empty()) {
+	} else if (f("LSHIFT") || f("QLSHIFT") || f("RSHIFT") || f("QRSHIFT")) {
+		if (param.empty())
 			opcode = createNode<StackOpcode>(cmd, 2, 1);
-		} else {
+		else
 			opcode = createNode<StackOpcode>(cmd, 1, 1);
-		}
 	} else if (f("MULRSHIFT")) {
-		if (param.empty()) {
+		if (param.empty())
 			opcode = createNode<StackOpcode>(cmd, 3, 1);
-		} else {
+		else
 			opcode = createNode<StackOpcode>(cmd, 2, 1);
-		}
-	} else {
+	} else
 		solUnimplemented("Unknown opcode: " + cmd);
-	}
 	solAssert(opcode != nullptr, "");
 	return opcode;
 }
