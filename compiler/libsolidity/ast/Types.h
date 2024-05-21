@@ -1536,6 +1536,7 @@ public:
         GoshSHA1,
         GoshSHA256,
         GoshKECCAK256,
+		GoshVergrth16,
 	};
 	struct Options
 	{

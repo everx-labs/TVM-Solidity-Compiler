@@ -614,6 +614,8 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
         {"SHA1", {1, 1, true}},
         {"SHA256", {1, 1, true}},
         {"KECCAK256", {1, 1, true}},
+
+		{"VERGRTH16", {3, 1, true}},
 		{"SREFS", {1, 1, true}},
 		{"STONE", {1, 1}},
 		{"STRDUMP", {1, 1}},
@@ -757,7 +759,9 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"DICTIDEL", {3, 2}},
 		{"DICTUDEL", {3, 2}},
 		{"MULDIVMOD", {3, 2}},
-		{"SPLIT", {3, 2}}
+		{"SPLIT", {3, 2}},
+
+		
 	};
 
 	Pointer<StackOpcode> opcode;

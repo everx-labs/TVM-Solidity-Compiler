@@ -376,6 +376,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::Gosh, "unzip"},
 			{MagicType::Kind::Gosh, "zip"},
 			{MagicType::Kind::Gosh, "zipDiff"},
+			{MagicType::Kind::Gosh, "vergrth16"},
             {MagicType::Kind::Gosh, "sha1"},
             {MagicType::Kind::Gosh, "sha256"},
             {MagicType::Kind::Gosh, "keccak256"},

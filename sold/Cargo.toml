@@ -17,10 +17,10 @@ serde_json = { features = [ 'unbounded_depth' ], version = '1.0' }
 strip-ansi-escapes = '0.2'
 clap = { features = [ 'derive' ], version = '4.3' }
 serde = { features = [ 'derive' ], version = '1.0' }
-tvm_abi = { git = 'https://github.com/tvmlabs/tvm-sdk.git', tag = 'rc-1.47.0' }
-tvm_assembler = { git = 'https://github.com/tvmlabs/tvm-sdk.git', tag = 'rc-1.47.0', features = [ 'gosh' ] }
-tvm_block = { git = 'https://github.com/tvmlabs/tvm-sdk.git', tag = 'rc-1.47.0' }
-tvm_types = { git = 'https://github.com/tvmlabs/tvm-sdk.git', tag = 'rc-1.47.0' }
+tvm_abi = { git = 'https://github.com/tvmlabs/tvm-sdk.git', branch='vergrth16' }
+tvm_assembler = { git = 'https://github.com/tvmlabs/tvm-sdk.git', branch='vergrth16', features = [ 'gosh' ] }
+tvm_block = { git = 'https://github.com/tvmlabs/tvm-sdk.git', branch='vergrth16' }
+tvm_types = { git = 'https://github.com/tvmlabs/tvm-sdk.git', branch='vergrth16' }
 
 [build-dependencies]
 cmake = '0.1'

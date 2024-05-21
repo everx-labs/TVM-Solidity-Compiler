@@ -2760,6 +2760,8 @@ void FunctionCallCompiler::goshFunction() {
                 return "SHA256";
             case FunctionType::Kind::GoshKECCAK256:
                 return "KECCAK256";
+			case FunctionType::Kind::GoshVergrth16:
+                return "VERGRTH16";
 			default:
 				solUnimplemented("Unsupported function call");
 		}
