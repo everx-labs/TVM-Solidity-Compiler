@@ -1324,7 +1324,7 @@ void TypeChecker::endVisit(Return const& _return)
 						_return.options().at(i)->location(),
 						"Unknown call option \"" +
 						name +
-						R"(". Valid options are "value", "currencies", "bounce", and "flag".)"
+						R"(". Possible options: "value", "currencies", "bounce", and "flag".)"
 				);
 			} else {
 				Type const* expType = nameToType.at(name);
@@ -2493,19 +2493,15 @@ void TypeChecker::typeCheckABIEncodeFunctions(
 
 FunctionDefinition const*
 TypeChecker::getFunctionDefinition(Expression const* expr) {
-	if (expr->annotation().type->category() != Type::Category::Function) {
+	if (expr->annotation().type->category() != Type::Category::Function)
 		return nullptr;
-	}
+
 	auto identifier = dynamic_cast<Identifier const*>(expr);
 	Declaration const* declaration{};
 	if (identifier)
 		declaration = identifier->annotation().referencedDeclaration;
-	else if (auto member = dynamic_cast<MemberAccess const *>(expr)) {
+	else if (auto member = dynamic_cast<MemberAccess const *>(expr))
 		declaration = member->annotation().referencedDeclaration;
-	}
-	if (declaration == nullptr) {
-		return nullptr;
-	}
 	return dynamic_cast<FunctionDefinition const*>(declaration);
 }
 
@@ -3086,11 +3082,12 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 		};
 		const bool isNewExpression = dynamic_cast<const NewExpression *>(&functionCallOpt->expression()) != nullptr;
 
-		if (isNewExpression) {
-			arr = {"stateInit", "code", "pubkey", "varInit", "splitDepth", "wid", "value", "currencies", "bounce", "flag"};
-		} else {
-			arr = {"value", "currencies", "bounce", "flag", "callback"};
-		}
+		if (isNewExpression)
+			arr = {"code", "pubkey", "varInit", "splitDepth", "wid"};
+		else
+			arr = {"callback"};
+		for (auto const x : {"stateInit", "value", "currencies", "bounce", "flag"})
+			arr.emplace_back(x);
 
 		auto names = functionCallOpt->names();
 		const std::vector<ASTPointer<const Expression>> &options = functionCallOpt->options();
@@ -3101,7 +3098,7 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 					4187_error,
 					functionCallOpt->location(),
 					"Unknown option \"" + name + "\". " +
-					"Valid options are " + fold() + "."
+					"Possible options: " + fold() + "."
 				);
 			}
 			if (name == "pubkey")
@@ -3497,14 +3494,19 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 
 		for (const auto & arg : arguments) {
 			auto t = arg->annotation().type;
-			Type::Category cat = t->mobileType()->category();
-			if (cat != Type::Category::Integer && cat != Type::Category::VarInteger) {
+			auto printError = [&](){
 				m_errorReporter.fatalTypeError(
 					5329_error,
 					arg->location(),
 					"Expected an integer or variable integer type."
 				);
-			}
+			};
+			if (auto mobileType = t->mobileType()) {
+				Type::Category cat = mobileType->category();
+				if (cat != Type::Category::Integer && cat != Type::Category::VarInteger)
+					printError();
+			} else
+				printError();
 		}
 	};
 
@@ -3524,14 +3526,19 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 
 		for (const auto & arg : arguments) {
 			auto t = arg->annotation().type;
-			Type::Category cat = t->mobileType()->category();
-			if (cat != Type::Category::Integer && cat != Type::Category::VarInteger && cat != Type::Category::QInteger) {
+			auto printError = [&](){
 				m_errorReporter.fatalTypeError(
 					5640_error,
 					arg->location(),
 					"Expected an integer, qinteger or variable integer type."
 				);
-			}
+			};
+			if (auto mobileType = t->mobileType()) {
+				Type::Category cat = mobileType->category();
+				if (cat != Type::Category::Integer && cat != Type::Category::VarInteger && cat != Type::Category::QInteger)
+					printError();
+			} else
+				printError();
 		}
 	};
 
@@ -3549,17 +3556,23 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			);
 
 		for (const auto & arg : arguments) {
-			Type::Category cat = arg->annotation().type->mobileType()->category();
-			if (cat != Type::Category::Integer &&
-				cat != Type::Category::QInteger &&
-				cat != Type::Category::FixedPoint &&
-				cat != Type::Category::VarInteger
-			)
+			auto printError = [&](){
 				m_errorReporter.fatalTypeError(
 					5943_error,
 					arg->location(),
 					"Expected integer, qinteger, variable integer or fixed point type."
 				);
+			};
+			if (auto mobileType = arg->annotation().type->mobileType()) {
+				Type::Category cat = mobileType->category();
+				if (cat != Type::Category::Integer &&
+					cat != Type::Category::QInteger &&
+					cat != Type::Category::FixedPoint &&
+					cat != Type::Category::VarInteger
+				)
+					printError();
+			} else
+				printError();
 		}
 	};
 
@@ -3640,10 +3653,9 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			for (size_t i = 0; i < paramTypes.size(); ++i) {
 				const Type *givenType = arguments.at(i)->annotation().type;
 				const Type *expType = paramTypes.at(i);
-				if (!givenType->isImplicitlyConvertibleTo(*expType)) {
+				if (!givenType->isImplicitlyConvertibleTo(*expType))
 					m_errorReporter.typeError(1580_error, arguments.at(i)->location(),
 				  		"Expected " + expType->canonicalName() + " type, but given " + givenType->canonicalName());
-				}
 			}
 		};
 
@@ -3764,58 +3776,48 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			break;
 		}
 		case FunctionType::Kind::ABIDecodeData:
+		case FunctionType::Kind::TVMSliceLoadStateVars:
 		{
-			if (arguments.size() != 2) {
-				m_errorReporter.fatalTypeError(
-					3017_error,
-					_functionCall.location(),
-					std::string("Expected two arguments.")
-				);
+			if (functionType->kind() == FunctionType::Kind::ABIDecodeData)
+			{
+				if (arguments.size() != 2)
+					m_errorReporter.fatalTypeError(
+						3017_error,
+						_functionCall.location(),
+						std::string("Expected two arguments.")
+					);
 			}
+			else if (functionType->kind() == FunctionType::Kind::TVMSliceLoadStateVars)
+			{
+				if (arguments.size() != 1)
+					m_errorReporter.fatalTypeError(
+						5457_error,
+						_functionCall.location(),
+						std::string("Expected one argument.")
+					);
+			}
+			else
+				solUnimplemented("");
+
 			ContractType const* ct = getContractType(arguments.front().get());
-			if (ct == nullptr) {
+			if (ct == nullptr)
 				m_errorReporter.fatalTypeError(
 					8880_error,
 					arguments.front()->location(),
 					"Expected contract type."
 				);
-			}
 
 			std::vector<VariableDeclaration const *> stateVars = ::stateVariables(&ct->contractDefinition(), false);
 			returnTypes.push_back(TypeProvider::uint256()); // pubkey
 			returnTypes.push_back(TypeProvider::uint(64)); // timestamp
-			returnTypes.push_back(TypeProvider::boolean()); // constructor flag
-			for (VariableDeclaration const * v : stateVars) {
+			if (::hasConstructor(ct->contractDefinition()))
+				returnTypes.push_back(TypeProvider::boolean()); // constructor flag
+			for (VariableDeclaration const * v : stateVars)
 				returnTypes.push_back(v->type());
-			}
-			paramTypes.emplace_back(arguments.at(0)->annotation().type);
-			paramTypes.emplace_back(arguments.at(1)->annotation().type);
-			break;
-		}
-		case FunctionType::Kind::TVMSliceLoadStateVars:
-		{
-			if (arguments.size() != 1) {
-				m_errorReporter.fatalTypeError(
-						5457_error,
-						_functionCall.location(),
-						std::string("Expected one argument.")
-				);
-			}
-			ContractType const* ct = getContractType(arguments.front().get());
-			if (ct == nullptr) {
-				m_errorReporter.fatalTypeError(
-						7161_error,
-						arguments.front()->location(), // TODO move
-						"Expected contract type."
-				);
-			}
-
-			std::vector<VariableDeclaration const *> stateVars = ::stateVariables(&ct->contractDefinition(), false);
-			returnTypes.push_back(TypeProvider::uint256()); // pubkey
-			returnTypes.push_back(TypeProvider::uint(64)); // timestamp
-			returnTypes.push_back(TypeProvider::boolean()); // constructor flag
-			for (VariableDeclaration const * v : stateVars) {
-				returnTypes.push_back(v->type());
+			if (functionType->kind() == FunctionType::Kind::ABIDecodeData)
+			{
+				paramTypes.emplace_back(arguments.at(0)->annotation().type);
+				paramTypes.emplace_back(arguments.at(1)->annotation().type);
 			}
 			break;
 		}
@@ -3825,7 +3827,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			if (arguments.empty()) {
 				returnTypes.push_back(TypeProvider::uint256());
 			} else {
-				Type const* result = arguments.at(0)->annotation().type->mobileType();
+				Type const* result = arguments.at(0)->annotation().type->mobileType(); // != null checked
 				paramTypes.push_back(result);
 				returnTypes.push_back(result);
 			}
@@ -3870,6 +3872,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			break;
 		}
 		case FunctionType::Kind::MathMulDiv:
+		case FunctionType::Kind::MathMulMod:
 		case FunctionType::Kind::MathMulDivMod:
 		{
 			checkArgNumAndIsIntOrQintOrVarInt(arguments, 3, std::equal_to<>(), "Expected three arguments.");
@@ -3886,7 +3889,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		case FunctionType::Kind::MathAbs:
 		{
 			checkArgQtyAndIsIntOrQIntOrVarIntOrFixedPoint(arguments, 1, std::equal_to<>(), "Expected one argument.");
-			Type const* argType = arguments.at(0)->annotation().type->mobileType();
+			Type const* argType = arguments.at(0)->annotation().type->mobileType(); // != null checked
 			Type::Category cat = argType->category();
 			paramTypes.push_back(argType);
 
@@ -3946,14 +3949,14 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				);
 			}
 
-			returnTypes.push_back(arguments.at(0)->annotation().type->mobileType());
+			returnTypes.push_back(arguments.at(0)->annotation().type->mobileType()); // != null checked
 			break;
 		}
 		case FunctionType::Kind::MathSign:
 		{
 			checkArgNumAndIsIntOrQintOrVarInt(arguments, 1, std::equal_to<>(), "Expected one argument.");
 			Type const* argType = arguments.at(0)->annotation().type;
-			paramTypes.emplace_back(argType->mobileType());
+			paramTypes.emplace_back(argType->mobileType()); // != null checked
 			if (argType->category() == Type::Category::QInteger)
 				returnTypes.emplace_back(TypeProvider::qInteger(2, IntegerType::Modifier::Signed));
 			else
@@ -4177,15 +4180,13 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			break;
 		}
 		case FunctionType::Kind::SHA256: {
-			if (arguments.size() != 1) {
+			if (arguments.size() != 1)
 				m_errorReporter.fatalTypeError(3449_error, _functionCall.location(), "Expected one argument.");
-			}
 
 			Type const* argType = arguments.at(0)->annotation().type->mobileType();
 			auto arrayType = dynamic_cast<ArrayType const *>(argType);
-			if (!((arrayType && arrayType->isByteArrayOrString()) || dynamic_cast<TvmSliceType const*>(argType))) {
+			if (!((arrayType && arrayType->isByteArrayOrString()) || dynamic_cast<TvmSliceType const*>(argType)))
 				m_errorReporter.fatalTypeError(7972_error, arguments.at(0)->location(), "Expected bytes, string or TvmSlice type.");
-			}
 			paramTypes.push_back(argType);
 			returnTypes.emplace_back(TypeProvider::uint256());
 			break;
@@ -4202,56 +4203,58 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 					paramTypes.push_back(TypeProvider::uint(16));
 			}
 			if (arguments.size() >= 3) {
-				paramTypes.push_back(arguments.at(2)->annotation().type->mobileType());
-			}
-			if (arguments.size() >= 4) {
+                auto mobile = arguments.at(2)->annotation().type->mobileType();
+                if (mobile == nullptr)
+                    m_errorReporter.fatalTypeError(6263_error, arguments.at(2)->location(), "Unexpected type.");
+                paramTypes.push_back(mobile);
+            }
+			if (arguments.size() >= 4)
 				m_errorReporter.typeError(7843_error, _functionCall.location(), "Expected at most 3 arguments.");
-			}
 			checkArgConversion();
 			break;
 		}
 		case FunctionType::Kind::Revert: {
-			if (!arguments.empty()) {
+			if (!arguments.empty())
 				paramTypes.push_back(TypeProvider::uint(16));
-			}
 			if (arguments.size() >= 2) {
-				paramTypes.push_back(arguments.at(1)->annotation().type->mobileType());
-			}
-			if (arguments.size() >= 3) {
+                auto mobile = arguments.at(1)->annotation().type->mobileType();
+                if (mobile == nullptr)
+                    m_errorReporter.fatalTypeError(2671_error, arguments.at(1)->location(), "Unexpected type.");
+                paramTypes.push_back(mobile);
+            }
+			if (arguments.size() >= 3)
 				m_errorReporter.typeError(1683_error, _functionCall.location(), "Expected at most 2 arguments.");
-			}
 			checkArgConversion();
 			break;
 		}
 		case FunctionType::Kind::TVMDump: {
-			if (arguments.size() != 1) {
+			if (arguments.size() != 1)
 				m_errorReporter.typeError(3797_error, _functionCall.location(), "Expected one argument.");
-			}
 			auto type = arguments[0]->annotation().type->mobileType();
-			auto cat = type->category();
-			if (cat != Type::Category::Integer && cat !=Type::Category::TvmCell) {
+			if (!type || (type->category() != Type::Category::Integer && type->category() !=Type::Category::TvmCell))
 				m_errorReporter.fatalTypeError(
 					8093_error,
 					arguments[0]->location(),
 					"Argument must have a TvmCell or integer type."
 				);
-			}
 			paramTypes.push_back(type);
 			break;
 		}
 		case FunctionType::Kind::TVMHash: {
 			if (arguments.size() != 1)
 				m_errorReporter.typeError(1218_error, _functionCall.location(), "Expected one argument.");
-			auto type = arguments[0]->annotation().type->mobileType();
-			auto cat = type->category();
-			if (!isByteArrayOrString(type) && cat != Type::Category::TvmCell && cat != Type::Category::TvmSlice) {
+			auto mobileType = arguments[0]->annotation().type->mobileType();
+			if (!mobileType || (!isByteArrayOrString(mobileType) &&
+								mobileType->category() != Type::Category::TvmCell &&
+								mobileType->category() != Type::Category::TvmSlice)
+			)
 				m_errorReporter.fatalTypeError(
 					5802_error,
 					arguments[0]->location(),
-					"Expected string, bytes, TvmCell or TvmSlice types, but got " + type->toString() + " type."
+					"Expected string, bytes, TvmCell or TvmSlice types, but got " +
+					arguments[0]->annotation().type->toString() + " type."
 				);
-			}
-			paramTypes.push_back(type);
+			paramTypes.push_back(mobileType);
 			returnTypes.push_back(TypeProvider::uint256());
 			break;
 		}
@@ -4436,7 +4439,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 				7867_error,
 				_functionCallOptions.location(),
 				"Unknown option \"" + name + "\". " +
-				"Valid options are " + fold() + "."
+				"Possible options: " + fold() + "."
 			);
 		} else if (name == "pubkey") {
 			setCheckOption(setPubkey, "pubkey", i);
@@ -4654,13 +4657,19 @@ bool TypeChecker::visit(MemberAccess const& _memberAccess)
 		);
 	}
 	else if (possibleMembers.size() > 1)
+	{
+		std::string candidates;
+		for (auto const& candidate : possibleMembers)
+			candidates += "    * " + candidate.type->humanReadableName() + "\n";
 		m_errorReporter.fatalTypeError(
 			6675_error,
 			_memberAccess.location(),
 			"Member \"" + memberName + "\" not unique "
 			"after argument-dependent lookup in " + exprType->humanReadableName() +
-			(memberName == "value" ? " - did you forget the \"payable\" modifier?" : ".")
+			(memberName == "value" ? " - did you forget the \"payable\" modifier?" : ".") +
+			"\nCandidates:\n" + candidates
 		);
+	}
 
 	annotation.referencedDeclaration = possibleMembers.front().declaration;
 	annotation.type = possibleMembers.front().type;

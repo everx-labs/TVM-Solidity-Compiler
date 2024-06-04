@@ -619,7 +619,7 @@ bool ASTJsonExporter::visit(Optional const& _node) {
 
 bool ASTJsonExporter::visit(TvmVector const& _node) {
 	setJsonNode(_node, "vector", {
-		std::make_pair("type", toJson(_node.type())),
+		std::make_pair("types", toJson(_node.types())),
 	});
 	return false;
 }

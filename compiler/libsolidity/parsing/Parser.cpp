@@ -1391,9 +1391,8 @@ ASTPointer<Optional> Parser::parseOptional()
 		ASTPointer<TypeName> cur = parseTypeName();
 		components.emplace_back(std::move(cur));
 		Token token = m_scanner->currentToken();
-		if (token != Token::Comma) {
+		if (token != Token::Comma)
 			break;
-		}
 		expectToken(Token::Comma);
 	}
 	expectToken(Token::RParen);
@@ -1407,10 +1406,18 @@ ASTPointer<TvmVector> Parser::parseTvmVector()
 	ASTNodeFactory nodeFactory(*this);
 	expectToken(Token::TvmVector);
 	expectToken(Token::LParen);
-	ASTPointer<TypeName> type = parseTypeName();
+	std::vector<ASTPointer<TypeName>> components;
+	while (true) {
+		ASTPointer<TypeName> cur = parseTypeName();
+		components.emplace_back(std::move(cur));
+		Token token = m_scanner->currentToken();
+		if (token != Token::Comma)
+			break;
+		expectToken(Token::Comma);
+	}
 	expectToken(Token::RParen);
 	nodeFactory.markEndPosition();
-	return nodeFactory.createNode<TvmVector>(type);
+	return nodeFactory.createNode<TvmVector>(components);
 }
 
 ASTPointer<TvmStack> Parser::parseTvmStack()

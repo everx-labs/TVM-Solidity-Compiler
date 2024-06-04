@@ -207,6 +207,14 @@ bool TVMTypeChecker::visit(const Mapping &_mapping) {
 			}
 		}
 	}
+
+	TypeChecker{langutil::EVMVersion{}, m_errorReporter}.typeCheckTvmEncodeArg(
+		_mapping.valueType().annotation().type,
+		_mapping.valueType().location(),
+		"This type can not be used for mapping value type.",
+		false
+	);
+
 	return true;
 }
 
@@ -548,6 +556,29 @@ bool TVMTypeChecker::visit(MemberAccess const& _memberAccess) {
 	return true;
 }
 
+bool TVMTypeChecker::visit(FunctionCallOptions const& _node) {
+	if (auto memberAccess = to<MemberAccess>(&_node.expression())) {
+		if (FunctionDefinition const* funDef = to<FunctionDefinition>(memberAccess->annotation().referencedDeclaration)) {
+			ContractDefinition const* contract = funDef->annotation().contract;
+			if (contract && ::hasConstructor(*contract)) {
+				std::vector<ASTPointer<Expression const>> options = _node.options();
+				std::vector<ASTPointer<ASTString>> const& names = _node.names();
+				for (std::size_t i = 0; i < options.size(); ++i) {
+					if (*names.at(i) == "stateInit") {
+						m_errorReporter.typeError(
+							1074_error,
+							options.at(i)->location(),
+							SecondarySourceLocation().append("Constructor is here: ", ::hasConstructor(*contract)->location()),
+							"\"stateInit\" option can be used only for contract that does not have a constructor.\n"
+							"Hint: if you want to deploy contact, then deploy via `new ContractName{...}(...);`.");
+					}
+				}
+			}
+		}
+	}
+	return true;
+}
+
 bool TVMTypeChecker::visit(ContractDefinition const& cd) {
 	contractDefinition = &cd;
 	m_inherHelper = std::make_unique<InherHelper>(&cd);
@@ -558,4 +589,24 @@ bool TVMTypeChecker::visit(ContractDefinition const& cd) {
 void TVMTypeChecker::endVisit(ContractDefinition const& ) {
 	contractDefinition = nullptr;
 	m_inherHelper = nullptr;
+}
+
+void TVMTypeChecker::checkMainContract(ContractDefinition const *_mainContract, PragmaDirectiveHelper const& pragmaHelper) {
+	if (_mainContract->canBeDeployed()) {
+		TVMCompilerContext ctx{_mainContract, pragmaHelper};
+		if (!ctx.hasConstructor()) {
+			for (auto const *contr : _mainContract->annotation().linearizedBaseContracts) {
+				for (VariableDeclaration const* stateVar : contr->stateVariables()) {
+					if (!stateVar->isConstant() && stateVar->value()) {
+						m_errorReporter.typeError(
+							1074_error,
+							_mainContract->location(),
+							SecondarySourceLocation().append("Initialization of state variable is here: ", stateVar->value()->location()),
+							"The contract must have a constructor because it has initialization of state variable.\n"
+							"Hint: define a constructor in the contract `constructor() { /*...*/ }`.");
+					}
+				}
+			}
+		}
+	}
 }

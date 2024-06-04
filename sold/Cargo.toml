@@ -1,7 +1,7 @@
 [package]
 edition = '2021'
 name = 'sold'
-version = '0.74.0'
+version = '0.75.0'
 
 [[bin]]
 name = 'sold'
@@ -16,10 +16,9 @@ serde_json = { features = [ 'unbounded_depth' ], version = '1.0' }
 strip-ansi-escapes = '0.2'
 clap = { features = [ 'derive' ], version = '4.5' }
 serde = { features = [ 'derive' ], version = '1.0' }
-ton_abi = { git = 'https://github.com/tonlabs/ever-abi.git', tag = '2.4.25' }
-ton_block = { git = 'https://github.com/tonlabs/ever-block.git', tag = '1.9.141' }
-ton_types = { git = 'https://github.com/tonlabs/ever-types.git', tag = '2.0.39' }
-ton_labs_assembler = { features = [ 'gosh' ], git = 'https://github.com/tonlabs/ever-assembler.git', tag = '1.4.52' }
+ever_abi = { git = 'https://github.com/everx-labs/ever-abi.git', tag = '2.5.6' }
+ever_block = { git = 'https://github.com/everx-labs/ever-block.git', tag = '1.10.4' }
+ever_assembler = { features = [ 'gosh' ], git = 'https://github.com/everx-labs/ever-assembler.git', tag = '1.5.9' }
 
 [build-dependencies]
 cmake = '0.1'
@@ -31,3 +30,18 @@ predicates = '3.1'
 [lib]
 name = 'sold_lib'
 path = 'src/lib.rs'
+
+[patch.'https://github.com/tonlabs/lockfree.git']
+lockfree = { git = 'https://github.com/everx-labs/lockfree.git' }
+
+[patch.'https://github.com/tonlabs/ever-abi.git']
+ever_abi = { git = 'https://github.com/everx-labs/ever-abi.git', tag = '2.5.6' }
+
+[patch.'https://github.com/tonlabs/ever-vm.git']
+ever_vm = { git = 'https://github.com/everx-labs/ever-vm.git', tag = '2.1.9' }
+
+[patch.'https://github.com/tonlabs/ever-block.git']
+ever_block = { git = 'https://github.com/everx-labs/ever-block.git', tag = '1.10.4' }
+
+[patch.'https://github.com/tonlabs/ever-assembler.git']
+ever_assembler = { features = [ 'gosh' ], git = 'https://github.com/everx-labs/ever-assembler.git', tag = '1.5.9' }

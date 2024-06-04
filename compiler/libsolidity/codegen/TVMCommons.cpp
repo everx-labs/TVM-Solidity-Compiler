@@ -80,6 +80,17 @@ FunctionDefinition const* getSuperFunction(
 	return prev;
 }
 
+FunctionDefinition const* hasConstructor(ContractDefinition const& contract) {
+	for (ContractDefinition const* c : getContractsChain(&contract)) {
+		for (const auto f : c->definedFunctions()) {
+			if (f->isConstructor())
+				return f;
+		}
+	}
+	return nullptr;
+}
+
+
 const Type *getType(const VariableDeclaration *var) {
 	return var->annotation().type;
 }
@@ -233,16 +244,6 @@ std::vector<VariableDeclaration const *> stateVariables(ContractDefinition const
 		}
 	}
 	return variableDeclarations;
-}
-
-vector<std::pair<FunctionDefinition const *, ContractDefinition const *>>
-getContractFunctionPairs(ContractDefinition const *contract) {
-	vector<pair<FunctionDefinition const*, ContractDefinition const*>> result;
-	for (ContractDefinition const* c : getContractsChain(contract)) {
-		for (const auto f : c->definedFunctions())
-			result.emplace_back(f, c);
-	}
-	return result;
 }
 
 bool isSuper(Expression const *expr) {
@@ -479,15 +480,32 @@ int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>> const& arr) {
 	return qtyWithoutLoc(arr.begin(), arr.end());
 }
 
-std::string StrUtils::toBitString(bigint value, int bitlen) {
+std::optional<std::string> StrUtils::toBitString(bigint value, int bitlen, bool isSign) {
+	if (bitlen == 0) {
+		if (value == 0)
+			return "";
+		return {};
+	}
+	bigint const one = 1;
+	if (isSign) {
+		bigint p2 = one << (bitlen - 1);
+		if (!(-p2 <= value && value <= p2 - 1))
+			return {};
+	} else {
+		bigint p2 = one << bitlen;
+		if (!(0 <= value && value < p2))
+			return {};
+	}
 	if (value < 0) {
 		value = pow(bigint(2), bitlen) + value;
+		solAssert(value > 0, "");
 	}
 	std::string s;
 	for (int i = 0; i < bitlen; ++i) {
 		s += value % 2 == 0 ? "0" : "1";
 		value /= 2;
 	}
+	solAssert(value == 0, "");
 	std::reverse(s.rbegin(), s.rbegin() + bitlen);
 	return s;
 }
@@ -530,14 +548,14 @@ std::string StrUtils::toBitString(const std::string& slice) {
 						break;
 					}
 				}
-				bitString += StrUtils::toBitString(value, bitLen);
+				bitString += StrUtils::toBitString(value, bitLen, false).value();
 				break;
 			}
 			size_t pos{};
 			auto sss = slice.substr(i, 1);
 			int value = std::stoi(sss, &pos, 16);
 			solAssert(pos == 1, "");
-			bitString += StrUtils::toBitString(value, 4);
+			bitString += StrUtils::toBitString(value, 4, false).value();
 		}
 	} else {
 		if (isIn(slice, "0", "1")) {
@@ -602,7 +620,7 @@ std::string StrUtils::literalToSliceAddress(bigint const& value) {
 	s += "10";
 	s += "0";
 	s += std::string(8, '0');
-	s += StrUtils::toBitString(value);
+	s += StrUtils::toBitString(value, 256, false).value();
 	return s;
 }
 
@@ -613,6 +631,13 @@ bigint StrUtils::toBigint(const std::string& binStr) {
 		if (ch == '1')
 			++res;
 	}
+	return res;
+}
+
+std::optional<bigint> StrUtils::toNegBigint(const std::string& binStr) {
+	if (binStr.at(0) != '1')
+		return {};
+	bigint res = StrUtils::toBigint(binStr) - (bigint(1) << binStr.length());
 	return res;
 }
 

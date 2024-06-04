@@ -89,10 +89,11 @@ public:
 	std::vector<Type const *> c4StateVariableTypes() const;
 	PragmaDirectiveHelper const& pragmaHelper() const;
 	bool isStdlib() const;
-	std::string getFunctionInternalName(FunctionDefinition const* _function, bool calledByPoint = true) const;
-	static std::string getLibFunctionName(FunctionDefinition const* _function, bool withObject) ;
+	std::pair<std::string, uint32_t>
+	functionInternalName(FunctionDefinition const* _function, bool calledByPoint = true) const;
 	static std::string getFunctionExternalName(FunctionDefinition const* _function);
 	const ContractDefinition* getContract() const;
+	bool hasConstructor() const;
 	bool ignoreIntegerOverflow() const;
 	FunctionDefinition const* afterSignatureCheck() const;
 	bool storeTimestampInC4() const;
@@ -265,7 +266,8 @@ public:
 	void pushC7();
 	void popC3();
 	void popC7();
-	void execute(int take, int ret);
+	void callx(int take, int ret);
+	void call(uint32_t id, int take, int ret);
 	void setGlob(int index);
 	void setGlob(VariableDeclaration const * vd);
 	void pushS(int i);

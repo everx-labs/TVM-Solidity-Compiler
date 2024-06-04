@@ -1,3 +1,30 @@
+### 0.75.0 (2024-06-04)
+
+Breaking changes:
+ * If the contract does not have constructor explicitly and does not have state variables with initialisation, then in `*.abi.json` file there is no `constructor` function and no `_constructorFlag` field. See [Deploy the contract with no constructor](API.md#deploy-the-contract-with-no-constructor) for more details.
+
+Bugfixes:
+ * Peephole optimizer generated invalid code. See [issue #153](https://github.com/everx-labs/TVM-Solidity-Compiler/issues/153).
+ * Fixed segmentation fault that occurred in some cases of using incorrect types for `math.*` and some another functions.
+ * Fixed minor bugs in TypeChecker (using bad type for mapping value).
+
+Compiler features:
+ * Supported `stateInit`option for [External function calls](./API.md#external-function-calls).
+ * Supported [math.mulmod()](./API.md#mathmulmod).
+ * Supported functions to work with `TvmSlice`'s:
+   * [\<TvmSlice\>.bitEmpty() and \<TvmSlice\>.refEmpty()](./API.md#tvmsliceempty-tvmslicebitempty-and-tvmslicerefempty)
+   * [\<TvmSlice\>.startsWith()](./API.md#tvmslicestartswith)
+   * [\<TvmSlice\>.startsWithOne()](./API.md#tvmslicestartswithone)
+ * Supported [operations on a pairing friendly BLS12-381 curve](./API.md#bls-namespace).
+
+Usability:
+ * Print function-candidates on compilation failure (for function overloading). 
+
+Optimizations:
+ * 14-bit numbers are used for function ids for private/internal functions for code optimizations instead of 32-bit.
+   32-bit numbers are still used for `onCodeUpgrade` functions for back compatibility. 
+ * peephole optimizations.
+
 ### 0.74.0 (2024-04-11)
 
 Breaking changes:
@@ -31,11 +58,11 @@ Other changes:
 Update compiler frontend (from original version 0.8.17 to 0.8.24). Full changelog can be found [here](./compiler/Changelog.md).
 
 Breaking changes:
- * Supported [ABI 2.4](https://github.com/tonlabs/ever-abi/blob/master/CHANGELOG.md#version-240).
+ * Supported [ABI 2.4](https://github.com/everx-labs/ever-abi/blob/master/CHANGELOG.md#version-240).
  * Deleted `tvm.insertPubkey()` function.
  * Deleted `address.makeAddrNone()` function. Use [address.addrNone](./API.md#addressaddrnone).
  * Default value for `address` type was `address(0)` but now it is [address.addrNone](./API.md#addressaddrnone).
- * `byteN` in `*abi.json` file marked as `fixedbytesN`. See [ABI.md](https://github.com/tonlabs/ever-abi/blob/master/docs/ABI.md#fixedbytesn).
+ * `byteN` in `*abi.json` file marked as `fixedbytesN`. See [ABI.md](https://github.com/everx-labs/ever-abi/blob/master/docs/ABI.md#fixedbytesn).
  * [abi.encodeStateInit()](./API.md#abiencodestateinit), [abi.encodeData()](./API.md#abiencodedata) functions and [Deploy via new](./API.md#deploy-via-new) generate contract's data in the new format. To deploy old contracts (with version < 0.72.0) from new ones (with version >= 0.72.0) use [abi.encodeOldDataInit()](./API.md#abiencodeolddatainit).
  * [format()](API.md#format) no longer throws an exception if formatted value exceeds the specified width. E.g. `format("{:1d}", 10) == "10"` now is correct, no exception.
  * Functions and constructions previously working with `uint128` value, now using `varUint16`:
@@ -81,7 +108,7 @@ Other changes:
 
 ### 0.72.0 (2023-10-31)
 
-Use [sold](https://github.com/tonlabs/TVM-Solidity-Compiler/tree/master/sold) to compile contracts. If you used `solc`+`tvm_linker`, then use `solc`+[asm](https://github.com/tonlabs/ever-assembler). Generated `*.code` files have some another format.
+Use [sold](https://github.com/everx-labs/TVM-Solidity-Compiler/tree/master/sold) to compile contracts. If you used `solc`+`tvm_linker`, then use `solc`+[asm](https://github.com/everx-labs/ever-assembler). Generated `*.code` files have some another format.
 
 Breaking changes:
  * The conversion for integer type is only allowed when there is at most one change in sign, width or type-category (`int`, `address`, `bytesNN`, etc.). To perform multiple changes, use multiple conversions. See [Solidity v0.8.0 Breaking Changes](https://docs.soliditylang.org/en/v0.8.17/080-breaking-changes.html#new-restrictions). For example, to convert `int8 x;` to `uint` you can use at least two ways: 1) `uint(uint8(x))`, 2) `uint(int(x))`. 
@@ -268,10 +295,10 @@ Compiler features:
 
 ### 0.64.0 (2022-08-18)
 
-Fixed build [sold](https://github.com/tonlabs/TVM-Solidity-Compiler/tree/master/sold) for Windows and macOS.
+Fixed build [sold](https://github.com/everx-labs/TVM-Solidity-Compiler/tree/master/sold) for Windows and macOS.
 
 Compiler features:
- * Supported [ABI v2.3](https://github.com/tonlabs/ton-labs-abi/blob/master/docs/ABI_2.3_spec.md).
+ * Supported [ABI v2.3](https://github.com/everx-labs/ever-abi/blob/master/docs/ABI_2.3_spec.md).
  * Supported try-catch (experimental feature).
  * Supported type `variant`.
 
@@ -513,7 +540,7 @@ Compiler features:
  * Added support of `bytes` to `bytesN` conversion.
 
 Support ABI 2.1:
- * Field `fields` appeared in abi file. You can parse state variable. See `tonos-cli decode account --help`.
+ * Field `fields` appeared in abi file. You can parse state variable. See `ever-cli decode account --help`.
  * Supported `string` type in abi.
 
 Bugfixes:

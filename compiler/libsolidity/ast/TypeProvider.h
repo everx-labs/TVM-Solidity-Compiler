@@ -253,7 +253,7 @@ private:
 	static std::array<std::unique_ptr<QIntegerType>, 256> const m_quintM;
 	static std::unique_ptr<QBoolType> const m_qbool;
 	static std::array<std::unique_ptr<FixedBytesType>, 32> const m_bytesM;
-	static std::array<std::unique_ptr<MagicType>, 8> const m_magics;        ///< MagicType's except MetaType
+	static std::array<std::unique_ptr<MagicType>, 9> const m_magics;        ///< MagicType's except MetaType
 
 	std::map<std::pair<unsigned, IntegerType::Modifier>, std::unique_ptr<VarIntegerType>> m_varinterger{};
 	std::map<std::pair<unsigned, unsigned>, std::unique_ptr<FixedPointType>> m_ufixedMxN{};

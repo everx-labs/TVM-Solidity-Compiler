@@ -125,7 +125,7 @@ void TVMExpressionCompiler::visit2(Literal const &_node) {
 		m_pusher.pushNaN();
 		break;
 	case Type::Category::EmptyMap:
-		m_pusher << "NEWDICT";
+		m_pusher << "NULL";
 		break;
 	case Type::Category::StringLiteral:
 		visitStringLiteralAbiV2(_node);
@@ -178,7 +178,7 @@ void TVMExpressionCompiler::visitHonest(TupleExpression const& _tupleExpression,
 	// values...
 	m_pusher.pushInt(0);
 	// values... index
-	m_pusher << "NEWDICT";
+	m_pusher << "NULL";
 	// values... index dict
 	m_pusher.pushInt(n);
 	// values... index dict totalSize
@@ -251,7 +251,7 @@ void TVMExpressionCompiler::visit2(Identifier const &_identifier) {
 	} else if (auto funDecl = to<FunctionDefinition>(_identifier.annotation().referencedDeclaration)) {
 		m_pusher.pushPrivateFunctionId(*funDecl, false);
 	} else {
-		cast_error(_identifier, "Unsupported identifier: " + name);
+		cast_error(_identifier, "Unsupported identifier: " + name + ".");
 	}
 }
 
@@ -878,7 +878,7 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 			"ADDCONST -5",
 			"PICK",
 			"PUSHCONT {",
-			"	NEWDICT",
+			"	NULL",
 			"}",
 			"PUSHCONT {",
 			"	DEPTH",
@@ -1020,7 +1020,7 @@ void TVMExpressionCompiler::visit2(MemberAccess const &_node) {
 		}
 	}
 
-	cast_error(_node, "Not supported");
+	cast_error(_node, "Not supported.");
 }
 
 bool TVMExpressionCompiler::checkForAddressMemberAccess(MemberAccess const &_node, Type::Category category) {
@@ -1146,12 +1146,16 @@ void TVMExpressionCompiler::visit2(IndexAccess const &indexAccess) {
 	} else if (baseType->category() == Type::Category::TvmVector) {
 		acceptExpr(&indexAccess.baseExpression()); // tuple
 		const auto& val = ExprUtils::constValue(*indexAccess.indexExpression());
-		if (val.has_value() && val <= 15) {
+		if (val.has_value() && val <= 15)
 			m_pusher.indexWithExcep(boost::lexical_cast<int>(val.value().str()));
-		} else {
+		else {
 			acceptExpr(indexAccess.indexExpression()); // vector index
 			m_pusher << "INDEXVAR";
 		}
+		auto vectorType = to<TvmVectorType>(indexAccess.baseExpression().annotation().type);
+		auto valueTupleType = to<TupleType>(vectorType->valueType());
+		if (valueTupleType)
+			m_pusher << "UNTUPLE " + toString(valueTupleType->components().size());
 		return;
 	} else if (baseType->category() == Type::Category::FixedBytes) {
 		acceptExpr(&indexAccess.baseExpression()); // integer

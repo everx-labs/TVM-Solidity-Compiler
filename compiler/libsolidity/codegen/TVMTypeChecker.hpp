@@ -16,6 +16,7 @@
 namespace solidity::frontend {
 
 class InherHelper;
+class PragmaDirectiveHelper;
 
 class TVMTypeChecker : public ASTConstVisitor {
 public:
@@ -37,7 +38,10 @@ public:
 	bool visit(FunctionCall const& ) override;
 	bool visit(PragmaDirective const& ) override;
 	bool visit(MemberAccess const& ) override;
-	void endVisit(ContractDefinition const& ) override;
+	bool visit(FunctionCallOptions const& _node) override;
+	void endVisit(ContractDefinition const&) override;
+
+	void checkMainContract(ContractDefinition const *_mainContract, PragmaDirectiveHelper const& pragmaHelper);
 
 private:
 	std::unique_ptr<InherHelper> m_inherHelper;

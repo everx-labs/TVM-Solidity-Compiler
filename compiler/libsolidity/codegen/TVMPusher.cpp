@@ -86,7 +86,8 @@ Pointer<Function> StackPusher::generateC7ToC4() {
 	if (ctx().storeTimestampInC4()) {
 		*this << "STU 64";
 	}
-	*this << "STONE"; // constructor flag
+	if (ctx().hasConstructor())
+		*this << "STSLICECONST 1"; // constructor flag
 	if (!memberTypes.empty()) {
 		ChainDataEncoder encoder{this};
 		DecodePositionAbiV2 position{m_ctx->getOffsetC4(), 0, memberTypes};
@@ -659,8 +660,7 @@ void StackPusher::pushSlice(std::string const& data) {
 }
 
 void StackPusher::pushPrivateFunctionId(FunctionDefinition const& funDef, bool isCalledByPoint) {
-	std::string funName = ctx().getFunctionInternalName(&funDef, isCalledByPoint);
-	uint32_t id = funDef.functionID().has_value() ? funDef.functionID().value() : ChainDataEncoder::toHash256(funName);
+	auto const [funName, id] = ctx().functionInternalName(&funDef, isCalledByPoint);
 	pushInt(id);
 	ctx().callGraph().addPrivateFunction(id, funName);
 }
@@ -990,8 +990,14 @@ void StackPusher::popC7() {
 	m_instructions.back().push_back(opcode);
 }
 
-void StackPusher::execute(int take, int ret) {
-	auto opcode = createNode<StackOpcode>("EXECUTE", take, ret);
+void StackPusher::callx(int take, int ret) {
+	auto opcode = createNode<StackOpcode>("CALLX", take, ret);
+	change(take, ret);
+	m_instructions.back().push_back(opcode);
+}
+
+void StackPusher::call(uint32_t id, int take, int ret) {
+	auto opcode = createNode<StackOpcode>("CALL " + toString(id), take, ret);
 	change(take, ret);
 	m_instructions.back().push_back(opcode);
 }
@@ -1621,13 +1627,18 @@ void StackPusher::pushCallOrCallRef(
 		std::make_pair<int, int>(_functionDef->parameters().size(), _functionDef->returnParameters().size());
 
 	std::string curFunctionName = ctx().currentFunctionName();
-	std::string functionName = ctx().getFunctionInternalName(_functionDef, isCalledByPoint);
+	auto const [functionName, id] = ctx().functionInternalName(_functionDef, isCalledByPoint);
 	if (_functionDef->name() == "onCodeUpgrade" ||
 		m_ctx->callGraph().tryToAddEdge(curFunctionName, functionName) // Does it have a loop?
 	) {
-		pushPrivateFunctionId(*_functionDef, isCalledByPoint);
-		pushC3();
-		execute(take + 2, ret);
+		if (id < (1 << 14)) {
+			ctx().callGraph().addPrivateFunction(id, functionName);
+			call(id, take, ret);
+		} else {
+			pushPrivateFunctionId(*_functionDef, isCalledByPoint);
+			pushC3();
+			callx(take + 2, ret);
+		}
 	} else {
 		pushFragmentInCallRef(take, ret, functionName);
 	}
@@ -2159,29 +2170,34 @@ bool TVMCompilerContext::isStdlib() const {
 	return m_contract->name() == "stdlib";
 }
 
-string TVMCompilerContext::getFunctionInternalName(FunctionDefinition const* _function, bool calledByPoint) const {
-	if (isStdlib())
-		return _function->name();
-
+std::pair<std::string, uint32_t>
+TVMCompilerContext::functionInternalName(FunctionDefinition const* _function, bool calledByPoint) const {
 	std::string functionName;
-	const std::string hexName = _function->externalIdentifierHex();
-	ContractDefinition const* contract = _function->annotation().contract;
-	if (contract && contract->isLibrary())
-		functionName = getLibFunctionName(_function, calledByPoint);
-	else if (calledByPoint && isBaseFunction(_function))
-		functionName = _function->annotation().contract->name() + "_" + _function->name() + "_" + hexName;
-	else if (_function->isFree())
-		functionName = (calledByPoint ? "with_obj_" : "") + _function->name() + "_" + hexName + "_free_internal";
-	else
-		functionName = _function->name() + "_" + hexName + "_internal";
-	return functionName;
-}
+	if (isStdlib()) {
+		functionName = _function->name();
+	} else {
+		const std::string hexName = _function->externalIdentifierHex();
+		ContractDefinition const* contract = _function->annotation().contract;
+		if (contract && contract->isLibrary())
+			functionName = _function->annotation().contract->name() + "_" +
+							   (calledByPoint ? "with_obj_" : "") + _function->name() + "_" + hexName;
+		else if (calledByPoint && isBaseFunction(_function))
+			functionName = _function->annotation().contract->name() + "_" + _function->name() + "_" + hexName;
+		else if (_function->isFree())
+			functionName = (calledByPoint ? "with_obj_" : "") + _function->name() + "_" + hexName + "_free_internal";
+		else
+			functionName = _function->name() + "_" + hexName + "_internal";
+	}
 
-string TVMCompilerContext::getLibFunctionName(FunctionDefinition const* _function, bool withObject) {
-	std::string name = _function->annotation().contract->name() +
-			(withObject ? "_with_obj_" : "_no_obj_") +
-			_function->name() + "_" + _function->externalIdentifierHex();
-	return name;
+	uint32_t id;
+	if (_function->functionID().has_value())
+		id = _function->functionID().value();
+	else {
+		id = ChainDataEncoder::toHash256(functionName);
+		if (_function->name() != "onCodeUpgrade") // to support upgrading old contracts
+			id &= (1 << 14) - 1;
+	}
+	return {functionName, id};
 }
 
 string TVMCompilerContext::getFunctionExternalName(FunctionDefinition const *_function) {
@@ -2198,6 +2214,10 @@ string TVMCompilerContext::getFunctionExternalName(FunctionDefinition const *_fu
 
 const ContractDefinition *TVMCompilerContext::getContract() const {
 	return m_contract;
+}
+
+bool TVMCompilerContext::hasConstructor() const {
+	return ::hasConstructor(*getContract());
 }
 
 bool TVMCompilerContext::ignoreIntegerOverflow() const {
@@ -2226,7 +2246,7 @@ int TVMCompilerContext::getOffsetC4() const {
 	return
 		256 + // pubkey
 		(storeTimestampInC4() ? 64 : 0) +
-		1; // constructor flag
+		(hasConstructor() ? 1 : 0); // constructor flag
 }
 
 std::vector<std::pair<VariableDeclaration const*, int>> TVMCompilerContext::getStaticVariables() const {
@@ -2264,7 +2284,7 @@ bool TVMCompilerContext::isBaseFunction(CallableDeclaration const* d) const {
 
 void StackPusher::pushEmptyArray() {
 	pushInt(0);
-	*this << "NEWDICT";
+	*this << "NULL";
 	*this << "TUPLE 2";
 }
 
@@ -2308,7 +2328,7 @@ void StackPusher::pushDefaultValue(Type const* _type) {
 		pushEmptyArray();
 		break;
 	case Type::Category::Mapping:
-		*this << "NEWDICT";
+		*this << "NULL";
 		break;
 	case Type::Category::Struct: {
 		auto structType = to<StructType>(_type);

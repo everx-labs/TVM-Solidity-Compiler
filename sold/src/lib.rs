@@ -8,8 +8,8 @@ use clap::{ValueEnum, Parser};
 use failure::{bail, format_err};
 use serde::Deserialize;
 
-use ton_types::{Result, Status};
-use ton_labs_assembler::{DbgInfo, Engine, Units};
+use ever_block::{Result, Status};
+use ever_assembler::{DbgInfo, Engine, Units};
 
 mod libsolc;
 mod printer;
@@ -402,7 +402,7 @@ pub fn build(args: Args) -> Status {
         format!("{}/{}", output_dir, output_tvc)
     };
 
-    let bytes = ton_types::write_boc(&output)?;
+    let bytes = ever_block::write_boc(&output)?;
     let mut file = File::create(output_filename)?;
     file.write_all(&bytes)?;
 

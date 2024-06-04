@@ -105,7 +105,7 @@ TVMContractCompiler::generateContractCode(
 	fillInlineFunctions(ctx, contract);
 
 	// generate global constructor which inlines all contract's constructors
-	if (!ctx.isStdlib()) {
+	if (!ctx.isStdlib() && ctx.hasConstructor()) {
 		StackPusher pusher{&ctx};
 		TVMConstructorCompiler compiler(pusher);
 		Pointer<Function> f = compiler.generateConstructors();
@@ -150,8 +150,8 @@ TVMContractCompiler::generateContractCode(
 																				ReasonOfOutboundMessage::RemoteCallInternal);
 					ctx.addPublicFunction(functionId, _function->name());
 				}
-				std::string const functionName = ctx.getFunctionInternalName(_function);
-				functions.emplace_back(TVMFunctionCompiler::generateFunction(ctx, _function, functionName));
+				auto const[functionName, id] = ctx.functionInternalName(_function);
+				functions.emplace_back(TVMFunctionCompiler::generateFunction(ctx, _function, functionName, id));
 			}
 		}
 	}
@@ -200,11 +200,11 @@ TVMContractCompiler::generateContractCode(
 									   "Modifiers for library functions are not supported yet.");
 						}
 						if (!function->parameters().empty()) {
-							const std::string name = TVMCompilerContext::getLibFunctionName(function, true);
+							const std::string name = ctx.functionInternalName(function, true).first;
 							functions.emplace_back(TVMFunctionCompiler::generateLibFunctionWithObject(ctx, function, name));
 						}
-						const std::string name = TVMCompilerContext::getLibFunctionName(function, false);
-						functions.emplace_back(TVMFunctionCompiler::generateFunction(ctx, function, name));
+						auto const [name, id] = ctx.functionInternalName(function, false);
+						functions.emplace_back(TVMFunctionCompiler::generateFunction(ctx, function, name, id));
 					}
 				}
 			}
@@ -220,11 +220,11 @@ TVMContractCompiler::generateContractCode(
 						cast_error(*function->modifiers().at(0).get(),
 								   "Modifiers for free functions are not supported yet.");
 					if (!function->parameters().empty()) {
-						const std::string name = ctx.getFunctionInternalName(function, true);
+						const std::string name = ctx.functionInternalName(function, true).first;
 						functions.emplace_back(TVMFunctionCompiler::generateLibFunctionWithObject(ctx, function, name));
 					}
-					const std::string name = ctx.getFunctionInternalName(function, false);
-					functions.emplace_back(TVMFunctionCompiler::generateFunction(ctx, function, name));
+					auto const [name, id] = ctx.functionInternalName(function, false);
+					functions.emplace_back(TVMFunctionCompiler::generateFunction(ctx, function, name, id));
 				}
 			}
 		}
@@ -306,22 +306,23 @@ void TVMContractCompiler::optimizeCode(Pointer<Contract>& c) {
 	c->accept(lce);
 
 	for (int i = 0; i < 10; ++i) { // TODO
-		PeepholeOptimizer::withBlockPush = false; // TODO
-		PeepholeOptimizer peepHole{false, false, false};
+		PeepholeOptimizer peepHole{{}};
 		c->accept(peepHole);
-		PeepholeOptimizer::withBlockPush = true;
 
 		StackOptimizer opt;
 		c->accept(opt);
 	}
 
-	PeepholeOptimizer peepHole = PeepholeOptimizer{false, false, false};
+	PeepholeOptimizer peepHole = PeepholeOptimizer{{}};
 	c->accept(peepHole);
 
-	peepHole = PeepholeOptimizer{true, false, false}; // TODO provide mask with bits
+	peepHole = PeepholeOptimizer{1 << OptFlags::UnpackOpaque};
 	c->accept(peepHole);
 
-	peepHole = PeepholeOptimizer{true, true, true}; // TODO provide mask with bits
+	peepHole = PeepholeOptimizer{(1 << OptFlags::UnpackOpaque) | (1 << OptFlags::UseCompoundOpcodes)};
+	c->accept(peepHole);
+
+	peepHole = PeepholeOptimizer{(1 << OptFlags::OptimizeSlice) | (1 << OptFlags::UseCompoundOpcodes)};
 	c->accept(peepHole);
 
 	LocSquasher sq = LocSquasher{};

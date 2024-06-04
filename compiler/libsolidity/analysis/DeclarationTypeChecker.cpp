@@ -281,11 +281,10 @@ void DeclarationTypeChecker::endVisit(Optional const& _optional)
 		types.emplace_back(c->annotation().type);
 	}
 
-	if (comp.size() == 1) {
+	if (comp.size() == 1)
 		_optional.annotation().type = TypeProvider::optional(types.at(0));
-	} else {
+	else
 		_optional.annotation().type = TypeProvider::optional(TypeProvider::tuple(types));
-	}
 }
 
 void DeclarationTypeChecker::endVisit(TvmVector const& _tvmVector)
@@ -293,8 +292,16 @@ void DeclarationTypeChecker::endVisit(TvmVector const& _tvmVector)
 	if (_tvmVector.annotation().type)
 		return;
 
-	TypeName const& type = _tvmVector.type();
-	_tvmVector.annotation().type = TypeProvider::tvmVector(type.annotation().type);
+	std::vector<ASTPointer<TypeName>> const& comp = _tvmVector.types();
+	std::vector<Type const*> types;
+	for (const ASTPointer<TypeName>& c : comp) {
+		types.emplace_back(c->annotation().type);
+	}
+
+	if (comp.size() == 1)
+		_tvmVector.annotation().type = TypeProvider::tvmVector(types.at(0));
+	else
+		_tvmVector.annotation().type = TypeProvider::tvmVector(TypeProvider::tuple(types));
 }
 
 void DeclarationTypeChecker::endVisit(TvmStack const& _tvmStack)
