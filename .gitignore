@@ -3,4 +3,4 @@ sold/target/
 target/
 .idea/
 compiler/cmake-build-debug/
-
+.DS_Store
