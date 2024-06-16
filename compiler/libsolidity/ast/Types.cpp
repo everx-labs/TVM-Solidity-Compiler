@@ -3357,6 +3357,7 @@ std::string FunctionType::richIdentifier() const
     case Kind::GoshSHA256: id += "goshsha256"; break;
     case Kind::GoshKECCAK256: id += "goshkeccak256"; break;
 	case Kind::GoshVergrth16: id += "goshvergrth16"; break;
+	case Kind::GoshPoseidonZkLogin: id += "goshposeidonzklogin"; break;
 	}
 	id += "_" + stateMutabilityToString(m_stateMutability);
 	id += identifierList(m_parameterTypes) + "returns" + identifierList(m_returnParameterTypes);
@@ -5199,6 +5200,18 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 				{{}, {}, {}},
 				{{}},
 				FunctionType::Kind::GoshVergrth16,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+		)});
+
+		members.push_back({
+			"poseidonZkLogin",
+			TypeProvider::function(
+				{TypeProvider::bytesMemory(), TypeProvider::stringMemory(), TypeProvider::bytesMemory(), TypeProvider::stringMemory()},
+				{TypeProvider::bytesMemory()},
+				{{}, {}, {}, {}},
+				{{}},
+				FunctionType::Kind::GoshPoseidonZkLogin,
 				StateMutability::Pure,
 				nullptr, FunctionType::Options::withArbitraryParameters()
 		)});
