@@ -1185,23 +1185,14 @@ Json::Value StandardCompiler::compileSolidity(StandardCompiler::InputsAndSetting
 		std::string file = contractName.substr(0, colon);
 		std::string name = contractName.substr(colon + 1);
 
-		// ABI, storage layout, documentation and metadata
 		Json::Value contractData(Json::objectValue);
-		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "abi", wildcardMatchesExperimental))
-			contractData["abi"] = compilerStack.contractABI(contractName);
-		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "assembly", wildcardMatchesExperimental))
-			contractData["assembly"] = compilerStack.contractCode(contractName);
-		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "showFunctionIds", wildcardMatchesExperimental))
-			contractData["functionIds"] = compilerStack.functionIds(contractName);
-		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "showPrivateFunctionIds", wildcardMatchesExperimental))
-			contractData["privateFunctionIds"] = compilerStack.privateFunctionIds(contractName);
-		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "metadata", wildcardMatchesExperimental))
-			contractData["metadata"] = compilerStack.metadata(contractName);
-		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "userdoc", wildcardMatchesExperimental))
-			contractData["userdoc"] = compilerStack.natspecUser(contractName);
-		if (isArtifactRequested(_inputsAndSettings.outputSelection, file, name, "devdoc", wildcardMatchesExperimental))
-			contractData["devdoc"] = compilerStack.natspecDev(contractName);
-
+		contractData["abi"] = compilerStack.contractABI(contractName);
+		contractData["assembly"] = compilerStack.contractCode(contractName);
+		contractData["functionIds"] = compilerStack.functionIds(contractName);
+		contractData["privateFunctionIds"] = compilerStack.privateFunctionIds(contractName);
+		contractData["metadata"] = compilerStack.metadata(contractName);
+		contractData["userdoc"] = compilerStack.natspecUser(contractName);
+		contractData["devdoc"] = compilerStack.natspecDev(contractName);
 		if (!contractData.empty())
 		{
 			if (!contractsOutput.isMember(file))

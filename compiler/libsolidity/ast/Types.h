@@ -193,12 +193,15 @@ public:
 		Magic,
 		Module,
 		InaccessibleDynamic,
-		TvmCell, TvmSlice, TvmBuilder, TvmVector, Variant,
+		TvmCell, TvmSlice, TvmBuilder, StringBuilder, TvmVector, TvmStack, Variant,
 		VarInteger,
+		QInteger,
+		QBool,
 		InitializerList, CallList, // <-- variables of that types can't be declared in solidity contract
 		Optional,
 		Null,
-		EmpyMap
+		EmptyMap,
+		TVMNaN
 	};
 
 	/// @returns a pointer to _a or _b if the other is implicitly convertible to it or nullptr otherwise
@@ -709,6 +712,7 @@ class BoolType: public Type
 {
 public:
 	Category category() const override { return Category::Bool; }
+	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
 	std::string richIdentifier() const override { return "t_bool"; }
 	TypeResult unaryOperatorResult(Token _operator) const override;
 	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
@@ -788,6 +792,32 @@ private:
 };
 
 /**
+ * The TVM Stack type.
+ */
+class TvmStackType: public Type
+{
+public:
+	TvmStackType(Type const* _type):
+		m_type(_type) {}
+
+	Category category() const override { return Category::TvmStack; }
+	bool isValueType() const override { return true; }
+	std::string richIdentifier() const override;
+	TypeResult unaryOperatorResult(Token _operator) const override;
+	std::string toString(bool) const override;
+
+	Type const* encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
+
+	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
+
+	Type const* valueType() const { return m_type; }
+
+private:
+	Type const* m_type;
+};
+
+/**
  * The TVM Slice type.
  */
 class TvmSliceType: public Type
@@ -824,6 +854,25 @@ public:
 };
 
 /**
+ * The StringBuilder type.
+ */
+class StringBuilderType: public Type
+{
+public:
+	Category category() const override { return Category::StringBuilder; }
+	bool isValueType() const override { return true; }
+	std::string richIdentifier() const override { return "t_stringbuilder"; }
+	TypeResult unaryOperatorResult(Token _operator) const override;
+	TypeResult binaryOperatorResult(Token /*_operator*/, Type const* /*_other*/) const override { return nullptr; }
+	std::string toString(bool) const override { return "StringBuilder"; }
+
+	Type const* encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
+
+	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
+};
+
+/**
  * The VarInteger type.
  */
 class VarIntegerType: public Type
@@ -849,6 +898,47 @@ private:
 	IntegerType m_int;
 };
 
+class QIntegerType: public Type
+{
+public:
+	explicit QIntegerType(uint32_t _n, IntegerType::Modifier _modifier) :
+			m_int{std::make_unique<IntegerType>(_n, _modifier)} {}
+	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
+//	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
+	Category category() const override { return Category::QInteger; }
+	bool isValueType() const override { return true; }
+	bool operator==(Type const& _other) const override;
+	std::string richIdentifier() const override { return "t_qinteger"; }
+    TypeResult unaryOperatorResult(Token _operator) const override;
+	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
+	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
+	std::string toString(bool) const override;
+
+	Type const* encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
+	IntegerType const* asIntegerType() const { solAssert(m_int, ""); return m_int.get(); }
+private:
+	std::unique_ptr<IntegerType> m_int;
+};
+
+class QBoolType: public Type
+{
+public:
+	explicit QBoolType() = default;
+	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
+//	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
+	Category category() const override { return Category::QBool; }
+	bool isValueType() const override { return true; }
+	std::string richIdentifier() const override { return "t_qbool"; }
+    TypeResult unaryOperatorResult(Token _operator) const override;
+	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
+	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
+	std::string toString(bool) const override;
+
+	Type const* encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
+};
+
 /**
  * Used for initialization list in deploy via new
  * new MyContract{..., varInit: {m_a: 11, m_b: 22}, ...}(...)
@@ -868,7 +958,7 @@ public:
 
 /**
  * Used for call list in external message creation
- * abi.encodeExtMsg({...,call : {Contract.Func, arg1, arg2} ,...})
+ * abi.encodeIntMsg({...,call : {Contract.Func, arg1, arg2} ,...})
  */
 class CallListType: public Type
 {
@@ -1336,6 +1426,12 @@ public:
 
 		IntCast, ///< int a; a.cast(uint8);
 
+		QGet,
+		QGetOr,
+		QGetOrDefault,
+		QIsNaN,
+		QToOptional,
+
         VariantIsUint,
         VariantToUint,
 
@@ -1379,10 +1475,23 @@ public:
 		TVMBuilderStoreTons, ///< builder.storeTons()
 		TVMBuilderStoreUint, ///< builder.storeUint()
 
-		TVMTuplePush, ///< tuple.push(...)
-		TVMTuplePop, ///< tuple.pop()
-		TVMTupleLength, ///< tuple.length()
-		TVMTupleEmpty, ///< tuple.empty()
+		StringBuilderToString, ///< stringBuilder.toString()
+		StringBuilderAppendByte, /// < stringBuilder.append(bytes1)
+		StringBuilderAppendByteNTimes, /// < stringBuilder.append(bytes1, uint31)
+		StringBuilderAppendString, /// < stringBuilder.append(string)
+
+		TVMVectorEmpty, ///< vector.empty()
+		TVMVectorLast, ///< vector.last()
+		TVMVectorLength, ///< vector.length()
+		TVMVectorPop, ///< vector.pop()
+		TVMVectorPush, ///< vector.push(...)
+
+		TVMStackEmpty, ///< stack.empty()
+		TVMStackPop, ///< stack.pop()
+		TVMStackPush, ///< stack.push(...)
+		TVMStackReverse, ///< stack.reverse()
+		TVMStackSort, ///< stack.sort()
+		TVMStackTop, ///< stack.top()
 
 		ExtraCurrencyCollectionMethods, ///< extraCurrencyCollection.*()
 		KECCAK256, ///< KECCAK256
@@ -1426,8 +1535,32 @@ public:
 		MathMulDivMod, ///< math.muldivmod()
 		MathDivMod, ///< math.divmod()
 		MathSign, ///< math.sign()
+		MathMulMod, ///< math.mulmod()
 
-		ABIBuildExtMsg, ///< abi.encodeExtMsg()
+		BlsVerify, ///< bls.verify()
+		BlsAggregate, ///< bls.aggregate()
+		BlsFastAggregateVerify, ///< bls.fastAggregateVerify()
+		BlsAggregateVerify, ///< bls.aggregateVerify()
+		BlsG1Add,
+		BlsG1Sub,
+		BlsG1Neg,
+		BlsG1Mul,
+		BlsMapToG1,
+		BlsG1IsZero,
+		BlsG1InGroup,
+		BlsG2Add,
+		BlsG2Sub,
+		BlsG2Neg,
+		BlsG2Mul,
+		BlsMapToG2,
+		BlsG2IsZero,
+		BlsG2InGroup,
+		BlsG1Zero,
+		BlsG2Zero,
+		BlsPushR,
+		BlsG1MultiExp,
+		BlsG2MultiExp,
+
 		ABIBuildIntMsg, ///< abi.encodeIntMsg()
 		ABICodeSalt, ///< abi.codeSalt()
 		ABIDecodeData, ///< abi.decodeData(contract_name, slice)
@@ -1446,7 +1579,7 @@ public:
 		TVMCommit, ///< tvm.commit()
 		TVMConfigParam, ///< tvm.configParam()
 		TVMDeploy, ///< functions to deploy contract from contract
-		TVMDump, ///< tvm.xxxdump()
+		TVMDump, ///< tvm.bindump() or tvm.hexdump()
 		TVMExit, ///< tvm.exit()
 		TVMExit1, ///< tvm.exit1()
 		TVMHash, ///< tvm.hash()
@@ -1870,12 +2003,26 @@ public:
 class EmptyMapType: public Type
 {
 public:
-	Category category() const override { return Category::EmpyMap; }
+	Category category() const override { return Category::EmptyMap; }
 	BoolResult isImplicitlyConvertibleTo(Type const& _other) const override;
 	std::string richIdentifier() const override;
 	bool operator==(Type const& _other) const override;
 	std::string toString(bool _short) const override;
 	std::string canonicalName() const override;
+	TypeResult interfaceType(bool) const override { return this; }
+	TypeResult binaryOperatorResult(Token, Type const*) const override { return nullptr; }
+	bool hasSimpleZeroValueInMemory() const override { solAssert(false, ""); }
+};
+
+class NanType: public Type
+{
+public:
+	Category category() const override { return Category::TVMNaN; }
+	BoolResult isImplicitlyConvertibleTo(Type const& _other) const override;
+	std::string richIdentifier() const override;
+	//bool operator==(Type const& _other) const override;
+	std::string toString(bool _short) const override;
+	//std::string canonicalName() const override;
 	TypeResult interfaceType(bool) const override { return this; }
 	TypeResult binaryOperatorResult(Token, Type const*) const override { return nullptr; }
 	bool hasSimpleZeroValueInMemory() const override { solAssert(false, ""); }
@@ -1977,6 +2124,7 @@ public:
 		Math, ///< "math"
 		Rnd, ///< "rnd"
 		Gosh, ///< "gosh"
+		BLS, ///< "bls"
 		MetaType ///< "type(...)"
 	};
 

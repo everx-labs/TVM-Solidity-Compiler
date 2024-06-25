@@ -11,10 +11,10 @@
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
  */
 
-#include "DictOperations.hpp"
-#include "TVMPusher.hpp"
-#include "TVMExpressionCompiler.hpp"
-#include "TVMConstants.hpp"
+#include <libsolidity/codegen/DictOperations.hpp>
+#include <libsolidity/codegen/TVMPusher.hpp>
+#include <libsolidity/codegen/TVMExpressionCompiler.hpp>
+#include <libsolidity/codegen/TVMConstants.hpp>
 
 using namespace solidity;
 using namespace solidity::frontend;
@@ -293,5 +293,5 @@ void DelMinOrMax::delMinOrMax() {
 	// mapLValue... D optPair
 	const int cntOfValuesOnStack = pusher.stackSize() - stackSize;
 	pusher.blockSwap(cntOfValuesOnStack - 1, 1); // optPair mapLValue... map
-	ec->collectLValue(lValueInfo, true, false); // value key
+	ec->collectLValue(lValueInfo, true); // value key
 }

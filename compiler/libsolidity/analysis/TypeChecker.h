@@ -134,7 +134,15 @@ private:
 		FunctionCall const& _functionCall,
 		FunctionTypePointer _functionType
 	);
-	void typeCheckTvmEncodeArg(Type const* type, Expression const& node);
+	struct Result {
+		bool ok{};
+		std::optional<solidity::langutil::SourceLocation> location;
+	};
+	static Result canStoreToBuilder(Type const* type, bool _topType);
+public:
+	void typeCheckTvmEncodeArg(Type const* type, solidity::langutil::SourceLocation const& _location,
+							   std::string const& errMsg, bool isStateVar);
+private:
 	void typeCheckTvmEncodeFunctions(FunctionCall const& _functionCall);
 	static FunctionDefinition const* getFunctionDefinition(Expression const* expr);
 	static std::pair<bool, FunctionDefinition const*> getConstructorDefinition(Expression const* expr);
@@ -148,14 +156,11 @@ private:
 		FunctionCall const& _functionCall,
 		bool ignoreCallBack
 	);
-	void checkBuildExtMsg(FunctionCall const& _functionCall);
 	void checkRemoteAndCallBackFunctions(
 		FunctionDefinition const* calleeDefinition,
 		FunctionDefinition const* callbackFunc,
 		langutil::SourceLocation const& _location
 	);
-	void checkOnErrorId(FunctionDefinition const* errorFunction, langutil::SourceLocation const& _location);
-
 
 	/// Performs checks specific to the ABI encode functions of type ABIEncodeCall
 	void typeCheckABIEncodeCallFunction(FunctionCall const& _functionCall);

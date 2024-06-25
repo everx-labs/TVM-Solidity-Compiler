@@ -14,12 +14,12 @@
  * Struct compiler for TVM
  */
 
-#include "TVMCommons.hpp"
-#include "TVMPusher.hpp"
-#include "TVMStructCompiler.hpp"
-
 #include <utility>
-#include "TVMABI.hpp"
+
+#include <libsolidity/codegen/TVMCommons.hpp>
+#include <libsolidity/codegen/TVMPusher.hpp>
+#include <libsolidity/codegen/TVMStructCompiler.hpp>
+#include <libsolidity/codegen/TVMABI.hpp>
 
 using namespace solidity::frontend;
 using namespace solidity::util;

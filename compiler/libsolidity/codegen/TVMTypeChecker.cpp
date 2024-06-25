@@ -16,11 +16,12 @@
 
 #include <libsolidity/ast/ASTForward.h>
 
-#include "TVM.hpp"
-#include "TVMCommons.hpp"
-#include "TVMPusher.hpp"
-#include "TVMConstants.hpp"
-#include "TVMTypeChecker.hpp"
+#include <libsolidity/codegen/TVM.hpp>
+#include <libsolidity/codegen/TVMCommons.hpp>
+#include <libsolidity/codegen/TVMPusher.hpp>
+#include <libsolidity/codegen/TVMConstants.hpp>
+#include <libsolidity/codegen/TVMTypeChecker.hpp>
+#include <libsolidity/analysis/TypeChecker.h>
 
 using namespace solidity::frontend;
 using namespace solidity::langutil;
@@ -171,9 +172,8 @@ bool TVMTypeChecker::visit(VariableDeclaration const& _variable) {
 		ASTString const& name = _variable.name();
 		if (name == "_pubkey" || name == "_timestamp" || name == "_constructorFlag")
 			m_errorReporter.typeError(7984_error, _variable.location(), "The name \"" + name + "\" is reserved.");
-		Type::Category const category = _variable.type()->category();
-		if (category == Type::Category::TvmSlice || category == Type::Category::TvmVector)
-			m_errorReporter.typeError(9191_error, _variable.location(), "This type can't be used for state variables.");
+		TypeChecker{langutil::EVMVersion{}, m_errorReporter}.typeCheckTvmEncodeArg(_variable.type(), _variable.location(),
+													  "This type can not be used for state variables.", true);
 		if (_variable.isNoStorage() && _variable.isStatic())
 			m_errorReporter.typeError(4161_error, _variable.location(), R"(State variable can not be marked as "nostorage" and "static" simultaneously.)");
 		if (_variable.isNoStorage() && _variable.value())
@@ -207,6 +207,14 @@ bool TVMTypeChecker::visit(const Mapping &_mapping) {
 			}
 		}
 	}
+
+	TypeChecker{langutil::EVMVersion{}, m_errorReporter}.typeCheckTvmEncodeArg(
+		_mapping.valueType().annotation().type,
+		_mapping.valueType().location(),
+		"This type can not be used for mapping value type.",
+		false
+	);
+
 	return true;
 }
 
@@ -250,10 +258,6 @@ bool TVMTypeChecker::visit(const FunctionDefinition &f) {
 		if (!f.isInline()) {
 			m_errorReporter.typeError(8418_error, f.location(), "Should be marked as inline." + s);
 		}
-	}
-
-	if (!f.isFree() && f.isInlineAssembly()) {
-		m_errorReporter.typeError(7229_error, f.location(), "Only free functions can be marked as \"assembly\".");
 	}
 
 	return true;
@@ -358,11 +362,6 @@ void TVMTypeChecker::checkDeprecation(FunctionCall const& _functionCall) {
 				m_errorReporter.warning(4767_error, _functionCall.location(),
 										"\"tvm.functionId()\" is deprecated. Use: \"abi.functionId()\"");
 			break;
-		case FunctionType::Kind::ABIBuildExtMsg:
-			if (kind == MagicType::Kind::TVM)
-				m_errorReporter.warning(9856_error, _functionCall.location(),
-										"\"tvm.buildExtMsg()\" is deprecated. Use: \"abi.encodeExtMsg()\"");
-			break;
 		case FunctionType::Kind::ABIBuildIntMsg:
 			if (kind == MagicType::Kind::TVM)
 				m_errorReporter.warning(4063_error, _functionCall.location(),
@@ -423,16 +422,21 @@ void TVMTypeChecker::checkSupport(FunctionCall const& _functionCall) {
 	default:
 		break;
 	}
-
-	if (_functionCall.isAwait() && *GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-		m_errorReporter.typeError(5601_error, _functionCall.location(),
-								  "\"*.await\"" + isNotSupportedVM);
-	}
 }
 
 bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
 	checkDeprecation(_functionCall);
 	checkSupport(_functionCall);
+
+	auto checkRange = [&](std::optional<bigint> const& value, int limit, SourceLocation const& loc) {
+		if (value.has_value() && value > limit) {
+			m_errorReporter.syntaxError(
+				8365_error,
+				loc,
+				"Too big value. The value must be in the range 0 - " + toString(limit) + "."
+			);
+		}
+	};
 
 	Type const* expressionType = _functionCall.expression().annotation().type;
 	std::vector<ASTPointer<Expression const>> const& arguments = _functionCall.arguments();
@@ -466,21 +470,30 @@ bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
 			}
 			break;
 		}
+		case FunctionType::Kind::TVMBuilderStoreInt: {
+			const auto& value = ExprUtils::constValue(*arguments.at(1));
+			checkRange(value, 257, arguments.at(1)->location());
+			break;
+		}
+		case FunctionType::Kind::TVMBuilderStoreUint: {
+			const auto& value = ExprUtils::constValue(*arguments.at(1));
+			checkRange(value, 256, arguments.at(1)->location());
+			break;
+		}
 		case FunctionType::Kind::TVMSliceLoadInt:
 		case FunctionType::Kind::TVMSliceLoadIntQ:
+		case FunctionType::Kind::TVMSlicePreLoadInt:
+		case FunctionType::Kind::TVMSlicePreLoadIntQ: {
+			const auto& value =  ExprUtils::constValue(*arguments.at(0));
+			checkRange(value, 257, arguments.at(0)->location());
+			break;
+		}
 		case FunctionType::Kind::TVMSliceLoadUint:
 		case FunctionType::Kind::TVMSliceLoadUintQ:
-		case FunctionType::Kind::TVMSlicePreLoadInt:
-		case FunctionType::Kind::TVMSlicePreLoadIntQ:
 		case FunctionType::Kind::TVMSlicePreLoadUint:
 		case FunctionType::Kind::TVMSlicePreLoadUintQ: {
 			const auto& value =  ExprUtils::constValue(*arguments.at(0));
-			if (value.has_value()) {
-				if (value > 256) {
-					m_errorReporter.syntaxError(8838_error, arguments.at(0)->location(),
-											"Too big value. The value must be in the range 0 - 256.");
-				}
-			}
+			checkRange(value, 256, arguments.at(0)->location());
 			break;
 		}
 		default:
@@ -543,17 +556,57 @@ bool TVMTypeChecker::visit(MemberAccess const& _memberAccess) {
 	return true;
 }
 
+bool TVMTypeChecker::visit(FunctionCallOptions const& _node) {
+	if (auto memberAccess = to<MemberAccess>(&_node.expression())) {
+		if (FunctionDefinition const* funDef = to<FunctionDefinition>(memberAccess->annotation().referencedDeclaration)) {
+			ContractDefinition const* contract = funDef->annotation().contract;
+			if (contract && ::hasConstructor(*contract)) {
+				std::vector<ASTPointer<Expression const>> options = _node.options();
+				std::vector<ASTPointer<ASTString>> const& names = _node.names();
+				for (std::size_t i = 0; i < options.size(); ++i) {
+					if (*names.at(i) == "stateInit") {
+						m_errorReporter.typeError(
+							1074_error,
+							options.at(i)->location(),
+							SecondarySourceLocation().append("Constructor is here: ", ::hasConstructor(*contract)->location()),
+							"\"stateInit\" option can be used only for contract that does not have a constructor.\n"
+							"Hint: if you want to deploy contact, then deploy via `new ContractName{...}(...);`.");
+					}
+				}
+			}
+		}
+	}
+	return true;
+}
+
 bool TVMTypeChecker::visit(ContractDefinition const& cd) {
 	contractDefinition = &cd;
-
 	m_inherHelper = std::make_unique<InherHelper>(&cd);
-
 	checkOverrideAndOverload();
-
 	return true;
 }
 
 void TVMTypeChecker::endVisit(ContractDefinition const& ) {
 	contractDefinition = nullptr;
 	m_inherHelper = nullptr;
+}
+
+void TVMTypeChecker::checkMainContract(ContractDefinition const *_mainContract, PragmaDirectiveHelper const& pragmaHelper) {
+	if (_mainContract->canBeDeployed()) {
+		TVMCompilerContext ctx{_mainContract, pragmaHelper};
+		if (!ctx.hasConstructor()) {
+			for (auto const *contr : _mainContract->annotation().linearizedBaseContracts) {
+				for (VariableDeclaration const* stateVar : contr->stateVariables()) {
+					if (!stateVar->isConstant() && stateVar->value()) {
+						m_errorReporter.typeError(
+							1074_error,
+							_mainContract->location(),
+							SecondarySourceLocation().append("Initialization of state variable is here: ", stateVar->value()->location()),
+							"The contract must have a constructor because it has initialization of state variable.\n"
+							"Hint: define a constructor in the contract `constructor() { /*...*/ }`.");
+					}
+				}
+			}
+		}
+	}
 }

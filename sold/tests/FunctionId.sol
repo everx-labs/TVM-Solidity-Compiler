@@ -1,4 +1,4 @@
-pragma ever-solidity >=0.5.0;
+pragma tvm-solidity >=0.5.0;
 
 library Math {
 	function mul(uint a, uint b) public returns (uint) {

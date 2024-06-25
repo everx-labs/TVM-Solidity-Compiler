@@ -44,12 +44,7 @@ int magicVariableToID(std::string const& _name)
 	else if (_name == "blockhash") return -5;
 	else if (_name == "ecrecover") return -6;
 	else if (_name == "gasleft") return -7;
-	else if (_name == "format") return -105;
 	else if (_name == "keccak256") return -8;
-	else if (_name == "logtvm") return -102;
-	else if (_name == "math") return -103;
-	else if (_name == "rnd") return -105;
-	else if (_name == "gosh") return -107;
 	else if (_name == "msg") return -15;
 	else if (_name == "mulmod") return -16;
 	else if (_name == "now") return -17;
@@ -59,9 +54,7 @@ int magicVariableToID(std::string const& _name)
 	else if (_name == "selfdestruct") return -21;
 	else if (_name == "sha256") return -22;
 	else if (_name == "sha3") return -23;
-	else if (_name == "stoi") return -106;
 	else if (_name == "super") return -25;
-	else if (_name == "tvm") return -101;
 	else if (_name == "tx") return -26;
 	else if (_name == "type") return -27;
 	else if (_name == "this") return -28;
@@ -70,6 +63,14 @@ int magicVariableToID(std::string const& _name)
 	else if (_name == "valueToGas") return -61;
 	else if (_name == "bitSize") return -62;
 	else if (_name == "uBitSize") return -63;
+	else if (_name == "tvm") return -101;
+	else if (_name == "logtvm") return -102;
+	else if (_name == "math") return -103;
+	else if (_name == "format") return -104;
+	else if (_name == "rnd") return -105;
+	else if (_name == "stoi") return -106;
+	else if (_name == "gosh") return -107;
+	else if (_name == "bls") return -108;
 	else
 		solAssert(false, "Unknown magic variable: \"" + _name + "\".");
 }
@@ -107,6 +108,7 @@ inline std::vector<std::shared_ptr<MagicVariableDeclaration const>> constructMag
 				FunctionType::Kind::Stoi,
 				StateMutability::Pure)
 				),
+		magicVarDecl("bls", TypeProvider::magic(MagicType::Kind::BLS)),
 		magicVarDecl("tvm", TypeProvider::magic(MagicType::Kind::TVM)),
 		magicVarDecl("tx", TypeProvider::magic(MagicType::Kind::Transaction)),
 		// Accepts a MagicType that can be any contract type or an Integer type and returns a

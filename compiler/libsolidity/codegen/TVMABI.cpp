@@ -17,11 +17,11 @@
 #include <libsolidity/ast/TypeProvider.h>
 #include <libsolidity/analysis/TypeChecker.h>
 
-#include "TVMABI.hpp"
-#include "TVMPusher.hpp"
-#include "TVM.hpp"
-#include "TVMConstants.hpp"
-#include "TVMContractCompiler.hpp"
+#include <libsolidity/codegen/TVMABI.hpp>
+#include <libsolidity/codegen/TVMPusher.hpp>
+#include <libsolidity/codegen/TVM.hpp>
+#include <libsolidity/codegen/TVMConstants.hpp>
+#include <libsolidity/codegen/TVMContractCompiler.hpp>
 
 using namespace solidity::frontend;
 using namespace std;
@@ -36,18 +36,18 @@ Json::Value TVMABI::generateFunctionIdsJson(
 	StackPusher pusher{&ctx};
 	ChainDataEncoder encoder{&pusher};
 	std::vector<const FunctionDefinition *> publicFunctions = TVMABI::publicFunctions(contract);
-	std::map<std::string, uint32_t> map;
+	std::map<std::string, uint32_t> func2id;
 	for (FunctionDefinition const* func : publicFunctions) {
 		uint32_t functionID = encoder.calculateFunctionIDWithReason(
 			func,
 			ReasonOfOutboundMessage::RemoteCallInternal
 		);
 		const std::string name = TVMCompilerContext::getFunctionExternalName(func);
-		map[name] = functionID;
+		func2id[name] = functionID;
 	}
-	if (map.count("constructor") == 0) {
-		map["constructor"] = encoder.calculateConstructorFunctionID();
-	}
+	if (func2id.count("constructor") == 0 && ctx.hasConstructor())
+		func2id["constructor"] = encoder.calculateConstructorFunctionID();
+
 	for (VariableDeclaration const* vd : ctx.c4StateVariables()) {
 		if (vd->isPublic()) {
 			std::vector<VariableDeclaration const*> outputs = {vd};
@@ -59,12 +59,12 @@ Json::Value TVMABI::generateFunctionIdsJson(
 					nullopt,
 					false
 			);
-			map[vd->name()] = functionId;
+			func2id[vd->name()] = functionId;
 		}
 	}
 
 	Json::Value root(Json::objectValue);
-	for (const auto&[func, functionID] : map) {
+	for (const auto&[func, functionID] : func2id) {
 		std::stringstream ss;
 		ss << "0x" << std::hex << std::setfill('0') << std::setw(8) << functionID;
 		root[func] = ss.str();
@@ -135,15 +135,14 @@ Json::Value TVMABI::generateABIJson(
 	{
 		Json::Value functions(Json::arrayValue);
 		for (FunctionDefinition const* f : publicFunctions) {
-			auto fname = TVMCompilerContext::getFunctionExternalName(f);
-			if (used.count(fname)) {
+			auto funcName = TVMCompilerContext::getFunctionExternalName(f);
+			if (used.count(funcName))
 				continue;
-			}
-			used.insert(fname);
-			functions.append(toJson(fname, convertArray(f->parameters()), convertArray(f->returnParameters()), f));
+			used.insert(funcName);
+			functions.append(toJson(funcName, convertArray(f->parameters()), convertArray(f->returnParameters()), f));
 		}
 
-		if (used.count("constructor") == 0) {
+		if (used.count("constructor") == 0 && ctx.hasConstructor()) {
 			functions.append(toJson("constructor", {}, {}, nullptr));
 		}
 
@@ -153,12 +152,6 @@ Json::Value TVMABI::generateABIJson(
 				functions.append(toJson(vd->name(), {}, {vd}));
 			}
 		}
-
-		for (FunctionDefinition const* fd : ctx.usage().awaitFunctions()) {
-			std::string name = "_await_" + fd->annotation().contract->name() + "_" + fd->name();
-			functions.append(toJson(name, convertArray(fd->returnParameters()), {}));
-		}
-
 
 		root["functions"] = functions;
 	}
@@ -187,13 +180,11 @@ Json::Value TVMABI::generateABIJson(
 	{
 		Json::Value fields(Json::arrayValue);
 		std::vector<std::pair<std::string, std::string>> offset{{"_pubkey", "uint256"}};
-		if (ctx.storeTimestampInC4()) {
+		if (ctx.storeTimestampInC4())
 			offset.emplace_back("_timestamp", "uint64");
-		}
-		offset.emplace_back("_constructorFlag", "bool");
-		if (ctx.usage().hasAwaitCall()) {
-			offset.emplace_back("_await", "optional(cell)");
-		}
+
+		if (ctx.hasConstructor())
+			offset.emplace_back("_constructorFlag", "bool");
 
 		for (const auto& [name, type] : offset) {
 			Json::Value field(Json::objectValue);
@@ -448,9 +439,8 @@ Json::Value TVMABI::setupNameTypeComponents(const string &name, const Type *type
 		if (category == Type::Category::Address || category == Type::Category::Contract) {
 			typeName = "address";
 		} else if (category == Type::Category::VarInteger) {
-			auto varInt = to<VarIntegerType>(type);
-			typeName = varInt->toString(false);
-			boost::algorithm::to_lower(typeName);
+			auto varint = to<VarIntegerType>(type);
+			typeName = varint->toString(false);
 		} else if (auto* fixedBytesType = to<FixedBytesType>(type)) {
 			typeName = "fixedbytes" + toString(fixedBytesType->numBytes());
 		} else if (ti.isNumeric) {

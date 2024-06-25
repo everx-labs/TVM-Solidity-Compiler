@@ -14,8 +14,8 @@
  * Simulator of TVM execution
  */
 
-#include "TVMCommons.hpp"
-#include "TVMSimulator.hpp"
+#include <libsolidity/codegen/TVMCommons.hpp>
+#include <libsolidity/codegen/TVMSimulator.hpp>
 
 using namespace solidity::frontend;
 
@@ -132,7 +132,7 @@ bool Simulator::visit(StackOpcode &_node) {
 		m_stackSize += _node.ret() - _node.take();
 		m_commands.emplace_back(_node.shared_from_this());
 	}
-	m_wasCall |= isIn(_node.opcode(), "CALL", "EXECUTE", ".inline");
+	m_wasCall |= isIn(_node.opcode(), "CALL", "CALLX", ".inline");
 	return false;
 }
 

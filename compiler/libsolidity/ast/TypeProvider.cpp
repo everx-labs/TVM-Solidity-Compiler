@@ -31,6 +31,7 @@ EmptyMapType const TypeProvider::m_emptyMapType{};
 TvmCellType const TypeProvider::m_tvmcell{};
 TvmSliceType const TypeProvider::m_tvmslice{};
 TvmBuilderType const TypeProvider::m_tvmbuilder{};
+StringBuilderType const TypeProvider::m_stringBuilder{};
 
 InaccessibleDynamicType const TypeProvider::m_inaccessibleDynamic{};
 
@@ -571,6 +572,529 @@ std::array<std::unique_ptr<IntegerType>, 256> const TypeProvider::m_uintM{{
 	{std::make_unique<IntegerType>(256, IntegerType::Modifier::Unsigned)},
 }};
 
+std::unique_ptr<NanType> const TypeProvider::m_qintNAN = std::make_unique<NanType>();
+
+std::array<std::unique_ptr<QIntegerType>, 257> const TypeProvider::m_qintM{{
+	{std::make_unique<QIntegerType>(1, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(2, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(3, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(4, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(5, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(6, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(7, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(8, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(9, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(10, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(11, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(12, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(13, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(14, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(15, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(16, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(17, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(18, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(19, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(20, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(21, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(22, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(23, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(24, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(25, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(26, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(27, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(28, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(29, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(30, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(31, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(32, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(33, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(34, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(35, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(36, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(37, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(38, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(39, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(40, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(41, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(42, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(43, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(44, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(45, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(46, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(47, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(48, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(49, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(50, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(51, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(52, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(53, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(54, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(55, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(56, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(57, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(58, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(59, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(60, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(61, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(62, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(63, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(64, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(65, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(66, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(67, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(68, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(69, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(70, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(71, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(72, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(73, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(74, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(75, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(76, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(77, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(78, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(79, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(80, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(81, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(82, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(83, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(84, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(85, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(86, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(87, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(88, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(89, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(90, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(91, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(92, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(93, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(94, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(95, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(96, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(97, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(98, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(99, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(100, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(101, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(102, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(103, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(104, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(105, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(106, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(107, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(108, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(109, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(110, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(111, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(112, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(113, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(114, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(115, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(116, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(117, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(118, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(119, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(120, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(121, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(122, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(123, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(124, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(125, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(126, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(127, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(128, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(129, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(130, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(131, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(132, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(133, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(134, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(135, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(136, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(137, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(138, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(139, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(140, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(141, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(142, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(143, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(144, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(145, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(146, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(147, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(148, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(149, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(150, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(151, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(152, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(153, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(154, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(155, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(156, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(157, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(158, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(159, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(160, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(161, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(162, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(163, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(164, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(165, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(166, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(167, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(168, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(169, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(170, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(171, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(172, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(173, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(174, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(175, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(176, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(177, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(178, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(179, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(180, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(181, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(182, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(183, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(184, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(185, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(186, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(187, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(188, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(189, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(190, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(191, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(192, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(193, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(194, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(195, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(196, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(197, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(198, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(199, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(200, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(201, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(202, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(203, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(204, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(205, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(206, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(207, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(208, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(209, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(210, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(211, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(212, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(213, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(214, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(215, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(216, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(217, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(218, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(219, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(220, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(221, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(222, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(223, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(224, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(225, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(226, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(227, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(228, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(229, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(230, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(231, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(232, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(233, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(234, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(235, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(236, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(237, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(238, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(239, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(240, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(241, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(242, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(243, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(244, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(245, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(246, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(247, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(248, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(249, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(250, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(251, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(252, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(253, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(254, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(255, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(256, IntegerType::Modifier::Signed)},
+	{std::make_unique<QIntegerType>(257, IntegerType::Modifier::Signed)},
+}};
+
+std::array<std::unique_ptr<QIntegerType>, 256> const TypeProvider::m_quintM{{
+	{std::make_unique<QIntegerType>(1, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(2, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(3, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(4, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(5, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(6, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(7, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(8, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(9, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(10, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(11, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(12, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(13, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(14, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(15, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(16, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(17, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(18, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(19, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(20, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(21, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(22, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(23, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(24, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(25, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(26, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(27, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(28, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(29, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(30, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(31, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(32, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(33, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(34, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(35, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(36, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(37, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(38, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(39, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(40, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(41, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(42, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(43, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(44, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(45, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(46, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(47, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(48, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(49, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(50, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(51, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(52, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(53, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(54, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(55, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(56, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(57, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(58, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(59, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(60, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(61, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(62, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(63, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(64, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(65, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(66, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(67, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(68, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(69, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(70, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(71, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(72, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(73, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(74, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(75, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(76, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(77, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(78, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(79, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(80, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(81, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(82, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(83, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(84, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(85, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(86, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(87, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(88, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(89, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(90, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(91, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(92, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(93, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(94, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(95, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(96, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(97, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(98, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(99, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(100, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(101, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(102, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(103, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(104, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(105, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(106, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(107, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(108, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(109, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(110, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(111, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(112, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(113, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(114, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(115, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(116, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(117, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(118, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(119, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(120, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(121, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(122, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(123, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(124, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(125, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(126, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(127, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(128, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(129, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(130, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(131, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(132, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(133, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(134, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(135, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(136, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(137, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(138, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(139, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(140, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(141, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(142, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(143, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(144, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(145, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(146, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(147, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(148, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(149, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(150, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(151, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(152, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(153, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(154, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(155, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(156, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(157, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(158, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(159, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(160, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(161, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(162, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(163, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(164, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(165, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(166, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(167, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(168, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(169, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(170, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(171, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(172, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(173, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(174, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(175, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(176, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(177, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(178, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(179, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(180, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(181, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(182, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(183, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(184, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(185, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(186, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(187, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(188, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(189, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(190, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(191, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(192, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(193, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(194, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(195, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(196, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(197, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(198, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(199, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(200, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(201, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(202, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(203, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(204, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(205, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(206, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(207, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(208, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(209, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(210, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(211, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(212, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(213, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(214, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(215, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(216, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(217, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(218, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(219, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(220, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(221, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(222, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(223, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(224, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(225, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(226, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(227, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(228, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(229, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(230, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(231, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(232, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(233, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(234, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(235, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(236, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(237, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(238, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(239, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(240, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(241, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(242, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(243, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(244, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(245, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(246, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(247, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(248, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(249, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(250, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(251, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(252, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(253, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(254, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(255, IntegerType::Modifier::Unsigned)},
+	{std::make_unique<QIntegerType>(256, IntegerType::Modifier::Unsigned)},
+}};
+
+std::unique_ptr<QBoolType> const TypeProvider::m_qbool = std::make_unique<QBoolType>();
+
 std::array<std::unique_ptr<FixedBytesType>, 32> const TypeProvider::m_bytesM{{
 	{std::make_unique<FixedBytesType>(1)},
 	{std::make_unique<FixedBytesType>(2)},
@@ -606,7 +1130,7 @@ std::array<std::unique_ptr<FixedBytesType>, 32> const TypeProvider::m_bytesM{{
 	{std::make_unique<FixedBytesType>(32)}
 }};
 
-std::array<std::unique_ptr<MagicType>, 8> const TypeProvider::m_magics{{
+std::array<std::unique_ptr<MagicType>, 9> const TypeProvider::m_magics{{
 	{std::make_unique<MagicType>(MagicType::Kind::Block)},
 	{std::make_unique<MagicType>(MagicType::Kind::Message)},
 	{std::make_unique<MagicType>(MagicType::Kind::Transaction)},
@@ -614,7 +1138,8 @@ std::array<std::unique_ptr<MagicType>, 8> const TypeProvider::m_magics{{
 	{std::make_unique<MagicType>(MagicType::Kind::TVM)},
 	{std::make_unique<MagicType>(MagicType::Kind::Math)},
 	{std::make_unique<MagicType>(MagicType::Kind::Rnd)},
-	{std::make_unique<MagicType>(MagicType::Kind::Gosh)}
+	{std::make_unique<MagicType>(MagicType::Kind::Gosh)},
+	{std::make_unique<MagicType>(MagicType::Kind::BLS)}
 	// MetaType is stored separately
 }};
 
@@ -659,7 +1184,7 @@ void TypeProvider::reset()
 	instance().m_stringLiteralTypes.clear();
 	instance().m_ufixedMxN.clear();
 	instance().m_fixedMxN.clear();
-	instance().m_varInterger.clear();
+	instance().m_varinterger.clear();
 }
 
 template <typename T, typename... Args>
@@ -682,19 +1207,27 @@ Type const* TypeProvider::fromElementaryTypeName(ElementaryTypeNameToken const& 
 	switch (_type.token())
 	{
 	case Token::VarUint:
-		return varInteger(32, IntegerType::Modifier::Unsigned);
+	case Token::Varuint:
+		return varinteger(32, IntegerType::Modifier::Unsigned);
 	case Token::VarUintM:
-		return varInteger(m, IntegerType::Modifier::Unsigned);
+	case Token::VaruintM:
+		return varinteger(m, IntegerType::Modifier::Unsigned);
 	case Token::coins:
 		return coins();
 	case Token::VarInt:
-		return varInteger(32, IntegerType::Modifier::Signed);
+	case Token::Varint:
+		return varinteger(32, IntegerType::Modifier::Signed);
 	case Token::VarIntM:
-		return varInteger(m, IntegerType::Modifier::Signed);
+	case Token::VarintM:
+		return varinteger(m, IntegerType::Modifier::Signed);
 	case Token::IntM:
 		return integer(m, IntegerType::Modifier::Signed);
 	case Token::UIntM:
 		return integer(m, IntegerType::Modifier::Unsigned);
+	case Token::QIntM:
+		return qInteger(m, IntegerType::Modifier::Signed);
+	case Token::QUIntM:
+		return qInteger(m, IntegerType::Modifier::Unsigned);
 	case Token::Byte:
 		return byte();
 	case Token::BytesM:
@@ -704,9 +1237,15 @@ Type const* TypeProvider::fromElementaryTypeName(ElementaryTypeNameToken const& 
 	case Token::UFixedMxN:
 		return fixedPoint(m, n, FixedPointType::Modifier::Unsigned);
 	case Token::Int:
-		return integer(256, IntegerType::Modifier::Signed);
+		return integer(257, IntegerType::Modifier::Signed);
 	case Token::UInt:
 		return integer(256, IntegerType::Modifier::Unsigned);
+	case Token::QInt:
+		return qInteger(257, IntegerType::Modifier::Signed);
+	case Token::QUInt:
+		return qInteger(256, IntegerType::Modifier::Unsigned);
+	case Token::QBool:
+		return qBool();
 	case Token::Fixed:
 		return fixedPoint(128, 18, FixedPointType::Modifier::Signed);
 	case Token::UFixed:
@@ -721,6 +1260,8 @@ Type const* TypeProvider::fromElementaryTypeName(ElementaryTypeNameToken const& 
 		return tvmslice();
 	case Token::TvmBuilder:
 		return tvmbuilder();
+	case Token::StringBuilder:
+		return stringBuilder();
 	case Token::Bytes:
 		return bytesStorage();
 	case Token::String:
@@ -821,6 +1362,8 @@ Type const* TypeProvider::forLiteral(Literal const& _literal)
 		return nullType();
 	case Token::EmptyMap:
 		return emptyMapType();
+	case Token::TVMNaN:
+		return qIntegerNAN();
 	case Token::Number:
 		return rationalNumber(_literal);
 	case Token::StringLiteral:
@@ -860,8 +1403,8 @@ StringLiteralType const* TypeProvider::stringLiteral(std::string const& literal)
 		return instance().m_stringLiteralTypes.emplace(literal, std::make_unique<StringLiteralType>(literal)).first->second.get();
 }
 
-VarIntegerType const* TypeProvider::varInteger(unsigned m, IntegerType::Modifier _modifier) {
-	auto& map = instance().m_varInterger;
+VarIntegerType const* TypeProvider::varinteger(unsigned m, IntegerType::Modifier _modifier) {
+	auto& map = instance().m_varinterger;
 	auto i = map.find(std::make_pair(m, _modifier));
 	if (i != map.end())
 		return i->second.get();
@@ -874,7 +1417,7 @@ VarIntegerType const* TypeProvider::varInteger(unsigned m, IntegerType::Modifier
 }
 
 VarIntegerType const* TypeProvider::coins() {
-	return TypeProvider::varInteger(16, IntegerType::Modifier::Unsigned);
+	return TypeProvider::varinteger(16, IntegerType::Modifier::Unsigned);
 }
 
 FixedPointType const* TypeProvider::fixedPoint(unsigned m, unsigned n, FixedPointType::Modifier _modifier)
@@ -1049,7 +1592,7 @@ MappingType const* TypeProvider::mapping(Type const* _keyType, ASTString _keyNam
 MappingType const *TypeProvider::extraCurrencyCollection()
 {
 	auto keyType = TypeProvider::uint(32);
-	auto valueType = TypeProvider::varInteger(32, IntegerType::Modifier::Unsigned);
+	auto valueType = TypeProvider::varinteger(32, IntegerType::Modifier::Unsigned);
 	return createAndGet<MappingType>(keyType, "", valueType, "");
 }
 
@@ -1058,9 +1601,14 @@ OptionalType const* TypeProvider::optional(Type const* _type)
 	return createAndGet<OptionalType>(_type);
 }
 
-TvmVectorType const* TypeProvider::tvmtuple(Type const* _type)
+TvmVectorType const* TypeProvider::tvmVector(Type const* _type)
 {
 	return createAndGet<TvmVectorType>(_type);
+}
+
+TvmStackType const* TypeProvider::tvmStack(Type const* _type)
+{
+	return createAndGet<TvmStackType>(_type);
 }
 
 UserDefinedValueType const* TypeProvider::userDefinedValueType(UserDefinedValueTypeDefinition const& _definition)
