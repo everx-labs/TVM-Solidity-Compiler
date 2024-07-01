@@ -28,6 +28,8 @@
 
 #include <libsolidity/analysis/ConstantEvaluator.h>
 
+#include <libsolidity/codegen/TVMCommons.hpp>
+
 #include <libsolutil/Algorithms.h>
 #include <libsolutil/CommonData.h>
 #include <libsolutil/CommonIO.h>
@@ -1464,6 +1466,28 @@ BoolResult StringLiteralType::isImplicitlyConvertibleTo(Type const& _convertTo) 
 			);
 		return
 			arrayType->isByteArrayOrString();
+	}
+	else if (_convertTo.category() == Type::Category::TvmSlice)
+	{
+		size_t invalidSequence{};
+		if (!util::validateSlice(value(), invalidSequence))
+			return BoolResult::err(
+				"Contains invalid slice character at position " +
+				util::toString(invalidSequence) +
+				"."
+			);
+		else {
+			int bitLength = StrUtils::toBitString("x" + value()).size();
+			bool fitToCell = bitLength <= 1023;
+			if (!fitToCell) {
+				return BoolResult::err(
+					"String literal is too long: " + std::to_string(bitLength) + " bits."
+					" It can not be fitted to the cell. Maximum allowed bit length is 1023 bits."
+				);
+			}
+		}
+
+		return true;
 	}
 	else
 		return false;
@@ -5166,7 +5190,7 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 			)}
 		});
 	case Kind::BLS: {
-		return MemberList::MemberMap({
+		auto members = MemberList::MemberMap({
 			{
 				"verify",
 				TypeProvider::function(
@@ -5421,6 +5445,97 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 				)
 			}
 		});
+		auto args = TypePointers{TypeProvider::tvmslice()};
+		auto argNames = strings{""};
+		for (int n = 1; n <= 255; ++n)
+		{
+			members.emplace_back(
+				"aggregate",
+				TypeProvider::function(
+					args,
+					TypePointers{TypeProvider::tvmslice()},
+					argNames,
+					strings{""},
+					FunctionType::Kind::BlsAggregate,
+					StateMutability::Pure
+				)
+			);
+			{
+				auto favArgs = args;
+				favArgs.emplace_back(TypeProvider::tvmslice());
+				favArgs.emplace_back(TypeProvider::tvmslice());
+				auto favNames = argNames;
+				favNames.emplace_back("");
+				favNames.emplace_back("");
+				members.emplace_back(
+					"fastAggregateVerify",
+					TypeProvider::function(
+						favArgs,
+						TypePointers{TypeProvider::boolean()},
+						favNames,
+						strings{""},
+						FunctionType::Kind::BlsFastAggregateVerify,
+						StateMutability::Pure
+					)
+				);
+			}
+			{
+				auto avArgs = args;
+				avArgs.insert(avArgs.end(), args.begin(), args.end());
+				avArgs.emplace_back(TypeProvider::tvmslice());
+				auto avNames = argNames;
+				avNames.insert(avNames.end(), argNames.begin(), argNames.end());
+				avNames.emplace_back("");
+				members.emplace_back(
+					"aggregateVerify",
+					TypeProvider::function(
+						avArgs,
+						TypePointers{TypeProvider::boolean()},
+						avNames,
+						strings{""},
+						FunctionType::Kind::BlsAggregateVerify,
+						StateMutability::Pure
+					)
+				);
+			}
+			{
+				TypePointers mulArgs;
+				strings mulNames;
+				for (int i = 0; i < n; ++i) {
+					mulArgs.emplace_back(TypeProvider::tvmslice());
+					mulArgs.emplace_back(TypeProvider::int257());
+					mulNames.emplace_back("");
+					mulNames.emplace_back("");
+				}
+				members.emplace_back(
+					"g1MultiExp",
+					TypeProvider::function(
+						mulArgs,
+						TypePointers{TypeProvider::tvmslice()},
+						mulNames,
+						strings{""},
+						FunctionType::Kind::BlsG1MultiExp,
+						StateMutability::Pure
+					)
+				);
+				members.emplace_back(
+					"g2MultiExp",
+					TypeProvider::function(
+						mulArgs,
+						TypePointers{TypeProvider::tvmslice()},
+						mulNames,
+						strings{""},
+						FunctionType::Kind::BlsG1MultiExp,
+						StateMutability::Pure
+					)
+				);
+			}
+
+			//
+			args.emplace_back(TypeProvider::tvmslice());
+			argNames.emplace_back("");
+		}
+		return members;
 	}
 	case Kind::Gosh: {
 		MemberList::MemberMap members;

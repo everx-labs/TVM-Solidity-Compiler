@@ -580,6 +580,12 @@ Comparison operators:
 
 **Note:** only data bits from the root cells are compared. References are ignored.
 
+String literals can be converted to `TvmSlice`:
+
+```TVMSolidity
+TvmSlice s = "0189abef_";
+```
+
 `TvmSlice` can be converted to `bytes`. It costs at least 500 gas units.
 
 ##### \<TvmSlice\>.empty(), \<TvmSlice\>.bitEmpty() and \<TvmSlice\>.refEmpty()
@@ -4423,7 +4429,7 @@ Possible values of `flag` are described here: [\<address\>.transfer()](#addresst
 **Note:** make sure that `msg` has a correct format and follows the [TL-B scheme][3] of `Message X`.
 For example:
 
-``` TVMSolidity
+```TVMSolidity
 TvmCell msg = ...
 tvm.sendrawmsg(msg, 2);
 ```
@@ -4447,83 +4453,125 @@ When input value is a point or a field element, the slice may have more than 48/
 
 #### bls.verify
 
-``` TVMSolidity
+```TVMSolidity
 bls.verify(TvmSlice pubkey, TvmSlice message, TvmSlice sign) returns (bool)
 ```
 
 Checks BLS signature. Returns `true` on success, `false` otherwise. Example:
 
-``` TVMSolidity
-TvmSlice pubkey = TvmSlice(bytes(hex"b65cfaf56cebd6083320bf9a1c2010d4775310c5e7b348546dce0f62aa1ad0c29e15a58e251582faa7879d74e9d4034b"));
+```TVMSolidity
+TvmSlice pubkey = "b65cfaf56cebd6083320bf9a1c2010d4775310c5e7b348546dce0f62aa1ad0c29e15a58e251582faa7879d74e9d4034b";
 TvmSlice message = TvmSlice(bytes("Hello, BLS verify!"));
-TvmSlice sign = TvmSlice(bytes(hex"aa652737cad33a9b332300ecd53f1995e5d6c6ff5eb233c04b2e32ca1169524fee64d58575cb42a1a34e1bf3a61c550814d0147b2b82a668ef7c917c756e489e8ff57d64efbbf533d7995db28377d6442ec952268a2bf30d5770d4e8a9d56f9c"));
+TvmSlice sign = "aa652737cad33a9b332300ecd53f1995e5d6c6ff5eb233c04b2e32ca1169524fee64d58575cb42a1a34e1bf3a61c550814d0147b2b82a668ef7c917c756e489e8ff57d64efbbf533d7995db28377d6442ec952268a2bf30d5770d4e8a9d56f9c";
 bool ok = bls.verify(pubkey, message, sign);
-require(ok);
 ```
 
 #### bls.aggregate
 
-``` TVMSolidity
+```TVMSolidity
+(1)
 bls.aggregate(vector(TvmSlice) signs) returns (TvmSlice sign)
+(2)
+bls.aggregate(TvmSlice sign0, TvmSlice sign1, ...) returns (TvmSlice sign)
 ```
 
-Aggregates signatures if `signs.length() > 0`. Throw exception if `signs.empty()` or if some `signs[i]` is not a valid signature. Example:
+(1) Aggregates signatures if `signs.length() > 0`. Throw exception if `signs.empty()` or if some `signs[i]` is not a valid signature.
 
-``` TVMSolidity
+(2) Same as (1) but takes `TvmSlice`'s.
+
+Example:
+
+```TVMSolidity
 vector(TvmSlice) signs;
-signs.push(TvmSlice(bytes(hex"8b1eac18b6e7a38f2b2763c9a03c3b6cff4110f18c4d363eec455463bd5c8671fb81204c4732406d72468a1474df6133147a2240f4073a472ef419f23011ee4d6cf02fceb844398e33e2e331635dace3b26464a6851e10f6895923c568582fbd")));
-signs.push(TvmSlice(bytes(hex"94ec60eb8d2b657dead5e1232b8f9cc0162467b08f02e252e97622297787a74b6496607036089837fe5b52244bbbb6d00d3d7cc43812688451229d9e96f704401db053956c588203ba7638e8882746c16e701557f34b0c08bbe097483aec161e")));
-signs.push(TvmSlice(bytes(hex"8cdbeadb3ee574a4f796f10d656885f143f454cc6a2d42cf8cabcd592d577c5108e4258a7b14f0aafe6c86927b3e70030432a2e5aafa97ee1587bbdd8b69af044734defcf3c391515ab26616e15f5825b4b022a7df7b44f65a8792c54762e579")));
+signs.push("8b1eac18b6e7a38f2b2763c9a03c3b6cff4110f18c4d363eec455463bd5c8671fb81204c4732406d72468a1474df6133147a2240f4073a472ef419f23011ee4d6cf02fceb844398e33e2e331635dace3b26464a6851e10f6895923c568582fbd");
+signs.push("94ec60eb8d2b657dead5e1232b8f9cc0162467b08f02e252e97622297787a74b6496607036089837fe5b52244bbbb6d00d3d7cc43812688451229d9e96f704401db053956c588203ba7638e8882746c16e701557f34b0c08bbe097483aec161e");
+signs.push("8cdbeadb3ee574a4f796f10d656885f143f454cc6a2d42cf8cabcd592d577c5108e4258a7b14f0aafe6c86927b3e70030432a2e5aafa97ee1587bbdd8b69af044734defcf3c391515ab26616e15f5825b4b022a7df7b44f65a8792c54762e579");
 TvmSlice sign = bls.aggregate(signs);
-require(sign == TvmSlice(bytes(hex"a3b603928d933f25d648ada81406c05214d5089c81047d39db7c136b3bd938f3b9141a7952098998153516d94ecbf4a7019ac786b9440c1b53e7aa35a7bd51aeaf1cbadcd6d9b8c1aa883f0ee476652277c4b79886c55c7c9652630b8da42c61")));
+```
+
+```TVMSolidity
+TvmSlice sign0 = "8b1eac18b6e7a38f2b2763c9a03c3b6cff4110f18c4d363eec455463bd5c8671fb81204c4732406d72468a1474df6133147a2240f4073a472ef419f23011ee4d6cf02fceb844398e33e2e331635dace3b26464a6851e10f6895923c568582fbd";
+TvmSlice sign1 = "94ec60eb8d2b657dead5e1232b8f9cc0162467b08f02e252e97622297787a74b6496607036089837fe5b52244bbbb6d00d3d7cc43812688451229d9e96f704401db053956c588203ba7638e8882746c16e701557f34b0c08bbe097483aec161e";
+TvmSlice sign2 = "8cdbeadb3ee574a4f796f10d656885f143f454cc6a2d42cf8cabcd592d577c5108e4258a7b14f0aafe6c86927b3e70030432a2e5aafa97ee1587bbdd8b69af044734defcf3c391515ab26616e15f5825b4b022a7df7b44f65a8792c54762e579";
+TvmSlice sign = bls.aggregate(sign0, sign1, sign2);
 ```
 
 #### bls.fastAggregateVerify
 
-``` TVMSolidity
+```TVMSolidity
+(1)
 bls.fastAggregateVerify(vector(TvmSlice) pubkeys, TvmSlice message, TvmSlice singature) returns (bool ok)
+(2)
+bls.fastAggregateVerify(TvmSlice pubkey0, TvmSlice pubkey1, ..., TvmSlice message, TvmSlice singature) returns (bool ok)
 ```
 
-Checks aggregated BLS signature for `pubkeys` and `message`. Returns `true` on success, `false` otherwise. Return `false` if `pubkeys.empty()`.
+(1) Checks aggregated BLS signature for `pubkeys` and `message`. Returns `true` on success, `false` otherwise. Return `false` if `pubkeys.empty()`.
+
+(2) Same as (1) but takes `TvmSlice`'s.
+
+Example:
 
 ```TVMSolidity
 vector(TvmSlice) pubkeys;
-pubkeys.push(TvmSlice(bytes(hex"a44184a47ad3fc0069cf7a95650a28af2ed715beab28651a7ff433e26c0fff714d21cc5657367bc563c6df28fb446d8f")));
-pubkeys.push(TvmSlice(bytes(hex"832c0eca9f8cae87a1c6362838b34723cf63a1f69e366d64f3c61fc237217c4bea601cfbf4d6c18849ed4f9487b4a20c")));
-pubkeys.push(TvmSlice(bytes(hex"9595aa3c5cb3d7c763fa6b52294ebde264bdf49748efbbe7737c35532db8fabc666bb0d186f329c8bdafddfbdcbc3ca6")));
+pubkeys.push("a44184a47ad3fc0069cf7a95650a28af2ed715beab28651a7ff433e26c0fff714d21cc5657367bc563c6df28fb446d8f");
+pubkeys.push("832c0eca9f8cae87a1c6362838b34723cf63a1f69e366d64f3c61fc237217c4bea601cfbf4d6c18849ed4f9487b4a20c");
+pubkeys.push("9595aa3c5cb3d7c763fa6b52294ebde264bdf49748efbbe7737c35532db8fabc666bb0d186f329c8bdafddfbdcbc3ca6");
 TvmSlice message = TvmSlice(bytes("Hello, BLS fast aggregate and verify!"));
-TvmSlice singature = TvmSlice(bytes(hex"8420b1944c64f74dd67dc9f5ab210bab928e2edd4ce7e40c6ec3f5422c99322a5a8f3a8527eb31366c9a74752d1dce340d5a98fbc7a04738c956e74e7ba77b278cbc52afc63460c127998aae5aa1c3c49e8c48c30cc92451a0a275a47f219602"));
+TvmSlice singature = "8420b1944c64f74dd67dc9f5ab210bab928e2edd4ce7e40c6ec3f5422c99322a5a8f3a8527eb31366c9a74752d1dce340d5a98fbc7a04738c956e74e7ba77b278cbc52afc63460c127998aae5aa1c3c49e8c48c30cc92451a0a275a47f219602";
 bool ok = bls.fastAggregateVerify(pubkeys, message, singature);
-require(ok);
+```
+
+```TVMSolidity
+TvmSlice pk0 = "a44184a47ad3fc0069cf7a95650a28af2ed715beab28651a7ff433e26c0fff714d21cc5657367bc563c6df28fb446d8f";
+TvmSlice pk1 = "832c0eca9f8cae87a1c6362838b34723cf63a1f69e366d64f3c61fc237217c4bea601cfbf4d6c18849ed4f9487b4a20c";
+TvmSlice pk2 = "9595aa3c5cb3d7c763fa6b52294ebde264bdf49748efbbe7737c35532db8fabc666bb0d186f329c8bdafddfbdcbc3ca6";
+TvmSlice message = TvmSlice(bytes("Hello, BLS fast aggregate and verify!"));
+TvmSlice singature = "8420b1944c64f74dd67dc9f5ab210bab928e2edd4ce7e40c6ec3f5422c99322a5a8f3a8527eb31366c9a74752d1dce340d5a98fbc7a04738c956e74e7ba77b278cbc52afc63460c127998aae5aa1c3c49e8c48c30cc92451a0a275a47f219602";
+bool ok = bls.fastAggregateVerify(pk0, pk1, pk2, message, singature);
 ```
 
 ####  bls.aggregateVerify()
 
-``` TVMSolidity
+```TVMSolidity
+(1)
 bls.aggregateVerify(vector(TvmSlice, TvmSlice) pubkeysMessages, TvmSlice singature) returns (bool ok)
+(2)
+bls.aggregateVerify(TvmSlice pubkey0, TvmSlice pubkey1, ..., TvmSlice message0, TvmSlice message1, ..., TvmSlice singature) returns (bool ok)
 ```
 
-Checks aggregated BLS signature for key-message pairs `pubkeysMessages`. Returns `true` on success, `false` otherwise. Returns `false` if `pubkeysMessages.empty()`.
+(1) Checks aggregated BLS signature for key-message pairs `pubkeysMessages`. Returns `true` on success, `false` otherwise. Returns `false` if `pubkeysMessages.empty()`.
+
+(2) Same as (1) but takes `TvmSlice`'s.
 
 ```TVMSolidity
 vector(TvmSlice, TvmSlice) pubkeysMessages;
-TvmSlice pubkey0 = TvmSlice(bytes(hex"b75f0360095de73c4790f803153ded0f3e6aefa6f0aac8bfd344a44a3de361e3f6f111c0cf0ad0c4a0861492f9f1aeb1"));
+TvmSlice pubkey0 = "b75f0360095de73c4790f803153ded0f3e6aefa6f0aac8bfd344a44a3de361e3f6f111c0cf0ad0c4a0861492f9f1aeb1";
 TvmSlice message0 = TvmSlice(bytes("Hello, BLS fast aggregate and verify 0!"));
 pubkeysMessages.push(pubkey0, message0);
-TvmSlice pubkey1 = TvmSlice(bytes(hex"a31e12bb4ffa75aabbae8ec2367015ba3fc749ac3826539e7d0665c285397d02b48414a23f8b33ecccc750b3afffacf6"));
+TvmSlice pubkey1 = "a31e12bb4ffa75aabbae8ec2367015ba3fc749ac3826539e7d0665c285397d02b48414a23f8b33ecccc750b3afffacf6";
 TvmSlice message1 = TvmSlice(bytes("Hello, BLS fast aggregate and verify 1!"));
 pubkeysMessages.push(pubkey1, message1);
-TvmSlice pubkey2 = TvmSlice(bytes(hex"8de5f18ca5938efa896fbc4894c6044cdf89e778bf88584be48d6a6235c504cd45a44a68620f763aea043b6381add1f7"));
+TvmSlice pubkey2 = "8de5f18ca5938efa896fbc4894c6044cdf89e778bf88584be48d6a6235c504cd45a44a68620f763aea043b6381add1f7";
 TvmSlice message2 = TvmSlice(bytes("Hello, BLS fast aggregate and verify 2!"));
 pubkeysMessages.push(pubkey2, message2);
-TvmSlice singature = TvmSlice(bytes(hex"8b8238896dfe3b02dc463c6e645e36fb78add51dc8ce32f40ecf60a418e92762856c3427b672be67278b5c4946b8c5a30fee60e5c38fdb644036a4f29ac9a039ed4e3b64cb7fef303052f33ac4391f95d482a27c8341246516a13cb72e58097b"));
+TvmSlice singature = "8b8238896dfe3b02dc463c6e645e36fb78add51dc8ce32f40ecf60a418e92762856c3427b672be67278b5c4946b8c5a30fee60e5c38fdb644036a4f29ac9a039ed4e3b64cb7fef303052f33ac4391f95d482a27c8341246516a13cb72e58097b";
 bool ok = bls.aggregateVerify(pubkeysMessages, singature);
-require(ok);
+```
+
+```TVMSolidity
+TvmSlice pubkey0 = "b75f0360095de73c4790f803153ded0f3e6aefa6f0aac8bfd344a44a3de361e3f6f111c0cf0ad0c4a0861492f9f1aeb1";
+TvmSlice message0 = TvmSlice(bytes("Hello, BLS fast aggregate and verify 0!"));
+TvmSlice pubkey1 = "a31e12bb4ffa75aabbae8ec2367015ba3fc749ac3826539e7d0665c285397d02b48414a23f8b33ecccc750b3afffacf6";
+TvmSlice message1 = TvmSlice(bytes("Hello, BLS fast aggregate and verify 1!"));
+TvmSlice pubkey2 = "8de5f18ca5938efa896fbc4894c6044cdf89e778bf88584be48d6a6235c504cd45a44a68620f763aea043b6381add1f7";
+TvmSlice message2 = TvmSlice(bytes("Hello, BLS fast aggregate and verify 2!"));
+TvmSlice singature = "8b8238896dfe3b02dc463c6e645e36fb78add51dc8ce32f40ecf60a418e92762856c3427b672be67278b5c4946b8c5a30fee60e5c38fdb644036a4f29ac9a039ed4e3b64cb7fef303052f33ac4391f95d482a27c8341246516a13cb72e58097b";
+bool ok = bls.aggregateVerify(pubkey0, message0, pubkey1, message1,  pubkey2, message2, singature);
 ```
 
 #### bls.g1Zero() and bls.g2Zero()
 
-``` TVMSolidity
+```TVMSolidity
 bls.g1Zero() returns (TvmSlice)
 bls.g2Zero() returns (TvmSlice)
 ```
@@ -4532,7 +4580,7 @@ Returns zero point in G1/G2.
 
 #### bls.g1IsZero() and bls.g2IsZero()
 
-``` TVMSolidity
+```TVMSolidity
 bls.g1Zero(TvmSlice x) returns (bool isZero)
 bls.g2Zero(TvmSlice x) returns (bool isZero)
 ```
@@ -4541,7 +4589,7 @@ Checks that G1/G2 point `x` is equal to zero.
 
 #### bls.g1Add() and bls.g2Add()
 
-``` TVMSolidity
+```TVMSolidity
 bls.g1Add(TvmSlice a, TvmSlice b) returns (TvmSlice res)
 bls.g2Add(TvmSlice a, TvmSlice b) returns (TvmSlice res)
 ```
@@ -4550,7 +4598,7 @@ Addition on G1/G2.
 
 #### bls.g1Sub() and bls.g2Sub()
 
-``` TVMSolidity
+```TVMSolidity
 bls.g1Sub(TvmSlice a, TvmSlice b) returns (TvmSlice res)
 bls.g2Sub(TvmSlice a, TvmSlice b) returns (TvmSlice res)
 ```
@@ -4559,7 +4607,7 @@ Subtraction on G1/G2.
 
 #### bls.g1Neg() and bls.g2Neg()
 
-``` TVMSolidity
+```TVMSolidity
 bls.g1Neg(TvmSlice x) returns (TvmSlice res)
 bls.g2Neg(TvmSlice x) returns (TvmSlice res)
 ```
@@ -4568,7 +4616,7 @@ Negation on G1/G2.
 
 #### bls.g1Mul() and bls.g2Mul()
 
-``` TVMSolidity
+```TVMSolidity
 bls.g1Mul(TvmSlice x, int s) returns (TvmSlice res)
 bls.g2Mul(TvmSlice x, int s) returns (TvmSlice res)
 ```
@@ -4577,7 +4625,7 @@ Multiplies G1/G2 point `x` by scalar `s`. Any `s` is valid, including negative.
 
 #### bls.g1InGroup() and bls.g2InGroup()
 
-``` TVMSolidity
+```TVMSolidity
 bls.g1Mul(TvmSlice x) returns (bool ok)
 bls.g2Mul(TvmSlice x) returns (bool ok)
 ```
@@ -4586,7 +4634,7 @@ Checks that slice `x` represents a valid element of G1/G2.
 
 #### bls.r()
 
-``` TVMSolidity
+```TVMSolidity
 bls.r() returns (uint255)
 ```
 
@@ -4594,29 +4642,51 @@ Pushes the order of G1 and G2 (approx. 2^255). It's 5243587517512619047944774050
 
 #### bls.g1MultiExp() and bls.g2MultiExp()
 
-``` TVMSolidity
+```TVMSolidity
+(1)
+bls.g1MultiExp(vector(TvmSlice, int) x_s) returns (TvmSlice)
 bls.g2MultiExp(vector(TvmSlice, int) x_s) returns (TvmSlice)
+(2)
+bls.g1MultiExp(TvmSlice x0, int s0, TvmSlice x1, int s1, ...) returns (TvmSlice)
+bls.g2MultiExp(TvmSlice x0, int s0, TvmSlice x1, int s1, ...) returns (TvmSlice)
 ```
 
-Calculates `x_1*s_1+...+x_n*s_n` for G1/G2 points `x_i` and scalars `s_i`. Returns zero point if `n==0`. Any `s_i` is valid, including negative.
+(1) Calculates `x_1*s_1+...+x_n*s_n` for G1/G2 points `x_i` and scalars `s_i`. Returns zero point if `n==0`. Any `s_i` is valid, including negative.
+
+(2) Same as (1) but takes `TvmSlice`'s and `int`'s.
 
 ```TVMSolidity
-TvmSlice a = bls.mapToG2(TvmSlice(bytes(hex"cce34c6322b8f3b455617a975aff8b6eaedf04fbae74a8890db6bc3fab0475b94cd8fbde0e1182ce6993afd56ed6e71919cae59c891923b4014ed9e42d9f0e1a779d9a7edb64f5e2fd600012805fc773b5092af5d2f0c6c0946ee9ad8394bf19")));
-TvmSlice b = bls.mapToG2(TvmSlice(bytes(hex"7abd13983c76661118659da83066c71bd6581baf20c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d927abd13983c76661118659da83066c71bd6581baf20c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d92")));
-TvmSlice c = bls.mapToG2(TvmSlice(bytes(hex"7abd13983c76661118659da83066c71bd658100020c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d927abd13983c76661118659da83066c71bd658100020c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d92")));
+TvmSlice a = bls.mapToG1("7abd13983c76661a98659da83066c71bd6581baf20c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d92");
+TvmSlice b = bls.mapToG1("7abd13983c76661118659da83066c71bd6581baf20c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d92");
+TvmSlice c = bls.mapToG1("7abd13983c76661118659da83066c71bd658100020c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d92");
 vector(TvmSlice, int) values;
 values.push(a, 2);
 values.push(b, 5);
 values.push(c, 13537812947843);
-TvmSlice res = bls.g2MultiExp(values);
 
-TvmSlice aa = bls.g2Mul(a, 2);
-TvmSlice bb = bls.g2Mul(b, 5);
-TvmSlice cc = bls.g2Mul(c, 13537812947843);
-TvmSlice res2 = bls.g2Add(bls.g2Add(aa, bb), cc);
+TvmSlice res = bls.g1MultiExp(values);
+
+TvmSlice aa = bls.g1Mul(a, 2);
+TvmSlice bb = bls.g1Mul(b, 5);
+TvmSlice cc = bls.g1Mul(c, 13537812947843);
+TvmSlice res2 = bls.g1Add(bls.g1Add(aa, bb), cc);
 
 require(res == res2);
+```
 
+```TVMSolidity
+TvmSlice a = bls.mapToG1("7abd13983c76661a98659da83066c71bd6581baf20c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d92");
+TvmSlice b = bls.mapToG1("7abd13983c76661118659da83066c71bd6581baf20c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d92");
+TvmSlice c = bls.mapToG1("7abd13983c76661118659da83066c71bd658100020c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d92");
+
+TvmSlice res = bls.g1MultiExp(a, 2, b, 5, c, 13537812947843);
+
+TvmSlice aa = bls.g1Mul(a, 2);
+TvmSlice bb = bls.g1Mul(b, 5);
+TvmSlice cc = bls.g1Mul(c, 13537812947843);
+TvmSlice res2 = bls.g1Add(bls.g1Add(aa, bb), cc);
+
+require(res == res2);
 ```
 
 #### **math** namespace

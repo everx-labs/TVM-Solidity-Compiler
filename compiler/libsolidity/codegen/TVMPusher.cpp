@@ -2887,6 +2887,10 @@ void TypeConversion::fromStringLiteral(Type const* leftType, StringLiteralType c
 		break;
 	case Type::Category::Array:
 		break;
+	case Type::Category::TvmSlice:
+		m_pusher.drop();
+		m_pusher.pushSlice("x" + rightType->value());
+		break;
 	default:
 		solUnimplemented(leftType->toString());
 		break;

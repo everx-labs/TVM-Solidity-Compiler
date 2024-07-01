@@ -139,4 +139,21 @@ bool validateUTF8(std::string const& _input, size_t& _invalidPosition)
 	return validateUTF8(reinterpret_cast<unsigned char const*>(_input.c_str()), _input.length(), _invalidPosition);
 }
 
+bool validateSlice(std::string const& _input, size_t& _invalidPosition)
+{
+	for (size_t i = 0; i < _input.size(); ++i) {
+		char ch = _input[i];
+		bool isValidChar =
+			('0' <= ch && ch <= '9') ||
+			('a' <= ch && ch <= 'f') ||
+			('A' <= ch && ch <= 'F') ||
+			(ch == '_' && i + 1 == _input.size());
+		if (!isValidChar) {
+			_invalidPosition = i;
+			return false;
+		}
+	}
+	return true;
+}
+
 }

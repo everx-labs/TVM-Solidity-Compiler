@@ -12,6 +12,7 @@
 
 use predicates::prelude::*;
 use assert_cmd::Command;
+use sold_lib::ERROR_MSG_NO_OUTPUT;
 
 type Status = Result<(), Box<dyn std::error::Error>>;
 const BIN_NAME: &str = "sold";
@@ -90,7 +91,7 @@ fn test_library() -> Status {
         .arg("tests")
         .assert()
         .success()
-        .stderr(predicate::str::contains("Compiler run successful, no output requested."))
+        .stderr(predicate::str::contains(ERROR_MSG_NO_OUTPUT))
         ;
 
     Ok(())

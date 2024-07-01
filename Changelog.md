@@ -16,6 +16,7 @@ Compiler features:
    * [\<TvmSlice\>.startsWith()](./API.md#tvmslicestartswith)
    * [\<TvmSlice\>.startsWithOne()](./API.md#tvmslicestartswithone)
  * Supported [operations on a pairing friendly BLS12-381 curve](./API.md#bls-namespace).
+ * Supported conversion string literals to `TvmSlice`, e.g. `TvmSlice s = "0189abef_";`.
 
 Usability:
  * Print function-candidates on compilation failure (for function overloading). 

@@ -5,7 +5,7 @@ use std::os::raw::{c_char, c_void};
 use std::path::Path;
 
 use clap::{ValueEnum, Parser};
-use failure::{bail, format_err};
+use anyhow::{bail, format_err};
 use serde::Deserialize;
 
 use ever_block::{Result, Status};
