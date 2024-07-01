@@ -43,7 +43,7 @@ public:
 	static Pointer<Function> generateBuildTuple(TVMCompilerContext& ctx, std::string const& name, const std::vector<Type const*>& types);
 	static Pointer<Function> generateNewArrays(TVMCompilerContext& ctx, std::string const& name, FunctionCall const* arr);
 	static Pointer<Function> generateConstArrays(TVMCompilerContext& ctx, std::string const& name, TupleExpression const* arr);
-	static Pointer<Function> generateFunction(TVMCompilerContext& ctx, FunctionDefinition const* function, std::string const& name);
+	static Pointer<Function> generateFunction(TVMCompilerContext& ctx, FunctionDefinition const* function, std::string const& name, uint32_t id);
 	static Pointer<Function> generateMainExternal(TVMCompilerContext& ctx, ContractDefinition const *contract);
 	static Pointer<Function> generateMainInternal(TVMCompilerContext& ctx, ContractDefinition const *contract);
 	static Pointer<Function> generateOnCodeUpgrade(TVMCompilerContext& ctx, FunctionDefinition const* function);
@@ -115,7 +115,7 @@ private:
 
 	void setGlobSenderAddressIfNeed();
 	void setCtorFlag();
-	void setCopyleftAndTryCatch();
+	void setCopyleft();
 	Pointer<Function> generateMainExternalForAbiV2();
 
 	void pushMsgPubkey();

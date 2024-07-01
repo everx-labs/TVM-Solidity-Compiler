@@ -80,6 +80,17 @@ FunctionDefinition const* getSuperFunction(
 	return prev;
 }
 
+FunctionDefinition const* hasConstructor(ContractDefinition const& contract) {
+	for (ContractDefinition const* c : getContractsChain(&contract)) {
+		for (const auto f : c->definedFunctions()) {
+			if (f->isConstructor())
+				return f;
+		}
+	}
+	return nullptr;
+}
+
+
 const Type *getType(const VariableDeclaration *var) {
 	return var->annotation().type;
 }
@@ -235,16 +246,6 @@ std::vector<VariableDeclaration const *> stateVariables(ContractDefinition const
 	return variableDeclarations;
 }
 
-vector<std::pair<FunctionDefinition const *, ContractDefinition const *>>
-getContractFunctionPairs(ContractDefinition const *contract) {
-	vector<pair<FunctionDefinition const*, ContractDefinition const*>> result;
-	for (ContractDefinition const* c : getContractsChain(contract)) {
-		for (const auto f : c->definedFunctions())
-			result.emplace_back(f, c);
-	}
-	return result;
-}
-
 bool isSuper(Expression const *expr) {
 	if (auto identifier = to<Identifier>(expr)) {
 		return identifier->name() == "super";
@@ -296,6 +297,7 @@ bool isEmptyFunction(FunctionDefinition const* f) {
 std::vector<VariableDeclaration const*>
 convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr) {
 	std::vector<VariableDeclaration const*> ret;
+	ret.reserve(arr.size());
 	for (const auto& v : arr)
 		ret.emplace_back(v.get());
 	return ret;
@@ -304,6 +306,7 @@ convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr) {
 std::vector<Type const*>
 getTypesFromVarDecls(std::vector<ASTPointer<VariableDeclaration>> const& arr) {
 	std::vector<Type const*>  ret;
+	ret.reserve(arr.size());
 	for (const auto& v : arr)
 		ret.emplace_back(v->type());
 	return ret;
@@ -479,15 +482,32 @@ int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>> const& arr) {
 	return qtyWithoutLoc(arr.begin(), arr.end());
 }
 
-std::string StrUtils::toBitString(bigint value, int bitlen) {
+std::optional<std::string> StrUtils::toBitString(bigint value, int bitlen, bool isSign) {
+	if (bitlen == 0) {
+		if (value == 0)
+			return "";
+		return {};
+	}
+	bigint const one = 1;
+	if (isSign) {
+		bigint p2 = one << (bitlen - 1);
+		if (!(-p2 <= value && value <= p2 - 1))
+			return {};
+	} else {
+		bigint p2 = one << bitlen;
+		if (!(0 <= value && value < p2))
+			return {};
+	}
 	if (value < 0) {
 		value = pow(bigint(2), bitlen) + value;
+		solAssert(value > 0, "");
 	}
 	std::string s;
 	for (int i = 0; i < bitlen; ++i) {
 		s += value % 2 == 0 ? "0" : "1";
 		value /= 2;
 	}
+	solAssert(value == 0, "");
 	std::reverse(s.rbegin(), s.rbegin() + bitlen);
 	return s;
 }
@@ -517,32 +537,23 @@ std::string StrUtils::toBitString(const std::string& slice) {
 	std::string bitString;
 	if (slice.at(0) == 'x') {
 		for (std::size_t i = 1; i < slice.size(); ++i) {
-			if (i + 2 == slice.size() && slice[i + 1] == '_') {
+			if (slice.at(i) == '_') {
+				while (!bitString.empty() && *bitString.rbegin() == '0') // trim last zeroes
+					bitString.pop_back();
+				if (!bitString.empty()) // trim last one
+					bitString.pop_back();
+				solAssert(i + 1 == slice.size(), "");
+			} else {
 				size_t pos{};
-				int value = std::stoi(slice.substr(i, 1), &pos, 16);
+				auto sss = slice.substr(i, 1);
+				int value = std::stoi(sss, &pos, 16);
 				solAssert(pos == 1, "");
-				int bitLen = 4;
-				while (true) {
-					bool isOne = value % 2 == 1;
-					--bitLen;
-					value /= 2;
-					if (isOne) {
-						break;
-					}
-				}
-				bitString += StrUtils::toBitString(value, bitLen);
-				break;
+				bitString += StrUtils::toBitString(value, 4, false).value();
 			}
-			size_t pos{};
-			auto sss = slice.substr(i, 1);
-			int value = std::stoi(sss, &pos, 16);
-			solAssert(pos == 1, "");
-			bitString += StrUtils::toBitString(value, 4);
 		}
+	} else if (isIn(slice, "0", "1")) {
+		bitString = slice;
 	} else {
-		if (isIn(slice, "0", "1")) {
-			return slice;
-		}
 		solUnimplemented("");
 	}
 	return bitString;
@@ -602,7 +613,7 @@ std::string StrUtils::literalToSliceAddress(bigint const& value) {
 	s += "10";
 	s += "0";
 	s += std::string(8, '0');
-	s += StrUtils::toBitString(value);
+	s += StrUtils::toBitString(value, 256, false).value();
 	return s;
 }
 
@@ -613,6 +624,13 @@ bigint StrUtils::toBigint(const std::string& binStr) {
 		if (ch == '1')
 			++res;
 	}
+	return res;
+}
+
+std::optional<bigint> StrUtils::toNegBigint(const std::string& binStr) {
+	if (binStr.at(0) != '1')
+		return {};
+	bigint res = StrUtils::toBigint(binStr) - (bigint(1) << binStr.length());
 	return res;
 }
 

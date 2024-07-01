@@ -514,7 +514,8 @@ void TvmVector::accept(ASTVisitor& _visitor)
 {
 	if (_visitor.visit(*this))
 	{
-		m_type->accept(_visitor);
+		for (ASTPointer<TypeName>& t : m_types)
+			t->accept(_visitor);
 	}
 	_visitor.endVisit(*this);
 }
@@ -523,7 +524,8 @@ void TvmVector::accept(ASTConstVisitor& _visitor) const
 {
 	if (_visitor.visit(*this))
 	{
-		m_type->accept(_visitor);
+		for (ASTPointer<TypeName> const& t : m_types)
+			t->accept(_visitor);
 	}
 	_visitor.endVisit(*this);
 }

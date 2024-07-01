@@ -161,9 +161,6 @@ realDictKeyValue(Type const* type);
 std::vector<ContractDefinition const*> getContractsChain(ContractDefinition const* contract);
 std::vector<VariableDeclaration const *> stateVariables(ContractDefinition const* contract, bool _withNoStorage);
 
-std::vector<std::pair<FunctionDefinition const*, ContractDefinition const*>>
-getContractFunctionPairs(ContractDefinition const* contract);
-
 bool isSuper(Expression const* expr);
 bool isAddressThis(const FunctionCall* funCall);
 
@@ -172,6 +169,8 @@ FunctionDefinition const* getSuperFunction(
 	const ContractDefinition* mainContract,
 	const std::string& hexName
 );
+
+FunctionDefinition const* hasConstructor(ContractDefinition const& contract);
 
 [[noreturn]]
 void cast_error(const ASTNode& node, const std::string& error_message);
@@ -377,7 +376,7 @@ int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>>::const_iterator beg,
 int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>> const& arr);
 
 namespace StrUtils {
-	std::string toBitString(bigint value, int bitlen = 256);
+	std::optional<std::string> toBitString(bigint value, int bitlen, bool isSign);
 	std::string binaryStringToSlice(const std::string & s);
 	std::string toBitString(const std::string& slice);
 	std::optional<std::string> unitSlices(const std::string& sliceA, const std::string& sliceB);
@@ -387,6 +386,7 @@ namespace StrUtils {
 	std::string boolToBinaryString(bool value);
 	std::string literalToSliceAddress(bigint const& value);
 	bigint toBigint(const std::string& binStr);
+	std::optional<bigint> toNegBigint(const std::string& binStr);
 	std::string toBinString(bigint num);
 	std::string stringToHex(const std::string& str);
 }
@@ -405,4 +405,5 @@ namespace MathConsts {
 
 bool isFitUselessUnary(Type const* common, Token op);
 bool isFitUseless(Type const* left, Type const* right, Type const* common, Token op);
+
 } // end solidity::frontend

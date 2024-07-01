@@ -1,4 +1,4 @@
 pragma tvm-solidity >=0.66.0;
-import "github.com/tonlabs/debots/Remote.sol";
+import "github.com/everx-labs/debots/Remote.sol";
 contract ImportRemote {
 }

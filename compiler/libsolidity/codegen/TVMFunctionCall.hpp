@@ -69,6 +69,7 @@ protected:
 	bool checkForTvmSendFunction(MemberAccess const& _node);
 	void msgFunction(MemberAccess const& _node);
 	void rndFunction(MemberAccess const& _node);
+	void blsFunction();
 	void goshFunction();
 	void codeSalt();
 	void setCodeSalt();

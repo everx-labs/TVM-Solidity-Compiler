@@ -1535,6 +1535,31 @@ public:
 		MathMulDivMod, ///< math.muldivmod()
 		MathDivMod, ///< math.divmod()
 		MathSign, ///< math.sign()
+		MathMulMod, ///< math.mulmod()
+
+		BlsVerify, ///< bls.verify()
+		BlsAggregate, ///< bls.aggregate()
+		BlsFastAggregateVerify, ///< bls.fastAggregateVerify()
+		BlsAggregateVerify, ///< bls.aggregateVerify()
+		BlsG1Add,
+		BlsG1Sub,
+		BlsG1Neg,
+		BlsG1Mul,
+		BlsMapToG1,
+		BlsG1IsZero,
+		BlsG1InGroup,
+		BlsG2Add,
+		BlsG2Sub,
+		BlsG2Neg,
+		BlsG2Mul,
+		BlsMapToG2,
+		BlsG2IsZero,
+		BlsG2InGroup,
+		BlsG1Zero,
+		BlsG2Zero,
+		BlsPushR,
+		BlsG1MultiExp,
+		BlsG2MultiExp,
 
 		ABIBuildIntMsg, ///< abi.encodeIntMsg()
 		ABICodeSalt, ///< abi.codeSalt()
@@ -1554,7 +1579,7 @@ public:
 		TVMCommit, ///< tvm.commit()
 		TVMConfigParam, ///< tvm.configParam()
 		TVMDeploy, ///< functions to deploy contract from contract
-		TVMDump, ///< tvm.xxxdump()
+		TVMDump, ///< tvm.bindump() or tvm.hexdump()
 		TVMExit, ///< tvm.exit()
 		TVMExit1, ///< tvm.exit1()
 		TVMHash, ///< tvm.hash()
@@ -2096,6 +2121,7 @@ public:
 		Math, ///< "math"
 		Rnd, ///< "rnd"
 		Gosh, ///< "gosh"
+		BLS, ///< "bls"
 		MetaType ///< "type(...)"
 	};
 

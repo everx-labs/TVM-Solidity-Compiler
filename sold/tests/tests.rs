@@ -12,6 +12,7 @@
 
 use predicates::prelude::*;
 use assert_cmd::Command;
+use sold_lib::ERROR_MSG_NO_OUTPUT;
 
 type Status = Result<(), Box<dyn std::error::Error>>;
 const BIN_NAME: &str = "sold";
@@ -90,7 +91,7 @@ fn test_library() -> Status {
         .arg("tests")
         .assert()
         .success()
-        .stderr(predicate::str::contains("Compiler run successful, no output requested."))
+        .stderr(predicate::str::contains(ERROR_MSG_NO_OUTPUT))
         ;
 
     Ok(())
@@ -148,22 +149,22 @@ fn test_private_function_ids() -> Status {
         .success()
         .stdout(predicate::str::contains(r#"[
   {
-    "id": 4199241165,
+    "id": 5581,
     "scope": "C",
     "sign": "f(uint32,uint256,uint256)"
   },
   {
-    "id": 2254871888,
+    "id": 7504,
     "scope": "C",
     "sign": "add(uint256,uint256)"
   },
   {
-    "id": 4034881437,
+    "id": 10141,
     "scope": "C",
     "sign": "sub(uint256,uint256)"
   },
   {
-    "id": 4048818487,
+    "id": 10143,
     "scope": "Math",
     "sign": "mul(uint256,uint256)"
   }
@@ -177,7 +178,7 @@ fn test_remapping() -> Status {
         .arg("tests/ImportRemote.sol")
         .arg("--output-dir")
         .arg("tests")
-        .arg("github.com/tonlabs/debots/=tests/remote/")
+        .arg("github.com/everx-labs/debots/=tests/remote/")
         .assert()
         .success();
 

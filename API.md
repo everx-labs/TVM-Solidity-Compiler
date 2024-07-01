@@ -18,7 +18,7 @@ When deploying contracts, you should use the latest released version of Solidity
     * [\<TvmCell\>.exoticToSlice()](#tvmcellexotictoslice)
     * [\<TvmCell\>.loadExoticCell() and \<TvmCell\>.loadExoticCellQ()](#tvmcellloadexoticcell-and-tvmcellloadexoticcellq)
   * [TvmSlice](#tvmslice)
-    * [\<TvmSlice\>.empty()](#tvmsliceempty)
+    * [\<TvmSlice\>.empty(), \<TvmSlice\>.bitEmpty() and \<TvmSlice\>.refEmpty()](#tvmsliceempty-tvmslicebitempty-and-tvmslicerefempty)
     * [\<TvmSlice\>.size()](#tvmslicesize)
     * [\<TvmSlice\>.bits()](#tvmslicebits)
     * [\<TvmSlice\>.refs()](#tvmslicerefs)
@@ -27,6 +27,8 @@ When deploying contracts, you should use the latest released version of Solidity
     * [\<TvmSlice\>.depth()](#tvmslicedepth)
     * [\<TvmSlice\>.hasNBits(), \<TvmSlice\>.hasNRefs() and \<TvmSlice\>.hasNBitsAndRefs()](#tvmslicehasnbits-tvmslicehasnrefs-and-tvmslicehasnbitsandrefs)
     * [\<TvmSlice\>.compare()](#tvmslicecompare)
+    * [\<TvmSlice\>.startsWith()](#tvmslicestartswith)
+    * [\<TvmSlice\>.startsWithOne()](#tvmslicestartswithone)
     * [TvmSlice load primitives](#tvmslice-load-primitives)
       * [\<TvmSlice\>.load()](#tvmsliceload)
       * [\<TvmSlice\>.loadQ()](#tvmsliceloadq)
@@ -257,6 +259,7 @@ When deploying contracts, you should use the latest released version of Solidity
         * [`code` option usage](#code-option-usage)
       * [Other deploy options](#other-deploy-options)
       * [Deploy via \<address\>.transfer()](#deploy-via-addresstransfer)
+      * [Deploy the contract with no constructor](#deploy-the-contract-with-no-constructor)
       * [New contract address problem](#new-contract-address-problem)
     * [Misc functions from `tvm`](#misc-functions-from-tvm)
       * [tvm.code()](#tvmcode)
@@ -266,6 +269,20 @@ When deploying contracts, you should use the latest released version of Solidity
       * [tvm.resetStorage()](#tvmresetstorage)
       * [tvm.exit() and tvm.exit1()](#tvmexit-and-tvmexit1)
       * [tvm.sendrawmsg()](#tvmsendrawmsg)
+  * [**bls** namespace](#bls-namespace)
+    * [bls.verify()](#blsverify)
+    * [bls.aggregate()](#blsaggregate)
+    * [bls.fastAggregateVerify()](#blsfastaggregateverify)
+    * [bls.aggregateVerify()](#blsaggregateverify)
+    * [bls.g1Zero() and bls.g2Zero()](#blsg1zero-and-blsg2zero)
+    * [bls.g1IsZero() and bls.g2IsZero()](#blsg1iszero-and-blsg2iszero)
+    * [bls.g1Add() and bls.g2Add()](#blsg1add-and-blsg2add)
+    * [bls.g1Sub() and bls.g2Sub()](#blsg1sub-and-blsg2sub)
+    * [bls.g1Neg() and bls.g2Neg()](#blsg1neg-and-blsg2neg)
+    * [bls.g1Mul() and bls.g2Mul()](#blsg1mul-and-blsg2mul)
+    * [bls.g1InGroup() and bls.g2InGroup()](#blsg1ingroup-and-blsg2ingroup)
+    * [bls.r()](#blsr)
+    * [bls.g1MultiExp() and bls.g2MultiExp()](#blsg1multiexp-and-blsg2multiexp)
   * [**math** namespace](#math-namespace)
     * [math.min() math.max()](#mathmin-mathmax)
     * [math.minmax()](#mathminmax)
@@ -275,6 +292,7 @@ When deploying contracts, you should use the latest released version of Solidity
     * [math.divmod()](#mathdivmod)
     * [math.muldiv() math.muldivr() math.muldivc()](#mathmuldiv-mathmuldivr-mathmuldivc)
     * [math.muldivmod()](#mathmuldivmod)
+    * [math.mulmod()](#mathmulmod)
     * [math.sign()](#mathsign)
   * [**tx** namespace](#tx-namespace)
     * [tx.logicaltime](#txlogicaltime)
@@ -323,16 +341,16 @@ When deploying contracts, you should use the latest released version of Solidity
 
 TVM Solidity compiler adds its current version to the generated code. This version can be obtained:
 
-1) using [tvm_linker](https://github.com/tonlabs/TVM-linker#2-decoding-of-boc-messages-prepared-externally) from a `*.tvc` file:
+1) using [tvm_linker](https://github.com/everx-labs/TVM-linker#2-decoding-of-boc-messages-prepared-externally) from a `*.tvc` file:
 
     ```bash
     tvm_linker decode --tvm <tvc-file>
     ```
 
-2) using [tonos-cli](https://github.com/tonlabs/tonos-cli#48-decode-commands) from a `*.boc` file, a `*.tvc` file, or a network account:
+2) using [ever-cli](https://github.com/everx-labs/ever-cli#48-decode-commands) from a `*.boc` file, a `*.tvc` file, or a network account:
 
 ```bash
-tonos-cli decode tvc [--tvc] [--boc] <input>
+ever-cli decode tvc [--tvc] [--boc] <input>
 ```
 
 ### TVM specific types
@@ -562,15 +580,33 @@ Comparison operators:
 
 **Note:** only data bits from the root cells are compared. References are ignored.
 
-`TvmSlice` can be converted to `bytes`. It costs at least 500 gas units.
-
-##### \<TvmSlice\>.empty()
+String literals can be converted to `TvmSlice`:
 
 ```TVMSolidity
-<TvmSlice>.empty() returns (bool);
+TvmSlice s = "0189abef_";
 ```
 
-Checks whether the `TvmSlice` is empty (i.e., contains no data bits and no cell references).
+`TvmSlice` can be converted to `bytes`. It costs at least 500 gas units.
+
+##### \<TvmSlice\>.empty(), \<TvmSlice\>.bitEmpty() and \<TvmSlice\>.refEmpty()
+
+```TVMSolidity
+(1)
+<TvmSlice>.empty() returns (bool);
+(2)
+<TvmSlice>.bitEmpty() returns (bool);
+3()
+<TvmSlice>.refEmpty() returns (bool);
+```
+
+(1)
+Checks whether the `TvmSlice` contains no data bits and no cell references.
+
+(2)
+Checks whether the `TvmSlice` contains no data bits.
+
+(3)
+Checks whether the `TvmSlice` contains no cell references.
 
 ##### \<TvmSlice\>.size()
 
@@ -652,6 +688,22 @@ Lexicographically compares the `slice` and `other` data bits of the root slices 
 * 1 - `slice` > `other`
 * 0 - `slice` == `other`
 * -1 - `slice` < `other`
+
+##### \<TvmSlice\>.startsWith()
+
+```TVMSolidity
+<TvmSlice>.startsWith(TvmSlice prefix) returns (bool);
+```
+
+Checks whether `prefix` is a prefix of `TvmSlice`.
+
+##### \<TvmSlice\>.startsWithOne()
+
+```TVMSolidity
+<TvmSlice>.startsWithOne() returns (bool);
+```
+
+Checks whether the first bit of `TvmSlice` is a one.
 
 ##### TvmSlice load primitives
 
@@ -2413,7 +2465,7 @@ no effect.
 * `flag + 32` - means that the current account must be destroyed if its resulting balance is zero.
 For example, `flag: 128 + 32` is used to send all balance and destroy the contract.
 
-In order to clarify flags usage see [this sample](https://github.com/tonlabs/samples/blob/master/solidity/20_bomber.sol).
+In order to clarify flags usage see [this sample](https://github.com/everx-labs/samples/blob/master/solidity/20_bomber.sol).
 
 ```TVMSolidity
 address dest = ...;
@@ -2437,7 +2489,7 @@ destination.transfer({value: 1 ever, bounce: false, stateInit: stateInit});
 
 See example of `address.transfer()` usage:
 
-* [giver](https://github.com/tonlabs/samples/blob/master/solidity/7_Giver.sol)
+* [giver](https://github.com/everx-labs/samples/blob/master/solidity/7_Giver.sol)
 
 #### mapping
 
@@ -2480,8 +2532,8 @@ If you use mapping as an input or output param for public/external functions,
 
 See example of how to work with mappings:
 
-* [database](https://github.com/tonlabs/samples/blob/master/solidity/13_BankCollector.sol)
-* [client](https://github.com/tonlabs/samples/blob/master/solidity/13_BankCollectorClient.sol)
+* [database](https://github.com/everx-labs/samples/blob/master/solidity/13_BankCollector.sol)
+* [client](https://github.com/everx-labs/samples/blob/master/solidity/13_BankCollectorClient.sol)
 
 ##### Keyword `emptyMap`
 
@@ -3046,7 +3098,7 @@ Defines that code is compiled with special selector that is needed to upgrade Fu
 
 #### Decoding state variables
 
-You can decode state variables using tonos-cli. See `tonos-cli decode account --help`.
+You can decode state variables using ever-cli. See `ever-cli decode account --help`.
 
 See also: [abi.decodeData()](#abidecodedata).
 
@@ -3253,7 +3305,7 @@ If the `onBounce` function throws an exception, then another bounced messages ar
 
 Example of how to use `onBounce` function for option 2:
 
-* [onBounceHandler](https://github.com/tonlabs/samples/blob/master/solidity/16_onBounceHandler.sol)
+* [onBounceHandler](https://github.com/everx-labs/samples/blob/master/solidity/16_onBounceHandler.sol)
 
 Example of getting function ID if `CapBounceMsgBody` and `CapFullBodyInBounced` [capabilities](#tvm-capabilities) are set:
 
@@ -3301,8 +3353,8 @@ Function `onCodeUpgrade` had function id = 2 (for compiler <= 0.65.0). Now, it h
 
 See example of how to upgrade code of the contract:
 
-* [old contract](https://github.com/tonlabs/samples/blob/master/solidity/12_BadContract.sol)
-* [new contract](https://github.com/tonlabs/samples/blob/master/solidity/12_NewVersion.sol)
+* [old contract](https://github.com/everx-labs/samples/blob/master/solidity/12_BadContract.sol)
+* [new contract](https://github.com/everx-labs/samples/blob/master/solidity/12_NewVersion.sol)
 
 It's good to pass `TvmCell cell` to the public function that calls `onCodeUpgrade(TvmCell cell, ...)`
 function. `TvmCell cell` may contain some data that may be useful for the new contract.
@@ -3343,7 +3395,7 @@ NB: Do not use [tvm.commit()](#tvmcommit) or [tvm.accept()](#tvmaccept) in this 
 See also: [Contract execution](#contract-execution).
 See an example of how to define this function:
 
-* [Custom replay protection](https://github.com/tonlabs/samples/blob/master/solidity/14_CustomReplayProtection.sol)
+* [Custom replay protection](https://github.com/everx-labs/samples/blob/master/solidity/14_CustomReplayProtection.sol)
 
 ### Function specifiers
 
@@ -3542,7 +3594,7 @@ function f(uint n) public responsible pure {
 TVM Solidity compiler allows specifying different parameters of the outbound internal message that
 is sent via external function call. Note, all external function calls are asynchronous, so
 callee function will be called after termination of the current transaction.
-`value`, `currencies`, `bounce` or `flag` options can be set. See [\<address\>.transfer()](#addresstransfer)
+`value`, `currencies`, `bounce`, `flag` and `stateInit` options can be set. See [\<address\>.transfer()](#addresstransfer)
 where these options are described.
 **Note:** if `value` isn't set, then the default value is equal to 0.01 ever, or 10^7 nanoever. It's equal
 to 10_000 units of gas in workchain.
@@ -3616,9 +3668,9 @@ contract Caller {
 
 See also:
 
-* Example of callback usage: [24_SquareProvider](https://github.com/tonlabs/samples/blob/master/solidity/24_SquareProvider.sol)
-* Example of callback usage: [4.1_CentralBank](https://github.com/tonlabs/samples/blob/master/solidity/4.1_CentralBank.sol)
-and [4.1_CurrencyExchange.sol](https://github.com/tonlabs/samples/blob/master/solidity/4.1_CurrencyExchange.sol)
+* Example of callback usage: [24_SquareProvider](https://github.com/everx-labs/samples/blob/master/solidity/24_SquareProvider.sol)
+* Example of callback usage: [4.1_CentralBank](https://github.com/everx-labs/samples/blob/master/solidity/4.1_CentralBank.sol)
+and [4.1_CurrencyExchange.sol](https://github.com/everx-labs/samples/blob/master/solidity/4.1_CurrencyExchange.sol)
 * [return](#return)
 
 ### Delete variables
@@ -3811,7 +3863,7 @@ This action is required to process external messages that bring no value.
 
 See example of how to use this function:
 
-* [accumulator](https://github.com/tonlabs/samples/blob/master/solidity/1_Accumulator.sol)
+* [accumulator](https://github.com/everx-labs/samples/blob/master/solidity/1_Accumulator.sol)
 
 ##### tvm.setGasLimit()
 
@@ -3983,8 +4035,8 @@ after the successful termination of the current run of the smart contract).
 
 See example of how to use this function:
 
-* [old contract](https://github.com/tonlabs/samples/blob/master/solidity/12_BadContract.sol)
-* [new contract](https://github.com/tonlabs/samples/blob/master/solidity/12_NewVersion.sol)
+* [old contract](https://github.com/everx-labs/samples/blob/master/solidity/12_BadContract.sol)
+* [new contract](https://github.com/everx-labs/samples/blob/master/solidity/12_NewVersion.sol)
 
 ##### tvm.configParam()
 
@@ -4062,7 +4114,7 @@ Example:
 tvm.rawReserve(1 ever, 4 + 8);
 ```
 
-See also: [23_rawReserve.sol](https://github.com/tonlabs/samples/blob/master/solidity/23_rawReserve.sol)
+See also: [23_rawReserve.sol](https://github.com/everx-labs/samples/blob/master/solidity/23_rawReserve.sol)
 
 ##### tvm.initCodeHash()
 
@@ -4159,12 +4211,12 @@ onchain) and use `code` if you want to create account state in the `new` express
 Constructor function parameters don't influence the address. See
 [New contract address problem](#new-contract-address-problem).
 
-[Step-by-step description how to deploy contracts from the contract here](https://github.com/tonlabs/samples/blob/master/solidity/17_ContractProducer.md).  
+[Step-by-step description how to deploy contracts from the contract here](https://github.com/everx-labs/samples/blob/master/solidity/17_ContractProducer.md).  
 
 Examples:
 
-* [WalletProducer](https://github.com/tonlabs/samples/blob/master/solidity/17_ContractProducer.sol).
-* [SelfDeployer](https://github.com/tonlabs/samples/blob/master/solidity/21_self_deploy.sol).
+* [WalletProducer](https://github.com/everx-labs/samples/blob/master/solidity/17_ContractProducer.sol).
+* [SelfDeployer](https://github.com/everx-labs/samples/blob/master/solidity/21_self_deploy.sol).
 
 ##### `stateInit` option usage
 
@@ -4242,8 +4294,20 @@ address newWallet = new SimpleWallet{
 You can also deploy the contract via [\<address\>.transfer()](#addresstransfer).
 Just set the option `stateInit`.
 
-* [Example of usage](https://github.com/tonlabs/samples/blob/master/solidity/11_ContractDeployer.sol)
-* [Step-by-step description how to deploy contracts from the contract here](https://github.com/tonlabs/samples/blob/master/solidity/17_ContractProducer.md).
+* [Example of usage](https://github.com/everx-labs/samples/blob/master/solidity/11_ContractDeployer.sol)
+* [Step-by-step description how to deploy contracts from the contract here](https://github.com/everx-labs/samples/blob/master/solidity/17_ContractProducer.md).
+
+##### Deploy the contract with no constructor
+
+If the contract does not have constructor explicitly and does not have state variables with initialisation, then in `*.abi.json` file there is no `constructor` function and no `_constructorFlag` field.
+
+For example: [1_Accumulator_no_ctor.sol](https://github.com/everx-labs/samples/blob/master/solidity/1_Accumulator_no_ctor.sol) and [1_Accumulator_no_ctor.abi.json](https://github.com/everx-labs/samples/blob/master/solidity/1_Accumulator_no_ctor.abi.json). To deploy this contractor by external message with help `ever-cli`, use parameter `method`  for `deploy` and `deployx` commands:
+
+```bash
+ever-cli deploy --method add '{"delta": 123}' ...
+```
+
+To deploy a contractor by internal message, use option `stateInit` for [External function calls](#external-function-calls). See `deployNoConstructor` and `deployNoConstructor2` functions [11_ContractDeployer.sol](https://github.com/everx-labs/samples/blob/master/solidity/11_ContractDeployer.sol) as samples of deploying [11_Waller_no_constructor.sol](https://github.com/everx-labs/samples/blob/master/solidity/11_Waller_no_constructor.sol). 
 
 ##### New contract address problem
 
@@ -4258,18 +4322,18 @@ Let's consider how to protect against this problem:
 We must Check if we didn't forget to set the public key in the contract and the
 inbound message is signed by that key. If hacker doesn't have your private
 key, then he can't sign message to call the constructor.
-See [constructor of WalletProducer](https://github.com/tonlabs/samples/blob/master/solidity/17_ContractProducer.sol).
+See [constructor of WalletProducer](https://github.com/everx-labs/samples/blob/master/solidity/17_ContractProducer.sol).
 2. Constructor is called by internal message.
 We should define static variable in the new contract that will contain
 address of the creator. Address of the creator will be a part of the `stateInit`.
 And in the constructor we must check address of the message sender.
-See [function `deployWallet` how to deploy contract](https://github.com/tonlabs/samples/blob/master/solidity/17_ContractProducer.sol).  
-See [constructor of SimpleWallet](https://github.com/tonlabs/samples/blob/master/solidity/17_SimpleWallet.sol).  
+See [function `deployWallet` how to deploy contract](https://github.com/everx-labs/samples/blob/master/solidity/17_ContractProducer.sol).  
+See [constructor of SimpleWallet](https://github.com/everx-labs/samples/blob/master/solidity/17_SimpleWallet.sol).  
 If some contract should deploy plenty of contracts (with some contract's
 public key), then it's a good idea to declare static variable in the deployed
 contract. This variable can contain some sequence number. It will allow
 each new contact to have unique `stateInit`.
-See [SimpleWallet](https://github.com/tonlabs/samples/blob/master/solidity/17_SimpleWallet.sol).  
+See [SimpleWallet](https://github.com/everx-labs/samples/blob/master/solidity/17_SimpleWallet.sol).  
 **Note**: contract's public key (`tvm.pubkey()`) is a part of `stateInit`.
 
 ##### Misc functions from `tvm`
@@ -4282,7 +4346,7 @@ tvm.code() returns (TvmCell);
 
 Returns contract's code. [Capabilities](#tvm-capabilities) required: `CapMycode`.
 
-See [SelfDeployer](https://github.com/tonlabs/samples/blob/master/solidity/21_self_deploy.sol).
+See [SelfDeployer](https://github.com/everx-labs/samples/blob/master/solidity/21_self_deploy.sol).
 
 ##### tvm.pubkey()
 
@@ -4312,8 +4376,8 @@ after termination of the current run of the smart contract.
 
 See example of how to use this function:
 
-* [old contract](https://github.com/tonlabs/samples/blob/master/solidity/12_BadContract.sol)
-* [new contract](https://github.com/tonlabs/samples/blob/master/solidity/12_NewVersion.sol)
+* [old contract](https://github.com/everx-labs/samples/blob/master/solidity/12_BadContract.sol)
+* [new contract](https://github.com/everx-labs/samples/blob/master/solidity/12_NewVersion.sol)
 
 ##### tvm.resetStorage()
 
@@ -4365,7 +4429,7 @@ Possible values of `flag` are described here: [\<address\>.transfer()](#addresst
 **Note:** make sure that `msg` has a correct format and follows the [TL-B scheme][3] of `Message X`.
 For example:
 
-``` TVMSolidity
+```TVMSolidity
 TvmCell msg = ...
 tvm.sendrawmsg(msg, 2);
 ```
@@ -4373,6 +4437,257 @@ tvm.sendrawmsg(msg, 2);
 If the function is called by external message and `msg` has a wrong format (for example, the field
 `init` of `Message X` is not valid), then the transaction will be replayed despite the usage of flag 2.
 It will happen because the transaction will fail at the action phase.
+
+#### **bls** namespace
+
+Operations on a pairing friendly BLS12-381 curve. BLS values are represented in TVM in the following way:
+  * G1-points and public keys: 48-byte slice.
+  * G2-points and signatures: 96-byte slice.
+  * Elements of field FP: 48-byte slice.
+  * Elements of field FP2: 96-byte slice.
+  * Messages: slice. Number of bits should be divisible by 8.
+
+When input value is a point or a field element, the slice may have more than 48/96 bytes. In this case only the first 48/96 bytes are taken. If the slice has less bytes (or if message size is not divisible by 8), cell underflow exception is thrown.
+
+[Capabilities](#tvm-capabilities) required: `CapTvmV20`.
+
+#### bls.verify
+
+```TVMSolidity
+bls.verify(TvmSlice pubkey, TvmSlice message, TvmSlice sign) returns (bool)
+```
+
+Checks BLS signature. Returns `true` on success, `false` otherwise. Example:
+
+```TVMSolidity
+TvmSlice pubkey = "b65cfaf56cebd6083320bf9a1c2010d4775310c5e7b348546dce0f62aa1ad0c29e15a58e251582faa7879d74e9d4034b";
+TvmSlice message = TvmSlice(bytes("Hello, BLS verify!"));
+TvmSlice sign = "aa652737cad33a9b332300ecd53f1995e5d6c6ff5eb233c04b2e32ca1169524fee64d58575cb42a1a34e1bf3a61c550814d0147b2b82a668ef7c917c756e489e8ff57d64efbbf533d7995db28377d6442ec952268a2bf30d5770d4e8a9d56f9c";
+bool ok = bls.verify(pubkey, message, sign);
+```
+
+#### bls.aggregate
+
+```TVMSolidity
+(1)
+bls.aggregate(vector(TvmSlice) signs) returns (TvmSlice sign)
+(2)
+bls.aggregate(TvmSlice sign0, TvmSlice sign1, ...) returns (TvmSlice sign)
+```
+
+(1) Aggregates signatures if `signs.length() > 0`. Throw exception if `signs.empty()` or if some `signs[i]` is not a valid signature.
+
+(2) Same as (1) but takes `TvmSlice`'s.
+
+Example:
+
+```TVMSolidity
+vector(TvmSlice) signs;
+signs.push("8b1eac18b6e7a38f2b2763c9a03c3b6cff4110f18c4d363eec455463bd5c8671fb81204c4732406d72468a1474df6133147a2240f4073a472ef419f23011ee4d6cf02fceb844398e33e2e331635dace3b26464a6851e10f6895923c568582fbd");
+signs.push("94ec60eb8d2b657dead5e1232b8f9cc0162467b08f02e252e97622297787a74b6496607036089837fe5b52244bbbb6d00d3d7cc43812688451229d9e96f704401db053956c588203ba7638e8882746c16e701557f34b0c08bbe097483aec161e");
+signs.push("8cdbeadb3ee574a4f796f10d656885f143f454cc6a2d42cf8cabcd592d577c5108e4258a7b14f0aafe6c86927b3e70030432a2e5aafa97ee1587bbdd8b69af044734defcf3c391515ab26616e15f5825b4b022a7df7b44f65a8792c54762e579");
+TvmSlice sign = bls.aggregate(signs);
+```
+
+```TVMSolidity
+TvmSlice sign0 = "8b1eac18b6e7a38f2b2763c9a03c3b6cff4110f18c4d363eec455463bd5c8671fb81204c4732406d72468a1474df6133147a2240f4073a472ef419f23011ee4d6cf02fceb844398e33e2e331635dace3b26464a6851e10f6895923c568582fbd";
+TvmSlice sign1 = "94ec60eb8d2b657dead5e1232b8f9cc0162467b08f02e252e97622297787a74b6496607036089837fe5b52244bbbb6d00d3d7cc43812688451229d9e96f704401db053956c588203ba7638e8882746c16e701557f34b0c08bbe097483aec161e";
+TvmSlice sign2 = "8cdbeadb3ee574a4f796f10d656885f143f454cc6a2d42cf8cabcd592d577c5108e4258a7b14f0aafe6c86927b3e70030432a2e5aafa97ee1587bbdd8b69af044734defcf3c391515ab26616e15f5825b4b022a7df7b44f65a8792c54762e579";
+TvmSlice sign = bls.aggregate(sign0, sign1, sign2);
+```
+
+#### bls.fastAggregateVerify
+
+```TVMSolidity
+(1)
+bls.fastAggregateVerify(vector(TvmSlice) pubkeys, TvmSlice message, TvmSlice singature) returns (bool ok)
+(2)
+bls.fastAggregateVerify(TvmSlice pubkey0, TvmSlice pubkey1, ..., TvmSlice message, TvmSlice singature) returns (bool ok)
+```
+
+(1) Checks aggregated BLS signature for `pubkeys` and `message`. Returns `true` on success, `false` otherwise. Return `false` if `pubkeys.empty()`.
+
+(2) Same as (1) but takes `TvmSlice`'s.
+
+Example:
+
+```TVMSolidity
+vector(TvmSlice) pubkeys;
+pubkeys.push("a44184a47ad3fc0069cf7a95650a28af2ed715beab28651a7ff433e26c0fff714d21cc5657367bc563c6df28fb446d8f");
+pubkeys.push("832c0eca9f8cae87a1c6362838b34723cf63a1f69e366d64f3c61fc237217c4bea601cfbf4d6c18849ed4f9487b4a20c");
+pubkeys.push("9595aa3c5cb3d7c763fa6b52294ebde264bdf49748efbbe7737c35532db8fabc666bb0d186f329c8bdafddfbdcbc3ca6");
+TvmSlice message = TvmSlice(bytes("Hello, BLS fast aggregate and verify!"));
+TvmSlice singature = "8420b1944c64f74dd67dc9f5ab210bab928e2edd4ce7e40c6ec3f5422c99322a5a8f3a8527eb31366c9a74752d1dce340d5a98fbc7a04738c956e74e7ba77b278cbc52afc63460c127998aae5aa1c3c49e8c48c30cc92451a0a275a47f219602";
+bool ok = bls.fastAggregateVerify(pubkeys, message, singature);
+```
+
+```TVMSolidity
+TvmSlice pk0 = "a44184a47ad3fc0069cf7a95650a28af2ed715beab28651a7ff433e26c0fff714d21cc5657367bc563c6df28fb446d8f";
+TvmSlice pk1 = "832c0eca9f8cae87a1c6362838b34723cf63a1f69e366d64f3c61fc237217c4bea601cfbf4d6c18849ed4f9487b4a20c";
+TvmSlice pk2 = "9595aa3c5cb3d7c763fa6b52294ebde264bdf49748efbbe7737c35532db8fabc666bb0d186f329c8bdafddfbdcbc3ca6";
+TvmSlice message = TvmSlice(bytes("Hello, BLS fast aggregate and verify!"));
+TvmSlice singature = "8420b1944c64f74dd67dc9f5ab210bab928e2edd4ce7e40c6ec3f5422c99322a5a8f3a8527eb31366c9a74752d1dce340d5a98fbc7a04738c956e74e7ba77b278cbc52afc63460c127998aae5aa1c3c49e8c48c30cc92451a0a275a47f219602";
+bool ok = bls.fastAggregateVerify(pk0, pk1, pk2, message, singature);
+```
+
+####  bls.aggregateVerify()
+
+```TVMSolidity
+(1)
+bls.aggregateVerify(vector(TvmSlice, TvmSlice) pubkeysMessages, TvmSlice singature) returns (bool ok)
+(2)
+bls.aggregateVerify(TvmSlice pubkey0, TvmSlice pubkey1, ..., TvmSlice message0, TvmSlice message1, ..., TvmSlice singature) returns (bool ok)
+```
+
+(1) Checks aggregated BLS signature for key-message pairs `pubkeysMessages`. Returns `true` on success, `false` otherwise. Returns `false` if `pubkeysMessages.empty()`.
+
+(2) Same as (1) but takes `TvmSlice`'s.
+
+```TVMSolidity
+vector(TvmSlice, TvmSlice) pubkeysMessages;
+TvmSlice pubkey0 = "b75f0360095de73c4790f803153ded0f3e6aefa6f0aac8bfd344a44a3de361e3f6f111c0cf0ad0c4a0861492f9f1aeb1";
+TvmSlice message0 = TvmSlice(bytes("Hello, BLS fast aggregate and verify 0!"));
+pubkeysMessages.push(pubkey0, message0);
+TvmSlice pubkey1 = "a31e12bb4ffa75aabbae8ec2367015ba3fc749ac3826539e7d0665c285397d02b48414a23f8b33ecccc750b3afffacf6";
+TvmSlice message1 = TvmSlice(bytes("Hello, BLS fast aggregate and verify 1!"));
+pubkeysMessages.push(pubkey1, message1);
+TvmSlice pubkey2 = "8de5f18ca5938efa896fbc4894c6044cdf89e778bf88584be48d6a6235c504cd45a44a68620f763aea043b6381add1f7";
+TvmSlice message2 = TvmSlice(bytes("Hello, BLS fast aggregate and verify 2!"));
+pubkeysMessages.push(pubkey2, message2);
+TvmSlice singature = "8b8238896dfe3b02dc463c6e645e36fb78add51dc8ce32f40ecf60a418e92762856c3427b672be67278b5c4946b8c5a30fee60e5c38fdb644036a4f29ac9a039ed4e3b64cb7fef303052f33ac4391f95d482a27c8341246516a13cb72e58097b";
+bool ok = bls.aggregateVerify(pubkeysMessages, singature);
+```
+
+```TVMSolidity
+TvmSlice pubkey0 = "b75f0360095de73c4790f803153ded0f3e6aefa6f0aac8bfd344a44a3de361e3f6f111c0cf0ad0c4a0861492f9f1aeb1";
+TvmSlice message0 = TvmSlice(bytes("Hello, BLS fast aggregate and verify 0!"));
+TvmSlice pubkey1 = "a31e12bb4ffa75aabbae8ec2367015ba3fc749ac3826539e7d0665c285397d02b48414a23f8b33ecccc750b3afffacf6";
+TvmSlice message1 = TvmSlice(bytes("Hello, BLS fast aggregate and verify 1!"));
+TvmSlice pubkey2 = "8de5f18ca5938efa896fbc4894c6044cdf89e778bf88584be48d6a6235c504cd45a44a68620f763aea043b6381add1f7";
+TvmSlice message2 = TvmSlice(bytes("Hello, BLS fast aggregate and verify 2!"));
+TvmSlice singature = "8b8238896dfe3b02dc463c6e645e36fb78add51dc8ce32f40ecf60a418e92762856c3427b672be67278b5c4946b8c5a30fee60e5c38fdb644036a4f29ac9a039ed4e3b64cb7fef303052f33ac4391f95d482a27c8341246516a13cb72e58097b";
+bool ok = bls.aggregateVerify(pubkey0, message0, pubkey1, message1,  pubkey2, message2, singature);
+```
+
+#### bls.g1Zero() and bls.g2Zero()
+
+```TVMSolidity
+bls.g1Zero() returns (TvmSlice)
+bls.g2Zero() returns (TvmSlice)
+```
+
+Returns zero point in G1/G2.
+
+#### bls.g1IsZero() and bls.g2IsZero()
+
+```TVMSolidity
+bls.g1Zero(TvmSlice x) returns (bool isZero)
+bls.g2Zero(TvmSlice x) returns (bool isZero)
+```
+
+Checks that G1/G2 point `x` is equal to zero.
+
+#### bls.g1Add() and bls.g2Add()
+
+```TVMSolidity
+bls.g1Add(TvmSlice a, TvmSlice b) returns (TvmSlice res)
+bls.g2Add(TvmSlice a, TvmSlice b) returns (TvmSlice res)
+```
+
+Addition on G1/G2.
+
+#### bls.g1Sub() and bls.g2Sub()
+
+```TVMSolidity
+bls.g1Sub(TvmSlice a, TvmSlice b) returns (TvmSlice res)
+bls.g2Sub(TvmSlice a, TvmSlice b) returns (TvmSlice res)
+```
+
+Subtraction on G1/G2.
+
+#### bls.g1Neg() and bls.g2Neg()
+
+```TVMSolidity
+bls.g1Neg(TvmSlice x) returns (TvmSlice res)
+bls.g2Neg(TvmSlice x) returns (TvmSlice res)
+```
+
+Negation on G1/G2.
+
+#### bls.g1Mul() and bls.g2Mul()
+
+```TVMSolidity
+bls.g1Mul(TvmSlice x, int s) returns (TvmSlice res)
+bls.g2Mul(TvmSlice x, int s) returns (TvmSlice res)
+```
+
+Multiplies G1/G2 point `x` by scalar `s`. Any `s` is valid, including negative.
+
+#### bls.g1InGroup() and bls.g2InGroup()
+
+```TVMSolidity
+bls.g1Mul(TvmSlice x) returns (bool ok)
+bls.g2Mul(TvmSlice x) returns (bool ok)
+```
+
+Checks that slice `x` represents a valid element of G1/G2.
+
+#### bls.r()
+
+```TVMSolidity
+bls.r() returns (uint255)
+```
+
+Pushes the order of G1 and G2 (approx. 2^255). It's 52435875175126190479447740508185965837690552500527637822603658699938581184513.
+
+#### bls.g1MultiExp() and bls.g2MultiExp()
+
+```TVMSolidity
+(1)
+bls.g1MultiExp(vector(TvmSlice, int) x_s) returns (TvmSlice)
+bls.g2MultiExp(vector(TvmSlice, int) x_s) returns (TvmSlice)
+(2)
+bls.g1MultiExp(TvmSlice x0, int s0, TvmSlice x1, int s1, ...) returns (TvmSlice)
+bls.g2MultiExp(TvmSlice x0, int s0, TvmSlice x1, int s1, ...) returns (TvmSlice)
+```
+
+(1) Calculates `x_1*s_1+...+x_n*s_n` for G1/G2 points `x_i` and scalars `s_i`. Returns zero point if `n==0`. Any `s_i` is valid, including negative.
+
+(2) Same as (1) but takes `TvmSlice`'s and `int`'s.
+
+```TVMSolidity
+TvmSlice a = bls.mapToG1("7abd13983c76661a98659da83066c71bd6581baf20c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d92");
+TvmSlice b = bls.mapToG1("7abd13983c76661118659da83066c71bd6581baf20c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d92");
+TvmSlice c = bls.mapToG1("7abd13983c76661118659da83066c71bd658100020c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d92");
+vector(TvmSlice, int) values;
+values.push(a, 2);
+values.push(b, 5);
+values.push(c, 13537812947843);
+
+TvmSlice res = bls.g1MultiExp(values);
+
+TvmSlice aa = bls.g1Mul(a, 2);
+TvmSlice bb = bls.g1Mul(b, 5);
+TvmSlice cc = bls.g1Mul(c, 13537812947843);
+TvmSlice res2 = bls.g1Add(bls.g1Add(aa, bb), cc);
+
+require(res == res2);
+```
+
+```TVMSolidity
+TvmSlice a = bls.mapToG1("7abd13983c76661a98659da83066c71bd6581baf20c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d92");
+TvmSlice b = bls.mapToG1("7abd13983c76661118659da83066c71bd6581baf20c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d92");
+TvmSlice c = bls.mapToG1("7abd13983c76661118659da83066c71bd658100020c82c825b007bf8057a258dc53f7a6d44fb6fdecb63d9586e845d92");
+
+TvmSlice res = bls.g1MultiExp(a, 2, b, 5, c, 13537812947843);
+
+TvmSlice aa = bls.g1Mul(a, 2);
+TvmSlice bb = bls.g1Mul(b, 5);
+TvmSlice cc = bls.g1Mul(c, 13537812947843);
+TvmSlice res2 = bls.g1Add(bls.g1Add(aa, bb), cc);
+
+require(res == res2);
+```
 
 #### **math** namespace
 
@@ -4501,7 +4816,7 @@ uint res = math.muldivc(3, 7, 2); // res == 11
 ##### math.muldivmod()
 
 ```TVMSolidity
-math.muldivmod(T a, T b, T c) returns (T /*result*/, T /*remainder*/);
+math.muldivmod(T a, T b, T c) returns (T /*quotient*/, T /*remainder*/);
 ```
 
 This instruction multiplies first two arguments, divides the result by third argument and returns
@@ -4519,6 +4834,25 @@ int e = -1;
 int f = 3;
 int g = 2;
 (int h, int p) = math.muldivmod(e, f, g); // (h, p) == (-2, 1)
+```
+
+##### math.mulmod()
+
+```TVMSolidity
+math.mulmod(T a, T b, T c) returns (T /*remainder*/);
+```
+
+Same as [math.muldivmod()](#mathmuldivmod) but returns only remainder. Example:
+
+```TVMSolidity
+uint constant P = 2**255 - 19;
+
+function f() public pure {
+    uint a = rnd.next(P);
+    uint b = rnd.next(P);
+    uint c = math.mulmod(a, b, P);
+    //...
+}
 ```
 
 ##### math.sign()
@@ -4901,7 +5235,7 @@ uint16 dataDepth = data.depth();
 uint256 hash = abi.stateInitHash(codeHash, dataHash, codeDepth, dataDepth);
 ```
 
-See also [internal doc](https://github.com/tonlabs/TVM-Solidity-Compiler/blob/master/docs/internal/stateInit_hash.md) to read more about this
+See also [internal doc](https://github.com/everx-labs/TVM-Solidity-Compiler/blob/master/docs/internal/stateInit_hash.md) to read more about this
 function mechanics.
 
 ##### abi.encodeBody()
@@ -4961,7 +5295,7 @@ Loads parameters of the function or constructor (if contract type is provided). 
 
 See example of how to use **onBounce** function:
 
-* [onBounceHandler](https://github.com/tonlabs/samples/blob/master/solidity/16_onBounceHandler.sol)
+* [onBounceHandler](https://github.com/everx-labs/samples/blob/master/solidity/16_onBounceHandler.sol)
 
 ##### abi.codeSalt()
 
@@ -5018,7 +5352,7 @@ contract MyContract {
 
 See example of how to use this function:
 
-* [onBounceHandler](https://github.com/tonlabs/samples/blob/master/solidity/16_onBounceHandler.sol)
+* [onBounceHandler](https://github.com/everx-labs/samples/blob/master/solidity/16_onBounceHandler.sol)
 
 ##### abi.encodeIntMsg()
 
@@ -5044,7 +5378,7 @@ described.
 
 See also:
 
-* sample [22_sender.sol](https://github.com/tonlabs/samples/blob/master/solidity/22_sender.sol)
+* sample [22_sender.sol](https://github.com/everx-labs/samples/blob/master/solidity/22_sender.sol)
 * [abi.encodeBody()](#abiencodebody)
 
 ### **gosh** namespace
@@ -5140,7 +5474,7 @@ of the current smart contract and destroys the current account.
 
 See example of how to use the `selfdestruct` function:
 
-* [Kamikaze](https://github.com/tonlabs/samples/blob/master/solidity/8_Kamikaze.sol)
+* [Kamikaze](https://github.com/everx-labs/samples/blob/master/solidity/8_Kamikaze.sol)
 
 #### sha256
 
@@ -5196,10 +5530,10 @@ Returns the remaining gas.
 ### TVM capabilities
 
 Rust implementation of TVM has capabilities. Capabilities are flags that can be set to turn on 
-some features or behavior of TVM. Full list of capabilities can be found in `enum GlobalCapabilities` in [ever-block](https://github.com/tonlabs/ever-block/blob/master/src/config_params.rs) repo.
+some features or behavior of TVM. Full list of capabilities can be found in `enum GlobalCapabilities` in [ever-block](https://github.com/everx-labs/ever-block/blob/master/src/config_params.rs) repo.
 Set capabilities store in 8th parameter of the global config of the blockchain. To get it you can use command:
 ```bash
-tonos-cli --json getconfig 8
+ever-cli --json getconfig 8
 ```
 
 ### TVM exception codes

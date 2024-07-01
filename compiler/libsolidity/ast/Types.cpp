@@ -28,6 +28,8 @@
 
 #include <libsolidity/analysis/ConstantEvaluator.h>
 
+#include <libsolidity/codegen/TVMCommons.hpp>
+
 #include <libsolutil/Algorithms.h>
 #include <libsolutil/CommonData.h>
 #include <libsolutil/CommonIO.h>
@@ -1464,6 +1466,28 @@ BoolResult StringLiteralType::isImplicitlyConvertibleTo(Type const& _convertTo) 
 			);
 		return
 			arrayType->isByteArrayOrString();
+	}
+	else if (_convertTo.category() == Type::Category::TvmSlice)
+	{
+		size_t invalidSequence{};
+		if (!util::validateSlice(value(), invalidSequence))
+			return BoolResult::err(
+				"Contains invalid slice character at position " +
+				util::toString(invalidSequence) +
+				"."
+			);
+		else {
+			int bitLength = StrUtils::toBitString("x" + value()).size();
+			bool fitToCell = bitLength <= 1023;
+			if (!fitToCell) {
+				return BoolResult::err(
+					"String literal is too long: " + std::to_string(bitLength) + " bits."
+					" It can not be fitted to the cell. Maximum allowed bit length is 1023 bits."
+				);
+			}
+		}
+
+		return true;
 	}
 	else
 		return false;
@@ -3205,6 +3229,30 @@ std::string FunctionType::richIdentifier() const
 	std::string id = "t_function_";
 	switch (m_kind)
 	{
+	case Kind::BlsVerify: id += "blsverify"; break;
+	case Kind::BlsAggregate: id += "blsaggregate"; break;
+	case Kind::BlsFastAggregateVerify: id += "blsfastaggregateverify"; break;
+	case Kind::BlsAggregateVerify: id += "blsaggregateverify"; break;
+	case Kind::BlsG1Add: id += "blsg1add"; break;
+	case Kind::BlsG1Sub: id += "blsg1sub"; break;
+	case Kind::BlsG1Neg: id += "blsg1neg"; break;
+	case Kind::BlsG1Mul: id += "blsg1mul"; break;
+	case Kind::BlsMapToG1: id += "blsmaptog1"; break;
+	case Kind::BlsG1IsZero: id += "blsg1iszero"; break;
+	case Kind::BlsG1InGroup: id += "blsg1ingroup"; break;
+	case Kind::BlsG2Add: id += "blsg2add"; break;
+	case Kind::BlsG2Sub: id += "blsg2sub"; break;
+	case Kind::BlsG2Neg: id += "blsg2neg"; break;
+	case Kind::BlsG2Mul: id += "blsg2mul"; break;
+	case Kind::BlsMapToG2: id += "blsmaptog2"; break;
+	case Kind::BlsG2IsZero: id += "blsg2iszero"; break;
+	case Kind::BlsG2InGroup: id += "blsg2ingroup"; break;
+	case Kind::BlsG1Zero: id += "blsg1zero"; break;
+	case Kind::BlsG2Zero: id += "blsg2zero"; break;
+	case Kind::BlsPushR: id += "blspushr"; break;
+	case Kind::BlsG1MultiExp: id += "blsg1multiexp"; break;
+	case Kind::BlsG2MultiExp: id += "blsg2multiexp"; break;
+
 	case Kind::IntCast: id += "integercast"; break;
 
 	case Kind::StructUnpack: id += "structunpack"; break;
@@ -3349,6 +3397,7 @@ std::string FunctionType::richIdentifier() const
 	case Kind::MathMulDivMod: id += "mathmuldivmod"; break;
 	case Kind::MathDivMod: id += "mathdivmod"; break;
 	case Kind::MathSign: id += "mathsign"; break;
+	case Kind::MathMulMod: id += "mathmulmod"; break;
 
 	case Kind::MappingAt: id += "mappingat"; break;
 	case Kind::MappingDelMinOrMax: id += "mapdelmin"; break;
@@ -4533,6 +4582,8 @@ std::string MagicType::richIdentifier() const
 		return "t_magic_rnd";
 	case Kind::Gosh:
 		return "t_magic_gosh";
+	case Kind::BLS:
+		return "t_magic_bls";
 	}
 	return "";
 }
@@ -4841,6 +4892,12 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 				TypeProvider::function(
 					{}, {}, {}, {}, FunctionType::Kind::MathDivR, StateMutability::Pure
 				)
+			},
+			{
+				"mulmod",
+				TypeProvider::function(
+					{}, {}, {}, {}, FunctionType::Kind::MathMulMod, StateMutability::Pure
+				)
 			}
 		};
 		members.emplace_back("max", TypeProvider::function(
@@ -5132,6 +5189,354 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 				nullptr, FunctionType::Options::withArbitraryParameters()
 			)}
 		});
+	case Kind::BLS: {
+		auto members = MemberList::MemberMap({
+			{
+				"verify",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+					TypePointers{TypeProvider::boolean()},
+					strings{"", "", ""},
+					strings{""},
+					FunctionType::Kind::BlsVerify,
+					StateMutability::Pure
+				)
+			},
+			{
+				"aggregate",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmVector(TypeProvider::tvmslice())},
+					TypePointers{TypeProvider::tvmslice()},
+					strings{""},
+					strings{""},
+					FunctionType::Kind::BlsAggregate,
+					StateMutability::Pure
+				)
+			},
+			{
+				"fastAggregateVerify",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmVector(TypeProvider::tvmslice()), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+					TypePointers{TypeProvider::boolean()},
+					strings{"", "", ""},
+					strings{""},
+					FunctionType::Kind::BlsFastAggregateVerify,
+					StateMutability::Pure
+				)
+			},
+			{
+				"aggregateVerify",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmVector(TypeProvider::tuple({TypeProvider::tvmslice(), TypeProvider::tvmslice()})), TypeProvider::tvmslice()},
+					TypePointers{TypeProvider::boolean()},
+					strings{"", ""},
+					strings{""},
+					FunctionType::Kind::BlsAggregateVerify,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g1Add",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+					TypePointers{TypeProvider::tvmslice()},
+					strings{"", ""},
+					strings{""},
+					FunctionType::Kind::BlsG1Add,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g1Sub",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+					TypePointers{TypeProvider::tvmslice()},
+					strings{"", ""},
+					strings{""},
+					FunctionType::Kind::BlsG1Sub,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g1Neg",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmslice()},
+					TypePointers{TypeProvider::tvmslice()},
+					strings{""},
+					strings{""},
+					FunctionType::Kind::BlsG1Neg,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g1Mul",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmslice(), TypeProvider::int257()},
+					TypePointers{TypeProvider::tvmslice()},
+					strings{"", ""},
+					strings{""},
+					FunctionType::Kind::BlsG1Mul,
+					StateMutability::Pure
+				)
+			},
+			{
+				"mapToG1",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmslice()},
+					TypePointers{TypeProvider::tvmslice()},
+					strings{""},
+					strings{""},
+					FunctionType::Kind::BlsMapToG1,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g1IsZero",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmslice()},
+					TypePointers{TypeProvider::boolean()},
+					strings{""},
+					strings{""},
+					FunctionType::Kind::BlsG1IsZero,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g1InGroup",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmslice()},
+					TypePointers{TypeProvider::boolean()},
+					strings{""},
+					strings{""},
+					FunctionType::Kind::BlsG1InGroup,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g2Add",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+					TypePointers{TypeProvider::tvmslice()},
+					strings{"", ""},
+					strings{""},
+					FunctionType::Kind::BlsG2Add,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g2Sub",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+					TypePointers{TypeProvider::tvmslice()},
+					strings{"", ""},
+					strings{""},
+					FunctionType::Kind::BlsG2Sub,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g2Neg",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmslice()},
+					TypePointers{TypeProvider::tvmslice()},
+					strings{""},
+					strings{""},
+					FunctionType::Kind::BlsG2Neg,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g2Mul",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmslice(), TypeProvider::int257()},
+					TypePointers{TypeProvider::tvmslice()},
+					strings{"", ""},
+					strings{""},
+					FunctionType::Kind::BlsG2Mul,
+					StateMutability::Pure
+				)
+			},
+			{
+				"mapToG2",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmslice()},
+					TypePointers{TypeProvider::tvmslice()},
+					strings{""},
+					strings{""},
+					FunctionType::Kind::BlsMapToG2,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g2IsZero",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmslice()},
+					TypePointers{TypeProvider::boolean()},
+					strings{""},
+					strings{""},
+					FunctionType::Kind::BlsG2IsZero,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g2InGroup",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmslice()},
+					TypePointers{TypeProvider::boolean()},
+					strings{""},
+					strings{""},
+					FunctionType::Kind::BlsG2InGroup,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g1Zero",
+				TypeProvider::function(
+					TypePointers{},
+					TypePointers{TypeProvider::tvmslice()},
+					strings{},
+					strings{""},
+					FunctionType::Kind::BlsG1Zero,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g2Zero",
+				TypeProvider::function(
+					TypePointers{},
+					TypePointers{TypeProvider::tvmslice()},
+					strings{},
+					strings{""},
+					FunctionType::Kind::BlsG2Zero,
+					StateMutability::Pure
+				)
+			},
+			{
+				"r",
+				TypeProvider::function(
+					TypePointers{},
+					TypePointers{TypeProvider::uint(255)},
+					strings{},
+					strings{""},
+					FunctionType::Kind::BlsPushR,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g1MultiExp",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmVector(TypeProvider::tuple({TypeProvider::tvmslice(),TypeProvider::int257()}))},
+					TypePointers{TypeProvider::tvmslice()},
+					strings{""},
+					strings{""},
+					FunctionType::Kind::BlsG1MultiExp,
+					StateMutability::Pure
+				)
+			},
+			{
+				"g2MultiExp",
+				TypeProvider::function(
+					TypePointers{TypeProvider::tvmVector(TypeProvider::tuple({TypeProvider::tvmslice(),TypeProvider::int257()}))},
+					TypePointers{TypeProvider::tvmslice()},
+					strings{""},
+					strings{""},
+					FunctionType::Kind::BlsG2MultiExp,
+					StateMutability::Pure
+				)
+			}
+		});
+		auto args = TypePointers{TypeProvider::tvmslice()};
+		auto argNames = strings{""};
+		for (int n = 1; n <= 255; ++n)
+		{
+			members.emplace_back(
+				"aggregate",
+				TypeProvider::function(
+					args,
+					TypePointers{TypeProvider::tvmslice()},
+					argNames,
+					strings{""},
+					FunctionType::Kind::BlsAggregate,
+					StateMutability::Pure
+				)
+			);
+			{
+				auto favArgs = args;
+				favArgs.emplace_back(TypeProvider::tvmslice());
+				favArgs.emplace_back(TypeProvider::tvmslice());
+				auto favNames = argNames;
+				favNames.emplace_back("");
+				favNames.emplace_back("");
+				members.emplace_back(
+					"fastAggregateVerify",
+					TypeProvider::function(
+						favArgs,
+						TypePointers{TypeProvider::boolean()},
+						favNames,
+						strings{""},
+						FunctionType::Kind::BlsFastAggregateVerify,
+						StateMutability::Pure
+					)
+				);
+			}
+			{
+				auto avArgs = args;
+				avArgs.insert(avArgs.end(), args.begin(), args.end());
+				avArgs.emplace_back(TypeProvider::tvmslice());
+				auto avNames = argNames;
+				avNames.insert(avNames.end(), argNames.begin(), argNames.end());
+				avNames.emplace_back("");
+				members.emplace_back(
+					"aggregateVerify",
+					TypeProvider::function(
+						avArgs,
+						TypePointers{TypeProvider::boolean()},
+						avNames,
+						strings{""},
+						FunctionType::Kind::BlsAggregateVerify,
+						StateMutability::Pure
+					)
+				);
+			}
+			{
+				TypePointers mulArgs;
+				strings mulNames;
+				for (int i = 0; i < n; ++i) {
+					mulArgs.emplace_back(TypeProvider::tvmslice());
+					mulArgs.emplace_back(TypeProvider::int257());
+					mulNames.emplace_back("");
+					mulNames.emplace_back("");
+				}
+				members.emplace_back(
+					"g1MultiExp",
+					TypeProvider::function(
+						mulArgs,
+						TypePointers{TypeProvider::tvmslice()},
+						mulNames,
+						strings{""},
+						FunctionType::Kind::BlsG1MultiExp,
+						StateMutability::Pure
+					)
+				);
+				members.emplace_back(
+					"g2MultiExp",
+					TypeProvider::function(
+						mulArgs,
+						TypePointers{TypeProvider::tvmslice()},
+						mulNames,
+						strings{""},
+						FunctionType::Kind::BlsG1MultiExp,
+						StateMutability::Pure
+					)
+				);
+			}
+
+			//
+			args.emplace_back(TypeProvider::tvmslice());
+			argNames.emplace_back("");
+		}
+		return members;
+	}
 	case Kind::Gosh: {
 		MemberList::MemberMap members;
 		for (auto const&[name, type] : std::vector<std::tuple<std::string, FunctionType::Kind>>{
@@ -5300,6 +5705,8 @@ std::string MagicType::toString(bool _withoutDataLocation) const
 		return "rnd";
 	case Kind::Gosh:
 		return "gosh";
+	case Kind::BLS:
+		return "bls";
 	}
 	solAssert(false, "Unknown kind of magic.");
 	return {};
@@ -6023,6 +6430,26 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 			)
 		},
 		{
+			"bitEmpty", TypeProvider::function(
+				{},
+				{TypeProvider::boolean()},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceEmpty,
+				StateMutability::Pure
+			)
+		},
+		{
+			"refEmpty", TypeProvider::function(
+				{},
+				{TypeProvider::boolean()},
+				{},
+				{{}},
+				FunctionType::Kind::TVMSliceEmpty,
+				StateMutability::Pure
+			)
+		},
+		{
 			"bits", TypeProvider::function(
 				TypePointers{},
 				TypePointers{TypeProvider::uint(10)},
@@ -6101,7 +6528,27 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				FunctionType::Kind::TVMSliceCompare,
 				StateMutability::Pure
 			)
-		}
+		},
+		{
+			"startsWithOne", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::boolean()},
+				strings{},
+				strings{""},
+				FunctionType::Kind::TVMSliceSize,
+				StateMutability::Pure
+			)
+		},
+		{
+			"startsWith", TypeProvider::function(
+				TypePointers{TypeProvider::tvmslice()},
+				TypePointers{TypeProvider::boolean()},
+				strings{""},
+				strings{""},
+				FunctionType::Kind::TVMSliceSize,
+				StateMutability::Pure
+			)
+		},
 	};
 	return members;
 }
@@ -6225,14 +6672,26 @@ TypeResult TvmVectorType::unaryOperatorResult(Token _operator) const {
 
 MemberList::MemberMap TvmVectorType::nativeMembers(const ASTNode *) const
 {
+	TypePointers comps;
+	strings names;
+	if (auto tuple = dynamic_cast<TupleType const*>(valueType())) {
+		for (Type const* comp : tuple->components()) {
+			comps.emplace_back(comp);
+			names.emplace_back("");
+		}
+	} else {
+		comps.emplace_back(valueType());
+		names.emplace_back("");
+	}
+
 	MemberList::MemberMap members =
 	{
 		{
 			"push",
 			TypeProvider::function(
-				TypePointers{valueType()},
+				comps,
 				TypePointers{},
-				strings{std::string()},
+				names,
 				strings{},
 				FunctionType::Kind::TVMVectorPush,
 				StateMutability::Pure
@@ -6253,9 +6712,9 @@ MemberList::MemberMap TvmVectorType::nativeMembers(const ASTNode *) const
 			"pop",
 			TypeProvider::function(
 				TypePointers{},
-				TypePointers{valueType()},
+				comps,
 				strings{},
-				strings{std::string("last")},
+				names,
 				FunctionType::Kind::TVMVectorPop,
 				StateMutability::Pure
 			)
@@ -6275,9 +6734,9 @@ MemberList::MemberMap TvmVectorType::nativeMembers(const ASTNode *) const
 			"last",
 			TypeProvider::function(
 				TypePointers{},
-				TypePointers{valueType()},
+				comps,
 				strings{},
-				strings{std::string("last")},
+				names,
 				FunctionType::Kind::TVMVectorLast,
 				StateMutability::Pure
 			)

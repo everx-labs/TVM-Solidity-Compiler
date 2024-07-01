@@ -488,13 +488,13 @@
 			.loc stdlib.sol, 269
 			PUSH S4
 			ADDCONST 127
-			OVER
 		}
 		PUSHCONT {
 			.loc stdlib.sol, 271
-			PUSH2 S4, S0
+			PUSH S4
 		}
 		IFELSE
+		OVER
 		SUB
 		POP S5
 		.loc stdlib.sol, 0
@@ -725,13 +725,13 @@
 			.loc stdlib.sol, 190
 			PUSH S4
 			ADDCONST 127
-			OVER
 		}
 		PUSHCONT {
 			.loc stdlib.sol, 192
-			PUSH2 S4, S0
+			PUSH S4
 		}
 		IFELSE
+		OVER
 		SUB
 		POP S5
 		.loc stdlib.sol, 0
@@ -1028,7 +1028,7 @@
 				FIRST
 				PUSH S8
 				PUSH C3
-				EXECUTE
+				CALLX
 				PUSHCONT {
 					.loc stdlib.sol, 577
 					BLKPUSH 2, 2
