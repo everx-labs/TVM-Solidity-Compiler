@@ -1794,7 +1794,7 @@ function f(quint32 a, quint32 b) private pure {
 ##### \<T\>.getOr()
 
 ```TVMSolidity
-<T>.getOr(T default) returns (T2)
+<T>.getOr(T2 default) returns (T2)
 ```
 
 Returns "non-quiet" integer. If `<T>` is `NaN`, then returns `default`. `T` is `qintN`, `quintN` or `qbool`. Example:
