@@ -1,3 +1,11 @@
+### 0.76.0 (2024-07-18)
+
+Compiler features:
+ * Supported `bool` type for function [format](API.md#format).
+ * Supported [\<TvmBuilder\>.storeQ()](API.md#tvmbuilderstoreq).
+
+Fixed minor bugs.
+
 ### 0.75.0 (2024-06-04)
 
 Breaking changes:
@@ -748,9 +756,9 @@ Bugfixes:
 ### 0.33 (2020-11-18)
 
 Compiler Features:
- * Support ``varInit`` and ``pubkey`` options in ``new`` expression.
+ * Support `varInit` and `pubkey` options in `new` expression.
  * Support optional type in complex lvalue expressions. e.g. `m[11].get()[22] = 33` where `m` is `mapping(uint => optional(uint[]))`.
-* Support option `splitDepth` in ``new`` expression and in `tvm.buildStateInit(...)`.
+* Support option `splitDepth` in `new` expression and in `tvm.buildStateInit(...)`.
 
 Breaking changes:
  * `public` state variable don't create record in *.abi.json in section `data`. Use keyword `static` for that goal. For `public` state variable, getter function is automatically generated. That function can be called locally only.
@@ -764,36 +772,36 @@ functions are declared as `pure` or `view`.
 ### 0.32 (2020-11-03)
 
 Compiler Features:
- * Support some math function: ``math.divc()`` and ``math.divr()``.
- * Support ``tvm.exit()`` and ``tvm.exit1()``.
- * Support ``bytes.toSlice()``.
- * Support ``tvm.functionId`` and ``tvm.decodeFunctionParams`` for contract constructor.
- * Support ``mapping.at``.
- * Support api for *SmartContractInfo*: ``tx.timestamp``, ``block.timestamp``.
- * Support api for getting info about size of DAG: ``cell.dataSize``, ``slice.dataSize`` and another.
- * Support api functions for converting integer or address to a string: ``format()``, ``string(int)`` and ``hexstring``.
- * Support api for pseudo-random number generator: ``rnd.next()``,
-``rnd.shuffle()``  and another.
+ * Support some math function: `math.divc()` and `math.divr()`.
+ * Support `tvm.exit()` and `tvm.exit1()`.
+ * Support `bytes.toSlice()`.
+ * Support `tvm.functionId` and `tvm.decodeFunctionParams` for contract constructor.
+ * Support `mapping.at`.
+ * Support api for *SmartContractInfo*: `tx.timestamp`, `block.timestamp`.
+ * Support api for getting info about size of DAG: `cell.dataSize`, `slice.dataSize` and another.
+ * Support api functions for converting integer or address to a string: `format()`, `string(int)` and `hexstring`.
+ * Support api for pseudo-random number generator: `rnd.next()`,
+`rnd.shuffle()`  and another.
  * Support function library calls via library name and object.
- * Support pragma to specify default message value: ``pragma msgValue``.
- * Support api function for converting string into an integer ``stoi()``.
- * Support control structure ``repeat`` which repeats block of code arbitrary amount of times.
- * Changed mapping api function ``delMin`` to return optional.
+ * Support pragma to specify default message value: `pragma msgValue`.
+ * Support api function for converting string into an integer `stoi()`.
+ * Support control structure `repeat` which repeats block of code arbitrary amount of times.
+ * Changed mapping api function `delMin` to return optional.
 
 Some little gas optimizations.
 
 ### 0.31 (2020-09-16)
 
 Breaking changes:
- * The ``now`` returns ``uint32`` value, not ``uint256``
- * The ``msg.value`` returns ``uint128`` value, not ``uint256``
- * Change round mode for ``math.muldiv()``
+ * The `now` returns `uint32` value, not `uint256`
+ * The `msg.value` returns `uint128` value, not `uint256`
+ * Change round mode for `math.muldiv()`
 
 Compiler Features:
  * Optimize runtime code (delete duplicate code and useless checks)
- * Add new math operations: ``math.muldivr()`` and ``math.muldivc()``
- * Support setting workchain id for deploying contracts via ``new``
- * Support ``tvm.buildEmptyData(publicKey)`` used for deploying contracts
+ * Add new math operations: `math.muldivr()` and `math.muldivc()`
+ * Support setting workchain id for deploying contracts via `new`
+ * Support `tvm.buildEmptyData(publicKey)` used for deploying contracts
 
 Bugfixes:
  * fixed an issue with overridden functionID

@@ -1557,9 +1557,17 @@ void FunctionCallCompiler::builderMethods(MemberAccess const &_node) {
 					else
 						m_pusher.stzeroes(1);
 				} else {
-					m_pusher.store(argument->annotation().type->mobileType(), false);
+					m_pusher.store(argument->annotation().type->mobileType());
 				}
 			}
+		} else if (memberName == "storeQ") {
+			solAssert(m_arguments.size() == 1, "");
+			acceptExpr(m_arguments.at(0).get());
+			m_pusher.blockSwap(1, 1);
+			m_pusher.storeQ(m_arguments.at(0)->annotation().type->mobileType());
+			// lValue... builder flag
+			m_pusher.blockSwap(lValueInfo.stackSizeDiff, 1);
+			// flag lValue... builder
 		} else if (isIn(memberName, "storeSigned", "storeInt", "storeUnsigned", "storeUint")) {
 			std::string cmd = "ST";
 			cmd += isIn(memberName, "storeSigned", "storeInt") ? "I" : "U";
@@ -3368,6 +3376,7 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 
 				Type::Category cat = m_arguments[it + 1]->annotation().type->category();
 				Type const *argType = m_arguments[it + 1]->annotation().type;
+				acceptExpr(m_arguments[it + 1].get());
 				if (cat == Type::Category::Integer || cat == Type::Category::RationalNumber) {
 					// stack: Stack(TvmBuilder)
 					std::string format = substrings[it].second;
@@ -3384,7 +3393,6 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 							width = std::stoi(format);
 						if (width < 0 || width > 127)
 							cast_error(m_functionCall, "Width should be in range of 0 to 127.");
-						acceptExpr(m_arguments[it + 1].get());
 						// stack: stack x
 						m_pusher.pushInt(width);
 						m_pusher << (leadingZeroes ? "TRUE" : "FALSE");
@@ -3399,23 +3407,21 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 							m_pusher.pushFragmentInCallRef(4, 1, "__convertIntToString");
 						}
 					} else {
-						acceptExpr(m_arguments[it + 1].get());
 						m_pusher.pushInt(9);
 						m_pusher.pushInt(MathConsts::power10().at(9));
 						m_pusher.pushFragmentInCallRef(4, 1, "__convertFixedPointToString");
 					}
 				} else if (cat == Type::Category::Address) {
-					acceptExpr(m_arguments[it + 1].get());
 					m_pusher.pushFragmentInCallRef(2, 1, "__convertAddressToHexString");
 				} else if (isStringOrStringLiteralOrBytes(argType)) {
-					acceptExpr(m_arguments[it + 1].get());
 					m_pusher.pushFragmentInCallRef(2, 1, "__appendStringToStringBuilder");
 				} else if (cat == Type::Category::FixedPoint) {
 					int power = to<FixedPointType>(argType)->fractionalDigits();
-					acceptExpr(m_arguments[it + 1].get());
 					m_pusher.pushInt(power);
 					m_pusher.pushInt(MathConsts::power10().at(power));
 					m_pusher.pushFragmentInCallRef(4, 1, "__convertFixedPointToString");
+				} else if (cat == Type::Category::Bool) {
+					m_pusher.pushFragmentInCallRef(2, 1, "__convertBoolToStringBuilder");
 				} else {
 					cast_error(*m_arguments[it + 1].get(), "Unsupported argument type");
 				}

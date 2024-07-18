@@ -289,6 +289,15 @@ contract stdlib {
         return st;
     }
 
+    function __convertBoolToStringBuilder(stack(TvmBuilder) st, bool value) private pure returns (stack(TvmBuilder)) {
+        st = __appendSliceToStringBuilder(st,
+            value ?
+            TvmSlice(string("true")) :
+            TvmSlice(string("false"))
+        );
+        return st;
+    }
+
     function __stoi(TvmCell _str) private pure returns (optional(int)) {
         TvmSlice str = _str.toSlice();
         if (str.bits() < 8) {

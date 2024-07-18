@@ -60,6 +60,7 @@ When deploying contracts, you should use the latest released version of Solidity
     * [\<TvmBuilder\>.remBitsAndRefs()](#tvmbuilderrembitsandrefs)
     * [\<TvmBuilder\>.depth()](#tvmbuilderdepth)
     * [\<TvmBuilder\>.store()](#tvmbuilderstore)
+    * [\<TvmBuilder\>.storeQ()](#tvmbuilderstoreq)
     * [\<TvmBuilder\>.storeZeroes(), \<TvmBuilder\>.storeOnes() and \<TvmBuilder\>.storeSame()](#tvmbuilderstorezeroes-tvmbuilderstoreones-and-tvmbuilderstoresame)
     * [\<TvmBuilder\>.storeInt()](#tvmbuilderstoreint)
     * [\<TvmBuilder\>.storeUint()](#tvmbuilderstoreuint)
@@ -1086,6 +1087,22 @@ builder.store(a, b, uint(33));
 ```
 
 See also: [\<TvmSlice\>.load()](#tvmsliceload).
+
+##### \<TvmBuilder\>.storeQ()
+
+```TVMSolidity
+<TvmBuilder>.storeQ(T value) returns (bool ok);
+```
+
+Same as [\<TvmBuilder\>.store()](#tvmbuilderstore) but returns the success flag. It does not throw exceptions.
+
+Supported types:
+  * `uintN`/`intN`/`bytesN`
+  * `bool`
+  * `ufixedMxN`/`fixedMxN`
+  * `address`/`contract`
+  * `TvmCell`/`bytes`/`string`
+  * `TvmSlice`/`TvmBuilder`
 
 ##### \<TvmBuilder\>.storeZeroes(), \<TvmBuilder\>.storeOnes() and \<TvmBuilder\>.storeSame()
 
@@ -2240,6 +2257,8 @@ fixed32x3 v = 1.5;
 str = format("{}", v); // str == "1.500"
 fixed256x10 vv = -987123.4567890321;
 str = format("{}", vv); // str == "-987123.4567890321"
+bool flag = true;
+str = format("Hello, {}!", flag); // str == "Hello, true!"
 ```
 
 ##### stoi()
