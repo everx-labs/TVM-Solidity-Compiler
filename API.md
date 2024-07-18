@@ -1843,7 +1843,7 @@ function f(quint32 a, quint32 b) private pure {
 ##### \<T\>.toOptional()
 
 ```TVMSolidity
-<T>.toOptional() returns (toOptional(T2))
+<T>.toOptional() returns (optional(T2))
 ```
 
 Returns optional integer. If `<T>` is `NaN`, then returns [null](#keyword-null). `T` is `qintN`, `quintN` or `qbool`. Example:
