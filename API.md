@@ -1709,7 +1709,7 @@ uint16 s = uBitSize(0); // s == 0
 
 #### Quiet arithmetic
 
-Operations with `qintN` / `quintN` return `NaN` instead of throwing integer overflow exceptions if the results do not fit in type, or if one of their arguments is a `NaN`. Default value for `qintN` / `quintN` is `0`, for `qint` - `false`.
+Operations with `qintN` / `quintN` return `NaN` instead of throwing integer overflow exceptions if the results do not fit in type, or if one of their arguments is a `NaN`. Default value for `qintN` / `quintN` is `0`, for `qbool` - `false`.
 
 ##### qintN and quintN
 
