@@ -149,7 +149,7 @@ StackPusher::prepareValueForDictOperations(Type const *keyType, Type const *valu
 		case DictValueType::Function:
 		{
 			*this << "NEWC";
-			store(valueType, false);
+			store(valueType);
 			if (!doesFitInOneCellAndHaveNoStruct(keyType, valueType)) {
 				*this << "ENDC";
 				return DataType::Cell;
@@ -563,10 +563,9 @@ StackPusher::makeAsym(const string& cmd) {
 				}
 			}
 
-			for (std::string op : {"SETGET", "ADDGET", "REPLACEGET"}) {
+			for (std::string op : {"SETGET", "ADDGET", "REPLACEGET"})
 				for (std::string suf : {"", "REF", "B"})
 					asymOpcodes.insert("DICT" + type + op + suf);
-			}
 
 			for (std::string op : {"DELGET"})
 				for (std::string suf : {"", "REF"})
@@ -584,19 +583,29 @@ StackPusher::makeAsym(const string& cmd) {
 					asymOpcodes.insert(preload + "LD" + type + x + "Q");
 			}
 
-		asymOpcodes.insert("CDATASIZEQ");
-		asymOpcodes.insert("CONFIGPARAM");
-		asymOpcodes.insert("LDDICTQ");
-		asymOpcodes.insert("LDMSGADDRQ");
-		asymOpcodes.insert("LDSLICEQ");
-		asymOpcodes.insert("LDSLICEXQ");
-		asymOpcodes.insert("NULLROTRIFNOT");
-		asymOpcodes.insert("NULLSWAPIF");
-		asymOpcodes.insert("NULLSWAPIFNOT");
-		asymOpcodes.insert("PLDSLICEQ");
-		asymOpcodes.insert("PLDSLICEXQ");
-		asymOpcodes.insert("SDATASIZEQ");
-		asymOpcodes.insert("SPLITQ");
+		asymOpcodes.insert({
+			"CDATASIZEQ",
+			"CONFIGPARAM",
+			"CONFIGPARAM",
+			"LDDICTQ",
+			"LDMSGADDRQ",
+			"LDSLICEQ",
+			"LDSLICEXQ",
+			"NULLROTRIFNOT",
+			"NULLSWAPIF",
+			"NULLSWAPIFNOT",
+			"PLDSLICEQ",
+			"PLDSLICEXQ",
+			"SDATASIZEQ",
+			"SPLITQ",
+			"STBQ",
+			"STIQ",
+			"STIQX",
+			"STIXQ",
+			"STREFQ",
+			"STSLICEQ",
+			"STUQ",
+		});
 	}
 
 	istringstream iss(cmd);
@@ -1374,172 +1383,206 @@ void StackPusher::loadQ(const Type *type) {
 	}
 }
 
-void StackPusher::store(
-	const Type *type,
-	bool reverse
-) {
-	// value   builder  -> reverse = false
-	// builder value	-> reverse = true
+void StackPusher::store(const Type *type) {
+	// value builder
 	const int stackSize = this->stackSize();
 	int deltaStack = 1;
 	switch (type->category()) {
-		case Type::Category::Optional: {
-			auto optType = to<OptionalType>(type);
-			auto optValueType = optType->valueType();
-			auto array = to<ArrayType>(optType->valueType());
-			if (optValueType->category() == Type::Category::TvmCell || (array && array->isByteArrayOrString())) {
-				if (reverse)
-					exchange(1); // value builder
-				*this << "STDICT";
+	case Type::Category::Optional: {
+		auto optType = to<OptionalType>(type);
+		auto optValueType = optType->valueType();
+		auto array = to<ArrayType>(optType->valueType());
+		if (optValueType->category() == Type::Category::TvmCell || (array && array->isByteArrayOrString())) {
+			*this << "STDICT";
+		} else {
+			startOpaque();
+			exchange(1);	// builder value
+			pushS(0);	// builder value value
+			*this << "ISNULL";	// builder value isnull
+			fixStack(-1); // fix stack
+			ensureSize(stackSize);
+
+			startContinuation();
+			// builder value
+			drop(1); // builder
+			stzeroes(1);  // builder'
+			endContinuation();
+			fixStack(+1); // fix stack
+			ensureSize(stackSize);
+
+			startContinuation();
+			// builder value
+			if (isIn(optType->valueType()->category(), Type::Category::Optional, Type::Category::Mapping)) {
+				untuple(1);
+			}
+			// builder value
+			if (isSmallOptional(optType)) {
+				exchange(1); // value builder
+				stones(1); // value builder'
+				store(optType->valueType()); // builder''
 			} else {
-				startOpaque();
-				if (!reverse)
-					exchange(1);	// builder value
-				pushS(0);	// builder value value
-				*this << "ISNULL";	// builder value isnull
-				fixStack(-1); // fix stack
-				ensureSize(stackSize);
-
-				startContinuation();
-				// builder value
-				drop(1); // builder
-				stzeroes(1);  // builder'
-				endContinuation();
-				fixStack(+1); // fix stack
-				ensureSize(stackSize);
-
-				startContinuation();
-				// builder value
-				if (isIn(optType->valueType()->category(), Type::Category::Optional, Type::Category::Mapping)) {
-					untuple(1);
-				}
-				// builder value
-				if (isSmallOptional(optType)) {
-					exchange(1); // value builder
-					stones(1); // value builder'
-					store(optType->valueType(), false); // builder''
+				// builder' value
+				std::unique_ptr<StructCompiler> sc;
+				if (optType->valueType()->category() == Type::Category::Tuple) {
+					auto tup = to<TupleType>(optType->valueType());
+					sc = std::make_unique<StructCompiler>(this, tup);
+				} else if (optType->valueType()->category() == Type::Category::Struct) {
+					auto st = to<StructType>(optType->valueType());
+					sc = std::make_unique<StructCompiler>(this, st);
 				} else {
-					// builder' value
-					std::unique_ptr<StructCompiler> sc;
-					if (optType->valueType()->category() == Type::Category::Tuple) {
-						auto tup = to<TupleType>(optType->valueType());
-						sc = std::make_unique<StructCompiler>(this, tup);
-					} else if (optType->valueType()->category() == Type::Category::Struct) {
-						auto st = to<StructType>(optType->valueType());
-						sc = std::make_unique<StructCompiler>(this, st);
-					} else {
-						// TODO add test for struct
-						solUnimplemented("");
-					}
-					sc->tupleToBuilder();
-					*this << "STBREFR";
-					stones(1); // builder'
+					// TODO add test for struct
+					solUnimplemented("");
 				}
-				endContinuation();
-				fixStack(+1); // fix stack
-				ensureSize(stackSize);
+				sc->tupleToBuilder();
+				*this << "STBREFR";
+				stones(1); // builder'
+			}
+			endContinuation();
+			fixStack(+1); // fix stack
+			ensureSize(stackSize);
 
-				ifElse();
-				endOpaque(2, 1);
-			}
-			break;
+			ifElse();
+			endOpaque(2, 1);
 		}
-		case Type::Category::TvmCell:
-			*this << "STREF"; // builder
-			break;
-		case Type::Category::Struct: {
-			auto structType = to<StructType>(type);
-			if (!reverse)
-				exchange(1);
-			auto members = structType->structDefinition().members();
-			untuple(members.size());
-			this->reverse(members.size() + 1, 0);
-			for (const auto& member : members)
-				store(member->type(), false);
-			break;
-		}
-		case Type::Category::Address:
-		case Type::Category::Contract:
-		case Type::Category::TvmSlice:
-			*this << "STSLICE"; // builder slice-value
-			break;
-		case Type::Category::Integer:
-		case Type::Category::Enum:
-		case Type::Category::Bool:
-		case Type::Category::FixedBytes:
-		case Type::Category::FixedPoint: {
-			TypeInfo ti(type);
-			solAssert(ti.isNumeric, "");
-			if (ti.numBits == 257) {
-				solAssert(ti.isSigned, "");
-				pushInt(ti.numBits);
-				string cmd = "STIX";
-				if (reverse) cmd += "R";
-				*this << cmd;
-			} else {
-				string cmd = ti.isSigned? "STI" : "STU";
-				if (reverse) cmd += "R";
-				cmd += " " + toString(ti.numBits);
-				*this << cmd;
-			}
-			break;
-		}
-		case Type::Category::Function: {
-			*this << "STU 32";
-			break;
-		}
-		case Type::Category::Mapping:
-			if (reverse) {
-				exchange(1); // builder dict
-			}
-			// dict builder
-			*this << "STDICT"; // builder
-			break;
-		case Type::Category::Array: {
-			auto arrayType = to<ArrayType>(type);
-			if (arrayType->isByteArrayOrString()) {
-				*this << "STREF"; // builder
-			} else {
-				if (!reverse) {
-					exchange(1); // builder arr
-				}
-				*this << "UNTUPLE 2"; // builder size dict
-				exchange(2);// dict size builder
-				*this << "STU 32"; // dict builder'
-				*this << "STDICT"; // builder''
-			}
-			break;
-		}
-		case Type::Category::TvmBuilder:
-			*this << std::string("STB")  + (reverse ? "R " : "");
-			break;
-		case Type::Category::Tuple: {
-			if (!reverse)
-				exchange(1);	// builder value
-
-			const auto[types, names] = getTupleTypes(to<TupleType>(type));
-			StructCompiler sc{this, types, names};
-			sc.tupleToBuilder();
-			*this << "STBR";
-			break;
-		}
-		case Type::Category::VarInteger: {
-			if (!reverse)
-				exchange(1);	// builder value
-
-			auto varint = to<VarIntegerType>(type);
-			std::string cmd = "STVAR";
-			if (!varint->asIntegerType().isSigned()) cmd += "U";
-			cmd += "INT" + std::to_string(varint->n());
+		break;
+	}
+	case Type::Category::TvmCell:
+		*this << "STREF"; // builder
+		break;
+	case Type::Category::Struct: {
+		auto structType = to<StructType>(type);
+		exchange(1);
+		auto members = structType->structDefinition().members();
+		untuple(members.size());
+		this->reverse(members.size() + 1, 0);
+		for (const auto& member : members)
+			store(member->type());
+		break;
+	}
+	case Type::Category::Address:
+	case Type::Category::Contract:
+	case Type::Category::TvmSlice:
+		*this << "STSLICE"; // builder slice-value
+		break;
+	case Type::Category::Integer:
+	case Type::Category::Enum:
+	case Type::Category::Bool:
+	case Type::Category::FixedBytes:
+	case Type::Category::FixedPoint: {
+		TypeInfo ti(type);
+		solAssert(ti.isNumeric, "");
+		if (ti.numBits == 257) {
+			solAssert(ti.isSigned, "");
+			pushInt(ti.numBits);
+			string cmd = "STIX";
 			*this << cmd;
-			break;
+		} else {
+			string cmd = ti.isSigned? "STI" : "STU";
+			cmd += " " + toString(ti.numBits);
+			*this << cmd;
 		}
-		default: {
-			solUnimplemented("Encode isn't supported for " + type->toString(true));
+		break;
+	}
+	case Type::Category::Function: {
+		*this << "STU 32";
+		break;
+	}
+	case Type::Category::Mapping:
+		// dict builder
+		*this << "STDICT"; // builder
+		break;
+	case Type::Category::Array: {
+		auto arrayType = to<ArrayType>(type);
+		if (arrayType->isByteArrayOrString()) {
+			*this << "STREF"; // builder
+		} else {
+			exchange(1); // builder arr
+			*this << "UNTUPLE 2"; // builder size dict
+			exchange(2);// dict size builder
+			*this << "STU 32"; // dict builder'
+			*this << "STDICT"; // builder''
 		}
+		break;
+	}
+	case Type::Category::TvmBuilder:
+		*this << "STB";
+		break;
+	case Type::Category::Tuple: {
+		exchange(1);	// builder value
+
+		const auto[types, names] = getTupleTypes(to<TupleType>(type));
+		StructCompiler sc{this, types, names};
+		sc.tupleToBuilder();
+		*this << "STBR";
+		break;
+	}
+	case Type::Category::VarInteger: {
+		exchange(1);	// builder value
+
+		auto varint = to<VarIntegerType>(type);
+		std::string cmd = "STVAR";
+		if (!varint->asIntegerType().isSigned()) cmd += "U";
+		cmd += "INT" + std::to_string(varint->n());
+		*this << cmd;
+		break;
+	}
+	default: {
+		solUnimplemented("Encode isn't supported for " + type->toString(true));
+	}
 	}
 
 	ensureSize(stackSize - deltaStack);
+}
+
+void StackPusher::storeQ(const Type *type) {
+	// value builder
+	startOpaque();
+	switch (type->category()) {
+	case Type::Category::Array: {
+		auto arrayType = to<ArrayType>(type);
+		solAssert(arrayType->isByteArrayOrString(), "");
+		pushAsym("STREFQ");
+		break;
+	}
+	case Type::Category::TvmCell:
+		pushAsym("STREFQ");
+		break;
+	case Type::Category::Address:
+	case Type::Category::Contract:
+	case Type::Category::TvmSlice:
+		pushAsym("STSLICEQ");
+		break;
+	case Type::Category::Integer:
+	case Type::Category::Enum:
+	case Type::Category::Bool:
+	case Type::Category::FixedBytes:
+	case Type::Category::FixedPoint: {
+		TypeInfo ti(type);
+		solAssert(ti.isNumeric, "");
+		if (ti.numBits == 257) {
+			solAssert(ti.isSigned, "");
+			pushInt(ti.numBits);
+			string cmd = "STIXQ";
+			pushAsym(cmd);
+		} else {
+			string cmd = ti.isSigned? "STIQ" : "STUQ";
+			cmd += " " + toString(ti.numBits);
+			pushAsym(cmd);
+		}
+		break;
+	}
+	case Type::Category::TvmBuilder:
+		pushAsym("STBQ");
+		break;
+	default:
+		solUnimplemented("storeQ isn't supported for " + type->toString(true));
+	}
+	// value builder −1 or builder 0
+	pushAsym("NULLROTRIFNOT");
+	// value builder −1 or null builder 0
+	dropUnder(1, 2); // builder −1 or builder 0
+	endOpaque(2, 2);
+	push("NOT");
 }
 
 void StackPusher::pushZeroAddress() {

@@ -285,7 +285,8 @@ public:
 	void preload(const Type *type);
 	void loadQ(const Type *type);
 
-	void store(const Type *type, bool reverse);
+	void store(const Type *type);
+	void storeQ(const Type *type);
 	void pushZeroAddress();
 	Pointer<Function> generateC7ToC4();
 	void convert(Type const *leftType, Type const *rightType);

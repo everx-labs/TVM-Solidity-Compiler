@@ -2522,7 +2522,6 @@ unsigned StructType::calldataEncodedSize(bool) const
 	unsigned size = 0;
 	for (auto const& member: members(nullptr))
 	{
-		solAssert(!member.type->containsNestedMapping(), "");
 		// Struct members are always padded.
 		size += member.type->calldataEncodedSize();
 	}
@@ -2537,7 +2536,6 @@ unsigned StructType::calldataEncodedTailSize() const
 	unsigned size = 0;
 	for (auto const& member: members(nullptr))
 	{
-		solAssert(!member.type->containsNestedMapping(), "");
 		// Struct members are always padded.
 		size += member.type->calldataHeadSize();
 	}
@@ -2549,7 +2547,6 @@ unsigned StructType::calldataOffsetOfMember(std::string const& _member) const
 	unsigned offset = 0;
 	for (auto const& member: members(nullptr))
 	{
-		solAssert(!member.type->containsNestedMapping(), "");
 		if (member.name == _member)
 			return offset;
 		// Struct members are always padded.
@@ -2592,42 +2589,6 @@ bigint StructType::storageSizeUpperBound() const
 u256 StructType::storageSize() const
 {
 	return std::max<u256>(1, members(nullptr).storageSize());
-}
-
-bool StructType::containsNestedMapping() const
-{
-	if (!m_struct.annotation().containsNestedMapping.has_value())
-	{
-		bool hasNestedMapping = false;
-
-		util::BreadthFirstSearch<StructDefinition const*> breadthFirstSearch{{&m_struct}};
-
-		breadthFirstSearch.run(
-			[&](StructDefinition const* _struct, auto&& _addChild)
-			{
-				for (auto const& member: _struct->members())
-				{
-					Type const* memberType = member->annotation().type;
-					solAssert(memberType, "");
-
-					if (auto arrayType = dynamic_cast<ArrayType const*>(memberType))
-						memberType = arrayType->finalBaseType(false);
-
-					if (dynamic_cast<MappingType const*>(memberType))
-					{
-						hasNestedMapping = true;
-						breadthFirstSearch.abort();
-					}
-					else if (auto structType = dynamic_cast<StructType const*>(memberType))
-						_addChild(&structType->structDefinition());
-				}
-
-			});
-
-		m_struct.annotation().containsNestedMapping = hasNestedMapping;
-	}
-
-	return m_struct.annotation().containsNestedMapping.value();
 }
 
 std::string StructType::toString(bool /*_withoutDataLocation*/) const
@@ -2752,7 +2713,6 @@ u256 StructType::memoryOffsetOfMember(std::string const& _name) const
 
 TypePointers StructType::memoryMemberTypes() const
 {
-	solAssert(!containsNestedMapping(), "");
 	TypePointers types;
 	for (ASTPointer<VariableDeclaration> const& variable: m_struct.members())
 		types.push_back(variable->annotation().type);
@@ -3320,6 +3280,7 @@ std::string FunctionType::richIdentifier() const
 
 	case Kind::TVMBuilderMethods: id += "tvmbuildermethods"; break;
 	case Kind::TVMBuilderStore: id += "tvmbuilderstore"; break;
+	case Kind::TVMBuilderStoreQ: id += "tvmbuilderstoreq"; break;
 	case Kind::TVMBuilderStoreInt: id += "tvmbuilderstoreint"; break;
 	case Kind::TVMBuilderStoreTons: id += "tvmbuilderstoretons"; break;
 	case Kind::TVMBuilderStoreUint: id += "tvmbuilderstoreuint"; break;
@@ -7024,6 +6985,17 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 				strings{},
 				strings{},
 				FunctionType::Kind::TVMBuilderStore,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+			)
+		},
+		{
+			"storeQ", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::boolean()},
+				strings{},
+				strings{""},
+				FunctionType::Kind::TVMBuilderStoreQ,
 				StateMutability::Pure,
 				nullptr, FunctionType::Options::withArbitraryParameters()
 			)

@@ -68,7 +68,7 @@ fn print_data(out: &mut File, value: &serde_json::Value) -> Status {
     Ok(())
 }
 
-fn print_array(out: &mut File, array: &Vec<serde_json::Value>) -> Status {
+fn print_array(out: &mut File, array: &[serde_json::Value]) -> Status {
     for i in 0..array.len() {
         write!(out, "\t\t\t\t")?;
         write!(out, "{}", to_string_pretty_no_indent(&array[i])?)?;

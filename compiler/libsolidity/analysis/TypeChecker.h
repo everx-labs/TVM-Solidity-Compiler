@@ -143,6 +143,7 @@ public:
 	void typeCheckTvmEncodeArg(Type const* type, solidity::langutil::SourceLocation const& _location,
 							   std::string const& errMsg, bool isStateVar);
 private:
+	void checkStoreQ(Expression const& _argument);
 	void typeCheckTvmEncodeFunctions(FunctionCall const& _functionCall);
 	static FunctionDefinition const* getFunctionDefinition(Expression const* expr);
 	static std::pair<bool, FunctionDefinition const*> getConstructorDefinition(Expression const* expr);

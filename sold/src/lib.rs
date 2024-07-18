@@ -259,7 +259,7 @@ fn parse_comp_result(
     }
 }
 
-static STDLIB: &'static str = include_str!("../../lib/stdlib_sol.tvm");
+static STDLIB: &str = include_str!("../../lib/stdlib_sol.tvm");
 
 fn parse_positional_args(args: Vec<String>) -> Result<(String, Vec<String>)> {
     let mut input = None;
@@ -362,7 +362,7 @@ pub fn build(args: Args) -> Status {
 
     let abi = &out["abi"];
     let abi_file_name = format!("{}.abi.json", output_prefix);
-    let mut abi_file = File::create(output_path.join(&abi_file_name))?;
+    let mut abi_file = File::create(output_path.join(abi_file_name))?;
     printer::print_abi_json_canonically(&mut abi_file, abi)?;
     if args.abi_json {
         return Ok(())
