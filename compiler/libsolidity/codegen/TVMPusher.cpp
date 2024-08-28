@@ -1766,7 +1766,7 @@ int StackPusher::int_msg_info(const std::set<int> &isParamOnStack, const std::ma
 	static const std::vector<int> zeroes {1, 1, 1,
 									2, 2,
 									4, 1, 4, 4,
-									64, 32};
+									64, 32, 1};
 	std::string bitString = "0";
 	int maxBitStringSize = 0;
 	*this << "NEWC";
