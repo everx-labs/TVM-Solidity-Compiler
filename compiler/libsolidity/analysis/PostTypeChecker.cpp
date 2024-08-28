@@ -25,9 +25,10 @@
 #include <libsolutil/Algorithms.h>
 #include <libsolutil/FunctionSelector.h>
 
+#include <range/v3/algorithm/any_of.hpp>
+
 #include <memory>
 
-using namespace std;
 using namespace solidity;
 using namespace solidity::langutil;
 using namespace solidity::frontend;
@@ -130,6 +131,17 @@ void PostTypeChecker::endVisit(ModifierInvocation const& _modifierInvocation)
 	callEndVisit(_modifierInvocation);
 }
 
+
+bool PostTypeChecker::visit(ForStatement const& _forStatement)
+{
+	return callVisit(_forStatement);
+}
+
+void PostTypeChecker::endVisit(ForStatement const& _forStatement)
+{
+	callEndVisit(_forStatement);
+}
+
 namespace
 {
 struct ConstStateVarCircularReferenceChecker: public PostTypeChecker::Checker
@@ -204,7 +216,7 @@ struct ConstStateVarCircularReferenceChecker: public PostTypeChecker::Checker
 			// Iterating through the dependencies needs to be deterministic and thus cannot
 			// depend on the memory layout.
 			// Because of that, we sort by AST node id.
-			vector<VariableDeclaration const*> dependencies(
+			std::vector<VariableDeclaration const*> dependencies(
 				m_constVariableDependencies[&_variable].begin(),
 				m_constVariableDependencies[&_variable].end()
 			);
@@ -411,7 +423,7 @@ struct ReservedErrorSelector: public PostTypeChecker::Checker
 			);
 		else
 		{
-			uint32_t selector = util::selectorFromSignature32(_error.functionType(true)->externalSignature());
+			uint32_t selector = util::selectorFromSignatureU32(_error.functionType(true)->externalSignature());
 			if (selector == 0 || ~selector == 0)
 				m_errorReporter.syntaxError(
 					2855_error,
@@ -422,15 +434,95 @@ struct ReservedErrorSelector: public PostTypeChecker::Checker
 	}
 };
 
+class LValueChecker: public ASTConstVisitor
+{
+public:
+	LValueChecker(Identifier const& _identifier):
+		m_declaration(_identifier.annotation().referencedDeclaration)
+	{}
+	bool willBeWrittenTo() const { return m_willBeWrittenTo; }
+	void endVisit(Identifier const& _identifier) override
+	{
+		if (m_willBeWrittenTo)
+			return;
+
+		solAssert(_identifier.annotation().referencedDeclaration);
+		if (
+			*_identifier.annotation().referencedDeclaration == *m_declaration &&
+			_identifier.annotation().willBeWrittenTo
+		)
+			m_willBeWrittenTo = true;
+	}
+private:
+	Declaration const* m_declaration{};
+	bool m_willBeWrittenTo = false;
+};
+
+struct SimpleCounterForLoopChecker: public PostTypeChecker::Checker
+{
+	SimpleCounterForLoopChecker(ErrorReporter& _errorReporter): Checker(_errorReporter) {}
+	bool visit(ForStatement const& _forStatement) override
+	{
+		_forStatement.annotation().isSimpleCounterLoop = isSimpleCounterLoop(_forStatement);
+		return true;
+	}
+	bool isSimpleCounterLoop(ForStatement const& _forStatement) const
+	{
+		auto const* simpleCondition = dynamic_cast<BinaryOperation const*>(_forStatement.condition());
+		if (!simpleCondition || simpleCondition->getOperator() != Token::LessThan || simpleCondition->userDefinedFunctionType())
+			return false;
+		if (!_forStatement.loopExpression())
+			return false;
+
+		auto const* simplePostExpression = dynamic_cast<UnaryOperation const*>(&_forStatement.loopExpression()->expression());
+		// This matches both operators ++i and i++
+		if (!simplePostExpression || simplePostExpression->getOperator() != Token::Inc || simplePostExpression->userDefinedFunctionType())
+			return false;
+
+		auto const* lhsIdentifier = dynamic_cast<Identifier const*>(&simpleCondition->leftExpression());
+		auto const* lhsIntegerType = dynamic_cast<IntegerType const*>(simpleCondition->leftExpression().annotation().type);
+		auto const* commonIntegerType = dynamic_cast<IntegerType const*>(simpleCondition->annotation().commonType);
+
+		if (!lhsIdentifier || !lhsIntegerType || !commonIntegerType || *lhsIntegerType != *commonIntegerType)
+			return false;
+
+		auto const* incExpressionIdentifier = dynamic_cast<Identifier const*>(&simplePostExpression->subExpression());
+		if (
+			!incExpressionIdentifier ||
+			incExpressionIdentifier->annotation().referencedDeclaration != lhsIdentifier->annotation().referencedDeclaration
+		)
+			return false;
+
+		solAssert(incExpressionIdentifier->annotation().referencedDeclaration);
+		if (
+			auto const* incVariableDeclaration = dynamic_cast<VariableDeclaration const*>(
+				incExpressionIdentifier->annotation().referencedDeclaration
+			);
+			incVariableDeclaration &&
+			!incVariableDeclaration->isLocalVariable()
+		)
+			return false;
+
+		solAssert(lhsIdentifier);
+		LValueChecker lValueChecker{*lhsIdentifier};
+		simpleCondition->rightExpression().accept(lValueChecker);
+		if (!lValueChecker.willBeWrittenTo())
+			_forStatement.body().accept(lValueChecker);
+
+		return !lValueChecker.willBeWrittenTo();
+	}
+};
+
 }
 
 
 PostTypeChecker::PostTypeChecker(langutil::ErrorReporter& _errorReporter): m_errorReporter(_errorReporter)
 {
-	m_checkers.push_back(make_shared<ConstStateVarCircularReferenceChecker>(_errorReporter));
-	m_checkers.push_back(make_shared<OverrideSpecifierChecker>(_errorReporter));
-	m_checkers.push_back(make_shared<ModifierContextChecker>(_errorReporter));
-	m_checkers.push_back(make_shared<EventOutsideEmitErrorOutsideRevertChecker>(_errorReporter));
-	m_checkers.push_back(make_shared<NoVariablesInInterfaceChecker>(_errorReporter));
-	m_checkers.push_back(make_shared<ReservedErrorSelector>(_errorReporter));
+	m_checkers.push_back(std::make_shared<ConstStateVarCircularReferenceChecker>(_errorReporter));
+	m_checkers.push_back(std::make_shared<OverrideSpecifierChecker>(_errorReporter));
+	m_checkers.push_back(std::make_shared<ModifierContextChecker>(_errorReporter));
+	m_checkers.push_back(std::make_shared<EventOutsideEmitErrorOutsideRevertChecker>(_errorReporter));
+	m_checkers.push_back(std::make_shared<NoVariablesInInterfaceChecker>(_errorReporter));
+	m_checkers.push_back(std::make_shared<ReservedErrorSelector>(_errorReporter));
+	m_checkers.push_back(std::make_shared<SimpleCounterForLoopChecker>(_errorReporter));
 }

@@ -172,15 +172,36 @@ public:
 
 	enum class Category
 	{
-		Address, Integer, RationalNumber, StringLiteral, Bool, FixedPoint, Array, ArraySlice,
-		FixedBytes, Contract, Struct, Function, Enum, UserDefinedValueType, Tuple,
-		Mapping, TypeType, Modifier, Magic, Module,
-		InaccessibleDynamic, TvmCell, TvmSlice, TvmBuilder, TvmVector, Variant,
+		Address,
+		Integer,
+		RationalNumber,
+		StringLiteral,
+		Bool,
+		FixedPoint,
+		Array,
+		ArraySlice,
+		FixedBytes,
+		Contract,
+		Struct,
+		Function,
+		Enum,
+		UserDefinedValueType,
+		Tuple,
+		Mapping,
+		TypeType,
+		Modifier,
+		Magic,
+		Module,
+		InaccessibleDynamic,
+		TvmCell, TvmSlice, TvmBuilder, StringBuilder, TvmVector, TvmStack, Variant,
 		VarInteger,
+		QInteger,
+		QBool,
 		InitializerList, CallList, // <-- variables of that types can't be declared in solidity contract
 		Optional,
 		Null,
-		EmpyMap
+		EmptyMap,
+		TVMNaN
 	};
 
 	/// @returns a pointer to _a or _b if the other is implicitly convertible to it or nullptr otherwise
@@ -326,7 +347,7 @@ public:
 	/// Might return a null pointer if there is no fitting type.
 	virtual Type const* mobileType() const { return this; }
 
-	/// Returns the list of all members of this type. Default implementation: no members apart from bound.
+	/// Returns the list of all members of this type. Default implementation: no members apart from attached functions.
 	/// @param _currentScope scope in which the members are accessed.
 	MemberList const& members(ASTNode const* _currentScope) const;
 	/// Convenience method, returns the type of the given named member or an empty pointer if no such member exists.
@@ -377,13 +398,28 @@ public:
 	/// Clears all internally cached values (if any).
 	virtual void clearCache() const;
 
+	/// Scans all "using for" directives in the @a _scope for functions implementing
+	/// the operator represented by @a _token. Returns the set of all definitions where the type
+	/// of the first argument matches this type object.
+	///
+	/// @note: If the AST has passed analysis without errors,
+	/// the function will find at most one definition for an operator.
+	///
+	/// @param _unary If true, only definitions that accept exactly one argument are included.
+	/// Otherwise only definitions that accept exactly two arguments.
+	std::set<FunctionDefinition const*, ASTCompareByID<ASTNode>> operatorDefinitions(
+		Token _token,
+		ASTNode const& _scope,
+		bool _unary
+	) const;
+
 private:
 	/// @returns a member list containing all members added to this type by `using for` directives.
-	static MemberList::MemberMap boundFunctions(Type const& _type, ASTNode const& _scope);
+	static MemberList::MemberMap attachedFunctions(Type const& _type, ASTNode const& _scope);
 
 protected:
 	/// @returns the members native to this type depending on the given context. This function
-	/// is used (in conjunction with boundFunctions to fill m_members below.
+	/// is used (in conjunction with attachedFunctions to fill m_members below.
 	virtual MemberList::MemberMap nativeMembers(ASTNode const* /*_currentScope*/) const
 	{
 		return MemberList::MemberMap();
@@ -465,7 +501,7 @@ public:
 	bool nameable() const override { return true; }
 
 	std::string toString(bool _withoutDataLocation) const override;
-
+	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
 	Type const* encodingType() const override { return this; }
 	TypeResult interfaceType(bool) const override { return this; }
 
@@ -676,6 +712,7 @@ class BoolType: public Type
 {
 public:
 	Category category() const override { return Category::Bool; }
+	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
 	std::string richIdentifier() const override { return "t_bool"; }
 	TypeResult unaryOperatorResult(Token _operator) const override;
 	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
@@ -755,6 +792,32 @@ private:
 };
 
 /**
+ * The TVM Stack type.
+ */
+class TvmStackType: public Type
+{
+public:
+	TvmStackType(Type const* _type):
+		m_type(_type) {}
+
+	Category category() const override { return Category::TvmStack; }
+	bool isValueType() const override { return true; }
+	std::string richIdentifier() const override;
+	TypeResult unaryOperatorResult(Token _operator) const override;
+	std::string toString(bool) const override;
+
+	Type const* encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
+
+	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
+
+	Type const* valueType() const { return m_type; }
+
+private:
+	Type const* m_type;
+};
+
+/**
  * The TVM Slice type.
  */
 class TvmSliceType: public Type
@@ -791,6 +854,25 @@ public:
 };
 
 /**
+ * The StringBuilder type.
+ */
+class StringBuilderType: public Type
+{
+public:
+	Category category() const override { return Category::StringBuilder; }
+	bool isValueType() const override { return true; }
+	std::string richIdentifier() const override { return "t_stringbuilder"; }
+	TypeResult unaryOperatorResult(Token _operator) const override;
+	TypeResult binaryOperatorResult(Token /*_operator*/, Type const* /*_other*/) const override { return nullptr; }
+	std::string toString(bool) const override { return "StringBuilder"; }
+
+	Type const* encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
+
+	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
+};
+
+/**
  * The VarInteger type.
  */
 class VarIntegerType: public Type
@@ -816,6 +898,47 @@ private:
 	IntegerType m_int;
 };
 
+class QIntegerType: public Type
+{
+public:
+	explicit QIntegerType(uint32_t _n, IntegerType::Modifier _modifier) :
+			m_int{std::make_unique<IntegerType>(_n, _modifier)} {}
+	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
+//	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
+	Category category() const override { return Category::QInteger; }
+	bool isValueType() const override { return true; }
+	bool operator==(Type const& _other) const override;
+	std::string richIdentifier() const override { return "t_qinteger"; }
+    TypeResult unaryOperatorResult(Token _operator) const override;
+	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
+	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
+	std::string toString(bool) const override;
+
+	Type const* encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
+	IntegerType const* asIntegerType() const { solAssert(m_int, ""); return m_int.get(); }
+private:
+	std::unique_ptr<IntegerType> m_int;
+};
+
+class QBoolType: public Type
+{
+public:
+	explicit QBoolType() = default;
+	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
+//	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
+	Category category() const override { return Category::QBool; }
+	bool isValueType() const override { return true; }
+	std::string richIdentifier() const override { return "t_qbool"; }
+    TypeResult unaryOperatorResult(Token _operator) const override;
+	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
+	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
+	std::string toString(bool) const override;
+
+	Type const* encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
+};
+
 /**
  * Used for initialization list in deploy via new
  * new MyContract{..., varInit: {m_a: 11, m_b: 22}, ...}(...)
@@ -835,7 +958,7 @@ public:
 
 /**
  * Used for call list in external message creation
- * tvm.buildExtMsg({...,call : {Contract.Func, arg1, arg2} ,...})
+ * abi.encodeIntMsg({...,call : {Contract.Func, arg1, arg2} ,...})
  */
 class CallListType: public Type
 {
@@ -866,6 +989,7 @@ public:
 	/// elements of decomposition of these elements and so on, up to non-composite types.
 	/// Each type is included only once.
 	std::vector<Type const*> fullDecomposition() const;
+	TypeResult unaryOperatorResult(Token _operator) const override;
 
 protected:
 	/// @returns a list of types that together make up the data part of this type.
@@ -877,82 +1001,29 @@ protected:
 };
 
 /**
- * Base class used by types which are not value types and can be stored either in storage, memory
- * or calldata. This is currently used by arrays and structs.
- */
-class ReferenceType: public CompositeType
-{
-protected:
-	explicit ReferenceType() {}
-
-public:
-	TypeResult unaryOperatorResult(Token _operator) const override;
-	TypeResult binaryOperatorResult(Token, Type const*) const override
-	{
-		return nullptr;
-	}
-	unsigned memoryHeadSize() const override { return 32; }
-	u256 memoryDataSize() const override = 0;
-
-	unsigned calldataEncodedSize(bool) const override = 0;
-	unsigned calldataEncodedTailSize() const override = 0;
-
-	/// @returns a copy of this type with location (recursively) changed to @a _location,
-	/// whereas isPointer is only shallowly changed - the deep copy is always a bound reference.
-	virtual std::unique_ptr<ReferenceType> copyForLocation(bool _isPointer) const = 0;
-
-	Type const* mobileType() const override { return withLocation(true); }
-	bool hasSimpleZeroValueInMemory() const override { return false; }
-
-	/// Storage references can be pointers or bound references. In general, local variables are of
-	/// pointer type, state variables are bound references. Assignments to pointers or deleting
-	/// them will not modify storage (that will only change the pointer). Assignment from
-	/// non-storage objects to a variable of storage pointer type is not possible.
-	/// For anything other than storage, this always returns true because assignments
-	/// never change the contents of the original value.
-	bool isPointer() const;
-
-	bool operator==(ReferenceType const& /*_other*/) const
-	{
-		return true;
-	}
-
-	Type const* withLocation(bool _isPointer) const;
-
-protected:
-	Type const* copyForLocationIfReference(Type const* _type) const;
-	/// @returns the suffix computed from the reference part to be used by identifier();
-	std::string identifierLocationSuffix() const;
-
-	// TODO DELETE
-	// it's useless parameter in TVM
-	bool m_isPointer = true;
-};
-
-/**
  * The type of an array. The flavours are byte array (bytes), statically- (<type>[<length>])
  * and dynamically-sized array (<type>[]).
  * In storage, all arrays are packed tightly (as long as more than one elementary type fits in
  * one slot). Dynamically sized arrays (including byte arrays) start with their size as a uint and
  * thus start on their own slot.
  */
-class ArrayType: public ReferenceType
+class ArrayType: public CompositeType
 {
 public:
 	/// Constructor for a byte array ("bytes") and string.
 	explicit ArrayType(bool _isString = false);
 
-	/// Constructor for a dynamically sized array type ("type[]")
+	/// Constructor for a dynamically sized array type ("<type>[]")
 	ArrayType(Type const* _baseType):
-		ReferenceType(),
-		m_baseType(copyForLocationIfReference(_baseType))
+		CompositeType(),
+		m_baseType(_baseType)
 	{
 	}
 
-	/// Constructor for a fixed-size array type ("type[20]")
+	/// Constructor for a fixed-size array type ("<type>[<length>]")
 	ArrayType(Type const* _baseType, u256 _length):
-		ReferenceType(),
-		m_baseType(copyForLocationIfReference(_baseType)),
+		CompositeType(),
+		m_baseType(_baseType),
 		m_hasDynamicLength(true),
 		m_length(std::move(_length))
 	{}
@@ -992,8 +1063,6 @@ public:
 	u256 const& length() const { return m_length; }
 	u256 memoryDataSize() const override;
 
-	std::unique_ptr<ReferenceType> copyForLocation(bool _isPointer) const override;
-
 	/// The offset to advance in calldata to move from one array element to the next.
 	unsigned calldataStride() const { return isByteArrayOrString() ? 1 : m_baseType->calldataHeadSize(); }
 	/// The offset to advance in memory to move from one array element to the next.
@@ -1021,10 +1090,10 @@ private:
 	mutable std::optional<TypeResult> m_interfaceType_library;
 };
 
-class ArraySliceType: public ReferenceType
+class ArraySliceType: public CompositeType
 {
 public:
-	explicit ArraySliceType(ArrayType const& _arrayType): ReferenceType(), m_arrayType(_arrayType) {}
+	explicit ArraySliceType(ArrayType const& _arrayType): CompositeType(), m_arrayType(_arrayType) {}
 	Category category() const override { return Category::ArraySlice; }
 
 	BoolResult isImplicitlyConvertibleTo(Type const& _other) const override;
@@ -1041,8 +1110,6 @@ public:
 
 	ArrayType const& arrayType() const { return m_arrayType; }
 	u256 memoryDataSize() const override { solAssert(false, ""); }
-
-	std::unique_ptr<ReferenceType> copyForLocation(bool) const override { solAssert(false, ""); }
 
 protected:
 	std::vector<std::tuple<std::string, Type const*>> makeStackItems() const override;
@@ -1118,11 +1185,11 @@ private:
 /**
  * The type of a struct instance, there is one distinct type per struct definition.
  */
-class StructType: public ReferenceType
+class StructType: public CompositeType
 {
 public:
 	explicit StructType(StructDefinition const& _struct):
-		ReferenceType(), m_struct(_struct) {}
+		CompositeType(), m_struct(_struct) {}
 
 	Category category() const override { return Category::Struct; }
 	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
@@ -1147,8 +1214,6 @@ public:
 	Declaration const* typeDefinition() const override;
 
 	bool recursive() const;
-
-	std::unique_ptr<ReferenceType> copyForLocation(bool _isPointer) const override;
 
 	std::string canonicalName() const override;
 	std::string signatureInExternalFunction(bool _structsByName) const override;
@@ -1354,11 +1419,18 @@ public:
 		AddressIsStdAddrWithoutAnyCast, ///< address.isStdAddrWithoutAnyCast  for address
 		AddressIsZero, ///< address.isStdZero() address.isExternZero() for address
 		AddressMakeAddrExtern, ///< address.makeAddrExtern() for address
-		AddressMakeAddrNone, ///< address.makeAddrNone() for address
 		AddressMakeAddrStd, ///< address.makeAddrStd() for address
 		AddressTransfer, ///< address.transfer()
 		AddressType, ///< address.getType() for address
 		AddressUnpack, ///< address.unpack() for address
+
+		IntCast, ///< int a; a.cast(uint8);
+
+		QGet,
+		QGetOr,
+		QGetOrDefault,
+		QIsNaN,
+		QToOptional,
 
         VariantIsUint,
         VariantToUint,
@@ -1376,13 +1448,14 @@ public:
 		TVMSliceLoadFunctionParams, ///< slice.loadFunctionParams(function_name)
 		TVMSliceLoadInt, ///< slice.loadInt()
 		TVMSliceLoadIntQ, ///< slice.loadIntQ()
+		TVMSliceLoadLE, ///< slice.load[U]intLE(4|8)[Q]()
 		TVMSliceLoadQ, ///< slice.loadQ(types...)
 		TVMSliceLoadRef, ///< slice.loadRef()
 		TVMSliceLoadSlice, ///< slice.loadSlice()
 		TVMSliceLoadStateVars, ///< slice.loadStateVars(contract_name)
+		TVMSliceLoadTons, ///< slice.loadTons()
 		TVMSliceLoadUint, ///< slice.loadUint()
 		TVMSliceLoadUintQ, ///< slice.loadUintQ()
-		TVMSliceLoadLE, ///< slice.load[U]intLE(4|8)[Q]()
 		TVMSlicePreLoadInt,  ///< slice.preloadInt()
 		TVMSlicePreLoadIntQ, ///< slice.preloadIntQ()
 		TVMSlicePreLoadSlice, ///< slice.preloadSlice()
@@ -1399,12 +1472,26 @@ public:
 		TVMBuilderMethods, ///< builder.*()
 		TVMBuilderStore, ///< builder.store(...)
 		TVMBuilderStoreInt, ///< builder.storeInt()
+		TVMBuilderStoreTons, ///< builder.storeTons()
 		TVMBuilderStoreUint, ///< builder.storeUint()
 
-		TVMTuplePush, ///< tuple.push(...)
-		TVMTuplePop, ///< tuple.pop()
-		TVMTupleLength, ///< tuple.length()
-		TVMTupleEmpty, ///< tuple.empty()
+		StringBuilderToString, ///< stringBuilder.toString()
+		StringBuilderAppendByte, /// < stringBuilder.append(bytes1)
+		StringBuilderAppendByteNTimes, /// < stringBuilder.append(bytes1, uint31)
+		StringBuilderAppendString, /// < stringBuilder.append(string)
+
+		TVMVectorEmpty, ///< vector.empty()
+		TVMVectorLast, ///< vector.last()
+		TVMVectorLength, ///< vector.length()
+		TVMVectorPop, ///< vector.pop()
+		TVMVectorPush, ///< vector.push(...)
+
+		TVMStackEmpty, ///< stack.empty()
+		TVMStackPop, ///< stack.pop()
+		TVMStackPush, ///< stack.push(...)
+		TVMStackReverse, ///< stack.reverse()
+		TVMStackSort, ///< stack.sort()
+		TVMStackTop, ///< stack.top()
 
 		ExtraCurrencyCollectionMethods, ///< extraCurrencyCollection.*()
 		KECCAK256, ///< KECCAK256
@@ -1426,6 +1513,7 @@ public:
 		SetFlag, ///< modify the default flag for the function call transfer
 		Stoi, ///< stoi function to convert string to an integer
 		BlockHash, ///< BLOCKHASH
+		BlobHash, ///< BLOBHASH
 		AddMod, ///< ADDMOD
 		MulMod, ///< MULMOD
 
@@ -1447,24 +1535,53 @@ public:
 		MathMulDivMod, ///< math.muldivmod()
 		MathDivMod, ///< math.divmod()
 		MathSign, ///< math.sign()
+		MathMulMod, ///< math.mulmod()
+
+		BlsVerify, ///< bls.verify()
+		BlsAggregate, ///< bls.aggregate()
+		BlsFastAggregateVerify, ///< bls.fastAggregateVerify()
+		BlsAggregateVerify, ///< bls.aggregateVerify()
+		BlsG1Add,
+		BlsG1Sub,
+		BlsG1Neg,
+		BlsG1Mul,
+		BlsMapToG1,
+		BlsG1IsZero,
+		BlsG1InGroup,
+		BlsG2Add,
+		BlsG2Sub,
+		BlsG2Neg,
+		BlsG2Mul,
+		BlsMapToG2,
+		BlsG2IsZero,
+		BlsG2InGroup,
+		BlsG1Zero,
+		BlsG2Zero,
+		BlsPushR,
+		BlsG1MultiExp,
+		BlsG2MultiExp,
+
+		ABIBuildIntMsg, ///< abi.encodeIntMsg()
+		ABICodeSalt, ///< abi.codeSalt()
+		ABIDecodeData, ///< abi.decodeData(contract_name, slice)
+		ABIDecodeFunctionParams, ///< abi.decodeFunctionParams()
+		ABIEncodeBody, ///< abi.encodeBody()
+		ABIEncodeData, ///< abi.encodeData()
+		ABIEncodeStateInit, ///< abi.encodeStateInit()
+		ABIFunctionId, ///< abi.functionId(function_name)
+		ABISetCodeSalt, ///< abi.setCodeSalt()
+		ABIStateInitHash, ///< abi.stateInitHash()
 
 		TVMAccept, ///< tvm.accept()
-		TVMBuildDataInit, ///< tvm.buildDataInit()
-		TVMBuildExtMsg, ///< tvm.buildExtMsg()
-		TVMBuildIntMsg, ///< tvm.buildIntMsg()
-		TVMBuildStateInit, ///< tvm.buildStateInit()
 		TVMBuyGas, ///< tvm.buyGas()
 		TVMChecksign, ///< tvm.checkSign()
 		TVMCode, ///< tvm.code()
-		TVMCodeSalt, ///< tvm.codeSalt()
 		TVMCommit, ///< tvm.commit()
 		TVMConfigParam, ///< tvm.configParam()
 		TVMDeploy, ///< functions to deploy contract from contract
-		TVMDump, ///< tvm.xxxdump()
-		TVMEncodeBody, ///< tvm.encodeBody()
+		TVMDump, ///< tvm.bindump() or tvm.hexdump()
 		TVMExit, ///< tvm.exit()
 		TVMExit1, ///< tvm.exit1()
-		TVMFunctionId, ///< tvm.functionId(function_name)
 		TVMHash, ///< tvm.hash()
 		TVMInitCodeHash, ///< tvm.initCodeHash()
 		TVMPubkey, ///< tvm.pubkey()
@@ -1473,7 +1590,6 @@ public:
 		TVMReplayProtTime, ///< tvm.replayProtTime()
 		TVMResetStorage, ///< tvm.resetStorage()
 		TVMSendMsg, ///< tvm.sendMsg()
-		TVMSetCodeSalt, ///< tvm.setCodeSalt()
 		TVMSetGasLimit, ///< tvm.setGasLimit()
 		TVMSetPubkey, ///< tvm.setPubkey()
 		TVMSetReplayProtTime, ///< tvm.setReplayProtTime()
@@ -1550,6 +1666,9 @@ public:
         GoshApplyBinPatchQ,
         GoshApplyZipBinPatch,
         GoshApplyZipBinPatchQ,
+        GoshSHA1,
+        GoshSHA256,
+        GoshKECCAK256,
 	};
 	struct Options
 	{
@@ -1563,7 +1682,7 @@ public:
 		bool saltSet = false;
 		/// true iff the function is called as arg1.fun(arg2, ..., argn).
 		/// This is achieved through the "using for" directive.
-		bool bound = false;
+		bool hasBoundFirstArgument = false;
 
 		static Options withArbitraryParameters()
 		{
@@ -1578,7 +1697,7 @@ public:
 			result.gasSet = _type.gasSet();
 			result.valueSet = _type.valueSet();
 			result.saltSet = _type.saltSet();
-			result.bound = _type.bound();
+			result.hasBoundFirstArgument = _type.hasBoundFirstArgument();
 			return result;
 		}
 	};
@@ -1613,7 +1732,7 @@ public:
 	)
 	{
 		// In this constructor, only the "arbitrary Parameters" option should be used.
-		solAssert(!bound() && !gasSet() && !valueSet() && !saltSet());
+		solAssert(!hasBoundFirstArgument() && !gasSet() && !valueSet() && !saltSet());
 	}
 
 	/// Detailed constructor, use with care.
@@ -1645,8 +1764,8 @@ public:
 			"Return parameter names list must match return parameter types list!"
 		);
 		solAssert(
-			!bound() || !m_parameterTypes.empty(),
-			"Attempted construction of bound function without self type"
+			!hasBoundFirstArgument() || !m_parameterTypes.empty(),
+			"Attempted construction of attached function without self type"
 		);
 	}
 
@@ -1663,7 +1782,7 @@ public:
 	/// storage pointers) are replaced by InaccessibleDynamicType instances.
 	TypePointers returnParameterTypesWithoutDynamicTypes() const;
 	std::vector<std::string> const& returnParameterNames() const { return m_returnParameterNames; }
-	/// @returns the "self" parameter type for a bound function
+	/// @returns the "self" parameter type for an attached function
 	Type const* selfType() const;
 
 	std::string richIdentifier() const override;
@@ -1697,8 +1816,8 @@ public:
 
 	/// @returns true if this function can take the given arguments (possibly
 	/// after implicit conversion).
-	/// @param _selfType if the function is bound, this has to be supplied and is the type of the
-	/// expression the function is called on.
+	/// @param _selfType if the function is attached as a member function, this has to be supplied
+	/// and is the type of the expression the function is called on.
 	bool canTakeArguments(
 		FuncCallArguments const& _arguments,
 		Type const* _selfType = nullptr
@@ -1761,20 +1880,20 @@ public:
 	bool gasSet() const { return m_options.gasSet; }
 	bool valueSet() const { return m_options.valueSet; }
 	bool saltSet() const { return m_options.saltSet; }
-	bool bound() const { return m_options.bound; }
+	bool hasBoundFirstArgument() const { return m_options.hasBoundFirstArgument; }
 
 	/// @returns a copy of this type, where gas or value are set manually. This will never set one
 	/// of the parameters to false.
 	Type const* copyAndSetCallOptions(bool _setGas, bool _setValue, bool _setSalt) const;
 
-	/// @returns a copy of this function type with the `bound` flag set to true.
+	/// @returns a copy of this function type with the `hasBoundFirstArgument` flag set to true.
 	/// Should only be called on library functions.
-	FunctionTypePointer asBoundFunction() const;
+	FunctionTypePointer withBoundFirstArgument() const;
 
 	/// @returns a copy of this function type where the location of reference types is changed
 	/// from CallData to Memory. This is the type that would be used when the function is
 	/// called externally, as opposed to the parameter types that are available inside the function body.
-	/// Also supports variants to be used for library or bound calls.
+	/// Also supports variants to be used for library or attached function calls.
 	/// @param _inLibrary if true, uses DelegateCall as location.
 	FunctionTypePointer asExternallyCallableFunction(bool _inLibrary) const;
 
@@ -1800,8 +1919,8 @@ private:
 class MappingType: public CompositeType
 {
 public:
-	MappingType(Type const* _keyType, Type const* _valueType):
-		m_keyType(_keyType), m_valueType(_valueType) {}
+	MappingType(Type const* _keyType, ASTString _keyName, Type const* _valueType, ASTString _valueName):
+		m_keyType(_keyType), m_keyName(_keyName), m_valueType(_valueType), m_valueName(_valueName) {}
 
 	Category category() const override { return Category::Mapping; }
 
@@ -1821,10 +1940,11 @@ public:
 	std::vector<std::tuple<std::string, Type const*>> makeStackItems() const override;
 
 	Type const* keyType() const { return m_keyType; }
-	Type const* realKeyType() const;
+	ASTString keyName() const { return m_keyName; }
 	Type const* valueType() const { return m_valueType; }
+	ASTString valueName() const { return m_valueName; }
+	Type const* realKeyType() const;
 	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
-
 	TypeResult unaryOperatorResult(Token _operator) const override;
 
 protected:
@@ -1832,7 +1952,9 @@ protected:
 
 private:
 	Type const* m_keyType;
+	ASTString m_keyName;
 	Type const* m_valueType;
+	ASTString m_valueName;
 };
 
 /**
@@ -1881,12 +2003,26 @@ public:
 class EmptyMapType: public Type
 {
 public:
-	Category category() const override { return Category::EmpyMap; }
+	Category category() const override { return Category::EmptyMap; }
 	BoolResult isImplicitlyConvertibleTo(Type const& _other) const override;
 	std::string richIdentifier() const override;
 	bool operator==(Type const& _other) const override;
 	std::string toString(bool _short) const override;
 	std::string canonicalName() const override;
+	TypeResult interfaceType(bool) const override { return this; }
+	TypeResult binaryOperatorResult(Token, Type const*) const override { return nullptr; }
+	bool hasSimpleZeroValueInMemory() const override { solAssert(false, ""); }
+};
+
+class NanType: public Type
+{
+public:
+	Category category() const override { return Category::TVMNaN; }
+	BoolResult isImplicitlyConvertibleTo(Type const& _other) const override;
+	std::string richIdentifier() const override;
+	//bool operator==(Type const& _other) const override;
+	std::string toString(bool _short) const override;
+	//std::string canonicalName() const override;
 	TypeResult interfaceType(bool) const override { return this; }
 	TypeResult binaryOperatorResult(Token, Type const*) const override { return nullptr; }
 	bool hasSimpleZeroValueInMemory() const override { solAssert(false, ""); }
@@ -1913,6 +2049,7 @@ public:
 	bool hasSimpleZeroValueInMemory() const override { solAssert(false, ""); }
 	std::string toString(bool _withoutDataLocation) const override { return "type(" + m_actualType->toString(_withoutDataLocation) + ")"; }
 	MemberList::MemberMap nativeMembers(ASTNode const* _currentScope) const override;
+	Type const* mobileType() const override { return nullptr; }
 
 	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
 protected:
@@ -1987,6 +2124,7 @@ public:
 		Math, ///< "math"
 		Rnd, ///< "rnd"
 		Gosh, ///< "gosh"
+		BLS, ///< "bls"
 		MetaType ///< "type(...)"
 	};
 
@@ -2012,6 +2150,8 @@ public:
 	Kind kind() const { return m_kind; }
 
 	Type const* typeArgument() const;
+
+	Type const* mobileType() const override { return nullptr; }
 
 protected:
 	std::vector<std::tuple<std::string, Type const*>> makeStackItems() const override { return {}; }

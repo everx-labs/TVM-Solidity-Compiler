@@ -24,7 +24,6 @@
 #include <utility>
 #include <variant>
 
-using namespace std;
 using namespace solidity;
 using namespace solidity::langutil;
 using namespace solidity::frontend;
@@ -53,9 +52,9 @@ bool ViewPureChecker::visit(FunctionDefinition const& _funDef)
 									"Library functions must have default mutability. Delete keyword view or pure.");
 		}
 	}
-	if (_funDef.isFree() && !_funDef.isInlineAssembly() && _funDef.stateMutability() != StateMutability::NonPayable) {
+	if (_funDef.isFree() && !_funDef.isInlineAssembly() && _funDef.stateMutability() != StateMutability::Pure) {
 		m_errorReporter.warning(4029_error, _funDef.location(),
-								"Free functions must have default mutability. Delete keyword view or pure.");
+								"Free function must have pure mutability.");
 	}
 	return true;
 }
@@ -144,10 +143,6 @@ void ViewPureChecker::endVisit(Identifier const& _identifier)
 	reportMutability(mutability, _identifier.location());
 }
 
-void ViewPureChecker::endVisit(InlineAssembly const& /*_inlineAssembly*/)
-{
-}
-
 void ViewPureChecker::reportMutability(
 	StateMutability _mutability,
 	SourceLocation const& _location,
@@ -214,15 +209,32 @@ ViewPureChecker::MutabilityAndLocation const& ViewPureChecker::modifierMutabilit
 	{
 		MutabilityAndLocation bestMutabilityAndLocation{};
 		FunctionDefinition const* currentFunction = nullptr;
-		swap(bestMutabilityAndLocation, m_bestMutabilityAndLocation);
-		swap(currentFunction, m_currentFunction);
+		std::swap(bestMutabilityAndLocation, m_bestMutabilityAndLocation);
+		std::swap(currentFunction, m_currentFunction);
 
 		_modifier.accept(*this);
 
-		swap(bestMutabilityAndLocation, m_bestMutabilityAndLocation);
-		swap(currentFunction, m_currentFunction);
+		std::swap(bestMutabilityAndLocation, m_bestMutabilityAndLocation);
+		std::swap(currentFunction, m_currentFunction);
 	}
 	return m_inferredMutability.at(&_modifier);
+}
+
+void ViewPureChecker::reportFunctionCallMutability(StateMutability _mutability, langutil::SourceLocation const& _location)
+{
+	reportMutability(_mutability, _location);
+}
+
+void ViewPureChecker::endVisit(BinaryOperation const& _binaryOperation)
+{
+	if (*_binaryOperation.annotation().userDefinedFunction != nullptr)
+		reportFunctionCallMutability((*_binaryOperation.annotation().userDefinedFunction)->stateMutability(), _binaryOperation.location());
+}
+
+void ViewPureChecker::endVisit(UnaryOperation const& _unaryOperation)
+{
+	if (*_unaryOperation.annotation().userDefinedFunction != nullptr)
+		reportFunctionCallMutability((*_unaryOperation.annotation().userDefinedFunction)->stateMutability(), _unaryOperation.location());
 }
 
 void ViewPureChecker::endVisit(FunctionCall const& _functionCall)
@@ -246,7 +258,8 @@ void ViewPureChecker::endVisit(FunctionCall const& _functionCall)
 			if (ma) {
 				if (auto libFunction = dynamic_cast<FunctionDefinition const *>(ma->annotation().referencedDeclaration)) {
 					DeclarationAnnotation const &da = libFunction->annotation();
-					if (da.contract->isLibrary()) {
+					ContractDefinition const* contract = da.contract;
+					if (contract && contract->isLibrary()) {
 						isLibCall = true;
 						auto t = ma->expression().annotation().type;
 						if (t->category() == Type::Category::TypeType) {
@@ -329,16 +342,50 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 		break;
 	case Type::Category::Magic:
 	{
-		using MagicMember = pair<MagicType::Kind, string>;
-		set<MagicMember> static const pureMembers{
+		using MagicMember = std::pair<MagicType::Kind, std::string>;
+		std::set<MagicMember> static const pureMembers{
+			{MagicType::Kind::ABI, "codeSalt"},
 			{MagicType::Kind::ABI, "decode"},
+			{MagicType::Kind::ABI, "decodeData"},
 			{MagicType::Kind::ABI, "encode"},
+			{MagicType::Kind::ABI, "encodeBody"},
 			{MagicType::Kind::ABI, "encodeCall"},
+			{MagicType::Kind::ABI, "encodeData"},
+			{MagicType::Kind::ABI, "encodeIntMsg"},
+			{MagicType::Kind::ABI, "encodeOldDataInit"},
 			{MagicType::Kind::ABI, "encodePacked"},
+			{MagicType::Kind::ABI, "encodeStateInit"},
 			{MagicType::Kind::ABI, "encodeWithSelector"},
 			{MagicType::Kind::ABI, "encodeWithSignature"},
+			{MagicType::Kind::ABI, "functionId"},
+			{MagicType::Kind::ABI, "setCodeSalt"},
+			{MagicType::Kind::ABI, "stateInitHash"},
+			{MagicType::Kind::BLS, "aggregate"},
+			{MagicType::Kind::BLS, "verify"},
+			{MagicType::Kind::BLS, "fastAggregateVerify"},
+			{MagicType::Kind::BLS, "aggregateVerify"},
+			{MagicType::Kind::BLS, "mapToG1"},
+			{MagicType::Kind::BLS, "mapToG2"},
+			{MagicType::Kind::BLS, "g1Add"},
+			{MagicType::Kind::BLS, "g1Sub"},
+			{MagicType::Kind::BLS, "g1Mul"},
+			{MagicType::Kind::BLS, "g1Neg"},
+			{MagicType::Kind::BLS, "g1IsZero"},
+			{MagicType::Kind::BLS, "g1InGroup"},
+			{MagicType::Kind::BLS, "g2Add"},
+			{MagicType::Kind::BLS, "g2Sub"},
+			{MagicType::Kind::BLS, "g2Mul"},
+			{MagicType::Kind::BLS, "g2Neg"},
+			{MagicType::Kind::BLS, "g2IsZero"},
+			{MagicType::Kind::BLS, "g2InGroup"},
+			{MagicType::Kind::BLS, "g1Zero"},
+			{MagicType::Kind::BLS, "g2Zero"},
+			{MagicType::Kind::BLS, "r"},
+			{MagicType::Kind::BLS, "g1MultiExp"},
+			{MagicType::Kind::BLS, "g2MultiExp"},
 			{MagicType::Kind::Block, "blockhash"},
 			{MagicType::Kind::Block, "logicaltime"},
+			{MagicType::Kind::Block, "seqno"},
 			{MagicType::Kind::Block, "timestamp"},
 			{MagicType::Kind::Gosh, "applyBinPatch"},
 			{MagicType::Kind::Gosh, "applyBinPatchQ"},
@@ -352,6 +399,9 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::Gosh, "unzip"},
 			{MagicType::Kind::Gosh, "zip"},
 			{MagicType::Kind::Gosh, "zipDiff"},
+            {MagicType::Kind::Gosh, "sha1"},
+            {MagicType::Kind::Gosh, "sha256"},
+            {MagicType::Kind::Gosh, "keccak256"},
 			{MagicType::Kind::Math, "abs"},
 			{MagicType::Kind::Math, "divc"},
 			{MagicType::Kind::Math, "divmod"},
@@ -360,18 +410,19 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::Math, "min"},
 			{MagicType::Kind::Math, "minmax"},
 			{MagicType::Kind::Math, "modpow2"},
+			{MagicType::Kind::Math, "mulmod"},
 			{MagicType::Kind::Math, "muldiv"},
 			{MagicType::Kind::Math, "muldivc"},
 			{MagicType::Kind::Math, "muldivmod"},
 			{MagicType::Kind::Math, "muldivr"},
 			{MagicType::Kind::Math, "sign"},
 			{MagicType::Kind::Message, "body"},
-			{MagicType::Kind::Message, "forwardFee"},
-			{MagicType::Kind::Message, "importFee"},
 			{MagicType::Kind::Message, "createdAt"},
 			{MagicType::Kind::Message, "currencies"},
 			{MagicType::Kind::Message, "data"},
+			{MagicType::Kind::Message, "forwardFee"},
 			{MagicType::Kind::Message, "hasStateInit"},
+			{MagicType::Kind::Message, "importFee"},
 			{MagicType::Kind::Message, "isExternal"},
 			{MagicType::Kind::Message, "isInternal"},
 			{MagicType::Kind::Message, "isTickTock"},
@@ -407,7 +458,6 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::TVM, "hash"},
 			{MagicType::Kind::TVM, "hexdump"},
 			{MagicType::Kind::TVM, "initCodeHash"},
-			{MagicType::Kind::TVM, "insertPubkey"},
 			{MagicType::Kind::TVM, "log"},
 			{MagicType::Kind::TVM, "rawConfigParam"},
 			{MagicType::Kind::TVM, "rawReserve"},
@@ -421,7 +471,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::Transaction, "storageFee"},
 			{MagicType::Kind::Transaction, "timestamp"},
 		};
-		set<MagicMember> static const nonpayableMembers{
+		std::set<MagicMember> static const nonpayableMembers{
 			{MagicType::Kind::TVM, "commit"},
 			{MagicType::Kind::TVM, "rawCommit"},
 			{MagicType::Kind::TVM, "setData"},

@@ -18,9 +18,9 @@
 
 #include <libsolidity/ast/TypeProvider.h>
 
-#include "TVM.hpp"
-#include "TVMCommons.hpp"
-#include "TVMConstants.hpp"
+#include <libsolidity/codegen/TVM.hpp>
+#include <libsolidity/codegen/TVMCommons.hpp>
+#include <libsolidity/codegen/TVMConstants.hpp>
 
 using namespace std;
 using namespace solidity::langutil;
@@ -79,6 +79,17 @@ FunctionDefinition const* getSuperFunction(
 	}
 	return prev;
 }
+
+FunctionDefinition const* hasConstructor(ContractDefinition const& contract) {
+	for (ContractDefinition const* c : getContractsChain(&contract)) {
+		for (const auto f : c->definedFunctions()) {
+			if (f->isConstructor())
+				return f;
+		}
+	}
+	return nullptr;
+}
+
 
 const Type *getType(const VariableDeclaration *var) {
 	return var->annotation().type;
@@ -220,27 +231,19 @@ vector<ContractDefinition const *> getContractsChain(ContractDefinition const *c
 	return contracts;
 }
 
-std::vector<VariableDeclaration const *> notConstantStateVariables(ContractDefinition const* _contract) {
+std::vector<VariableDeclaration const *> stateVariables(ContractDefinition const* _contract,
+														bool _onlyNoStorage) {
 	std::vector<VariableDeclaration const *> variableDeclarations;
 	std::vector<ContractDefinition const *> mainChain = getContractsChain(_contract);
 	for (ContractDefinition const * contract: mainChain) {
 		for (VariableDeclaration const *variable: contract->stateVariables()) {
-			if (!variable->isConstant()) {
+			if (!variable->isConstant() && (_onlyNoStorage == variable->isNoStorage())
+			) {
 				variableDeclarations.push_back(variable);
 			}
 		}
 	}
 	return variableDeclarations;
-}
-
-vector<std::pair<FunctionDefinition const *, ContractDefinition const *>>
-getContractFunctionPairs(ContractDefinition const *contract) {
-	vector<pair<FunctionDefinition const*, ContractDefinition const*>> result;
-	for (ContractDefinition const* c : getContractsChain(contract)) {
-		for (const auto f : c->definedFunctions())
-			result.emplace_back(f, c);
-	}
-	return result;
 }
 
 bool isSuper(Expression const *expr) {
@@ -264,19 +267,6 @@ bool isAddressThis(const FunctionCall *funCall) {
 		}
 	}
 	return false;
-}
-
-vector<FunctionDefinition const *> getContractFunctions(ContractDefinition const *contract, const string &funcName) {
-	vector<FunctionDefinition const*> result;
-	for (auto &[functionDefinition, contractDefinition] : getContractFunctionPairs(contract)) {
-		(void)contractDefinition;	// suppress unused variable error
-		if (functionDefinition->isConstructor()) {
-			continue;
-		}
-		if (functionName(functionDefinition) == funcName)
-			result.push_back(functionDefinition);
-	}
-	return result;
 }
 
 CallableDeclaration const* getFunctionDeclarationOrConstructor(Expression const* expr, bool quiet) {
@@ -398,8 +388,8 @@ void ABITypeSize::init(Type const* type) {
 		solAssert(ti.isNumeric, "");
 		maxBits = ti.numBits;
 		maxRefs = 0;
-	} else if (auto varInt = to<VarIntegerType>(type)) {
-		maxBits = varInt->maxBitSizeInCell();
+	} else if (auto varint = to<VarIntegerType>(type)) {
+		maxBits = varint->maxBitSizeInCell();
 		maxRefs = 0;
 	} else if (auto arrayType = to<ArrayType>(type)) {
 		if (arrayType->isByteArrayOrString()) {
@@ -490,15 +480,32 @@ int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>> const& arr) {
 	return qtyWithoutLoc(arr.begin(), arr.end());
 }
 
-std::string StrUtils::toBitString(bigint value, int bitlen) {
+std::optional<std::string> StrUtils::toBitString(bigint value, int bitlen, bool isSign) {
+	if (bitlen == 0) {
+		if (value == 0)
+			return "";
+		return {};
+	}
+	bigint const one = 1;
+	if (isSign) {
+		bigint p2 = one << (bitlen - 1);
+		if (!(-p2 <= value && value <= p2 - 1))
+			return {};
+	} else {
+		bigint p2 = one << bitlen;
+		if (!(0 <= value && value < p2))
+			return {};
+	}
 	if (value < 0) {
 		value = pow(bigint(2), bitlen) + value;
+		solAssert(value > 0, "");
 	}
 	std::string s;
 	for (int i = 0; i < bitlen; ++i) {
 		s += value % 2 == 0 ? "0" : "1";
 		value /= 2;
 	}
+	solAssert(value == 0, "");
 	std::reverse(s.rbegin(), s.rbegin() + bitlen);
 	return s;
 }
@@ -541,14 +548,14 @@ std::string StrUtils::toBitString(const std::string& slice) {
 						break;
 					}
 				}
-				bitString += StrUtils::toBitString(value, bitLen);
+				bitString += StrUtils::toBitString(value, bitLen, false).value();
 				break;
 			}
 			size_t pos{};
 			auto sss = slice.substr(i, 1);
 			int value = std::stoi(sss, &pos, 16);
 			solAssert(pos == 1, "");
-			bitString += StrUtils::toBitString(value, 4);
+			bitString += StrUtils::toBitString(value, 4, false).value();
 		}
 	} else {
 		if (isIn(slice, "0", "1")) {
@@ -613,7 +620,7 @@ std::string StrUtils::literalToSliceAddress(bigint const& value) {
 	s += "10";
 	s += "0";
 	s += std::string(8, '0');
-	s += StrUtils::toBitString(value);
+	s += StrUtils::toBitString(value, 256, false).value();
 	return s;
 }
 
@@ -624,6 +631,13 @@ bigint StrUtils::toBigint(const std::string& binStr) {
 		if (ch == '1')
 			++res;
 	}
+	return res;
+}
+
+std::optional<bigint> StrUtils::toNegBigint(const std::string& binStr) {
+	if (binStr.at(0) != '1')
+		return {};
+	bigint res = StrUtils::toBigint(binStr) - (bigint(1) << binStr.length());
 	return res;
 }
 
@@ -652,6 +666,7 @@ std::string StrUtils::stringToHex(const std::string& str) {
 
 
 std::optional<bigint> ExprUtils::constValue(const Expression &_e) {
+	// TODO see ConstantEvaluator ?
 	if (*_e.annotation().isPure) {
 		if (auto memberAccess = to<MemberAccess>(&_e)) {
 			if (auto variable = dynamic_cast<VariableDeclaration const *>(memberAccess->annotation().referencedDeclaration)) {
@@ -732,6 +747,57 @@ std::map<int, bigint> const& MathConsts::power10() {
 		}
 	}
 	return power10;
+}
+
+namespace {
+std::pair<bool, int> getSignAndBits(Type const* type) {
+	bool isSigned = false;
+	int numBits = 0;
+	if (auto intResult = to<IntegerType>(type)) {
+		isSigned = intResult->isSigned();
+		numBits = intResult->numBits();
+	} else if (auto qintResult = to<QIntegerType>(type)) {
+		isSigned = qintResult->asIntegerType()->isSigned();
+		numBits = qintResult->asIntegerType()->numBits();
+	} else if (auto varintResult = to<VarIntegerType>(type)) {
+		isSigned = varintResult->asIntegerType().isSigned();
+		numBits = varintResult->asIntegerType().numBits();
+	} else if (auto fixedResult = to<FixedPointType>(type)) {
+		isSigned = fixedResult->isSigned();
+		numBits = fixedResult->numBits();
+	} else
+		solUnimplemented(type->toString());
+	return {isSigned, numBits};
+}
+}
+
+bool isFitUselessUnary(Type const* common, Token op) {
+	auto const [isSigned, numBits] = getSignAndBits(common);
+	return
+		(
+			!isSigned &&
+			numBits == 256 &&
+			op == Token::Inc
+		);
+}
+
+bool isFitUseless(Type const* left, Type const* right, Type const* common, Token op) {
+	bool const isLeftSigned = getSignAndBits(left->mobileType()).first;
+	bool const isRightSigned = getSignAndBits(right->mobileType()).first;
+	auto const [isSigned, numBits] = getSignAndBits(common);
+	return
+		(
+			!isSigned &&
+			numBits == 256 &&
+			isIn(op, Token::Add, Token::Exp, Token::Mul, Token::SHL)
+		)
+		||
+		(
+			// we should throw an overflow exception if case of type(SignType).min / -1,
+			// e.g. -128/-1 does not fit into int8
+			(!isLeftSigned || !isRightSigned) &&
+			op == Token::Div
+		);
 }
 
 } // end namespace solidity::frontend

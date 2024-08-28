@@ -9,13 +9,9 @@ Yul
 Yul (previously also called JULIA or IULIA) is an intermediate language that can be
 compiled to bytecode for different backends.
 
-Support for EVM 1.0, EVM 1.5 and Ewasm is planned, and it is designed to
-be a usable common denominator of all three
-platforms. It can already be used in stand-alone mode and
-for "inline assembly" inside Solidity
-and there is an experimental implementation of the Solidity compiler
-that uses Yul as an intermediate language. Yul is a good target for
-high-level optimisation stages that can benefit all target platforms equally.
+It can be used in stand-alone mode and for "inline assembly" inside Solidity.
+The compiler uses Yul as an intermediate language in the IR-based code generator ("new codegen" or "IR-based codegen").
+Yul is a good target for high-level optimisation stages that can benefit all target platforms equally.
 
 Motivation and High-level Description
 =====================================
@@ -89,7 +85,6 @@ It can be compiled using ``solc --strict-assembly``. The builtin functions
 
 It is also possible to implement the same function using a for-loop
 instead of with recursion. Here, ``lt(a, b)`` computes whether ``a`` is less than ``b``.
-less-than comparison.
 
 .. code-block:: yul
 
@@ -157,7 +152,7 @@ where an object is expected.
 Inside a code block, the following elements can be used
 (see the later sections for more details):
 
-- literals, i.e. ``0x123``, ``42`` or ``"abc"`` (strings up to 32 characters)
+- literals, e.g. ``0x123``, ``42`` or ``"abc"`` (strings up to 32 characters)
 - calls to builtin functions, e.g. ``add(1, mload(0))``
 - variable declarations, e.g. ``let x := 7``, ``let x := add(y, 3)`` or ``let x`` (initial value of 0 is assigned)
 - identifiers (variables), e.g. ``add(3, x)``
@@ -170,6 +165,8 @@ Inside a code block, the following elements can be used
 
 Multiple syntactical elements can follow each other simply separated by
 whitespace, i.e. there is no terminating ``;`` or newline required.
+
+.. index:: ! literal;in Yul
 
 Literals
 --------
@@ -243,7 +240,7 @@ they have to be assigned to local variables.
 For built-in functions of the EVM, functional expressions
 can be directly translated to a stream of opcodes:
 You just read the expression from right to left to obtain the
-opcodes. In the case of the first line in the example, this
+opcodes. In the case of the second line in the example, this
 is ``PUSH1 3 PUSH1 0x80 MLOAD ADD PUSH1 0x80 MSTORE``.
 
 For calls to user-defined functions, the arguments are also
@@ -744,7 +741,7 @@ EVM Dialect
 -----------
 
 The default dialect of Yul currently is the EVM dialect for the currently selected version of the EVM.
-with a version of the EVM. The only type available in this dialect
+The only type available in this dialect
 is ``u256``, the 256-bit native type of the Ethereum Virtual Machine.
 Since it is the default type of this dialect, it can be omitted.
 
@@ -755,11 +752,12 @@ This document does not want to be a full description of the Ethereum virtual mac
 Please refer to a different document if you are interested in the precise semantics.
 
 Opcodes marked with ``-`` do not return a result and all others return exactly one value.
-Opcodes marked with ``F``, ``H``, ``B``, ``C``, ``I`` and ``L`` are present since Frontier, Homestead,
-Byzantium, Constantinople, Istanbul or London respectively.
+Opcodes marked with ``F``, ``H``, ``B``, ``C``, ``I``, ``L``, ``P`` and ``N`` are present since Frontier,
+Homestead, Byzantium, Constantinople, Istanbul, London, Paris or Cancun respectively.
 
 In the following, ``mem[a...b)`` signifies the bytes of memory starting at position ``a`` up to
-but not including position ``b`` and ``storage[p]`` signifies the storage contents at slot ``p``.
+but not including position ``b``, ``storage[p]`` signifies the storage contents at slot ``p``, and
+similarly, ``transientStorage[p]`` signifies the transient storage contents at slot ``p``.
 
 Since Yul manages local variables and control-flow,
 opcodes that interfere with these features are not available. This includes
@@ -836,6 +834,10 @@ the ``dup`` and ``swap`` instructions as well as ``jump`` instructions, labels a
 +-------------------------+-----+---+-----------------------------------------------------------------+
 | sstore(p, v)            | `-` | F | storage[p] := v                                                 |
 +-------------------------+-----+---+-----------------------------------------------------------------+
+| tload(p)                |     | N | transientStorage[p]                                             |
++-------------------------+-----+---+-----------------------------------------------------------------+
+| tstore(p, v)            | `-` | N | transientStorage[p] := v                                        |
++-------------------------+-----+---+-----------------------------------------------------------------+
 | msize()                 |     | F | size of memory, i.e. largest accessed memory index              |
 +-------------------------+-----+---+-----------------------------------------------------------------+
 | gas()                   |     | F | gas still available to execution                                |
@@ -867,6 +869,8 @@ the ``dup`` and ``swap`` instructions as well as ``jump`` instructions, labels a
 | returndatasize()        |     | B | size of the last returndata                                     |
 +-------------------------+-----+---+-----------------------------------------------------------------+
 | returndatacopy(t, f, s) | `-` | B | copy s bytes from returndata at position f to mem at position t |
++-------------------------+-----+---+-----------------------------------------------------------------+
+| mcopy(t, f, s)          | `-` | N | copy s bytes from mem at position f to mem at position t        |
 +-------------------------+-----+---+-----------------------------------------------------------------+
 | extcodehash(a)          |     | C | code hash of address a                                          |
 +-------------------------+-----+---+-----------------------------------------------------------------+
@@ -903,23 +907,26 @@ the ``dup`` and ``swap`` instructions as well as ``jump`` instructions, labels a
 | revert(p, s)            | `-` | B | end execution, revert state changes, return data mem[p...(p+s)) |
 +-------------------------+-----+---+-----------------------------------------------------------------+
 | selfdestruct(a)         | `-` | F | end execution, destroy current contract and send funds to a     |
+|                         |     |   | (deprecated)                                                    |
 +-------------------------+-----+---+-----------------------------------------------------------------+
 | invalid()               | `-` | F | end execution with invalid instruction                          |
 +-------------------------+-----+---+-----------------------------------------------------------------+
-| log0(p, s)              | `-` | F | log without topics and data mem[p...(p+s))                      |
+| log0(p, s)              | `-` | F | log data mem[p...(p+s))                                         |
 +-------------------------+-----+---+-----------------------------------------------------------------+
-| log1(p, s, t1)          | `-` | F | log with topic t1 and data mem[p...(p+s))                       |
+| log1(p, s, t1)          | `-` | F | log data mem[p...(p+s)) with topic t1                           |
 +-------------------------+-----+---+-----------------------------------------------------------------+
-| log2(p, s, t1, t2)      | `-` | F | log with topics t1, t2 and data mem[p...(p+s))                  |
+| log2(p, s, t1, t2)      | `-` | F | log data mem[p...(p+s)) with topics t1, t2                      |
 +-------------------------+-----+---+-----------------------------------------------------------------+
-| log3(p, s, t1, t2, t3)  | `-` | F | log with topics t1, t2, t3 and data mem[p...(p+s))              |
+| log3(p, s, t1, t2, t3)  | `-` | F | log data mem[p...(p+s)) with topics t1, t2, t3                  |
 +-------------------------+-----+---+-----------------------------------------------------------------+
-| log4(p, s, t1, t2, t3,  | `-` | F | log with topics t1, t2, t3, t4 and data mem[p...(p+s))          |
+| log4(p, s, t1, t2, t3,  | `-` | F | log data mem[p...(p+s)) with topics t1, t2, t3, t4              |
 | t4)                     |     |   |                                                                 |
 +-------------------------+-----+---+-----------------------------------------------------------------+
 | chainid()               |     | I | ID of the executing chain (EIP-1344)                            |
 +-------------------------+-----+---+-----------------------------------------------------------------+
 | basefee()               |     | L | current block's base fee (EIP-3198 and EIP-1559)                |
++-------------------------+-----+---+-----------------------------------------------------------------+
+| blobbasefee()           |     | N | current block's blob base fee (EIP-7516 and EIP-4844)           |
 +-------------------------+-----+---+-----------------------------------------------------------------+
 | origin()                |     | F | transaction sender                                              |
 +-------------------------+-----+---+-----------------------------------------------------------------+
@@ -927,13 +934,17 @@ the ``dup`` and ``swap`` instructions as well as ``jump`` instructions, labels a
 +-------------------------+-----+---+-----------------------------------------------------------------+
 | blockhash(b)            |     | F | hash of block nr b - only for last 256 blocks excluding current |
 +-------------------------+-----+---+-----------------------------------------------------------------+
+| blobhash(i)             |     | N | versioned hash of transaction's i-th blob                       |
++-------------------------+-----+---+-----------------------------------------------------------------+
 | coinbase()              |     | F | current mining beneficiary                                      |
 +-------------------------+-----+---+-----------------------------------------------------------------+
 | timestamp()             |     | F | timestamp of the current block in seconds since the epoch       |
 +-------------------------+-----+---+-----------------------------------------------------------------+
 | number()                |     | F | current block number                                            |
 +-------------------------+-----+---+-----------------------------------------------------------------+
-| difficulty()            |     | F | difficulty of the current block                                 |
+| difficulty()            |     | F | difficulty of the current block (see note below)                |
++-------------------------+-----+---+-----------------------------------------------------------------+
+| prevrandao()            |     | P | randomness provided by the beacon chain (see note below)        |
 +-------------------------+-----+---+-----------------------------------------------------------------+
 | gaslimit()              |     | F | block gas limit of the current block                            |
 +-------------------------+-----+---+-----------------------------------------------------------------+
@@ -948,6 +959,20 @@ the ``dup`` and ``swap`` instructions as well as ``jump`` instructions, labels a
   You need to use the ``returndatasize`` opcode to check which part of this memory area contains the return data.
   The remaining bytes will retain their values as of before the call.
 
+.. note::
+  The ``difficulty()`` instruction is disallowed in EVM version >= Paris.
+  With the Paris network upgrade the semantics of the instruction that was previously called
+  ``difficulty`` have been changed and the instruction was renamed to ``prevrandao``.
+  It can now return arbitrary values in the full 256-bit range, whereas the highest recorded
+  difficulty value within Ethash was ~54 bits.
+  This change is described in `EIP-4399 <https://eips.ethereum.org/EIPS/eip-4399>`_.
+  Please note that irrelevant to which EVM version is selected in the compiler, the semantics of
+  instructions depend on the final chain of deployment.
+
+.. warning::
+    From version 0.8.18 and up, the use of ``selfdestruct`` in both Solidity and Yul will trigger a
+    deprecation warning, since the ``SELFDESTRUCT`` opcode will eventually undergo breaking changes in behavior
+    as stated in `EIP-6049 <https://eips.ethereum.org/EIPS/eip-6049>`_.
 
 In some internal dialects, there are additional functions:
 
@@ -981,7 +1006,7 @@ Its first and only argument must be a string literal and uniquely represents the
 Identifiers can be arbitrary but when the compiler produces Yul code from Solidity sources,
 it uses a library name qualified with the name of the source unit that defines that library.
 To link the code with a particular library address, the same identifier must be provided to the
-``--libraries`` option on the command line.
+``--libraries`` option on the command-line.
 
 For example this code
 
@@ -1062,12 +1087,12 @@ or even opcodes unknown to the Solidity compiler, care has to be taken
 when using ``verbatim`` together with the optimizer. Even when the
 optimizer is switched off, the code generator has to determine
 the stack layout, which means that e.g. using ``verbatim`` to modify
-the stack height can lead to undefined behaviour.
+the stack height can lead to undefined behavior.
 
 The following is a non-exhaustive list of restrictions on
 verbatim bytecode that are not checked by
 the compiler. Violations of these restrictions can result in
-undefined behaviour.
+undefined behavior.
 
 - Control-flow should not jump into or out of verbatim blocks,
   but it can jump within the same verbatim block.
@@ -1174,14 +1199,13 @@ An example Yul Object is shown below:
             datacopy(offset, dataoffset("Contract2"), size)
             // constructor parameter is a single number 0x1234
             mstore(add(offset, size), 0x1234)
-            pop(create(offset, add(size, 32), 0))
+            pop(create(0, offset, add(size, 32)))
 
             // now return the runtime object (the currently
             // executing code is the constructor code)
             size := datasize("Contract1_deployed")
             offset := allocate(size)
-            // This will turn into a memory->memory copy for Ewasm and
-            // a codecopy for EVM
+            // This will turn into a codecopy for EVM
             datacopy(offset, dataoffset("Contract1_deployed"), size)
             return(offset, size)
         }
@@ -1245,65 +1269,8 @@ In Solidity mode, the Yul optimizer is activated together with the regular optim
 Optimization Step Sequence
 --------------------------
 
-By default the Yul optimizer applies its predefined sequence of optimization steps to the generated assembly.
-You can override this sequence and supply your own using the ``--yul-optimizations`` option:
-
-.. code-block:: sh
-
-    solc --optimize --ir-optimized --yul-optimizations 'dhfoD[xarrscLMcCTU]uljmul'
-
-The order of steps is significant and affects the quality of the output.
-Moreover, applying a step may uncover new optimization opportunities for others that were already
-applied so repeating steps is often beneficial.
-By enclosing part of the sequence in square brackets (``[]``) you tell the optimizer to repeatedly
-apply that part until it no longer improves the size of the resulting assembly.
-You can use brackets multiple times in a single sequence but they cannot be nested.
-
-The following optimization steps are available:
-
-============ ===============================
-Abbreviation Full name
-============ ===============================
-``f``        ``BlockFlattener``
-``l``        ``CircularReferencesPruner``
-``c``        ``CommonSubexpressionEliminator``
-``C``        ``ConditionalSimplifier``
-``U``        ``ConditionalUnsimplifier``
-``n``        ``ControlFlowSimplifier``
-``D``        ``DeadCodeEliminator``
-``v``        ``EquivalentFunctionCombiner``
-``e``        ``ExpressionInliner``
-``j``        ``ExpressionJoiner``
-``s``        ``ExpressionSimplifier``
-``x``        ``ExpressionSplitter``
-``I``        ``ForLoopConditionIntoBody``
-``O``        ``ForLoopConditionOutOfBody``
-``o``        ``ForLoopInitRewriter``
-``i``        ``FullInliner``
-``g``        ``FunctionGrouper``
-``h``        ``FunctionHoister``
-``F``        ``FunctionSpecializer``
-``T``        ``LiteralRematerialiser``
-``L``        ``LoadResolver``
-``M``        ``LoopInvariantCodeMotion``
-``r``        ``RedundantAssignEliminator``
-``R``        ``ReasoningBasedSimplifier`` - highly experimental
-``m``        ``Rematerialiser``
-``V``        ``SSAReverser``
-``a``        ``SSATransform``
-``t``        ``StructuralSimplifier``
-``u``        ``UnusedPruner``
-``p``        ``UnusedFunctionParameterPruner``
-``d``        ``VarDeclInitializer``
-============ ===============================
-
-Some steps depend on properties ensured by ``BlockFlattener``, ``FunctionGrouper``, ``ForLoopInitRewriter``.
-For this reason the Yul optimizer always applies them before applying any steps supplied by the user.
-
-The ReasoningBasedSimplifier is an optimizer step that is currently not enabled
-in the default set of steps. It uses an SMT solver to simplify arithmetic expressions
-and boolean conditions. It has not received thorough testing or validation yet and can produce
-non-reproducible results, so please use with care!
+Detailed information regarding the optimization sequence as well as a list of abbreviations is
+available in the :ref:`optimizer docs <optimizer-steps>`.
 
 .. _erc20yul:
 

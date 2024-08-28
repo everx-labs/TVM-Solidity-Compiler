@@ -31,7 +31,7 @@
 #include <boost/range/adaptor/reversed.hpp>
 #include <utility>
 
-#include "TvmAst.hpp"
+#include <libsolidity/codegen/TvmAst.hpp>
 
 namespace solidity::frontend {
 
@@ -99,30 +99,39 @@ struct TypeInfo {
 	bool isSigned{};
 	int numBits{};
 	Type::Category category{};
+	bool isQuiet{};
 
 	explicit TypeInfo(const Type* type) {
+		category = type->category();
+		isNumeric = true;
 		if (auto* integerType = to<IntegerType>(type)) {
-			isNumeric = true;
 			isSigned = integerType->isSigned();
 			numBits = int(integerType->numBits());
+		} else if (auto* qintegerType = to<QIntegerType>(type)) {
+			isSigned = qintegerType->asIntegerType()->isSigned();
+			numBits = int(qintegerType->asIntegerType()->numBits());
+			isQuiet = true;
+		} else if (auto* varint = to<VarIntegerType>(type)) {
+			isSigned = varint->asIntegerType().isSigned();
+			numBits = int(varint->asIntegerType().numBits());
 		} else if (to<BoolType>(type)) {
-			isNumeric = true;
 			isSigned = true;
 			numBits = 1;
+		} else if (to<QBoolType>(type)) {
+			isSigned = true;
+			numBits = 1;
+			isQuiet = true;
 		} else if (auto* fixedBytesType = to<FixedBytesType>(type)) {
-			isNumeric = true;
 			isSigned = false;
 			numBits = 8 * static_cast<int>(fixedBytesType->numBytes());
 		} else if (auto enumType = to<EnumType>(type)) {
-			isNumeric = true;
 			isSigned = false;
 			numBits = bitsForEnum(enumType->numberOfMembers());
 		} else if (auto* fp = to<FixedPointType>(type)) {
-			isNumeric = true;
 			isSigned = fp->isSigned();
 			numBits = int(fp->numBits());
-		}
-		category = type->category();
+		} else
+			isNumeric = false;
 	}
 };
 
@@ -150,22 +159,18 @@ realDictKeyValue(Type const* type);
 
 
 std::vector<ContractDefinition const*> getContractsChain(ContractDefinition const* contract);
-std::vector<VariableDeclaration const *> notConstantStateVariables(ContractDefinition const* contract);
-
-std::vector<std::pair<FunctionDefinition const*, ContractDefinition const*>>
-getContractFunctionPairs(ContractDefinition const* contract);
+std::vector<VariableDeclaration const *> stateVariables(ContractDefinition const* contract, bool _withNoStorage);
 
 bool isSuper(Expression const* expr);
 bool isAddressThis(const FunctionCall* funCall);
-
-// List of all function but constructors with a given name
-std::vector<FunctionDefinition const*> getContractFunctions(ContractDefinition const* contract, const std::string& funcName);
 
 FunctionDefinition const* getSuperFunction(
 	const ContractDefinition* currentContract,
 	const ContractDefinition* mainContract,
 	const std::string& hexName
 );
+
+FunctionDefinition const* hasConstructor(ContractDefinition const& contract);
 
 [[noreturn]]
 void cast_error(const ASTNode& node, const std::string& error_message);
@@ -371,7 +376,7 @@ int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>>::const_iterator beg,
 int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>> const& arr);
 
 namespace StrUtils {
-	std::string toBitString(bigint value, int bitlen = 256);
+	std::optional<std::string> toBitString(bigint value, int bitlen, bool isSign);
 	std::string binaryStringToSlice(const std::string & s);
 	std::string toBitString(const std::string& slice);
 	std::optional<std::string> unitSlices(const std::string& sliceA, const std::string& sliceB);
@@ -381,6 +386,7 @@ namespace StrUtils {
 	std::string boolToBinaryString(bool value);
 	std::string literalToSliceAddress(bigint const& value);
 	bigint toBigint(const std::string& binStr);
+	std::optional<bigint> toNegBigint(const std::string& binStr);
 	std::string toBinString(bigint num);
 	std::string stringToHex(const std::string& str);
 }
@@ -396,5 +402,8 @@ namespace MathConsts {
 	std::map<bigint, int> const& power2NegExp();
 	std::map<int, bigint> const& power10();
 }
+
+bool isFitUselessUnary(Type const* common, Token op);
+bool isFitUseless(Type const* left, Type const* right, Type const* common, Token op);
 
 } // end solidity::frontend

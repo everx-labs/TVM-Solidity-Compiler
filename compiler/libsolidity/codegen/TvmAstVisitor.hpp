@@ -37,7 +37,7 @@ public:
 	virtual bool visit(TvmReturn &_node) { return visitNode(_node); }
 	virtual bool visit(ReturnOrBreakOrCont &_node) { return visitNode(_node); }
 	virtual bool visit(TvmException &_node) { return visitNode(_node); }
-	virtual bool visit(GenOpcode &_node) { return visitNode(_node); }
+	virtual bool visit(StackOpcode &_node) { return visitNode(_node); }
 	virtual bool visit(PushCellOrSlice &_node) { return visitNode(_node); }
 	virtual bool visit(Glob &_node) { return visitNode(_node); }
 	virtual bool visit(Stack &_node) { return visitNode(_node); }
@@ -69,7 +69,7 @@ public:
 	bool visit(TvmReturn &_node) override;
 	bool visit(ReturnOrBreakOrCont &_node) override;
 	bool visit(TvmException &_node) override;
-	bool visit(GenOpcode &_node) override;
+	bool visit(StackOpcode &_node) override;
 	bool visit(PushCellOrSlice &_node) override;
 	bool visit(Glob &_node) override;
 	bool visit(Stack &_node) override;
@@ -86,7 +86,6 @@ public:
 protected:
 	bool visitNode(TvmAstNode const&) override;
 private:
-	void endL();
 	void tabs();
 	void printPushInt(std::string const& arg, std::string const& comment = "");
 	void printPushInt(int i);

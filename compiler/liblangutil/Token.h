@@ -42,8 +42,6 @@
 
 #pragma once
 
-#include <liblangutil/UndefMacros.h>
-
 #include <iosfwd>
 #include <string>
 #include <tuple>
@@ -146,7 +144,6 @@ namespace solidity::langutil
 	K(Anonymous, "anonymous", 0)                                       \
 	K(As, "as", 0)                                                     \
 	K(Assembly, "assembly", 0)                                         \
-	K(Await, "await", 0)                                               \
 	K(Break, "break", 0)                                               \
 	K(Catch, "catch", 0)                                               \
 	K(Constant, "constant", 0)                                         \
@@ -159,7 +156,6 @@ namespace solidity::langutil
 	K(Emit, "emit", 0)                                                 \
 	K(Event, "event", 0)                                               \
 	K(External, "external", 0)                                         \
-	K(ExtMsg, "extMsg", 0)                                             \
 	K(Fallback, "fallback", 0)                                         \
 	K(onBounce, "onBounce", 0)                                         \
 	K(For, "for", 0)                                                   \
@@ -179,8 +175,10 @@ namespace solidity::langutil
 	K(Mapping, "mapping", 0)                                           \
 	K(Modifier, "modifier", 0)                                         \
 	K(New, "new", 0)                                                   \
+	K(NoStorage, "nostorage", 0)                                       \
 	K(Optional, "optional", 0)                                         \
-	K(TvmVector, "vector", 0)                                           \
+	K(TvmVector, "vector", 0)                                          \
+	K(TvmStack, "stack", 0)                                            \
 	K(Override, "override", 0)                                         \
 	K(Payable, "payable", 0)                                           \
 	K(Public, "public", 0)                                             \
@@ -240,6 +238,9 @@ namespace solidity::langutil
 	/* type keywords*/                                                 \
 	K(Int, "int", 0)                                                   \
 	K(UInt, "uint", 0)                                                 \
+	K(QInt, "qint", 0)                                                 \
+	K(QUInt, "quint", 0)                                               \
+    K(QBool, "qbool", 0)                                               \
 	K(Bytes, "bytes", 0)                                               \
 	K(String, "string", 0)                                             \
 	K(Address, "address", 0)                                           \
@@ -247,18 +248,26 @@ namespace solidity::langutil
 	K(TvmCell, "TvmCell", 0)                                           \
 	K(TvmSlice, "TvmSlice", 0)                                         \
 	K(TvmBuilder, "TvmBuilder", 0)                                     \
+	K(StringBuilder, "StringBuilder", 0)                               \
 	K(Variant, "variant", 0)                                           \
 	K(Fixed, "fixed", 0)                                               \
 	K(UFixed, "ufixed", 0)                                             \
 	T(IntM, "intM", 0)                                                 \
 	T(UIntM, "uintM", 0)                                               \
+	T(QIntM, "qintM", 0)                                               \
+	T(QUIntM, "quintM", 0)                                             \
 	T(BytesM, "bytesM", 0)                                             \
 	T(FixedMxN, "fixedMxN", 0)                                         \
 	T(UFixedMxN, "ufixedMxN", 0)                                       \
 	K(VarInt, "varInt", 0)                                             \
+	K(Varint, "varint", 0)                                             \
 	T(VarIntM, "varIntM", 0)                                           \
+	T(VarintM, "varintM", 0)                                           \
 	K(VarUint, "varUint", 0)                                           \
+	K(Varuint, "varuint", 0)                                           \
 	T(VarUintM, "varUintM", 0)                                         \
+	T(VaruintM, "varuintM", 0)                                         \
+	K(coins, "coins", 0)                                               \
 	T(TypesEnd, nullptr, 0) /* used as type enum end marker */         \
 	\
 	/* Literals */                                                     \
@@ -293,6 +302,7 @@ namespace solidity::langutil
 	K(Mutable, "mutable", 0)                                           \
 	K(NullLiteral, "null", 0)                                          \
 	K(EmptyMap, "emptyMap", 0)                                         \
+	K(TVMNaN, "NaN", 0)                                                \
 	K(Of, "of", 0)                                                     \
 	K(Partial, "partial", 0)                                           \
 	K(Promise, "promise", 0)                                           \
@@ -309,6 +319,16 @@ namespace solidity::langutil
 	\
 	/* Yul-specific tokens, but not keywords. */                       \
 	T(Leave, "leave", 0)                                               \
+	\
+	T(NonExperimentalEnd, nullptr, 0) /* used as non-experimental enum end marker */ \
+	/* Experimental Solidity specific keywords. */                     \
+	K(Class, "class", 0)                                               \
+	K(Instantiation, "instantiation", 0)                               \
+	K(Integer, "Integer", 0)                                           \
+	K(Itself, "itself", 0)                                             \
+	K(StaticAssert, "static_assert", 0)                                \
+	K(Builtin, "__builtin", 0)                                         \
+	T(ExperimentalEnd, nullptr, 0) /* used as experimental enum end marker */ \
 	\
 	/* Illegal token - not able to scan. */                            \
 	T(Illegal, "ILLEGAL", 0)                                           \
@@ -332,7 +352,7 @@ namespace TokenTraits
 	constexpr size_t count() { return static_cast<size_t>(Token::NUM_TOKENS); }
 
 	// Predicates
-	constexpr bool isElementaryTypeName(Token tok) { return Token::Int <= tok && tok < Token::TypesEnd; }
+	constexpr bool isElementaryTypeName(Token _token) { return Token::Int <= _token && _token < Token::TypesEnd; }
 	constexpr bool isAssignmentOp(Token tok) { return Token::Assign <= tok && tok <= Token::AssignMod; }
 	constexpr bool isBinaryOp(Token op) { return Token::Comma <= op && op <= Token::Exp; }
 	constexpr bool isCommutativeOp(Token op) { return op == Token::BitOr || op == Token::BitXor || op == Token::BitAnd ||
@@ -342,7 +362,7 @@ namespace TokenTraits
 
 	constexpr bool isBitOp(Token op) { return (Token::BitOr <= op && op <= Token::BitAnd) || op == Token::BitNot; }
 	constexpr bool isBooleanOp(Token op) { return (Token::Or <= op && op <= Token::And) || op == Token::Not; }
-	constexpr bool isUnaryOp(Token op) { return (Token::Not <= op && op <= Token::Delete) || op == Token::Add || op == Token::Sub; }
+	constexpr bool isUnaryOp(Token op) { return (Token::Not <= op && op <= Token::Delete) || op == Token::Sub; }
 	constexpr bool isCountOp(Token op) { return op == Token::Inc || op == Token::Dec; }
 	constexpr bool isShiftOp(Token op) { return (Token::SHL <= op) && (op <= Token::SHR); }
 	constexpr bool isVariableVisibilitySpecifier(Token op) {
@@ -355,6 +375,7 @@ namespace TokenTraits
 		return op == Token::Pure || op == Token::View || op == Token::Payable;
 	}
 
+	// TODO RENAME
 	constexpr bool isTonSubdenomination(Token op) { return (Token::SubNano <= op && op <= Token::SubGEver); }
 	constexpr bool isTimeSubdenomination(Token op) { return op == Token::SubSecond || op == Token::SubMinute || op == Token::SubHour || op == Token::SubDay || op == Token::SubWeek || op == Token::SubYear; }
 	constexpr bool isReservedKeyword(Token op) { return (Token::After <= op && op <= Token::Var); }
@@ -364,6 +385,48 @@ namespace TokenTraits
 		return tok == Token::Function || tok == Token::Let || tok == Token::If || tok == Token::Switch || tok == Token::Case ||
 			tok == Token::Default || tok == Token::For || tok == Token::Break || tok == Token::Continue || tok == Token::Leave ||
 			tok == Token::TrueLiteral || tok == Token::FalseLiteral || tok == Token::HexStringLiteral || tok == Token::Hex;
+	}
+
+	constexpr bool isBuiltinTypeClassName(Token _token)
+	{
+		return
+			_token == Token::Integer ||
+			(isBinaryOp(_token) && _token != Token::Comma) ||
+			isCompareOp(_token) ||
+			isUnaryOp(_token) ||
+			(isAssignmentOp(_token) && _token != Token::Assign);
+	}
+
+	constexpr bool isExperimentalSolidityKeyword(Token token)
+	{
+		return
+			token == Token::Assembly ||
+			token == Token::Contract ||
+			token == Token::External ||
+			token == Token::Fallback ||
+			token == Token::Pragma ||
+			token == Token::Import ||
+			token == Token::As ||
+			token == Token::Function ||
+			token == Token::Let ||
+			token == Token::Return ||
+			token == Token::Type ||
+			token == Token::If ||
+			token == Token::Else ||
+			token == Token::Do ||
+			token == Token::While ||
+			token == Token::For ||
+			token == Token::Continue ||
+			token == Token::Break ||
+			(token > Token::NonExperimentalEnd && token< Token::ExperimentalEnd);
+	}
+
+	constexpr bool isExperimentalSolidityOnlyKeyword(Token _token)
+	{
+		// TODO: use token > Token::NonExperimentalEnd && token < Token::ExperimentalEnd
+		// as soon as other experimental tokens are added. For now the comparison generates
+		// a warning from clang because it is always false.
+		return _token > Token::NonExperimentalEnd && _token < Token::ExperimentalEnd;
 	}
 
 	bool isYulKeyword(std::string const& _literal);

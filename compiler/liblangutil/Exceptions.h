@@ -31,11 +31,13 @@
 #include <boost/preprocessor/cat.hpp>
 #include <boost/preprocessor/facilities/empty.hpp>
 #include <boost/preprocessor/facilities/overload.hpp>
+#include <boost/algorithm/string/case_conv.hpp>
 
+#include <optional>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
-#include <memory>
 
 namespace solidity::langutil
 {
@@ -168,21 +170,31 @@ class Error: virtual public util::Exception
 public:
 	enum class Type
 	{
+		Info,
+		Warning,
 		CodeGenerationError,
 		DeclarationError,
 		DocstringParsingError,
 		ParserError,
 		TypeError,
 		SyntaxError,
-		Warning,
-		Info
+		IOError,
+		FatalError,
+		JSONError,
+		InternalCompilerError,
+		CompilerError,
+		Exception,
+		UnimplementedFeatureError,
+		YulException,
+		SMTLogicException,
 	};
 
 	enum class Severity
 	{
-		Error,
+		// NOTE: We rely on these being ordered from least to most severe.
+		Info,
 		Warning,
-		Info
+		Error,
 	};
 
 	Error(
@@ -195,7 +207,7 @@ public:
 
 	ErrorId errorId() const { return m_errorId; }
 	Type type() const { return m_type; }
-	std::string const& typeName() const { return m_typeName; }
+	Severity severity() const { return errorSeverity(m_type); }
 
 	SourceLocation const* sourceLocation() const noexcept;
 	SecondarySourceLocation const* secondarySourceLocation() const noexcept;
@@ -211,11 +223,19 @@ public:
 
 	static constexpr Severity errorSeverity(Type _type)
 	{
-		if (_type == Type::Info)
-			return Severity::Info;
-		if (_type == Type::Warning)
-			return Severity::Warning;
-		return Severity::Error;
+		switch (_type)
+		{
+			case Type::Info: return Severity::Info;
+			case Type::Warning: return Severity::Warning;
+			default: return Severity::Error;
+		}
+	}
+
+	static constexpr Severity errorSeverityOrType(std::variant<Error::Type, Error::Severity> _typeOrSeverity)
+	{
+		if (std::holds_alternative<Error::Type>(_typeOrSeverity))
+			return errorSeverity(std::get<Error::Type>(_typeOrSeverity));
+		return std::get<Error::Severity>(_typeOrSeverity);
 	}
 
 	static bool isError(Severity _severity)
@@ -238,35 +258,49 @@ public:
 
 	static std::string formatErrorSeverity(Severity _severity)
 	{
-		if (_severity == Severity::Info)
-			return "Info";
-		if (_severity == Severity::Warning)
-			return "Warning";
-		solAssert(isError(_severity), "");
-		return "Error";
+		switch (_severity)
+		{
+		case Severity::Info: return "Info";
+		case Severity::Warning: return "Warning";
+		case Severity::Error: return "Error";
+		}
+		util::unreachable();
+	}
+
+	static std::string formatErrorType(Type _type)
+	{
+		return m_errorTypeNames.at(_type);
+	}
+
+	static std::optional<Type> parseErrorType(std::string _name)
+	{
+		static std::map<std::string, Error::Type> const m_errorTypesByName = util::invertMap(m_errorTypeNames);
+
+		if (m_errorTypesByName.count(_name) == 0)
+			return std::nullopt;
+
+		return m_errorTypesByName.at(_name);
+	}
+
+	static std::string formatTypeOrSeverity(std::variant<Error::Type, Error::Severity> _typeOrSeverity)
+	{
+		if (std::holds_alternative<Error::Type>(_typeOrSeverity))
+			return formatErrorType(std::get<Error::Type>(_typeOrSeverity));
+		return formatErrorSeverity(std::get<Error::Severity>(_typeOrSeverity));
 	}
 
 	static std::string formatErrorSeverityLowercase(Severity _severity)
 	{
-		switch (_severity)
-		{
-		case Severity::Info:
-			return "info";
-		case Severity::Warning:
-			return "warning";
-		case Severity::Error:
-			solAssert(isError(_severity), "");
-			return "error";
-		}
-		solAssert(false, "");
+		std::string severityValue = formatErrorSeverity(_severity);
+		boost::algorithm::to_lower(severityValue);
+		return severityValue;
 	}
-
-	static std::optional<Severity> severityFromString(std::string _input);
 
 private:
 	ErrorId m_errorId;
 	Type m_type;
-	std::string m_typeName;
+
+	static std::map<Type, std::string> const m_errorTypeNames;
 };
 
 }

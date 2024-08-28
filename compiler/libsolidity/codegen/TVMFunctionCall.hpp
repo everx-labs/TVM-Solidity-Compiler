@@ -46,24 +46,35 @@ protected:
 	void superFunctionCall(MemberAccess const& _node);
 	void userDefinedValueMethods(MemberAccess const& _node);
 	void addressMethods(MemberAccess const& _node);
-	bool libraryCall(MemberAccess const& ma);
-	bool checkForTvmDeployMethods(MemberAccess const& _node, Type::Category category);
-	void tvmBuildIntMsg();
-	void tvmBuildDataInit();
-	void tvmBuildMsgMethod();
+	bool libraryCall();
+	bool checkTvmABIDeployMethods(Type::Category category);
+	void abiBuildIntMsg();
+	void abiBuildDataInit();
+	void abiDecodeData();
+	int decodeData();
+	int decodeFunctionParams();
 	void sliceMethods(MemberAccess const& _node);
 	void arrayMethods(MemberAccess const& _node);
 	bool checkForOptionalMethods(MemberAccess const& _node);
 	void builderMethods(MemberAccess const& _node);
-	bool checkForTvmVectorMethods(MemberAccess const& _node, Type::Category category);
+	void qIntOrBoolMethods();
+	void stringBuilderMethods();
+	void tvmVectorMethods();
+	void tvmStackMethods();
 	void cellMethods(MemberAccess const& _node);
+	void integerMethods();
 	void variantMethods(MemberAccess const& _node);
 	void addressMethod();
 	bool checkForTvmConfigParamFunction(MemberAccess const& _node);
 	bool checkForTvmSendFunction(MemberAccess const& _node);
 	void msgFunction(MemberAccess const& _node);
 	void rndFunction(MemberAccess const& _node);
+	void blsFunction();
 	void goshFunction();
+	void codeSalt();
+	void setCodeSalt();
+	void functionId();
+	void abiEncodeBody();
 	bool checkForTvmFunction(MemberAccess const& _node);
 	void abiFunction();
 	void mathFunction(MemberAccess const& _node);
@@ -98,33 +109,16 @@ protected:
 		Data,
 		Library
 	};
-	void buildStateInit(std::map<StateInitMembers, std::function<void()>> exprs);
+	void encodeStateInit(std::map<StateInitMembers, std::function<void()>> exprs);
 	std::function<void()> generateDataSection(
+		bool data_map_supported,
 		const std::function<void()>& pushKey,
 		Expression const* vars,
 		ContractType const* ct
 	);
 	bool checkRemoteMethodCall(FunctionCall const &_functionCall);
-	void checkExtMsgSend();
 	std::string getDefaultMsgValue();
 	static const FunctionDefinition* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
-	void acceptExprOrPushFunctionId(Expression const* onerrorid);
-	void generateExtInboundMsg(
-		bool addSignature,
-		const Expression * destination,
-		const Expression *pubkey,
-		const Expression *expire,
-		const Expression *time,
-		const Expression *callbackid,
-		const Expression *onerrorid,
-		const Expression *stateInit,
-		const Expression *signBoxHandle,
-		const Expression *abiVer,
-		const Expression *flags,
-		const CallableDeclaration *functionDefinition,
-		const ast_vec<Expression const>& arguments
-	);
-
 
 	void pushArgs(bool reversed = false, bool doConvert = true);
 	void pushArgAndConvert(int index, const std::string& name = "");
@@ -138,6 +132,7 @@ private:
 	StackPusher& m_pusher;
 	TVMExpressionCompiler m_exprCompiler;
 	FunctionCall const& m_functionCall;
+	MemberAccess const* m_memberAccess{};
 	std::vector<ASTPointer<Expression const>> m_arguments;
 	FunctionType const* m_funcType{};
 	Type const* m_retType{};

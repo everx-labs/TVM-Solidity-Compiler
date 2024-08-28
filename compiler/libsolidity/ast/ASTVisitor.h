@@ -79,9 +79,9 @@ public:
 	virtual bool visit(Mapping& _node) { return visitNode(_node); }
 	virtual bool visit(Optional& _node) { return visitNode(_node); }
 	virtual bool visit(TvmVector& _node) { return visitNode(_node); }
+	virtual bool visit(TvmStack& _node) { return visitNode(_node); }
 	virtual bool visit(ArrayTypeName& _node) { return visitNode(_node); }
 	virtual bool visit(FreeInlineAssembly& _node) { return visitNode(_node); }
-	virtual bool visit(InlineAssembly& _node) { return visitNode(_node); }
 	virtual bool visit(Block& _node) { return visitNode(_node); }
 	virtual bool visit(PlaceholderStatement& _node) { return visitNode(_node); }
 	virtual bool visit(IfStatement& _node) { return visitNode(_node); }
@@ -117,6 +117,14 @@ public:
 	virtual bool visit(StructuredDocumentation& _node) { return visitNode(_node); }
 	virtual bool visit(MappingNameExpression& _node) { return visitNode(_node); }
 	virtual bool visit(OptionalNameExpression& _node) { return visitNode(_node); }
+	/// Experimental Solidity nodes
+	/// @{
+	virtual bool visit(TypeClassDefinition& _node) { return visitNode(_node); }
+	virtual bool visit(TypeClassInstantiation& _node) { return visitNode(_node); }
+	virtual bool visit(TypeDefinition& _node) { return visitNode(_node); }
+	virtual bool visit(TypeClassName& _node) { return visitNode(_node); }
+	virtual bool visit(Builtin& _node) { return visitNode(_node); }
+	///  @}
 
 	virtual void endVisit(SourceUnit& _node) { endVisitNode(_node); }
 	virtual void endVisit(PragmaDirective& _node) { endVisitNode(_node); }
@@ -143,9 +151,9 @@ public:
 	virtual void endVisit(Mapping& _node) { endVisitNode(_node); }
 	virtual void endVisit(Optional& _node) { endVisitNode(_node); }
 	virtual void endVisit(TvmVector& _node) { endVisitNode(_node); }
+	virtual void endVisit(TvmStack& _node) { endVisitNode(_node); }
 	virtual void endVisit(ArrayTypeName& _node) { endVisitNode(_node); }
 	virtual void endVisit(FreeInlineAssembly& _node) { endVisitNode(_node); }
-	virtual void endVisit(InlineAssembly& _node) { endVisitNode(_node); }
 	virtual void endVisit(Block& _node) { endVisitNode(_node); }
 	virtual void endVisit(PlaceholderStatement& _node) { endVisitNode(_node); }
 	virtual void endVisit(IfStatement& _node) { endVisitNode(_node); }
@@ -181,6 +189,14 @@ public:
 	virtual void endVisit(StructuredDocumentation& _node) { endVisitNode(_node); }
 	virtual void endVisit(MappingNameExpression& _node) { endVisitNode(_node); }
 	virtual void endVisit(OptionalNameExpression& _node) { endVisitNode(_node); }
+	/// Experimental Solidity nodes
+	/// @{
+	virtual void endVisit(TypeClassDefinition& _node) { endVisitNode(_node); }
+	virtual void endVisit(TypeClassInstantiation& _node) { endVisitNode(_node); }
+	virtual void endVisit(TypeDefinition& _node) { endVisitNode(_node); }
+	virtual void endVisit(TypeClassName& _node) { endVisitNode(_node); }
+	virtual void endVisit(Builtin& _node) { endVisitNode(_node); }
+	///  @}
 
 protected:
 	/// Generic function called by default for each node, to be overridden by derived classes
@@ -229,6 +245,7 @@ public:
 	virtual bool visit(Mapping const& _node) { return visitNode(_node); }
 	virtual bool visit(Optional const& _node) { return visitNode(_node); }
 	virtual bool visit(TvmVector const& _node) { return visitNode(_node); }
+	virtual bool visit(TvmStack const& _node) { return visitNode(_node); }
 	virtual bool visit(ArrayTypeName const& _node) { return visitNode(_node); }
 	virtual bool visit(Block const& _node) { return visitNode(_node); }
 	virtual bool visit(PlaceholderStatement const& _node) { return visitNode(_node); }
@@ -240,7 +257,6 @@ public:
 	virtual bool visit(ForEachStatement const& _node) { return visitNode(_node); }
 	virtual bool visit(Continue const& _node) { return visitNode(_node); }
 	virtual bool visit(FreeInlineAssembly const& _node) { return visitNode(_node); }
-	virtual bool visit(InlineAssembly const& _node) { return visitNode(_node); }
 	virtual bool visit(Break const& _node) { return visitNode(_node); }
 	virtual bool visit(Return const& _node) { return visitNode(_node); }
 	virtual bool visit(Throw const& _node) { return visitNode(_node); }
@@ -267,6 +283,14 @@ public:
 	virtual bool visit(StructuredDocumentation const& _node) { return visitNode(_node); }
 	virtual bool visit(MappingNameExpression const& _node) { return visitNode(_node); }
 	virtual bool visit(OptionalNameExpression const& _node) { return visitNode(_node); }
+	/// Experimental Solidity nodes
+	/// @{
+	virtual bool visit(TypeClassDefinition const& _node) { return visitNode(_node); }
+	virtual bool visit(TypeClassInstantiation const& _node) { return visitNode(_node); }
+	virtual bool visit(TypeDefinition const& _node) { return visitNode(_node); }
+	virtual bool visit(TypeClassName const& _node) { return visitNode(_node); }
+	virtual bool visit(Builtin const& _node) { return visitNode(_node); }
+	///  @}
 
 	virtual void endVisit(SourceUnit const& _node) { endVisitNode(_node); }
 	virtual void endVisit(PragmaDirective const& _node) { endVisitNode(_node); }
@@ -293,6 +317,7 @@ public:
 	virtual void endVisit(Mapping const& _node) { endVisitNode(_node); }
 	virtual void endVisit(Optional const& _node) { endVisitNode(_node); }
 	virtual void endVisit(TvmVector const& _node) { endVisitNode(_node); }
+	virtual void endVisit(TvmStack const& _node) { endVisitNode(_node); }
 	virtual void endVisit(ArrayTypeName const& _node) { endVisitNode(_node); }
 	virtual void endVisit(Block const& _node) { endVisitNode(_node); }
 	virtual void endVisit(PlaceholderStatement const& _node) { endVisitNode(_node); }
@@ -304,7 +329,6 @@ public:
 	virtual void endVisit(ForEachStatement const& _node) { endVisitNode(_node); }
 	virtual void endVisit(Continue const& _node) { endVisitNode(_node); }
 	virtual void endVisit(FreeInlineAssembly const& _node) { endVisitNode(_node); }
-	virtual void endVisit(InlineAssembly const& _node) { endVisitNode(_node); }
 	virtual void endVisit(Break const& _node) { endVisitNode(_node); }
 	virtual void endVisit(Return const& _node) { endVisitNode(_node); }
 	virtual void endVisit(Throw const& _node) { endVisitNode(_node); }
@@ -331,6 +355,14 @@ public:
 	virtual void endVisit(StructuredDocumentation const& _node) { endVisitNode(_node); }
 	virtual void endVisit(MappingNameExpression const& _node) { endVisitNode(_node); }
 	virtual void endVisit(OptionalNameExpression const& _node) { endVisitNode(_node); }
+	/// Experimental Solidity nodes
+	/// @{
+	virtual void endVisit(TypeClassDefinition const& _node) { endVisitNode(_node); }
+	virtual void endVisit(TypeClassInstantiation const& _node) { endVisitNode(_node); }
+	virtual void endVisit(TypeDefinition const& _node) { endVisitNode(_node); }
+	virtual void endVisit(TypeClassName const& _node) { endVisitNode(_node); }
+	virtual void endVisit(Builtin const& _node) { endVisitNode(_node); }
+	///  @}
 
 protected:
 	/// Generic function called by default for each node, to be overridden by derived classes

@@ -28,7 +28,6 @@
 #include <liblangutil/ErrorReporter.h>
 #include <memory>
 
-using namespace std;
 using namespace solidity;
 using namespace solidity::langutil;
 using namespace solidity::frontend;
@@ -36,43 +35,6 @@ using namespace solidity::frontend;
 /**
  * Helper class that determines whether a contract's constructor uses inline assembly.
  */
-class solidity::frontend::ConstructorUsesAssembly
-{
-public:
-	/// @returns true if and only if the contract's or any of its bases' constructors
-	/// use inline assembly.
-	bool check(ContractDefinition const& _contract)
-	{
-		for (auto const* base: _contract.annotation().linearizedBaseContracts)
-			if (checkInternal(*base))
-				return true;
-		return false;
-	}
-
-
-private:
-	class Checker: public ASTConstVisitor
-	{
-	public:
-		Checker(FunctionDefinition const& _f) { _f.accept(*this); }
-		bool visit(InlineAssembly const&) override { assemblySeen = true; return false; }
-		bool assemblySeen = false;
-	};
-
-	bool checkInternal(ContractDefinition const& _contract)
-	{
-		if (!m_usesAssembly.count(&_contract))
-		{
-			bool usesAssembly = false;
-			if (_contract.constructor())
-				usesAssembly = Checker{*_contract.constructor()}.assemblySeen;
-			m_usesAssembly[&_contract] = usesAssembly;
-		}
-		return m_usesAssembly[&_contract];
-	}
-
-	map<ContractDefinition const*, bool> m_usesAssembly;
-};
 
 StaticAnalyzer::StaticAnalyzer(ErrorReporter& _errorReporter):
 	m_errorReporter(_errorReporter)
@@ -125,7 +87,7 @@ void StaticAnalyzer::endVisit(FunctionDefinition const& _funDefinition)
 							5667_error,
 							var.first.second->location(),
 							"Unused " +
-							string(var.first.second->isTryCatchParameter() ? "try/catch" : "function") +
+							std::string(var.first.second->isTryCatchParameter() ? "try/catch" : "function") +
 							" parameter. Remove or comment out the variable name to silence this warning."
 						);
 					}
@@ -145,7 +107,7 @@ bool StaticAnalyzer::visit(Identifier const& _identifier)
 		{
 			solAssert(!var->name().empty(), "");
 			if (var->isLocalVariable())
-				m_localVarUseCount[make_pair(var->id(), var)] += 1;
+				m_localVarUseCount[std::make_pair(var->id(), var)] += 1;
 		}
 	return true;
 }
@@ -157,7 +119,7 @@ bool StaticAnalyzer::visit(VariableDeclaration const& _variable)
 		solAssert(_variable.isLocalVariable(), "");
 		if (_variable.name() != "")
 			// This is not a no-op, the entry might pre-exist.
-			m_localVarUseCount[make_pair(_variable.id(), &_variable)] += 0;
+			m_localVarUseCount[std::make_pair(_variable.id(), &_variable)] += 0;
 	}
 
 	return true;
@@ -170,7 +132,7 @@ bool StaticAnalyzer::visit(Return const& _return)
 	if (m_currentFunction && _return.expression())
 		for (auto const& var: m_currentFunction->returnParameters())
 			if (!var->name().empty())
-				m_localVarUseCount[make_pair(var->id(), var.get())] += 1;
+				m_localVarUseCount[std::make_pair(var->id(), var.get())] += 1;
 	return true;
 }
 
@@ -202,19 +164,6 @@ bool StaticAnalyzer::visit(MemberAccess const& _memberAccess)
 				_memberAccess.location(),
 				"\"block.blockhash()\" has been deprecated in favor of \"blockhash()\""
 			);
-		else if (type->kind() == MagicType::Kind::MetaType && _memberAccess.memberName() == "runtimeCode")
-		{
-			if (!m_constructorUsesAssembly)
-				m_constructorUsesAssembly = make_unique<ConstructorUsesAssembly>();
-			ContractType const& contract = dynamic_cast<ContractType const&>(*type->typeArgument());
-			if (m_constructorUsesAssembly->check(contract.contractDefinition()))
-				m_errorReporter.warning(
-					6417_error,
-					_memberAccess.location(),
-					"The constructor of the contract (or its base) uses inline assembly. "
-					"Because of that, it might be that the deployed bytecode is different from type(...).runtimeCode."
-				);
-		}
 	}
 
 	if (_memberAccess.memberName() == "callcode")
@@ -243,11 +192,6 @@ bool StaticAnalyzer::visit(MemberAccess const& _memberAccess)
 		}
 	}
 
-	return true;
-}
-
-bool StaticAnalyzer::visit(InlineAssembly const& /*_inlineAssembly*/)
-{
 	return true;
 }
 

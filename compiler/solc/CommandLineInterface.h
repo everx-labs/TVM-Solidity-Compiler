@@ -31,6 +31,8 @@
 #include <boost/program_options.hpp>
 #include <boost/filesystem/path.hpp>
 #include <libsolidity/interface/FileReader.h>
+#include <libsolidity/interface/SMTSolverCommand.h>
+#include <libsolidity/interface/UniversalCallback.h>
 
 #include <iostream>
 #include <memory>
@@ -86,7 +88,6 @@ private:
 	void printLicense();
 	void compile();
 	void serveLSP();
-
 	void outputCompilationResults();
 	void handleAst();
 	void handleNatspec(bool _natspecDev, std::string const& _contract);
@@ -111,11 +112,15 @@ private:
 	/// stream has ever been used unless @arg _markAsUsed is set to false.
 	std::ostream& serr(bool _markAsUsed = true);
 
+	void report(langutil::Error::Severity _severity, std::string _message);
+
 	std::istream& m_sin;
 	std::ostream& m_sout;
 	std::ostream& m_serr;
 	bool m_hasOutput = false;
 	FileReader m_fileReader;
+	SMTSolverCommand m_solverCommand{"eld"};
+	UniversalCallback m_universalCallback{&m_fileReader, m_solverCommand};
 	std::optional<std::string> m_standardJsonInput;
 	std::unique_ptr<frontend::CompilerStack> m_compiler;
 	CommandLineOptions m_options;

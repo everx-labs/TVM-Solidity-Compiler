@@ -87,12 +87,12 @@ private:
 		bool _abiEncoderV2
 	);
 
-	void typeCheckTVMBuildStateInit(
+	void typeCheckABIEncodeStateInit(
 		FunctionCall const& _functionCall,
 		const std::function<bool(const std::string&)>& hasName,
 		const std::function<int(const std::string&)>& findName
 	);
-	void typeCheckTVMBuildDataInit(
+	void typeCheckABIEncodeData(
 		FunctionCall const& _functionCall,
 		const std::function<bool(const std::string&)>& hasName,
 		const std::function<int(const std::string&)>& findName
@@ -134,27 +134,33 @@ private:
 		FunctionCall const& _functionCall,
 		FunctionTypePointer _functionType
 	);
-	void typeCheckTvmEncodeArg(Type const* type, Expression const& node);
+	struct Result {
+		bool ok{};
+		std::optional<solidity::langutil::SourceLocation> location;
+	};
+	static Result canStoreToBuilder(Type const* type, bool _topType);
+public:
+	void typeCheckTvmEncodeArg(Type const* type, solidity::langutil::SourceLocation const& _location,
+							   std::string const& errMsg, bool isStateVar);
+private:
 	void typeCheckTvmEncodeFunctions(FunctionCall const& _functionCall);
 	static FunctionDefinition const* getFunctionDefinition(Expression const* expr);
 	static std::pair<bool, FunctionDefinition const*> getConstructorDefinition(Expression const* expr);
 	static ContractType const* getContractType(Expression const* expr);
 	FunctionDefinition const* checkPubFunctionAndGetDefinition(Expression const& arg, bool printError = false);
 	FunctionDefinition const* checkPubFunctionOrContractTypeAndGetDefinition(Expression const& arg);
-	void checkInitList(InitializerList const *list, ContractType const *ct);
+	void checkInitList(InitializerList const* list, ContractType const& ct,
+					   langutil::SourceLocation const& _functionCallLocation);
 	void checkCallList(
 		std::vector<Expression const*> const& arguments,
 		FunctionCall const& _functionCall,
 		bool ignoreCallBack
 	);
-	void checkBuildExtMsg(FunctionCall const& _functionCall);
 	void checkRemoteAndCallBackFunctions(
 		FunctionDefinition const* calleeDefinition,
 		FunctionDefinition const* callbackFunc,
 		langutil::SourceLocation const& _location
 	);
-	void checkOnErrorId(FunctionDefinition const* errorFunction, langutil::SourceLocation const& _location);
-
 
 	/// Performs checks specific to the ABI encode functions of type ABIEncodeCall
 	void typeCheckABIEncodeCallFunction(FunctionCall const& _functionCall);
@@ -195,7 +201,6 @@ private:
 	bool visit(EventDefinition const& _eventDef) override;
 	bool visit(ErrorDefinition const& _errorDef) override;
 	void endVisit(FunctionTypeName const& _funType) override;
-	bool visit(InlineAssembly const& _inlineAssembly) override;
 	bool visit(IfStatement const& _ifStatement) override;
 	void endVisit(TryStatement const& _tryStatement) override;
 	bool visit(WhileStatement const& _whileStatement) override;

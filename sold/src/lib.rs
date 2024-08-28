@@ -5,11 +5,11 @@ use std::os::raw::{c_char, c_void};
 use std::path::Path;
 
 use clap::{ValueEnum, Parser};
-use failure::{bail, format_err};
+use anyhow::{bail, format_err};
 use serde::Deserialize;
 
-use ton_types::{Result, Status};
-use ton_labs_assembler::{DbgInfo, Engine, Units};
+use tvm_types::{Result, Status};
+use tvm_assembler::{DbgInfo, Engine, Units};
 
 mod libsolc;
 mod printer;
@@ -402,7 +402,7 @@ pub fn build(args: Args) -> Status {
         format!("{}/{}", output_dir, output_tvc)
     };
 
-    let bytes = ton_types::write_boc(&output)?;
+    let bytes = tvm_types::write_boc(&output)?;
     let mut file = File::create(output_filename)?;
     file.write_all(&bytes)?;
 

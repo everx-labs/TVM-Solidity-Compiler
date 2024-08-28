@@ -97,9 +97,9 @@ public:
 	bool visit(Mapping const& _node) override;
 	bool visit(Optional const& _node) override;
 	bool visit(TvmVector const& _node) override;
+	bool visit(TvmStack const& _node) override;
 	bool visit(ArrayTypeName const& _node) override;
 	bool visit(FreeInlineAssembly const& _node) override;
-	bool visit(InlineAssembly const& _node) override;
 	bool visit(Block const& _node) override;
 	bool visit(PlaceholderStatement const& _node) override;
 	bool visit(IfStatement const& _node) override;
@@ -139,7 +139,7 @@ public:
 	void endVisit(EventDefinition const&) override;
 
 protected:
-	bool visitNode(ASTNode const&) override { solUnimplemented(""); }
+	bool visitNode(ASTNode const&) override;
 
 private:
 	void setJsonNode(

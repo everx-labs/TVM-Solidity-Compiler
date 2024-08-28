@@ -36,7 +36,6 @@ namespace TvmConst {
 		}
 		const int MsgPubkey = 5;
 		constexpr int ConstructorFlag = 6;
-		constexpr int AwaitAnswerId = 8;
 		constexpr int SenderAddress = 9;
 		constexpr int FirstIndexForVariables = 10;
 	}
@@ -74,7 +73,6 @@ namespace TvmConst {
 		const int ConstructorIsCalledTwice  = 51;
 		const int ReplayProtection  = 52;
 		const int PopFromEmptyArray = 54;
-		const int InsertPubkeyException = 55;
 		const int MessageIsExpired = 57;
 		const int MessageHasNoSignButHasPubkey = 58;
 		const int NoFallback = 60;
@@ -91,10 +89,9 @@ namespace TvmConst {
 		const int ByExtMsgOnly = 71;
 		const int ByIntMsgOnly = 72;
 		const int WrongValueOfEnum = 73;
-		const int WrongAwaitAddress = 74;
-		const int WrongAwaitFuncId = 75;
 		const int CallThatWasBeforeCtorCall = 76;
 		const int BadVariant = 77;
+		const int IsNaN = 80;
 	}
 
 	namespace FunctionId {

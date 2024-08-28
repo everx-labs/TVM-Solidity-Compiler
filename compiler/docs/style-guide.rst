@@ -16,19 +16,19 @@ Many projects will implement their own style guides.  In the event of
 conflicts, project specific style guides take precedence.
 
 The structure and many of the recommendations within this style guide were
-taken from python's
-`pep8 style guide <https://www.python.org/dev/peps/pep-0008/>`_.
+taken from Python's
+`pep8 style guide <https://peps.python.org/pep-0008/>`_.
 
 The goal of this guide is *not* to be the right way or the best way to write
-Solidity code.  The goal of this guide is *consistency*.  A quote from python's
-`pep8 <https://www.python.org/dev/peps/pep-0008/#a-foolish-consistency-is-the-hobgoblin-of-little-minds>`_
+Solidity code.  The goal of this guide is *consistency*.  A quote from Python's
+`pep8 <https://peps.python.org/pep-0008/#a-foolish-consistency-is-the-hobgoblin-of-little-minds>`_
 captures this concept well.
 
 .. note::
 
     A style guide is about consistency. Consistency with this style guide is important. Consistency within a project is more important. Consistency within one module or function is most important.
 
-    But most importantly: **know when to be inconsistent** -- sometimes the style guide just doesn't apply. When in doubt, use your best judgment. Look at other examples and decide what looks best. And don't hesitate to ask!
+    But most importantly: **know when to be inconsistent** -- sometimes the style guide just doesn't apply. When in doubt, use your best judgment. Look at other examples and decide what looks best. And do not hesitate to ask!
 
 
 ***********
@@ -233,7 +233,7 @@ Yes:
         bytes32[] options
     );
 
-    LongAndLotsOfArgs(
+    emit LongAndLotsOfArgs(
         sender,
         recipient,
         publicKey,
@@ -251,7 +251,7 @@ No:
                             uint256 amount,
                             bytes32[] options);
 
-    LongAndLotsOfArgs(sender,
+    emit LongAndLotsOfArgs(sender,
                       recipient,
                       publicKey,
                       amount,
@@ -448,7 +448,7 @@ No:
     y            = 2;
     longVariable = 3;
 
-Don't include a whitespace in the receive and fallback functions:
+Do not include a whitespace in the receive and fallback functions:
 
 Yes:
 
@@ -1045,26 +1045,54 @@ No:
 Order of Layout
 ***************
 
-Layout contract elements in the following order:
+Contract elements should be laid out in the following order:
 
 1. Pragma statements
 2. Import statements
-3. Interfaces
-4. Libraries
-5. Contracts
+3. Events
+4. Errors
+5. Interfaces
+6. Libraries
+7. Contracts
 
 Inside each contract, library or interface, use the following order:
 
 1. Type declarations
 2. State variables
 3. Events
-4. Modifiers
-5. Functions
+4. Errors
+5. Modifiers
+6. Functions
 
 .. note::
 
     It might be clearer to declare types close to their use in events or state
     variables.
+
+Yes:
+
+.. code-block:: solidity
+
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.8.4 <0.9.0;
+
+    abstract contract Math {
+        error DivideByZero();
+        function divide(int256 numerator, int256 denominator) public virtual returns (uint256);
+    }
+
+No:
+
+.. code-block:: solidity
+
+    // SPDX-License-Identifier: GPL-3.0
+    pragma solidity >=0.8.4 <0.9.0;
+
+    abstract contract Math {
+        function divide(int256 numerator, int256 denominator) public virtual returns (uint256);
+        error DivideByZero();
+    }
+
 
 ******************
 Naming Conventions
@@ -1130,13 +1158,13 @@ Yes:
     contract Owned {
         address public owner;
 
-        constructor() {
-            owner = msg.sender;
-        }
-
         modifier onlyOwner {
             require(msg.sender == owner);
             _;
+        }
+
+        constructor() {
+            owner = msg.sender;
         }
 
         function transferOwnership(address newOwner) public onlyOwner {
@@ -1169,13 +1197,13 @@ No:
     contract owned {
         address public owner;
 
-        constructor() {
-            owner = msg.sender;
-        }
-
         modifier onlyOwner {
             require(msg.sender == owner);
             _;
+        }
+
+        constructor() {
+            owner = msg.sender;
         }
 
         function transferOwnership(address newOwner) public onlyOwner {
@@ -1257,6 +1285,21 @@ Avoiding Naming Collisions
 
 This convention is suggested when the desired name collides with that of
 an existing state variable, function, built-in or otherwise reserved name.
+
+Underscore Prefix for Non-external Functions and Variables
+==========================================================
+
+* ``_singleLeadingUnderscore``
+
+This convention is suggested for non-external functions and state variables (``private`` or ``internal``). State variables without a specified visibility are ``internal`` by default.
+
+When designing a smart contract, the public-facing API (functions that can be called by any account)
+is an important consideration.
+Leading underscores allow you to immediately recognize the intent of such functions,
+but more importantly, if you change a function from non-external to external (including ``public``)
+and rename it accordingly, this forces you to review every call site while renaming.
+This can be an important manual check against unintended external functions
+and a common source of security vulnerabilities (avoid find-replace-all tooling for this change).
 
 .. _style_guide_natspec:
 

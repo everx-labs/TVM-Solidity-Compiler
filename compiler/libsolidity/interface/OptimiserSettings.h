@@ -59,6 +59,8 @@ struct OptimiserSettings
 		"]"
 		"jmul[jul] VcTOcul jmul";      // Make source short and pretty
 
+	static char constexpr DefaultYulOptimiserCleanupSteps[] = "fDnTOcmu";
+
 	/// No optimisations at all - not recommended.
 	static OptimiserSettings none()
 	{
@@ -70,6 +72,7 @@ struct OptimiserSettings
 		OptimiserSettings s = none();
 		s.runJumpdestRemover = true;
 		s.runPeephole = true;
+		s.simpleCounterForLoopUncheckedIncrement = true;
 		return s;
 	}
 	/// Standard optimisations.
@@ -83,6 +86,7 @@ struct OptimiserSettings
 		s.runDeduplicate = true;
 		s.runCSE = true;
 		s.runConstantOptimiser = true;
+		s.simpleCounterForLoopUncheckedIncrement = true;
 		s.runYulOptimiser = true;
 		s.optimizeStackAllocation = true;
 		return s;
@@ -101,8 +105,8 @@ struct OptimiserSettings
 			case OptimisationPreset::Minimal: return minimal();
 			case OptimisationPreset::Standard: return standard();
 			case OptimisationPreset::Full: return full();
-			default: solAssert(false, "");
 		}
+		util::unreachable();
 	}
 
 	bool operator==(OptimiserSettings const& _other) const
@@ -115,10 +119,16 @@ struct OptimiserSettings
 			runDeduplicate == _other.runDeduplicate &&
 			runCSE == _other.runCSE &&
 			runConstantOptimiser == _other.runConstantOptimiser &&
+			simpleCounterForLoopUncheckedIncrement == _other.simpleCounterForLoopUncheckedIncrement &&
 			optimizeStackAllocation == _other.optimizeStackAllocation &&
 			runYulOptimiser == _other.runYulOptimiser &&
 			yulOptimiserSteps == _other.yulOptimiserSteps &&
 			expectedExecutionsPerDeployment == _other.expectedExecutionsPerDeployment;
+	}
+
+	bool operator!=(OptimiserSettings const& _other) const
+	{
+		return !(*this == _other);
 	}
 
 	/// Move literals to the right of commutative binary operators during code generation.
@@ -138,14 +148,20 @@ struct OptimiserSettings
 	/// size/cost-trade-off.
 	bool runConstantOptimiser = false;
 	/// Perform more efficient stack allocation for variables during code generation from Yul to bytecode.
-	bool optimizeStackAllocation = false;
+	bool simpleCounterForLoopUncheckedIncrement = false;
 	/// Yul optimiser with default settings. Will only run on certain parts of the code for now.
+	bool optimizeStackAllocation = false;
+	/// Allow unchecked arithmetic when incrementing the counter of certain kinds of 'for' loop
 	bool runYulOptimiser = false;
 	/// Sequence of optimisation steps to be performed by Yul optimiser.
 	/// Note that there are some hard-coded steps in the optimiser and you cannot disable
 	/// them just by setting this to an empty string. Set @a runYulOptimiser to false if you want
 	/// no optimisations.
 	std::string yulOptimiserSteps = DefaultYulOptimiserSteps;
+	/// Sequence of clean-up optimisation steps after yulOptimiserSteps is run. Note that if the string
+	/// is left empty, there will still be hard-coded optimisation steps that will run regardless.
+	/// Set @a runYulOptimiser to false if you want no optimisations.
+	std::string yulOptimiserCleanupSteps = DefaultYulOptimiserCleanupSteps;
 	/// This specifies an estimate on how often each opcode in this assembly will be executed,
 	/// i.e. use a small value to optimise for size and a large value to optimise for runtime gas usage.
 	size_t expectedExecutionsPerDeployment = 200;

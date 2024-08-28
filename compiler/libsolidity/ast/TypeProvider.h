@@ -67,6 +67,7 @@ public:
 	static TvmCellType const* tvmcell() noexcept { return &m_tvmcell; }
 	static TvmSliceType const* tvmslice() noexcept { return &m_tvmslice; }
 	static TvmBuilderType const* tvmbuilder() noexcept { return &m_tvmbuilder; }
+	static StringBuilderType const* stringBuilder() noexcept { return &m_stringBuilder; }
 	static FixedBytesType const* byte() { return fixedBytes(1); }
 	static FixedBytesType const* fixedBytes(unsigned m) { return m_bytesM.at(m - 1).get(); }
 	static ArrayType const* bytesStorage();
@@ -93,23 +94,39 @@ public:
 
 	static IntegerType const* integer(unsigned _bits, IntegerType::Modifier _modifier)
 	{
-		if (_bits == 257 && _modifier == IntegerType::Modifier::Signed) {
-			return m_int257.get();
-		}
-
 		if (_modifier == IntegerType::Modifier::Unsigned)
 			return m_uintM.at(_bits - 1).get();
 		else
 			return m_intM.at(_bits - 1).get();
 	}
 
+	static NanType const* qIntegerNAN()
+	{
+		return m_qintNAN.get();
+	}
+
+	static QIntegerType const* qInteger(unsigned _bits, IntegerType::Modifier _modifier)
+	{
+		if (_modifier == IntegerType::Modifier::Unsigned)
+			return m_quintM.at(_bits - 1).get();
+		else
+			return m_qintM.at(_bits - 1).get();
+	}
+
+	static QBoolType const* qBool()
+	{
+		return m_qbool.get();
+	}
+
 	static IntegerType const* uint(unsigned _bits) { return integer(_bits, IntegerType::Modifier::Unsigned); }
 	static IntegerType const* int_(unsigned _bits) { return integer(_bits, IntegerType::Modifier::Signed); }
 
 	static IntegerType const* uint256() { return uint(256); }
-	static IntegerType const* int256() { return integer(256, IntegerType::Modifier::Signed); }
+	static IntegerType const* int257() { return integer(257, IntegerType::Modifier::Signed); }
 
-	static VarIntegerType const* varInteger(unsigned m, IntegerType::Modifier _modifier);
+	static VarIntegerType const* coins();
+	static VarIntegerType const* varinteger(unsigned m, IntegerType::Modifier _modifier);
+
 	static FixedPointType const* fixedPoint(unsigned m, unsigned n, FixedPointType::Modifier _modifier);
 
 	static StringLiteralType const* stringLiteral(std::string const& literal);
@@ -119,19 +136,6 @@ public:
 	static TupleType const* tuple(std::vector<Type const*> members);
 
 	static TupleType const* emptyTuple() noexcept { return &m_emptyTuple; }
-
-	static ReferenceType const* withLocation(ReferenceType const* _type, bool _isPointer);
-
-	/// @returns a copy of @a _type having the same location as this (and is not a pointer type)
-	///          if _type is a reference type and an unmodified copy of _type otherwise.
-	///          This function is mostly useful to modify inner types appropriately.
-	static Type const* withLocationIfReference(Type const* _type, bool _isPointer = false)
-	{
-		if (auto refType = dynamic_cast<ReferenceType const*>(_type))
-			return withLocation(refType, _isPointer);
-
-		return _type;
-	}
 
 	/// @returns the internally-facing or externally-facing type of a function or the type of a function declaration.
 	static FunctionType const* function(FunctionDefinition const& _function, FunctionType::Kind _kind = FunctionType::Kind::Declaration);
@@ -197,13 +201,15 @@ public:
 
 	static MagicType const* meta(Type const* _type);
 
-	static MappingType const* mapping(Type const* _keyType, Type const* _valueType);
+	static MappingType const* mapping(Type const* _keyType, ASTString _keyName, Type const* _valueType, ASTString _valueName);
 
 	static MappingType const* extraCurrencyCollection();
 
 	static OptionalType const* optional(Type const* _type);
 
-	static TvmVectorType const* tvmtuple(Type const* _type);
+	static TvmVectorType const* tvmVector(Type const* _type);
+
+	static TvmStackType const* tvmStack(Type const* _type);
 
 	static UserDefinedValueType const* userDefinedValueType(UserDefinedValueTypeDefinition const& _definition);
 
@@ -224,6 +230,7 @@ private:
 	static TvmCellType const m_tvmcell;
 	static TvmSliceType const m_tvmslice;
 	static TvmBuilderType const m_tvmbuilder;
+	static StringBuilderType const m_stringBuilder;
 
 	static InaccessibleDynamicType const m_inaccessibleDynamic;
 
@@ -239,13 +246,16 @@ private:
 	static AddressType const m_address;
 	static InitializerListType const m_initializerList;
 	static CallListType const m_callList;
-	static std::unique_ptr<IntegerType> const m_int257;
-	static std::array<std::unique_ptr<IntegerType>, 256> const m_intM;
+	static std::array<std::unique_ptr<IntegerType>, 257> const m_intM;
 	static std::array<std::unique_ptr<IntegerType>, 256> const m_uintM;
+	static std::unique_ptr<NanType> const m_qintNAN;
+	static std::array<std::unique_ptr<QIntegerType>, 257> const m_qintM;
+	static std::array<std::unique_ptr<QIntegerType>, 256> const m_quintM;
+	static std::unique_ptr<QBoolType> const m_qbool;
 	static std::array<std::unique_ptr<FixedBytesType>, 32> const m_bytesM;
-	static std::array<std::unique_ptr<MagicType>, 8> const m_magics;        ///< MagicType's except MetaType
+	static std::array<std::unique_ptr<MagicType>, 9> const m_magics;        ///< MagicType's except MetaType
 
-	std::map<std::pair<unsigned, IntegerType::Modifier>, std::unique_ptr<VarIntegerType>> m_varInterger{};
+	std::map<std::pair<unsigned, IntegerType::Modifier>, std::unique_ptr<VarIntegerType>> m_varinterger{};
 	std::map<std::pair<unsigned, unsigned>, std::unique_ptr<FixedPointType>> m_ufixedMxN{};
 	std::map<std::pair<unsigned, unsigned>, std::unique_ptr<FixedPointType>> m_fixedMxN{};
 	std::map<std::string, std::unique_ptr<StringLiteralType>> m_stringLiteralTypes{};

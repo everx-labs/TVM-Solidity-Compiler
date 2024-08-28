@@ -16,17 +16,26 @@
 
 #pragma once
 
-#include "TvmAstVisitor.hpp"
+#include <bitset>
+#include <libsolidity/codegen/TvmAstVisitor.hpp>
 
 namespace solidity::frontend {
-	class PeepholeOptimizer : public TvmAstVisitor {
-	public:
-		explicit PeepholeOptimizer(bool _withUnpackOpaque, bool _optimizeSlice)
-			: m_withUnpackOpaque{_withUnpackOpaque}, m_optimizeSlice{_optimizeSlice} {}
-		void endVisit(CodeBlock &_node) override;
-	private:
-		bool m_withUnpackOpaque{};
-		bool m_optimizeSlice{};
-	};
+enum OptFlags : unsigned {
+	UnpackOpaque = 0,
+	OptimizeSlice = 1,
+	UseCompoundOpcodes = 2
+};
+class PeepholeOptimizer : public TvmAstVisitor {
+public:
+	explicit PeepholeOptimizer(std::bitset<3> const _flags)
+		: m_flags{_flags } { }
+	bool visit(CodeBlock &_node) override;
+	bool visit(Function &_node) override;
+	void endVisit(CodeBlock &_node) override;
+private:
+	void optimizeBlock(CodeBlock &_node) const;
+private:
+	std::bitset<3> m_flags;
+};
 } // end solidity::frontend
 

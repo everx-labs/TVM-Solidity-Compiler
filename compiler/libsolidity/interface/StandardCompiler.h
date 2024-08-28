@@ -68,11 +68,14 @@ private:
 	{
 		std::string language;
 		Json::Value errors;
+
 		std::vector<std::string> includePaths;
 		bool parserErrorRecovery = false;
 		std::string mainContract;
+
 		CompilerStack::State stopAfter = CompilerStack::State::CompilationSuccessful;
 		std::map<std::string, std::string> sources;
+		std::map<std::string, Json::Value> jsonSources;
 		std::map<util::h256, std::string> smtLib2Responses;
 		langutil::EVMVersion evmVersion;
 		langutil::TVMVersion tvmVersion;
@@ -82,6 +85,7 @@ private:
 		std::optional<langutil::DebugInfoSelection> debugInfoSelection;
 		std::map<std::string, util::h160> libraries;
 		bool metadataLiteralSources = false;
+		CompilerStack::MetadataFormat metadataFormat = CompilerStack::defaultMetadataFormat();
 		CompilerStack::MetadataHash metadataHash = CompilerStack::MetadataHash::IPFS;
 		Json::Value outputSelection;
 		bool viaIR = false;
@@ -91,8 +95,8 @@ private:
 	/// it in condensed form or an error as a json object.
 	std::variant<InputsAndSettings, Json::Value> parseInput(Json::Value const& _input);
 
+	std::map<std::string, Json::Value> parseAstFromInput(StringMap const& _sources);
 	Json::Value compileSolidity(InputsAndSettings _inputsAndSettings);
-	Json::Value compileYul(InputsAndSettings _inputsAndSettings);
 
 	ReadCallback::Callback m_readFile;
 
