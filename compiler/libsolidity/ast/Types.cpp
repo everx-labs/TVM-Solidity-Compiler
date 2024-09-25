@@ -5207,9 +5207,9 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 		members.push_back({
 			"poseidonZkLogin",
 			TypeProvider::function(
-				{TypeProvider::bytesMemory(), TypeProvider::stringMemory(), TypeProvider::bytesMemory(), TypeProvider::stringMemory()},
+				{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::bytesMemory(), TypeProvider::stringMemory(), TypeProvider::stringMemory()},
 				{TypeProvider::bytesMemory()},
-				{{}, {}, {}, {}},
+				{{}, {}, {}, {}, {}},
 				{{}},
 				FunctionType::Kind::GoshPoseidonZkLogin,
 				StateMutability::Pure,

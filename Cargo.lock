@@ -2439,7 +2439,7 @@ dependencies = [
 [[package]]
 name = "tvm_abi"
 version = "1.47.0"
-source = "git+https://github.com/tvmlabs/tvm-sdk.git?rev=69e84f0a3cc7d4394450e3d97f9f1c28ac3ae186#69e84f0a3cc7d4394450e3d97f9f1c28ac3ae186"
+source = "git+https://github.com/tvmlabs/tvm-sdk.git?rev=57329d5389032db2240d261ecd91ce9ec790f377#57329d5389032db2240d261ecd91ce9ec790f377"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2456,7 +2456,7 @@ dependencies = [
 [[package]]
 name = "tvm_assembler"
 version = "1.47.0"
-source = "git+https://github.com/tvmlabs/tvm-sdk.git?rev=69e84f0a3cc7d4394450e3d97f9f1c28ac3ae186#69e84f0a3cc7d4394450e3d97f9f1c28ac3ae186"
+source = "git+https://github.com/tvmlabs/tvm-sdk.git?rev=57329d5389032db2240d261ecd91ce9ec790f377#57329d5389032db2240d261ecd91ce9ec790f377"
 dependencies = [
  "anyhow",
  "clap",
@@ -2473,7 +2473,7 @@ dependencies = [
 [[package]]
 name = "tvm_block"
 version = "1.47.0"
-source = "git+https://github.com/tvmlabs/tvm-sdk.git?rev=69e84f0a3cc7d4394450e3d97f9f1c28ac3ae186#69e84f0a3cc7d4394450e3d97f9f1c28ac3ae186"
+source = "git+https://github.com/tvmlabs/tvm-sdk.git?rev=57329d5389032db2240d261ecd91ce9ec790f377#57329d5389032db2240d261ecd91ce9ec790f377"
 dependencies = [
  "anyhow",
  "base64 0.21.7",
@@ -2492,7 +2492,7 @@ dependencies = [
 [[package]]
 name = "tvm_types"
 version = "1.47.0"
-source = "git+https://github.com/tvmlabs/tvm-sdk.git?rev=69e84f0a3cc7d4394450e3d97f9f1c28ac3ae186#69e84f0a3cc7d4394450e3d97f9f1c28ac3ae186"
+source = "git+https://github.com/tvmlabs/tvm-sdk.git?rev=57329d5389032db2240d261ecd91ce9ec790f377#57329d5389032db2240d261ecd91ce9ec790f377"
 dependencies = [
  "aes-ctr",
  "anyhow",
@@ -2521,7 +2521,7 @@ dependencies = [
 [[package]]
 name = "tvm_vm"
 version = "1.47.0"
-source = "git+https://github.com/tvmlabs/tvm-sdk.git?rev=69e84f0a3cc7d4394450e3d97f9f1c28ac3ae186#69e84f0a3cc7d4394450e3d97f9f1c28ac3ae186"
+source = "git+https://github.com/tvmlabs/tvm-sdk.git?rev=57329d5389032db2240d261ecd91ce9ec790f377#57329d5389032db2240d261ecd91ce9ec790f377"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
