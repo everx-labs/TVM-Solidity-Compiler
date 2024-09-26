@@ -41,18 +41,3 @@ predicates = '3.1'
 [lib]
 name = 'sold_lib'
 path = 'src/lib.rs'
-
-[patch.'https://github.com/tonlabs/lockfree.git']
-lockfree = { git = 'https://github.com/everx-labs/lockfree.git' }
-
-[patch.'https://github.com/tonlabs/ever-abi.git']
-ever_abi = { git = 'https://github.com/everx-labs/ever-abi.git', tag = '2.5.6' }
-
-[patch.'https://github.com/tonlabs/ever-vm.git']
-ever_vm = { git = 'https://github.com/everx-labs/ever-vm.git', tag = '2.1.9' }
-
-[patch.'https://github.com/tonlabs/ever-block.git']
-ever_block = { git = 'https://github.com/everx-labs/ever-block.git', tag = '1.10.4' }
-
-[patch.'https://github.com/tonlabs/ever-assembler.git']
-ever_assembler = { features = [ 'gosh' ], git = 'https://github.com/everx-labs/ever-assembler.git', tag = '1.5.9' }
