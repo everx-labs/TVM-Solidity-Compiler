@@ -246,6 +246,9 @@ public:
 	/// @returns false on error.
 	bool parseAndAnalyze(State _stopAfter = State::CompilationSuccessful);
 
+	std::optional<std::pair<ContractDefinition const *, std::vector<PragmaDirective const *>>>
+	findMainContract();
+
 	/// Compiles the source units that were previously added and parsed.
 	/// @returns false on error.
 	std::pair<bool, bool> compile(bool json = false);

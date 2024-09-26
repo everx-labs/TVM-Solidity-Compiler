@@ -21,9 +21,9 @@
 #include <libsolidity/ast/AST.h>
 #include <libsolidity/ast/ASTVisitor.h>
 
-#include "TVMCommons.hpp"
-#include "TvmAst.hpp"
-#include "TVMAnalyzer.hpp"
+#include <libsolidity/codegen/TVMCommons.hpp>
+#include <libsolidity/codegen/TvmAst.hpp>
+#include <libsolidity/codegen/TVMAnalyzer.hpp>
 
 namespace solidity::frontend {
 
@@ -89,10 +89,11 @@ public:
 	std::vector<Type const *> c4StateVariableTypes() const;
 	PragmaDirectiveHelper const& pragmaHelper() const;
 	bool isStdlib() const;
-	std::string getFunctionInternalName(FunctionDefinition const* _function, bool calledByPoint = true) const;
-	static std::string getLibFunctionName(FunctionDefinition const* _function, bool withObject) ;
+	std::pair<std::string, uint32_t>
+	functionInternalName(FunctionDefinition const* _function, bool calledByPoint = true) const;
 	static std::string getFunctionExternalName(FunctionDefinition const* _function);
 	const ContractDefinition* getContract() const;
+	bool hasConstructor() const;
 	bool ignoreIntegerOverflow() const;
 	FunctionDefinition const* afterSignatureCheck() const;
 	bool storeTimestampInC4() const;
@@ -265,7 +266,8 @@ public:
 	void pushC7();
 	void popC3();
 	void popC7();
-	void execute(int take, int ret);
+	void callx(int take, int ret);
+	void call(uint32_t id, int take, int ret);
 	void setGlob(int index);
 	void setGlob(VariableDeclaration const * vd);
 	void pushS(int i);
@@ -285,7 +287,7 @@ public:
 
 	void store(const Type *type, bool reverse);
 	void pushZeroAddress();
-	Pointer<Function> generateC7ToC4(bool forAwait);
+	Pointer<Function> generateC7ToC4();
 	void convert(Type const *leftType, Type const *rightType);
 	void checkFit(Type const *type);
 	void pushParameter(std::vector<ASTPointer<VariableDeclaration>> const& params);
@@ -299,6 +301,7 @@ public:
 	void reverse(int qty, int startIndex);
 	void dropUnder(int droppedCount, int leftCount);
 	void exchange(int i);
+	void exchange(int i, int j);
 	void rot();
 	void rotRev();
 	void prepareKeyForDictOperations(Type const* key, bool doIgnoreBytes);
@@ -356,14 +359,13 @@ public:
 
 	void pushEmptyArray();
 	void pushNull();
+	void pushNaN();
 	void pushEmptyCell();
 	void pushDefaultValue(Type const* _type);
 	void sendIntMsg(const std::map<int, const Expression *> &exprs,
 					const std::map<int, std::string> &constParams,
 					const std::function<void(int)> &appendBody,
 					const std::function<void()> &pushSendrawmsgFlag,
-					bool isAwait,
-					size_t callParamsOnStack,
 					const std::function<void()> &appendStateInit);
 
 	enum class MsgType{

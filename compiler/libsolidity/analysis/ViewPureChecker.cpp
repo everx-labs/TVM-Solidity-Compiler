@@ -258,7 +258,8 @@ void ViewPureChecker::endVisit(FunctionCall const& _functionCall)
 			if (ma) {
 				if (auto libFunction = dynamic_cast<FunctionDefinition const *>(ma->annotation().referencedDeclaration)) {
 					DeclarationAnnotation const &da = libFunction->annotation();
-					if (da.contract->isLibrary()) {
+					ContractDefinition const* contract = da.contract;
+					if (contract && contract->isLibrary()) {
 						isLibCall = true;
 						auto t = ma->expression().annotation().type;
 						if (t->category() == Type::Category::TypeType) {
@@ -350,7 +351,6 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::ABI, "encodeBody"},
 			{MagicType::Kind::ABI, "encodeCall"},
 			{MagicType::Kind::ABI, "encodeData"},
-			{MagicType::Kind::ABI, "encodeExtMsg"},
 			{MagicType::Kind::ABI, "encodeIntMsg"},
 			{MagicType::Kind::ABI, "encodeOldDataInit"},
 			{MagicType::Kind::ABI, "encodePacked"},
@@ -360,6 +360,29 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::ABI, "functionId"},
 			{MagicType::Kind::ABI, "setCodeSalt"},
 			{MagicType::Kind::ABI, "stateInitHash"},
+			{MagicType::Kind::BLS, "aggregate"},
+			{MagicType::Kind::BLS, "verify"},
+			{MagicType::Kind::BLS, "fastAggregateVerify"},
+			{MagicType::Kind::BLS, "aggregateVerify"},
+			{MagicType::Kind::BLS, "mapToG1"},
+			{MagicType::Kind::BLS, "mapToG2"},
+			{MagicType::Kind::BLS, "g1Add"},
+			{MagicType::Kind::BLS, "g1Sub"},
+			{MagicType::Kind::BLS, "g1Mul"},
+			{MagicType::Kind::BLS, "g1Neg"},
+			{MagicType::Kind::BLS, "g1IsZero"},
+			{MagicType::Kind::BLS, "g1InGroup"},
+			{MagicType::Kind::BLS, "g2Add"},
+			{MagicType::Kind::BLS, "g2Sub"},
+			{MagicType::Kind::BLS, "g2Mul"},
+			{MagicType::Kind::BLS, "g2Neg"},
+			{MagicType::Kind::BLS, "g2IsZero"},
+			{MagicType::Kind::BLS, "g2InGroup"},
+			{MagicType::Kind::BLS, "g1Zero"},
+			{MagicType::Kind::BLS, "g2Zero"},
+			{MagicType::Kind::BLS, "r"},
+			{MagicType::Kind::BLS, "g1MultiExp"},
+			{MagicType::Kind::BLS, "g2MultiExp"},
 			{MagicType::Kind::Block, "blockhash"},
 			{MagicType::Kind::Block, "logicaltime"},
 			{MagicType::Kind::Block, "seqno"},
@@ -389,6 +412,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::Math, "min"},
 			{MagicType::Kind::Math, "minmax"},
 			{MagicType::Kind::Math, "modpow2"},
+			{MagicType::Kind::Math, "mulmod"},
 			{MagicType::Kind::Math, "muldiv"},
 			{MagicType::Kind::Math, "muldivc"},
 			{MagicType::Kind::Math, "muldivmod"},

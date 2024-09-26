@@ -16,9 +16,9 @@
 
 #pragma once
 
-#include "TVM.hpp"
-#include "TVMPusher.hpp"
-#include "TvmAst.hpp"
+#include <libsolidity/codegen/TVM.hpp>
+#include <libsolidity/codegen/TVMPusher.hpp>
+#include <libsolidity/codegen/TvmAst.hpp>
 
 namespace solidity::frontend {
 

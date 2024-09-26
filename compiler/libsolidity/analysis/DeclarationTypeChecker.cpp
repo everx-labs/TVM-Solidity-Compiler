@@ -281,11 +281,10 @@ void DeclarationTypeChecker::endVisit(Optional const& _optional)
 		types.emplace_back(c->annotation().type);
 	}
 
-	if (comp.size() == 1) {
+	if (comp.size() == 1)
 		_optional.annotation().type = TypeProvider::optional(types.at(0));
-	} else {
+	else
 		_optional.annotation().type = TypeProvider::optional(TypeProvider::tuple(types));
-	}
 }
 
 void DeclarationTypeChecker::endVisit(TvmVector const& _tvmVector)
@@ -293,8 +292,25 @@ void DeclarationTypeChecker::endVisit(TvmVector const& _tvmVector)
 	if (_tvmVector.annotation().type)
 		return;
 
-	TypeName const& type = _tvmVector.type();
-	_tvmVector.annotation().type = TypeProvider::tvmtuple(type.annotation().type);
+	std::vector<ASTPointer<TypeName>> const& comp = _tvmVector.types();
+	std::vector<Type const*> types;
+	for (const ASTPointer<TypeName>& c : comp) {
+		types.emplace_back(c->annotation().type);
+	}
+
+	if (comp.size() == 1)
+		_tvmVector.annotation().type = TypeProvider::tvmVector(types.at(0));
+	else
+		_tvmVector.annotation().type = TypeProvider::tvmVector(TypeProvider::tuple(types));
+}
+
+void DeclarationTypeChecker::endVisit(TvmStack const& _tvmStack)
+{
+	if (_tvmStack.annotation().type)
+		return;
+
+	TypeName const& type = _tvmStack.type();
+	_tvmStack.annotation().type = TypeProvider::tvmStack(type.annotation().type);
 }
 
 void DeclarationTypeChecker::endVisit(ArrayTypeName const& _typeName)
@@ -380,6 +396,12 @@ bool DeclarationTypeChecker::visit(UsingForDirective const& _usingFor)
 		for (ASTPointer<IdentifierPath> const& function: _usingFor.functionsOrLibrary())
 			if (auto functionDefinition = dynamic_cast<FunctionDefinition const*>(function->annotation().referencedDeclaration))
 			{
+				if (functionDefinition->isInlineAssembly())
+					m_errorReporter.typeError(
+						1167_error,
+						function->location(),
+						"Only file-level functions (not assembly) and library functions can be attached to a type in a \"using\" statement."
+					);
 				if (!functionDefinition->isFree() && !(
 					dynamic_cast<ContractDefinition const*>(functionDefinition->scope()) &&
 					dynamic_cast<ContractDefinition const*>(functionDefinition->scope())->isLibrary()

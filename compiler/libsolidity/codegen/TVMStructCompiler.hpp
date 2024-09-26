@@ -16,10 +16,11 @@
 
 #pragma once
 
+#include <boost/core/noncopyable.hpp>
+
 #include <libsolidity/ast/ASTForward.h>
 #include <libsolidity/ast/Types.h>
-#include <boost/core/noncopyable.hpp>
-#include "TVMCommons.hpp"
+#include <libsolidity/codegen/TVMCommons.hpp>
 
 namespace solidity::frontend {
 

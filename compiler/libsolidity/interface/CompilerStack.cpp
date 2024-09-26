@@ -624,6 +624,17 @@ bool CompilerStack::analyzeLegacy(bool _noErrorsSoFar)
 
 	if (noErrors)
 	{
+		if (std::optional<std::pair<ContractDefinition const *, std::vector<PragmaDirective const *>>> res =
+			findMainContract()
+		) {
+			ContractDefinition const *targetContract{};
+			std::vector<PragmaDirective const *> targetPragmaDirectives;
+			std::tie(targetContract, targetPragmaDirectives) = res.value();
+			PragmaDirectiveHelper pragmaDirectiveHelper{targetPragmaDirectives};
+			TVMTypeChecker checker(m_errorReporter);
+			checker.checkMainContract(targetContract, pragmaDirectiveHelper);
+		}
+
 		// Check for TVM specific issues.
 		// TODO merge TVMTypeChecker and TVMAnalyzer ?
 		for (Source const* source: m_sourceOrder) {
@@ -687,6 +698,89 @@ bool CompilerStack::isRequestedContract(ContractDefinition const& _contract) con
 	return false;
 }
 
+std::optional<std::pair<ContractDefinition const *, std::vector<PragmaDirective const *>>>
+CompilerStack::findMainContract() {
+	ContractDefinition const *targetContract{};
+	std::vector<PragmaDirective const *> targetPragmaDirectives;
+
+	for (Source const *source: m_sourceOrder) {
+		std::string curSrcPath = *source->ast->annotation().path;
+		if (curSrcPath != m_inputFile)
+			continue;
+
+		std::vector<PragmaDirective const *> pragmaDirectives = getPragmaDirectives(source);
+
+		std::vector<ContractDefinition const *> contracts;
+		for (ASTPointer<ASTNode> const &node: source->ast->nodes())
+			if (auto contract = dynamic_cast<ContractDefinition const *>(node.get()))
+				contracts.push_back(contract);
+
+		for (ContractDefinition const *contract: contracts) {
+			if (contract->isLibrary())
+				continue;
+
+			if (m_mainContract.empty()) {
+				if (m_generateAbi && !m_generateCode) {
+					if (targetContract != nullptr) {
+						m_errorReporter.typeError(
+							4605_error,
+							targetContract->location(),
+							SecondarySourceLocation().append("Previous contract:",
+															 contract->location()),
+							"Source file contains at least two contracts/interfaces."
+							" Consider adding the option --contract in compiler command line to select the desired contract/interface."
+						);
+						return {};
+					}
+					targetContract = contract;
+					targetPragmaDirectives = pragmaDirectives;
+				} else if (contract->canBeDeployed()) {
+					if (targetContract != nullptr) {
+						m_errorReporter.typeError(
+							5205_error,
+							targetContract->location(),
+							SecondarySourceLocation().append("Previous deployable contract:",
+															 contract->location()),
+							"Source file contains at least two deployable contracts."
+							" Consider adding the option --contract in compiler command line to select the desired contract."
+						);
+						return {};
+					}
+					targetContract = contract;
+					targetPragmaDirectives = pragmaDirectives;
+				}
+			} else {
+				if (contract->name() == m_mainContract) {
+					if (m_generateCode && !contract->canBeDeployed()) {
+						m_errorReporter.typeError(
+							3715_error,
+							contract->location(),
+							"The desired contract isn't deployable (it does not have public constructor or it is abstract or it is interface or it is library)."
+						);
+						return {};
+					}
+					targetContract = contract;
+					targetPragmaDirectives = pragmaDirectives;
+				}
+			}
+		}
+	}
+
+	if (!m_mainContract.empty() && targetContract == nullptr) {
+		m_errorReporter.typeError(
+			1468_error,
+			SourceLocation(),
+			"Source file doesn't contain the desired contract \"" + m_mainContract + "\"."
+		);
+		return {};
+	}
+
+	if (targetContract == nullptr)
+		return {};
+
+	return {{targetContract, targetPragmaDirectives}};
+}
+
 std::pair<bool, bool> CompilerStack::compile(bool json)
 {
 	bool didCompileSomething{};
@@ -698,137 +792,64 @@ std::pair<bool, bool> CompilerStack::compile(bool json)
 		solThrow(CompilerError, "Called compile with errors.");
 
 	if (m_generateAbi || m_generateCode || m_doPrintFunctionIds || m_doPrivateFunctionIds) {
-		ContractDefinition const *targetContract{};
-		std::vector<PragmaDirective const *> targetPragmaDirectives;
+		auto res = findMainContract();
+		if (res) {
+			ContractDefinition const *targetContract{};
+			std::vector<PragmaDirective const *> targetPragmaDirectives;
+			std::tie(targetContract, targetPragmaDirectives) = res.value();
 
-		bool findSrc = false;
-		for (Source const *source: m_sourceOrder) {
-			std::string curSrcPath = *source->ast->annotation().path;
-			if (curSrcPath != m_inputFile) {
-				continue;
-			}
-
-			findSrc = true;
-			std::vector<PragmaDirective const *> pragmaDirectives = getPragmaDirectives(source);
-
-			std::vector<ContractDefinition const *> contracts;
-			for (ASTPointer<ASTNode> const &node: source->ast->nodes()) {
-				if (auto contract = dynamic_cast<ContractDefinition const *>(node.get())) {
-					contracts.push_back(contract);
-				}
-			}
-
-
-			for (ContractDefinition const *contract: contracts) {
-				if (contract->isLibrary()) {
-					continue;
-				}
-
-				if (!m_mainContract.empty()) {
-					if (contract->name() == m_mainContract) {
-						if (m_generateCode && !contract->canBeDeployed()) {
-							m_errorReporter.typeError(
-								3715_error,
-								contract->location(),
-								"The desired contract isn't deployable (it has not public constructor or it's abstract or it's interface or it's library)."
-							);
-							return {false, didCompileSomething};
+			if (targetContract != nullptr) {
+				try {
+					if (json) {
+						std::vector<PragmaDirective const *> pragmaDirectives = getPragmaDirectives(&source(m_inputFile));
+						PragmaDirectiveHelper pragmaHelper{pragmaDirectives};
+						Contract const& c = contract(targetContract->name());
+						if (m_generateAbi) {
+							Json::Value abi = TVMABI::generateABIJson(targetContract, getSourceUnits(), pragmaDirectives);
+							c.abi = std::make_unique<Json::Value>(abi);
 						}
-						targetContract = contract;
-						targetPragmaDirectives = pragmaDirectives;
-					}
-				} else {
-					if (m_generateAbi && !m_generateCode) {
-						if (targetContract != nullptr) {
-							m_errorReporter.typeError(
-								4605_error,
-								targetContract->location(),
-								SecondarySourceLocation().append("Previous contract:",
-																 contract->location()),
-								"Source file contains at least two contracts/interfaces."
-								" Consider adding the option --contract in compiler command line to select the desired contract/interface."
-							);
-							return {false, didCompileSomething};
+						if (m_generateCode) {
+							Pointer<solidity::frontend::Contract> codeContract =
+								TVMContractCompiler::generateContractCode(targetContract, getSourceUnits(), pragmaHelper);
+							std::ostringstream out;
+							Printer p{out};
+							codeContract->accept(p);
+							Json::Value code = Json::Value(out.str());
+							c.code = std::make_unique<Json::Value>(code);
 						}
-						targetContract = contract;
-						targetPragmaDirectives = pragmaDirectives;
-					} else if (contract->canBeDeployed()) {
-						if (targetContract != nullptr) {
-							m_errorReporter.typeError(
-								5205_error,
-								targetContract->location(),
-								SecondarySourceLocation().append("Previous deployable contract:",
-																 contract->location()),
-								"Source file contains at least two deployable contracts."
-								" Consider adding the option --contract in compiler command line to select the desired contract."
-							);
-							return {false, didCompileSomething};
+						if (m_doPrintFunctionIds)
+						{
+							auto functionIds = TVMABI::generateFunctionIdsJson(*c.contract, pragmaHelper);
+							c.functionIds = std::make_unique<Json::Value>(functionIds);
 						}
-						targetContract = contract;
-						targetPragmaDirectives = pragmaDirectives;
+						if (m_doPrivateFunctionIds)
+						{
+							auto functionIds = TVMABI::generatePrivateFunctionIdsJson(*c.contract, getSourceUnits(), pragmaHelper);
+							c.privateFunctionIds = std::make_unique<Json::Value>(functionIds);
+						}
+						if (m_doPrivateFunctionIds)
+						{
+							auto functionIds = TVMABI::generatePrivateFunctionIdsJson(*c.contract, getSourceUnits(), pragmaHelper);
+							c.privateFunctionIds = std::make_unique<Json::Value>(functionIds);
+						}
+					} else {
+						TVMCompilerProceedContract(
+							*targetContract,
+							getSourceUnits(),
+							&targetPragmaDirectives,
+							m_generateAbi,
+							m_generateCode,
+							m_inputFile,
+							m_folder,
+							m_file_prefix,
+							m_doPrintFunctionIds,
+							m_doPrivateFunctionIds
+						);
 					}
+					didCompileSomething = true;
+				} catch (FatalError const &) {
+					return {false, didCompileSomething};
 				}
-			}
-		}
-		if (!findSrc) {
-			solAssert(findSrc, "Can't find src file");
-		}
-
-		if (!m_mainContract.empty() && targetContract == nullptr) {
-			m_errorReporter.typeError(
-				1468_error,
-				SourceLocation(),
-				"Source file doesn't contain the desired contract \"" + m_mainContract + "\"."
-			);
-			return {false, didCompileSomething};
-		}
-
-		if (targetContract != nullptr) {
-			try {
-				if (json) {
-					std::vector<PragmaDirective const *> pragmaDirectives = getPragmaDirectives(&source(m_inputFile));
-					PragmaDirectiveHelper pragmaHelper{pragmaDirectives};
-					Contract const& c = contract(targetContract->name());
-					if (m_generateAbi) {
-						Json::Value abi = TVMABI::generateABIJson(targetContract, getSourceUnits(), pragmaDirectives);
-						c.abi = std::make_unique<Json::Value>(abi);
-					}
-					if (m_generateCode) {
-						Pointer<solidity::frontend::Contract> codeContract =
-							TVMContractCompiler::generateContractCode(targetContract, getSourceUnits(), pragmaHelper);
-						std::ostringstream out;
-						Printer p{out};
-						codeContract->accept(p);
-						Json::Value code = Json::Value(out.str());
-						c.code = std::make_unique<Json::Value>(code);
-					}
-					if (m_doPrintFunctionIds)
-					{
-						auto functionIds = TVMABI::generateFunctionIdsJson(*c.contract, pragmaHelper);
-						c.functionIds = std::make_unique<Json::Value>(functionIds);
-					}
-					if (m_doPrivateFunctionIds)
-					{
-						auto functionIds = TVMABI::generatePrivateFunctionIdsJson(*c.contract, getSourceUnits(), pragmaHelper);
-						c.privateFunctionIds = std::make_unique<Json::Value>(functionIds);
-					}
-				} else {
-					TVMCompilerProceedContract(
-						*targetContract,
-						getSourceUnits(),
-						&targetPragmaDirectives,
-						m_generateAbi,
-						m_generateCode,
-						m_inputFile,
-						m_folder,
-						m_file_prefix,
-						m_doPrintFunctionIds,
-						m_doPrivateFunctionIds
-					);
-				}
-				didCompileSomething = true;
-			} catch (FatalError const &) {
-				return {false, didCompileSomething};
 			}
 		}
 	}

@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "TvmAst.hpp"
+#include <libsolidity/codegen/TvmAst.hpp>
 #include <map>
 #include <unordered_map>
 
@@ -23,7 +23,7 @@ constexpr static int MAX_NEW_OPCODES = 3;
 
 class StackState {
 public:
-	constexpr static int MAX_STACK_DEPTH = 9;
+	constexpr static int MAX_STACK_DEPTH = 8;
 
 	explicit StackState(int _size);
 	explicit StackState(int8_t _size, std::array<int8_t, MAX_STACK_DEPTH> _values) : m_size{_size}, m_values{_values} {

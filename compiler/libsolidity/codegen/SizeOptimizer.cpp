@@ -17,7 +17,7 @@
 #include <boost/format.hpp>
 #include <boost/range/adaptor/map.hpp>
 
-#include "SizeOptimizer.hpp"
+#include <libsolidity/codegen/SizeOptimizer.hpp>
 
 using namespace std;
 using namespace solidity::util;

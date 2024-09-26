@@ -14,7 +14,7 @@
  * AST analyzer specified to search for TVM specific issues.
  */
 
-#include "TVMAnalyzer.hpp"
+#include <libsolidity/codegen/TVMAnalyzer.hpp>
 #include <liblangutil/ErrorReporter.h>
 #include <libsolidity/codegen/TVMConstants.hpp>
 
@@ -181,23 +181,14 @@ bool ContactsUsageScanner::visit(FunctionCall const& _functionCall) {
 			}
 		}
 		switch (funType->kind()) {
-			case FunctionType::Kind::MsgPubkey:
-				m_hasMsgPubkey = true;
-				break;
-			default:
-				break;
+		case FunctionType::Kind::MsgPubkey:
+			m_hasMsgPubkey = true;
+			break;
+		default:
+			break;
 		}
 	}
 
-	if (_functionCall.isAwait()) {
-		m_hasAwaitCall = true;
-
-		Type const* expressionType = getType(&_functionCall.expression());
-		auto functionType = to<FunctionType>(expressionType);
-		auto fd = to<FunctionDefinition>(&functionType->declaration());
-		solAssert(fd, "");
-		m_awaitFunctions.insert(fd);
-	}
 	return true;
 }
 

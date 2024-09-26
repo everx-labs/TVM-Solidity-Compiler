@@ -21,12 +21,12 @@
 
 #include <liblangutil/Exceptions.h>
 
-#include "TVM.hpp"
-#include "TVMCommons.hpp"
-#include "TVMConstants.hpp"
-#include "TVMPusher.hpp"
-#include "TvmAst.hpp"
-#include "TvmAstVisitor.hpp"
+#include <libsolidity/codegen/TVM.hpp>
+#include <libsolidity/codegen/TVMCommons.hpp>
+#include <libsolidity/codegen/TVMConstants.hpp>
+#include <libsolidity/codegen/TVMPusher.hpp>
+#include <libsolidity/codegen/TvmAst.hpp>
+#include <libsolidity/codegen/TvmAstVisitor.hpp>
 
 using namespace solidity::frontend;
 using namespace std;
@@ -473,8 +473,8 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 	if (*GlobalParams::g_tvmVersion == langutil::TVMVersion::ton())
 		solAssert(!isIn(op, "COPYLEFT", "INITCODEHASH", "MYCODE", "LDCONT", "STCONT"), "");
 
-	auto f = [&](const std::string& pattert) {
-		return op == pattert;
+	auto f = [&](std::string const& pattern) {
+		return op == pattern;
 	};
 
 	auto dictReplaceOrAdd = [&]() {
@@ -531,15 +531,17 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"MYADDR", {0, 1, true}},
 		{"MYCODE", {0, 1, true}},
 		{"NEWC", {0, 1, true}},
-		{"NEWDICT", {0, 1, true}},
-		{"NIL", {0, 1, true}},
 		{"NOW", {0, 1, true}},
 		{"NULL", {0, 1, true}},
 		{"PUSHINT", {0, 1, true}},
+		{"PUSHNAN", {0, 1, true}},
 		{"RANDSEED", {0, 1, true}},
 		{"RANDU256", {0, 1}},
 		{"STORAGEFEE", {0, 1, true}},
 		{"TRUE", {0, 1, true}},
+		{"BLS_G1_ZERO", {0, 1, true}},
+		{"BLS_G2_ZERO", {0, 1, true}},
+		{"BLS_PUSHR", {0, 1, true}},
 
 		{"ADDRAND", {1, 0}},
 		{"BUYGAS", {1, 0}},
@@ -578,12 +580,12 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"INDEX3", {1, 1}},
 		{"INDEX_EXCEP", {1, 1}},
 		{"INDEX_NOEXCEP", {1, 1, true}},
+		{"ISNAN", {1, 1, true}},
 		{"ISNEG", {1, 1, true}},
 		{"ISNNEG", {1, 1, true}},
 		{"ISNPOS", {1, 1, true}},
 		{"ISNULL", {1, 1, true}},
-		{"ISPOS", {1, 1, true}},
-		{"ISZERO", {1, 1, true}},
+		{"ISPOS", {1, 1, true}}, // TODO GTINT 0 and for another
 		{"LAST", {1, 1}},
 		{"LESSINT", {1, 1, true}},
 		{"MODPOW2", {1, 1}},
@@ -604,10 +606,20 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"PLDULE4", {1, 1}},
 		{"PLDULE8", {1, 1}},
 		{"POW2", {1, 1}},
+		{"QBITNOT", {1, 1, true}}, // pseudo opcode. Alias for QNOT
+		{"QDEC", {1, 1, true}},
+		{"QFITS", {1, 1, true}},
+		{"QINC", {1, 1, true}},
+		{"QMODPOW2", {1, 1, true}},
+		{"QNEGATE", {1, 1, true}},
+		{"QNOT", {1, 1, true}}, // logical not
+		{"QSGN", {1, 1, true}},
+		{"QUFITS", {1, 1, true}},
 		{"RAND", {1, 1}},
 		{"SBITS", {1, 1, true}},
 		{"SDEMPTY", {1, 1, true}},
 		{"SDEPTH", {1, 1}},
+		{"SDFIRST", {1, 1, true}},
 		{"SEMPTY", {1, 1, true}},
 		{"SGN", {1, 1, true}},
 		{"SHA256U", {1, 1, true}},
@@ -618,16 +630,23 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"VERGRTH16", {3, 1, true}},
 		{"POSEIDON_ZKLOGIN", {5, 1, true}},
 		{"SREFS", {1, 1, true}},
-		{"STONE", {1, 1}},
+		{"SREMPTY", {1, 1, true}},
 		{"STRDUMP", {1, 1}},
 		{"STSLICECONST", {1, 1}},
-		{"STZERO", {1, 1}},
 		{"TLEN", {1, 1}},
 		{"UBITSIZE", {1, 1}},
 		{"UFITS", {1, 1}},
 		{"UNZIP", {1, 1}},
 		{"XLOAD", {1, 1}},
 		{"ZIP", {1, 1}},
+		{"BLS_G1_NEG", {1, 1}},
+		{"BLS_MAP_TO_G1", {1, 1}},
+		{"BLS_G1_ISZERO", {1, 1}},
+		{"BLS_G1_INGROUP", {1, 1}},
+		{"BLS_G2_NEG", {1, 1}},
+		{"BLS_MAP_TO_G2", {1, 1}},
+		{"BLS_G2_ISZERO", {1, 1}},
+		{"BLS_G2_INGROUP", {1, 1}},
 
 		{"BBITREFS", {1, 2, true}},
 		{"BREMBITREFS", {1, 2, true}},
@@ -661,6 +680,12 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 
 		{"ADD", {2, 1}},
 		{"AND", {2, 1, true}},
+		{"BLS_G1_ADD", {2, 1}},
+		{"BLS_G1_MUL", {2, 1}},
+		{"BLS_G1_SUB", {2, 1}},
+		{"BLS_G2_ADD", {2, 1}},
+		{"BLS_G2_MUL", {2, 1}},
+		{"BLS_G2_SUB", {2, 1}},
 		{"CMP", {2, 1, true}},
 		{"DIFF", {2, 1}},
 		{"DIFF_PATCH", {2, 1}},
@@ -692,10 +717,30 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"PLDREFVAR", {2, 1}},
 		{"PLDSLICEX", {2, 1}},
 		{"PLDUX", {2, 1}},
+		{"QADD", {2, 1, true}},
+		{"QAND", {2, 1, true}},
+		{"QDIV", {2, 1, true}},
+		{"QDIVC", {2, 1, true}},
+		{"QDIVR", {2, 1, true}},
+		{"QEQUAL", {2, 1, true}},
+		{"QGEQ", {2, 1, true}},
+		{"QGREATER", {2, 1, true}},
+		{"QLEQ", {2, 1, true}},
+		{"QLESS", {2, 1, true}},
+		{"QMAX", {2, 1, true}},
+		{"QMIN", {2, 1, true}},
+		{"QMOD", {2, 1, true}},
+		{"QMUL", {2, 1, true}},
+		{"QNEQ", {2, 1, true}},
+		{"QOR", {2, 1, true}},
+		{"QSUB", {2, 1, true}},
+		{"QXOR", {2, 1, true}},
+		{"QXOR", {2, 1, true}},
 		{"SCHKBITSQ", {2, 1, true}},
 		{"SCHKREFSQ", {2, 1, true}},
 		{"SDEQ", {2, 1, true}},
 		{"SDLEXCMP", {2, 1}},
+		{"SDPFXREV", {2, 1, true}},
 		{"SDSKIPFIRST", {2, 1}},
 		{"SETINDEX", {2, 1}},
 		{"SETINDEXQ", {2, 1, true}},
@@ -724,33 +769,41 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"STVARUINT32", {2, 1}},
 		{"STZEROES", {2, 1}},
 		{"SUB", {2, 1}},
-		{"SUBR", {2, 1}},
+		{"SUBR", {2, 1}}, // TODO add QSUBR ?
 		{"TPUSH", {2, 1}},
 		{"XOR", {2, 1, true}},
 
 		{"DIVMOD", {2, 2}},
+		{"QDIVMOD", {2, 2, true}},
 		{"LDIX", {2, 2}},
 		{"LDSAME", {2, 2, true}},
 		{"LDSLICEX", {2, 2}},
 		{"LDUX", {2, 2}},
 		{"MINMAX", {2, 2, true}},
+		{"QMINMAX", {2, 2, true}},
 
 		{"CDATASIZE", {2, 3}},
 		{"SDATASIZE", {2, 3}},
 
 		{"RAWRESERVEX", {3, 0}},
 
+		{"BLS_VERIFY", {3, 1}},
 		{"CHKSIGNS", {3, 1}},
 		{"CHKSIGNU", {3, 1}},
 		{"CONDSEL", {3, 1}},
 		{"MULDIV", {3, 1}},
 		{"MULDIVC", {3, 1}},
 		{"MULDIVR", {3, 1}},
+		{"MULMOD", {3, 1}},
+		{"QMULDIV", {3, 1, true}},
+		{"QMULDIVC", {3, 1, true}},
+		{"QMULDIVR", {3, 1, true}},
 		{"SCHKBITREFSQ", {3, 1, true}},
 		{"SCUTFIRST", {3, 1}},
 		{"SETINDEXVAR", {3, 1}},
 		{"SETINDEXVARQ", {3, 1, true}},
 		{"SSKIPFIRST", {3, 1}},
+		{"STIX", {3, 1}},
 		{"STIXR", {3, 1}},
 		{"STSAME", {3, 1}},
 		{"STUX", {3, 1}},
@@ -760,9 +813,8 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"DICTIDEL", {3, 2}},
 		{"DICTUDEL", {3, 2}},
 		{"MULDIVMOD", {3, 2}},
-		{"SPLIT", {3, 2}},
-
-		
+		{"QMULDIVMOD", {3, 2, true}},
+		{"SPLIT", {3, 2}}
 	};
 
 	Pointer<StackOpcode> opcode;
@@ -782,21 +834,18 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 	} else if (f("UNPACKFIRST")) {
 		int ret = boost::lexical_cast<int>(param);
 		opcode = createNode<StackOpcode>(cmd, 1, ret);
-	} else if (f("LSHIFT") || f("RSHIFT")) {
-		if (param.empty()) {
+	} else if (f("LSHIFT") || f("QLSHIFT") || f("RSHIFT") || f("QRSHIFT")) {
+		if (param.empty())
 			opcode = createNode<StackOpcode>(cmd, 2, 1);
-		} else {
+		else
 			opcode = createNode<StackOpcode>(cmd, 1, 1);
-		}
 	} else if (f("MULRSHIFT")) {
-		if (param.empty()) {
+		if (param.empty())
 			opcode = createNode<StackOpcode>(cmd, 3, 1);
-		} else {
+		else
 			opcode = createNode<StackOpcode>(cmd, 2, 1);
-		}
-	} else {
+	} else
 		solUnimplemented("Unknown opcode: " + cmd);
-	}
 	solAssert(opcode != nullptr, "");
 	return opcode;
 }
