@@ -28,7 +28,7 @@ fn full_lib_name(lib_name: &str, boost_lib_dir: &str) -> String {
         let mut file_name = file.unwrap().file_name().to_str().unwrap().to_string();
         if file_name.starts_with(lib_name) {
             if file_name.ends_with(".lib") {
-                file_name = file_name.get(0..file_name.len()-4).unwrap().to_string();
+                file_name = file_name.get(0..file_name.len() - 4).unwrap().to_string();
             }
             return file_name.to_string();
         }
@@ -54,27 +54,45 @@ fn main() {
 
     for lib in ["solc", "solidity", "langutil", "solutil"] {
         if cfg!(target_os = "windows") {
-            println!("cargo:rustc-link-search=native={}/build/lib{}/{}", sol2tvm.display(), lib, profile);
+            println!(
+                "cargo:rustc-link-search=native={}/build/lib{}/{}",
+                sol2tvm.display(),
+                lib,
+                profile
+            );
         } else {
-            println!("cargo:rustc-link-search=native={}/build/lib{}", sol2tvm.display(), lib);
+            println!(
+                "cargo:rustc-link-search=native={}/build/lib{}",
+                sol2tvm.display(),
+                lib
+            );
         }
         println!("cargo:rustc-link-lib=static={}", lib);
     }
 
     println!("cargo:rustc-link-search=native={}/lib", sol2tvm.display());
-    println!("cargo:rustc-link-search=native={}/build/deps/lib", sol2tvm.display());
+    println!(
+        "cargo:rustc-link-search=native={}/build/deps/lib",
+        sol2tvm.display()
+    );
 
     let boost_lib_dir = "../compiler/deps/boost/lib";
     if cfg!(target_os = "windows") {
-        println!("cargo:rustc-link-search=native={}", absolute_path(boost_lib_dir));
+        println!(
+            "cargo:rustc-link-search=native={}",
+            absolute_path(boost_lib_dir)
+        );
     } else if cfg!(target_os = "macos") {
         match std::env::var("HOMEBREW") {
             Ok(homebrew) => {
-                assert!(std::path::PathBuf::from(homebrew.to_string()).exists(), "Set correct $HOMEBREW!");
+                assert!(
+                    std::path::PathBuf::from(homebrew.to_string()).exists(),
+                    "Set correct $HOMEBREW!"
+                );
                 println!("cargo:rustc-link-search=native={}/lib", homebrew)
             }
             // use default path
-            Err(_) => println!("cargo:rustc-link-search=native=/opt/homebrew/lib")
+            Err(_) => println!("cargo:rustc-link-search=native=/opt/homebrew/lib"),
         }
         println!("cargo:rustc-link-search=native=/usr/local/lib");
     } else if cfg!(target_os = "freebsd") {

@@ -4,12 +4,12 @@ use std::io::Write;
 use std::os::raw::{c_char, c_void};
 use std::path::Path;
 
-use clap::{ValueEnum, Parser};
 use anyhow::{bail, format_err};
+use clap::{Parser, ValueEnum};
 use serde::Deserialize;
 
-use tvm_types::{Result, Status};
 use tvm_assembler::{DbgInfo, Engine, Units};
+use tvm_types::{Result, Status};
 
 mod libsolc;
 mod printer;
@@ -26,7 +26,7 @@ unsafe extern "C" fn read_callback(
         .into_owned();
     if kind != "source" {
         *o_error = make_error(format!("Unknown kind \"{}\"", kind));
-        return
+        return;
     }
     let mut success = 0i32;
     let contents_ptr = libsolc::file_reader_read(context, data, &mut success);
@@ -55,7 +55,11 @@ fn to_cstr(s: &str) -> Result<std::ffi::CString> {
     std::ffi::CString::new(s).map_err(|e| format_err!("Failed to convert: {}", e))
 }
 
-fn compile(args: &Args, input: &str, remappings: Vec<String>) -> Result<(String, serde_json::Value)> {
+fn compile(
+    args: &Args,
+    input: &str,
+    remappings: Vec<String>,
+) -> Result<(String, serde_json::Value)> {
     let file_reader = unsafe {
         let file_reader = libsolc::file_reader_new();
         if let Some(base_path) = args.base_path.clone() {
@@ -71,10 +75,12 @@ fn compile(args: &Args, input: &str, remappings: Vec<String>) -> Result<(String,
         libsolc::file_reader_add_or_update_file(
             file_reader,
             to_cstr(input)?.as_ptr(),
-            to_cstr(&input_content)?.as_ptr()
+            to_cstr(&input_content)?.as_ptr(),
         );
         if let Some(path) = dunce::canonicalize(Path::new(&input))?.parent() {
-            let path = path.to_str().ok_or_else(|| format_err!("Failed to convert path to string"))?;
+            let path = path
+                .to_str()
+                .ok_or_else(|| format_err!("Failed to convert path to string"))?;
             libsolc::file_reader_allow_directory(file_reader, to_cstr(path)?.as_ptr());
         }
         file_reader
@@ -82,7 +88,9 @@ fn compile(args: &Args, input: &str, remappings: Vec<String>) -> Result<(String,
     let source_unit_name = {
         let name = unsafe {
             std::ffi::CStr::from_ptr(libsolc::file_reader_source_unit_name(
-                file_reader, to_cstr(input)?.as_ptr()))
+                file_reader,
+                to_cstr(input)?.as_ptr(),
+            ))
         };
         &name.to_string_lossy().into_owned()
     };
@@ -107,16 +115,15 @@ fn compile(args: &Args, input: &str, remappings: Vec<String>) -> Result<(String,
         ""
     };
     let tvm_version = match args.tvm_version {
-        None => {
-            "".to_string()
-        }
+        None => "".to_string(),
         Some(version) => {
             format!(r#""tvmVersion": "{}","#, version)
         }
     };
     let main_contract = args.contract.clone().unwrap_or_default();
     let remappings = remappings_to_json_string(remappings);
-    let input_json = format!(r#"
+    let input_json = format!(
+        r#"
         {{
             "language": "Solidity",
             "settings": {{
@@ -136,7 +143,8 @@ fn compile(args: &Args, input: &str, remappings: Vec<String>) -> Result<(String,
                 }}
             }}
         }}
-    "#);
+    "#
+    );
     let output = unsafe {
         std::ffi::CStr::from_ptr(libsolc::solidity_compile(
             to_cstr(&input_json)?.as_ptr(),
@@ -183,20 +191,20 @@ fn parse_comp_result(
     // println!("{}", serde_json::to_string_pretty(&res)?);
 
     if let Some(v) = res.get("errors") {
-        let entries = v.as_array()
-            .ok_or_else(|| parse_error!())?;
+        let entries = v.as_array().ok_or_else(|| parse_error!())?;
         let mut severe = false;
         for entry in entries {
-            let entry = entry.as_object()
-                .ok_or_else(|| parse_error!())?;
-            let severity = entry.get("severity")
+            let entry = entry.as_object().ok_or_else(|| parse_error!())?;
+            let severity = entry
+                .get("severity")
                 .ok_or_else(|| parse_error!())?
                 .as_str()
                 .ok_or_else(|| parse_error!())?;
             if severity == "error" {
                 severe = true;
             }
-            let message = entry.get("humanFormattedMessage")
+            let message = entry
+                .get("humanFormattedMessage")
                 .ok_or_else(|| parse_error!())?
                 .as_str()
                 .ok_or_else(|| parse_error!())?;
@@ -225,26 +233,28 @@ fn parse_comp_result(
 
     if let Some(ref contract) = contract {
         if !all.contains_key(contract) {
-            Err(format_err!("Source file doesn't contain the desired contract \"{}\"", contract))
+            Err(format_err!(
+                "Source file doesn't contain the desired contract \"{}\"",
+                contract
+            ))
         } else {
             Ok(all.get(contract).unwrap().clone())
         }
     } else {
-        let mut iter =
-            all.iter().filter(|(_, v)| {
-                if !compile {
-                    true
-                } else if let Some(v) = v.as_object() {
-                    let assembly = v.get("assembly");
-                    if let Some(assembly) = assembly {
-                        !assembly.is_null()
-                    } else {
-                        false
-                    }
+        let mut iter = all.iter().filter(|(_, v)| {
+            if !compile {
+                true
+            } else if let Some(v) = v.as_object() {
+                let assembly = v.get("assembly");
+                if let Some(assembly) = assembly {
+                    !assembly.is_null()
                 } else {
                     false
                 }
-            });
+            } else {
+                false
+            }
+        });
         let qualification = if compile { "deployable " } else { "" };
         let entry = iter.next();
         if let Some(entry) = entry {
@@ -263,7 +273,7 @@ static STDLIB: &'static str = include_str!("../../lib/stdlib_sol.tvm");
 
 fn parse_positional_args(args: Vec<String>) -> Result<(String, Vec<String>)> {
     let mut input = None;
-    let mut remappings = vec!();
+    let mut remappings = vec![];
     for arg in args {
         if arg.contains('=') {
             remappings.push(arg);
@@ -293,7 +303,10 @@ pub fn build(args: Args) -> Status {
 
     if let Some(ref output_prefix) = args.output_prefix {
         if output_prefix.contains(std::path::is_separator) {
-            bail!("Invalid output prefix \"{}\". Use option -O to set output directory", output_prefix);
+            bail!(
+                "Invalid output prefix \"{}\". Use option -O to set output directory",
+                output_prefix
+            );
         }
     }
 
@@ -305,20 +318,24 @@ pub fn build(args: Args) -> Status {
         &res.1,
         &res.0,
         args.contract,
-        !(args.abi_json || args.ast_compact_json || args.userdoc || args.devdoc )
+        !(args.abi_json || args.ast_compact_json || args.userdoc || args.devdoc),
     )?;
 
     if args.function_ids {
         println!("{}", serde_json::to_string_pretty(&out["functionIds"])?);
-        return Ok(())
+        return Ok(());
     }
 
     if args.private_function_ids {
-        println!("{}", serde_json::to_string_pretty(&out["privateFunctionIds"])?);
-        return Ok(())
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&out["privateFunctionIds"])?
+        );
+        return Ok(());
     }
 
-    let input_file_stem = input_canonical.file_stem()
+    let input_file_stem = input_canonical
+        .file_stem()
         .ok_or_else(|| format_err!("Failed to extract file stem"))?
         .to_str()
         .ok_or_else(|| format_err!("Failed to get file stem"))?
@@ -335,18 +352,20 @@ pub fn build(args: Args) -> Status {
             println!("User Documentation");
             println!("{}", serde_json::to_string_pretty(&out["userdoc"])?);
         }
-        return Ok(())
+        return Ok(());
     }
 
     if args.ast_compact_json {
-        let all = res.1.as_object()
+        let all = res
+            .1
+            .as_object()
             .ok_or_else(|| parse_error!())?
             .get("sources")
             .ok_or_else(|| parse_error!())?
             .as_object()
             .ok_or_else(|| parse_error!())?;
 
-        let mut array = vec!();
+        let mut array = vec![];
         for (_, val) in all {
             let ast = val
                 .as_object()
@@ -357,7 +376,7 @@ pub fn build(args: Args) -> Status {
         }
         assert_eq!(array.len(), 1);
         println!("{}", serde_json::to_string(&array[0])?);
-        return Ok(())
+        return Ok(());
     }
 
     let abi = &out["abi"];
@@ -365,7 +384,7 @@ pub fn build(args: Args) -> Status {
     let mut abi_file = File::create(output_path.join(&abi_file_name))?;
     printer::print_abi_json_canonically(&mut abi_file, abi)?;
     if args.abi_json {
-        return Ok(())
+        return Ok(());
     }
 
     let assembly = out["assembly"]
@@ -389,7 +408,8 @@ pub fn build(args: Args) -> Status {
     let mut units = Units::new();
     for (input, filename) in inputs {
         engine.reset(filename);
-        units = engine.compile_toplevel(&input)
+        units = engine
+            .compile_toplevel(&input)
             .map_err(|e| format_err!("{}", e))?;
     }
     let (b, d) = units.finalize();

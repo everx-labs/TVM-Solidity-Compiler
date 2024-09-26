@@ -10,17 +10,17 @@
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
  */
 
-use predicates::prelude::*;
 use assert_cmd::Command;
+use predicates::prelude::*;
 
 type Status = Result<(), Box<dyn std::error::Error>>;
 const BIN_NAME: &str = "sold";
 
 fn remove_all_outputs(name: &str) -> Status {
-    std::fs::remove_file(format!("tests/{}.abi.json",   name))?;
-    std::fs::remove_file(format!("tests/{}.code",       name))?;
+    std::fs::remove_file(format!("tests/{}.abi.json", name))?;
+    std::fs::remove_file(format!("tests/{}.code", name))?;
     std::fs::remove_file(format!("tests/{}.debug.json", name))?;
-    std::fs::remove_file(format!("tests/{}.tvc",        name))?;
+    std::fs::remove_file(format!("tests/{}.tvc", name))?;
     Ok(())
 }
 
@@ -90,8 +90,9 @@ fn test_library() -> Status {
         .arg("tests")
         .assert()
         .success()
-        .stderr(predicate::str::contains("Compiler run successful, no output requested."))
-        ;
+        .stderr(predicate::str::contains(
+            "Compiler run successful, no output requested.",
+        ));
 
     Ok(())
 }
@@ -146,7 +147,8 @@ fn test_private_function_ids() -> Status {
         .arg("--private-function-ids")
         .assert()
         .success()
-        .stdout(predicate::str::contains(r#"[
+        .stdout(predicate::str::contains(
+            r#"[
   {
     "id": 5581,
     "scope": "C",
@@ -167,7 +169,8 @@ fn test_private_function_ids() -> Status {
     "scope": "Math",
     "sign": "mul(uint256,uint256)"
   }
-"#));
+"#,
+        ));
     Ok(())
 }
 
@@ -193,7 +196,8 @@ fn test_userdoc_devdoc() -> Status {
         .arg("--devdoc")
         .assert()
         .success()
-        .stdout(predicate::str::contains(r#"Developer Documentation
+        .stdout(predicate::str::contains(
+            r#"Developer Documentation
 {
   "kind": "dev",
   "methods": {},
@@ -205,6 +209,7 @@ User Documentation
   "methods": {},
   "version": 1
 }
-"#));
-    Ok(())        
+"#,
+        ));
+    Ok(())
 }
