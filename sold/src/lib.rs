@@ -4,9 +4,9 @@ use std::io::Write;
 use std::os::raw::{c_char, c_void};
 use std::path::Path;
 
-use anyhow::{bail, format_err};
 use clap::{Parser, ValueEnum};
 use serde::Deserialize;
+use failure::{bail, format_err};
 
 use tvm_assembler::{DbgInfo, Engine, Units};
 use tvm_types::{Result, Status};
