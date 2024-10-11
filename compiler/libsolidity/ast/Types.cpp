@@ -3464,6 +3464,11 @@ std::string FunctionType::richIdentifier() const
     case Kind::GoshSHA1: id += "goshsha1"; break;
     case Kind::GoshSHA256: id += "goshsha256"; break;
     case Kind::GoshKECCAK256: id += "goshkeccak256"; break;
+    case Kind::GoshMINTECC: id += "goshmintecc"; break;
+    case Kind::GoshCNVRTSHELLQ: id += "goshcnvrtshellq"; break;
+    case Kind::GoshMINTSHELL: id += "goshmintshell"; break;
+    case Kind::GoshCALCBKREWARD: id += "goshcalcbkreward"; break;
+    case Kind::GoshCALCMINSTAKE: id += "goshcalcminstake"; break;
 	}
 	id += "_" + stateMutabilityToString(m_stateMutability);
 	id += identifierList(m_parameterTypes) + "returns" + identifierList(m_returnParameterTypes);
@@ -5534,6 +5539,66 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 				{{}},
 				{{}},
 				FunctionType::Kind::GoshKECCAK256,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+		)});
+
+		members.push_back({
+			"mintecc",
+			TypeProvider::function(
+				{TypeProvider::uint64(), TypeProvider::uint32()}, 
+				{},
+				{{}, {}}, 
+				{},
+				FunctionType::Kind::GoshMINTECC,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+		)});
+
+		members.push_back({
+			"cnvrtshellq",
+			TypeProvider::function(
+				{TypeProvider::uint64()}, 
+				{},
+				{{}}, 
+				{},
+				FunctionType::Kind::GoshCNVRTSHELLQ,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+		)});
+
+		members.push_back({
+			"mintshell",
+			TypeProvider::function(
+				{TypeProvider::uint64()}, 
+				{},
+				{{}}, 
+				{},
+				FunctionType::Kind::GoshMINTSHELL,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+		)});
+
+		members.push_back({
+			"calcbkreward",
+			TypeProvider::function(
+				{TypeProvider::uint128(), TypeProvider::uint128(), TypeProvider::uint128(), TypeProvider::uint128(), TypeProvider::uint128(), TypeProvider::uint128()}, 
+				{TypeProvider::uint128()},
+				{{}, {}, {}, {}, {}, {}}, 
+				{{}},
+				FunctionType::Kind::GoshCALCBKREWARD,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+		)});
+		
+		members.push_back({
+			"calcminstake",
+			TypeProvider::function(
+				{TypeProvider::uint128(), TypeProvider::uint128(), TypeProvider::uint128(), TypeProvider::uint128()}, 
+				{TypeProvider::uint128()},
+				{{}, {}, {}, {}}, 
+				{{}},
+				FunctionType::Kind::GoshCALCMINSTAKE,
 				StateMutability::Pure,
 				nullptr, FunctionType::Options::withArbitraryParameters()
 		)});

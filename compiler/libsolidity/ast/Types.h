@@ -1669,6 +1669,11 @@ public:
         GoshSHA1,
         GoshSHA256,
         GoshKECCAK256,
+        GoshMINTECC,
+        GoshCNVRTSHELLQ,
+        GoshMINTSHELL,
+        GoshCALCBKREWARD,
+        GoshCALCMINSTAKE,
 	};
 	struct Options
 	{
