@@ -1557,9 +1557,17 @@ void FunctionCallCompiler::builderMethods(MemberAccess const &_node) {
 					else
 						m_pusher.stzeroes(1);
 				} else {
-					m_pusher.store(argument->annotation().type->mobileType(), false);
+					m_pusher.store(argument->annotation().type->mobileType());
 				}
 			}
+		} else if (memberName == "storeQ") {
+			solAssert(m_arguments.size() == 1, "");
+			acceptExpr(m_arguments.at(0).get());
+			m_pusher.blockSwap(1, 1);
+			m_pusher.storeQ(m_arguments.at(0)->annotation().type->mobileType());
+			// lValue... builder flag
+			m_pusher.blockSwap(lValueInfo.stackSizeDiff, 1);
+			// flag lValue... builder
 		} else if (isIn(memberName, "storeSigned", "storeInt", "storeUnsigned", "storeUint")) {
 			std::string cmd = "ST";
 			cmd += isIn(memberName, "storeSigned", "storeInt") ? "I" : "U";
@@ -2339,145 +2347,208 @@ void FunctionCallCompiler::rndFunction(MemberAccess const &_node) {
 }
 
 void FunctionCallCompiler::blsFunction() {
-	pushArgs();
+	bool useTuple =
+		!m_arguments.empty() &&
+		m_arguments.at(0)->annotation().type->category() == Type::Category::TvmVector;
+
 	switch (m_funcType->kind()) {
 	case FunctionType::Kind::BlsVerify:
+		pushArgs();
 		m_pusher << "BLS_VERIFY";
 		break;
 	case FunctionType::Kind::BlsAggregate:
-		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
-			"DUP",
-			"TLEN",
-			"EXPLODEVAR",
-			"BLS_AGGREGATE",
-		}, 1, 1, true));
+		pushArgs();
+		if (useTuple)
+			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
+				"DUP",
+				"TLEN",
+				"EXPLODEVAR",
+				"BLS_AGGREGATE",
+			}, 1, 1, false));
+		else {
+			m_pusher.pushInt(m_arguments.size());
+			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
+				"BLS_AGGREGATE"
+			}, m_arguments.size() + 1, 1, false));
+		}
 		break;
 	case FunctionType::Kind::BlsFastAggregateVerify:
-		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
-			              // pks msg sig
-			"ROT",        // msg sig pks
-			"DUP",        // msg sig pks pks
-			"TLEN",       // msg sig pks n
-			"EXPLODEVAR", // msg sig pk1 .. pksN n
-			"PUSHINT 2",  // msg sig pk1 .. pksN n 2
-			"PUSH S1",    // msg sig pk1 .. pksN n 2 n
-			"INC",        // msg sig pk1 .. pksN n 2 n+1
-			"BLKSWX",
-			"BLS_FASTAGGREGATEVERIFY",
-		}, 3, 1, true));
+		if (useTuple) {
+			pushArgs();
+			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
+							  // pks msg sig
+				"ROT",        // msg sig pks
+				"DUP",        // msg sig pks pks
+				"TLEN",       // msg sig pks n
+				"EXPLODEVAR", // msg sig pk1 .. pksN n
+				"PUSHINT 2",  // msg sig pk1 .. pksN n 2
+				"PUSH S1",    // msg sig pk1 .. pksN n 2 n
+				"INC",        // msg sig pk1 .. pksN n 2 n+1
+				"BLKSWX",
+				"BLS_FASTAGGREGATEVERIFY",
+			}, 3, 1, false));
+		} else {
+			int n = m_arguments.size() - 2;
+			for (int i = 0; i < n; ++i)
+				pushArgAndConvert(i);
+			m_pusher.pushInt(n);
+			pushArgAndConvert(n);
+			pushArgAndConvert(n + 1);
+			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
+				"BLS_FASTAGGREGATEVERIFY",
+			}, n + 3, 1, false));
+		}
 		break;
 	case FunctionType::Kind::BlsAggregateVerify:
-		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
-			// pksMsgs sig
-			"SWAP",       // sig pksMsgs
-			"DUP",        // sig pksMsgs pksMsgs
-			"TLEN",       // sig pksMsgs n
-			"EXPLODEVAR", // sig (pk, msg)... n
-			"DUP",        // sig (pk, msg)... n i
-			"ADDCONST 1", // sig (pk, msg)... n i  // i = n+1..1
-			"PUSH S1",    // sig (pk, msg)... n i n
-			"PUSHCONT {",
-						  // sig (pk, msg)... n i
-			"DUP",        // sig (pk, msg)... n i i
-		  	"\tROLLX",    // sig (pk, msg)... n i (pk[i], msg[i])
-		  	"\tUNPAIR",   // sig (pk, msg)... n i pk[i] msg[i]
-			"\tPUSH S2",  // sig (pk, msg)... n i pk[i] msg[i] i
-			"\tPUSHINT 2",// sig (pk, msg)... n i pk[i] msg[i] i 2
-			"\tBLKSWX",   // sig (pk, msg)... n i
-			"\tDEC",
-			"}",
-			"REPEAT",
-			              // sig pk0, msg0 ... pkN, msgN n 1
-			"PUSH S1",    // sig pk0, msg0 ... pkN, msgN n 1 n
-			"MULCONST 2", // sig pk0, msg0 ... pkN, msgN n 1 2*n
-			"ADD",        // sig pk0, msg0 ... pkN, msgN n 2*n+1
-			"ROLLX",      // pk0, msg0 ... pkN, msgN n sig
-			"BLS_AGGREGATEVERIFY",
-		}, 2, 1, true));
+		if (useTuple) {
+			pushArgs();
+			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
+				// pksMsgs sig
+				"SWAP",       // sig pksMsgs
+				"DUP",        // sig pksMsgs pksMsgs
+				"TLEN",       // sig pksMsgs n
+				"EXPLODEVAR", // sig (pk, msg)... n
+				"DUP",        // sig (pk, msg)... n i
+				"ADDCONST 1", // sig (pk, msg)... n i  // i = n+1..1
+				"PUSH S1",    // sig (pk, msg)... n i n
+				"PUSHCONT {",
+							  // sig (pk, msg)... n i
+				"DUP",        // sig (pk, msg)... n i i
+				"\tROLLX",    // sig (pk, msg)... n i (pk[i], msg[i])
+				"\tUNPAIR",   // sig (pk, msg)... n i pk[i] msg[i]
+				"\tPUSH S2",  // sig (pk, msg)... n i pk[i] msg[i] i
+				"\tPUSHINT 2",// sig (pk, msg)... n i pk[i] msg[i] i 2
+				"\tBLKSWX",   // sig (pk, msg)... n i
+				"\tDEC",
+				"}",
+				"REPEAT",
+							  // sig pk0, msg0 ... pkN, msgN n 1
+				"PUSH S1",    // sig pk0, msg0 ... pkN, msgN n 1 n
+				"MULCONST 2", // sig pk0, msg0 ... pkN, msgN n 1 2*n
+				"ADD",        // sig pk0, msg0 ... pkN, msgN n 2*n+1
+				"ROLLX",      // pk0, msg0 ... pkN, msgN n sig
+				"BLS_AGGREGATEVERIFY",
+			}, 2, 1, false));
+		} else {
+			int n = (m_arguments.size() - 1) / 2;
+			for (int i = 0; i < 2 * n; ++i)
+				pushArgAndConvert(i);
+			m_pusher.pushInt(n);
+			pushArgAndConvert(2 * n);
+			solAssert(2 * n == int(m_arguments.size()) - 1, "ddddd");
+			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
+				"BLS_AGGREGATEVERIFY",
+			}, 2 * n + 2, 1, false));
+		}
 		break;
 	case FunctionType::Kind::BlsG1Add:
+		pushArgs();
 		m_pusher << "BLS_G1_ADD";
 		break;
 	case FunctionType::Kind::BlsG1Sub:
+		pushArgs();
 		m_pusher << "BLS_G1_SUB";
 		break;
 	case FunctionType::Kind::BlsG1Neg:
+		pushArgs();
 		m_pusher << "BLS_G1_NEG";
 		break;
 	case FunctionType::Kind::BlsG1Mul:
+		pushArgs();
 		m_pusher << "BLS_G1_MUL";
 		break;
 	case FunctionType::Kind::BlsMapToG1:
+		pushArgs();
 		m_pusher << "BLS_MAP_TO_G1";
 		break;
 	case FunctionType::Kind::BlsG1IsZero:
+		pushArgs();
 		m_pusher << "BLS_G1_ISZERO";
 		break;
 	case FunctionType::Kind::BlsG1InGroup:
+		pushArgs();
 		m_pusher << "BLS_G1_INGROUP";
 		break;
 
 	case FunctionType::Kind::BlsG2Add:
+		pushArgs();
 		m_pusher << "BLS_G2_ADD";
 		break;
 	case FunctionType::Kind::BlsG2Sub:
+		pushArgs();
 		m_pusher << "BLS_G2_SUB";
 		break;
 	case FunctionType::Kind::BlsG2Neg:
+		pushArgs();
 		m_pusher << "BLS_G2_NEG";
 		break;
 	case FunctionType::Kind::BlsG2Mul:
+		pushArgs();
 		m_pusher << "BLS_G2_MUL";
 		break;
 	case FunctionType::Kind::BlsMapToG2:
+		pushArgs();
 		m_pusher << "BLS_MAP_TO_G2";
 		break;
 	case FunctionType::Kind::BlsG2IsZero:
+		pushArgs();
 		m_pusher << "BLS_G2_ISZERO";
 		break;
 	case FunctionType::Kind::BlsG2InGroup:
+		pushArgs();
 		m_pusher << "BLS_G2_INGROUP";
 		break;
 	case FunctionType::Kind::BlsG1Zero:
+		pushArgs();
 		m_pusher << "BLS_G1_ZERO";
 		break;
 	case FunctionType::Kind::BlsG2Zero:
+		pushArgs();
 		m_pusher << "BLS_G2_ZERO";
 		break;
 	case FunctionType::Kind::BlsPushR:
+		pushArgs();
 		m_pusher << "BLS_PUSHR";
 		break;
 	case FunctionType::Kind::BlsG1MultiExp:
-	case FunctionType::Kind::BlsG2MultiExp:
-		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
-			// xs
-			"DUP",        // xs xs
-			"TLEN",       // xs n
-			"EXPLODEVAR", // (x, s)... n
-			"DUP",        // (x, s)... n i
-			"ADDCONST 1", // (x, s)... n i  // i = n+1..1
-			"PUSH S1",    // (x, s)... n i n
-			"PUSHCONT {",
-						  // (x, s)... n i
-			"DUP",        // (x, s)... n i i
-		  	"\tROLLX",    // (x, s)... n i (x[i], s[i])
-		  	"\tUNPAIR",   // (x, s)... n i x[i] s[i]
-			"\tPUSH S2",  // (x, s)... n i x[i] s[i] i
-			"\tPUSHINT 2",// (x, s)... n i x[i] s[i] i 2
-			"\tBLKSWX",   // (x, s)... n i
-			"\tDEC",
-			"}",
-			"REPEAT",
-			              // x0, s0 ... xN, sN n 1
-			"DROP",       // x0, s0 ... xN, sN n
-			(m_funcType->kind() == FunctionType::Kind::BlsG1MultiExp? "BLS_G1_MULTIEXP" : "BLS_G2_MULTIEXP"),
-		}, 1, 1, true));
+	case FunctionType::Kind::BlsG2MultiExp: {
+		pushArgs();
+		std::string opcode = m_funcType->kind() == FunctionType::Kind::BlsG1MultiExp? "BLS_G1_MULTIEXP" : "BLS_G2_MULTIEXP";
+		if (useTuple) {
+			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
+				// xs
+				"DUP",        // xs xs
+				"TLEN",       // xs n
+				"EXPLODEVAR", // (x, s)... n
+				"DUP",        // (x, s)... n i
+				"ADDCONST 1", // (x, s)... n i  // i = n+1..1
+				"PUSH S1",    // (x, s)... n i n
+				"PUSHCONT {",
+							  // (x, s)... n i
+				"DUP",        // (x, s)... n i i
+				"\tROLLX",    // (x, s)... n i (x[i], s[i])
+				"\tUNPAIR",   // (x, s)... n i x[i] s[i]
+				"\tPUSH S2",  // (x, s)... n i x[i] s[i] i
+				"\tPUSHINT 2",// (x, s)... n i x[i] s[i] i 2
+				"\tBLKSWX",   // (x, s)... n i
+				"\tDEC",
+				"}",
+				"REPEAT",
+							  // x0, s0 ... xN, sN n 1
+				"DROP",       // x0, s0 ... xN, sN n
+				opcode
+			}, 1, 1, false));
+		} else {
+			m_pusher.pushInt(m_arguments.size() / 2);
+			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
+				opcode
+			}, m_arguments.size() + 1, 1, false));
+		}
 		break;
+	}
 	default:
 		solUnimplemented("Unsupported bls function call");
 	}
-
-
 }
 
 void FunctionCallCompiler::goshFunction() {
@@ -2513,6 +2584,16 @@ void FunctionCallCompiler::goshFunction() {
                 return "SHA256";
             case FunctionType::Kind::GoshKECCAK256:
                 return "KECCAK256";
+            case FunctionType::Kind::GoshMINTECC:
+                return "MINTECC";
+            case FunctionType::Kind::GoshCNVRTSHELLQ:
+                return "CNVRTSHELLQ";
+            case FunctionType::Kind::GoshMINTSHELL:
+                return "MINTSHELL";
+            case FunctionType::Kind::GoshCALCBKREWARD:
+                return "CALCBKREWARD";
+            case FunctionType::Kind::GoshCALCMINSTAKE:
+                return "CALCMINSTAKE";
 			default:
 				solUnimplemented("Unsupported function call");
 		}
@@ -3311,6 +3392,7 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 
 				Type::Category cat = m_arguments[it + 1]->annotation().type->category();
 				Type const *argType = m_arguments[it + 1]->annotation().type;
+				acceptExpr(m_arguments[it + 1].get());
 				if (cat == Type::Category::Integer || cat == Type::Category::RationalNumber) {
 					// stack: Stack(TvmBuilder)
 					std::string format = substrings[it].second;
@@ -3327,7 +3409,6 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 							width = std::stoi(format);
 						if (width < 0 || width > 127)
 							cast_error(m_functionCall, "Width should be in range of 0 to 127.");
-						acceptExpr(m_arguments[it + 1].get());
 						// stack: stack x
 						m_pusher.pushInt(width);
 						m_pusher << (leadingZeroes ? "TRUE" : "FALSE");
@@ -3342,23 +3423,21 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 							m_pusher.pushFragmentInCallRef(4, 1, "__convertIntToString");
 						}
 					} else {
-						acceptExpr(m_arguments[it + 1].get());
 						m_pusher.pushInt(9);
 						m_pusher.pushInt(MathConsts::power10().at(9));
 						m_pusher.pushFragmentInCallRef(4, 1, "__convertFixedPointToString");
 					}
 				} else if (cat == Type::Category::Address) {
-					acceptExpr(m_arguments[it + 1].get());
 					m_pusher.pushFragmentInCallRef(2, 1, "__convertAddressToHexString");
 				} else if (isStringOrStringLiteralOrBytes(argType)) {
-					acceptExpr(m_arguments[it + 1].get());
 					m_pusher.pushFragmentInCallRef(2, 1, "__appendStringToStringBuilder");
 				} else if (cat == Type::Category::FixedPoint) {
 					int power = to<FixedPointType>(argType)->fractionalDigits();
-					acceptExpr(m_arguments[it + 1].get());
 					m_pusher.pushInt(power);
 					m_pusher.pushInt(MathConsts::power10().at(power));
 					m_pusher.pushFragmentInCallRef(4, 1, "__convertFixedPointToString");
+				} else if (cat == Type::Category::Bool) {
+					m_pusher.pushFragmentInCallRef(2, 1, "__convertBoolToStringBuilder");
 				} else {
 					cast_error(*m_arguments[it + 1].get(), "Unsupported argument type");
 				}

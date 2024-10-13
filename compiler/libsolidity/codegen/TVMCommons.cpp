@@ -297,6 +297,7 @@ bool isEmptyFunction(FunctionDefinition const* f) {
 std::vector<VariableDeclaration const*>
 convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr) {
 	std::vector<VariableDeclaration const*> ret;
+	ret.reserve(arr.size());
 	for (const auto& v : arr)
 		ret.emplace_back(v.get());
 	return ret;
@@ -305,6 +306,7 @@ convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr) {
 std::vector<Type const*>
 getTypesFromVarDecls(std::vector<ASTPointer<VariableDeclaration>> const& arr) {
 	std::vector<Type const*>  ret;
+	ret.reserve(arr.size());
 	for (const auto& v : arr)
 		ret.emplace_back(v->type());
 	return ret;
@@ -535,32 +537,23 @@ std::string StrUtils::toBitString(const std::string& slice) {
 	std::string bitString;
 	if (slice.at(0) == 'x') {
 		for (std::size_t i = 1; i < slice.size(); ++i) {
-			if (i + 2 == slice.size() && slice[i + 1] == '_') {
+			if (slice.at(i) == '_') {
+				while (!bitString.empty() && *bitString.rbegin() == '0') // trim last zeroes
+					bitString.pop_back();
+				if (!bitString.empty()) // trim last one
+					bitString.pop_back();
+				solAssert(i + 1 == slice.size(), "");
+			} else {
 				size_t pos{};
-				int value = std::stoi(slice.substr(i, 1), &pos, 16);
+				auto sss = slice.substr(i, 1);
+				int value = std::stoi(sss, &pos, 16);
 				solAssert(pos == 1, "");
-				int bitLen = 4;
-				while (true) {
-					bool isOne = value % 2 == 1;
-					--bitLen;
-					value /= 2;
-					if (isOne) {
-						break;
-					}
-				}
-				bitString += StrUtils::toBitString(value, bitLen, false).value();
-				break;
+				bitString += StrUtils::toBitString(value, 4, false).value();
 			}
-			size_t pos{};
-			auto sss = slice.substr(i, 1);
-			int value = std::stoi(sss, &pos, 16);
-			solAssert(pos == 1, "");
-			bitString += StrUtils::toBitString(value, 4, false).value();
 		}
+	} else if (isIn(slice, "0", "1")) {
+		bitString = slice;
 	} else {
-		if (isIn(slice, "0", "1")) {
-			return slice;
-		}
 		solUnimplemented("");
 	}
 	return bitString;

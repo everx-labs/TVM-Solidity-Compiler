@@ -297,12 +297,6 @@ public:
 	virtual bool leftAligned() const { solAssert(false, "Alignment property of non-value type requested."); }
 	/// Returns true if the type can be stored in storage.
 	virtual bool canBeStored() const { return true; }
-	/// Returns false if the type cannot live outside the storage, i.e. if it includes some mapping.
-	virtual bool containsNestedMapping() const
-	{
-		solAssert(nameable(), "Called for a non nameable type.");
-		return false;
-	}
 	/// Returns true if the type can be stored as a value (as opposed to a reference) on the stack,
 	/// i.e. it behaves differently in lvalue context and in value context.
 	virtual bool isValueType() const { return false; }
@@ -1040,7 +1034,6 @@ public:
 	bool isDynamicallyEncoded() const override;
 	bigint storageSizeUpperBound() const override;
 	u256 storageSize() const override;
-	bool containsNestedMapping() const override { return m_baseType->containsNestedMapping(); }
 	bool nameable() const override { return true; }
 
 	std::string toString(bool _withoutDataLocation) const override;
@@ -1201,7 +1194,6 @@ public:
 	u256 memoryDataSize() const override;
 	bigint storageSizeUpperBound() const override;
 	u256 storageSize() const override;
-	bool containsNestedMapping() const override;
 	bool nameable() const override { return true; }
 	std::string toString(bool _withoutDataLocation) const override;
 
@@ -1326,15 +1318,6 @@ public:
 	{
 		solAssert(underlyingType().nameable(), "");
 		return true;
-	}
-
-	bool containsNestedMapping() const override
-	{
-		solAssert(nameable(), "Called for a non nameable type.");
-		// DeclarationTypeChecker::endVisit(VariableDeclaration const&)
-		// assumes that this will never be true.
-		solAssert(!underlyingType().containsNestedMapping(), "");
-		return false;
 	}
 
 	bool hasSimpleZeroValueInMemory() const override
@@ -1471,6 +1454,7 @@ public:
 
 		TVMBuilderMethods, ///< builder.*()
 		TVMBuilderStore, ///< builder.store(...)
+		TVMBuilderStoreQ, ///< builder.storeQ(...)
 		TVMBuilderStoreInt, ///< builder.storeInt()
 		TVMBuilderStoreTons, ///< builder.storeTons()
 		TVMBuilderStoreUint, ///< builder.storeUint()
@@ -1669,6 +1653,11 @@ public:
         GoshSHA1,
         GoshSHA256,
         GoshKECCAK256,
+        GoshMINTECC,
+        GoshCNVRTSHELLQ,
+        GoshMINTSHELL,
+        GoshCALCBKREWARD,
+        GoshCALCMINSTAKE,
 	};
 	struct Options
 	{
@@ -1929,7 +1918,6 @@ public:
 	bool operator==(Type const& _other) const override;
 	std::string toString(bool _withoutDataLocation) const override;
 	std::string canonicalName() const override;
-	bool containsNestedMapping() const override { return true; }
 	TypeResult binaryOperatorResult(Token, Type const*) const override { return nullptr; }
 	Type const* encodingType() const override;
 	TypeResult interfaceType(bool ) const override { return this; }

@@ -28,6 +28,8 @@
 
 #include <libsolidity/analysis/ConstantEvaluator.h>
 
+#include <libsolidity/codegen/TVMCommons.hpp>
+
 #include <libsolutil/Algorithms.h>
 #include <libsolutil/CommonData.h>
 #include <libsolutil/CommonIO.h>
@@ -1465,6 +1467,28 @@ BoolResult StringLiteralType::isImplicitlyConvertibleTo(Type const& _convertTo) 
 		return
 			arrayType->isByteArrayOrString();
 	}
+	else if (_convertTo.category() == Type::Category::TvmSlice)
+	{
+		size_t invalidSequence{};
+		if (!util::validateSlice(value(), invalidSequence))
+			return BoolResult::err(
+				"Contains invalid slice character at position " +
+				util::toString(invalidSequence) +
+				"."
+			);
+		else {
+			int bitLength = StrUtils::toBitString("x" + value()).size();
+			bool fitToCell = bitLength <= 1023;
+			if (!fitToCell) {
+				return BoolResult::err(
+					"String literal is too long: " + std::to_string(bitLength) + " bits."
+					" It can not be fitted to the cell. Maximum allowed bit length is 1023 bits."
+				);
+			}
+		}
+
+		return true;
+	}
 	else
 		return false;
 }
@@ -2498,7 +2522,6 @@ unsigned StructType::calldataEncodedSize(bool) const
 	unsigned size = 0;
 	for (auto const& member: members(nullptr))
 	{
-		solAssert(!member.type->containsNestedMapping(), "");
 		// Struct members are always padded.
 		size += member.type->calldataEncodedSize();
 	}
@@ -2513,7 +2536,6 @@ unsigned StructType::calldataEncodedTailSize() const
 	unsigned size = 0;
 	for (auto const& member: members(nullptr))
 	{
-		solAssert(!member.type->containsNestedMapping(), "");
 		// Struct members are always padded.
 		size += member.type->calldataHeadSize();
 	}
@@ -2525,7 +2547,6 @@ unsigned StructType::calldataOffsetOfMember(std::string const& _member) const
 	unsigned offset = 0;
 	for (auto const& member: members(nullptr))
 	{
-		solAssert(!member.type->containsNestedMapping(), "");
 		if (member.name == _member)
 			return offset;
 		// Struct members are always padded.
@@ -2568,42 +2589,6 @@ bigint StructType::storageSizeUpperBound() const
 u256 StructType::storageSize() const
 {
 	return std::max<u256>(1, members(nullptr).storageSize());
-}
-
-bool StructType::containsNestedMapping() const
-{
-	if (!m_struct.annotation().containsNestedMapping.has_value())
-	{
-		bool hasNestedMapping = false;
-
-		util::BreadthFirstSearch<StructDefinition const*> breadthFirstSearch{{&m_struct}};
-
-		breadthFirstSearch.run(
-			[&](StructDefinition const* _struct, auto&& _addChild)
-			{
-				for (auto const& member: _struct->members())
-				{
-					Type const* memberType = member->annotation().type;
-					solAssert(memberType, "");
-
-					if (auto arrayType = dynamic_cast<ArrayType const*>(memberType))
-						memberType = arrayType->finalBaseType(false);
-
-					if (dynamic_cast<MappingType const*>(memberType))
-					{
-						hasNestedMapping = true;
-						breadthFirstSearch.abort();
-					}
-					else if (auto structType = dynamic_cast<StructType const*>(memberType))
-						_addChild(&structType->structDefinition());
-				}
-
-			});
-
-		m_struct.annotation().containsNestedMapping = hasNestedMapping;
-	}
-
-	return m_struct.annotation().containsNestedMapping.value();
 }
 
 std::string StructType::toString(bool /*_withoutDataLocation*/) const
@@ -2728,7 +2713,6 @@ u256 StructType::memoryOffsetOfMember(std::string const& _name) const
 
 TypePointers StructType::memoryMemberTypes() const
 {
-	solAssert(!containsNestedMapping(), "");
 	TypePointers types;
 	for (ASTPointer<VariableDeclaration> const& variable: m_struct.members())
 		types.push_back(variable->annotation().type);
@@ -3296,6 +3280,7 @@ std::string FunctionType::richIdentifier() const
 
 	case Kind::TVMBuilderMethods: id += "tvmbuildermethods"; break;
 	case Kind::TVMBuilderStore: id += "tvmbuilderstore"; break;
+	case Kind::TVMBuilderStoreQ: id += "tvmbuilderstoreq"; break;
 	case Kind::TVMBuilderStoreInt: id += "tvmbuilderstoreint"; break;
 	case Kind::TVMBuilderStoreTons: id += "tvmbuilderstoretons"; break;
 	case Kind::TVMBuilderStoreUint: id += "tvmbuilderstoreuint"; break;
@@ -3464,6 +3449,11 @@ std::string FunctionType::richIdentifier() const
     case Kind::GoshSHA1: id += "goshsha1"; break;
     case Kind::GoshSHA256: id += "goshsha256"; break;
     case Kind::GoshKECCAK256: id += "goshkeccak256"; break;
+    case Kind::GoshMINTECC: id += "goshmintecc"; break;
+    case Kind::GoshCNVRTSHELLQ: id += "goshcnvrtshellq"; break;
+    case Kind::GoshMINTSHELL: id += "goshmintshell"; break;
+    case Kind::GoshCALCBKREWARD: id += "goshcalcbkreward"; break;
+    case Kind::GoshCALCMINSTAKE: id += "goshcalcminstake"; break;
 	}
 	id += "_" + stateMutabilityToString(m_stateMutability);
 	id += identifierList(m_parameterTypes) + "returns" + identifierList(m_returnParameterTypes);
@@ -5170,7 +5160,7 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 			)}
 		});
 	case Kind::BLS: {
-		return MemberList::MemberMap({
+		auto members = MemberList::MemberMap({
 			{
 				"verify",
 				TypeProvider::function(
@@ -5425,6 +5415,97 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 				)
 			}
 		});
+		auto args = TypePointers{TypeProvider::tvmslice()};
+		auto argNames = strings{""};
+		for (int n = 1; n <= 255; ++n)
+		{
+			members.emplace_back(
+				"aggregate",
+				TypeProvider::function(
+					args,
+					TypePointers{TypeProvider::tvmslice()},
+					argNames,
+					strings{""},
+					FunctionType::Kind::BlsAggregate,
+					StateMutability::Pure
+				)
+			);
+			{
+				auto favArgs = args;
+				favArgs.emplace_back(TypeProvider::tvmslice());
+				favArgs.emplace_back(TypeProvider::tvmslice());
+				auto favNames = argNames;
+				favNames.emplace_back("");
+				favNames.emplace_back("");
+				members.emplace_back(
+					"fastAggregateVerify",
+					TypeProvider::function(
+						favArgs,
+						TypePointers{TypeProvider::boolean()},
+						favNames,
+						strings{""},
+						FunctionType::Kind::BlsFastAggregateVerify,
+						StateMutability::Pure
+					)
+				);
+			}
+			{
+				auto avArgs = args;
+				avArgs.insert(avArgs.end(), args.begin(), args.end());
+				avArgs.emplace_back(TypeProvider::tvmslice());
+				auto avNames = argNames;
+				avNames.insert(avNames.end(), argNames.begin(), argNames.end());
+				avNames.emplace_back("");
+				members.emplace_back(
+					"aggregateVerify",
+					TypeProvider::function(
+						avArgs,
+						TypePointers{TypeProvider::boolean()},
+						avNames,
+						strings{""},
+						FunctionType::Kind::BlsAggregateVerify,
+						StateMutability::Pure
+					)
+				);
+			}
+			{
+				TypePointers mulArgs;
+				strings mulNames;
+				for (int i = 0; i < n; ++i) {
+					mulArgs.emplace_back(TypeProvider::tvmslice());
+					mulArgs.emplace_back(TypeProvider::int257());
+					mulNames.emplace_back("");
+					mulNames.emplace_back("");
+				}
+				members.emplace_back(
+					"g1MultiExp",
+					TypeProvider::function(
+						mulArgs,
+						TypePointers{TypeProvider::tvmslice()},
+						mulNames,
+						strings{""},
+						FunctionType::Kind::BlsG1MultiExp,
+						StateMutability::Pure
+					)
+				);
+				members.emplace_back(
+					"g2MultiExp",
+					TypeProvider::function(
+						mulArgs,
+						TypePointers{TypeProvider::tvmslice()},
+						mulNames,
+						strings{""},
+						FunctionType::Kind::BlsG1MultiExp,
+						StateMutability::Pure
+					)
+				);
+			}
+
+			//
+			args.emplace_back(TypeProvider::tvmslice());
+			argNames.emplace_back("");
+		}
+		return members;
 	}
 	case Kind::Gosh: {
 		MemberList::MemberMap members;
@@ -5534,6 +5615,66 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 				{{}},
 				{{}},
 				FunctionType::Kind::GoshKECCAK256,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+		)});
+
+		members.push_back({
+			"mintecc",
+			TypeProvider::function(
+				{TypeProvider::uint64(), TypeProvider::uint32()}, 
+				{},
+				{{}, {}}, 
+				{},
+				FunctionType::Kind::GoshMINTECC,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+		)});
+
+		members.push_back({
+			"cnvrtshellq",
+			TypeProvider::function(
+				{TypeProvider::uint64()}, 
+				{},
+				{{}}, 
+				{},
+				FunctionType::Kind::GoshCNVRTSHELLQ,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+		)});
+
+		members.push_back({
+			"mintshell",
+			TypeProvider::function(
+				{TypeProvider::uint64()}, 
+				{},
+				{{}}, 
+				{},
+				FunctionType::Kind::GoshMINTSHELL,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+		)});
+
+		members.push_back({
+			"calcbkreward",
+			TypeProvider::function(
+				{TypeProvider::uint128(), TypeProvider::uint128(), TypeProvider::uint128(), TypeProvider::uint128(), TypeProvider::uint128(), TypeProvider::uint128()}, 
+				{TypeProvider::uint128()},
+				{{}, {}, {}, {}, {}, {}}, 
+				{{}},
+				FunctionType::Kind::GoshCALCBKREWARD,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+		)});
+		
+		members.push_back({
+			"calcminstake",
+			TypeProvider::function(
+				{TypeProvider::uint128(), TypeProvider::uint128(), TypeProvider::uint128(), TypeProvider::uint128()}, 
+				{TypeProvider::uint128()},
+				{{}, {}, {}, {}}, 
+				{{}},
+				FunctionType::Kind::GoshCALCMINSTAKE,
 				StateMutability::Pure,
 				nullptr, FunctionType::Options::withArbitraryParameters()
 		)});
@@ -6950,6 +7091,17 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 				strings{},
 				strings{},
 				FunctionType::Kind::TVMBuilderStore,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+			)
+		},
+		{
+			"storeQ", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::boolean()},
+				strings{},
+				strings{""},
+				FunctionType::Kind::TVMBuilderStoreQ,
 				StateMutability::Pure,
 				nullptr, FunctionType::Options::withArbitraryParameters()
 			)
