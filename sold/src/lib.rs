@@ -7,7 +7,6 @@ use std::path::Path;
 use clap::{ValueEnum, Parser};
 use failure::{bail, format_err};
 use serde::Deserialize;
-use failure::{bail, format_err};
 
 use tvm_assembler::{DbgInfo, Engine, Units};
 use tvm_types::{Result, Status};
