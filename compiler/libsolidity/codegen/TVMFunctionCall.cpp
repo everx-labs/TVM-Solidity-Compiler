@@ -2586,8 +2586,8 @@ void FunctionCallCompiler::goshFunction() {
         return "KECCAK256";
 			case FunctionType::Kind::GoshVergrth16:
          return "VERGRTH16";
-			case FunctionType::Kind::GoshPoseidonZkLogin:
-         return "POSEIDON_ZKLOGIN";
+			case FunctionType::Kind::GoshPoseidon:
+         return "POSEIDON";
       case FunctionType::Kind::GoshMINTECC:
          return "MINTECC";
       case FunctionType::Kind::GoshCNVRTSHELLQ:

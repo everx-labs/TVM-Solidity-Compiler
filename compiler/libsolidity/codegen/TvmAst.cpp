@@ -627,7 +627,7 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
     {"SHA256", {1, 1, true}},
     {"KECCAK256", {1, 1, true}},
 		{"VERGRTH16", {3, 1, true}},
-		{"POSEIDON_ZKLOGIN", {5, 1, true}},
+		{"POSEIDON", {7, 1, true}},
     {"MINTECC", {2, 0}},
     {"CNVRTSHELLQ", {1, 0}},
     {"MINTSHELL", {1, 0}},

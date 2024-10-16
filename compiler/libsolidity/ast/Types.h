@@ -1654,7 +1654,7 @@ public:
     GoshSHA256,
     GoshKECCAK256,
 		GoshVergrth16,
-		GoshPoseidonZkLogin,
+		GoshPoseidon,
     GoshMINTECC,
     GoshCNVRTSHELLQ,
     GoshMINTSHELL,

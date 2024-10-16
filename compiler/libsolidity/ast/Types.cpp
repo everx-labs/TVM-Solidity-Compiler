@@ -3450,7 +3450,7 @@ std::string FunctionType::richIdentifier() const
   case Kind::GoshSHA256: id += "goshsha256"; break;
   case Kind::GoshKECCAK256: id += "goshkeccak256"; break;
 	case Kind::GoshVergrth16: id += "goshvergrth16"; break;
-	case Kind::GoshPoseidonZkLogin: id += "goshposeidonzklogin"; break;
+	case Kind::GoshPoseidon: id += "goshposeidon"; break;
   case Kind::GoshMINTECC: id += "goshmintecc"; break;
   case Kind::GoshCNVRTSHELLQ: id += "goshcnvrtshellq"; break;
   case Kind::GoshMINTSHELL: id += "goshmintshell"; break;
@@ -5610,13 +5610,13 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 		)});
 
 		members.push_back({
-			"poseidonZkLogin",
+			"poseidon",
 			TypeProvider::function(
-				{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::bytesMemory(), TypeProvider::stringMemory(), TypeProvider::stringMemory()},
+				{TypeProvider::uint256(),  TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::bytesMemory(), TypeProvider::stringMemory(), TypeProvider::stringMemory(), TypeProvider::stringMemory()},
 				{TypeProvider::bytesMemory()},
-				{{}, {}, {}, {}, {}},
+				{{}, {}, {}, {}, {}, {}, {}},
 				{{}},
-				FunctionType::Kind::GoshPoseidonZkLogin,
+				FunctionType::Kind::GoshPoseidon,
 				StateMutability::Pure,
 				nullptr, FunctionType::Options::withArbitraryParameters()
 		)});
