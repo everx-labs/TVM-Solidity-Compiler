@@ -440,12 +440,12 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt1(Pointer<TvmAstNode> 
 		}
 	}
 
-	// PUSHCONT { genA }
-	// PUSHCONT { genB }
+	// PUSHCONT { a }
+	// PUSHCONT { b }
 	// IFELSE
 	// =>
-	// genA
-	// genB
+	// newA
+	// newB
 	// CONDSEL
 	if (cmd1IfElse && cmd1IfElse->falseBody() != nullptr) {
 		std::vector<Pointer<TvmAstNode>> const& t = cmd1IfElse->trueBody()->instructions();
@@ -460,17 +460,21 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt1(Pointer<TvmAstNode> 
 				to<PushCellOrSlice>(a.get()) ||
 				isPUSH(a)
 			) {
+				Pointer<TvmAstNode> newA = a;
+				if (auto index = isPUSH(a))
+					newA = makePUSH(*index + 1); // +1 because condition flag
+
 				Pointer<TvmAstNode> newB;
 				if (to<StackOpcode>(b.get()) ||
 					to<Glob>(b.get()) ||
 					to<PushCellOrSlice>(b.get())
-				) {
+				)
 					newB = b;
-				} else if (auto index = isPUSH(b)) {
-					newB = makePUSH(*index + 2); // +2 because flag and value from first branch
-				}
+				else if (auto index = isPUSH(b))
+					newB = makePUSH(*index + 2); // +2 because condition flag and value from first branch
+
 				if (newB)
-					return Result{1, a, newB, gen("CONDSEL")};
+					return Result{1, newA, newB, gen("CONDSEL")};
 			}
 		}
 	}

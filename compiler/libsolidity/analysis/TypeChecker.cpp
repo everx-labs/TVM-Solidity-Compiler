@@ -907,17 +907,7 @@ bool TypeChecker::visit(VariableDeclaration const& _variable)
 
 	if (_variable.value())
 	{
-		if (_variable.isStateVariable() && varType->containsNestedMapping())
-		{
-			m_errorReporter.typeError(
-				6280_error,
-				_variable.location(),
-				"Types in storage containing (nested) mappings cannot be assigned to."
-			);
-			_variable.value()->accept(*this);
-		}
-		else
-			expectType(*_variable.value(), *varType);
+		expectType(*_variable.value(), *varType);
 	}
 	if (_variable.isConstant())
 	{
@@ -1793,12 +1783,6 @@ bool TypeChecker::visit(TupleExpression const& _tuple)
 					_tuple.location(),
 					"Unable to deduce nameable type for array elements. Try adding explicit type conversion for the first element."
 				);
-			else if (inlineArrayType->containsNestedMapping())
-				m_errorReporter.fatalTypeError(
-					1545_error,
-					_tuple.location(),
-					"Type " + inlineArrayType->humanReadableName() + " is only valid in storage."
-				);
 
 			_tuple.annotation().type = TypeProvider::array(inlineArrayType, types.size());
 		}
@@ -2380,6 +2364,47 @@ void TypeChecker::typeCheckTvmEncodeArg(Type const* type, SourceLocation const& 
 			);
 		break;
 	}
+}
+
+void TypeChecker::checkStoreQ(Expression const& _argument) {
+	auto const type = _argument.annotation().type;
+
+	auto printError = [&](){
+		m_errorReporter.fatalTypeError(4828_error, _argument.location(), "Unsupported type for \"storeQ\".");
+	};
+
+	switch (type->category()) {
+		case Type::Category::Array: {
+			auto arrayType = to<ArrayType>(type);
+			if (!arrayType->isByteArrayOrString()) {
+				printError();
+			}
+			break;
+		}
+		case Type::Category::TvmCell:
+		case Type::Category::Address:
+		case Type::Category::Contract:
+		case Type::Category::TvmSlice:
+		case Type::Category::Integer:
+		case Type::Category::Enum:
+		case Type::Category::Bool:
+		case Type::Category::FixedBytes:
+		case Type::Category::FixedPoint:
+		case Type::Category::TvmBuilder:
+			break;
+		case Type::Category::RationalNumber:
+			m_errorReporter.typeError(
+				1090_error,
+				_argument.location(),
+				"Cannot perform storing for a literal."
+				" Please convert it to an explicit type first."
+			);
+			break;
+		default: {
+			printError();
+		}
+	}
+
 }
 
 void TypeChecker::typeCheckTvmEncodeFunctions(FunctionCall const& _functionCall) {
@@ -3968,6 +3993,14 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		{
 			checkAtLeastOneArg();
 			typeCheckTvmEncodeFunctions(_functionCall);
+			returnTypes = functionType->returnParameterTypes();
+			break;
+		}
+		case FunctionType::Kind::TVMBuilderStoreQ:
+		{
+			if (arguments.size() != 1)
+				m_errorReporter.fatalTypeError(3763_error, _functionCall.location(), "Expected one argument.");
+			checkStoreQ(*arguments.at(0));
 			returnTypes = functionType->returnParameterTypes();
 			break;
 		}

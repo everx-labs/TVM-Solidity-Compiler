@@ -122,6 +122,9 @@ public:
 	static IntegerType const* int_(unsigned _bits) { return integer(_bits, IntegerType::Modifier::Signed); }
 
 	static IntegerType const* uint256() { return uint(256); }
+	static IntegerType const* uint64() { return uint(64); }
+	static IntegerType const* uint32() { return uint(32); }
+	static IntegerType const* uint128() { return uint(128); }
 	static IntegerType const* int257() { return integer(257, IntegerType::Modifier::Signed); }
 
 	static VarIntegerType const* coins();

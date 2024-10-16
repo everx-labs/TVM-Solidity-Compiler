@@ -1,7 +1,7 @@
 [package]
 edition = '2021'
 name = 'sold'
-version = '0.75.0'
+version = '0.76.0'
 
 [[bin]]
 name = 'sold'
@@ -15,26 +15,16 @@ failure = '0.1.8'
 once_cell = '1.19'
 serde_json = { features = ['unbounded_depth'], version = '1.0' }
 strip-ansi-escapes = '0.2'
+
 clap = { features = ['derive'], version = '4.5' }
 serde = { features = ['derive'], version = '1.0' }
 
-#tvm_abi = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = '69e84f0a3cc7d4394450e3d97f9f1c28ac3ae186'  }
-#tvm_assembler = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = '69e84f0a3cc7d4394450e3d97f9f1c28ac3ae186' , features = [ 'gosh' ] }
-#tvm_block = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = '69e84f0a3cc7d4394450e3d97f9f1c28ac3ae186'  }
-#tvm_types = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = '69e84f0a3cc7d4394450e3d97f9f1c28ac3ae186'  }
-
-#tvm_abi = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = '6b92329' }
-#tvm_assembler = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = '6b92329', features = ['gosh',] }
-#tvm_block = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = '6b92329' }
-#tvm_types = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = '6b92329' }
-
-tvm_abi = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = 'aff4c35ed2833493eb2886137f4ff65b1366c14f' }
-tvm_assembler = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = 'aff4c35ed2833493eb2886137f4ff65b1366c14f', features = [
+tvm_abi = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = 'ff35aa2bd36459c519e0deabe4c5aa730ca5180c' }
+tvm_assembler = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = 'ff35aa2bd36459c519e0deabe4c5aa730ca5180c', features = [
   'gosh',
 ] }
-tvm_block = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = 'aff4c35ed2833493eb2886137f4ff65b1366c14f' }
-tvm_types = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = 'aff4c35ed2833493eb2886137f4ff65b1366c14f' }
-
+tvm_block = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = 'ff35aa2bd36459c519e0deabe4c5aa730ca5180c' }
+tvm_types = { git = 'https://github.com/tvmlabs/tvm-sdk.git', rev = 'ff35aa2bd36459c519e0deabe4c5aa730ca5180c' }
 
 [build-dependencies]
 cmake = '0.1'

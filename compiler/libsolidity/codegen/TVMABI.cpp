@@ -1058,7 +1058,7 @@ void ChainDataEncoder::encodeParameters(
 				pusher->blockSwap(argQty, 1);
 				*pusher << "NEWC";
 			}
-			pusher->store(type, false);
+			pusher->store(type);
 		}
 	}
 	for (int idx = 0; idx < position.countOfCreatedBuilders(); idx++) {
