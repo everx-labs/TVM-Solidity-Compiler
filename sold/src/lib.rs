@@ -4,7 +4,7 @@ use std::io::Write;
 use std::os::raw::{c_char, c_void};
 use std::path::Path;
 
-use clap::{ValueEnum, Parser};
+use clap::{Parser, ValueEnum};
 use failure::{bail, format_err};
 use serde::Deserialize;
 

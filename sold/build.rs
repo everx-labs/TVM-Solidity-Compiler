@@ -19,7 +19,7 @@ fn absolute_path(path: &str) -> String {
         // https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
         str = str.get(4..).unwrap().to_string();
     }
-    return str;
+    str
 }
 
 fn full_lib_name(lib_name: &str, boost_lib_dir: &str) -> String {
