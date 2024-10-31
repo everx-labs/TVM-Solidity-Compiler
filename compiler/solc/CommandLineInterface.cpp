@@ -465,7 +465,6 @@ void CommandLineInterface::compile()
 
 	SourceReferenceFormatter formatter(serr(false), *m_compiler, coloredOutput(m_options), m_options.formatting.withErrorIds);
 
-	bool successful = true;
 	try
 	{
 		if (m_options.metadata.literalSources)
@@ -547,6 +546,7 @@ void CommandLineInterface::compile()
 		m_compiler->setOutputFolder(m_options.output.dir.string());
 		m_compiler->setTVMVersion(m_options.tvmParams.tvmVersion);
 
+		bool successful = true;
 		bool didCompileSomething = false;
 		std::tie(successful, didCompileSomething) = m_compiler->compile();
 		m_hasOutput |= didCompileSomething;
@@ -557,6 +557,8 @@ void CommandLineInterface::compile()
 			formatter.printErrorInformation(*error);
 		}
 
+		if (!successful)
+			solThrow(CommandLineExecutionError, "");
 	}
 	catch (CompilerError const& _exception)
 	{
@@ -581,22 +583,6 @@ void CommandLineInterface::compile()
 			solThrow(CommandLineExecutionError, "");
 		}
 	}
-	catch (util::Exception const& exception)
-	{
-
-		serr() << exception.what() << std::endl;
-		serr() << exception.lineInfo() << std::endl;
-		serr() << "Internal error" << std::endl
-			<< "Please report your bug to https://github.com/everx-labs/TVM-Solidity-Compiler/issues" << std::endl;
-	}
-	catch (...)
-	{
-		serr() << "Internal error" << std::endl
-			   << "Please report your bug to https://github.com/everx-labs/TVM-Solidity-Compiler/issues" << std::endl;
-	}
-
-	if (!successful)
-		solThrow(CommandLineExecutionError, "");
 }
 
 void CommandLineInterface::handleAst()

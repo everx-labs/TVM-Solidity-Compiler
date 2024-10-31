@@ -516,7 +516,7 @@ BoolResult AddressType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 	if (Type::isImplicitlyConvertibleTo(_convertTo))
 		return true;
 
-	return _convertTo.category() == category();
+	return _convertTo.category() == Category::Address || _convertTo.category() == Category::AddressStd;
 }
 
 BoolResult AddressType::isExplicitlyConvertibleTo(Type const& _convertTo) const
@@ -560,11 +560,6 @@ TypeResult AddressType::binaryOperatorResult(Token _operator, Type const* _other
 	return Type::commonType(this, _other);
 }
 
-bool AddressType::operator==(Type const& _other) const
-{
-	return _other.category() == category();
-}
-
 MemberList::MemberMap AddressType::nativeMembers(ASTNode const*) const
 {
 	MemberList::MemberMap members = {
@@ -586,7 +581,7 @@ MemberList::MemberMap AddressType::nativeMembers(ASTNode const*) const
 	));
 	members.emplace_back("getType", TypeProvider::function(
 			TypePointers{},
-			TypePointers{TypeProvider::uint(8)},
+			TypePointers{TypeProvider::uint(4)},
 			strings{},
 			strings{std::string()},
 			FunctionType::Kind::AddressType,
@@ -616,6 +611,107 @@ MemberList::MemberMap AddressType::nativeMembers(ASTNode const*) const
 			StateMutability::Pure,
 			nullptr,
 			FunctionType::Options::withArbitraryParameters()
+	));
+	return members;
+}
+
+std::string AddressStdType::richIdentifier() const
+{
+	return "t_address_std";
+}
+
+std::string AddressStdType::toString(bool) const {
+	return "address_std";
+}
+
+std::string AddressStdType::canonicalName() const {
+	return "address_std";
+}
+
+u256 AddressStdType::literalValue(Literal const* _literal) const
+{
+	solAssert(_literal, "");
+	solAssert(_literal->value().substr(0, 2) == "0x", "");
+	return u256(_literal->valueWithoutUnderscores());
+}
+
+BoolResult AddressStdType::isImplicitlyConvertibleTo(Type const& _convertTo) const {
+	if (Type::isImplicitlyConvertibleTo(_convertTo))
+		return true;
+
+	return _convertTo.category() == Category::Address || _convertTo.category() == Category::AddressStd;
+}
+
+BoolResult AddressStdType::isExplicitlyConvertibleTo(Type const& _convertTo) const {
+	if ((_convertTo.category() == category()) || isImplicitlyConvertibleTo(_convertTo))
+		return true;
+	else if (dynamic_cast<ContractType const*>(&_convertTo))
+		return true;
+
+	return false;
+}
+
+TypeResult AddressStdType::unaryOperatorResult(Token _operator) const
+{
+	return _operator == Token::Delete ? TypeProvider::emptyTuple() : nullptr;
+}
+
+
+TypeResult AddressStdType::binaryOperatorResult(Token _operator, Type const* _other) const
+{
+	if (!TokenTraits::isCompareOp(_operator))
+		return TypeResult::err("Arithmetic operations on addresses are not supported. Convert to integer first before using them.");
+
+	return Type::commonType(this, _other);
+}
+
+MemberList::MemberMap AddressStdType::nativeMembers(ASTNode const*) const {
+	MemberList::MemberMap members = {
+		{"wid", TypeProvider::integer(8, IntegerType::Modifier::Signed)},
+		{"value", TypeProvider::uint256()},
+		{"isStdZero", TypeProvider::function(strings(), strings{"bool"}, FunctionType::Kind::AddressIsZero, StateMutability::Pure)},
+		{"isNone", TypeProvider::function(strings(), strings{"bool"}, FunctionType::Kind::AddressIsZero, StateMutability::Pure)},
+	};
+	members.emplace_back("unpack", TypeProvider::function(
+		TypePointers{},
+		TypePointers{TypeProvider::integer(8, IntegerType::Modifier::Signed), TypeProvider::uint256()},
+		strings{},
+		strings{std::string(), std::string()},
+		FunctionType::Kind::AddressUnpack,
+		StateMutability::Pure
+	));
+	members.emplace_back("getType", TypeProvider::function(
+		TypePointers{},
+		TypePointers{TypeProvider::uint(4)},
+		strings{},
+		strings{std::string()},
+		FunctionType::Kind::AddressType,
+		StateMutability::Pure
+	));
+	members.emplace_back("isStdAddrWithoutAnyCast", TypeProvider::function(
+		TypePointers{},
+		TypePointers{TypeProvider::boolean()},
+		strings{},
+		strings{std::string()},
+		FunctionType::Kind::AddressIsStdAddrWithoutAnyCast,
+		StateMutability::Pure
+	));
+	members.emplace_back("transfer", TypeProvider::function(
+		{
+			TypeProvider::coins(),
+			TypeProvider::boolean(),
+			TypeProvider::uint(16),
+			TypeProvider::tvmcell(),
+			TypeProvider::extraCurrencyCollection(),
+			TypeProvider::tvmcell(),
+		},
+		{},
+		{"value", "bounce", "flag", "body", "currencies", "stateInit"},
+		{},
+		FunctionType::Kind::AddressTransfer,
+		StateMutability::Pure,
+		nullptr,
+		FunctionType::Options::withArbitraryParameters()
 	));
 	return members;
 }
@@ -722,7 +818,7 @@ BoolResult IntegerType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 		category == Type::Category::FixedPoint
 	)
 		return true;
-	else if (dynamic_cast<AddressType const*>(&_convertTo) || dynamic_cast<ContractType const*>(&_convertTo))
+	else if (dynamic_cast<AddressType const*>(&_convertTo) || dynamic_cast<AddressStdType const*>(&_convertTo) || dynamic_cast<ContractType const*>(&_convertTo))
 		return !isSigned();
 	else if (auto fixedBytesType = dynamic_cast<FixedBytesType const*>(&_convertTo))
 		return (!isSigned() && (numBits() == fixedBytesType->numBytes() * 8));
@@ -1198,7 +1294,7 @@ BoolResult RationalNumberType::isExplicitlyConvertibleTo(Type const& _convertTo)
 	auto category = _convertTo.category();
 	if (category == Category::FixedBytes)
 		return false;
-	else if (dynamic_cast<AddressType const*>(&_convertTo) || dynamic_cast<ContractType const*>(&_convertTo))
+	else if (dynamic_cast<AddressType const*>(&_convertTo) || dynamic_cast<AddressStdType const*>(&_convertTo) || dynamic_cast<ContractType const*>(&_convertTo))
 		return	(m_value == 0) ||
 			(!isNegative() &&
 			!isFractional() &&
@@ -1570,7 +1666,7 @@ BoolResult FixedBytesType::isExplicitlyConvertibleTo(Type const& _convertTo) con
 		return true;
 	else if (auto integerType = dynamic_cast<IntegerType const*>(&_convertTo))
 		return (!integerType->isSigned() && integerType->numBits() == numBytes() * 8);
-	else if (dynamic_cast<AddressType const*>(&_convertTo))
+	else if (dynamic_cast<AddressType const*>(&_convertTo) || dynamic_cast<AddressStdType const*>(&_convertTo))
 		return numBytes() == 32;
 
 	return false;
@@ -1716,7 +1812,7 @@ BoolResult ContractType::isExplicitlyConvertibleTo(Type const& _convertTo) const
 	if (m_super)
 		return false;
 
-	if (dynamic_cast<AddressType const*>(&_convertTo))
+	if (dynamic_cast<AddressType const*>(&_convertTo) || dynamic_cast<AddressStdType const*>(&_convertTo))
 		return true;
 
 	return isImplicitlyConvertibleTo(_convertTo);
@@ -3267,7 +3363,7 @@ std::string FunctionType::richIdentifier() const
 	case Kind::LogTVM: id += "logtvm"; break;
 	case Kind::TVMAccept: id += "tvmaccept"; break;
 
-	case Kind::ABIBuildIntMsg: id += "abibuildintmsg"; break;
+	case Kind::ABIEncodeIntMsg: id += "abibuildintmsg"; break;
 	case Kind::ABICodeSalt: id += "abicodesalt"; break;
 	case Kind::ABIDecodeFunctionParams: id += "abidecodefunctionparams"; break;
 	case Kind::ABIDecodeData: id += "abidecodestatevars"; break;
@@ -4220,10 +4316,6 @@ std::string NullType::richIdentifier() const {
 	return "null";
 }
 
-bool NullType::operator==(Type const& _other) const {
-	return _other.category() == category();
-}
-
 std::string NullType::toString(bool /*_short*/) const {
 	return "null";
 }
@@ -4239,10 +4331,6 @@ BoolResult EmptyMapType::isImplicitlyConvertibleTo(Type const& _other) const {
 
 std::string EmptyMapType::richIdentifier() const {
 	return "emptyMap";
-}
-
-bool EmptyMapType::operator==(Type const& _other) const {
-	return _other.category() == category();
 }
 
 std::string EmptyMapType::toString(bool /*_short*/) const {
@@ -4272,6 +4360,11 @@ std::string NanType::richIdentifier() const
 std::string NanType::toString(bool) const
 {
 	return "NaN";
+}
+
+std::string NanType::canonicalName() const
+{
+    return "NaN";
 }
 
 std::string TypeType::richIdentifier() const
@@ -4390,6 +4483,16 @@ MemberList::MemberMap TypeType::nativeMembers(ASTNode const* _currentScope) cons
 		members.emplace_back("makeAddrStd", TypeProvider::function(
 				TypePointers{TypeProvider::integer(8, IntegerType::Modifier::Signed), TypeProvider::uint256()},
 				TypePointers{TypeProvider::address()},
+				strings{std::string(), std::string()},
+				strings{std::string()},
+				FunctionType::Kind::AddressMakeAddrStd,
+				StateMutability::Pure
+		));
+	} else if (m_actualType->category() == Category::AddressStd) {
+		members.emplace_back("addrNone", TypeProvider::addressStd());
+		members.emplace_back("makeAddrStd", TypeProvider::function(
+				TypePointers{TypeProvider::integer(8, IntegerType::Modifier::Signed), TypeProvider::uint256()},
+				TypePointers{TypeProvider::addressStd()},
 				strings{std::string(), std::string()},
 				strings{std::string()},
 				FunctionType::Kind::AddressMakeAddrStd,
@@ -4745,7 +4848,7 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 					"stateInit", // can be omitted
 				},
 				{{}},
-				FunctionType::Kind::ABIBuildIntMsg,
+				FunctionType::Kind::ABIEncodeIntMsg,
 				StateMutability::Pure,
 				nullptr,
 				FunctionType::Options::withArbitraryParameters()
@@ -5117,7 +5220,7 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 					"stateInit", // can be omitted
 				},
 				{{}},
-				FunctionType::Kind::ABIBuildIntMsg,
+				FunctionType::Kind::ABIEncodeIntMsg,
 				StateMutability::Pure,
 				nullptr,
 				FunctionType::Options::withArbitraryParameters()
@@ -6625,6 +6728,11 @@ MemberList::MemberMap Variant::nativeMembers(ASTNode const* /*_currentScope*/) c
 	return members;
 }
 
+bool TvmVectorType::operator==(Type const& _other) const {
+    auto vect = to<TvmVectorType>(&_other);
+    return vect && *this->valueType() == *vect->valueType();
+}
+
 TypeResult TvmVectorType::unaryOperatorResult(Token _operator) const {
 	if (_operator == Token::Delete)
 		return TypeProvider::emptyTuple();
@@ -6718,6 +6826,11 @@ TypeResult TvmStackType::unaryOperatorResult(Token _operator) const {
 	if (_operator == Token::Delete)
 		return TypeProvider::emptyTuple();
 	return nullptr;
+}
+
+bool TvmStackType::operator==(Type const& _other) const {
+    auto stack = to<TvmStackType>(&_other);
+    return stack && *this->valueType() == *stack->valueType();
 }
 
 MemberList::MemberMap TvmStackType::nativeMembers(const ASTNode *) const
@@ -7165,6 +7278,11 @@ MemberList::MemberMap StringBuilderType::nativeMembers(const ASTNode *) const {
 		},
 	};
 	return members;
+}
+
+bool VarIntegerType::operator==(Type const& _other) const {
+    auto varInt = to<VarIntegerType>(&_other);
+    return varInt && m_int == varInt->m_int;
 }
 
 BoolResult VarIntegerType::isImplicitlyConvertibleTo(Type const& _convertTo) const {

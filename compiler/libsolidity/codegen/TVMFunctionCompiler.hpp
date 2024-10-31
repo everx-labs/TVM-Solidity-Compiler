@@ -54,6 +54,7 @@ public:
 	static Pointer<Function> generateFallback(TVMCompilerContext& ctx, FunctionDefinition const* function);
 	static Pointer<Function> generateOnBounce(TVMCompilerContext& ctx, FunctionDefinition const* function);
 	static Pointer<Function> generatePublicFunction(TVMCompilerContext& ctx, FunctionDefinition const* function);
+	static Pointer<Function> generateGetterFunction(TVMCompilerContext& ctx, FunctionDefinition const* function);
 	static void generateFunctionWithModifiers(StackPusher& pusher, FunctionDefinition const* function, bool pushArgs);
 	static Pointer<Function> generateGetter(StackPusher& pusher, VariableDeclaration const* vd);
 	static Pointer<Function> generatePublicFunctionSelector(TVMCompilerContext& pusher, ContractDefinition const *contract);

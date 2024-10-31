@@ -71,47 +71,6 @@ case $(uname -s) in
 #------------------------------------------------------------------------------
 
     Darwin)
-        case $(sw_vers -productVersion | awk -F . '{print $1"."$2}') in
-            10.9)
-                echo "Installing solidity dependencies on OS X 10.9 Mavericks."
-                ;;
-            10.10)
-                echo "Installing solidity dependencies on OS X 10.10 Yosemite."
-                ;;
-            10.11)
-                echo "Installing solidity dependencies on OS X 10.11 El Capitan."
-                ;;
-            10.12)
-                echo "Installing solidity dependencies on macOS 10.12 Sierra."
-                ;;
-            10.13)
-                echo "Installing solidity dependencies on macOS 10.13 High Sierra."
-                ;;
-            10.14)
-                echo "Installing solidity dependencies on macOS 10.14 Mojave."
-                ;;
-            10.15)
-                echo "Installing solidity dependencies on macOS 10.15 Catalina."
-                ;;
-            11.0 | 11.1 | 11.2 | 11.3 | 11.4)
-                echo "Installing solidity dependencies on macOS 11.0 / 11.1 / 11.2 / 11.3 / 11.4 Big Sur."
-                ;;
-            12.*)
-                echo "Installing solidity dependencies on macOS 12 Monterey."
-                ;;
-            13.*)
-                echo "Installing solidity dependencies on macOS 13."
-                ;;
-            14.*)
-                echo "Installing solidity dependencies on macOS 14."
-                ;;
-            *)
-                echo "Unsupported macOS version."
-                echo "We only support Mavericks, Yosemite, El Capitan, Sierra, High Sierra, Mojave, Catalina, Big Sur and Monterey."
-                exit 1
-                ;;
-        esac
-
         # Check for Homebrew install and abort if it is not installed.
         brew -v > /dev/null 2>&1 || { echo >&2 "ERROR - solidity requires a Homebrew install.  See https://brew.sh."; exit 1; }
         brew update

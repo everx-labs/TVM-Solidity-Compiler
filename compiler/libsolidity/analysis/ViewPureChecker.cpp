@@ -82,7 +82,8 @@ void ViewPureChecker::endVisit(FunctionDefinition const& _funDef)
 		!_funDef.isFallback() &&
 		!_funDef.isReceive() &&
 		!_funDef.virtualSemantics() &&
-		!_funDef.isInlineAssembly()
+		!_funDef.isInlineAssembly() &&
+		_funDef.visibility() != Visibility::Getter
 	)
 		m_errorReporter.warning(
 			2018_error,

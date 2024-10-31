@@ -52,7 +52,7 @@ constexpr uint64_t str2int(const char* str, int i = 0) {
 std::string functionName(FunctionDefinition const* _function);
 std::string eventName(EventDefinition const* _event);
 
-bool isAddressOrContractType(const Type* type);
+bool isAddressOrAddressStdOrContractType(const Type* type);
 bool isUsualArray(const Type* type);
 bool isByteArrayOrString(const Type* type);
 bool isString(const Type* type);
@@ -268,7 +268,7 @@ std::pair<std::vector<Type const*>, std::vector<ASTNode const*>>
 getParams(const ast_vec<T>& params, size_t offset = 0) {
 	std::vector<Type const*> types;
 	std::vector<ASTNode const*> nodes;
-	for (auto it = params.begin() + offset; it != params.end(); it++) {
+	for (auto it = params.begin() + offset; it != params.end(); ++it) {
 		types.push_back(getType(it->get()));
 		nodes.push_back(it->get());
 	}
@@ -405,5 +405,7 @@ namespace MathConsts {
 
 bool isFitUselessUnary(Type const* common, Token op);
 bool isFitUseless(Type const* left, Type const* right, Type const* common, Token op);
+
+unsigned short crc16(char const *pcBlock, unsigned short len);
 
 } // end solidity::frontend

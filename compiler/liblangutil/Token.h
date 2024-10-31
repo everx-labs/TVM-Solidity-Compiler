@@ -182,6 +182,7 @@ namespace solidity::langutil
 	K(Override, "override", 0)                                         \
 	K(Payable, "payable", 0)                                           \
 	K(Public, "public", 0)                                             \
+	K(Getter, "getter", 0)                                             \
 	K(Pragma, "pragma", 0)                                             \
 	K(Private, "private", 0)                                           \
 	K(Pure, "pure", 0)                                                 \
@@ -244,6 +245,7 @@ namespace solidity::langutil
 	K(Bytes, "bytes", 0)                                               \
 	K(String, "string", 0)                                             \
 	K(Address, "address", 0)                                           \
+	K(AddressStd, "address_std", 0)                                    \
 	K(Bool, "bool", 0)                                                 \
 	K(TvmCell, "TvmCell", 0)                                           \
 	K(TvmSlice, "TvmSlice", 0)                                         \
@@ -368,7 +370,7 @@ namespace TokenTraits
 	constexpr bool isVariableVisibilitySpecifier(Token op) {
 		return op == Token::Public || op == Token::Private || op == Token::Internal;
 	}
-	constexpr bool isVisibilitySpecifier(Token op) { return isVariableVisibilitySpecifier(op) || op == Token::External; }
+	constexpr bool isVisibilitySpecifier(Token op) { return isVariableVisibilitySpecifier(op) || op == Token::External || op == Token::Getter; }
 
 	constexpr bool isStateMutabilitySpecifier(Token op)
 	{

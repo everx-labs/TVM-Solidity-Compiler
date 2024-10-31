@@ -435,6 +435,7 @@ FunctionTypePointer FunctionDefinition::functionType(bool _internal) const
 		switch (visibility())
 		{
 		case Visibility::Default:
+		case Visibility::Getter:
 			solAssert(false, "visibility() should not return Default");
 		case Visibility::Private:
 		case Visibility::Internal:
@@ -455,6 +456,7 @@ FunctionTypePointer FunctionDefinition::functionType(bool _internal) const
 			return {};
 		case Visibility::Public:
 		case Visibility::External:
+		case Visibility::Getter:
 			return TypeProvider::function(*this, FunctionType::Kind::External);
 		}
 	}
@@ -830,6 +832,7 @@ FunctionTypePointer VariableDeclaration::functionType(bool _internal) const
 	switch (visibility())
 	{
 	case Visibility::Default:
+	case Visibility::Getter:
 		solAssert(false, "visibility() should not return Default");
 	case Visibility::Private:
 	case Visibility::Internal:

@@ -32,7 +32,7 @@ public:
 	);
 	static Json::Value generatePrivateFunctionIdsJson(
 			ContractDefinition const& contract,
-			std::vector<std::shared_ptr<SourceUnit>> _sourceUnits,
+			const std::vector<std::shared_ptr<SourceUnit>>& _sourceUnits,
 			PragmaDirectiveHelper const& pragmaHelper
 	);
 	static void generateABI(ContractDefinition const* contract,
@@ -43,6 +43,7 @@ public:
 							std::vector<PragmaDirective const *> const& pragmaDirectives);
 private:
 	static std::vector<const FunctionDefinition *> publicFunctions(ContractDefinition const& contract);
+	static std::vector<const FunctionDefinition *> getters(ContractDefinition const& contract);
 	static void printData(const Json::Value& json, std::ostream* out);
 	static void print(const Json::Value& json, std::ostream* out);
 	static Json::Value toJson(
@@ -95,7 +96,13 @@ private:
 	static int minBits(bool hasCallback);
 public:
 	void decodePublicFunctionParameters(const std::vector<Type const*>& types, bool isResponsible, bool isInternal);
-	void decodeFunctionParameters(const std::vector<Type const*>& types, bool isResponsible);
+	enum class DecodeType {
+		ONLY_EXT_MSG,
+		ONLY_INT_MSG,
+		BOTH
+	};
+	static DecodeType getDecodeType(FunctionDefinition const*);
+	void decodeFunctionParameters(const std::vector<Type const*>& types, bool isResponsible, DecodeType decodeType);
 	void decodeData(int offset, int usedRefs, const std::vector<Type const*>& types);
 	void decodeParameters(
 		const std::vector<Type const*>& types,

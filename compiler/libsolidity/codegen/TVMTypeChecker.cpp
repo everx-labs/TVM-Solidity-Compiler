@@ -362,7 +362,7 @@ void TVMTypeChecker::checkDeprecation(FunctionCall const& _functionCall) {
 				m_errorReporter.warning(4767_error, _functionCall.location(),
 										"\"tvm.functionId()\" is deprecated. Use: \"abi.functionId()\"");
 			break;
-		case FunctionType::Kind::ABIBuildIntMsg:
+		case FunctionType::Kind::ABIEncodeIntMsg:
 			if (kind == MagicType::Kind::TVM)
 				m_errorReporter.warning(4063_error, _functionCall.location(),
 										"\"tvm.buildIntMsg()\" is deprecated. Use: \"abi.encodeIntMsg()\"");
@@ -445,12 +445,17 @@ bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
 		auto functionType = to<FunctionType>(expressionType);
 
 		if (functionType->hasDeclaration()) {
-			auto fd = to<FunctionDefinition>(&functionType->declaration());
-			if (fd && fd->name() == "onCodeUpgrade") {
-				if (m_inherHelper->isBaseFunction(fd)) {
-					m_errorReporter.typeError(
-						7993_error, _functionCall.location(),
-						"It is forbidden to call base functions of \"onCodeUpgrade\".");
+			if (auto fd = to<FunctionDefinition>(&functionType->declaration())) {
+				if (fd->name() == "onCodeUpgrade") {
+					if (m_inherHelper->isBaseFunction(fd)) {
+						m_errorReporter.typeError(
+							7993_error, _functionCall.location(),
+							"It is forbidden to call base functions of \"onCodeUpgrade\".");
+					}
+				}
+				if (fd->visibility() == Visibility::Getter) {
+					m_errorReporter.typeError(7162_error, _functionCall.location(),
+						"It is forbidden to call getter from the contract. Only off-chain.");
 				}
 			}
 		}

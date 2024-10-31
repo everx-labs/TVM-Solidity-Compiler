@@ -194,14 +194,9 @@ public:
 		Module,
 		InaccessibleDynamic,
 		TvmCell, TvmSlice, TvmBuilder, StringBuilder, TvmVector, TvmStack, Variant,
-		VarInteger,
-		QInteger,
-		QBool,
+		VarInteger, QInteger, QBool,
 		InitializerList, CallList, // <-- variables of that types can't be declared in solidity contract
-		Optional,
-		Null,
-		EmptyMap,
-		TVMNaN
+		Optional, Null, EmptyMap, TVMNaN, AddressStd
 	};
 
 	/// @returns a pointer to _a or _b if the other is implicitly convertible to it or nullptr otherwise
@@ -446,7 +441,36 @@ public:
 	TypeResult unaryOperatorResult(Token _operator) const override;
 	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
 
-	bool operator==(Type const& _other) const override;
+	unsigned calldataEncodedSize(bool _padded = true) const override { return _padded ? 32 : 160 / 8; }
+	unsigned storageBytes() const override { return 160 / 8; }
+	bool leftAligned() const override { return false; }
+	bool isValueType() const override { return true; }
+	bool nameable() const override { return true; }
+
+	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
+
+	std::string toString(bool _withoutDataLocation) const override;
+	std::string canonicalName() const override;
+
+	u256 literalValue(Literal const* _literal) const override;
+
+	Type const* encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
+};
+
+/**
+ * Type for std or none addresses.
+ */
+class AddressStdType: public Type
+{
+public:
+	Category category() const override { return Category::AddressStd; }
+
+	std::string richIdentifier() const override;
+	BoolResult isImplicitlyConvertibleTo(Type const& _other) const override;
+	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
+	TypeResult unaryOperatorResult(Token _operator) const override;
+	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
 
 	unsigned calldataEncodedSize(bool _padded = true) const override { return _padded ? 32 : 160 / 8; }
 	unsigned storageBytes() const override { return 160 / 8; }
@@ -767,7 +791,7 @@ class TvmVectorType: public Type
 public:
 	TvmVectorType(Type const* _type):
 		m_type(_type) {}
-
+    bool operator==(Type const& _other) const override;
 	Category category() const override { return Category::TvmVector; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override;
@@ -793,7 +817,7 @@ class TvmStackType: public Type
 public:
 	TvmStackType(Type const* _type):
 		m_type(_type) {}
-
+    bool operator==(Type const& _other) const override;
 	Category category() const override { return Category::TvmStack; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override;
@@ -873,6 +897,7 @@ class VarIntegerType: public Type
 {
 public:
 	explicit VarIntegerType(uint32_t _n, IntegerType::Modifier _modifier) : m_n{_n}, m_int{(_n - 1) * 8, _modifier} {}
+    bool operator==(Type const& _other) const override;
 	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
 	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
 	Category category() const override { return Category::VarInteger; }
@@ -898,7 +923,6 @@ public:
 	explicit QIntegerType(uint32_t _n, IntegerType::Modifier _modifier) :
 			m_int{std::make_unique<IntegerType>(_n, _modifier)} {}
 	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
-//	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
 	Category category() const override { return Category::QInteger; }
 	bool isValueType() const override { return true; }
 	bool operator==(Type const& _other) const override;
@@ -920,7 +944,6 @@ class QBoolType: public Type
 public:
 	explicit QBoolType() = default;
 	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
-//	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
 	Category category() const override { return Category::QBool; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_qbool"; }
@@ -1545,12 +1568,12 @@ public:
 		BlsG1MultiExp,
 		BlsG2MultiExp,
 
-		ABIBuildIntMsg, ///< abi.encodeIntMsg()
 		ABICodeSalt, ///< abi.codeSalt()
 		ABIDecodeData, ///< abi.decodeData(contract_name, slice)
 		ABIDecodeFunctionParams, ///< abi.decodeFunctionParams()
 		ABIEncodeBody, ///< abi.encodeBody()
 		ABIEncodeData, ///< abi.encodeData()
+		ABIEncodeIntMsg, ///< abi.encodeIntMsg()
 		ABIEncodeStateInit, ///< abi.encodeStateInit()
 		ABIFunctionId, ///< abi.functionId(function_name)
 		ABISetCodeSalt, ///< abi.setCodeSalt()
@@ -1972,7 +1995,6 @@ public:
 	Category category() const override { return Category::Null; }
 	BoolResult isImplicitlyConvertibleTo(Type const& _other) const override;
 	std::string richIdentifier() const override;
-	bool operator==(Type const& _other) const override;
 	std::string toString(bool _short) const override;
 	std::string canonicalName() const override;
 	TypeResult interfaceType(bool) const override { return this; }
@@ -1986,7 +2008,6 @@ public:
 	Category category() const override { return Category::EmptyMap; }
 	BoolResult isImplicitlyConvertibleTo(Type const& _other) const override;
 	std::string richIdentifier() const override;
-	bool operator==(Type const& _other) const override;
 	std::string toString(bool _short) const override;
 	std::string canonicalName() const override;
 	TypeResult interfaceType(bool) const override { return this; }
@@ -2000,9 +2021,8 @@ public:
 	Category category() const override { return Category::TVMNaN; }
 	BoolResult isImplicitlyConvertibleTo(Type const& _other) const override;
 	std::string richIdentifier() const override;
-	//bool operator==(Type const& _other) const override;
 	std::string toString(bool _short) const override;
-	//std::string canonicalName() const override;
+	std::string canonicalName() const override;
 	TypeResult interfaceType(bool) const override { return this; }
 	TypeResult binaryOperatorResult(Token, Type const*) const override { return nullptr; }
 	bool hasSimpleZeroValueInMemory() const override { solAssert(false, ""); }

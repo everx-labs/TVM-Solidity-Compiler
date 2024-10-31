@@ -31,6 +31,11 @@
 
 using namespace solidity;
 
+namespace {
+void printReportBug() {
+	std::cerr << "Please report your bug to https://github.com/everx-labs/TVM-Solidity-Compiler/issues" << std::endl;
+}
+}
 
 int main(int argc, char** argv)
 {
@@ -43,24 +48,28 @@ int main(int argc, char** argv)
 	{
 		std::cerr << "SMT logic error:" << std::endl;
 		std::cerr << boost::diagnostic_information(_exception);
+		printReportBug();
 		return 2;
 	}
 	catch (langutil::UnimplementedFeatureError const& _exception)
 	{
 		std::cerr << "Unimplemented feature:" << std::endl;
 		std::cerr << boost::diagnostic_information(_exception);
+		printReportBug();
 		return 2;
 	}
 	catch (langutil::InternalCompilerError const& _exception)
 	{
 		std::cerr << "Internal compiler error:" << std::endl;
 		std::cerr << boost::diagnostic_information(_exception);
+		printReportBug();
 		return 2;
 	}
 	catch (...)
 	{
 		std::cerr << "Uncaught exception:" << std::endl;
 		std::cerr << boost::current_exception_diagnostic_information() << std::endl;
+		printReportBug();
 		return 2;
 	}
 }

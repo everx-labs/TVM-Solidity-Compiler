@@ -77,7 +77,7 @@ protected:
 	void visitMsgMagic(MemberAccess const& _node);
 	void visitMagic(MemberAccess const& _node);
 	void visit2(MemberAccess const& _node);
-	bool checkForAddressMemberAccess(MemberAccess const& _node, Type::Category category);
+	void checkForAddressMemberAccess(MemberAccess const& _node);
 	void visitMemberAccessArray(MemberAccess const& _node);
 	void visitMemberAccessFixedBytes(MemberAccess const& _node, FixedBytesType const* fbt);
 	static void indexTypeCheck(IndexAccess const& _node);

@@ -242,6 +242,8 @@ public:
 			return "private";
 		case Visibility::External:
 			return "external";
+		case Visibility::Getter:
+			return "getter";
 		default:
 			solAssert(false, "Invalid visibility specifier.");
 		}

@@ -95,8 +95,8 @@ const Type *getType(const VariableDeclaration *var) {
 	return var->annotation().type;
 }
 
-bool isAddressOrContractType(const Type *type) {
-	return to<AddressType>(type) || to<ContractType>(type);
+bool isAddressOrAddressStdOrContractType(const Type *type) {
+	return to<AddressType>(type) || to<AddressStdType>(type) || to<ContractType>(type);
 }
 
 bool isUsualArray(const Type *type) {
@@ -169,7 +169,7 @@ std::string typeToDictChar(Type const *keyType) {
 }
 
 int dictKeyLength(Type const *key) {
-	if (isIn(key->category(), Type::Category::Address, Type::Category::Contract)) {
+	if (isIn(key->category(), Type::Category::Address, Type::Category::AddressStd, Type::Category::Contract)) {
 		return AddressInfo::stdAddrWithoutAnyCastLength();
 	}
 
@@ -332,6 +332,7 @@ getTupleTypes(TupleType const* tuple) {
 DictValueType toDictValueType(const Type::Category& category) {
 	switch (category) {
 		case Type::Category::Address:
+		case Type::Category::AddressStd:
 			return DictValueType::Address;
 		case Type::Category::Array:
 			return DictValueType::Array;
@@ -382,7 +383,10 @@ ABITypeSize::ABITypeSize(Type const* _type) {
 }
 
 void ABITypeSize::init(Type const* type) {
-	if (isAddressOrContractType(type)){
+	if (type->category() == Type::Category::AddressStd) {
+		maxBits = 2 + (1 + 5 + 30) + 8 + 256;
+		maxRefs = 0;
+	} else if (isAddressOrAddressStdOrContractType(type)){
 		maxBits = AddressInfo::maxBitLength();
 		maxRefs = 0;
 	} else if (isIntegralType(type)) {
@@ -791,6 +795,31 @@ bool isFitUseless(Type const* left, Type const* right, Type const* common, Token
 			(!isLeftSigned || !isRightSigned) &&
 			op == Token::Div
 		);
+}
+
+// { width: 16, poly: 0x1021, init: 0x0000, refin: false, refout: false,
+// xorout: 0x0000, check: 0x31c3, residue: 0x0000 };
+/*
+  Name  : CRC-16 CCITT
+  Poly  : 0x1021    x^16 + x^12 + x^5 + 1
+  Init  : 0x0000
+  Revert: false
+  XorOut: 0x0000
+  MaxLen: 4095 байт (32767 бит)
+*/
+unsigned short crc16(char const *pcBlock, unsigned short len)
+{
+	unsigned short crc = 0;
+	unsigned char i;
+
+	while (len--)
+	{
+		crc ^= (unsigned char)(*pcBlock++) << 8;
+
+		for (i = 0; i < 8; i++)
+			crc = crc & 0x8000 ? (crc << 1) ^ 0x1021 : crc << 1;
+	}
+	return crc;
 }
 
 } // end namespace solidity::frontend

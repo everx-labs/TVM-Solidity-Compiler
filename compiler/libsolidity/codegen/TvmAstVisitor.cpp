@@ -703,6 +703,40 @@ bool Printer::visit(While &_node) {
 	return false;
 }
 
+void Printer::printTickTockAndGetters(bool _hasOnTickTock, std::map<uint32_t, std::string> const& _getters) {
+	if (_hasOnTickTock || !_getters.empty()) {
+		tabs(); m_out << "JMPREF {" << std::endl;
+		{
+			++m_tab;
+
+			if (_hasOnTickTock) {
+				tabs(); m_out << "DUP" << std::endl;
+				tabs(); m_out << "EQINT -2" << std::endl;
+				tabs(); m_out << "IFJMPREF {" << std::endl;
+				tabs(); m_out << "	.inline onTickTock" << std::endl;
+				tabs(); m_out << "}" << std::endl;
+			}
+
+			if (!_getters.empty()) {
+				tabs(); m_out << "DICTPUSHCONST 19" << std::endl;
+				tabs(); m_out << "DICTUGETJMPZ" << std::endl;
+				tabs(); m_out << "THROW 11" << std::endl;
+				tabs(); m_out << ".code-dict-cell 19, {" << std::endl;
+				++m_tab;
+				for (auto const& [id, name] : _getters) {
+					std::string slice = StrUtils::binaryStringToSlice(StrUtils::toBitString(id, 19, false).value());
+					tabs(); m_out << "x" << slice << " = " << name << "," << std::endl;
+				}
+				--m_tab;
+				tabs(); m_out << "}" << std::endl; // end .code-dict-cell
+			}
+
+			--m_tab;
+		}
+		tabs(); m_out << "}" << std::endl; // end JMPREF
+	}
+}
+
 bool Printer::visit(Contract &_node) {
 	std::map<uint32_t, std::string> privFuncs = _node.privateFunctions();
 	for (Pointer<Function> const& fun : _node.functions()) {
@@ -724,12 +758,6 @@ bool Printer::visit(Contract &_node) {
 	}
 
 	if (!_node.isLib()) {
-		if (!hasOnTickTock) {
-			m_out << ".fragment onTickTock, {" << std::endl;
-			m_out << "}" << std::endl;
-			m_out << std::endl;
-		}
-
 		m_out << "; The code below forms a value of the StateInit type." << std::endl;
 		m_out << ".blob x4_ ; split_depth = nothing" << std::endl;
 		m_out << ".blob x4_ ; special = nothing" << std::endl;
@@ -766,15 +794,11 @@ bool Printer::visit(Contract &_node) {
 			tabs(); m_out << "IFJMPREF {" << std::endl;
 			tabs(); m_out << "	.inline main_external" << std::endl;
 			tabs(); m_out << "}" << std::endl;
-			tabs(); m_out << "DUP" << std::endl;
-			tabs(); m_out << "EQINT -2" << std::endl;
-			tabs(); m_out << "IFJMPREF {" << std::endl;
-			tabs(); m_out << "	.inline onTickTock" << std::endl;
-			tabs(); m_out << "}" << std::endl;
-			tabs(); m_out << "THROW 11" << std::endl;
+			printTickTockAndGetters(hasOnTickTock, _node.getters());
 			--m_tab;
 			tabs(); m_out << "}" << std::endl; // end code
 		};
+
 		if (_node.upgradeOldSolidity() || _node.upgradeFunc()) {
 			int func_id = _node.upgradeFunc() ? 1666 : 2;
 			m_out << ".cell { ; wrapper for code" << std::endl;

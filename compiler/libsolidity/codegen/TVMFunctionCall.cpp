@@ -118,7 +118,7 @@ void FunctionCallCompiler::compile() {
 			{
 				// nothing
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "tvm") {
-				if (m_funcType->kind() == FunctionType::Kind::ABIBuildIntMsg) {
+				if (m_funcType->kind() == FunctionType::Kind::ABIEncodeIntMsg) {
 					abiBuildIntMsg();
 				} else if (m_funcType->kind() == FunctionType::Kind::ABIEncodeData) {
 					abiBuildDataInit();
@@ -145,7 +145,7 @@ void FunctionCallCompiler::compile() {
 					abiDecodeData();
 				else if (m_funcType->kind() == FunctionType::Kind::ABIEncodeBody)
 					abiEncodeBody();
-				else if (m_funcType->kind() == FunctionType::Kind::ABIBuildIntMsg)
+				else if (m_funcType->kind() == FunctionType::Kind::ABIEncodeIntMsg)
 					abiBuildIntMsg();
 				else if (m_funcType->kind() == FunctionType::Kind::ABIEncodeData)
 					abiBuildDataInit();
@@ -153,7 +153,7 @@ void FunctionCallCompiler::compile() {
 					abiFunction();
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "math") {
 				mathFunction(*m_memberAccess);
-			} else if (category == Type::Category::Address) {
+			} else if (isIn(category, Type::Category::Address, Type::Category::AddressStd)) {
 				addressMethod();
 			} else if (category == Type::Category::TvmCell) {
 				cellMethods(*m_memberAccess);
@@ -169,7 +169,7 @@ void FunctionCallCompiler::compile() {
 					// nothing
 				} else if (to<UserDefinedValueType>(actualType)) {
 					userDefinedValueMethods(*m_memberAccess);
-				} else if (to<AddressType>(actualType)) {
+				} else if (to<AddressType>(actualType) || to<AddressStdType>(actualType)) {
 					addressMethods(*m_memberAccess);
 				} else {
 					reportError();
@@ -3152,6 +3152,7 @@ void FunctionCallCompiler::typeConversion() {
 		}
 		break;
 	case Type::Category::Address:
+	case Type::Category::AddressStd:
 	case Type::Category::Contract:
 	case Type::Category::FixedBytes:
 	case Type::Category::Array:
@@ -3164,12 +3165,12 @@ void FunctionCallCompiler::typeConversion() {
 }
 
 bool FunctionCallCompiler::checkLocalFunctionOrLibCall(const Identifier *identifier) {
-	const string& functionName = identifier->name();
 	auto functionDefinition = to<FunctionDefinition>(identifier->annotation().referencedDeclaration);
 	if (!functionDefinition)
 		return false;
 	pushArgs();
 	if (functionDefinition->isInline()) {
+		const string& functionName = m_pusher.ctx().functionInternalName(functionDefinition, false).first;
 		int take = m_funcType->parameterTypes().size();
 		int ret = m_funcType->returnParameterTypes().size();
 		m_pusher.pushInlineFunction(functionName, take, ret);
@@ -3349,7 +3350,8 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 				}
 
 				std::string format = formatStr.substr(pos + 1, close_pos - pos - 1);
-				if (format[0] == ':') format.erase(0, 1);
+				if (format[0] == ':')
+					format.erase(0, 1);
 				substrings.emplace_back(formatStr.substr(0, pos), format);
 				formatStr = formatStr.substr(close_pos + 1);
 				pos = 0;
@@ -3380,17 +3382,23 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 				if (cat == Type::Category::Integer || cat == Type::Category::RationalNumber) {
 					// stack: Stack(TvmBuilder)
 					std::string format = substrings[it].second;
-					bool leadingZeroes = !format.empty() && (format[0] == '0');
+					bool leadingZeroes = !format.empty() && format[0] == '0';
 					bool isHex = !format.empty() && (format.back() == 'x' || format.back() == 'X');
-					bool isLower = isHex && (format.back() == 'x');
+					bool isLower = isHex && !format.empty() && format.back() == 'x';
 					bool isTon = !format.empty() && format.back() == 't';
 					if (!isTon) {
 						while (!format.empty() && (format.back() < '0' || format.back() > '9')) {
-							format.erase(format.size() - 1, 1);
+							format.pop_back();
 						}
 						int width = 0;
-						if (!format.empty())
-							width = std::stoi(format);
+						if (!format.empty()) {
+							try {
+								width = boost::lexical_cast<int>(format);
+							} catch (boost::bad_lexical_cast const&) {
+								cast_error(*m_arguments[0], "Invalid format width."
+									" Can not convert \"" + format + "\" to integer.");
+							}
+						}
 						if (width < 0 || width > 127)
 							cast_error(m_functionCall, "Width should be in range of 0 to 127.");
 						// stack: stack x
@@ -3411,7 +3419,7 @@ bool FunctionCallCompiler::checkSolidityUnits() {
 						m_pusher.pushInt(MathConsts::power10().at(9));
 						m_pusher.pushFragmentInCallRef(4, 1, "__convertFixedPointToString");
 					}
-				} else if (cat == Type::Category::Address) {
+				} else if (cat == Type::Category::Address || cat == Type::Category::AddressStd) {
 					m_pusher.pushFragmentInCallRef(2, 1, "__convertAddressToHexString");
 				} else if (isStringOrStringLiteralOrBytes(argType)) {
 					m_pusher.pushFragmentInCallRef(2, 1, "__appendStringToStringBuilder");

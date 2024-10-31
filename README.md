@@ -57,7 +57,7 @@ cmake --build . --config Release -- /m
  * [Code samples](https://github.com/everx-labs/samples/tree/master/solidity) in TVM Solidity
  * [ever-cli](https://github.com/everx-labs/ever-cli) command line interface for TVM compatible blockchains
  * Example of usage `ever-cli` for working (deploying, calling etc.) with TVM compatible blockchains can be found there: [Write smart contract in Solidity](https://docs.ton.dev/86757ecb2/p/950f8a-write-smart-contract-in-solidity)
- * [Changelog](https://github.com/everx-labs/TVM-Solidity-Compiler/blob/master/Changelog_TON.md)
+ * [Changelog](./Changelog.md)
 
 ## License
 [GNU GENERAL PUBLIC LICENSE Version 3](./LICENSE)

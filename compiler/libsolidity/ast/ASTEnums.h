@@ -37,7 +37,7 @@ enum class VirtualLookup { Static, Virtual, Super };
 enum class StateMutability { Pure, View, NonPayable };
 
 /// Visibility ordered from restricted to unrestricted.
-enum class Visibility { Default, Private, Internal, Public, External };
+enum class Visibility { Default, Private, Internal, Public, External, Getter };
 
 enum class Arithmetic { Checked, Wrapping };
 
