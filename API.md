@@ -162,6 +162,17 @@ When deploying contracts, you should use the latest released version of Solidity
       * [\<address\>.isNone()](#addressisnone)
       * [\<address\>.unpack()](#addressunpack)
       * [\<address\>.transfer()](#addresstransfer)
+  * [address_std](#address_std)
+    * [address_std.makeAddrStd()](#address_stdmakeaddrstd)
+    * [address_std.addrNone](#address_stdaddrnone)
+    * [\<address_std\>.wid](#address_stdwid)
+    * [\<address_std\>.value](#address_stdvalue)
+    * [\<address_std\>.getType()](#address_stdgettype)
+    * [\<address_std\>.isStdZero()](#address_stdisstdzero)
+    * [\<address_std\>.isStdAddrWithoutAnyCast()](#address_stdisstdaddrwithoutanycast)
+    * [\<address_std\>.isNone()](#address_stdisnone)
+    * [\<address_std\>.unpack()](#address_stdunpack)
+    * [\<address_std\>.transfer()](#address_stdtransfer)
   * [mapping](#mapping)
     * [Keyword `emptyMap`](#keyword-emptymap)
     * [\<mapping\>.operator[]](#mappingoperator)
@@ -204,6 +215,7 @@ When deploying contracts, you should use the latest released version of Solidity
   * [Keyword `nostorage`](#keyword-nostorage)
   * [Keyword `public`](#keyword-public)
 * [Special contract functions](#special-contract-functions)
+  * [getter](#getter)
   * [receive](#receive)
   * [fallback](#fallback)
   * [onBounce](#onbounce)
@@ -1802,7 +1814,7 @@ Returns "non-quiet" integer. If `<T>` is `NaN`, then throws an exception. `T` is
 function f(quint32 a, quint32 b) private pure {
     quint32 s = a + b;
     if (!s.isNaN()) {
-        uint32 ss = s.get(); 
+        uint32 sum = s.get(); 
         // ...
     }
 }
@@ -1819,7 +1831,7 @@ Returns "non-quiet" integer. If `<T>` is `NaN`, then returns `default`. `T` is `
 ```TVMSolidity
 function f(quint32 a, quint32 b) private pure {
     quint32 s = a + b;
-    uint32 ss = s.getOr(42); // ss is equal to `a + b` or 42
+    uint32 sum = s.getOr(42); // sum is equal to `a + b` or 42
     // ... 
 }
 ```
@@ -1835,7 +1847,7 @@ Returns "non-quiet" integer. If `<T>` is `NaN`, then returns default value. `T` 
 ```TVMSolidity
 function f(quint32 a, quint32 b) private pure {
     quint32 s = a + b;
-    uint32 ss = s.getOrDefault(); // ss is equal to `a + b` or 0
+    uint32 sum = s.getOrDefault(); // sum is equal to `a + b` or 0
     // ... 
 }
 ```
@@ -1851,7 +1863,7 @@ Returns optional integer. If `<T>` is `NaN`, then returns [null](#keyword-null).
 ```TVMSolidity
 function f(quint32 a, quint32 b) private pure {
     quint32 s = a + b;
-    optional(uint32) ss = s.toOptional(); // ss is equal to `a + b` or null
+    optional(uint32) sum = s.toOptional(); // sum is equal to `a + b` or null
     // ... 
 }
 ```
@@ -2249,7 +2261,7 @@ str = format("{:06}", 123); // str == "000123"
 str = format("{:06d}", 123); // str == "000123"
 str = format("{:06X}", 123); // str == "00007B"
 str = format("{:6x}", 123); // str == "    7b"
-uint128 a = 1 ever;
+coins a = 1 ever;
 str = format("{:t}", a); // str == "1.000000000"
 a = 123;
 str = format("{:t}", a); // str == "0.000000123"
@@ -2298,8 +2310,8 @@ If `string` object has less than **N** bytes, extra bytes are padded with zero b
 
 #### address
 
-`address` represents different types of TVM addresses: **addr_none**, **addr_extern**,
-**addr_std** and **addr_var**. TVM Solidity compiler expands `address` type with the following
+`address` represents different types of TVM addresses: [**addr_none**, **addr_extern**,
+**addr_std** and **addr_var**](https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb#L100C1-L100C10). TVM Solidity compiler expands `address` type with the following
 members and functions:
 
 ##### Object creating
@@ -2307,7 +2319,7 @@ members and functions:
 ##### constructor()
 
 ```TVMSolidity
-uint address_value;
+uint address_value = ...;
 address addrStd = address(address_value);
 ```
 
@@ -2316,9 +2328,9 @@ Constructs `address` of type **addr_std** with zero workchain id and given addre
 ##### address.makeAddrStd()
 
 ```TVMSolidity
-int8 wid;
-uint address;
-address addrStd = address.makeAddrStd(wid, address);
+int8 wid = ...;
+uint value = ...;
+address addrStd = address.makeAddrStd(wid, value);
 ```
 
 Constructs `address` of type **addr_std** with given workchain id **wid** and value **address_value**.
@@ -2380,13 +2392,14 @@ Returns currencies on the balance of the current contract account.
 ##### \<address\>.getType()
 
 ```TVMSolidity
-<address>.getType() returns (uint8);
+<address>.getType() returns (uint4);
 ```
 
 Returns type of the `address`:
-0 - **addr_none**
-1 - **addr_extern**
-2 - **addr_std**
+ * 0 - `addr_none`
+ * 1 - `addr_extern`
+ * 2 - `addr_std`
+ * 3 - `addr_var`
 
 ##### \<address\>.isStdZero()
 
@@ -2488,7 +2501,7 @@ In order to clarify flags usage see [this sample](https://github.com/everx-labs/
 
 ```TVMSolidity
 address dest = ...;
-uint128 value = ...;
+coins value = ...;
 bool bounce = ...;
 uint16 flag = ...;
 TvmCell body = ...;
@@ -2509,6 +2522,102 @@ destination.transfer({value: 1 ever, bounce: false, stateInit: stateInit});
 See example of `address.transfer()` usage:
 
 * [giver](https://github.com/everx-labs/samples/blob/master/solidity/7_Giver.sol)
+
+#### address_std
+
+`address_std` type is same as [address](#address) but can be [addr_std or addr_none](https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb#L100C1-L100C10).
+
+```TVMSolidity
+uint address_value = ...;
+address_std addrStd = address_std(address_value);
+```
+
+Constructs `address_std` of type **addr_std** with zero workchain id and given value.
+
+##### address_std.makeAddrStd()
+
+```TVMSolidity
+int8 wid;
+uint value;
+address_std addrStd = address.makeAddrStd(wid, value);
+```
+
+Constructs `address_std` of type **addr_std** with given workchain id **wid** and value **address_value**.
+
+##### address_std.addrNone
+
+```TVMSolidity
+address_std addrNone = address_std.addrNone;
+```
+
+Constructs `address_std` of type **addr_none**.
+
+##### \<address_std\>.wid
+
+```TVMSolidity
+<address_std>.wid returns (int8);
+```
+
+Returns the workchain id of **addr_std**. Throws "range check error" [exception](#tvm-exception-codes) for other `address_std` types.
+
+##### \<address_std\>.value
+
+```TVMSolidity
+<address_std>.value returns (uint);
+```
+
+Returns the `address_std` value of **addr_std**. Throws "range check error" [exception](#tvm-exception-codes) for other `address_std` types.
+
+
+##### \<address_std\>.getType()
+
+```TVMSolidity
+<address_std>.getType() returns (uint4);
+```
+
+Returns type of the `address_std`:
+* 0 - `addr_none`
+* 2 - `addr_std`
+
+##### \<address_std\>.isStdZero()
+
+```TVMSolidity
+<address_std>.isStdZero() returns (bool);
+```
+
+Returns the result of comparison between this `address` with zero `address` of type **addr_std**.
+
+##### \<address_std\>.isStdAddrWithoutAnyCast()
+
+```TVMSolidity
+<address_std>.isStdAddrWithoutAnyCast() returns (bool);
+```
+
+Checks whether this `address_std` is of type **addr_std** without any cast.
+
+##### \<address_std\>.isNone()
+
+```TVMSolidity
+<address_std>.isNone() returns (bool);
+```
+
+Checks whether this `address_std` is of type **addr_none**.
+
+##### \<address_std\>.unpack()
+
+```TVMSolidity
+<address_std>.unpack() returns (int8 /*wid*/, uint256 /*value*/);
+```
+
+Same as [\<address\>.unpack()](#addressunpack)
+
+##### \<address_std\>.transfer()
+
+```TVMSolidity
+<address_std>.transfer(varuint16 value, bool bounce, uint16 flag, TvmCell body, mapping(uint32 => varuint32) currencies, TvmCell stateInit);
+```
+
+Same as [\<address\>.transfer()](#addresstransfer)
 
 #### mapping
 
@@ -3186,6 +3295,31 @@ contract C {
 ```
 
 ### Special contract functions
+
+#### getter
+
+Smart-contract `getter` function is a function that can be called only off-chain. Keyword `getter` is used to mark such functions. `getter` function can not be called on-chain (either external/internal message or onTickTock transaction). They specifically designed to read some data from smart-contracts off-chain. Example:
+
+```TVMSolidity
+contract C {
+
+    address_std m_address;
+    mapping(uint64 => uint8) m_values;
+
+    function get_address() getter returns (address_std) {
+        return m_address;
+    }
+    
+    function get_value(uint key) getter returns (uint8) {
+        return m_values.contains(key) ? m_values.at(key) : 255;
+    }
+}
+```
+
+Use `ever-cli run` to call getter function. Example: 
+```bash
+ever-cli -j run --abi test_getter_2.abi.json <contract-address> get_value '{"key": 10}'`
+```
 
 #### receive
 
@@ -5129,7 +5263,14 @@ contract ContractCreator {
 ##### abi.decodeData()
 
 ```TVMSolidity
-abi.decodeData(ContractName, TvmSlice) returns (uint256 /*pubkey*/, uint64 /*timestamp*/, bool /*constructorFlag*/, Type1 /*var1*/, Type2 /*var2*/, ...);
+abi.decodeData(ContractName, TvmSlice) returns (
+    uint256 /*pubkey*/, 
+    uint64 /*timestamp*/,
+    bool /*constructorFlag*/,
+    Type1 /*var1*/,
+    Type2 /*var2*/, 
+    ...
+);
 ```
 
 Loads state variables from `TvmSlice` that is obtained from the field `data` of `stateInit`.
@@ -5138,31 +5279,31 @@ Example:
 
 ```
 contract A {
-	uint a = 111;
-	uint b = 22;
-	uint c = 3;
-	uint d = 44;
-	address e = address(12);
-	address f;
+    uint a = 111;
+    uint b = 22;
+    uint c = 3;
+    uint d = 44;
+    address e = address(12);
+    address f;
+    constructor() {}
 }
 
 contract B {
-	function f(TvmCell data) public pure {
-		TvmSlice s = data.toSlice();
-		(uint256 pubkey, uint64 timestamp, bool flag,
-			uint a, uint b, uint c, uint d, address e, address f) = abi.decodeData(A, s);
-			
-		// pubkey - pubkey of the contract A
-		// timestamp - timestamp that used for replay protection
-		// flag - always is equal to true
-		// a == 111
-		// b == 22
-		// c == 3
-		// d == 44
-		// e == address(12)
-		// f == address.addrNone
-		// s.empty()
-	}
+    function f(TvmCell data) public pure {
+        TvmSlice s = data.toSlice();
+        (uint256 pubkey, uint64 timestamp, bool flag,
+            uint a, uint b, uint c, uint d, address e, address f) = abi.decodeData(A, s);
+            
+        // pubkey - pubkey of the contract A
+        // timestamp - timestamp that used for replay protection
+        // flag - constructor flag is set if the contract is deployed
+        // a == 111
+        // b == 22
+        // c == 3
+        // d == 44
+        // e == address(12)
+        // f == address.addrNone
+    }
 }
 ```
 
@@ -5262,7 +5403,7 @@ function mechanics.
 ```TVMSolidity
 abi.encodeBody(function, arg0, arg1, arg2, ...) returns (TvmCell);
 abi.encodeBody(function, callbackFunction, arg0, arg1, arg2, ...) returns (TvmCell);
-abi.encodeBody(contract, arg0, arg1, arg2, ...) returns (TvmCell);
+abi.encodeBody(ContractName, arg0, arg1, arg2, ...) returns (TvmCell);
 ```
 
 Constructs a message body for the function call. Body can be used as a payload for  [\<address\>.transfer()](#addresstransfer).
@@ -5376,10 +5517,22 @@ See example of how to use this function:
 ##### abi.encodeIntMsg()
 
 ```TVMSolidity
+// (1)
 abi.encodeIntMsg({
     dest: address,
-    value: uint128,
+    value: coins,
     call: {function, [callbackFunction,] arg0, arg1, arg2, ...},
+    bounce: bool,
+    currencies: mapping(uint32 => varuint32),
+    stateInit: TvmCell
+})
+returns (TvmCell);
+
+// (2)
+abi.encodeIntMsg({
+    dest: address,
+    value: coins,
+    call: {ContractName, arg0, arg1, arg2, ...},
     bounce: bool,
     currencies: mapping(uint32 => varuint32),
     stateInit: TvmCell
@@ -5387,9 +5540,9 @@ abi.encodeIntMsg({
 returns (TvmCell);
 ```
 
-Generates an internal outbound message that contains a function call. The result `TvmCell` can be used to send a
-message using [tvm.sendrawmsg()](#tvmsendrawmsg). If the `function` is `responsible`, then
-`callbackFunction` parameter must be set.
+Generates an internal outbound message that contains a function (1) or constructor (2) call. 
+The result `TvmCell` can be used to send a message using [tvm.sendrawmsg()](#tvmsendrawmsg).
+If the `function` is `responsible`, then `callbackFunction` parameter must be set.
 
 `dest`, `value` and `call` parameters are mandatory. Another parameters can be omitted. See
 [\<address\>.transfer()](#addresstransfer) where these options and their default values are

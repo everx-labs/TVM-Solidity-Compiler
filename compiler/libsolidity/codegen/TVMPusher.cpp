@@ -283,12 +283,10 @@ bool StackPusher::doesDictStoreValueInRef(Type const* keyType, Type const* value
 	solUnimplemented("");
 }
 
-// false - value isn't in ref
-// true - value is in ref
 void StackPusher::recoverKeyAndValueAfterDictOperation(
 	Type const* keyType,
 	Type const* valueType,
-	bool haveKey,
+	bool hasKey,
 	bool didUseOpcodeWithRef,
 	const DecodeType& decodeType,
 	bool saveOrigKeyAndNoTuple
@@ -302,10 +300,10 @@ void StackPusher::recoverKeyAndValueAfterDictOperation(
 
 	// stack: value [key]
 	auto preloadValue = [&]() {
-		if (haveKey) {
+		if (hasKey) {
 			// stack: value key
 			if (saveOrigKeyAndNoTuple) {
-				pushS(0); // stack: value key key
+				pushS(0); // stack: value key [key]
 			}
 			if (keyType->category() == Type::Category::Struct) {
 				StructCompiler sc{this, to<StructType>(keyType)};
@@ -420,7 +418,7 @@ void StackPusher::recoverKeyAndValueAfterDictOperation(
 
 			startContinuation();
 			preloadValue();
-			if (haveKey) {
+			if (hasKey) {
 				if (!saveOrigKeyAndNoTuple) {
 					makeTuple(2);
 				}
@@ -505,7 +503,7 @@ bool StackPusher::tryPollEmptyPushCont() {
 	return false;
 }
 
-TVMCompilerContext &StackPusher::ctx() {
+TVMCompilerContext &StackPusher::ctx() const {
 	return *m_ctx;
 }
 
@@ -1140,6 +1138,7 @@ bool StackPusher::fastLoad(const Type* type) {
 	}
 	case Type::Category::Address:
 	case Type::Category::Contract:
+	case Type::Category::AddressStd:
 		*this << "LDMSGADDR";
 		return true;
 	case Type::Category::Enum:
@@ -1213,14 +1212,6 @@ void StackPusher::preload(const Type *type) {
 		drop();
 		break;
 	}
-	case Type::Category::Address:
-	case Type::Category::Contract:
-		*this << "LDMSGADDR";
-		drop(1);
-		break;
-	case Type::Category::TvmCell:
-		*this << "PLDREF";
-		break;
 	case Type::Category::Struct: {
 		auto structType = to<StructType>(type);
 		StructCompiler sc{this, structType};
@@ -1309,6 +1300,7 @@ void StackPusher::loadQ(const Type *type) {
 			break;
 		}
 		case Type::Category::Address:
+		case Type::Category::AddressStd:
 		case Type::Category::Contract:
 			pushAsym("LDMSGADDRQ");
 			break;
@@ -1412,7 +1404,7 @@ void StackPusher::store(const Type *type) {
 
 			startContinuation();
 			// builder value
-			if (isIn(optType->valueType()->category(), Type::Category::Optional, Type::Category::Mapping)) {
+			if (optValueAsTuple(optType->valueType())) {
 				untuple(1);
 			}
 			// builder value
@@ -1460,6 +1452,7 @@ void StackPusher::store(const Type *type) {
 		break;
 	}
 	case Type::Category::Address:
+	case Type::Category::AddressStd:
 	case Type::Category::Contract:
 	case Type::Category::TvmSlice:
 		*this << "STSLICE"; // builder slice-value
@@ -1548,6 +1541,7 @@ void StackPusher::storeQ(const Type *type) {
 		pushAsym("STREFQ");
 		break;
 	case Type::Category::Address:
+	case Type::Category::AddressStd:
 	case Type::Category::Contract:
 	case Type::Category::TvmSlice:
 		pushAsym("STSLICEQ");
@@ -1663,7 +1657,7 @@ void StackPusher::pushFragmentInCallRef(int take, int ret, const std::string &fu
 void StackPusher::pushCallOrCallRef(
 	FunctionDefinition const* _functionDef,
 	const std::optional<std::pair<int, int>>& deltaStack,
-	bool isCalledByPoint
+	const bool isCalledByPoint
 ) {
 	auto [take, ret] = deltaStack.has_value() ?
 		deltaStack.value() :
@@ -2009,7 +2003,7 @@ void StackPusher::prepareMsg(
 		appendBody(msgInfoSize);
 		// stack: builder-with-body
 	} else {
-		appendToBuilder("0"); // there is no body
+		appendToBuilder("0"); // there is no message body
 	}
 
 	// stack: builder'
@@ -2350,6 +2344,7 @@ void StackPusher::pushDefaultValue(Type const* _type) {
 	switch (cat) {
 	case Type::Category::Address:
 	case Type::Category::Contract:
+	case Type::Category::AddressStd:
 		pushSlice("x2_"); // addr_none$00 = MsgAddressExt;
 		break;
 	case Type::Category::Bool:
@@ -2541,6 +2536,7 @@ void TypeConversion::convert(Type const* leftType, Type const* rightType) {
 		fromStringLiteral(leftType, to<StringLiteralType>(rightType));
 		break;
 	case Type::Category::Address:
+	case Type::Category::AddressStd:
 	case Type::Category::Bool:
 	case Type::Category::Contract:
 	case Type::Category::EmptyMap:
@@ -2564,7 +2560,7 @@ void TypeConversion::convert(Type const* leftType, Type const* rightType) {
 	}
 }
 
-void TypeConversion::integerToInteger(IntegerType const* leftType, IntegerType const* rightType) {
+void TypeConversion::integerToInteger(IntegerType const* leftType, IntegerType const* rightType) const {
 	if (rightType->isImplicitlyConvertibleTo(*leftType))
 		return ;
 
@@ -2591,7 +2587,7 @@ void TypeConversion::integerToInteger(IntegerType const* leftType, IntegerType c
 	}
 }
 
-void TypeConversion::fixedPointToInteger(IntegerType const* leftType, FixedPointType const* rightType) {
+void TypeConversion::fixedPointToInteger(IntegerType const* leftType, FixedPointType const* rightType) const {
 	int powerDiff = rightType->fractionalDigits();
 	if (powerDiff > 0) {
 		m_pusher.pushInt(MathConsts::power10().at(powerDiff));
@@ -2600,7 +2596,7 @@ void TypeConversion::fixedPointToInteger(IntegerType const* leftType, FixedPoint
 	integerToInteger(leftType, rightType->asIntegerType());
 }
 
-void TypeConversion::fixedPointToFixedPoint(FixedPointType const* leftType, FixedPointType const* rightType) {
+void TypeConversion::fixedPointToFixedPoint(FixedPointType const* leftType, FixedPointType const* rightType) const {
 	int powerDiff = leftType->fractionalDigits() - rightType->fractionalDigits();
 	if (powerDiff != 0) {
 		if (powerDiff > 0) {
@@ -2614,7 +2610,7 @@ void TypeConversion::fixedPointToFixedPoint(FixedPointType const* leftType, Fixe
 	integerToInteger(leftType->asIntegerType(), rightType->asIntegerType());
 }
 
-void TypeConversion::integerToFixedPoint(FixedPointType const* leftType, IntegerType const* rightType) {
+void TypeConversion::integerToFixedPoint(FixedPointType const* leftType, IntegerType const* rightType) const {
 	int powerDiff = leftType->fractionalDigits();
 	if (powerDiff > 0) {
 		m_pusher.pushInt(MathConsts::power10().at(powerDiff));
@@ -2623,7 +2619,7 @@ void TypeConversion::integerToFixedPoint(FixedPointType const* leftType, Integer
 	integerToInteger(leftType->asIntegerType(), rightType);
 }
 
-void TypeConversion::fixedBytesToFixedBytes(FixedBytesType const* leftType, FixedBytesType const* rightType) {
+void TypeConversion::fixedBytesToFixedBytes(FixedBytesType const* leftType, FixedBytesType const* rightType) const {
 	int diff = 8 * (leftType->numBytes() - rightType->numBytes());
 	if (diff > 0) {
 		m_pusher << "LSHIFT " + std::to_string(diff);
@@ -2632,7 +2628,7 @@ void TypeConversion::fixedBytesToFixedBytes(FixedBytesType const* leftType, Fixe
 	}
 }
 
-void TypeConversion::bytesToFixedBytes(FixedBytesType const* rightType) {
+auto TypeConversion::bytesToFixedBytes(FixedBytesType const *rightType) const -> void {
 	size_t bits = rightType->numBytes() * 8;
 	m_pusher.startContinuation();
 	m_pusher.startOpaque();
@@ -2670,11 +2666,12 @@ void TypeConversion::bytesToFixedBytes(FixedBytesType const* rightType) {
 	m_pusher.pushRefContAndCallX(1, 1, false);
 }
 
-void TypeConversion::stringLiteralToFixedBytes(FixedBytesType const* leftType, StringLiteralType const* rightType) {
+void TypeConversion::stringLiteralToFixedBytes(FixedBytesType const* leftType, StringLiteralType const* rightType) const {
 	size_t bytes = 0;
 	u256 value = 0;
 	for (char c : rightType->value()) {
-		value = value * 256 + c;
+		auto x = static_cast<uint8_t>(c);
+		value = value * 256 + x;
 		++bytes;
 	}
 	while (bytes < leftType->numBytes()) {
@@ -2685,7 +2682,7 @@ void TypeConversion::stringLiteralToFixedBytes(FixedBytesType const* leftType, S
 	m_pusher << "PUSHINT " + toString(value);
 }
 
-void TypeConversion::fromFixedPoint(Type const* leftType, FixedPointType const* rightType) {
+void TypeConversion::fromFixedPoint(Type const* leftType, FixedPointType const* rightType) const {
 	switch (leftType->category()) {
 	case Type::Category::FixedPoint:
 		fixedPointToFixedPoint(to<FixedPointType>(leftType), rightType);
@@ -2702,7 +2699,7 @@ void TypeConversion::fromFixedPoint(Type const* leftType, FixedPointType const* 
 	}
 }
 
-void TypeConversion::convertIntegerToAddress(Type const* t) {
+void TypeConversion::convertIntegerToAddress(Type const* t) const {
 	if (auto r = to<RationalNumberType>(t)) {
 		m_pusher.drop();
 		m_pusher.pushSlice("x" + StrUtils::binaryStringToSlice(StrUtils::literalToSliceAddress(r->value2())));
@@ -2715,13 +2712,13 @@ void TypeConversion::convertIntegerToAddress(Type const* t) {
 	}
 }
 
-void TypeConversion::convertIntegerToEnum(EnumType const* leftType, IntegerType const* /*rightType*/) {
+void TypeConversion::convertIntegerToEnum(EnumType const* leftType, IntegerType const* /*rightType*/) const {
 	int const size = leftType->enumDefinition().members().size();
 	m_pusher.pushInt(size);
 	m_pusher << "MOD";
 }
 
-void TypeConversion::fromInteger(Type const* leftType, IntegerType const* rightType) {
+void TypeConversion::fromInteger(Type const* leftType, IntegerType const* rightType) const {
 	switch (leftType->category()) {
 	case Type::Category::FixedPoint:
 		integerToFixedPoint(to<FixedPointType>(leftType), rightType);
@@ -2743,6 +2740,7 @@ void TypeConversion::fromInteger(Type const* leftType, IntegerType const* rightT
 		// do nothing here
 		break;
 	case Type::Category::Address:
+	case Type::Category::AddressStd:
 	case Type::Category::Contract:
 		convertIntegerToAddress(rightType);
 		break;
@@ -2755,7 +2753,7 @@ void TypeConversion::fromInteger(Type const* leftType, IntegerType const* rightT
 	}
 }
 
-void TypeConversion::fromRational(Type const* leftType, RationalNumberType const* rightType) {
+void TypeConversion::fromRational(Type const* leftType, RationalNumberType const* rightType) const {
 	switch (leftType->category()) {
 	case Type::Category::FixedPoint: {
 		auto fixedPointLeft = to<FixedPointType>(leftType);
@@ -2782,6 +2780,7 @@ void TypeConversion::fromRational(Type const* leftType, RationalNumberType const
 		// do nothing here
 		break;
 	case Type::Category::Address:
+	case Type::Category::AddressStd:
 	case Type::Category::Contract:
 		convertIntegerToAddress(rightType);
 		break;
@@ -2804,12 +2803,12 @@ void TypeConversion::tupleFromTuple(TupleType const* leftType, TupleType const* 
 	}
 }
 
-void TypeConversion::fromFixedBytesType(Type const* leftType, FixedBytesType const* rightType) {
+void TypeConversion::fromFixedBytesType(Type const* leftType, FixedBytesType const* rightType) const {
 	switch (leftType->category()) {
-	case Type::Category::Address: {
+	case Type::Category::Address:
+	case Type::Category::AddressStd:
 		convertIntegerToAddress(rightType);
 		break;
-	}
 	case Type::Category::FixedBytes: {
 		fixedBytesToFixedBytes(to<FixedBytesType>(leftType), rightType);
 		break;
@@ -2841,7 +2840,7 @@ void TypeConversion::fromFixedBytesType(Type const* leftType, FixedBytesType con
 	}
 }
 
-void TypeConversion::fromArray(Type const* leftType, ArrayType const* rightType) {
+void TypeConversion::fromArray(Type const* leftType, ArrayType const* rightType) const {
 	auto r = to<ArrayType>(rightType);
 	if (!r->isByteArrayOrString()) {
 		return;
@@ -2895,7 +2894,7 @@ void TypeConversion::fromOptional(Type const* leftType, OptionalType const* righ
 	}
 }
 
-void TypeConversion::fromSlice(Type const* leftType) {
+void TypeConversion::fromSlice(Type const* leftType) const {
 	switch (leftType->category()) {
 	case Type::Category::TvmSlice:
 		break;
@@ -2923,7 +2922,7 @@ void TypeConversion::fromTuple(Type const* leftType, TupleType const* rightType)
 	}
 }
 
-void TypeConversion::fromStringLiteral(Type const* leftType, StringLiteralType const* rightType) {
+void TypeConversion::fromStringLiteral(Type const* leftType, StringLiteralType const* rightType) const {
 	switch (leftType->category()) {
 	case Type::Category::FixedBytes:
 		stringLiteralToFixedBytes(to<FixedBytesType>(leftType), rightType);

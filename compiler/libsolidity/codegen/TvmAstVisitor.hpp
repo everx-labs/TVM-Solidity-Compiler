@@ -89,6 +89,7 @@ private:
 	void tabs();
 	void printPushInt(std::string const& arg, std::string const& comment = "");
 	void printPushInt(int i);
+	void printTickTockAndGetters(bool _hasOnTickTock, std::map<uint32_t, std::string> const& _getters);
 private:
 	std::ostream& m_out;
 	int m_tab{};

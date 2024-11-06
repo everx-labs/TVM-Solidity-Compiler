@@ -69,7 +69,7 @@ bool TVMAnalyzer::visit(ContractDefinition const& contract) {
 	for (EventDefinition const* event : contract.definedInterfaceEvents()) {
 		if (used.count(event->name())) {
 			m_errorReporter.declarationError(
-				2018_error,
+				5022_error,
 				event->location(),
 				SecondarySourceLocation().append("Another declaration is here:", used.at(event->name())->location()),
 				"Event overriding is not supported."

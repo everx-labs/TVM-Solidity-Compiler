@@ -81,6 +81,7 @@ private:
 		bool externalMsg = false;
 		bool internalMsg = false;
 		bool assembly = false;
+		bool isGetter = false;
 		ASTPointer<Expression> experimentalReturnExpression;
 	};
 

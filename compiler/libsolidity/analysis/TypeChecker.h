@@ -146,12 +146,12 @@ private:
 	void checkStoreQ(Expression const& _argument);
 	void typeCheckTvmEncodeFunctions(FunctionCall const& _functionCall);
 	static FunctionDefinition const* getFunctionDefinition(Expression const* expr);
-	static std::pair<bool, FunctionDefinition const*> getConstructorDefinition(Expression const* expr);
+	static std::pair<ContractType const*, FunctionDefinition const*> getConstructorDefinition(Expression const* expr);
 	static ContractType const* getContractType(Expression const* expr);
-	FunctionDefinition const* checkPubFunctionAndGetDefinition(Expression const& arg, bool printError = false);
-	FunctionDefinition const* checkPubFunctionOrContractTypeAndGetDefinition(Expression const& arg);
+	FunctionDefinition const* checkPubFunctionAndGetDefinition(Expression const& arg, bool printError = false) const;
+	FunctionDefinition const* checkPubFunctionOrContractTypeAndGetDefinition(Expression const& arg) const;
 	void checkInitList(InitializerList const* list, ContractType const& ct,
-					   langutil::SourceLocation const& _functionCallLocation);
+					   langutil::SourceLocation const& _functionCallLocation) const;
 	void checkCallList(
 		std::vector<Expression const*> const& arguments,
 		FunctionCall const& _functionCall,

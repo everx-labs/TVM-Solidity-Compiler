@@ -30,8 +30,6 @@ DictOperation::DictOperation(StackPusher& pusher, Type const& keyType, Type cons
 void DictMinMax::minOrMax(bool saveOrigKeyAndNoTuple) {
 	// stack: dict
 	pusher.pushInt(dictKeyLength(&keyType)); // dict nbits
-
-	const bool haveKey = true;
 	bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
 	dictOpcode = "DICT" + typeToDictChar(&keyType) + (isMin? "MIN" : "MAX") + (isInRef? "REF" : "");
 
@@ -40,7 +38,7 @@ void DictMinMax::minOrMax(bool saveOrigKeyAndNoTuple) {
 	pusher.recoverKeyAndValueAfterDictOperation(
 			&keyType,
 			&valueType,
-			haveKey,
+			true,
 			isInRef,
 			StackPusher::DecodeType::DecodeValueOrPushNull,
 			saveOrigKeyAndNoTuple

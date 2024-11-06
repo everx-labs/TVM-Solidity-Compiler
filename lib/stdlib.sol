@@ -118,6 +118,24 @@ contract stdlib {
         return st;
     }
 
+    // Append slice in hex format with tag _ if needs
+    function __appendSliceDataAsHex(stack(TvmBuilder) st, TvmSlice data) pure private returns(stack(TvmBuilder)) {
+        while (data.bits() >= 4) {
+            uint9 bits = uint9(math.min(data.bits() / 4 * 4, 256));
+            uint value = data.loadUint(bits);
+            st = __convertIntToHexString(st, value, bits / 4, true, true);
+        }
+        if (data.bits() != 0) {
+            uint10 shift = 4 - data.bits();
+            int value = data.loadUint(uint9(data.bits()));
+            value = (value << 1) + 1;
+            value <<= (shift - 1);
+            st = __convertIntToHexString(st, value, 1, true, true);
+            st = __appendBytes1(st, bytes1("_"));
+        }
+        return st;
+    }
+
     function __appendSliceToStringBuilder(stack(TvmBuilder) st, TvmSlice s) pure private returns(stack(TvmBuilder)) {
         uint10 restBits = st.top().remBits() - 7; // 1023 - 7 = 1016 = 127 * 8
         TvmSlice ss = s.loadSlice(math.min(restBits, s.bits()), 0);
@@ -210,15 +228,35 @@ contract stdlib {
         return st;
     }
 
-    function __convertAddressToHexString(stack(TvmBuilder) st, address addr) private pure returns (stack(TvmBuilder)) {
-        (int32 wid, uint value) = addr.unpack();
-        st = __convertIntToHexString(st, wid, 0, false, true);
-        uint16 remBits = st.top().remBits();
-        if (remBits < 8) {
-            st.push(TvmBuilder());
+    function __appendAnyCast(stack(TvmBuilder) st, TvmSlice addr) private pure returns (stack(TvmBuilder), TvmSlice) {
+        bool hasAnycast = addr.load(bool);
+        if (hasAnycast) {
+            uint5 depth = addr.load(uint5);
+            st = __appendSliceDataAsHex(st, addr.loadSlice(depth));
+            st = __appendBytes1(st, bytes1(":"));
         }
-        st.top().store(bytes1(":"));
-        return __convertIntToHexString(st, value, 64, true, true);
+        return (st, addr);
+    }
+
+    function __convertAddressToHexString(stack(TvmBuilder) st, TvmSlice addr) private pure returns (stack(TvmBuilder)) {
+        uint2 addrType = addr.load(uint2);
+        if (addrType == 2) { // addr_std
+            (st, addr) = __appendAnyCast(st, addr);
+            st = __convertIntToString(st, addr.load(int8), 0, false);
+            st = __appendBytes1(st, bytes1(":"));
+            st = __convertIntToHexString(st, addr.load(uint256), 64, true, true);
+        } else if (addrType == 1) { // addr_extern
+            st = __appendBytes1(st, bytes1(":"));
+            addr.load(uint9);
+            st = __appendSliceDataAsHex(st, addr);
+        } else if (addrType == 3) { // addr_var
+            (st, addr) = __appendAnyCast(st, addr);
+            addr.skip(9); // addr_len
+            st = __convertIntToString(st, addr.load(int32), 0, false);
+            st = __appendBytes1(st, bytes1(":"));
+            st = __appendSliceDataAsHex(st, addr);
+        }
+        return st;
     }
 
     function __convertFixedPointToString(stack(TvmBuilder) st, int257 value, uint16 fractionalDigits, uint fractionPow10) private pure returns (stack(TvmBuilder)) {

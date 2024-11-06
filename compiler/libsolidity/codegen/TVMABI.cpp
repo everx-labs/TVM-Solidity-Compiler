@@ -75,7 +75,7 @@ Json::Value TVMABI::generateFunctionIdsJson(
 Json::Value
 TVMABI::generatePrivateFunctionIdsJson(
 	ContractDefinition const& contract,
-	std::vector<std::shared_ptr<SourceUnit>> _sourceUnits,
+	std::vector<std::shared_ptr<SourceUnit>> const& _sourceUnits,
 	PragmaDirectiveHelper const& pragmaHelper
 ) {
 	Json::Value ids{Json::arrayValue};
@@ -99,25 +99,11 @@ Json::Value TVMABI::generateABIJson(
 	std::vector<PragmaDirective const *> const &pragmaDirectives
 ) {
 	PragmaDirectiveHelper pdh{pragmaDirectives};
-	TVMCompilerContext ctx(contract, pdh);
-
-	const std::vector<const FunctionDefinition *> publicFunctions = TVMABI::publicFunctions(*contract);
-	std::vector<const EventDefinition *> events {};
-
-	for (const auto &_event : contract->definedInterfaceEvents())
-		events.push_back(_event);
-	for (std::shared_ptr<SourceUnit> const& source: _sourceUnits)
-		for (ASTPointer<ASTNode> const &node: source->nodes())
-			if (auto lib = dynamic_cast<ContractDefinition const *>(node.get()))
-				if (lib->isLibrary())
-					for (const auto &event : lib->definedInterfaceEvents())
-						events.push_back(event);
-
-	std::set<std::string> used;
+	TVMCompilerContext ctx{contract, pdh};
 
 	Json::Value root(Json::objectValue);
 	root["ABI version"] = 2;
-	root["version"] = "2.4";
+	root["version"] = "2.7";
 
 	// header
 	{
@@ -133,7 +119,9 @@ Json::Value TVMABI::generateABIJson(
 
 	// functions
 	{
+		std::set<std::string> used;
 		Json::Value functions(Json::arrayValue);
+		const std::vector<const FunctionDefinition *> publicFunctions = TVMABI::publicFunctions(*contract);
 		for (FunctionDefinition const* f : publicFunctions) {
 			auto funcName = TVMCompilerContext::getFunctionExternalName(f);
 			if (used.count(funcName))
@@ -158,6 +146,16 @@ Json::Value TVMABI::generateABIJson(
 
 	// events
 	{
+		std::vector<const EventDefinition *> events {};
+		for (const auto &_event : contract->definedInterfaceEvents())
+			events.push_back(_event);
+		for (std::shared_ptr<SourceUnit> const& source: _sourceUnits)
+			for (ASTPointer<ASTNode> const &node: source->nodes())
+				if (auto lib = dynamic_cast<ContractDefinition const *>(node.get()))
+					if (lib->isLibrary())
+						for (const auto &event : lib->definedInterfaceEvents())
+							events.push_back(event);
+
 		Json::Value eventAbi(Json::arrayValue);
 		std::set<std::string> usedEvents;
 		for (const auto &e: events) {
@@ -215,6 +213,20 @@ Json::Value TVMABI::generateABIJson(
 		root["fields"] = fields;
 	}
 
+	// getters
+	{
+		Json::Value functions(Json::arrayValue);
+		std::set<std::string> used;
+		auto getters = TVMABI::getters(*contract);
+		for (FunctionDefinition const* f : getters) {
+			auto funcName = TVMCompilerContext::getFunctionExternalName(f);
+			solAssert(used.count(funcName) == 0, "");
+			used.insert(funcName);
+			functions.append(toJson(funcName, convertArray(f->parameters()), convertArray(f->returnParameters()), f));
+		}
+		root["getters"] = functions;
+	}
+
 	return root;
 }
 
@@ -252,17 +264,17 @@ void TVMABI::generateABI(
 	print(root["functions"], out);
 	*out << "\t" << "],\n";
 
+	*out << "\t" << R"("getters": [)" << "\n";
+	print(root["getters"], out);
+	*out << "\t" << "],\n";
+
 	*out << "\t" << R"("events": [)" << "\n";
 	print(root["events"], out);
+	*out << "\t" << "],\n";
 
-	if (root.isMember("fields")) {
-		*out << "\t" << "],\n";
-		*out << "\t" << R"("fields": [)" << "\n";
-		printData(root["fields"], out);
-		*out << "\t" << "]\n";
-	} else {
-		*out << "\t" << "]\n";
-	}
+	*out << "\t" << R"("fields": [)" << "\n";
+	printData(root["fields"], out);
+	*out << "\t" << "]\n";
 
 	*out << "}" << endl;
 }
@@ -274,12 +286,30 @@ std::vector<const FunctionDefinition *> TVMABI::publicFunctions(ContractDefiniti
 
 	for (auto c : contract.annotation().linearizedBaseContracts) {
 		for (const auto &_function : c->definedFunctions()) {
-			if (!_function->isConstructor() && _function->isPublic() &&
-				!_function->isReceive() && !_function->isFallback() && !_function->isOnBounce() && !_function->isOnTickTock())
+			if (!_function->isConstructor() &&
+				_function->isPublic() &&
+				!_function->isReceive() &&
+				!_function->isFallback() &&
+				!_function->isOnBounce() &&
+				!_function->isOnTickTock() &&
+				_function->visibility() != Visibility::Getter
+			)
 				publicFunctions.push_back(_function);
 		}
 	}
 	return publicFunctions;
+}
+
+std::vector<const FunctionDefinition *> TVMABI::getters(ContractDefinition const& contract) {
+	std::vector<const FunctionDefinition *> getters;
+	for (auto c : contract.annotation().linearizedBaseContracts) {
+		for (const auto &_function : c->definedFunctions()) {
+			if (!_function->isConstructor() &&
+				_function->visibility() == Visibility::Getter)
+				getters.push_back(_function);
+		}
+	}
+	return getters;
 }
 
 void TVMABI::printData(const Json::Value &json, std::ostream* out) {
@@ -436,14 +466,16 @@ Json::Value TVMABI::setupNameTypeComponents(const string &name, const Type *type
 	} else {
 		const Type::Category category = type->category();
 		TypeInfo ti(type);
-		if (category == Type::Category::Address || category == Type::Category::Contract) {
+		if (category == Type::Category::Address || category == Type::Category::Contract)
 			typeName = "address";
-		} else if (category == Type::Category::VarInteger) {
+		else if (category == Type::Category::AddressStd)
+			typeName = "address_std";
+		else if (category == Type::Category::VarInteger) {
 			auto varint = to<VarIntegerType>(type);
 			typeName = varint->toString(false);
-		} else if (auto* fixedBytesType = to<FixedBytesType>(type)) {
+		} else if (auto* fixedBytesType = to<FixedBytesType>(type))
 			typeName = "fixedbytes" + toString(fixedBytesType->numBytes());
-		} else if (ti.isNumeric) {
+		else if (ti.isNumeric) {
 			if (to<BoolType>(type)) {
 				typeName = "bool";
 			} else if (ti.isSigned) {
@@ -635,21 +667,39 @@ void ChainDataDecoder::decodePublicFunctionParameters(
 	*pusher << "ENDS";
 }
 
-void ChainDataDecoder::decodeFunctionParameters(const std::vector<Type const*>& types, bool isResponsible) {
-	pusher->startOpaque();
-	pusher->pushS(1);
-	pusher->fixStack(-1); // fix stack
+ChainDataDecoder::DecodeType ChainDataDecoder::getDecodeType(FunctionDefinition const* f) {
+	if (f->isExternalMsg())
+		return DecodeType::ONLY_EXT_MSG;
+	if (f->isInternalMsg())
+		return DecodeType::ONLY_INT_MSG;
+	return DecodeType::BOTH;
+}
 
-	pusher->startContinuation();
-	decodePublicFunctionParameters(types, isResponsible, false);
-	pusher->endContinuation();
+void ChainDataDecoder::decodeFunctionParameters(const std::vector<Type const*>& types, bool isResponsible, DecodeType decodeType) {
+	switch (decodeType) {
+	case DecodeType::ONLY_EXT_MSG:
+		decodePublicFunctionParameters(types, isResponsible, false);
+		break;
+	case DecodeType::ONLY_INT_MSG:
+		decodePublicFunctionParameters(types, isResponsible, true);
+		break;
+	case DecodeType::BOTH:
+		pusher->startOpaque();
+		pusher->pushS(1);
+		pusher->fixStack(-1); // fix stack
 
-	pusher->startContinuation();
-	decodePublicFunctionParameters(types, isResponsible, true);
-	pusher->endContinuation();
+		pusher->startContinuation();
+		decodePublicFunctionParameters(types, isResponsible, false);
+		pusher->endContinuation();
 
-	pusher->ifElse();
-	pusher->endOpaque(1, types.size());
+		pusher->startContinuation();
+		decodePublicFunctionParameters(types, isResponsible, true);
+		pusher->endContinuation();
+
+		pusher->ifElse();
+		pusher->endOpaque(1, types.size());
+		break;
+	}
 }
 
 void ChainDataDecoder::decodeData(int offset, int usedRefs, const std::vector<Type const*>& types) {
@@ -744,7 +794,9 @@ void ChainDataDecoder::decodeParameter(Type const* type, DecodePosition* positio
 		to<OptionalType>(type) ||
 		to<FunctionType>(type) ||
 		to<VarIntegerType>(type) ||
-		(category == Type::Category::Address || category == Type::Category::Contract)
+		category == Type::Category::Address ||
+		category == Type::Category::Contract ||
+		category == Type::Category::AddressStd
 	) {
 		loadNextSliceIfNeed(position->loadNextCell(type));
 		pusher->load(type, false);
@@ -764,7 +816,7 @@ void ChainDataDecoder::decodeParameterQ(Type const* type, DecodePosition* positi
 		to<TvmCellType>(type) ||
 		to<ArrayType>(type) ||
 		to<MappingType>(type) ||
-		(category == Type::Category::Address || category == Type::Category::Contract)
+		(category == Type::Category::Address || category == Type::Category::AddressStd || category == Type::Category::Contract)
 	) {
 		loadNextSliceIfNeed(position->loadNextCell(type));
 		pusher->loadQ(type);

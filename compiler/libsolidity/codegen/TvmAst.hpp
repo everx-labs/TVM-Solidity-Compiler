@@ -490,22 +490,24 @@ private:
 
 class Contract : public TvmAstNode {
 public:
-	explicit Contract(
+	Contract(
 		bool _isLib,
 		bool _saveAllFunction,
 		bool _upgradeFunc,
 		bool upgradeOldSolidity,
 		std::string _version,
-		std::vector<Pointer<Function>> functions,
-		std::map<uint32_t, std::string> _privateFunctions
+		std::vector<Pointer<Function>> _functions,
+		std::map<uint32_t, std::string> _privateFunctions,
+		std::map<uint32_t, std::string> _getters
 	) :
 		m_isLib{_isLib},
 		m_saveAllFunction{_saveAllFunction},
 		m_upgradeFunc{_upgradeFunc},
 		m_upgradeOldSolidity{upgradeOldSolidity},
 		m_version{std::move(_version)},
-		m_functions{std::move(functions)},
-		m_privateFunctions{std::move(_privateFunctions)}
+		m_functions{std::move(_functions)},
+		m_privateFunctions{std::move(_privateFunctions)},
+		m_getters{std::move(_getters)}
 	{
 	}
 	void accept(TvmAstVisitor& _visitor) override;
@@ -517,6 +519,7 @@ public:
 	std::string const& version() const { return m_version; }
 	std::vector<Pointer<Function>> const& functions() const { return m_functions; }
 	std::map<uint32_t, std::string> const& privateFunctions() const { return m_privateFunctions; }
+	std::map<uint32_t, std::string> const& getters() const { return m_getters; }
 private:
 	bool m_isLib{};
 	bool m_saveAllFunction{};
@@ -525,6 +528,7 @@ private:
 	std::string m_version;
 	std::vector<Pointer<Function>> m_functions;
 	std::map<uint32_t, std::string> m_privateFunctions;
+	std::map<uint32_t, std::string> m_getters;
 };
 
 Pointer<StackOpcode> gen(const std::string& cmd);

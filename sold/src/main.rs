@@ -11,7 +11,7 @@
  */
 
 use clap::Parser;
-use sold_lib::{Args, VERSION, ERROR_MSG_NO_OUTPUT, build, solidity_version};
+use sold_lib::{build, solidity_version, Args, ERROR_MSG_NO_OUTPUT, VERSION};
 
 mod libsolc;
 

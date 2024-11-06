@@ -480,6 +480,9 @@ Visibility Parser::parseVisibilitySpecifier()
 	Token token = m_scanner->currentToken();
 	switch (token)
 	{
+		case Token::Getter:
+			visibility = Visibility::Getter;
+			break;
 		case Token::Public:
 			visibility = Visibility::Public;
 			break;

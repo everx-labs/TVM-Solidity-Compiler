@@ -427,6 +427,7 @@ TypePointers TypeChecker::checkSliceDecode(std::vector<ASTPointer<Expression con
 				case Type::Category::Bool:
 				case Type::Category::FixedPoint:
 				case Type::Category::Address:
+				case Type::Category::AddressStd:
 				case Type::Category::Contract:
 				case Type::Category::TvmCell:
 				case Type::Category::Array:
@@ -464,6 +465,7 @@ TypePointers TypeChecker::checkSliceDecodeQ(std::vector<ASTPointer<Expression co
 				case Type::Category::Bool:
 				case Type::Category::FixedPoint:
 				case Type::Category::Address:
+				case Type::Category::AddressStd:
 				case Type::Category::Contract:
 				case Type::Category::TvmCell:
 				case Type::Category::Array:
@@ -646,8 +648,8 @@ bool TypeChecker::isBadAbiType(
 		case Type::Category::Mapping: {
 			auto mappingType = to<MappingType>(curType);
 			auto intKey = to<IntegerType>(mappingType->keyType());
-			auto addrKey = to<AddressType>(mappingType->keyType());
-			if (intKey == nullptr && addrKey == nullptr) {
+			auto addrKey = isIn(mappingType->keyType()->category(), Type::Category::Address, Type::Category::AddressStd);
+			if (intKey == nullptr && !addrKey) {
 				printError(
 					"Key type of the mapping must be "
 			   		"any of int<M>/uint<M> types with M from 8 to 256 or std address.");
@@ -691,6 +693,7 @@ bool TypeChecker::isBadAbiType(
 		}
 
 		case Type::Category::Address:
+		case Type::Category::AddressStd:
 		case Type::Category::Bool:
 		case Type::Category::Contract:
 		case Type::Category::Enum:
@@ -980,6 +983,7 @@ bool TypeChecker::visit(VariableDeclaration const& _variable)
 		auto mapType = dynamic_cast<MappingType const*>(varType);
 		switch (mapType->keyType()->category()) {
 			case Type::Category::Address:
+			case Type::Category::AddressStd:
 			case Type::Category::Array: // usual arrays (e.g. uint[]) are checked in another place
 			case Type::Category::Bool:
 			case Type::Category::Contract:
@@ -2315,6 +2319,7 @@ TypeChecker::Result TypeChecker::canStoreToBuilder(Type const* type, bool _topTy
 	case Type::Category::TvmSlice:
 		return {_topType, std::nullopt};
 	case Type::Category::Address:
+	case Type::Category::AddressStd:
 	case Type::Category::Array:
 	case Type::Category::Bool:
 	case Type::Category::Contract:
@@ -2383,6 +2388,7 @@ void TypeChecker::checkStoreQ(Expression const& _argument) {
 		}
 		case Type::Category::TvmCell:
 		case Type::Category::Address:
+		case Type::Category::AddressStd:
 		case Type::Category::Contract:
 		case Type::Category::TvmSlice:
 		case Type::Category::Integer:
@@ -2530,17 +2536,14 @@ TypeChecker::getFunctionDefinition(Expression const* expr) {
 	return dynamic_cast<FunctionDefinition const*>(declaration);
 }
 
-std::pair<bool, FunctionDefinition const*>
+std::pair<ContractType const*, FunctionDefinition const*>
 TypeChecker::getConstructorDefinition(Expression const* expr) {
-	auto contractType = getContractType(expr);
-	if (contractType == nullptr) {
-		return {};
+	ContractType const* contractType = getContractType(expr);
+	FunctionDefinition const* constr{};
+	if (contractType != nullptr) {
+		constr = contractType->contractDefinition().constructor();
 	}
-	FunctionDefinition const* constr = contractType->contractDefinition().constructor();
-	if (constr == nullptr) {
-		return {true, nullptr};
-	}
-	return {true, constr};
+	return {contractType, constr};
 }
 
 ContractType const* TypeChecker::getContractType(Expression const* expr) {
@@ -2789,20 +2792,21 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 	std::vector<ASTPointer<ASTString>> const& argumentNames = _functionCall.names();
 	bool isFunctionWithDefaultValues = false;
 	{
-		auto ma = dynamic_cast<MemberAccess const*>(&_functionCall.expression());
-		if (ma && ma->memberName() == "transfer" && dynamic_cast<AddressType const *>(ma->expression().annotation().type)) {
-			isFunctionWithDefaultValues = true;
-		}
-		if (ma && dynamic_cast<MagicType const *>(ma->expression().annotation().type)) {
-			if (ma->memberName() == "encodeStateInit" ||
-				ma->memberName() == "buildStateInit" ||
-				ma->memberName() == "buildDataInit" ||
-				ma->memberName() == "encodeData" ||
-				ma->memberName() == "encodeOldDataInit" ||
-				ma->memberName() == "buildExtMsg" ||
-				ma->memberName() == "encodeIntMsg" ||
-				ma->memberName() == "buildIntMsg")
-			isFunctionWithDefaultValues = true;
+		if (auto ma = dynamic_cast<MemberAccess const*>(&_functionCall.expression())) {
+			auto category = ma->expression().annotation().type->category();
+			if (ma->memberName() == "transfer" && (category == Type::Category::Address || category == Type::Category::AddressStd))
+				isFunctionWithDefaultValues = true;
+			if (dynamic_cast<MagicType const *>(ma->expression().annotation().type)) {
+				if (ma->memberName() == "encodeStateInit" ||
+					ma->memberName() == "buildStateInit" ||
+					ma->memberName() == "buildDataInit" ||
+					ma->memberName() == "encodeData" ||
+					ma->memberName() == "encodeOldDataInit" ||
+					ma->memberName() == "buildExtMsg" ||
+					ma->memberName() == "encodeIntMsg" ||
+					ma->memberName() == "buildIntMsg")
+				isFunctionWithDefaultValues = true;
+			}
 		}
 	}
 
@@ -3144,7 +3148,7 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 }
 
 FunctionDefinition const*
-TypeChecker::checkPubFunctionAndGetDefinition(Expression const& arg, bool printError) {
+TypeChecker::checkPubFunctionAndGetDefinition(Expression const& arg, bool printError) const {
 	FunctionDefinition const* funcDef = getFunctionDefinition(&arg);
 	if (funcDef) {
 		if (!funcDef->isPublic()) {
@@ -3170,28 +3174,36 @@ TypeChecker::checkPubFunctionAndGetDefinition(Expression const& arg, bool printE
 }
 
 FunctionDefinition const*
-TypeChecker::checkPubFunctionOrContractTypeAndGetDefinition(Expression const& arg) {
-	FunctionDefinition const* funcDef = checkPubFunctionAndGetDefinition(arg);
+TypeChecker::checkPubFunctionOrContractTypeAndGetDefinition(Expression const& arg) const {
+	FunctionDefinition const* funcDef = checkPubFunctionAndGetDefinition(arg, false);
 	if (funcDef) {
 		return funcDef;
 	}
 
-	const auto &[isContract, constructorDef] = getConstructorDefinition(&arg);
-	if (!isContract) {
+	const auto &[contract, constructorDef] = getConstructorDefinition(&arg);
+	if (contract == nullptr) {
 		m_errorReporter.fatalTypeError(
 			4974_error,
 			arg.location(),
-			"Function or contract type required, but " +
+			"Expected function or contract type, but " +
 			type(arg)->toString(true) +
 			" provided."
+		);
+	} else if (constructorDef == nullptr) {
+		m_errorReporter.typeError(
+			2672_error,
+			arg.location(),
+			SecondarySourceLocation()
+				.append("Contract definition is here:", contract->contractDefinition().location()),
+			"Contract has no constructor."
 		);
 	}
 	return constructorDef;
 }
 
 void TypeChecker::checkInitList(InitializerList const* list, ContractType const& ct,
-								langutil::SourceLocation const& _functionCallLocation
-) {
+								SourceLocation const& _functionCallLocation
+) const {
 	std::vector<VariableDeclaration const*> stateVariables;
 	for (auto const &[v, _, ___] : ct.stateVariables()) {
 		boost::ignore_unused(_);
@@ -3716,7 +3728,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 		case FunctionType::Kind::TVMSlicePreloadQ:
 		{
 			checkAtLeastOneArg();
-			TypePointers members = checkSliceDecode(_functionCall.arguments()); // TODO make for Q
+			TypePointers members = checkSliceDecodeQ(_functionCall.arguments());
 			if (members.size() == 1)
 				returnTypes = TypePointers{TypeProvider::optional(members.at(0))};
 			else
@@ -3736,7 +3748,8 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 					std::string("Expected two arguments.")
 				);
 			}
-			FunctionDefinition const* functionDeclaration = checkPubFunctionOrContractTypeAndGetDefinition(*arguments.front().get());
+			FunctionDefinition const* functionDeclaration =
+				checkPubFunctionOrContractTypeAndGetDefinition(*arguments.front().get());
 			if (functionDeclaration != nullptr) { // if nullptr => default constructor
 				if (functionDeclaration->isResponsible()) {
 					returnTypes.push_back(TypeProvider::uint(32)); // callback function
@@ -3758,7 +3771,8 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 					std::string("Expected one argument.")
 				);
 			}
-			FunctionDefinition const* functionDeclaration = checkPubFunctionOrContractTypeAndGetDefinition(*arguments.front().get());
+			FunctionDefinition const* functionDeclaration =
+				checkPubFunctionOrContractTypeAndGetDefinition(*arguments.front().get());
 			if (functionDeclaration != nullptr) { // if nullptr => default constructor
 				if (functionDeclaration->isResponsible()) {
 					returnTypes.push_back(TypeProvider::uint(32)); // callback function
@@ -3811,6 +3825,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 						_functionCall.location(),
 						std::string("Expected two arguments.")
 					);
+				expectType(*arguments.at(1), *TypeProvider::tvmslice(), false);
 			}
 			else if (functionType->kind() == FunctionType::Kind::TVMSliceLoadStateVars)
 			{
@@ -4082,7 +4097,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			returnTypes = functionType->returnParameterTypes();
 			break;
 		}
-		case FunctionType::Kind::ABIBuildIntMsg: {
+		case FunctionType::Kind::ABIEncodeIntMsg: {
 			checkHasNamedParams();
 
 			for (const std::string name : {"dest", "call", "value"}) {
@@ -4100,11 +4115,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				int index = findName("call");
 				index != -1
 			) {
-				auto callList = dynamic_cast<CallList const*>(arguments.at(index).get());
-				if (callList) {
-					// now, we ignore constructor call, because in this case we must set stateInit
-					checkPubFunctionAndGetDefinition(*callList->function(), true);
-
+				if (auto callList = dynamic_cast<CallList const*>(arguments.at(index).get())) {
 					std::vector<Expression const*> params;
 					params.push_back(callList->function());
 					for (const ASTPointer<Expression const> & p : callList->arguments()) {

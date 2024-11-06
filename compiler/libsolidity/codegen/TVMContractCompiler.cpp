@@ -99,6 +99,7 @@ TVMContractCompiler::generateContractCode(
 	PragmaDirectiveHelper const &pragmaHelper
 ) {
 	std::vector<Pointer<Function>> functions;
+	std::map<uint32_t, std::string> getters;
 
 	TVMCompilerContext ctx{contract, pragmaHelper};
 
@@ -116,9 +117,9 @@ TVMContractCompiler::generateContractCode(
 		for (FunctionDefinition const *_function : c->definedFunctions()) {
 			if (_function->isConstructor() ||
 				!_function->isImplemented() ||
-				_function->isInline()) {
+				_function->isInline()
+			)
 				continue;
-			}
 
 			if (_function->isOnBounce()) {
 				if (!ctx.isOnBounceGenerated()) {
@@ -142,13 +143,20 @@ TVMContractCompiler::generateContractCode(
 					functions.emplace_back(TVMFunctionCompiler::generateOnCodeUpgrade(ctx, _function));
 			} else {
 				if (!ctx.isStdlib() && _function->isPublic() && !ctx.isBaseFunction(_function)) {
-					functions.emplace_back(TVMFunctionCompiler::generatePublicFunction(ctx, _function));
-
-					StackPusher pusher{&ctx};
-					ChainDataEncoder encoder{&pusher};
-					uint32_t functionId = encoder.calculateFunctionIDWithReason(_function,
-																				ReasonOfOutboundMessage::RemoteCallInternal);
-					ctx.addPublicFunction(functionId, _function->name());
+					if (_function->visibility() == Visibility::Getter) {
+						functions.emplace_back(TVMFunctionCompiler::generateGetterFunction(ctx, _function));
+						uint32_t functionId = crc16(_function->name().c_str(), _function->name().length());
+						functionId = (functionId & 0xffff) | 0x10000;
+						bool emplace = getters.emplace(functionId, _function->name()).second;
+						solAssert(emplace, "");
+					} else {
+						functions.emplace_back(TVMFunctionCompiler::generatePublicFunction(ctx, _function));
+						StackPusher pusher{&ctx};
+						ChainDataEncoder encoder{&pusher};
+						uint32_t functionId = encoder.calculateFunctionIDWithReason(_function,
+																					ReasonOfOutboundMessage::RemoteCallInternal);
+						ctx.addPublicFunction(functionId, _function->name());
+					}
 				}
 				auto const[functionName, id] = ctx.functionInternalName(_function);
 				functions.emplace_back(TVMFunctionCompiler::generateFunction(ctx, _function, functionName, id));
@@ -274,9 +282,11 @@ TVMContractCompiler::generateContractCode(
 	}
 
 	Pointer<Contract> c = createNode<Contract>(
-		ctx.isStdlib(), ctx.getPragmaSaveAllFunctions(), pragmaHelper.hasUpgradeFunc(), pragmaHelper.hasUpgradeOldSol(),
-		std::string{"sol "} + solidity::frontend::VersionNumber,
-		functionOrder, ctx.callGraph().privateFunctions()
+			ctx.isStdlib(), ctx.getPragmaSaveAllFunctions(), pragmaHelper.hasUpgradeFunc(), pragmaHelper.hasUpgradeOldSol(),
+			std::string{"sol "} + solidity::frontend::VersionNumber,
+			functionOrder,
+			ctx.callGraph().privateFunctions(),
+			getters
 	);
 
 	DeleterAfterRet d;
@@ -333,23 +343,23 @@ void TVMContractCompiler::optimizeCode(Pointer<Contract>& c) {
 }
 
 void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractDefinition const *contract) {
-	std::map<std::string, FunctionDefinition const *> inlineFunctions;
+	std::set<FunctionDefinition const *> inlineFunctions;
 	for (ContractDefinition const *base : contract->annotation().linearizedBaseContracts | boost::adaptors::reversed) {
 		for (FunctionDefinition const *function : base->definedFunctions()) {
 			if (function->isInline()) {
-				inlineFunctions[functionName(function)] = function;
+				inlineFunctions.insert(function);
 			}
 		}
 	}
 
 	TVMInlineFunctionChecker inlineFunctionChecker;
-	for (FunctionDefinition const *function : inlineFunctions | boost::adaptors::map_values) {
+	for (FunctionDefinition const *function : inlineFunctions) {
 		function->accept(inlineFunctionChecker);
 	}
 	std::vector<FunctionDefinition const *> order = inlineFunctionChecker.functionOrder();
 
 	for (FunctionDefinition const * function : order) {
-		const std::string name = functionName(function);
+		const std::string name = ctx.functionInternalName(function).first;
 		ctx.setCurrentFunction(function, name);
 		StackPusher pusher{&ctx};
 		TVMFunctionCompiler::generateFunctionWithModifiers(pusher, function, true);

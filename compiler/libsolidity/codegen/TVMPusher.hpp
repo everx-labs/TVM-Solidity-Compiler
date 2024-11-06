@@ -104,7 +104,7 @@ public:
 		m_currentFunction = _f;
 		m_currentFunctionName = _name;
 	}
-	FunctionDefinition const* currentFunction() { return m_currentFunction; }
+	FunctionDefinition const* currentFunction() const { return m_currentFunction; }
 	std::string currentFunctionName() { return m_currentFunctionName.value(); }
 	void resetCurrentFunction() {
 		m_currentFunction = nullptr;
@@ -181,7 +181,7 @@ public:
 	bool tryPollEmptyPushCont();
 
 	[[nodiscard]]
-	TVMCompilerContext& ctx();
+	TVMCompilerContext& ctx() const;
 private:
 	void change(int delta);
 	void change(int take, int ret);
@@ -317,7 +317,7 @@ public:
 	DataType prepareValueForDictOperations(Type const* keyType, Type const* valueType);
 	[[nodiscard]]
 	DataType pushDefaultValueForDict(Type const* keyType, Type const* valueType);
-	bool doesDictStoreValueInRef(Type const* keyType, Type const* valueType);
+	static bool doesDictStoreValueInRef(Type const* keyType, Type const* valueType);
 
 	enum class DecodeType {
 		DecodeValue,
@@ -329,7 +329,7 @@ public:
 	void recoverKeyAndValueAfterDictOperation(
 		Type const* keyType,
 		Type const* valueType,
-		bool haveKey,
+		bool hasKey,
 		bool didUseOpcodeWithRef,
 		const DecodeType& decodeType,
 		bool saveOrigKeyAndNoTuple = false
@@ -412,25 +412,25 @@ public:
 	TypeConversion(StackPusher& _pusher) : m_pusher{_pusher} { }
 	void convert(Type const* leftType, Type const* rightType);
 private:
-	void integerToInteger(IntegerType const* leftType, IntegerType const* rightType);
-	void fixedPointToInteger(IntegerType const* leftType, FixedPointType const* rightType);
-	void fixedPointToFixedPoint(FixedPointType const* leftType, FixedPointType const* rightType);
-	void integerToFixedPoint(FixedPointType const* leftType, IntegerType const* rightType);
-	void fixedBytesToFixedBytes(FixedBytesType const* leftType, FixedBytesType const* rightType);
-	void bytesToFixedBytes(FixedBytesType const* rightType);
-	void stringLiteralToFixedBytes(FixedBytesType const* leftType, StringLiteralType const* rightType);
-	void fromFixedPoint(Type const* leftType, FixedPointType const* rightType);
-	void convertIntegerToAddress(Type const* t);
-	void convertIntegerToEnum(EnumType const* leftType, IntegerType const* rightType);
-	void fromInteger(Type const* leftType, IntegerType const* rightType);
-	void fromRational(Type const* leftType, RationalNumberType const* rightType);
+	void integerToInteger(IntegerType const* leftType, IntegerType const* rightType) const;
+	void fixedPointToInteger(IntegerType const* leftType, FixedPointType const* rightType) const;
+	void fixedPointToFixedPoint(FixedPointType const* leftType, FixedPointType const* rightType) const;
+	void integerToFixedPoint(FixedPointType const* leftType, IntegerType const* rightType) const;
+	void fixedBytesToFixedBytes(FixedBytesType const* leftType, FixedBytesType const* rightType) const;
+	void bytesToFixedBytes(FixedBytesType const* rightType) const;
+	void stringLiteralToFixedBytes(FixedBytesType const* leftType, StringLiteralType const* rightType) const;
+	void fromFixedPoint(Type const* leftType, FixedPointType const* rightType) const;
+	void convertIntegerToAddress(Type const* t) const;
+	void convertIntegerToEnum(EnumType const* leftType, IntegerType const* rightType) const;
+	void fromInteger(Type const* leftType, IntegerType const* rightType) const;
+	void fromRational(Type const* leftType, RationalNumberType const* rightType) const;
 	void tupleFromTuple(TupleType const* leftType, TupleType const* rightType);
-	void fromFixedBytesType(Type const* leftType, FixedBytesType const* rightType);
-	void fromArray(Type const* leftType, ArrayType const* rightType);
+	void fromFixedBytesType(Type const* leftType, FixedBytesType const* rightType) const;
+	void fromArray(Type const* leftType, ArrayType const* rightType) const;
 	void fromOptional(Type const* leftType, OptionalType const* rightType);
-	void fromSlice(Type const* leftType);
+	void fromSlice(Type const* leftType) const;
 	void fromTuple(Type const* leftType, TupleType const* rightType);
-	void fromStringLiteral(Type const* leftType, StringLiteralType const* rightType);
+	void fromStringLiteral(Type const* leftType, StringLiteralType const* rightType) const;
 private:
 	StackPusher& m_pusher;
 }; // end TypeConversion

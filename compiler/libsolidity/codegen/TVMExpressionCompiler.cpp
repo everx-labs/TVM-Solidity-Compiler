@@ -617,7 +617,7 @@ void TVMExpressionCompiler::visit2(BinaryOperation const &_binaryOperation) {
 		return;
 	}
 
-	if (isAddressOrContractType(lt) || isAddressOrContractType(rt) || (isSlice(lt) && isSlice(rt))) {
+	if (isAddressOrAddressStdOrContractType(lt) || isAddressOrAddressStdOrContractType(rt) || (isSlice(lt) && isSlice(rt))) {
 		acceptLeft();
 		acceptRight();
 		compareSlices(op);
@@ -980,7 +980,8 @@ void TVMExpressionCompiler::visit2(MemberAccess const &_node) {
 	if (category == Type::Category::Magic) {
 		return visitMagic(_node);
 	}
-	if (checkForAddressMemberAccess(_node, category)) {
+	if (isIn(category, Type::Category::Address, Type::Category::AddressStd)) {
+		checkForAddressMemberAccess(_node);
 		return;
 	}
 
@@ -993,7 +994,7 @@ void TVMExpressionCompiler::visit2(MemberAccess const &_node) {
 	if (category == Type::Category::TypeType) {
 		auto typeType = to<TypeType>(_node.expression().annotation().type);
 		auto actualType = typeType->actualType();
-		if (actualType->category() == Type::Category::Address) {
+		if (isIn(actualType->category(), Type::Category::Address, Type::Category::AddressStd)) {
 			solAssert(memberName == "addrNone", "");
 			m_pusher.pushSlice("x2_");
 			return;
@@ -1023,16 +1024,13 @@ void TVMExpressionCompiler::visit2(MemberAccess const &_node) {
 	cast_error(_node, "Not supported.");
 }
 
-bool TVMExpressionCompiler::checkForAddressMemberAccess(MemberAccess const &_node, Type::Category category) {
-	if (category != Type::Category::Address)
-		return false;
+void TVMExpressionCompiler::checkForAddressMemberAccess(MemberAccess const &_node) {
 	if (_node.memberName() == "balance") {
 		if (!isAddressThis(to<FunctionCall>(&_node.expression()))) {
 			cast_error(_node.expression(), "Only 'address(this).balance' is supported for member balance");
 		}
 		m_pusher << "GETPARAM 7";
 		m_pusher.indexNoexcep(0);
-		return true;
 	}
 	if (_node.memberName() == "currencies") {
 		if (!isAddressThis(to<FunctionCall>(&_node.expression()))) {
@@ -1040,22 +1038,18 @@ bool TVMExpressionCompiler::checkForAddressMemberAccess(MemberAccess const &_nod
 		}
 		m_pusher << "GETPARAM 7";
 		m_pusher.indexNoexcep(1);
-		return true;
 	}
 	if (_node.memberName() == "wid") {
 		compileNewExpr(&_node.expression());
 		m_pusher << "PARSEMSGADDR";
 		m_pusher.indexWithExcep(2);
-		return true;
 	}
 	if (_node.memberName() == "value") {
 		compileNewExpr(&_node.expression());
 		m_pusher << "PARSEMSGADDR";
 		m_pusher.indexWithExcep(3);
 		m_pusher << "PLDU 256";
-		return true;
 	}
-	return false;
 }
 
 void TVMExpressionCompiler::visitMemberAccessArray(MemberAccess const &_node) {

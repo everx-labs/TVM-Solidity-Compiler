@@ -1,3 +1,26 @@
+### 0.77.0 (2024-10-31)
+
+Bugfixes:
+ * Fixed wrong type conversion. For example: conversion from `stack(varuint)` to `stack(varint)` was supported. But now
+it's an error.
+ * Type checker: `abi.decodeData()` function could take any type for 2d parameter.
+ * [format()](API.md#format) threw an exception for non `addr_std` address. See [issues #168](https://github.com/everx-labs/TVM-Solidity-Compiler/issues/168). 
+Now [format()](API.md#format) can take address of any type. 
+ * Fixed bug when you iterate over array of mapping. See [issues #169](https://github.com/everx-labs/TVM-Solidity-Compiler/issues/169).
+ * Fixed bug when overloading inline function. See [issues #167](https://github.com/everx-labs/TVM-Solidity-Compiler/issues/167).
+ * Fixed compilation failure on formatted output pattern. See [issues #166](https://github.com/everx-labs/TVM-Solidity-Compiler/issues/166).
+
+Compiler features:
+ * Supported [ABI 2.7](https://github.com/everx-labs/ever-abi/blob/master/CHANGELOG.md#version-270)
+   * Supported [getters](API.md#getter).
+   * Supported [address_std](API.md#address_std) type.
+ * Supported encoding internal message to call constructor. See option 2 [abi.encodeIntMsg()](API.md#abiencodeintmsg).  
+
+Optimizations:
+ * optimized decoding function parameters if the function marked as `externalMsg` or `internalMsg`.
+
+Function [\<address\>.getType()](API.md#addressgettype) now returns  `uint4` instead of `uint8`.
+
 ### 0.76.0 (2024-07-18)
 
 Compiler features:

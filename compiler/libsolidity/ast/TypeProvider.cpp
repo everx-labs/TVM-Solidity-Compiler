@@ -46,6 +46,7 @@ std::unique_ptr<Variant> TypeProvider::m_variant;
 
 TupleType const TypeProvider::m_emptyTuple{};
 AddressType const TypeProvider::m_address{};
+AddressStdType const TypeProvider::m_addressStd{};
 InitializerListType const TypeProvider::m_initializerList{};
 CallListType const TypeProvider::m_callList{};
 
@@ -1184,7 +1185,7 @@ void TypeProvider::reset()
 	instance().m_stringLiteralTypes.clear();
 	instance().m_ufixedMxN.clear();
 	instance().m_fixedMxN.clear();
-	instance().m_varinterger.clear();
+	instance().m_varinteger.clear();
 }
 
 template <typename T, typename... Args>
@@ -1252,6 +1253,8 @@ Type const* TypeProvider::fromElementaryTypeName(ElementaryTypeNameToken const& 
 		return fixedPoint(128, 18, FixedPointType::Modifier::Unsigned);
 	case Token::Address:
 		return address();
+	case Token::AddressStd:
+		return addressStd();
 	case Token::Bool:
 		return boolean();
 	case Token::TvmCell:
@@ -1404,7 +1407,7 @@ StringLiteralType const* TypeProvider::stringLiteral(std::string const& literal)
 }
 
 VarIntegerType const* TypeProvider::varinteger(unsigned m, IntegerType::Modifier _modifier) {
-	auto& map = instance().m_varinterger;
+	auto& map = instance().m_varinteger;
 	auto i = map.find(std::make_pair(m, _modifier));
 	if (i != map.end())
 		return i->second.get();
