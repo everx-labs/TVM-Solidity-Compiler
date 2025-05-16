@@ -1383,12 +1383,8 @@ ASTPointer<Mapping> Parser::parseMapping()
 	return nodeFactory.createNode<Mapping>(keyType, keyName, keyNameLocation, valueType, valueName, valueNameLocation);
 }
 
-ASTPointer<Optional> Parser::parseOptional()
+std::vector<ASTPointer<TypeName>> Parser::parseComponents()
 {
-	RecursionGuard recursionGuard(*this);
-	ASTNodeFactory nodeFactory(*this);
-	expectToken(Token::Optional);
-	expectToken(Token::LParen);
 	std::vector<ASTPointer<TypeName>> components;
 	while (true) {
 		ASTPointer<TypeName> cur = parseTypeName();
@@ -1398,6 +1394,16 @@ ASTPointer<Optional> Parser::parseOptional()
 			break;
 		expectToken(Token::Comma);
 	}
+	return components;
+}
+
+ASTPointer<Optional> Parser::parseOptional()
+{
+	RecursionGuard recursionGuard(*this);
+	ASTNodeFactory nodeFactory(*this);
+	expectToken(Token::Optional);
+	expectToken(Token::LParen);
+	std::vector<ASTPointer<TypeName>> components = parseComponents();
 	expectToken(Token::RParen);
 	nodeFactory.markEndPosition();
 	return nodeFactory.createNode<Optional>(components);
@@ -1409,15 +1415,7 @@ ASTPointer<TvmVector> Parser::parseTvmVector()
 	ASTNodeFactory nodeFactory(*this);
 	expectToken(Token::TvmVector);
 	expectToken(Token::LParen);
-	std::vector<ASTPointer<TypeName>> components;
-	while (true) {
-		ASTPointer<TypeName> cur = parseTypeName();
-		components.emplace_back(std::move(cur));
-		Token token = m_scanner->currentToken();
-		if (token != Token::Comma)
-			break;
-		expectToken(Token::Comma);
-	}
+	std::vector<ASTPointer<TypeName>> components = parseComponents();
 	expectToken(Token::RParen);
 	nodeFactory.markEndPosition();
 	return nodeFactory.createNode<TvmVector>(components);

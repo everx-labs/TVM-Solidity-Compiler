@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2019-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -95,7 +95,7 @@ namespace TvmConst {
 	}
 
 	namespace FunctionId {
-		const uint32_t DefaultValueForFunctionType = 0xFFFFFFFF;
+		const uint32_t DefaultValueForFunctionType = (1 << 18) - 1;
 	}
 
 	namespace int_msg_info {
@@ -109,12 +109,6 @@ namespace TvmConst {
 	namespace ext_msg_info {
 		const int src = 0;
 		const int dest = 1;
-	}
-
-	namespace Selector {
-		inline std::string RootCodeCell() { return "8adb35"; } // 8a-PUSHREF db35-JMPXDATA
-		inline std::string PrivateOpcode0() { return "F4A4_"; } // DICTPUSHCONST
-		inline std::string PrivateOpcode1() { return "F4BDF2C04E"; } // DICTUGETJMPZ THROW 78
 	}
 
 	const int IterStackOptQty = 10;

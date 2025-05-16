@@ -91,6 +91,7 @@
 #include <libsolidity/codegen/TVMABI.hpp>
 #include <libsolidity/codegen/TvmAstVisitor.hpp>
 #include <libsolidity/codegen/TVMContractCompiler.hpp>
+#include <libsolidity/codegen/TVMAnalyzer.hpp>
 
 using namespace solidity;
 using namespace solidity::langutil;
@@ -620,6 +621,15 @@ bool CompilerStack::analyzeLegacy(bool _noErrorsSoFar)
 		for (Source const* source: m_sourceOrder)
 			if (source->ast && !tvmAnalyzer.analyze(*source->ast))
 				noErrors = false;
+	}
+
+	if (noErrors) {
+		if (m_tvmVersion == TVMVersion::ton()) {
+			TVMAnalyzerFlag128 tvmAnalyzer128(m_errorReporter);
+			for (Source const* source: m_sourceOrder)
+				if (source->ast && !tvmAnalyzer128.analyze(*source->ast))
+					noErrors = false;
+		}
 	}
 
 	if (noErrors)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2019-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -32,14 +32,14 @@ public:
 	);
 	static Json::Value generatePrivateFunctionIdsJson(
 			ContractDefinition const& contract,
-			const std::vector<std::shared_ptr<SourceUnit>>& _sourceUnits,
+			const std::vector<ASTPointer<SourceUnit>>& _sourceUnits,
 			PragmaDirectiveHelper const& pragmaHelper
 	);
 	static void generateABI(ContractDefinition const* contract,
-							std::vector<std::shared_ptr<SourceUnit>> const& _sourceUnits,
+							std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
 							std::vector<PragmaDirective const *> const& pragmaDirectives, std::ostream* out = &std::cout);
 	static Json::Value generateABIJson(ContractDefinition const* contract,
-							std::vector<std::shared_ptr<SourceUnit>> const& _sourceUnits,
+							std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
 							std::vector<PragmaDirective const *> const& pragmaDirectives);
 private:
 	static std::vector<const FunctionDefinition *> publicFunctions(ContractDefinition const& contract);
@@ -137,16 +137,16 @@ public:
 	void createDefaultConstructorMessage2();
 
 	// returns pair (functionID, is_manually_overridden)
-	uint32_t calculateConstructorFunctionID();
-	std::pair<uint32_t, bool> calculateFunctionID(const CallableDeclaration *declaration);
+	static uint32_t calculateConstructorFunctionID();
+	static std::pair<uint32_t, bool> calculateFunctionID(const CallableDeclaration *declaration);
 	static uint32_t toHash256(std::string const& str);
-	uint32_t calculateFunctionID(
+	static uint32_t calculateFunctionID(
 		const std::string& name,
 		const std::vector<Type const*>& inputs,
 		const std::vector<VariableDeclaration const*> *outputs
 	);
-	uint32_t calculateFunctionIDWithReason(const CallableDeclaration *funcDef, const ReasonOfOutboundMessage &reason, bool isLib = false);
-	uint32_t calculateFunctionIDWithReason(
+	static uint32_t calculateFunctionIDWithReason(const CallableDeclaration *funcDef, const ReasonOfOutboundMessage &reason, bool isLib = false);
+	static uint32_t calculateFunctionIDWithReason(
 		const std::string& name,
 		std::vector<Type const*> inputs,
 		const std::vector<VariableDeclaration const*> *outputs,
@@ -176,7 +176,7 @@ public:
 	);
 
 private:
-	std::string toStringForCalcFuncID(Type const * type);
+	static std::string toStringForCalcFuncID(Type const * type);
 
 private:
 	StackPusher *pusher{};

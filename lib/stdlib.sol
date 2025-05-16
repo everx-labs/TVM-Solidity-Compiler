@@ -24,17 +24,16 @@ contract stdlib {
         tvm.setReplayProtTime(msg_timestamp);
     }
 
-    function __tonToGas(uint128 _ton, int8 wid) private pure returns(uint128) {
-        return math.muldiv(_ton, 65536, __gasGasPrice(wid)); // round down
+    function __tonToGas(uint128 _ton, bool isMasterChain) private pure returns(uint128) {
+        return math.muldiv(_ton, 65536, __gasGasPrice(isMasterChain)); // round down
     }
 
-    function __gasToTon(uint128 gas, int8 wid) private pure returns(uint128) {
-        return math.muldivc(gas, __gasGasPrice(wid), 65536); // round up
+    function __gasToTon(uint128 gas, bool isMasterChain) private pure returns(uint128) {
+        return math.muldivc(gas, __gasGasPrice(isMasterChain), 65536); // round up
     }
 
-    function __gasGasPrice(int8 wid) private pure returns(uint64 gasPrice) {
-        require(wid == 0 || wid == -1, 67);
-        optional(TvmCell) optCell = tvm.rawConfigParam(wid == 0 ? int32(21) : int32(20));
+    function __gasGasPrice(bool isMasterChain) private pure returns(uint64 gasPrice) {
+        optional(TvmCell) optCell = tvm.rawConfigParam(isMasterChain? int32(20) : int32(21));
         require(optCell.hasValue(), 68);
         TvmSlice s = optCell.get().toSlice();
         (, , , , gasPrice) = s.load(uint8, uint64, uint64, uint8, uint64);

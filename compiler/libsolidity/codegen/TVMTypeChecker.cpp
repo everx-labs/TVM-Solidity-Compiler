@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -17,10 +17,12 @@
 #include <libsolidity/ast/ASTForward.h>
 
 #include <libsolidity/codegen/TVM.hpp>
+#include <libsolidity/codegen/TVMABI.hpp>
 #include <libsolidity/codegen/TVMCommons.hpp>
-#include <libsolidity/codegen/TVMPusher.hpp>
 #include <libsolidity/codegen/TVMConstants.hpp>
+#include <libsolidity/codegen/TVMPusher.hpp>
 #include <libsolidity/codegen/TVMTypeChecker.hpp>
+
 #include <libsolidity/analysis/TypeChecker.h>
 
 using namespace solidity::frontend;
@@ -29,7 +31,8 @@ using namespace solidity::util;
 using namespace std;
 
 namespace {
-	string isNotSupportedVM = " is not supported by the VM version. See \"--tvm-version\" command-line option.";
+	string isNotSupportedVM = " is not supported by the VM version. Use \"--tvm-version\" command-line option to set "
+						   "correct TVM version.";
 }
 
 TVMTypeChecker::TVMTypeChecker(langutil::ErrorReporter& _errorReporter) :
@@ -41,31 +44,34 @@ TVMTypeChecker::TVMTypeChecker(langutil::ErrorReporter& _errorReporter) :
 void TVMTypeChecker::checkOverrideAndOverload() {
 	std::set<CallableDeclaration const*> overridedFunctions;
 	std::set<CallableDeclaration const*> functions;
-	std::map<uint32_t, CallableDeclaration const*> funcId2Decl;
+	std::map<uint32_t, FunctionDefinition const*> funcId2Decl;
 	for (ContractDefinition const* cd : contractDefinition->annotation().linearizedBaseContracts | boost::adaptors::reversed) {
 		for (FunctionDefinition const *f : cd->definedFunctions()) {
-
-			if (f->functionID().has_value()) {
-				uint32_t id = f->functionID().value();
-				if (funcId2Decl.count(id) != 0) {
-					CallableDeclaration const *f2 = funcId2Decl.at(id);
-					std::set<CallableDeclaration const*> bf = getAllBaseFunctions(f);
-					std::set<CallableDeclaration const*> bf2 = getAllBaseFunctions(f2);
-					if (bf.count(f2) == 0 && bf2.count(f) == 0) {
-						m_errorReporter.typeError(
-							5042_error,
-							f->location(),
-							SecondarySourceLocation().append("Declaration of the function with the same function ID: ", funcId2Decl.at(id)->location()),
-							"Two functions have the same functionID.");
-					}
-				} else {
-					funcId2Decl[id] = f;
-				}
-			}
-
-			if (f->isConstructor() || f->isReceive() || f->isFallback() || f->isOnTickTock()) {
+			if (!f->functionIsExternallyVisible() || f->isReceive() || f->isFallback() || f->isOnTickTock() || f->isOnBounce())
 				continue;
+
+			uint32_t id = ChainDataEncoder::calculateFunctionIDWithReason(f, ReasonOfOutboundMessage::RemoteCallInternal);
+			if (funcId2Decl.count(id) != 0) {
+				FunctionDefinition const *f2 = funcId2Decl.at(id);
+				std::set<CallableDeclaration const*> bf = getAllBaseFunctions(f);
+				std::set<CallableDeclaration const*> bf2 = getAllBaseFunctions(f2);
+
+				if (bf.count(f2) == 0 && bf2.count(f) == 0 && // f and f2 are not base functions for each other
+					(!f->isConstructor() || !f2->isConstructor()) && // Check that we didn't get two constructors with the same parameters
+					(f->isConstructor() || f2->isConstructor() || f->externalSignature() != f2->externalSignature()) // See test_inher08.sol function getA
+				) {
+					m_errorReporter.typeError(
+						5042_error,
+						f->location(),
+						SecondarySourceLocation().append("Declaration of the function with the same function ID: ", funcId2Decl.at(id)->location()),
+						"Two functions have the same functionID.");
+				}
+			} else {
+				funcId2Decl[id] = f;
 			}
+
+			if (f->isConstructor() || f->isReceive() || f->isFallback() || f->isOnTickTock())
+				continue;
 
 			FunctionDefinitionAnnotation &annotation = f->annotation();
 			if (!annotation.baseFunctions.empty()) {
@@ -390,7 +396,8 @@ void TVMTypeChecker::checkDeprecation(FunctionCall const& _functionCall) {
 	}
 }
 
-void TVMTypeChecker::checkSupport(FunctionCall const& _functionCall) {
+void TVMTypeChecker::checkSupport(FunctionCall const& _functionCall) const {
+	auto const& args =  _functionCall.arguments();
 	Type const* expressionType = _functionCall.expression().annotation().type;
 	switch (expressionType->category()) {
 	case Type::Category::Function: {
@@ -408,10 +415,28 @@ void TVMTypeChecker::checkSupport(FunctionCall const& _functionCall) {
 										  "\"tvm.initCodeHash()\"" + isNotSupportedVM);
 			}
 			break;
-		case FunctionType::Kind::TVMCode:
-			if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-				m_errorReporter.typeError(7632_error, _functionCall.location(),
-										  "\"tvm.code()\"" + isNotSupportedVM);
+		case FunctionType::Kind::GasConsumed:
+			if (*GlobalParams::g_tvmVersion != TVMVersion::ton()) {
+				m_errorReporter.typeError(9850_error, _functionCall.location(),
+										  "\"gasConsumed()\"" + isNotSupportedVM);
+			}
+			break;
+		case FunctionType::Kind::TonCombArithOper:
+			if (*GlobalParams::g_tvmVersion != TVMVersion::ton()) {
+				m_errorReporter.typeError(4802_error, _functionCall.location(),
+										  "Ton combined arithmetic operation" + isNotSupportedVM);
+			}
+			break;
+		case FunctionType::Kind::ValueToGas:
+			if (*GlobalParams::g_tvmVersion == TVMVersion::ton() && args.size() == 1) {
+				m_errorReporter.typeError(3014_error, _functionCall.location(),
+										  "\"valueToGas()\" with one argument" + isNotSupportedVM);
+			}
+			break;
+		case FunctionType::Kind::GasToValue:
+			if (*GlobalParams::g_tvmVersion == TVMVersion::ton() && args.size() == 1) {
+				m_errorReporter.typeError(8339_error, _functionCall.location(),
+										  "\"gasToValue()\" with one argument" + isNotSupportedVM);
 			}
 			break;
 		default:
@@ -539,6 +564,12 @@ bool TVMTypeChecker::visit(MemberAccess const& _memberAccess) {
 				if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
 					m_errorReporter.typeError(3428_error, _memberAccess.location(),
 											  "\"tx.storageFee\"" + isNotSupportedVM);
+				}
+			}
+			if (member == "storageFees") {
+				if (*GlobalParams::g_tvmVersion != TVMVersion::ton()) {
+					m_errorReporter.typeError(5711_error, _memberAccess.location(),
+											  "\"tx.storageFees\"" + isNotSupportedVM);
 				}
 			}
 			break;

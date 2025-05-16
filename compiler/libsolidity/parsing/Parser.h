@@ -130,6 +130,7 @@ private:
 	ASTPointer<TypeName> parseTypeName();
 	ASTPointer<FunctionTypeName> parseFunctionType();
 	ASTPointer<Mapping> parseMapping();
+	std::vector<ASTPointer<TypeName>> parseComponents();
 	ASTPointer<Optional> parseOptional();
 	ASTPointer<TvmVector> parseTvmVector();
 	ASTPointer<TvmStack> parseTvmStack();

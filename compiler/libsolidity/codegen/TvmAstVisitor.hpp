@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2021-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -56,6 +56,7 @@ public:
 protected:
 	virtual bool visitNode(TvmAstNode const&) { return true; }
 	virtual void endVisitNode(TvmAstNode const&) { }
+
 };
 
 class Printer : public TvmAstVisitor {
@@ -89,7 +90,6 @@ private:
 	void tabs();
 	void printPushInt(std::string const& arg, std::string const& comment = "");
 	void printPushInt(int i);
-	void printTickTockAndGetters(bool _hasOnTickTock, std::map<uint32_t, std::string> const& _getters);
 private:
 	std::ostream& m_out;
 	int m_tab{};

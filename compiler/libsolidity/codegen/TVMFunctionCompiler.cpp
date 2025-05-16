@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -23,7 +23,6 @@
 
 #include <libsolidity/codegen/DictOperations.hpp>
 #include <libsolidity/codegen/TVMABI.hpp>
-#include <libsolidity/codegen/TVMAnalyzer.hpp>
 #include <libsolidity/codegen/TVMConstants.hpp>
 #include <libsolidity/codegen/TVMExpressionCompiler.hpp>
 #include <libsolidity/codegen/TVMFunctionCall.hpp>
@@ -309,6 +308,7 @@ TVMFunctionCompiler::generateOnTickTock(TVMCompilerContext& ctx, FunctionDefinit
 	StackPusher pusher{&ctx};
 	pusher.startOpaque();
 	pusher.pushInt(-2);
+	pusher.pushInt(-2);
 	pusher.endOpaque(0, 0); // hide -2 from optimizer, because it may be used in msg.isTickTock
 
 	solAssert(function->parameters().size() == 1, "");
@@ -387,7 +387,7 @@ TVMFunctionCompiler::generatePublicFunction(TVMCompilerContext& ctx, FunctionDef
 	int retQty = function->returnParameters().size();
 	// stack: selector, arg0, arg1, arg2 ...
 	// +1 because function may use selector
-	pusher.pushFragmentInCallRef(paramQty + 1, retQty + 1, pusher.ctx().functionInternalName(function).first);
+	pusher.pushFragmentInCallRef(paramQty + 1, retQty + 1, pusher.ctx().functionInternalName(function, false).first);
 
 	solAssert(pusher.stackSize() == retQty, "");
 	// emit
@@ -418,7 +418,7 @@ TVMFunctionCompiler::generateGetterFunction(TVMCompilerContext& ctx, FunctionDef
 	pusher.pushFragmentInCallRef(0, 0, "c4_to_c7");
 	int paramQty = function->parameters().size();
 	int retQty = function->returnParameters().size();
-	pusher.pushFragmentInCallRef(paramQty, retQty, pusher.ctx().functionInternalName(function).first);
+	pusher.pushFragmentInCallRef(paramQty, retQty, pusher.ctx().functionInternalName(function, false).first);
 	pusher.endOpaque(0, 0);
 
 	Pointer<CodeBlock> block = pusher.getBlock();
@@ -460,7 +460,7 @@ TVMFunctionCompiler::generateGetter(StackPusher &pusher, VariableDeclaration con
 	auto appendBody = [&](int builderSize) {
 		ChainDataEncoder{&pusher}.createMsgBodyAndAppendToBuilder(
 				{vd},
-				ChainDataEncoder{&pusher}.calculateFunctionIDWithReason(vd->name(), {}, &outputs, ReasonOfOutboundMessage::FunctionReturnExternal, {}, false),
+				ChainDataEncoder::calculateFunctionIDWithReason(vd->name(), {}, &outputs, ReasonOfOutboundMessage::FunctionReturnExternal, {}, false),
 				{},
 				builderSize
 		);
@@ -566,7 +566,7 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 	auto appendBodyForExtMsg = [&](int builderSize) {
 		ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
 			ret,
-			ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(m_function, ReasonOfOutboundMessage::FunctionReturnExternal),
+			ChainDataEncoder::calculateFunctionIDWithReason(m_function, ReasonOfOutboundMessage::FunctionReturnExternal),
 			{},
 			builderSize
 		);
@@ -657,7 +657,7 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() {
 }
 
 void TVMFunctionCompiler::visitModifierOrFunctionBlock(Block const &body, int argQty, int retQty, int nameRetQty) {
-	LocationReturn locationReturn = ::notNeedsPushContWhenInlining(body);
+	LocationReturn locationReturn = notNeedsPushContWhenInlining(body);
 
 	bool doPushContinuation = locationReturn == LocationReturn::Anywhere;
 	if (doPushContinuation) {
@@ -1558,7 +1558,7 @@ bool TVMFunctionCompiler::visit(EmitStatement const &_emit) {
 	auto appendBody = [&](int builderSize) {
 		ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
 			convertArray(eventDef->parameters()),
-			ChainDataEncoder{&m_pusher}.calculateFunctionIDWithReason(
+			ChainDataEncoder::calculateFunctionIDWithReason(
 					name, getTypesFromVarDecls(eventDef->parameters()), nullptr,
 					ReasonOfOutboundMessage::EmitEventExternal, std::nullopt, false),
 			{},
@@ -1627,6 +1627,8 @@ Pointer<Function> TVMFunctionCompiler::generateMainExternal(
 	StackPusher pusher{&ctx};
 	TVMFunctionCompiler f{pusher, contract};
 
+	pusher.pushInt(-1);
+
 	f.setCopyleft();
 	f.setGlobSenderAddressIfNeed();
 
@@ -1634,10 +1636,11 @@ Pointer<Function> TVMFunctionCompiler::generateMainExternal(
 	pusher.pushFragmentInCallRef(0, 0, "c4_to_c7");
 
 	f.checkSignatureAndReadPublicKey();
+
 	if (pusher.ctx().afterSignatureCheck()) {
 		// ... msg_cell msg_body_slice -1 rest_msg_body_slice
 		pusher.pushS(3);
-		auto const name = pusher.ctx().functionInternalName(pusher.ctx().afterSignatureCheck()).first;
+		auto const name = pusher.ctx().functionInternalName(pusher.ctx().afterSignatureCheck(), false).first;
 		pusher.pushInlineFunction(name, 2, 1);
 	} else {
 		if (pusher.ctx().pragmaHelper().hasTime())
@@ -1781,6 +1784,7 @@ TVMFunctionCompiler::generateMainInternal(TVMCompilerContext& ctx, ContractDefin
 	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, contract};
 
+	pusher.pushInt(0);
 	funCompiler.setCopyleft();
 	if (ctx.hasConstructor())
 		funCompiler.setCtorFlag();
@@ -2037,11 +2041,10 @@ Pointer<Function> TVMConstructorCompiler::generateConstructors() {
 	m_pusher.ctx().setCurrentFunction(constructor, "constructor");
 
 	{
-		ChainDataEncoder encode{&m_pusher};
 		uint32_t functionId =
 			constructor != nullptr ?
-			encode.calculateFunctionIDWithReason(constructor, ReasonOfOutboundMessage::RemoteCallInternal) :
-			encode.calculateConstructorFunctionID();
+			ChainDataEncoder::calculateFunctionIDWithReason(constructor, ReasonOfOutboundMessage::RemoteCallInternal) :
+			ChainDataEncoder::calculateConstructorFunctionID();
 		m_pusher.ctx().addPublicFunction(functionId, "constructor");
 	}
 

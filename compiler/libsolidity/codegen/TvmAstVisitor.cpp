@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2021-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -703,40 +703,6 @@ bool Printer::visit(While &_node) {
 	return false;
 }
 
-void Printer::printTickTockAndGetters(bool _hasOnTickTock, std::map<uint32_t, std::string> const& _getters) {
-	if (_hasOnTickTock || !_getters.empty()) {
-		tabs(); m_out << "JMPREF {" << std::endl;
-		{
-			++m_tab;
-
-			if (_hasOnTickTock) {
-				tabs(); m_out << "DUP" << std::endl;
-				tabs(); m_out << "EQINT -2" << std::endl;
-				tabs(); m_out << "IFJMPREF {" << std::endl;
-				tabs(); m_out << "	.inline onTickTock" << std::endl;
-				tabs(); m_out << "}" << std::endl;
-			}
-
-			if (!_getters.empty()) {
-				tabs(); m_out << "DICTPUSHCONST 19" << std::endl;
-				tabs(); m_out << "DICTUGETJMPZ" << std::endl;
-				tabs(); m_out << "THROW 11" << std::endl;
-				tabs(); m_out << ".code-dict-cell 19, {" << std::endl;
-				++m_tab;
-				for (auto const& [id, name] : _getters) {
-					std::string slice = StrUtils::binaryStringToSlice(StrUtils::toBitString(id, 19, false).value());
-					tabs(); m_out << "x" << slice << " = " << name << "," << std::endl;
-				}
-				--m_tab;
-				tabs(); m_out << "}" << std::endl; // end .code-dict-cell
-			}
-
-			--m_tab;
-		}
-		tabs(); m_out << "}" << std::endl; // end JMPREF
-	}
-}
-
 bool Printer::visit(Contract &_node) {
 	std::map<uint32_t, std::string> privFuncs = _node.privateFunctions();
 	for (Pointer<Function> const& fun : _node.functions()) {
@@ -766,41 +732,39 @@ bool Printer::visit(Contract &_node) {
 		auto printCode = [&](){
 			tabs(); m_out << ".cell { ; code cell" << std::endl;
 			++m_tab;
-			tabs(); m_out << "PUSHREFCONT {" << std::endl;
-			tabs(); m_out << "	DICTPUSHCONST 32" << std::endl;
-			tabs(); m_out << "	DICTUGETJMPZ" << std::endl;
-			tabs(); m_out << "	THROW 78" << std::endl;
 
-			tabs(); m_out << "	.code-dict-cell 32, {" << std::endl;
-			m_tab += 2;
-			for (auto const& [id, name] : privFuncs) {
-				tabs(); m_out << "x" << std::setfill('0') << std::setw(8) << std::hex << id << " = " << name << "," << std::endl;
-			}
-			m_tab -= 2;
-			tabs(); m_out << "	}" << std::endl;
+			tabs(); m_out << "SETCP0" << std::endl;
+			tabs(); m_out << "DICTPUSHCONST 19" << std::endl;
+			tabs(); m_out << "DICTIGETJMPZ" << std::endl;
+			tabs(); m_out << "THROW 11" << std::endl;
 
-			tabs(); m_out << "	.cell { ; version" << std::endl;
-			tabs(); m_out << "		.blob x" << StrUtils::stringToHex(_node.version()) << " ; " << _node.version() << std::endl;
-			tabs(); m_out << "	}" << std::endl;
+			tabs(); m_out << ".code-dict-cell 19, {" << std::endl;
+			++m_tab;
 
-			tabs(); m_out << "}" << std::endl;
-			tabs(); m_out << "POPCTR c3" << std::endl;
-			tabs(); m_out << "DUP" << std::endl;
-			tabs(); m_out << "IFNOTJMPREF {" << std::endl;
-			tabs(); m_out << "	.inline main_internal" << std::endl;
-			tabs(); m_out << "}" << std::endl;
-			tabs(); m_out << "DUP" << std::endl;
-			tabs(); m_out << "EQINT -1" << std::endl;
-			tabs(); m_out << "IFJMPREF {" << std::endl;
-			tabs(); m_out << "	.inline main_external" << std::endl;
-			tabs(); m_out << "}" << std::endl;
-			printTickTockAndGetters(hasOnTickTock, _node.getters());
+			auto addToDict = [&](int id, std::string const& name){
+				auto binStr = StrUtils::toBitString(id, 19, true).value();
+				auto const slice = StrUtils::binaryStringToSlice(binStr);
+				tabs(); m_out << "x" << slice << " = " << name << "," << std::endl;
+			};
+
+			addToDict(0, "main_internal");
+			addToDict(-1, "main_external");
+			if (hasOnTickTock)
+				addToDict(-2, "onTickTock");
+			for (auto const& [id, name] : _node.getters())
+				addToDict(id, name);
+			for (auto const& [id, name] : privFuncs)
+				addToDict(id, name);
+
 			--m_tab;
-			tabs(); m_out << "}" << std::endl; // end code
+			tabs(); m_out << "}" << std::endl; // end .code-dict-cell 19, {
+
+			--m_tab;
+			m_out << "}" << std::endl; // end code
 		};
 
-		if (_node.upgradeOldSolidity() || _node.upgradeFunc()) {
-			int func_id = _node.upgradeFunc() ? 1666 : 2;
+		if (_node.upgradeOldSolidity()) {
+			int func_id = 2;
 			m_out << ".cell { ; wrapper for code" << std::endl;
 			++m_tab;
 			tabs(); m_out << "PUSHINT " << func_id << std::endl;
@@ -812,8 +776,6 @@ bool Printer::visit(Contract &_node) {
 			--m_tab;
 			tabs(); m_out << "DUP" << std::endl;
 			tabs(); m_out << "SETCODE" << std::endl;
-			tabs(); m_out << "CTOS" << std::endl;
-			tabs(); m_out << "PLDREF" << std::endl;
 			tabs(); m_out << "CTOS" << std::endl;
 			tabs(); m_out << "BLESS" << std::endl;
 			tabs(); m_out << "POP C3" << std::endl;

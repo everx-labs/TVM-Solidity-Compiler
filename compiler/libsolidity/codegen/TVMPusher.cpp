@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -585,6 +585,17 @@ StackPusher::makeAsym(const string& cmd) {
 			"CDATASIZEQ",
 			"CONFIGPARAM",
 			"CONFIGPARAM",
+			"ECRECOVER",
+			"HASHEXTA_BLAKE2B",
+			"HASHEXTA_KECCAK256",
+			"HASHEXTA_KECCAK512",
+			"HASHEXTA_SHA256",
+			"HASHEXTA_SHA512",
+			"HASHEXT_BLAKE2B",
+			"HASHEXT_KECCAK256",
+			"HASHEXT_KECCAK512",
+			"HASHEXT_SHA256",
+			"HASHEXT_SHA512",
 			"LDDICTQ",
 			"LDMSGADDRQ",
 			"LDSLICEQ",
@@ -594,6 +605,9 @@ StackPusher::makeAsym(const string& cmd) {
 			"NULLSWAPIFNOT",
 			"PLDSLICEQ",
 			"PLDSLICEXQ",
+			"RIST255_QADD",
+			"RIST255_QMUL",
+			"RIST255_QSUB",
 			"SDATASIZEQ",
 			"SPLITQ",
 			"STBQ",
@@ -916,10 +930,14 @@ void StackPusher::makeTuple(int qty) {
 	} else {
 		solAssert(qty <= 255, "");
 		pushInt(qty);
-		auto opcode = createNode<StackOpcode>("TUPLEVAR", qty + 1, 1);
-		m_instructions.back().push_back(opcode);
-		change(qty + 1, 1);
+		pushStackOpcode("TUPLEVAR", qty + 1, 1);
 	}
+}
+
+void StackPusher::pushStackOpcode(const std::string& name, int take, int ret) {
+	auto opcode = createNode<StackOpcode>(name, take, ret);
+	m_instructions.back().push_back(opcode);
+	change(take, ret);
 }
 
 void StackPusher::resetAllStateVars() {
@@ -998,15 +1016,11 @@ void StackPusher::popC7() {
 }
 
 void StackPusher::callx(int take, int ret) {
-	auto opcode = createNode<StackOpcode>("CALLX", take, ret);
-	change(take, ret);
-	m_instructions.back().push_back(opcode);
+	pushStackOpcode("CALLX", take, ret);
 }
 
 void StackPusher::call(uint32_t id, int take, int ret) {
-	auto opcode = createNode<StackOpcode>("CALL " + toString(id), take, ret);
-	change(take, ret);
-	m_instructions.back().push_back(opcode);
+	pushStackOpcode("CALL " + toString(id), take, ret);
 }
 
 void StackPusher::setGlob(int index) {
@@ -1683,9 +1697,7 @@ void StackPusher::pushCallOrCallRef(
 
 void StackPusher::pushFragment(int take, int ret, const std::string& functionName) {
 	solAssert(!ctx().callGraph().tryToAddEdge(ctx().currentFunctionName(), functionName), "");
-	change(take, ret);
-	auto opcode = createNode<StackOpcode>(".inline " + functionName, take, ret);
-	m_instructions.back().push_back(opcode);
+	pushStackOpcode(".inline " + functionName, take, ret);
 }
 
 void StackPusher::computeConstCell(std::string const& expName) {
@@ -2218,10 +2230,10 @@ TVMCompilerContext::functionInternalName(FunctionDefinition const* _function, bo
 		if (contract && contract->isLibrary())
 			functionName = _function->annotation().contract->name() + "_" +
 							   (calledByPoint ? "with_obj_" : "") + _function->name() + "_" + hexName;
-		else if (calledByPoint && isBaseFunction(_function))
-			functionName = _function->annotation().contract->name() + "_" + _function->name() + "_" + hexName;
 		else if (_function->isFree())
 			functionName = (calledByPoint ? "with_obj_" : "") + _function->name() + "_" + hexName + "_free_internal";
+		else if (calledByPoint && isBaseFunction(_function) && _function->name() != "onCodeUpgrade")
+			functionName = _function->annotation().contract->name() + "_" + _function->name() + "_" + hexName;
 		else
 			functionName = _function->name() + "_" + hexName + "_internal";
 	}
@@ -2231,8 +2243,7 @@ TVMCompilerContext::functionInternalName(FunctionDefinition const* _function, bo
 		id = _function->functionID().value();
 	else {
 		id = ChainDataEncoder::toHash256(functionName);
-		if (_function->name() != "onCodeUpgrade") // to support upgrading old contracts
-			id &= (1 << 14) - 1;
+		id &= (1 << 14) - 1;
 	}
 	return {functionName, id};
 }
@@ -2316,6 +2327,7 @@ const std::vector<std::pair<uint32_t, std::string>>& TVMCompilerContext::getPubl
 }
 
 bool TVMCompilerContext::isBaseFunction(CallableDeclaration const* d) const {
+	solAssert(d->annotation().contract != nullptr, "");
 	return m_inherHelper.isBaseFunction(d);
 }
 

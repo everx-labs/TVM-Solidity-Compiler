@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2019-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -34,11 +34,10 @@ Json::Value TVMABI::generateFunctionIdsJson(
 ) {
 	TVMCompilerContext ctx{&contract, pragmaHelper};
 	StackPusher pusher{&ctx};
-	ChainDataEncoder encoder{&pusher};
 	std::vector<const FunctionDefinition *> publicFunctions = TVMABI::publicFunctions(contract);
 	std::map<std::string, uint32_t> func2id;
 	for (FunctionDefinition const* func : publicFunctions) {
-		uint32_t functionID = encoder.calculateFunctionIDWithReason(
+		uint32_t functionID = ChainDataEncoder::calculateFunctionIDWithReason(
 			func,
 			ReasonOfOutboundMessage::RemoteCallInternal
 		);
@@ -46,12 +45,12 @@ Json::Value TVMABI::generateFunctionIdsJson(
 		func2id[name] = functionID;
 	}
 	if (func2id.count("constructor") == 0 && ctx.hasConstructor())
-		func2id["constructor"] = encoder.calculateConstructorFunctionID();
+		func2id["constructor"] = ChainDataEncoder::calculateConstructorFunctionID();
 
 	for (VariableDeclaration const* vd : ctx.c4StateVariables()) {
 		if (vd->isPublic()) {
 			std::vector<VariableDeclaration const*> outputs = {vd};
-			uint32_t functionId = encoder.calculateFunctionIDWithReason(
+			uint32_t functionId = ChainDataEncoder::calculateFunctionIDWithReason(
 					vd->name(),
 					{},
 					&outputs,
@@ -75,7 +74,7 @@ Json::Value TVMABI::generateFunctionIdsJson(
 Json::Value
 TVMABI::generatePrivateFunctionIdsJson(
 	ContractDefinition const& contract,
-	std::vector<std::shared_ptr<SourceUnit>> const& _sourceUnits,
+	std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
 	PragmaDirectiveHelper const& pragmaHelper
 ) {
 	Json::Value ids{Json::arrayValue};
@@ -95,7 +94,7 @@ TVMABI::generatePrivateFunctionIdsJson(
 
 Json::Value TVMABI::generateABIJson(
 	ContractDefinition const *contract,
-	std::vector<std::shared_ptr<SourceUnit>> const& _sourceUnits,
+	std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
 	std::vector<PragmaDirective const *> const &pragmaDirectives
 ) {
 	PragmaDirectiveHelper pdh{pragmaDirectives};
@@ -177,7 +176,7 @@ Json::Value TVMABI::generateABIJson(
 	// fields
 	{
 		Json::Value fields(Json::arrayValue);
-		std::vector<std::pair<std::string, std::string>> offset{{"_pubkey", "uint256"}};
+		std::vector<std::pair<std::string, std::string>> offset{{"_pubkey", "fixedbytes32"}};
 		if (ctx.storeTimestampInC4())
 			offset.emplace_back("_timestamp", "uint64");
 
@@ -232,7 +231,7 @@ Json::Value TVMABI::generateABIJson(
 
 void TVMABI::generateABI(
 	ContractDefinition const *contract,
-	std::vector<std::shared_ptr<SourceUnit>> const& _sourceUnits,
+	std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
 	std::vector<PragmaDirective const *> const &pragmaDirectives,
 	ostream *out
 ) {

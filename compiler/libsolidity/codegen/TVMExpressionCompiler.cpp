@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -774,11 +774,16 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 	if (_node.memberName() == "sender") { // msg.sender
 		m_pusher.getGlob(TvmConst::C7::SenderAddress);
 	} else if (_node.memberName() == "value") { // msg.value
-		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
-			"DEPTH",
-			"ADDCONST -2",
-			"PICK",
-		}, 0, 1, true));
+		if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
+			m_pusher.push("INCOMINGVALUE");
+			m_pusher.indexNoexcep(0);
+		} else {
+			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
+				"DEPTH",
+				"ADDCONST -2",
+				"PICK",
+			}, 0, 1, true));
+		}
 	} else if (_node.memberName() == "data") { // msg.data
 		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
 			"DEPTH",
@@ -924,6 +929,8 @@ void TVMExpressionCompiler::visitMagic(MemberAccess const &_memberAccess) {
 			m_pusher << "LTIME";
 		} else if (member == "storageFee") {
 			m_pusher << "STORAGEFEE";
+		} else if (member == "storageFees") {
+			m_pusher << "STORAGEFEES";
 		} else {
 			unsupportedMagic();
 		}
@@ -1340,8 +1347,7 @@ void
 TVMExpressionCompiler::collectLValue(
 	const LValueInfo &lValueInfo,
 	const bool haveValueOnStackTop
-)
-{
+) const {
 	// variable [arrayIndex | mapIndex | structMember | <optional>.get()]...
 
 	const int n = static_cast<int>(lValueInfo.expressions.size());
@@ -1402,7 +1408,10 @@ TVMExpressionCompiler::collectLValue(
 			const string &memberName = memberAccess->memberName();
 			structCompiler.setMemberForTuple(memberName);
 		} else if (isOptionalGet(lValueInfo.expressions[i])) {
-			// do nothing
+			m_pusher.convert(
+				lValueInfo.expressions[i - 1]->annotation().type, // optional(T)
+				lValueInfo.expressions[i]->annotation().type      // T
+			);
 		} else if (isStackTop(lValueInfo.expressions[i])) {
 			// stack value
 			m_pusher.blockSwap(1, 1); // value stack

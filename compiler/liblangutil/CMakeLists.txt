@@ -32,10 +32,3 @@ set(sources
 
 add_library(langutil ${sources})
 target_link_libraries(langutil PUBLIC solutil fmt::fmt-header-only)
-
-install(TARGETS langutil
-        EXPORT SolidityTargets
-        ARCHIVE DESTINATION lib
-        LIBRARY DESTINATION lib
-        RUNTIME DESTINATION bin
-)

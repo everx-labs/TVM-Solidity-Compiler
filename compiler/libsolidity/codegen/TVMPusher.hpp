@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -90,7 +90,7 @@ public:
 	PragmaDirectiveHelper const& pragmaHelper() const;
 	bool isStdlib() const;
 	std::pair<std::string, uint32_t>
-	functionInternalName(FunctionDefinition const* _function, bool calledByPoint = true) const;
+	functionInternalName(FunctionDefinition const* _function, bool calledByPoint) const;
 	static std::string getFunctionExternalName(FunctionDefinition const* _function);
 	const ContractDefinition* getContract() const;
 	bool hasConstructor() const;
@@ -257,6 +257,7 @@ public:
 	void setIndex(int index);
 	void setIndexQ(int index);
 	void makeTuple(int qty);
+	void pushStackOpcode(const std::string& name, int take, int ret);
 	void resetAllStateVars();
 	void getGlob(VariableDeclaration const * vd);
 	void getGlob(int index);

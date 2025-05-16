@@ -7,7 +7,7 @@ library Math {
 }
 
 contract C {
-	function f(uint32 funId, uint a, uint b) public pure returns (uint) {
+	function f(int19 funId, uint a, uint b) public pure returns (uint) {
 		function(uint, uint) internal pure returns (uint) fun = funId;
 		return fun(a, b);
 	}

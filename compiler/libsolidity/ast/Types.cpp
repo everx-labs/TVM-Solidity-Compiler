@@ -639,7 +639,9 @@ BoolResult AddressStdType::isImplicitlyConvertibleTo(Type const& _convertTo) con
 	if (Type::isImplicitlyConvertibleTo(_convertTo))
 		return true;
 
-	return _convertTo.category() == Category::Address || _convertTo.category() == Category::AddressStd;
+	return _convertTo.category() == Category::Address ||
+		_convertTo.category() == Category::AddressStd ||
+		_convertTo.category() == Category::Contract;
 }
 
 BoolResult AddressStdType::isExplicitlyConvertibleTo(Type const& _convertTo) const {
@@ -797,10 +799,12 @@ BoolResult IntegerType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 	else if (_convertTo.category() == Category::Function)
 	{
 		auto convertTo = dynamic_cast<FunctionType const*>(&_convertTo);
-		if (convertTo->kind() == FunctionType::Kind::Internal) {
+		if (convertTo->kind() == FunctionType::Kind::Internal &&
+			this->isImplicitlyConvertibleTo(*TypeProvider::int_(19))
+		) {
 			return true;
 		}
-		return false;
+		return BoolResult::err("Only int19 can be converted to function type.");
 	}
 	else
 		return false;
@@ -1568,19 +1572,17 @@ BoolResult StringLiteralType::isImplicitlyConvertibleTo(Type const& _convertTo) 
 		size_t invalidSequence{};
 		if (!util::validateSlice(value(), invalidSequence))
 			return BoolResult::err(
-				"Contains invalid slice character at position " +
+				"Contains invalid character at position " +
 				util::toString(invalidSequence) +
-				"."
+				". Expected charactes: 0..9, a..f, A..F and optional character '_' in the end."
 			);
-		else {
-			int bitLength = StrUtils::toBitString("x" + value()).size();
-			bool fitToCell = bitLength <= 1023;
-			if (!fitToCell) {
-				return BoolResult::err(
-					"String literal is too long: " + std::to_string(bitLength) + " bits."
-					" It can not be fitted to the cell. Maximum allowed bit length is 1023 bits."
-				);
-			}
+		int bitLength = StrUtils::toBitString("x" + value()).size();
+		bool fitToCell = bitLength <= 1023;
+		if (!fitToCell) {
+			return BoolResult::err(
+				"String literal is too long: " + std::to_string(bitLength) + " bits."
+				" It can not be fitted to the cell. Maximum allowed bit length is 1023 bits."
+			);
 		}
 
 		return true;
@@ -1802,7 +1804,7 @@ BoolResult ContractType::isImplicitlyConvertibleTo(Type const& _convertTo) const
 			&targetContractType.contractDefinition()
 		) != bases.end();
 	}
-	if (_convertTo.category() == Category::Address)
+	if (_convertTo.category() == Category::Address || _convertTo.category() == Category::AddressStd)
 		return true;
 	return false;
 }
@@ -3285,6 +3287,22 @@ std::string FunctionType::richIdentifier() const
 	std::string id = "t_function_";
 	switch (m_kind)
 	{
+	case Kind::Rist255FromHash: id += "rist255fromhash"; break;
+	case Kind::Rist255Validate: id += "rist255rist255validate"; break;
+	case Kind::Rist255Add: id += "rist255rist255add"; break;
+	case Kind::Rist255Sub: id += "rist255rist255sub"; break;
+	case Kind::Rist255Mul: id += "rist255rist255mul"; break;
+	case Kind::Rist255Mulbase: id += "rist255rist255mulbase"; break;
+	case Kind::Rist255L: id += "rist255rist255l"; break;
+	case Kind::Rist255QValidate: id += "rist255rist255qvalidate"; break;
+	case Kind::Rist255QAdd: id += "rist255rist255qadd"; break;
+	case Kind::Rist255QSub: id += "rist255rist255qsub"; break;
+	case Kind::Rist255QMul: id += "rist255rist255qmul"; break;
+	case Kind::Rist255QMulbase: id += "rist255rist255qmulbase"; break;
+
+
+	case Kind::HashExt: id += "hashext"; break;
+
 	case Kind::BlsVerify: id += "blsverify"; break;
 	case Kind::BlsAggregate: id += "blsaggregate"; break;
 	case Kind::BlsFastAggregateVerify: id += "blsfastaggregateverify"; break;
@@ -3380,6 +3398,7 @@ std::string FunctionType::richIdentifier() const
 	case Kind::TVMBuilderStoreInt: id += "tvmbuilderstoreint"; break;
 	case Kind::TVMBuilderStoreTons: id += "tvmbuilderstoretons"; break;
 	case Kind::TVMBuilderStoreUint: id += "tvmbuilderstoreuint"; break;
+	case Kind::TVMBuilderHash: id += "tvmbuilderhash"; break;
 
 	case Kind::StringBuilderToString: id += "stringbuildertostring"; break;
 	case Kind::StringBuilderAppendByte: id += "stringbuilderappendbyte"; break;
@@ -3405,17 +3424,20 @@ std::string FunctionType::richIdentifier() const
 	case Kind::TVMCommit: id += "tvmcommit"; break;
 	case Kind::TVMConfigParam: id += "tvmconfigparam"; break;
 	case Kind::TVMDeploy: id += "tvmdeploy"; break;
+	case Kind::TVMDuePayment: id += "tvmduepayment"; break;
 	case Kind::TVMDump: id += "tvmxxxdump"; break;
 	case Kind::TVMExit1: id += "tvmexit1"; break;
 	case Kind::TVMExit: id += "tvmexit"; break;
 	case Kind::TVMHash: id += "tvmhash"; break;
 	case Kind::TVMInitCodeHash: id += "tvminitcodehash"; break;
+	case Kind::TVMP256Checksign: id += "tvmp256checksign"; break;
 	case Kind::TVMPubkey: id += "tvmpubkey"; break;
 	case Kind::TVMRawConfigParam: id += "tvmrawconfigparam"; break;
+	case Kind::TVMRawMsg: id += "tvmrawmsg"; break;
 	case Kind::TVMReplayProtInterval: id += "tvmreplayprotinterval"; break;
 	case Kind::TVMReplayProtTime: id += "tvmreplayprottime"; break;
 	case Kind::TVMResetStorage: id += "tvmresetstorage"; break;
-	case Kind::TVMSendMsg: id += "tvmsendmsg"; break;
+	case Kind::TVMSendRawMsg: id += "tvmsendmsg"; break;
 	case Kind::TVMSetGasLimit: id += "tvmsetgaslimit"; break;
 	case Kind::TVMSetPubkey: id += "tvmsetpubkey"; break;
 	case Kind::TVMSetReplayProtTime: id += "tvmsetreplayprottime"; break;
@@ -3455,6 +3477,7 @@ std::string FunctionType::richIdentifier() const
 	case Kind::MathDivMod: id += "mathdivmod"; break;
 	case Kind::MathSign: id += "mathsign"; break;
 	case Kind::MathMulMod: id += "mathmulmod"; break;
+	case Kind::TonCombArithOper: id += "toncombarithoper"; break;
 
 	case Kind::MappingAt: id += "mappingat"; break;
 	case Kind::MappingDelMinOrMax: id += "mapdelmin"; break;
@@ -3486,6 +3509,7 @@ std::string FunctionType::richIdentifier() const
 	case Kind::ECRecover: id += "ecrecover"; break;
 	case Kind::SHA256: id += "sha256"; break;
 	case Kind::RIPEMD160: id += "ripemd160"; break;
+	case Kind::GasConsumed: id += "gasConsumed"; break;
 	case Kind::GasLeft: id += "gasleft"; break;
 	case Kind::Event: id += "event"; break;
 	case Kind::Error: id += "error"; break;
@@ -4648,6 +4672,8 @@ std::string MagicType::richIdentifier() const
 		return "t_magic_gosh";
 	case Kind::BLS:
 		return "t_magic_bls";
+	case Kind::RIST255:
+		return "t_magic_rist255";
 	}
 	return "";
 }
@@ -4660,41 +4686,8 @@ bool MagicType::operator==(Type const& _other) const
 	return other.m_kind == m_kind;
 }
 
-MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
-{
-	switch (m_kind)
-	{
-	case Kind::Block:
-		return MemberList::MemberMap({
-			{"logicaltime", TypeProvider::uint(64)},
-			{"timestamp", TypeProvider::uint(32)},
-			{"difficulty", TypeProvider::uint256()},
-			{"prevrandao", TypeProvider::uint256()},
-			{"number", TypeProvider::uint256()},
-			{"gaslimit", TypeProvider::uint256()},
-			{"chainid", TypeProvider::uint256()},
-			{"basefee", TypeProvider::uint256()},
-			{"blobbasefee", TypeProvider::uint256()}
-		});
-	case Kind::Message:
-		return MemberList::MemberMap({
-			{"sender", TypeProvider::address()},
-			{"pubkey", TypeProvider::function(strings(), strings{"uint"}, FunctionType::Kind::MsgPubkey, StateMutability::Pure)},
-			{"createdAt", TypeProvider::uint(32)},
-			{"hasStateInit", TypeProvider::boolean()},
-			{"gas", TypeProvider::uint256()},
-			{"value", TypeProvider::coins()},
-			{"data", TypeProvider::tvmcell()},
-			{"sig", TypeProvider::fixedBytes(4)},
-			{"currencies", TypeProvider::extraCurrencyCollection()},
-			{"isExternal", TypeProvider::boolean()},
-			{"isInternal", TypeProvider::boolean()},
-			{"isTickTock", TypeProvider::boolean()},
-			{"body", TypeProvider::tvmslice()},
-			{"forwardFee", TypeProvider::coins()},
-			{"importFee", TypeProvider::coins()},
-		});
-	case Kind::TVM: {
+namespace {
+	MemberList::MemberMap getTvmMembers() {
 		MemberList::MemberMap members = {
 			{"code", TypeProvider::function({}, {TypeProvider::tvmcell()}, {}, {{}}, FunctionType::Kind::TVMCode, StateMutability::Pure)},
 			{"codeSalt", TypeProvider::function({TypeProvider::tvmcell()}, {TypeProvider::optional(TypeProvider::tvmcell())}, {{}}, {{}}, FunctionType::Kind::ABICodeSalt, StateMutability::Pure)},
@@ -4713,6 +4706,7 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 			{"setGasLimit", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetGasLimit, StateMutability::Pure)},
 			{"initCodeHash", TypeProvider::function({}, {"uint256"}, FunctionType::Kind::TVMInitCodeHash, StateMutability::Pure)},
 			{"buyGas", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetGasLimit, StateMutability::Pure)},
+			{"duePayment", TypeProvider::function({}, {TypeProvider::coins()}, {}, {""}, FunctionType::Kind::TVMDuePayment, StateMutability::Pure)},
 
 			// for stdlib
 			{"replayProtTime", TypeProvider::function({}, {"uint64"}, FunctionType::Kind::TVMReplayProtTime, StateMutability::Pure)},
@@ -4795,6 +4789,22 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 				FunctionType::Kind::TVMChecksign,
 				StateMutability::Pure
 			)},
+			{"p256CheckSign", TypeProvider::function(
+				TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+				TypePointers{TypeProvider::boolean()},
+				strings{std::string(), std::string(), std::string()},
+				strings{std::string()},
+				FunctionType::Kind::TVMP256Checksign,
+				StateMutability::Pure
+			)},
+			{"p256CheckSign", TypeProvider::function(
+				TypePointers{TypeProvider::uint256(), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+				TypePointers{TypeProvider::boolean()},
+				strings{std::string(), std::string(), std::string()},
+				strings{std::string()},
+				FunctionType::Kind::TVMP256Checksign,
+				StateMutability::Pure
+			)},
 			{"checkSign", TypeProvider::function(
 				TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice(), TypeProvider::uint256()},
 				TypePointers{TypeProvider::boolean()},
@@ -4808,7 +4818,15 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 				TypePointers{},
 				strings{std::string(), std::string()},
 				strings{},
-				FunctionType::Kind::TVMSendMsg,
+				FunctionType::Kind::TVMSendRawMsg,
+				StateMutability::Pure
+			)},
+			{"sendMsg", TypeProvider::function(
+				TypePointers{TypeProvider::tvmcell(), TypeProvider::uint(11)},
+				TypePointers{TypeProvider::coins()},
+				strings{{}, {}},
+				strings{{}},
+				FunctionType::Kind::TVMRawMsg,
 				StateMutability::Pure
 			)},
 			{"configParam", TypeProvider::function(
@@ -4918,6 +4936,45 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 		};
 		return members;
 	}
+}
+
+MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
+{
+	switch (m_kind)
+	{
+	case Kind::Block:
+		return MemberList::MemberMap({
+			{"logicaltime", TypeProvider::uint(64)},
+			{"timestamp", TypeProvider::uint(32)},
+			{"difficulty", TypeProvider::uint256()},
+			{"prevrandao", TypeProvider::uint256()},
+			{"number", TypeProvider::uint256()},
+			{"gaslimit", TypeProvider::uint256()},
+			{"chainid", TypeProvider::uint256()},
+			{"basefee", TypeProvider::uint256()},
+			{"blobbasefee", TypeProvider::uint256()}
+		});
+	case Kind::Message:
+		return MemberList::MemberMap({
+			{"sender", TypeProvider::address()},
+			{"pubkey", TypeProvider::function(strings(), strings{"uint"}, FunctionType::Kind::MsgPubkey, StateMutability::Pure)},
+			{"createdAt", TypeProvider::uint(32)},
+			{"hasStateInit", TypeProvider::boolean()},
+			{"gas", TypeProvider::uint256()},
+			{"value", TypeProvider::coins()},
+			{"data", TypeProvider::tvmcell()},
+			{"sig", TypeProvider::fixedBytes(4)},
+			{"currencies", TypeProvider::extraCurrencyCollection()},
+			{"isExternal", TypeProvider::boolean()},
+			{"isInternal", TypeProvider::boolean()},
+			{"isTickTock", TypeProvider::boolean()},
+			{"body", TypeProvider::tvmslice()},
+			{"forwardFee", TypeProvider::coins()},
+			{"importFee", TypeProvider::coins()},
+		});
+	case Kind::TVM: {
+		return getTvmMembers();
+	}
 	case Kind::Rnd: {
 		MemberList::MemberMap members = {
 			{
@@ -4962,8 +5019,31 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 				TypeProvider::function(
 					{}, {}, {}, {}, FunctionType::Kind::MathMulMod, StateMutability::Pure
 				)
-			}
+			},
 		};
+
+		for (auto const& op: tonCombinedArithmeticOperations()) {
+			Type const* type = TypeProvider::integer(257, IntegerType::Modifier::Signed);
+			if (op.name.at(0) == 'q')
+				type = TypeProvider::qInteger(257, IntegerType::Modifier::Signed);
+			TypePointers take{op.take, type};
+			if (op.withRShift) {
+				take.pop_back();
+				take.push_back(TypeProvider::uint(9));
+			}
+			members.emplace_back(
+				op.name.c_str(),
+				TypeProvider::function(
+					take,
+					TypePointers{op.ret, type},
+					strings{op.take, ""},
+					strings{op.ret, ""},
+					FunctionType::Kind::TonCombArithOper,
+					StateMutability::Pure
+				)
+			);
+		}
+
 		members.emplace_back("max", TypeProvider::function(
 			TypePointers{},
 			TypePointers{},
@@ -5055,6 +5135,7 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 			{"logicaltime", TypeProvider::uint(64)},
 			{"origin", TypeProvider::address()},
 			{"storageFee", TypeProvider::coins()},
+			{"storageFees", TypeProvider::coins()},
 			{"timestamp", TypeProvider::uint(64)},
 		});
 	case Kind::ABI:
@@ -5689,6 +5770,132 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 		)});
 		return members;
 	}
+	case Kind::RIST255: {
+		MemberList::MemberMap members = {
+			{
+				"fromHash",
+				TypeProvider::function(
+					TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
+					TypePointers{TypeProvider::uint256()},
+					strings{"", ""},
+					strings{""},
+					FunctionType::Kind::Rist255FromHash,
+					StateMutability::Pure
+				)
+			},
+			{
+				"validate",
+				TypeProvider::function(
+					TypePointers{TypeProvider::uint256()},
+					TypePointers{},
+					strings{""},
+					strings{},
+					FunctionType::Kind::Rist255Validate,
+					StateMutability::Pure
+				)
+			},
+			{
+				"qValidate",
+				TypeProvider::function(
+					TypePointers{TypeProvider::uint256()},
+					TypePointers{TypeProvider::boolean()},
+					strings{""},
+					strings{""},
+					FunctionType::Kind::Rist255QValidate,
+					StateMutability::Pure
+				)
+			},
+			{
+				"add",
+				TypeProvider::function(
+					TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
+					TypePointers{TypeProvider::uint256()},
+					strings{"", ""},
+					strings{""},
+					FunctionType::Kind::Rist255Add,
+					StateMutability::Pure
+				)
+			},
+			{
+				"qAdd",
+				TypeProvider::function(
+					TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
+					TypePointers{TypeProvider::optional(TypeProvider::uint256())},
+					strings{"", ""},
+					strings{""},
+					FunctionType::Kind::Rist255QAdd,
+					StateMutability::Pure
+				)
+			},
+			{
+				"sub",
+				TypeProvider::function(
+					TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
+					TypePointers{TypeProvider::uint256()},
+					strings{"", ""},
+					strings{""},
+					FunctionType::Kind::Rist255Sub,
+					StateMutability::Pure
+				)
+			},
+			{
+				"qSub",
+				TypeProvider::function(
+					TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
+					TypePointers{TypeProvider::optional(TypeProvider::uint256())},
+					strings{"", ""},
+					strings{""},
+					FunctionType::Kind::Rist255QSub,
+					StateMutability::Pure
+				)
+			},
+			{
+				"mul",
+				TypeProvider::function(
+					TypePointers{TypeProvider::int257(), TypeProvider::uint256()},
+					TypePointers{TypeProvider::uint256()},
+					strings{"", ""},
+					strings{""},
+					FunctionType::Kind::Rist255Mul,
+					StateMutability::Pure
+				)
+			},
+			{
+				"qMul",
+				TypeProvider::function(
+					TypePointers{TypeProvider::int257(), TypeProvider::uint256()},
+					TypePointers{TypeProvider::optional(TypeProvider::uint256())},
+					strings{"", ""},
+					strings{""},
+					FunctionType::Kind::Rist255QMul,
+					StateMutability::Pure
+				)
+			},
+			{
+				"mulBase",
+				TypeProvider::function(
+					TypePointers{TypeProvider::int257()},
+					TypePointers{TypeProvider::uint256()},
+					strings{""},
+					strings{""},
+					FunctionType::Kind::Rist255Mulbase,
+					StateMutability::Pure
+				)
+			},
+			{
+				"l",
+				TypeProvider::function(
+					TypePointers{},
+					TypePointers{TypeProvider::uint256()},
+					strings{},
+					strings{""},
+					FunctionType::Kind::Rist255L,
+					StateMutability::Pure
+				)
+			},
+		};
+		return members;
+	}
 	case Kind::MetaType:
 	{
 		solAssert(
@@ -5771,6 +5978,8 @@ std::string MagicType::toString(bool _withoutDataLocation) const
 		return "gosh";
 	case Kind::BLS:
 		return "bls";
+	case Kind::RIST255:
+		return "rist255";
 	}
 	solAssert(false, "Unknown kind of magic.");
 	return {};
@@ -7222,8 +7431,30 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 				FunctionType::Kind::TVMBuilderMethods,
 				StateMutability::Pure
 			)
-		},
+		}
 	};
+
+	for (auto const& name : {
+		"storeSha256",
+		"storeSha512",
+		"storeBlake2b",
+		"storeKeccak256",
+		"storeKeccak512",
+	}) {
+		members.emplace_back(
+			name,
+			TypeProvider::function(
+				{},
+				{},
+				{},
+				{},
+				FunctionType::Kind::TVMBuilderHash,
+				StateMutability::Pure,
+				nullptr,
+				FunctionType::Options::withArbitraryParameters()
+			)
+		);
+	}
 
 	return members;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2019-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -41,7 +41,7 @@ template <typename T1, typename T2>
 T1 const* to(T2 const* ptr) { return dynamic_cast<T1 const*>(ptr); }
 
 template<typename T, typename... Args>
-constexpr bool isIn(T v, Args... args) {
+constexpr bool isIn(const T& v, Args... args) {
 	return (... || (v == (args)));
 }
 
@@ -225,14 +225,7 @@ public:
 		return {};
 	}
 
-	bool hasUpgradeFunc() const {
-		return std::any_of(pragmaDirectives.begin(), pragmaDirectives.end(), [](PragmaDirective const *pd){
-			return pd->literals().size() == 2 && pd->literals()[0] == "upgrade" && pd->literals()[1] == "func";
-		});
-	}
-
 	bool hasUpgradeOldSol() const {
-		// TODO test that it's impossible to use func and oldsol at same time
 		return std::any_of(pragmaDirectives.begin(), pragmaDirectives.end(), [](PragmaDirective const *pd){
 			return pd->literals().size() == 2 && pd->literals()[0] == "upgrade" && pd->literals()[1] == "oldsol";
 		});
@@ -309,8 +302,6 @@ private:
 	bool m_hasAnalyzeFlag {false};
 	bool m_isLoop {false};
 };
-
-LocationReturn notNeedsPushContWhenInlining(Block const& _block);
 
 std::vector<VariableDeclaration const*>
 convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr);
@@ -406,6 +397,16 @@ namespace MathConsts {
 bool isFitUselessUnary(Type const* common, Token op);
 bool isFitUseless(Type const* left, Type const* right, Type const* common, Token op);
 
-unsigned short crc16(char const *pcBlock, unsigned short len);
+unsigned short crc16(std::string const& str);
+
+struct ArithmeticOperation {
+	std::string name;
+	size_t take;
+	size_t ret;
+	bool withRShift;
+};
+std::vector<ArithmeticOperation> tonCombinedArithmeticOperations();
+
+FunctionDefinition const* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
 
 } // end solidity::frontend

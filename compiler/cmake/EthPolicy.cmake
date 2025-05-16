@@ -21,19 +21,6 @@ macro (eth_policy)
 		cmake_policy(SET CMP0091 NEW)
 	endif()
 
-	# breaks build on macos, but not on linux
-	if(WIN32)
-		# Policy for FindBoost uppercase <PACKAGENAME>_ROOT variables (like BOOST_ROOT)
-		if (POLICY CMP0144)
-			cmake_policy(SET CMP0144 NEW)
-		endif()
-
-		# Policy related to the removal of the old FindBoost module (informational)
-		if (POLICY CMP0167)
-			cmake_policy(SET CMP0167 NEW)
-		endif()
-	endif()
-
 	# Avoid warning about DOWNLOAD_EXTRACT_TIMESTAMP in CMake 3.24:
 	if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
 		cmake_policy(SET CMP0135 NEW)

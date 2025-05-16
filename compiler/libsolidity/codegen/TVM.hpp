@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2019-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -38,7 +38,7 @@ std::string getPathToFiles(
 
 void TVMCompilerProceedContract(
 	solidity::frontend::ContractDefinition const& _contract,
-	std::vector<std::shared_ptr<solidity::frontend::SourceUnit>> const& _sourceUnits,
+	std::vector<solidity::frontend::ASTPointer<solidity::frontend::SourceUnit>> const& _sourceUnits,
 	std::vector<solidity::frontend::PragmaDirective const *> const* pragmaDirectives,
 	bool generateAbi,
 	bool generateCode,

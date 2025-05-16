@@ -18,11 +18,4 @@ else()
 	add_library(libsolc libsolc.cpp libsolc.h)
 	set_target_properties(libsolc PROPERTIES OUTPUT_NAME solc)
 	target_link_libraries(libsolc PRIVATE solidity)
-
-	install(TARGETS libsolc
-	        EXPORT SolidityTargets
-	        ARCHIVE DESTINATION lib
-	        LIBRARY DESTINATION lib
-	        RUNTIME DESTINATION bin
-	)
 endif()

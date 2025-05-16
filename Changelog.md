@@ -1,3 +1,33 @@
+### 0.78.0 (2024-05-16)
+
+Supported `ton` features (`solc --tvm-version ton ...`):
+   * Using opcode `INCOMINGVALUE` for [msg.value](API.md#msgvalue).
+   * [tx.storageFees](API.md#txstoragefees).
+   * [gasConsumed()](API.md#gasconsumed).
+   * [Combined arithmetic operations](API.md#combined-arithmetic-operations).
+   * [Hash functions](API.md#hash-functions).
+   * [Storing the hash to a builder](API.md#storing-the-hash-to-a-builder)
+   * [tvm.sendMsg()](API.md#tvmsendmsg).
+
+Breaking changes:
+ * Used another selector. To update old Solidity contracts use [pragma upgrade oldsol](API.md#pragma-upgrade-oldsol) and
+function id 1666 for `onCodeUpgrade` in the new ones.
+ * Now `_pubkey` in `*.abi.json` file  is `fixedbytes32`, not `uint256`. 
+ * Functions [gasToValue](API.md#gastovalue) and [valueToGas](API.md#valuetogas) changed their signatures:
+   * `gasToValue(coins gas, int8 wid)` -> `gasToValue(coins gas, bool isMasterchain)`
+   * `valueToGas(coins gas, int8 wid)` -> `valueToGas(coins value, bool isMasterchain)`
+
+Bugfixes:
+ * Throw compilation error if public function has explicit functionID that is equal to functionID of another public
+function that doesn't have explicit functionID.
+ * Fixed compilation failure when free function was inline.
+ * Fixed compilation failure when use construction `<optional(T)>.get() = (a, b, ...);`, 
+e.g. `optional(uint256, uint32) data; data = (111, 222);`.
+
+Compiler features:
+ * `address_std` can be converted to `contract type`, and vice versa.  
+ * Code analyzer: Print warning (for `solc --tvm-version ton`) if a message is sent after message with flag 128.
+
 ### 0.77.0 (2024-10-31)
 
 Bugfixes:
@@ -14,7 +44,7 @@ Compiler features:
  * Supported [ABI 2.7](https://github.com/everx-labs/ever-abi/blob/master/CHANGELOG.md#version-270)
    * Supported [getters](API.md#getter).
    * Supported [address_std](API.md#address_std) type.
- * Supported encoding internal message to call constructor. See option 2 [abi.encodeIntMsg()](API.md#abiencodeintmsg).  
+ * Supported encoding internal message to call constructor. See option 2 [abi.encodeIntMsg()](API.md#abiencodeintmsg).
 
 Optimizations:
  * optimized decoding function parameters if the function marked as `externalMsg` or `internalMsg`.

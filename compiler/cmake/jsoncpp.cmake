@@ -70,11 +70,3 @@ set_property(TARGET jsoncpp PROPERTY IMPORTED_LOCATION ${JSONCPP_LIBRARY})
 set_property(TARGET jsoncpp PROPERTY INTERFACE_SYSTEM_INCLUDE_DIRECTORIES ${JSONCPP_INCLUDE_DIR})
 set_property(TARGET jsoncpp PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${JSONCPP_INCLUDE_DIR})
 add_dependencies(jsoncpp jsoncpp-project)
-
-# Do not install the imported target, as it is not built by this project.
-# The static library will be installed by the ExternalProject_Add step.
-# If you need to copy the built jsoncpp.a to your install tree, add a custom install(CODE ...) or install(FILES ...) here.
-
-# Install jsoncpp static library and headers to the install tree
-install(FILES "${JSONCPP_LIBRARY}" DESTINATION lib OPTIONAL)
-install(DIRECTORY "${JSONCPP_INCLUDE_DIR}/json" DESTINATION include OPTIONAL)

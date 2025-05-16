@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2019-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -807,6 +807,7 @@ bool isFitUseless(Type const* left, Type const* right, Type const* common, Token
   XorOut: 0x0000
   MaxLen: 4095 байт (32767 бит)
 */
+namespace {
 unsigned short crc16(char const *pcBlock, unsigned short len)
 {
 	unsigned short crc = 0;
@@ -820,6 +821,70 @@ unsigned short crc16(char const *pcBlock, unsigned short len)
 			crc = crc & 0x8000 ? (crc << 1) ^ 0x1021 : crc << 1;
 	}
 	return crc;
+}
+}
+
+
+unsigned short crc16(std::string const& str) {
+	return crc16(str.c_str(), str.size());
+}
+
+std::vector<ArithmeticOperation> tonCombinedArithmeticOperations() {
+	static std::vector<ArithmeticOperation> answer;
+	if (answer.empty()) {
+		for (auto const& oper: std::vector<ArithmeticOperation>{
+			{"mulAddDivMod", 4, 2, false},
+			{"addDivMod", 3, 2, false},
+			{"addRShiftMod", 3, 2, true},
+			{"lShiftAddDivMod", 4, 2, true},
+		}) {
+			for (auto const& [pref, type] : std::vector<std::tuple<std::string, Type const*>>{
+				{"", TypeProvider::int257()},
+				{"q", TypeProvider::qInteger(257, IntegerType::Modifier::Signed)},
+			}) {
+				auto name = oper.name;
+				if (pref == "q") {
+					name = toUpper(oper.name.at(0)) + oper.name.substr(1);
+				}
+				for (auto const& suf: std::vector<std::string>{"", "R", "C"}) {
+					answer.emplace_back(ArithmeticOperation{pref + name + suf, oper.take, oper.ret, oper.withRShift});
+				}
+			}
+		}
+
+		for (auto const& oper: std::vector<ArithmeticOperation>{
+			{"mulAddRShift", 4, 2, true},
+		}) {
+			for (auto const& [pref, type] : std::vector<std::tuple<std::string, Type const*>>{
+				{"", TypeProvider::int257()},
+				{"q", TypeProvider::qInteger(257, IntegerType::Modifier::Signed)},
+			}) {
+				auto name = oper.name;
+				if (pref == "q") {
+					name = toUpper(oper.name.at(0)) + oper.name.substr(1);
+				}
+				for (auto const& suf: std::vector<std::string>{"Mod", "RMod", "CMod"}) {
+					answer.emplace_back(ArithmeticOperation{pref + name + suf, oper.take, oper.ret, oper.withRShift});
+				}
+			}
+		}
+	}
+	return answer;
+}
+
+FunctionDefinition const* getRemoteFunctionDefinition(const MemberAccess* memberAccess) {
+	auto expr = &memberAccess->expression();
+	if (isSuper(expr))
+		return nullptr;
+	auto ctype = to<ContractType>(getType(expr));
+	if (!ctype)
+		return nullptr;
+	Declaration const* decl = memberAccess->annotation().referencedDeclaration;
+	auto f = to<FunctionDefinition>(decl);
+	if (!f) {
+		cast_error(*memberAccess, "Unsupported remote function call.");
+	}
+	return f;
 }
 
 } // end namespace solidity::frontend

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2019-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -31,7 +31,7 @@ public:
 		Expression const* const _expr,
 		const bool withExpandLastValue
 	);
-	void collectLValue(const LValueInfo &lValueInfo, bool haveValueOnStackTop);
+	void collectLValue(const LValueInfo &lValueInfo, bool haveValueOnStackTop) const;
 
 protected:
 	bool acceptExpr(const Expression* expr);

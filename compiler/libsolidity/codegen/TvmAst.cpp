@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2021-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -471,7 +471,7 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 	}
 
 	if (*GlobalParams::g_tvmVersion == langutil::TVMVersion::ton())
-		solAssert(!isIn(op, "COPYLEFT", "INITCODEHASH", "MYCODE", "LDCONT", "STCONT"), "");
+		solAssert(!isIn(op, "COPYLEFT", "INITCODEHASH", "LDCONT", "STCONT"), "");
 
 	auto f = [&](std::string const& pattern) {
 		return op == pattern;
@@ -516,15 +516,21 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		}
 	};
 
-	const static std::unordered_map<std::string, OpcodeParams> opcodes = {
+	static std::unordered_map<std::string, OpcodeParams> opcodes = {
 		{"ACCEPT", {0, 0}},
 		{"COMMIT", {0, 0}},
 		{"PRINTSTR", {0, 0}},
 
 		{"BLOCKLT", {0, 1, true}},
+		{"BLS_G1_ZERO", {0, 1, true}},
+		{"BLS_G2_ZERO", {0, 1, true}},
+		{"BLS_PUSHR", {0, 1, true}},
+		{"DUEPAYMENT", {0, 1, true}},
 		{"FALSE", {0, 1, true}},
+		{"GASCONSUMED", {0, 1, true}},
 		{"GASREMAINING", {0, 1}},
 		{"GETPARAM", {0, 1, true}},
+		{"INCOMINGVALUE", {0, 1, true}},
 		{"INITCODEHASH", {0, 1, true}},
 		{"LTIME", {0, 1, true}},
 		{"MYADDR", {0, 1, true}},
@@ -536,15 +542,15 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"PUSHNAN", {0, 1, true}},
 		{"RANDSEED", {0, 1, true}},
 		{"RANDU256", {0, 1}},
+		{"RIST255_PUSHL", {0, 1, true}},
 		{"STORAGEFEE", {0, 1, true}},
+		{"STORAGEFEES", {0, 1, true}},
 		{"TRUE", {0, 1, true}},
-		{"BLS_G1_ZERO", {0, 1, true}},
-		{"BLS_G2_ZERO", {0, 1, true}},
-		{"BLS_PUSHR", {0, 1, true}},
 
 		{"ADDRAND", {1, 0}},
 		{"BUYGAS", {1, 0}},
 		{"ENDS", {1, 0}},
+		{"RIST255_VALIDATE", {1, 0}},
 		{"SETCODE", {1, 0}},
 		{"SETGASLIMIT", {1, 0}},
 		{"SETRAND", {1, 0}},
@@ -557,6 +563,14 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"BITNOT", {1, 1}}, // pseudo opcode. Alias for NOT
 		{"BITSIZE", {1, 1, true}},
 		{"BLESS", {1, 1}},
+		{"BLS_G1_INGROUP", {1, 1}},
+		{"BLS_G1_ISZERO", {1, 1}},
+		{"BLS_G1_NEG", {1, 1}},
+		{"BLS_G2_INGROUP", {1, 1}},
+		{"BLS_G2_ISZERO", {1, 1}},
+		{"BLS_G2_NEG", {1, 1}},
+		{"BLS_MAP_TO_G1", {1, 1}},
+		{"BLS_MAP_TO_G2", {1, 1}},
 		{"BREFS", {1, 1, true}},
 		{"BREMBITS", {1, 1, true}},
 		{"BREMREFS", {1, 1, true}},
@@ -615,6 +629,8 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"QSGN", {1, 1, true}},
 		{"QUFITS", {1, 1, true}},
 		{"RAND", {1, 1}},
+		{"RIST255_MULBASE", {1, 1}},
+		{"RIST255_QVALIDATE", {1, 1}},
 		{"SBITS", {1, 1, true}},
 		{"SDEMPTY", {1, 1, true}},
 		{"SDEPTH", {1, 1}},
@@ -632,14 +648,6 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"UNZIP", {1, 1}},
 		{"XLOAD", {1, 1}},
 		{"ZIP", {1, 1}},
-		{"BLS_G1_NEG", {1, 1}},
-		{"BLS_MAP_TO_G1", {1, 1}},
-		{"BLS_G1_ISZERO", {1, 1}},
-		{"BLS_G1_INGROUP", {1, 1}},
-		{"BLS_G2_NEG", {1, 1}},
-		{"BLS_MAP_TO_G2", {1, 1}},
-		{"BLS_G2_ISZERO", {1, 1}},
-		{"BLS_G2_INGROUP", {1, 1}},
 
 		{"BBITREFS", {1, 2, true}},
 		{"BREMBITREFS", {1, 2, true}},
@@ -696,6 +704,7 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"ENDXC", {2, 1}},
 		{"EQUAL", {2, 1, true}},
 		{"GEQ", {2, 1, true}},
+		{"GETGASFEE", {2, 1}},
 		{"GREATER", {2, 1, true}},
 		{"INDEXVAR", {2, 1}}, // only for vector
 		{"LEQ", {2, 1, true}},
@@ -729,12 +738,17 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"QSUB", {2, 1, true}},
 		{"QXOR", {2, 1, true}},
 		{"QXOR", {2, 1, true}},
+		{"RIST255_ADD", {2, 1}},
+		{"RIST255_FROMHASH", {2, 1, true}},
+		{"RIST255_MUL", {2, 1}},
+		{"RIST255_SUB", {2, 1}},
 		{"SCHKBITSQ", {2, 1, true}},
 		{"SCHKREFSQ", {2, 1, true}},
 		{"SDEQ", {2, 1, true}},
 		{"SDLEXCMP", {2, 1}},
 		{"SDPFXREV", {2, 1, true}},
 		{"SDSKIPFIRST", {2, 1}},
+		{"SENDMSG", {2, 1}},
 		{"SETINDEX", {2, 1}},
 		{"SETINDEXQ", {2, 1, true}},
 		{"STB", {2, 1}},
@@ -782,6 +796,8 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 
 		{"BLS_VERIFY", {3, 1}},
 		{"CHKSIGNS", {3, 1}},
+		{"P256_CHKSIGNU", {3, 1}},
+		{"P256_CHKSIGNS", {3, 1}},
 		{"CHKSIGNU", {3, 1}},
 		{"CONDSEL", {3, 1}},
 		{"MULDIV", {3, 1}},
@@ -807,8 +823,16 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"DICTUDEL", {3, 2}},
 		{"MULDIVMOD", {3, 2}},
 		{"QMULDIVMOD", {3, 2, true}},
-		{"SPLIT", {3, 2}}
+		{"SPLIT", {3, 2}},
 	};
+	static bool isInit = false;
+	if (!isInit) {
+		isInit = true;
+		const auto combArithOpers =  tonCombinedArithmeticOperations();
+		for (const auto& arith : combArithOpers) {
+			opcodes.insert({boost::to_upper_copy<std::string>(arith.name), {int(arith.take), int(arith.ret)}});
+		}
+	}
 
 	Pointer<StackOpcode> opcode;
 	if (opcodes.count(op)) {

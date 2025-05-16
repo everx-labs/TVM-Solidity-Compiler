@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -18,6 +18,7 @@
 #include <liblangutil/ErrorReporter.h>
 #include <libsolidity/codegen/TVMConstants.hpp>
 
+
 using namespace solidity::frontend;
 using namespace solidity::langutil;
 using namespace std;
@@ -31,6 +32,15 @@ bool TVMAnalyzer::analyze(const SourceUnit &_sourceUnit)
 {
 	_sourceUnit.accept(*this);
 	return !m_errorReporter.hasErrors();
+}
+
+bool TVMAnalyzer::visit(RevertStatement const& _revertStatement) {
+	m_errorReporter.typeError(
+		1594_error,
+		_revertStatement.location(),
+		"Revert statements are not supported currently."
+	);
+	return true;
 }
 
 bool TVMAnalyzer::visit(MemberAccess const& _node) {
@@ -159,6 +169,143 @@ void TVMAnalyzer::endVisit(PragmaDirective const& _pragma) {
 	}
 }
 
+
+TVMAnalyzerFlag128::TVMAnalyzerFlag128(ErrorReporter &_errorReporter):
+	m_errorReporter(_errorReporter)
+{
+}
+
+bool TVMAnalyzerFlag128::analyze(const SourceUnit &_sourceUnit)
+{
+	_sourceUnit.accept(*this);
+	return !m_errorReporter.hasErrors();
+}
+
+bool TVMAnalyzerFlag128::visit(IfStatement const& _function) {
+	const auto prev128 = m_functionCallWith128Flag;
+	_function.trueStatement().accept(*this);
+	if (_function.falseStatement()) {
+		const auto new128 = m_functionCallWith128Flag;
+		m_functionCallWith128Flag = prev128;
+		_function.falseStatement()->accept(*this);
+		if (m_functionCallWith128Flag == nullptr) {
+			m_functionCallWith128Flag = new128;
+		}
+	}
+	return false;
+}
+
+bool TVMAnalyzerFlag128::visit(FunctionDefinition const& _function) {
+	m_function = &_function;
+	m_functionCallWith128Flag = nullptr;
+	return true;
+}
+
+void TVMAnalyzerFlag128::endVisit(FunctionDefinition const&) {
+	m_function = nullptr;
+	m_functionCallWith128Flag = nullptr;
+}
+
+bool TVMAnalyzerFlag128::visit(FunctionCall const& _functionCall) {
+	std::optional<bigint> flagValue;
+	bool isSendMsg = false;
+
+	auto funcType = to<FunctionType>(_functionCall.expression().annotation().type);
+	if (funcType && funcType->kind() == FunctionType::Kind::Selfdestruct) {
+		isSendMsg = true; // selfdestruct
+		flagValue = 128;
+	}
+
+	if (auto functionOptions = to<FunctionCallOptions>(&_functionCall.expression())) {
+		auto memberAccess = to<MemberAccess>(&functionOptions->expression());
+		auto newExpr = to<NewExpression>(&functionOptions->expression());
+		if (memberAccess || newExpr) {
+			isSendMsg = true; // this.f{value: 0}();
+			auto const& names = functionOptions->names();
+			for (uint32_t i = 0; i < names.size(); ++i) {
+				if (*names[i] == "flag") {
+					ASTPointer<Expression const> flagExpr = functionOptions->options().at(i);
+					flagValue = ExprUtils::constValue(*flagExpr);
+				}
+			}
+		}
+	} else {
+		Expression const *currentExpression = &_functionCall.expression();
+		auto memberAccess = to<MemberAccess>(currentExpression);
+		if (memberAccess) {
+			auto functionDefinition = getRemoteFunctionDefinition(memberAccess);
+			if (functionDefinition != nullptr) {
+				isSendMsg = true; // this.f();
+			}
+
+			if (!isSendMsg) {
+				auto category = getType(&memberAccess->expression())->category();
+				if (isIn(category, Type::Category::Address, Type::Category::AddressStd)) {
+					if (memberAccess->memberName() == "transfer") {
+						isSendMsg = true; // addr.transfer(...)
+						auto args = _functionCall.arguments();
+						int argumentQty = static_cast<int>(args.size());
+						if (!_functionCall.names().empty() || argumentQty == 0) {
+							for (int arg = 0; arg < argumentQty; ++arg) {
+								if (*_functionCall.names().at(arg) == "flag") {
+									flagValue = ExprUtils::constValue(*args.at(arg));
+								}
+							}
+						} else {
+							if (args.size() >= 3) {
+								flagValue = ExprUtils::constValue(*args.at(2));
+							}
+						}
+					}
+
+				}
+			}
+		}
+	}
+
+	if (!isSendMsg) {
+		return true;
+	}
+
+	if (m_functionCallWith128Flag != nullptr) {
+		m_errorReporter.warning(2526_error,
+			_functionCall.location(),
+			"External function call will fail on action phase because all balance was already send.",
+			SecondarySourceLocation().append("Sending all balance:",
+						m_functionCallWith128Flag->location())
+		);
+	}
+
+	if (flagValue.has_value() && flagValue == 128) {
+		m_functionCallWith128Flag = &_functionCall;
+
+		if (m_function && !m_function->returnParameters().empty() && m_function->functionIsExternallyVisible()) {
+			if (m_functionCallWith128Flag != nullptr) {
+				m_errorReporter.warning(3337_error,
+					m_function->location(),
+					"Public function (that returns some parameters) will emit the event. It will fail on action phase because all balance was already send.",
+					SecondarySourceLocation().append("Sending all balance:",
+								m_functionCallWith128Flag->location())
+				);
+			}
+		}
+	}
+
+	return false;
+}
+
+bool TVMAnalyzerFlag128::visit(EmitStatement const& _emit) {
+	if (m_functionCallWith128Flag != nullptr) {
+		m_errorReporter.warning(8901_error,
+			_emit.location(),
+			"Emitting the event will fail on action phase because all balance was already send.",
+			SecondarySourceLocation().append("Sending all balance:",
+						m_functionCallWith128Flag->location())
+		);
+	}
+	return true;
+}
+
 ContactsUsageScanner::ContactsUsageScanner(const ContractDefinition &cd) {
 	for (ContractDefinition const* base : cd.annotation().linearizedBaseContracts) {
 		base->accept(*this);
@@ -210,8 +357,8 @@ bool ContactsUsageScanner::visit(const FunctionDefinition &fd) {
 	return true;
 }
 
-bool withPrelocatedRetValues(const FunctionDefinition *f) {
-	LocationReturn locationReturn = ::notNeedsPushContWhenInlining(f->body());
+bool solidity::frontend::withPrelocatedRetValues(const FunctionDefinition *f) {
+	LocationReturn locationReturn = notNeedsPushContWhenInlining(f->body());
 	if (!f->returnParameters().empty() && isIn(locationReturn, LocationReturn::noReturn, LocationReturn::Anywhere)) {
 		return true;
 	}
@@ -224,7 +371,7 @@ bool withPrelocatedRetValues(const FunctionDefinition *f) {
 	return !f->modifiers().empty();
 }
 
-LocationReturn notNeedsPushContWhenInlining(const Block &_block) {
+LocationReturn solidity::frontend::notNeedsPushContWhenInlining(const Block &_block) {
 
 	ast_vec<Statement> statements = _block.statements();
 

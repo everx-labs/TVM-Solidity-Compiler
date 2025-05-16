@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2021-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -493,7 +493,6 @@ public:
 	Contract(
 		bool _isLib,
 		bool _saveAllFunction,
-		bool _upgradeFunc,
 		bool upgradeOldSolidity,
 		std::string _version,
 		std::vector<Pointer<Function>> _functions,
@@ -502,7 +501,6 @@ public:
 	) :
 		m_isLib{_isLib},
 		m_saveAllFunction{_saveAllFunction},
-		m_upgradeFunc{_upgradeFunc},
 		m_upgradeOldSolidity{upgradeOldSolidity},
 		m_version{std::move(_version)},
 		m_functions{std::move(_functions)},
@@ -514,7 +512,6 @@ public:
 	bool operator==(TvmAstNode const&) const override { return false; } // TODO
 	bool isLib() const { return m_isLib; }
 	bool saveAllFunction() const { return m_saveAllFunction; }
-	bool upgradeFunc() const { return m_upgradeFunc; }
 	bool upgradeOldSolidity() const { return m_upgradeOldSolidity; }
 	std::string const& version() const { return m_version; }
 	std::vector<Pointer<Function>> const& functions() const { return m_functions; }
@@ -523,7 +520,6 @@ public:
 private:
 	bool m_isLib{};
 	bool m_saveAllFunction{};
-	bool m_upgradeFunc{};
 	bool m_upgradeOldSolidity{};
 	std::string m_version;
 	std::vector<Pointer<Function>> m_functions;

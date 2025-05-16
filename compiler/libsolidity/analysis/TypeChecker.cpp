@@ -3031,7 +3031,6 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 					};
 				else if (
 					_functionType->kind() == FunctionType::Kind::KECCAK256 ||
-					_functionType->kind() == FunctionType::Kind::SHA256 ||
 					_functionType->kind() == FunctionType::Kind::RIPEMD160
 				)
 					return {
@@ -4224,15 +4223,51 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 			break;
 		}
 		case FunctionType::Kind::SHA256: {
-			if (arguments.size() != 1)
-				m_errorReporter.fatalTypeError(3449_error, _functionCall.location(), "Expected one argument.");
-
-			Type const* argType = arguments.at(0)->annotation().type->mobileType();
-			auto arrayType = dynamic_cast<ArrayType const *>(argType);
-			if (!((arrayType && arrayType->isByteArrayOrString()) || dynamic_cast<TvmSliceType const*>(argType)))
-				m_errorReporter.fatalTypeError(7972_error, arguments.at(0)->location(), "Expected bytes, string or TvmSlice type.");
-			paramTypes.push_back(argType);
-			returnTypes.emplace_back(TypeProvider::uint256());
+			if (arguments.size() == 1) {
+				Type const* argType = arguments.at(0)->annotation().type->mobileType();
+				auto arrayType = dynamic_cast<ArrayType const *>(argType);
+				if (!((arrayType && arrayType->isByteArrayOrString()) || dynamic_cast<TvmSliceType const*>(argType)))
+					m_errorReporter.fatalTypeError(7972_error, arguments.at(0)->location(), "Expected bytes, string or TvmSlice type.");
+				paramTypes.push_back(argType);
+				returnTypes.emplace_back(TypeProvider::uint256());
+			} else {
+				for (const auto & argument : arguments) {
+					auto argType = type(*argument);
+					auto argCat = argType->category();
+					if (argCat != Type::Category::TvmSlice) {
+						m_errorReporter.fatalTypeError(4067_error, argument->location(), "Expected TvmSlice type.");
+					}
+					paramTypes.emplace_back(argType);
+				}
+				returnTypes.emplace_back(TypeProvider::uint256());
+			}
+			break;
+		}
+		case FunctionType::Kind::HashExt: {
+			for (const auto & argument : arguments) {
+				auto argType = type(*argument);
+				auto argCat = argType->category();
+				if (argCat != Type::Category::TvmSlice) {
+					m_errorReporter.fatalTypeError(7621_error, argument->location(), "Expected TvmSlice type.");
+				}
+				paramTypes.emplace_back(argType);
+			}
+			auto const& name = to<Identifier>(&_functionCall.expression())->name();
+			if (isIn(name, "sha512", "blake2b", "keccak512"))
+				returnTypes.emplace_back(TypeProvider::tvmVector(TypeProvider::uint256()));
+			else
+				returnTypes.emplace_back(TypeProvider::uint256());
+			break;
+		}
+		case FunctionType::Kind::TVMBuilderHash: {
+			for (const auto & argument : arguments) {
+				auto argType = type(*argument);
+				auto argCat = argType->category();
+				if (argCat != Type::Category::TvmSlice) {
+					m_errorReporter.fatalTypeError(3633_error, argument->location(), "Expected TvmSlice type.");
+				}
+				paramTypes.emplace_back(argType);
+			}
 			break;
 		}
 		case FunctionType::Kind::Require: {

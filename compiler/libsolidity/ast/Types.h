@@ -1432,6 +1432,19 @@ public:
 
 		IntCast, ///< int a; a.cast(uint8);
 
+		Rist255FromHash,
+		Rist255Validate,
+		Rist255Add,
+		Rist255Sub,
+		Rist255Mul,
+		Rist255Mulbase,
+		Rist255L,
+		Rist255QValidate,
+		Rist255QAdd,
+		Rist255QSub,
+		Rist255QMul,
+		Rist255QMulbase,
+
 		QGet,
 		QGetOr,
 		QGetOrDefault,
@@ -1481,6 +1494,7 @@ public:
 		TVMBuilderStoreInt, ///< builder.storeInt()
 		TVMBuilderStoreTons, ///< builder.storeTons()
 		TVMBuilderStoreUint, ///< builder.storeUint()
+		TVMBuilderHash,
 
 		StringBuilderToString, ///< stringBuilder.toString()
 		StringBuilderAppendByte, /// < stringBuilder.append(bytes1)
@@ -1507,6 +1521,8 @@ public:
 		ECRecover, ///< CALL to special contract for ecrecover
 		SHA256, ///< CALL to special contract for sha256
 		RIPEMD160, ///< CALL to special contract for ripemd160
+
+		HashExt,
 
 		LogTVM, ///< logtvm(...)
 		Format, ///< format function to generate an arbitrary string.
@@ -1543,6 +1559,7 @@ public:
 		MathDivMod, ///< math.divmod()
 		MathSign, ///< math.sign()
 		MathMulMod, ///< math.mulmod()
+		TonCombArithOper,
 
 		BlsVerify, ///< bls.verify()
 		BlsAggregate, ///< bls.aggregate()
@@ -1582,6 +1599,7 @@ public:
 		TVMAccept, ///< tvm.accept()
 		TVMBuyGas, ///< tvm.buyGas()
 		TVMChecksign, ///< tvm.checkSign()
+		TVMP256Checksign, ///< tvm.p256CheckSign()
 		TVMCode, ///< tvm.code()
 		TVMCommit, ///< tvm.commit()
 		TVMConfigParam, ///< tvm.configParam()
@@ -1596,11 +1614,13 @@ public:
 		TVMReplayProtInterval, ///< tvm.replayProtInterval()
 		TVMReplayProtTime, ///< tvm.replayProtTime()
 		TVMResetStorage, ///< tvm.resetStorage()
-		TVMSendMsg, ///< tvm.sendMsg()
+		TVMRawMsg, ///< tvm.sendmsg()
+		TVMSendRawMsg, ///< tvm.sendrawmsg()
 		TVMSetGasLimit, ///< tvm.setGasLimit()
 		TVMSetPubkey, ///< tvm.setPubkey()
 		TVMSetReplayProtTime, ///< tvm.setReplayProtTime()
 		TVMSetcode, ///< tvm.setcode()
+		TVMDuePayment,
 
 		TXtimestamp, ///< tx.timestamp
 
@@ -1655,6 +1675,7 @@ public:
 		ABIEncodeWithSignature,
 		ABIDecode,
 		GasLeft, ///< gasleft()
+		GasConsumed, ///< gasConsumed()
 		MetaType, ///< type(...)
 		/// Refers to a function declaration without calling context
 		/// (i.e. when accessed directly via the name of the containing contract).
@@ -1863,23 +1884,6 @@ public:
 	/// and abi.encodePacked.
 	bool padArguments() const;
 	bool takesArbitraryParameters() const { return m_options.arbitraryParameters; }
-	/// true iff the function takes a single bytes parameter and it is passed on without padding.
-	bool takesSinglePackedBytesParameter() const
-	{
-		switch (m_kind)
-		{
-		case FunctionType::Kind::KECCAK256:
-		case FunctionType::Kind::SHA256:
-		case FunctionType::Kind::RIPEMD160:
-		case FunctionType::Kind::BareCall:
-		case FunctionType::Kind::BareCallCode:
-		case FunctionType::Kind::BareDelegateCall:
-		case FunctionType::Kind::BareStaticCall:
-			return true;
-		default:
-			return false;
-		}
-	}
 
 	bool gasSet() const { return m_options.gasSet; }
 	bool valueSet() const { return m_options.valueSet; }
@@ -2125,6 +2129,7 @@ public:
 		Rnd, ///< "rnd"
 		Gosh, ///< "gosh"
 		BLS, ///< "bls"
+		RIST255, ///< "rist255"
 		MetaType ///< "type(...)"
 	};
 

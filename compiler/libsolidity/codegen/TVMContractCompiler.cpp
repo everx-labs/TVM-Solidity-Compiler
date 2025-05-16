@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -47,7 +47,7 @@ void TVMContractCompiler::printFunctionIds(
 
 void TVMContractCompiler::printPrivateFunctionIds(
 	ContractDefinition const& contract,
-	std::vector<std::shared_ptr<SourceUnit>> const& _sourceUnits,
+	std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
 	PragmaDirectiveHelper const& pragmaHelper
 ) {
 	Json::Value functionIds = TVMABI::generatePrivateFunctionIdsJson(contract, _sourceUnits, pragmaHelper);
@@ -57,7 +57,7 @@ void TVMContractCompiler::printPrivateFunctionIds(
 void TVMContractCompiler::generateABI(
 	const std::string& fileName,
 	ContractDefinition const *contract,
-	std::vector<std::shared_ptr<SourceUnit>> const& _sourceUnits,
+	std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
 	std::vector<PragmaDirective const *> const &pragmaDirectives
 ) {
 	if (!fileName.empty()) {
@@ -76,7 +76,7 @@ void TVMContractCompiler::generateABI(
 void TVMContractCompiler::generateCodeAndSaveToFile(
 	const std::string& fileName,
 	ContractDefinition const& contract,
-	std::vector<std::shared_ptr<SourceUnit>>const& _sourceUnits,
+	std::vector<ASTPointer<SourceUnit>>const& _sourceUnits,
 	PragmaDirectiveHelper const &pragmaHelper
 ) {
 	Pointer<Contract> codeContract = generateContractCode(&contract, _sourceUnits, pragmaHelper);
@@ -95,7 +95,7 @@ void TVMContractCompiler::generateCodeAndSaveToFile(
 Pointer<Contract>
 TVMContractCompiler::generateContractCode(
 	ContractDefinition const *contract,
-	std::vector<std::shared_ptr<SourceUnit>>const& _sourceUnits,
+	std::vector<ASTPointer<SourceUnit>>const& _sourceUnits,
 	PragmaDirectiveHelper const &pragmaHelper
 ) {
 	std::vector<Pointer<Function>> functions;
@@ -103,7 +103,7 @@ TVMContractCompiler::generateContractCode(
 
 	TVMCompilerContext ctx{contract, pragmaHelper};
 
-	fillInlineFunctions(ctx, contract);
+	fillInlineFunctions(ctx, contract, _sourceUnits);
 
 	// generate global constructor which inlines all contract's constructors
 	if (!ctx.isStdlib() && ctx.hasConstructor()) {
@@ -145,20 +145,18 @@ TVMContractCompiler::generateContractCode(
 				if (!ctx.isStdlib() && _function->isPublic() && !ctx.isBaseFunction(_function)) {
 					if (_function->visibility() == Visibility::Getter) {
 						functions.emplace_back(TVMFunctionCompiler::generateGetterFunction(ctx, _function));
-						uint32_t functionId = crc16(_function->name().c_str(), _function->name().length());
+						uint32_t functionId = crc16(_function->name());
 						functionId = (functionId & 0xffff) | 0x10000;
 						bool emplace = getters.emplace(functionId, _function->name()).second;
 						solAssert(emplace, "");
 					} else {
 						functions.emplace_back(TVMFunctionCompiler::generatePublicFunction(ctx, _function));
-						StackPusher pusher{&ctx};
-						ChainDataEncoder encoder{&pusher};
-						uint32_t functionId = encoder.calculateFunctionIDWithReason(_function,
+						uint32_t functionId = ChainDataEncoder::calculateFunctionIDWithReason(_function,
 																					ReasonOfOutboundMessage::RemoteCallInternal);
 						ctx.addPublicFunction(functionId, _function->name());
 					}
 				}
-				auto const[functionName, id] = ctx.functionInternalName(_function);
+				auto const[functionName, id] = ctx.functionInternalName(_function, true);
 				functions.emplace_back(TVMFunctionCompiler::generateFunction(ctx, _function, functionName, id));
 			}
 		}
@@ -183,9 +181,8 @@ TVMContractCompiler::generateContractCode(
 			Pointer<Function> f = TVMFunctionCompiler::generateGetter(pusher, vd);
 			functions.emplace_back(f);
 
-			ChainDataEncoder encoder{&pusher};
 			std::vector<VariableDeclaration const*> outputs = {vd};
-			uint32_t functionId = encoder.calculateFunctionIDWithReason(
+			uint32_t functionId = ChainDataEncoder::calculateFunctionIDWithReason(
 				vd->name(),
 				{},
 				&outputs,
@@ -282,7 +279,7 @@ TVMContractCompiler::generateContractCode(
 	}
 
 	Pointer<Contract> c = createNode<Contract>(
-			ctx.isStdlib(), ctx.getPragmaSaveAllFunctions(), pragmaHelper.hasUpgradeFunc(), pragmaHelper.hasUpgradeOldSol(),
+			ctx.isStdlib(), ctx.getPragmaSaveAllFunctions(), pragmaHelper.hasUpgradeOldSol(),
 			std::string{"sol "} + solidity::frontend::VersionNumber,
 			functionOrder,
 			ctx.callGraph().privateFunctions(),
@@ -342,12 +339,22 @@ void TVMContractCompiler::optimizeCode(Pointer<Contract>& c) {
 	so.optimize(c);
 }
 
-void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractDefinition const *contract) {
+void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractDefinition const *contract, std::vector<ASTPointer<SourceUnit>>const& _sourceUnits) {
 	std::set<FunctionDefinition const *> inlineFunctions;
 	for (ContractDefinition const *base : contract->annotation().linearizedBaseContracts | boost::adaptors::reversed) {
 		for (FunctionDefinition const *function : base->definedFunctions()) {
 			if (function->isInline()) {
 				inlineFunctions.insert(function);
+			}
+		}
+	}
+	// generate free functions
+	for (std::shared_ptr<SourceUnit> const& source: _sourceUnits) {
+		for (ASTPointer<ASTNode> const &node: source->nodes()) {
+			if (auto function = dynamic_cast<FunctionDefinition const *>(node.get())) {
+				if (function->isFree() && !function->isInlineAssembly() && function->isInline()) {
+					inlineFunctions.insert(function);
+				}
 			}
 		}
 	}
@@ -359,7 +366,7 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 	std::vector<FunctionDefinition const *> order = inlineFunctionChecker.functionOrder();
 
 	for (FunctionDefinition const * function : order) {
-		const std::string name = ctx.functionInternalName(function).first;
+		const std::string name = ctx.functionInternalName(function, false).first;
 		ctx.setCurrentFunction(function, name);
 		StackPusher pusher{&ctx};
 		TVMFunctionCompiler::generateFunctionWithModifiers(pusher, function, true);

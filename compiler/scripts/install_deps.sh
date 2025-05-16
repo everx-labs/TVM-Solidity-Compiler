@@ -73,11 +73,10 @@ case $(uname -s) in
     Darwin)
         # Check for Homebrew install and abort if it is not installed.
         brew -v > /dev/null 2>&1 || { echo >&2 "ERROR - solidity requires a Homebrew install.  See https://brew.sh."; exit 1; }
-        # Use Homebrew's Boost, which includes Boost.Process
-        brew list boost >/dev/null 2>&1 || brew install boost
-        # don't install cmake; brew ships bleeding edge cmake for fun(no)
+        brew update
+        brew install boost
+        brew install cmake
         brew install curl
-        brew install ccache
         if [ "$CI" = true ]; then
             brew upgrade cmake
         fi
@@ -117,7 +116,6 @@ case $(uname -s) in
                     base-devel \
                     boost \
                     cmake \
-                    ccache \
                     git
                 ;;
 
@@ -133,7 +131,7 @@ case $(uname -s) in
                 # See https://pkgs.alpinelinux.org/
 
                 apk update
-                apk add boost-dev boost-static build-base cmake ccache git
+                apk add boost-dev boost-static build-base cmake git
 
                 ;;
 
@@ -144,7 +142,7 @@ case $(uname -s) in
             Debian*)
                 #Debian
                 . /etc/os-release
-
+                
                 # Install "normal packages"
                 sudo apt-get -y update
                 sudo apt-get -y install \
@@ -156,8 +154,7 @@ case $(uname -s) in
                     libboost-all-dev \
                     unzip \
                     curl \
-                    libclang-dev \
-                    ccache
+                    libclang-dev
 
                 ;;
 
@@ -181,8 +178,7 @@ case $(uname -s) in
                     gcc-c++ \
                     git \
                     libtool \
-                    curl \
-                    ccache
+                    curl
 
                 ;;
 
@@ -198,7 +194,7 @@ case $(uname -s) in
                 # See https://pkgs.alpinelinux.org/
 
                 sudo USE="static-libs" emerge  dev-libs/boost
-                sudo emerge dev-util/cmake sys-devel/gcc net-misc/curl dev-util/boost-build dev-util/ccache
+                sudo emerge dev-util/cmake sys-devel/gcc net-misc/curl dev-util/boost-build
 
                 ;;
 
@@ -223,7 +219,7 @@ case $(uname -s) in
             Ubuntu|LinuxMint)
                 #LinuxMint is a distro on top of Ubuntu.
                 #Ubuntu
-
+                
                 sudo apt-get -y update
                 sudo apt-get -y install \
                     build-essential \

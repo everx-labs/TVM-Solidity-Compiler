@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2023 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2024 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -40,6 +40,7 @@ public:
 	bool analyze(SourceUnit const& _sourceUnit);
 
 private:
+	bool visit(RevertStatement const& _revertStatement) override;
 	bool visit(MemberAccess const& contract) override;
 	bool visit(ContractDefinition const& contract) override;
 	bool visit(FunctionDefinition const& _function) override;
@@ -53,6 +54,29 @@ private:
 
 	FunctionDefinition const* m_currentFunction = nullptr;
 	std::vector<FunctionCall const*> m_functionCall;
+};
+
+class TVMAnalyzerFlag128: private ASTConstVisitor
+{
+public:
+	/// @param _errorReporter provides the error logging functionality.
+	explicit TVMAnalyzerFlag128(langutil::ErrorReporter& _errorReporter);
+
+	/// Performs analysis on the given source unit and all of its sub-nodes.
+	/// @returns true if all checks passed. Note even if all checks passed, errors() can still contain warnings
+	bool analyze(SourceUnit const& _sourceUnit);
+
+private:
+	bool visit(IfStatement const& _function) override;
+	bool visit(FunctionDefinition const& _function) override;
+	void endVisit(FunctionDefinition const& _function) override;
+
+	bool visit(FunctionCall const& _functionCall) override;
+	bool visit(EmitStatement const& _emit) override;
+
+	langutil::ErrorReporter& m_errorReporter;
+	FunctionDefinition const* m_function = nullptr;
+	Expression const* m_functionCallWith128Flag = nullptr;
 };
 
 class ContactsUsageScanner: public ASTConstVisitor
@@ -152,8 +176,8 @@ private:
 	bool m_alwaysContinue{};
 };
 
+LocationReturn notNeedsPushContWhenInlining(Block const &_block);
+
+bool withPrelocatedRetValues(FunctionDefinition const* f);
+
 } // end namespace solidity::frontend
-
-solidity::frontend::LocationReturn notNeedsPushContWhenInlining(solidity::frontend::Block const &_block);
-
-bool withPrelocatedRetValues(solidity::frontend::FunctionDefinition const* f);
