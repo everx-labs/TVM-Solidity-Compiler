@@ -7,6 +7,8 @@ on:
       - ci
     tags:
       - "gosh_[0-9]+.[0-9]+.[0-9]+"
+      - "gosh_[0-9]+.[0-9]+.[0-9]+-rc"
+      - "gosh_[0-9]+.[0-9]+.[0-9]+-rc[0-9]+"
   workflow_dispatch:
 
 concurrency:
@@ -155,7 +157,7 @@ jobs:
           else
             echo "PRERELEASE=true" >> $GITHUB_OUTPUT
             echo "TITLE=Pre-release ${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
-            echo "TAG_NAME=${GITHUB_REF_NAME}-${{ github.run_number }}" >> $GITHUB_OUTPUT
+            echo "TAG_NAME=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
           fi
 
       - name: Set tag
