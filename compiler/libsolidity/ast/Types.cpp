@@ -571,6 +571,7 @@ MemberList::MemberMap AddressType::nativeMembers(ASTNode const*) const
 		{"balance", TypeProvider::coins()},
 		{"currencies", TypeProvider::extraCurrencyCollection()},
 		{"wid", TypeProvider::integer(8, IntegerType::Modifier::Signed)},
+		{"dapp_id", TypeProvider::uint256()},
 		{"value", TypeProvider::uint256()},
 		{"isStdZero", TypeProvider::function(strings(), strings{"bool"}, FunctionType::Kind::AddressIsZero, StateMutability::Pure)},
 		{"isNone", TypeProvider::function(strings(), strings{"bool"}, FunctionType::Kind::AddressIsZero, StateMutability::Pure)},
@@ -7521,7 +7522,7 @@ int VarIntegerType::maxBitSizeInCell() const {
 	if (m_n == 32) {
 		return 5 + (31 * 8);
 	}
-	solUnimplemented("");
+	solUnimplemented("18");
 }
 
 BoolResult QIntegerType::isImplicitlyConvertibleTo(Type const& _other) const {

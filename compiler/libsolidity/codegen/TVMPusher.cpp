@@ -171,7 +171,7 @@ StackPusher::prepareValueForDictOperations(Type const *keyType, Type const *valu
 			return DataType::Cell;
 		}
 	}
-	solUnimplemented("");
+	solUnimplemented("77");
 }
 
 DataType StackPusher::pushDefaultValueForDict(Type const* keyType, Type const* valueType) {
@@ -280,7 +280,7 @@ bool StackPusher::doesDictStoreValueInRef(Type const* keyType, Type const* value
 		case DictValueType::Function:
 			return !doesFitInOneCellAndHaveNoStruct(keyType, valueType);
 	}
-	solUnimplemented("");
+	solUnimplemented("78");
 }
 
 // false - value isn't in ref
@@ -1070,7 +1070,7 @@ bool StackPusher::fastLoad(const Type* type) {
 					} else if (auto tt = to<TupleType>(opt->valueType())) {
 						sc = std::make_unique<StructCompiler>(this, tt);
 					} else {
-						solUnimplemented("");
+						solUnimplemented("79");
 					}
 					sc->convertSliceToTuple();
 					if (!reverseOrder) {
@@ -1190,7 +1190,7 @@ bool StackPusher::fastLoad(const Type* type) {
 	default:
 		solUnimplemented(type->toString());
 	}
-	solUnimplemented("");
+	solUnimplemented("80");
 	// true  => value slice
 	// false => slice value
 }
@@ -1431,7 +1431,7 @@ void StackPusher::store(const Type *type) {
 					sc = std::make_unique<StructCompiler>(this, st);
 				} else {
 					// TODO add test for struct
-					solUnimplemented("");
+					solUnimplemented("81");
 				}
 				sc->tupleToBuilder();
 				*this << "STBREFR";
@@ -1768,7 +1768,7 @@ Type const* StackPusher::parseIndexType(Type const *type) {
 	if (auto mappingType = to<MappingType>(type)) {
 		return mappingType->keyType();
 	}
-	solUnimplemented("");
+	solUnimplemented("82");
 }
 
 void StackPusher::assignStackVariable(Declaration const *name) {
@@ -1809,7 +1809,7 @@ int StackPusher::int_msg_info(const std::set<int> &isParamOnStack, const std::ma
 	static const std::vector<int> zeroes {1, 1, 1,
 									2, 2,
 									4, 1, 4, 4,
-									64, 32, 1, 1};
+									64, 32, 1, 1, 1, 1};
 	std::string bitString = "0";
 	int maxBitStringSize = 0;
 	*this << "NEWC";
@@ -1848,8 +1848,17 @@ int StackPusher::int_msg_info(const std::set<int> &isParamOnStack, const std::ma
 					*this << "STDICT";
 					++maxBitStringSize;
 					break;
+				case TvmConst::int_msg_info::dest_dapp_id:
+				    exchange(1);
+				    *this << "NEWC";
+					*this << "STU 256";
+				    *this << "ENDC";
+				    *this << "STREFR";
+				    *this << "STONE";
+					maxBitStringSize += 1;
+					break;
 				default:
-					solUnimplemented("");
+					solUnimplemented("83");
 			}
 		}
 	}
@@ -1889,7 +1898,7 @@ int StackPusher::ext_msg_info(const set<int> &isParamOnStack, bool isOut = true)
 				*this << "STB";
 				maxBitStringSize += TvmConst::ExtInboundSrcLength;
 			} else {
-				solUnimplemented("");
+				solUnimplemented("84");
 			}
 		}
 	}
@@ -2416,7 +2425,7 @@ void StackPusher::pushDefaultValue(Type const* _type) {
 		break;
 	}
 	default:
-		solUnimplemented("");
+		solUnimplemented("85");
 	}
 	endOpaque(0, returnValues, true);
 }
@@ -2819,7 +2828,7 @@ void TypeConversion::fromFixedBytesType(Type const* leftType, FixedBytesType con
 		if (intType && !intType->isSigned() &&
 			(intType->numBits() >= 8 * rightType->numBytes()))
 			break;
-		solUnimplemented("");
+		solUnimplemented("86");
 		break;
 	}
 	case Type::Category::FixedPoint: {
@@ -2857,7 +2866,7 @@ void TypeConversion::fromArray(Type const* leftType, ArrayType const* rightType)
 		m_pusher << "CTOS";
 		break;
 	default:
-		solUnimplemented("");
+		solUnimplemented("87");
 		break;
 	}
 }
@@ -2908,7 +2917,7 @@ void TypeConversion::fromSlice(Type const* leftType) {
 		break;
 	}
 	default:
-		solUnimplemented("");
+		solUnimplemented("88");
 	}
 }
 

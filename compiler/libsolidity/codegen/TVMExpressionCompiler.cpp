@@ -333,10 +333,10 @@ void TVMExpressionCompiler::compileUnaryDelete(UnaryOperation const &node) {
 			m_pusher.drop();                               // ... index dict'
 			collectLValue(lValueInfo, false);
 		} else {
-			solUnimplemented("");
+			solUnimplemented("32");
 		}
 	} else {
-		solUnimplemented("");
+		solUnimplemented("33");
 	}
 }
 
@@ -669,7 +669,7 @@ void TVMExpressionCompiler::visitMathBinaryOperation(
 				m_pusher.pushS(0);
 				m_pusher << prefix + "MUL";
 			} else {
-				solUnimplemented("");
+				solUnimplemented("34");
 			}
 		} else {
 			if (leftValue.has_value() && leftValue == 2) {
@@ -802,7 +802,7 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const &_node) {
 		} else if (_node.memberName() == "isTickTock") {
 			m_pusher << "EQINT -2";
 		} else {
-			solUnimplemented("");
+			solUnimplemented("35");
 		}
 	} else  if (_node.memberName() == "createdAt") { // msg.createdAt
 		m_pusher.startContinuation();
@@ -1055,6 +1055,13 @@ bool TVMExpressionCompiler::checkForAddressMemberAccess(MemberAccess const &_nod
 		m_pusher << "PARSEMSGADDR";
 		m_pusher.indexWithExcep(3);
 		m_pusher << "PLDU 256";
+		return true;
+	}
+	if (_node.memberName() == "dapp_id") {
+		if (!isAddressThis(to<FunctionCall>(&_node.expression()))) {
+			cast_error(_node.expression(), "Only 'address(this).dapp_id' is supported for member dapp_id");
+		}
+		m_pusher << "MYDAPPID";
 		return true;
 	}
 	return false;
@@ -1315,7 +1322,7 @@ TVMExpressionCompiler::expandLValue(
 								 *index->annotation().type, GetDictOperation::GetFromArray);
 				// size index dict value
 			} else {
-				solUnimplemented("");
+				solUnimplemented("36");
 			}
 		} else if (auto memberAccess = to<MemberAccess>(lValueInfo.expressions[i])) {
 			auto structType = to<StructType>(memberAccess->expression().annotation().type);
@@ -1337,7 +1344,7 @@ TVMExpressionCompiler::expandLValue(
 				m_pusher.blockSwap(1, 1); // stack value
 			}
 		} else {
-			solUnimplemented("");
+			solUnimplemented("37");
 		}
 	}
 	lValueInfo.stackSizeDiff = m_pusher.stackSize() - startStackSize;
@@ -1402,7 +1409,7 @@ TVMExpressionCompiler::collectLValue(
 				}
 				m_pusher << "TUPLE 2";
 			} else {
-				solUnimplemented("");
+				solUnimplemented("38");
 			}
 		} else if (auto memberAccess = to<MemberAccess>(lValueInfo.expressions[i])) {
 			auto structType = to<StructType>(memberAccess->expression().annotation().type);
@@ -1416,7 +1423,7 @@ TVMExpressionCompiler::collectLValue(
 			m_pusher.blockSwap(1, 1); // value stack
 			m_pusher << "TUPLE 2";
 		} else {
-			solUnimplemented("");
+			solUnimplemented("39");
 		}
 	}
 }

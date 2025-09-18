@@ -119,7 +119,7 @@ bool TVMFunctionCompiler::lastAnalyzerBeforeLoop() const {
 			return true;
 		}
 	}
-	solUnimplemented("");
+	solUnimplemented("73");
 }
 
 Pointer<Function> TVMFunctionCompiler::updateOnlyTime(TVMCompilerContext& ctx) {
@@ -1190,7 +1190,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 		// stack: dict minKey(pub) value minKey(private)
 		loopVarQty = 4;
 	} else {
-		solUnimplemented("");
+		solUnimplemented("74");
 	}
 	m_pusher.ensureSize(saveStackSize + loopVarQty, "for");
 
@@ -1224,7 +1224,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 			m_pusher << "ISNULL";
 			m_pusher << "NOT";
 		} else {
-			solUnimplemented("");
+			solUnimplemented("75");
 		}
 	};
 	visitForOrWhileCondition(pushCondition);
@@ -1289,7 +1289,7 @@ bool TVMFunctionCompiler::visit(ForEachStatement const& _forStatement) {
 			m_pusher.popS(m_pusher.stackSize() - saveStackSize - 2);
 			solAssert(sss == m_pusher.stackSize(), "");
 		} else {
-			solUnimplemented("");
+			solUnimplemented("76");
 		}
 	};
 	visitBodyOfForLoop(ci, pushStartBody, _forStatement.body(), pushLoopExpression);

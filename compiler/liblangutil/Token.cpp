@@ -218,7 +218,7 @@ std::tuple<Token, unsigned int, unsigned int> fromIdentifierOrKeyword(std::strin
 					return std::make_tuple(Token::VarIntM, m, 0);
 				if (keyword == Token::Varint)
 					return std::make_tuple(Token::VarintM, m, 0);
-				solUnimplemented("");
+				solUnimplemented("10");
 			}
 		}
 		else if (keyword == Token::Bytes)

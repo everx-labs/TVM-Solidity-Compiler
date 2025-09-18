@@ -50,7 +50,7 @@ bool TVMInlineFunctionChecker::dfs(FunctionDefinition const* v) {
 		} else if (color[to] == 2) {
 			continue;
 		} else {
-			solUnimplemented("");
+			solUnimplemented("62");
 		}
 	}
 	order.push_back(v);

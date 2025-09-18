@@ -500,7 +500,7 @@ bool Printer::visit(CodeBlock &_node) {
 bool Printer::visit(SubProgram &_node) {
 	switch (_node.block()->type()) {
 	case CodeBlock::Type::None:
-		solUnimplemented("");
+		solUnimplemented("93");
 	case CodeBlock::Type::PUSHCONT:
 		_node.block()->accept(*this);
 
@@ -564,7 +564,7 @@ bool Printer::visit(TvmIfElse &_node) {
 	if (_node.falseBody() == nullptr) {
 	switch (_node.trueBody()->type()) {
 		case CodeBlock::Type::None:
-			solUnimplemented("");
+			solUnimplemented("94");
 			break;
 		case CodeBlock::Type::PUSHCONT:
 			_node.trueBody()->accept(*this);

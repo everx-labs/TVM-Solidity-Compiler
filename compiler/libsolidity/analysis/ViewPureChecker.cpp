@@ -440,6 +440,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::Message, "createdAt"},
 			{MagicType::Kind::Message, "currencies"},
 			{MagicType::Kind::Message, "data"},
+			{MagicType::Kind::Message, "dest_dapp_id"},
 			{MagicType::Kind::Message, "forwardFee"},
 			{MagicType::Kind::Message, "hasStateInit"},
 			{MagicType::Kind::Message, "importFee"},

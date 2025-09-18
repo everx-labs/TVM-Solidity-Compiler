@@ -1369,7 +1369,7 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt3(Pointer<TvmAstNode> 
 		else if (cmd3GenOpcode->opcode() == "MAX")
 			c = std::max(a, b);
 		else
-			solUnimplemented("");
+			solUnimplemented("23");
 		return Result{3, gen("PUSHINT " + toString(c))};
 	}
 	// PUSHINT A
@@ -2497,7 +2497,7 @@ int PrivatePeepholeOptimizer::getAddNum(Pointer<TvmAstNode> const& node) {
 	if (gen->opcode() == "ADDCONST") {
 		return strToInt(gen->arg());
 	}
-	solUnimplemented("");
+	solUnimplemented("25");
 }
 
 bool PrivatePeepholeOptimizer::isStack(Pointer<TvmAstNode> const& node, Stack::Opcode op) {

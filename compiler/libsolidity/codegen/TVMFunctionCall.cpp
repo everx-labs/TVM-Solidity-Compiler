@@ -276,7 +276,7 @@ void FunctionCallCompiler::mappingGetSet() {
 			} else if (memberName == "add") {
 				op = SetDictOperation::Add;
 			} else {
-				solUnimplemented("");
+				solUnimplemented("40");
 			}
 			m_pusher.setDict(*keyType, *valueType, dataType, op); // mapLValue... map {0, -1}
 		} else {
@@ -290,7 +290,7 @@ void FunctionCallCompiler::mappingGetSet() {
 			} else if (memberName == "getReplace") {
 				op = GetDictOperation::GetReplaceFromMapping;
 			} else {
-				solUnimplemented("");
+				solUnimplemented("41");
 			}
 			m_pusher.getAndSetDict(*keyType, *valueType, op, dataType);
 			// mapLValue... map optValue
@@ -299,7 +299,7 @@ void FunctionCallCompiler::mappingGetSet() {
 		m_pusher.blockSwap(cntOfValuesOnStack - 1, 1); // optValue mapLValue... map
 		m_exprCompiler.collectLValue(lValueInfo, true); // optValue
 	} else {
-		solUnimplemented("");
+		solUnimplemented("42");
 	}
 }
 
@@ -412,7 +412,7 @@ void FunctionCallCompiler::userDefinedValueMethods(MemberAccess const &_memberAc
 	if (isIn(_memberAccess.memberName(), "wrap", "unwrap")) {
 		pushArgs();
 	} else {
-		solUnimplemented("");
+		solUnimplemented("43");
 	}
 }
 
@@ -456,7 +456,7 @@ void FunctionCallCompiler::addressMethods(MemberAccess const &_node) {
 			m_pusher << "CTOS";
 		}
 	} else {
-		solUnimplemented("");
+		solUnimplemented("44");
 	}
 }
 
@@ -620,7 +620,7 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 
 		// parse options they are stored in two vectors: names and options
 		for (const auto &option: functionOptions->names())
-			if (!isIn(*option, "stateInit", "flag", "value", "currencies", "bounce", "callback"))
+			if (!isIn(*option, "stateInit", "flag", "value", "currencies", "bounce", "callback", "dest_dapp_id"))
 				cast_error(_functionCall, "Unsupported function call option: " + *option);
 
 		// Search for stateInit option
@@ -655,6 +655,11 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 				exprs[TvmConst::int_msg_info::tons] = valueExpr;
 		} else
 			constParams[TvmConst::int_msg_info::tons] = getDefaultMsgValue();
+
+        if (Expression const* dest_dapp_id = findOption("dest_dapp_id"))
+            exprs[TvmConst::int_msg_info::dest_dapp_id] = dest_dapp_id;
+        else
+            constParams[TvmConst::int_msg_info::dest_dapp_id] = "0";
 
 		// remote_addr
 		exprs[TvmConst::int_msg_info::dest] = &memberAccess->expression();
@@ -778,7 +783,7 @@ void FunctionCallCompiler::abiBuildIntMsg() {
 				stateInit = arg;
 				break;
 			default:
-				solUnimplemented("");
+				solUnimplemented("45");
 		}
 	}
 
@@ -878,7 +883,7 @@ void FunctionCallCompiler::abiBuildDataInit() {
 					contrArg = arg;
 					break;
 				default:
-					solUnimplemented("");
+					solUnimplemented("46");
 			}
 		}
 	}
@@ -1137,7 +1142,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		} else if (isIn(memberName, "loadStateVars", "decodeStateVars")) {
 			paramQty = decodeData();
 		} else {
-			solUnimplemented("");
+			solUnimplemented("47");
 		}
 		if (paramQty != -1) {
 			m_pusher.blockSwap(lValueInfo.stackSizeDiff - 1, paramQty);
@@ -1287,7 +1292,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 			} else if (memberName == "loadUintLE8") {
 				opcode = "LDULE8";
 			} else {
-				solUnimplemented("");
+				solUnimplemented("48");
 			}
 
 			if (opcode.has_value()) {
@@ -1296,7 +1301,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 			}
 
 		} else {
-			solUnimplemented("");
+			solUnimplemented("49");
 		}
 		if (isLValue) {
 			// lvalue... decodedValues... slice
@@ -1427,7 +1432,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 			m_pusher.drop();
 		}
 	} else {
-		solUnimplemented("");
+		solUnimplemented("50");
 	}
 }
 
@@ -1468,7 +1473,7 @@ void FunctionCallCompiler::tvmVectorMethods() {
 		if (valueTupleType)
 			m_pusher << "UNTUPLE " + toString(valueTupleType->components().size());
 	} else {
-		solUnimplemented("");
+		solUnimplemented("51");
 	}
 }
 
@@ -1506,7 +1511,7 @@ void FunctionCallCompiler::tvmStackMethods() {
 		m_pusher.pushFragmentInCallRef(1, 1, "__stackReverse"); // lValue... stack
 		m_exprCompiler.collectLValue(lValueInfo, true);
 	} else {
-		solUnimplemented("");
+		solUnimplemented("52");
 	}
 }
 
@@ -1537,7 +1542,7 @@ void FunctionCallCompiler::builderMethods(MemberAccess const &_node) {
 					m_pusher << "STBREFR";
 					break;
 				default:
-					solUnimplemented("");
+					solUnimplemented("53");
 			}
 		} else if (memberName == "store") {
 			int args = 0;
@@ -1618,7 +1623,7 @@ void FunctionCallCompiler::builderMethods(MemberAccess const &_node) {
 			opcode = "STULE8";
 			doSwap = true;
 		} else {
-			solUnimplemented("");
+			solUnimplemented("54");
 		}
 
 		if (opcode.has_value()) {
@@ -1662,7 +1667,7 @@ void FunctionCallCompiler::builderMethods(MemberAccess const &_node) {
 		acceptExpr(&_node.expression());
 		m_pusher << "BDEPTH";
 	} else {
-		solUnimplemented("");
+		solUnimplemented("55");
 	}
 }
 
@@ -1687,14 +1692,14 @@ void FunctionCallCompiler::qIntOrBoolMethods() {
 		else if (memberName == "toOptional")
 			m_pusher.pushNull(); // q null
 		else
-			solUnimplemented("");
+			solUnimplemented("56");
 		m_pusher.pushS(1); // q default q
 		m_pusher << "ISNAN"; // q default isNaN
 		m_pusher.exchange(0, 2); // isNaN default q
 		m_pusher << "CONDSEL"; // default | q
 		solAssert(startSize + 1 == m_pusher.stackSize(), "");
 	} else {
-		solUnimplemented("");
+		solUnimplemented("57");
 	}
 }
 
@@ -1713,11 +1718,11 @@ void FunctionCallCompiler::stringBuilderMethods() {
 		} else if (m_funcType->kind() == FunctionType::Kind::StringBuilderAppendString) {
 			m_pusher.pushFragmentInCallRef(2, 1, "__appendStringToStringBuilder");
 		} else {
-			solUnimplemented("");
+			solUnimplemented("58");
 		}
 		m_exprCompiler.collectLValue(lValueInfo, true);
 	} else {
-		solUnimplemented("");
+		solUnimplemented("59");
 	}
 }
 
@@ -1808,7 +1813,7 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 		m_pusher.pushFragmentInCallRef(2, 1, "__concatenateStrings");
 		m_exprCompiler.collectLValue(lValueInfo, true);
 	} else {
-		solUnimplemented("");
+		solUnimplemented("60");
 	}
 }
 
@@ -1846,7 +1851,7 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 			solAssert(startSize + 1 + retQty == m_pusher.stackSize(), "");
 		}
 		else
-			solUnimplemented("");
+			solUnimplemented("61");
 
 		// opt default... isNull
 		m_pusher.pushS(retQty);
@@ -1871,7 +1876,7 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 				else if (optValueAsTuple(m_retType))
 					m_pusher.untuple(1);
 				else
-					solUnimplemented("");
+					solUnimplemented("63");
 			}
 			m_pusher.endContinuation();
 			m_pusher.ifElse();
@@ -1927,7 +1932,7 @@ void FunctionCallCompiler::cellMethods(MemberAccess const &_node) {
 		pushArgAndConvert(0);
 		cellBitRefQty();
 	} else
-		solUnimplemented("");
+		solUnimplemented("64");
 }
 
 void FunctionCallCompiler::integerMethods() {
@@ -1938,7 +1943,7 @@ void FunctionCallCompiler::integerMethods() {
 		break;
 	}
 	default:
-		solUnimplemented("");
+		solUnimplemented("65");
 	}
 }
 
@@ -1971,7 +1976,7 @@ void FunctionCallCompiler::variantMethods(MemberAccess const& _node) {
 			break;
 		}
 		default:
-			solUnimplemented("");
+			solUnimplemented("66");
 	}
 }
 
@@ -2042,11 +2047,14 @@ void FunctionCallCompiler::addressMethod() {
 					case str2int("currencies"):
 						exprs[TvmConst::int_msg_info::currency] = m_arguments[arg].get();
 						break;
+					case str2int("dest_dapp_id"):
+						exprs[TvmConst::int_msg_info::dest_dapp_id] = m_arguments[arg].get();
+						break;
 					case str2int("stateInit"):
 						setAppendStateInit(m_arguments[arg].get());
 						break;
 					default:
-						solUnimplemented("");
+						solUnimplemented("67");
 				}
 			}
 		} else {
@@ -2114,7 +2122,7 @@ void FunctionCallCompiler::addressMethod() {
 			"IFELSE"
 		}, 2, 1, true));
 	} else {
-		solUnimplemented("");
+		solUnimplemented("68");
 	}
 }
 
@@ -2841,7 +2849,7 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 				m_pusher << "HASHSU";
 				break;
 			default:
-				solUnimplemented("");
+				solUnimplemented("69");
 		}
 	} else if (_node.memberName() == "checkSign") { // tvm.checkSign
 		size_t cnt = m_arguments.size();
@@ -3134,7 +3142,7 @@ void FunctionCallCompiler::createObject() {
 		m_pusher.pushDefaultValue(m_retType);
 		break;
 	default:
-		solUnimplemented("");
+		solUnimplemented("70");
 	}
 }
 
@@ -3166,7 +3174,7 @@ void FunctionCallCompiler::typeConversion() {
 		if (isIn(type->category(), Type::Category::Integer, Type::Category::QInteger,
 				 Type::Category::VarInteger, Type::Category::Enum))
 			return 0;
-		solUnimplemented("");
+		solUnimplemented("71");
 	};
 
 	auto adjustDigits = [&]() {
@@ -3568,7 +3576,7 @@ bool FunctionCallCompiler::createNewContract() {
 		// stack: stateInit
 		solAssert(ss + 1 == m_pusher.stackSize(), "");
 	} else {
-		solUnimplemented("");
+		solUnimplemented("72");
 	}
 
 	std::variant<int8_t, std::function<void()>> pushWid = int8_t{0};

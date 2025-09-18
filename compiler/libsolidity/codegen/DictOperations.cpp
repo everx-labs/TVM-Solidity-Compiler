@@ -63,7 +63,7 @@ void DictPrevNext::prevNext(bool saveOrigKeyAndNoTuple) {
 	} else if (oper == "prevOrEq") {
 		dictOpcode += "PREVEQ";
 	} else {
-		solUnimplemented("");
+		solUnimplemented("19");
 	}
 
 	int ss = pusher.stackSize();
@@ -123,7 +123,7 @@ void GetFromDict::getDict() {
 		else if (op == GetDictOperation::GetReplaceFromMapping)
 			opcode += "REPLACEGET";
 		else
-			solUnimplemented("");
+			solUnimplemented("20");
 
 		bool didUseOpcodeWithRef = false;
 		switch (inputValueType.value()) {
@@ -149,7 +149,7 @@ void GetFromDict::getDict() {
 		)
 			decodeType = StackPusher::DecodeType::DecodeValueOrPushNull;
 		else
-			solUnimplemented("");
+			solUnimplemented("21");
 
 		int ss = pusher.stackSize();
 		pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, didUseOpcodeWithRef, decodeType);
@@ -187,7 +187,7 @@ void GetFromDict::getDict() {
 		} else if (op == GetDictOperation::GetFromMapping) {
 			decodeType = StackPusher::DecodeType::DecodeValueOrPushDefault;
 		} else {
-			solUnimplemented("");
+			solUnimplemented("22");
 		}
 		pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, false, isInRef, decodeType);
 		break;

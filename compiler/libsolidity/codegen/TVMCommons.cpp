@@ -193,7 +193,7 @@ int dictKeyLength(Type const *key) {
 		}
 		return bitLength;
 	}
-	solUnimplemented("");
+	solUnimplemented("28");
 }
 
 IntegerType getKeyTypeOfC4() {
@@ -219,7 +219,7 @@ realDictKeyValue(Type const* type) {
 		keyType = mapType->realKeyType();
 		valueType = mapType->valueType();
 	} else {
-		solUnimplemented("");
+		solUnimplemented("29");
 	}
 	return {keyType, valueType};
 }
@@ -362,7 +362,7 @@ DictValueType toDictValueType(const Type::Category& category) {
 		case Type::Category::FixedPoint:
 			return DictValueType::FixedPoint;
 		default:
-			solUnimplemented("");
+			solUnimplemented("30");
 	}
 }
 
@@ -554,7 +554,7 @@ std::string StrUtils::toBitString(const std::string& slice) {
 	} else if (isIn(slice, "0", "1")) {
 		bitString = slice;
 	} else {
-		solUnimplemented("");
+		solUnimplemented("31");
 	}
 	return bitString;
 }

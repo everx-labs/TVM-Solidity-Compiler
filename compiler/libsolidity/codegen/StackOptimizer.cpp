@@ -505,7 +505,7 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 			int Si = isXCHG_S0(op).value();
 			len = Si + 1;
 		} else {
-			solUnimplemented("");
+			solUnimplemented("26");
 		}
 
 		// try to just ignore this opcode

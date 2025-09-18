@@ -503,7 +503,7 @@ Json::Value TVMABI::setupNameTypeComponents(const string &name, const Type *type
 			Json::Value obj = setupNameTypeComponents("", &userDefType->underlyingType());
 			typeName = obj["type"].asString();
 		} else {
-			solUnimplemented("");
+			solUnimplemented("27");
 		}
 	}
 

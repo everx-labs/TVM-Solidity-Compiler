@@ -104,6 +104,7 @@ namespace TvmConst {
 		const int dest = 4;
 		const int tons = 5;
 		const int currency = 6;
+		const int dest_dapp_id = 12;
 	}
 
 	namespace ext_msg_info {

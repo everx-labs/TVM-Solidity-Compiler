@@ -92,7 +92,7 @@ int Glob::take() const {
 		case Opcode::POP_C7:
 			return 1;
 	}
-	solUnimplemented("");
+	solUnimplemented("1");
 }
 
 int Glob::ret() const {
@@ -109,7 +109,7 @@ int Glob::ret() const {
 		case Opcode::POP_C7:
 			return 0;
 	}
-	solUnimplemented("");
+	solUnimplemented("2");
 }
 
 void DeclRetFlag::accept(TvmAstVisitor& _visitor) {
@@ -315,9 +315,9 @@ std::string CodeBlock::toString(CodeBlock::Type t) {
 		case CodeBlock::Type::PUSHREFCONT:
 			return "PUSHREFCONT";
 		default:
-			solUnimplemented("");
+			solUnimplemented("3");
 	}
-	solUnimplemented("");
+	solUnimplemented("4");
 }
 
 void CodeBlock::accept(TvmAstVisitor& _visitor) {
@@ -590,6 +590,7 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"LESSINT", {1, 1, true}},
 		{"MODPOW2", {1, 1}},
 		{"MULCONST", {1, 1}},
+		{"MYDAPPID", {0, 1}},
 		{"NEGATE", {1, 1}},
 		{"NEQINT", {1, 1, true}},
 		{"NOT", {1, 1, true}}, // logical not
@@ -771,6 +772,7 @@ Pointer<StackOpcode> gen(const std::string& cmd) {
 		{"STILE4", {2, 1}},
 		{"STILE8", {2, 1}},
 		{"STIR", {2, 1}},
+		{"STONE", {1, 1}},
 		{"STONES", {2, 1}},
 		{"STREF", {2, 1}},
 		{"STREFR", {2, 1}},
@@ -1108,7 +1110,7 @@ std::optional<int> isDrop(Pointer<TvmAstNode> const& node) {
 		default:
 			return {};
 	}
-	solUnimplemented("");
+	solUnimplemented("5");
 }
 
 std::optional<int> isPOP(Pointer<TvmAstNode> const& node) {
@@ -1260,7 +1262,7 @@ int OpcodeUtils::gasCost(Stack const& opcode) {
 	}
 	case Stack::Opcode::BLKDROP2: {
 		if (i > 15 || j > 15)
-			solUnimplemented("");
+			solUnimplemented("6");
 		return 26;
 	}
 	case Stack::Opcode::BLKSWAP: {
@@ -1277,7 +1279,7 @@ int OpcodeUtils::gasCost(Stack const& opcode) {
 		} else if (1 <= bottom && bottom <= 16 && 1 <= top && top <= 16) {
 			return 26; // "ROLL " "ROLLREV " "BLKSWAP"
 		} else {
-			solUnimplemented(""); // "ROLLX" "ROLLREVX" "BLKSWX"
+			solUnimplemented("7"); // "ROLLX" "ROLLREVX" "BLKSWX"
 		}
 	}
 	case Stack::Opcode::BLKPUSH: {
@@ -1304,7 +1306,7 @@ int OpcodeUtils::gasCost(Stack const& opcode) {
 			return 18; // "SWAP" "XCHG S2"
 		else if (2 <= i && i <= 17 && 0 <= j && j <= 15)
 			return 26; // "REVERSE"
-		solUnimplemented("");
+		solUnimplemented("8");
 	case Stack::Opcode::XCHG:
 		if (i == 0 || i == 1)
 			return 18; // "XCHG Sj" "XCHG s1, Sj"
@@ -1325,7 +1327,7 @@ int OpcodeUtils::gasCost(Stack const& opcode) {
 	case Stack::Opcode::PU2XC:
 		return 34;
 	}
-	solUnimplemented("");
+	solUnimplemented("9");
 }
 
 } // end solidity::frontend

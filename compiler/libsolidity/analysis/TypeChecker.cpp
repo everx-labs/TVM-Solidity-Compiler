@@ -3111,7 +3111,7 @@ void TypeChecker::typeCheckFunctionGeneralChecks(
 			arr = {"code", "pubkey", "varInit", "splitDepth", "wid"};
 		else
 			arr = {"callback"};
-		for (auto const x : {"stateInit", "value", "currencies", "bounce", "flag"})
+		for (auto const x : {"stateInit", "value", "currencies", "bounce", "flag", "dest_dapp_id"})
 			arr.emplace_back(x);
 
 		auto names = functionCallOpt->names();
@@ -3822,7 +3822,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 					);
 			}
 			else
-				solUnimplemented("");
+				solUnimplemented("11");
 
 			ContractType const* ct = getContractType(arguments.front().get());
 			if (ct == nullptr)
@@ -3927,7 +3927,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 				else if (cat == Type::Category::QInteger)
 					intType = dynamic_cast<QIntegerType const*>(argType)->asIntegerType();
 				else
-					solUnimplemented("");
+					solUnimplemented("13");
 				if (!intType->isSigned())
 					m_errorReporter.fatalTypeError(
 						7695_error,
@@ -3958,7 +3958,7 @@ bool TypeChecker::visit(FunctionCall const& _functionCall)
 					FixedPointType::Modifier::Unsigned
 				));
 			} else
-				solUnimplemented("");
+				solUnimplemented("14");
 			break;
 		}
 		case FunctionType::Kind::MathModpow2:
@@ -4404,6 +4404,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	int setVarInit = -1;
 	int setWid = -1;
 	int setCallback = -1;
+	int setDestDappId = -1;
 
 	FunctionType::Kind kind = expressionFunctionType->kind();
 
@@ -4450,9 +4451,9 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	auto names = _functionCallOptions.names();
 	std::vector<std::string> arr;
 	if (isNewExpression)
-		arr = {"stateInit", "code", "pubkey", "varInit", "splitDepth", "wid", "value", "currencies", "bounce", "flag"};
+		arr = {"stateInit", "code", "pubkey", "varInit", "splitDepth", "wid", "value", "currencies", "bounce", "flag", "dest_dapp_id"};
 	else
-		arr = {"call", "pubkey", "stateInit", "value", "currencies", "bounce", "flag", "callback"};
+		arr = {"call", "pubkey", "stateInit", "value", "currencies", "bounce", "flag", "callback", "dest_dapp_id"};
 	auto fold = [&](){
 		std::string s;
 		for (size_t i = 0; i < arr.size(); ++i) {
@@ -4507,8 +4508,11 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 			options.at(i)->accept(*this);
 			typeCheckCallBack(expressionFunctionType, *options.at(i).get());
 			setCheckOption(setCallback, "callback", i);
+		} else if (name == "dest_dapp_id") {
+		    expectType(*options[i], *TypeProvider::uint(256));
+            setCheckOption(setDestDappId, "dest_dapp_id", i);
 		} else {
-			solUnimplemented("");
+			solUnimplemented("15");
 		}
 	}
 

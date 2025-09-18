@@ -54,7 +54,7 @@ void Simulator::run(const std::vector<Pointer<TvmAstNode>>::const_iterator _beg,
 }
 
 bool Simulator::visit(AsymGen &/*_node*/) {
-	solUnimplemented("");
+	solUnimplemented("89");
 }
 
 bool Simulator::visit(DeclRetFlag &_node) {
@@ -503,11 +503,11 @@ bool Simulator::visit(While &_node) {
 }
 
 bool Simulator::visit(Contract &/*_node*/) {
-	solUnimplemented("");
+	solUnimplemented("90");
 }
 
 bool Simulator::visit(Function &/*_node*/) {
-	solUnimplemented("");
+	solUnimplemented("91");
 }
 
 void Simulator::endVisit(CodeBlock &/*_node*/) {
@@ -550,7 +550,7 @@ bool Simulator::success() const {
 }
 
 bool Simulator::visitNode(TvmAstNode const&) {
-	solUnimplemented("");
+	solUnimplemented("92");
 }
 
 void Simulator::endVisitNode(TvmAstNode const&) {
