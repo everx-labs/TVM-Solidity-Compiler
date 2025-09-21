@@ -3361,7 +3361,7 @@ dependencies = [
 
 [[package]]
 name = "sold"
-version = "0.79.1"
+version = "0.79.2"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -3757,8 +3757,8 @@ dependencies = [
 
 [[package]]
 name = "tvm_abi"
-version = "2.21.3"
-source = "git+https://github.com/tvmlabs/tvm-sdk.git?rev=0132271abb07b0785d305fa9840351b27bc234b8#0132271abb07b0785d305fa9840351b27bc234b8"
+version = "2.22.2"
+source = "git+https://github.com/tvmlabs/tvm-sdk.git?tag=v2.22.2-rc.an.1#29c8660f2b33673fe1e2b4d7f4b9d6696ce2b0b2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3775,8 +3775,8 @@ dependencies = [
 
 [[package]]
 name = "tvm_assembler"
-version = "2.21.3"
-source = "git+https://github.com/tvmlabs/tvm-sdk.git?rev=0132271abb07b0785d305fa9840351b27bc234b8#0132271abb07b0785d305fa9840351b27bc234b8"
+version = "2.22.2"
+source = "git+https://github.com/tvmlabs/tvm-sdk.git?tag=v2.22.2-rc.an.1#29c8660f2b33673fe1e2b4d7f4b9d6696ce2b0b2"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -3804,8 +3804,8 @@ dependencies = [
 
 [[package]]
 name = "tvm_block"
-version = "2.21.3"
-source = "git+https://github.com/tvmlabs/tvm-sdk.git?rev=0132271abb07b0785d305fa9840351b27bc234b8#0132271abb07b0785d305fa9840351b27bc234b8"
+version = "2.22.2"
+source = "git+https://github.com/tvmlabs/tvm-sdk.git?tag=v2.22.2-rc.an.1#29c8660f2b33673fe1e2b4d7f4b9d6696ce2b0b2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3824,8 +3824,8 @@ dependencies = [
 
 [[package]]
 name = "tvm_types"
-version = "2.21.3"
-source = "git+https://github.com/tvmlabs/tvm-sdk.git?rev=0132271abb07b0785d305fa9840351b27bc234b8#0132271abb07b0785d305fa9840351b27bc234b8"
+version = "2.22.2"
+source = "git+https://github.com/tvmlabs/tvm-sdk.git?tag=v2.22.2-rc.an.1#29c8660f2b33673fe1e2b4d7f4b9d6696ce2b0b2"
 dependencies = [
  "aes-ctr",
  "base64 0.22.1",
@@ -3853,8 +3853,8 @@ dependencies = [
 
 [[package]]
 name = "tvm_vm"
-version = "2.21.3"
-source = "git+https://github.com/tvmlabs/tvm-sdk.git?rev=0132271abb07b0785d305fa9840351b27bc234b8#0132271abb07b0785d305fa9840351b27bc234b8"
+version = "2.22.2"
+source = "git+https://github.com/tvmlabs/tvm-sdk.git?tag=v2.22.2-rc.an.1#29c8660f2b33673fe1e2b4d7f4b9d6696ce2b0b2"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
