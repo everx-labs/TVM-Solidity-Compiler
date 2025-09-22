@@ -817,8 +817,7 @@ void ChainDataEncoder::createDefaultConstructorMessage2()
 }
 
 uint32_t ChainDataEncoder::calculateConstructorFunctionID() {
-	std::vector<VariableDeclaration const*> vect;
-	return calculateFunctionID("constructor", {}, &vect) & 0x7FFFFFFFu;
+	return 1;
 }
 
 std::pair<uint32_t, bool> ChainDataEncoder::calculateFunctionID(const CallableDeclaration *declaration) {
@@ -867,6 +866,9 @@ uint32_t ChainDataEncoder::calculateFunctionID(
 		const std::vector<Type const*>& inputs,
 		const std::vector<VariableDeclaration const*> * outputs
 ) {
+	if (name == "constructor") {
+        return 1;
+    }
 	std::stringstream ss;
 	ss << name << "(";
 	bool comma = false;
@@ -914,6 +916,7 @@ uint32_t ChainDataEncoder::calculateFunctionIDWithReason(
 		functionId = f->functionID();
 		if (f->isConstructor()) {
 			name = "constructor";
+			functionId = 1;
 		}
 	}
 

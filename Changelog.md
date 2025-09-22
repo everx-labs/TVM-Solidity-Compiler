@@ -1,3 +1,8 @@
+### 0.79.2 (2025-09-10)
+Compiler features:
+* Update rewards instructions
+* Change Contructor FunctionId 
+
 ### 0.79.1 (2025-09-10)
 Compiler features:
 * Fixes for new message structure

@@ -3525,7 +3525,7 @@ function incomingValue() assembly pure returns (uint) {
 #### functionID()
 
 `functionID` keyword allows assigning function identifier explicitly.
-Each public function has a unique 32-bit identifier (id). id 0 is reserved for [receive](#receive) function.
+Each public function has a unique 32-bit identifier (id). id 0 is reserved for [receive](#receive) function. id 1 is reserved for Constructor function.
 In case `functionID` is not defined explicitly, it is calculated as a hash of the function signature.
 In general, there is no purpose to set the function id manually.
 

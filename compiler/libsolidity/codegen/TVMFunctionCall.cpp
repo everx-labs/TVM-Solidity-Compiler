@@ -2608,16 +2608,10 @@ void FunctionCallCompiler::goshFunction() {
          		return "CNVRTSHELLQ";
       		case FunctionType::Kind::GoshMINTSHELLQ:
          		return "MINTSHELLQ";
-      		case FunctionType::Kind::GoshCALCBKREWARD:
-         		return "CALCBKREWARD";
 			case FunctionType::Kind::GoshCALCBMREWARD:
 				return "CALCBMREWARD";
-      		case FunctionType::Kind::GoshCALCBKREWARDADJ:
-         		return "CALCBKREWARDADJ";
 			case FunctionType::Kind::GoshCALCBMMVREWARDADJ:
 				return "CALCBMMVREWARDADJ";
-			case FunctionType::Kind::GoshCALCBOOSTCOEF:
-				return "CALCBOOSTCOEF";
 			case FunctionType::Kind::GoshCALCMVREWARD:
 				return "CALCMVREWARD";
       		case FunctionType::Kind::GoshCALCREPCOEF:
@@ -2626,6 +2620,8 @@ void FunctionCallCompiler::goshFunction() {
          		return "CALCMINSTAKE";
 			case FunctionType::Kind::GoshCALCMINSTAKEBM:
 				return "CALCMINSTAKEBM";
+			case FunctionType::Kind::GoshCALCMBK:
+				return "CALCMBK";
 			case FunctionType::Kind::GoshMINTSHELL:
 			    return "MINTSHELL";
 			case FunctionType::Kind::GoshSENDTODAPPCONFIG:
