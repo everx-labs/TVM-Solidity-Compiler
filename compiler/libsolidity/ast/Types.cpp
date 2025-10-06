@@ -5623,9 +5623,9 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 		members.push_back({
 			"vergrth16",
 			TypeProvider::function(
-				{TypeProvider::bytesMemory(), TypeProvider::bytesMemory(), TypeProvider::uint256()},
+				{TypeProvider::bytesMemory(), TypeProvider::bytesMemory()},
 				{TypeProvider::boolean()},
-				{{}, {}, {}},
+				{{}, {}},
 				{{}},
 				FunctionType::Kind::GoshVergrth16,
 				StateMutability::Pure,

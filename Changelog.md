@@ -1,3 +1,7 @@
+### 0.79.3 (2025-10-06)
+Compiler features:
+* 2 args in vrgrth
+
 ### 0.79.2 (2025-09-10)
 Compiler features:
 * Update rewards instructions
