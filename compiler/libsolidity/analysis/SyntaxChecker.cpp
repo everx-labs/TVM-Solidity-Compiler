@@ -182,8 +182,8 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 	}
 	else if (_pragma.literals()[0] == "upgrade")
     {
-        if (_pragma.literals().size() != 2 || (_pragma.literals()[1] != "func" && _pragma.literals()[1] != "oldsol")) {
-            m_errorReporter.syntaxError(3323_error, _pragma.location(), R"(Unknown pragma. Use: "pragma upgrade func;" or "pragma upgrade oldsol;")");
+        if (_pragma.literals().size() != 2 || _pragma.literals()[1] != "oldsol") {
+            m_errorReporter.syntaxError(3323_error, _pragma.location(), R"(Unknown pragma. "pragma upgrade oldsol;")");
         }
     }
 	else if (_pragma.literals()[0] == "ignoreIntOverflow")
@@ -346,7 +346,7 @@ bool SyntaxChecker::visit(Literal const& _literal)
 
 	if (value.find("__") != ASTString::npos)
 	{
-		m_errorReporter.syntaxError(2990_error, _literal.location(), "Invalid use of underscores in number literal. Only one consecutive underscores between digits allowed.");
+		m_errorReporter.syntaxError(2990_error, _literal.location(), "Invalid use of underscores in number literal. Only one consecutive underscore between digits is allowed.");
 		return true;
 	}
 

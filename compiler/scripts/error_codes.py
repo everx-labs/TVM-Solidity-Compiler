@@ -201,13 +201,14 @@ def examine_id_coverage(top_dir, source_id_to_file_names, new_ids_only=False):
                 # The warning may or may not exist in a compiler build.
         "4591", # "There are more than 256 warnings. Ignoring the rest."
                 # Due to 3805, the warning lists look different for different compiler builds.
-        "1834", # Unimplemented feature error, as we do not test it anymore via cmdLineTests
-        "6679", # blobbasefee being used in inline assembly for EVMVersion < cancun
-        "1180", # SMTChecker, covered by CL tests
+        "1920", # Unimplemented feature error from YulStack (currently there are no UnimplementedFeatureErrors thrown by libyul)
+        "7053", # Unimplemented feature error (parsing stage), currently has no tests
         "2339", # SMTChecker, covered by CL tests
-        "2961", # SMTChecker, covered by CL tests
         "6240", # SMTChecker, covered by CL tests
-        "9576", # SMTChecker, covered by CL tests
+        "2788", # SMTChecker: BMC: verification condition(s) could not be proved
+        "1733", # AsmAnalysis: expecting bool expression (everything is implicitly bool without types in Yul)
+        "9547", # AsmAnalysis: assigning incompatible types in Yul (whitelisted as there are currently no types)
+        "5026", # ContractLevelChecker: too difficult to exceed transient storage max size due to only value types supported.
     }
     assert len(test_ids & white_ids) == 0, "The sets are not supposed to intersect"
     test_ids |= white_ids
@@ -246,7 +247,6 @@ def examine_id_coverage(top_dir, source_id_to_file_names, new_ids_only=False):
         "4802",
         "4902",
         "5272",
-        "5622",
         "5798",
         "5840",
         "7128",
@@ -275,18 +275,15 @@ def examine_id_coverage(top_dir, source_id_to_file_names, new_ids_only=False):
         "1801",
         "1807",
         "2015",
-        "2138",
         "2345",
         "2399",
         "2599",
         "2655",
-        "2658",
         "2934",
         "3101",
         "3111",
         "3195",
         "3520",
-        "3570",
         "3573",
         "3654",
         "4316",
@@ -329,8 +326,6 @@ def examine_id_coverage(top_dir, source_id_to_file_names, new_ids_only=False):
         "9282",
         "9603",
         "9658",
-        "9817",
-        "9831",
         "9988",
     }
 

@@ -37,7 +37,6 @@ function test_fn { UPDATE_SNAPSHOT=1 npx hardhat test; }
 function uniswap_test
 {
     local repo="https://github.com/solidity-external-tests/uniswap-v3-core.git"
-    local ref_type=branch
     local ref=main_080
     local config_file="hardhat.config.ts"
     local config_var=config
@@ -57,7 +56,7 @@ function uniswap_test
     print_presets_or_exit "$SELECTED_PRESETS"
 
     setup_solc "$DIR" "$BINARY_TYPE" "$BINARY_PATH"
-    download_project "$repo" "$ref_type" "$ref" "$DIR"
+    download_project "$repo" "$ref" "$DIR"
 
     # Disable tests that won't pass on the ir presets due to Hardhat heuristics. Note that this also disables
     # them for other presets but that's fine - we want same code run for benchmarks to be comparable.
@@ -84,12 +83,14 @@ function uniswap_test
     # - Newer versions of ethereumjs/tx have an issue with 'gteHardfork()' method.
     neutralize_package_lock
 
-    yarn install
-    yarn add hardhat-gas-reporter
+    pnpm install
+    pnpm install hardhat-gas-reporter
 
     # With ethers.js 5.6.2 many tests for revert messages fail.
     # TODO: Remove when https://github.com/ethers-io/ethers.js/discussions/2849 is resolved.
-    yarn add ethers@5.6.1
+    pnpm install ethers@5.6.1
+
+    pnpm install hardhat
 
     replace_version_pragmas
 

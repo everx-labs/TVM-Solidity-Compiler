@@ -3,7 +3,7 @@ contract C {
     uint a;
   }
 
-  function f() external returns (uint) {
+  function f() external externalMsg returns (uint) {
     S memory s = S(1);
     return s.a;
   }

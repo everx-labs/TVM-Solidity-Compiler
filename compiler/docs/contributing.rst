@@ -93,7 +93,8 @@ Prerequisites
 
 For running all compiler tests you may want to optionally install a few
 dependencies (`evmone <https://github.com/ethereum/evmone/releases>`_,
-`libz3 <https://github.com/Z3Prover/z3>`_).
+`z3 <https://github.com/Z3Prover/z3>`_, `Eldarica <https://github.com/uuverifiers/eldarica/>`_,
+`cvc5 <https://github.com/cvc5/cvc5>`).
 
 On macOS systems, some of the testing scripts expect GNU coreutils to be installed.
 This can be easiest accomplished using Homebrew: ``brew install coreutils``.
@@ -128,16 +129,18 @@ for the ``evmone`` shared object can be specified via the ``ETH_EVMONE`` environ
 If you do not have it installed, you can skip these tests by passing the ``--no-semantic-tests``
 flag to ``scripts/soltest.sh``.
 
-The ``evmone`` library should both end with the file name
+The ``evmone`` library should end with the file name
 extension ``.so`` on Linux, ``.dll`` on Windows systems and ``.dylib`` on macOS.
 
-For running SMT tests, the ``libz3`` library must be installed and locatable
-by ``cmake`` during compiler configure stage.
+For running SMT tests, the ``z3`` executable must be present in ``PATH``.
+A few SMT tests use ``Eldarica`` instead of ``z3``.
+These require its executable (``eld``) to be present in ``PATH`` for the tests to pass.
+However, if ``Eldarica`` is not found, these tests will be automatically skipped.
 
-If the ``libz3`` library is not installed on your system, you should disable the
+If ``z3`` is not present on your system, you should disable the
 SMT tests by exporting ``SMT_FLAGS=--no-smt`` before running ``./scripts/tests.sh`` or
 running ``./scripts/soltest.sh --no-smt``.
-These tests are ``libsolidity/smtCheckerTests`` and ``libsolidity/smtCheckerTestsJSON``.
+These tests are ``libsolidity/smtCheckerTests``.
 
 .. note::
 
@@ -163,7 +166,7 @@ See especially:
 .. note::
 
     Those working in a Windows environment wanting to run the above basic sets
-    without libz3. Using Git Bash, you use: ``./build/test/Release/soltest.exe -- --no-smt``.
+    without z3. Using Git Bash, you use: ``./build/test/Release/soltest.exe -- --no-smt``.
     If you are running this in plain Command Prompt, use ``.\build\test\Release\soltest.exe -- --no-smt``.
 
 If you want to debug using GDB, make sure you build differently than the "usual".
@@ -552,7 +555,7 @@ topics, issues or feature implementations are debated in detail. The invitation 
 
 We are also sharing feedback surveys and other content that is relevant to language design in the forum.
 
-If you want to know where the team is standing in terms or implementing new features, you can follow the implementation status in the `Solidity Github project <https://github.com/ethereum/solidity/projects/43>`_.
+If you want to know where the team is standing in terms of implementing new features, you can follow the implementation status in the `Solidity GitHub project <https://github.com/orgs/ethereum/projects/17>`_.
 Issues in the design backlog need further specification and will either be discussed in a language design call or in a regular team call. You can
 see the upcoming changes for the next breaking release by changing from the default branch (`develop`) to the `breaking branch <https://github.com/ethereum/solidity/tree/breaking>`_.
 

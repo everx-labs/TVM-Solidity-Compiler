@@ -34,7 +34,7 @@ public:
 	void endVisit(CodeBlock &_node) override;
 private:
 	void optimizeBlock(CodeBlock &_node) const;
-private:
+
 	std::bitset<3> m_flags;
 };
 } // end solidity::frontend

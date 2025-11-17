@@ -31,6 +31,8 @@ set(libsolutil_sources
     libsolutil/Checksum.cpp
     libsolutil/CommonData.cpp
     libsolutil/CommonIO.cpp
+    libsolutil/DisjointSet.cpp
+    libsolutil/DominatorFinderTest.cpp
     libsolutil/FixedHash.cpp
     libsolutil/FunctionSelector.cpp
     libsolutil/IpfsHash.cpp
@@ -49,7 +51,11 @@ detect_stray_source_files("${libsolutil_sources}" "libsolutil/")
 
 set(libevmasm_sources
     libevmasm/Assembler.cpp
+    libevmasm/EVMAssemblyTest.cpp
+    libevmasm/EVMAssemblyTest.h
     libevmasm/Optimiser.cpp
+    libevmasm/PlainAssemblyParser.cpp
+    libevmasm/PlainAssemblyParser.h
 )
 detect_stray_source_files("${libevmasm_sources}" "libevmasm/")
 
@@ -87,6 +93,8 @@ set(libsolidity_sources
     libsolidity/MemoryGuardTest.h
     libsolidity/NatspecJSONTest.cpp
     libsolidity/NatspecJSONTest.h
+    libsolidity/OptimizedIRCachingTest.cpp
+    libsolidity/OptimizedIRCachingTest.h
     libsolidity/SemanticTest.cpp
     libsolidity/SemanticTest.h
     libsolidity/SemVerMatcher.cpp
@@ -150,6 +158,8 @@ set(libyul_sources
     libyul/ObjectCompilerTest.h
     libyul/ObjectParser.cpp
     libyul/Parser.cpp
+    libyul/SSAControlFlowGraphTest.cpp
+    libyul/SSAControlFlowGraphTest.h
     libyul/StackLayoutGeneratorTest.cpp
     libyul/StackLayoutGeneratorTest.h
     libyul/StackShufflingTest.cpp

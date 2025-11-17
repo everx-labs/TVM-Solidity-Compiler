@@ -13,13 +13,15 @@ contract C {
     function f8(uint[32] memory, string[] memory, uint32, address) public returns (uint[] memory, uint16[] memory) {}
 }
 // ====
+// EVMVersion: =current
+// bytecodeFormat: legacy
 // optimize: true
 // optimize-yul: true
 // ----
 // creation:
-//   codeDepositCost: 639000
-//   executionCost: 668
-//   totalCost: 639668
+//   codeDepositCost: 618200
+//   executionCost: 649
+//   totalCost: 618849
 // external:
 //   a(): 2283
 //   b(uint256): 4649

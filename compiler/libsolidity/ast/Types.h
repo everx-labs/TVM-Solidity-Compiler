@@ -70,26 +70,6 @@ inline rational makeRational(bigint const& _numerator, bigint const& _denominato
 		return rational(_numerator, _denominator);
 }
 
-
-/**
- * Helper class to compute storage offsets of members of structs and contracts.
- */
-class StorageOffsets
-{
-public:
-	/// Resets the StorageOffsets objects and determines the position in storage for each
-	/// of the elements of @a _types.
-	void computeOffsets(TypePointers const& _types);
-	/// @returns the offset of the given member, might be null if the member is not part of storage.
-	std::pair<u256, unsigned> const* offset(size_t _index) const;
-	/// @returns the total number of slots occupied by all members.
-	u256 const& storageSize() const { return m_storageSize; }
-
-private:
-	u256 m_storageSize;
-	std::map<size_t, std::pair<u256, unsigned>> m_offsets;
-};
-
 /**
  * List of members of a type.
  */
@@ -139,20 +119,12 @@ public:
 				members.push_back(it);
 		return members;
 	}
-	/// @returns the offset of the given member in storage slots and bytes inside a slot or
-	/// a nullptr if the member is not part of storage.
-	std::pair<u256, unsigned> const* memberStorageOffset(std::string const& _name) const;
-	/// @returns the number of storage slots occupied by the members.
-	u256 const& storageSize() const;
 
 	MemberMap::const_iterator begin() const { return m_memberTypes.begin(); }
 	MemberMap::const_iterator end() const { return m_memberTypes.end(); }
 
 private:
-	StorageOffsets const& storageOffsets() const;
-
 	MemberMap m_memberTypes;
-	util::LazyInit<StorageOffsets> m_storageOffsets;
 };
 
 static_assert(std::is_nothrow_move_constructible<MemberList>::value, "MemberList should be noexcept move constructible");
@@ -270,9 +242,6 @@ public:
 	virtual bool isDynamicallySized() const { return false; }
 	/// @returns true if the type is dynamically encoded in the ABI
 	virtual bool isDynamicallyEncoded() const { return false; }
-	/// @returns the number of storage slots required to hold this value in storage.
-	/// For dynamically "allocated" types, it returns the size of the statically allocated head,
-	virtual u256 storageSize() const { return 1; }
 	/// @returns an upper bound on the total storage size required by this type, descending
 	/// into structs and statically-sized arrays. This is mainly to ensure that the storage
 	/// slot allocation algorithm does not overflow, it is not a protection against collisions.
@@ -510,6 +479,7 @@ public:
 	TypeResult unaryOperatorResult(Token _operator) const override;
 	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
 
+	bool operator==(IntegerType const& _other) const;
 	bool operator==(Type const& _other) const override;
 
 	unsigned calldataEncodedSize(bool _padded = true) const override { return _padded ? 32 : m_bits / 8; }
@@ -774,13 +744,13 @@ public:
 class Variant: public Type
 {
 public:
-    Variant() = default;
-    Category category() const override { return Category::Variant; }
-    bool isValueType() const override { return true; }
-    std::string richIdentifier() const override { return "t_variant"; }
-    std::string toString(bool) const override { return "variant"; }
-    Type const* encodingType() const override { return this; }
-    TypeResult interfaceType(bool) const override { return this; }
+	Variant() = default;
+	Category category() const override { return Category::Variant; }
+	bool isValueType() const override { return true; }
+	std::string richIdentifier() const override { return "t_variant"; }
+	std::string toString(bool) const override { return "variant"; }
+	Type const* encodingType() const override { return this; }
+	TypeResult interfaceType(bool) const override { return this; }
 	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
 };
 
@@ -792,7 +762,7 @@ class TvmVectorType: public Type
 public:
 	TvmVectorType(Type const* _type):
 		m_type(_type) {}
-    bool operator==(Type const& _other) const override;
+	bool operator==(Type const& _other) const override;
 	Category category() const override { return Category::TvmVector; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override;
@@ -818,7 +788,7 @@ class TvmStackType: public Type
 public:
 	TvmStackType(Type const* _type):
 		m_type(_type) {}
-    bool operator==(Type const& _other) const override;
+	bool operator==(Type const& _other) const override;
 	Category category() const override { return Category::TvmStack; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override;
@@ -898,13 +868,13 @@ class VarIntegerType: public Type
 {
 public:
 	explicit VarIntegerType(uint32_t _n, IntegerType::Modifier _modifier) : m_n{_n}, m_int{(_n - 1) * 8, _modifier} {}
-    bool operator==(Type const& _other) const override;
+	bool operator==(Type const& _other) const override;
 	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
 	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
 	Category category() const override { return Category::VarInteger; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_varinteger"; }
-    TypeResult unaryOperatorResult(Token _operator) const override;
+	TypeResult unaryOperatorResult(Token _operator) const override;
 	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
 	std::string toString(bool) const override;
 
@@ -928,7 +898,7 @@ public:
 	bool isValueType() const override { return true; }
 	bool operator==(Type const& _other) const override;
 	std::string richIdentifier() const override { return "t_qinteger"; }
-    TypeResult unaryOperatorResult(Token _operator) const override;
+	TypeResult unaryOperatorResult(Token _operator) const override;
 	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
 	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
 	std::string toString(bool) const override;
@@ -948,7 +918,7 @@ public:
 	Category category() const override { return Category::QBool; }
 	bool isValueType() const override { return true; }
 	std::string richIdentifier() const override { return "t_qbool"; }
-    TypeResult unaryOperatorResult(Token _operator) const override;
+	TypeResult unaryOperatorResult(Token _operator) const override;
 	TypeResult binaryOperatorResult(Token _operator, Type const* _other) const override;
 	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
 	std::string toString(bool) const override;
@@ -1051,13 +1021,13 @@ public:
 	BoolResult isImplicitlyConvertibleTo(Type const& _convertTo) const override;
 	BoolResult isExplicitlyConvertibleTo(Type const& _convertTo) const override;
 	std::string richIdentifier() const override;
+	bool operator==(ArrayType const& _other) const;
 	bool operator==(Type const& _other) const override;
 	unsigned calldataEncodedSize(bool) const override;
 	unsigned calldataEncodedTailSize() const override;
 	bool isDynamicallySized() const override { return m_hasDynamicLength; }
 	bool isDynamicallyEncoded() const override;
 	bigint storageSizeUpperBound() const override;
-	u256 storageSize() const override;
 	bool nameable() const override { return true; }
 
 	std::string toString(bool _withoutDataLocation) const override;
@@ -1184,9 +1154,12 @@ public:
 	/// Returns the function type of the constructor modified to return an object of the contract's type.
 	FunctionType const* newExpressionType() const;
 
-	/// @returns a list of all state variables (including inherited) of the contract and their
-	/// offsets in storage.
-	std::vector<std::tuple<VariableDeclaration const*, u256, unsigned>> stateVariables() const;
+	/// @returns a list of all state variables in the linearized inheritance hierarchy and
+	/// their respective slots and offsets in storage/transient storage.
+	/// It should only be called for the top level contract in order to get the absolute slots and
+	/// offsets values in storage/transient storage. Otherwise, the slots of the state variables
+	/// will be relative to the contract position in the hierarchy.
+	std::vector<std::tuple<VariableDeclaration const*, u256, unsigned>> linearizedStateVariables() const;
 	/// @returns a list of all immutable variables (including inherited) of the contract.
 	std::vector<VariableDeclaration const*> immutableVariables() const;
 protected:
@@ -1217,7 +1190,6 @@ public:
 	bool isDynamicallyEncoded() const override;
 	u256 memoryDataSize() const override;
 	bigint storageSizeUpperBound() const override;
-	u256 storageSize() const override;
 	bool nameable() const override { return true; }
 	std::string toString(bool _withoutDataLocation) const override;
 
@@ -1238,7 +1210,6 @@ public:
 	/// and a memory struct of this type.
 	FunctionType const* constructorType() const;
 
-	std::pair<u256, unsigned> const& storageOffsetsOfMember(std::string const& _name) const;
 	u256 memoryOffsetOfMember(std::string const& _name) const;
 	unsigned calldataOffsetOfMember(std::string const& _name) const;
 
@@ -1328,13 +1299,13 @@ public:
 	Declaration const* typeDefinition() const override;
 
 	std::string richIdentifier() const override;
+	bool operator==(UserDefinedValueType const& _other) const;
 	bool operator==(Type const& _other) const override;
 
 	unsigned calldataEncodedSize(bool _padded) const override { return underlyingType().calldataEncodedSize(_padded); }
 
 	bool leftAligned() const override { return underlyingType().leftAligned(); }
 	bool canBeStored() const override { return underlyingType().canBeStored(); }
-	u256 storageSize() const override { return underlyingType().storageSize(); }
 	unsigned storageBytes() const override { return underlyingType().storageBytes(); }
 
 	bool isValueType() const override { return true; }
@@ -1379,7 +1350,6 @@ public:
 	std::string toString(bool _withoutDataLocation) const override;
 	std::string humanReadableName() const override;
 	bool canBeStored() const override { return false; }
-	u256 storageSize() const override;
 	bool hasSimpleZeroValueInMemory() const override { return false; }
 	Type const* mobileType() const override;
 
@@ -1431,7 +1401,8 @@ public:
 		AddressType, ///< address.getType() for address
 		AddressUnpack, ///< address.unpack() for address
 
-		IntCast, ///< int a; a.cast(uint8);
+		IntCast, ///< [u]intN a; a.cast(uint8);
+		Uint256Prefix, ///< uint256 a; a.prefix(uint5);
 
 		Rist255FromHash,
 		Rist255Validate,
@@ -1452,8 +1423,8 @@ public:
 		QIsNaN,
 		QToOptional,
 
-        VariantIsUint,
-        VariantToUint,
+		VariantIsUint,
+		VariantToUint,
 
 		TVMCellDepth, ///< cell.depth()
 		TVMCellToSlice, ///< cell.toSlice()
@@ -1515,7 +1486,6 @@ public:
 		TVMStackSort, ///< stack.sort()
 		TVMStackTop, ///< stack.top()
 
-		ExtraCurrencyCollectionMethods, ///< extraCurrencyCollection.*()
 		KECCAK256, ///< KECCAK256
 		Selfdestruct, ///< SELFDESTRUCT
 		Revert, ///< REVERT
@@ -1534,7 +1504,6 @@ public:
 		Unwrap, ///< customType.unwrap(...) for user defined value types
 		SetGas, ///< modify the default gas value for the function call
 		SetValue, ///< modify the default value transfer for the function call
-		SetFlag, ///< modify the default flag for the function call transfer
 		Stoi, ///< stoi function to convert string to an integer
 		BlockHash, ///< BLOCKHASH
 		BlobHash, ///< BLOBHASH
@@ -1694,10 +1663,10 @@ public:
 		GoshUnzip,
 		GoshZip,
 		GoshZipDiff,
-        GoshApplyBinPatch,
-        GoshApplyBinPatchQ,
-        GoshApplyZipBinPatch,
-        GoshApplyZipBinPatchQ,
+		GoshApplyBinPatch,
+		GoshApplyBinPatchQ,
+		GoshApplyZipBinPatch,
+		GoshApplyZipBinPatchQ,
 	};
 	struct Options
 	{
@@ -1825,7 +1794,6 @@ public:
 	std::string toString(bool _withoutDataLocation) const override;
 	unsigned calldataEncodedSize(bool _padded) const override;
 	bool canBeStored() const override { return m_kind == Kind::Internal || m_kind == Kind::External; }
-	u256 storageSize() const override;
 	bool leftAligned() const override;
 	unsigned storageBytes() const override;
 	bool isValueType() const override { return true; }
@@ -1954,7 +1922,6 @@ public:
 	ASTString keyName() const { return m_keyName; }
 	Type const* valueType() const { return m_valueType; }
 	ASTString valueName() const { return m_valueName; }
-	Type const* realKeyType() const;
 	MemberList::MemberMap nativeMembers(ASTNode const*) const override;
 	TypeResult unaryOperatorResult(Token _operator) const override;
 
@@ -2053,7 +2020,6 @@ public:
 	std::string richIdentifier() const override;
 	bool operator==(Type const& _other) const override;
 	bool canBeStored() const override { return false; }
-	u256 storageSize() const override;
 	bool hasSimpleZeroValueInMemory() const override { solAssert(false, ""); }
 	std::string toString(bool _withoutDataLocation) const override { return "type(" + m_actualType->toString(_withoutDataLocation) + ")"; }
 	MemberList::MemberMap nativeMembers(ASTNode const* _currentScope) const override;
@@ -2079,10 +2045,10 @@ public:
 
 	TypeResult binaryOperatorResult(Token, Type const*) const override { return nullptr; }
 	bool canBeStored() const override { return false; }
-	u256 storageSize() const override;
 	bool hasSimpleZeroValueInMemory() const override { solAssert(false, ""); }
 	std::string richIdentifier() const override;
 	bool operator==(Type const& _other) const override;
+	bool operator==(ModifierType const& _other) const;
 	std::string toString(bool _withoutDataLocation) const override;
 protected:
 	std::vector<std::tuple<std::string, Type const*>> makeStackItems() const override { return {}; }
@@ -2119,6 +2085,8 @@ private:
 
 /**
  * Special type for magic variables (block, msg, tx, type(...)), similar to a struct but without any reference.
+ *
+ * It is also the type shared by all instances of all custom error types.
  */
 class MagicType: public Type
 {
@@ -2134,6 +2102,7 @@ public:
 		Gosh, ///< "gosh"
 		BLS, ///< "bls"
 		RIST255, ///< "rist255"
+		Error, ///< custom error instance
 		MetaType ///< "type(...)"
 	};
 

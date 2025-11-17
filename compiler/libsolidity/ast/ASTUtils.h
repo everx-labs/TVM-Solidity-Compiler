@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include <libsolutil/Numeric.h>
+
 namespace solidity::frontend
 {
 
@@ -26,6 +28,7 @@ class Declaration;
 class Expression;
 class SourceUnit;
 class VariableDeclaration;
+class ContractDefinition;
 
 /// Find the topmost referenced constant variable declaration when the given variable
 /// declaration value is an identifier. Works only for constant variable declarations.
@@ -41,5 +44,11 @@ ASTNode const* locateInnermostASTNode(int _offsetInFile, SourceUnit const& _sour
 /// @returns @a _expr itself, in case it is not a unary tuple expression. Otherwise it descends recursively
 /// into unary tuples and returns the contained expression.
 Expression const* resolveOuterUnaryTuples(Expression const* _expr);
+
+/// @returns the type of an expression and asserts that it is present.
+Type const* type(Expression const& _expression);
+/// @returns the type of the given variable and throws if the type is not present
+/// (this can happen for variables with non-explicit types before their types are resolved)
+Type const* type(VariableDeclaration const& _variable);
 
 }

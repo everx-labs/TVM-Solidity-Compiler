@@ -91,7 +91,12 @@ SemanticTest::SemanticTest(
 	if (m_runWithABIEncoderV1Only && !solidity::test::CommonOptions::get().useABIEncoderV1)
 		m_shouldRun = false;
 
-	std::string compileViaYul = m_reader.stringSetting("compileViaYul", "also");
+	auto const eofEnabled = solidity::test::CommonOptions::get().eofVersion().has_value();
+	std::string compileViaYul = m_reader.stringSetting("compileViaYul", eofEnabled ? "true" : "also");
+
+	if (compileViaYul == "false" && eofEnabled)
+		m_shouldRun = false;
+
 	if (m_runWithABIEncoderV1Only && compileViaYul != "false")
 		BOOST_THROW_EXCEPTION(std::runtime_error(
 			"ABIEncoderV1Only tests cannot be run via yul, "
@@ -157,7 +162,7 @@ std::map<std::string, Builtin> SemanticTest::makeBuiltins()
 			{
 				soltestAssert(_call.arguments.parameters.empty(), "No arguments expected.");
 				return toBigEndian(u256(storageEmpty(m_contractAddress) ? 1 : 0));
-		 	}
+			}
 		},
 		{
 			"account",
@@ -429,7 +434,7 @@ TestCase::TestResult SemanticTest::runTest(
 			{
 				soltestAssert(
 					m_allowNonExistingFunctions ||
-					m_compiler.interfaceSymbols(m_compiler.lastContractName(m_sources.mainSourceFile))["methods"].isMember(test.call().signature),
+					m_compiler.interfaceSymbols(m_compiler.lastContractName(m_sources.mainSourceFile))["methods"].contains(test.call().signature),
 					"The function " + test.call().signature + " is not known to the compiler"
 				);
 
@@ -569,6 +574,11 @@ bool SemanticTest::checkGasCostExpectation(TestFunctionCall& io_test, bool _comp
 		(_compileViaYul ? "ir"s : "legacy"s) +
 		(m_optimiserSettings == OptimiserSettings::full() ? "Optimized" : "");
 
+	soltestAssert(
+		io_test.call().expectations.gasUsedExcludingCode.count(setting) ==
+		io_test.call().expectations.gasUsedForCodeDeposit.count(setting)
+	);
+
 	// We don't check gas if enforce gas cost is not active
 	// or test is run with abi encoder v1 only
 	// or gas used less than threshold for enforcing feature
@@ -579,17 +589,23 @@ bool SemanticTest::checkGasCostExpectation(TestFunctionCall& io_test, bool _comp
 		!m_enforceGasCost ||
 		m_gasUsed < m_enforceGasCostMinValue ||
 		m_gasUsed >= InitialGas ||
-		(setting == "ir" && io_test.call().expectations.gasUsed.count(setting) == 0) ||
+		(setting == "ir" && io_test.call().expectations.gasUsedExcludingCode.count(setting) == 0) ||
 		io_test.call().kind == FunctionCall::Kind::Builtin
 	)
 		return true;
 
 	solAssert(!m_runWithABIEncoderV1Only, "");
 
-	io_test.setGasCost(setting, m_gasUsed);
+	// NOTE: Cost excluding code is unlikely to be negative but it may still be possible due to refunds.
+	// We'll deal with it when we actually have a test case like that.
+	solUnimplementedAssert(m_gasUsed >= m_gasUsedForCodeDeposit);
+	io_test.setGasCostExcludingCode(setting, m_gasUsed - m_gasUsedForCodeDeposit);
+	io_test.setCodeDepositGasCost(setting, m_gasUsedForCodeDeposit);
+
 	return
-		io_test.call().expectations.gasUsed.count(setting) > 0 &&
-		m_gasUsed == io_test.call().expectations.gasUsed.at(setting);
+		io_test.call().expectations.gasUsedExcludingCode.count(setting) > 0 &&
+		m_gasUsed - m_gasUsedForCodeDeposit == io_test.call().expectations.gasUsedExcludingCode.at(setting) &&
+		m_gasUsedForCodeDeposit == io_test.call().expectations.gasUsedForCodeDeposit.at(setting);
 }
 
 void SemanticTest::printSource(std::ostream& _stream, std::string const& _linePrefix, bool _formatted) const

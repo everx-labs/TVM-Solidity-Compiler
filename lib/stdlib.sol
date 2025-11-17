@@ -553,9 +553,9 @@ contract stdlib {
     // tvm.stateInitHash()
     function __stateInitHash(uint256 codeHash, uint256 dataHash, uint16 codeDepth, uint16 dataDepth) private pure returns (uint256) {
         TvmBuilder builder;
-        // amount of refs - code + data = 2
+        // amount of refs: code and data refs
         builder.storeUint(2, 8);
-        // amount of data bytes - 1 byte
+        // b - is floor(b / 8) + ceil(b / 8) = 1,
         builder.storeUint(1, 8);
         // data bits
         // split_depth:(Maybe (## 5)) special:(Maybe TickTock)
@@ -563,14 +563,14 @@ contract stdlib {
         // library:(Maybe ^Cell)
         // b00110
         builder.storeUint(6, 5);
-        // completion tag b100
+        // completion tag b100 (in order to have an integer number of bytes)
         builder.storeUint(4, 3);
         // refs cell depth
-        builder.storeUint(codeDepth,16);
-        builder.storeUint(dataDepth,16);
+        builder.storeUint(codeDepth, 16);
+        builder.storeUint(dataDepth, 16);
         // refs cell hash
-        builder.storeUint(codeHash,256);
-        builder.storeUint(dataHash,256);
+        builder.storeUint(codeHash, 256);
+        builder.storeUint(dataHash, 256);
         return sha256(builder.toSlice());
     }
 

@@ -349,9 +349,11 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 		std::set<MagicMember> static pureMembers;
 		if (pureMembers.empty()) {
 			pureMembers.insert({
-				MagicMember{MagicType::Kind::ABI, "codeSalt"},
+				MagicMember
+				{MagicType::Kind::ABI, "codeSalt"},
 				{MagicType::Kind::ABI, "decode"},
 				{MagicType::Kind::ABI, "decodeData"},
+				{MagicType::Kind::ABI, "decodeFunctionParams"},
 				{MagicType::Kind::ABI, "encode"},
 				{MagicType::Kind::ABI, "encodeBody"},
 				{MagicType::Kind::ABI, "encodeCall"},
@@ -422,11 +424,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 				{MagicType::Kind::Message, "currencies"},
 				{MagicType::Kind::Message, "data"},
 				{MagicType::Kind::Message, "forwardFee"},
-				{MagicType::Kind::Message, "hasStateInit"},
 				{MagicType::Kind::Message, "importFee"},
-				{MagicType::Kind::Message, "isExternal"},
-				{MagicType::Kind::Message, "isInternal"},
-				{MagicType::Kind::Message, "isTickTock"},
 				{MagicType::Kind::Message, "pubkey"},
 				{MagicType::Kind::Message, "sender"},
 				{MagicType::Kind::Message, "sig"},
@@ -444,6 +442,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 				{MagicType::Kind::RIST255, "mulBase"},
 				{MagicType::Kind::RIST255, "qAdd"},
 				{MagicType::Kind::RIST255, "qMul"},
+				{MagicType::Kind::RIST255, "qMulBase"},
 				{MagicType::Kind::RIST255, "qSub"},
 				{MagicType::Kind::RIST255, "qValidate"},
 				{MagicType::Kind::RIST255, "sub"},
@@ -455,7 +454,6 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 				{MagicType::Kind::TVM, "accept"},
 				{MagicType::Kind::TVM, "bindump"},
 				{MagicType::Kind::TVM, "buildDataInit"},
-				{MagicType::Kind::TVM, "buildExtMsg"},
 				{MagicType::Kind::TVM, "buildIntMsg"},
 				{MagicType::Kind::TVM, "buildStateInit"},
 				{MagicType::Kind::TVM, "buyGas"},
@@ -475,8 +473,8 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 				{MagicType::Kind::TVM, "p256CheckSign"},
 				{MagicType::Kind::TVM, "rawConfigParam"},
 				{MagicType::Kind::TVM, "rawReserve"},
-				{MagicType::Kind::TVM, "sendrawmsg"},
 				{MagicType::Kind::TVM, "sendMsg"},
+				{MagicType::Kind::TVM, "sendrawmsg"},
 				{MagicType::Kind::TVM, "setCodeSalt"},
 				{MagicType::Kind::TVM, "setCurrentCode"},
 				{MagicType::Kind::TVM, "setGasLimit"},
@@ -493,6 +491,8 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 		}
 		std::set<MagicMember> static const nonpayableMembers{
 			{MagicType::Kind::TVM, "commit"},
+			{MagicType::Kind::TVM, "exit"},
+			{MagicType::Kind::TVM, "exit1"},
 			{MagicType::Kind::TVM, "rawCommit"},
 			{MagicType::Kind::TVM, "setData"},
 			{MagicType::Kind::TVM, "resetStorage"}

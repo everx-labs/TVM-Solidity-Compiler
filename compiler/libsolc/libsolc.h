@@ -45,7 +45,7 @@ extern "C" {
 /// @param o_error A pointer to an error message, if there is one.
 ///
 /// The file (as well as error) contents that is to be allocated by the callback
-/// implementor must use the solidity_alloc() API to allocate its underlying
+/// implementer must use the solidity_alloc() API to allocate its underlying
 /// storage. Ownership is then transferred to the compiler which will take care
 /// of the deallocation.
 ///
@@ -96,13 +96,10 @@ char* solidity_compile(char const* _input, CStyleReadFileCallback _readCallback,
 /// is invalid after calling this!
 void solidity_reset() SOLC_NOEXCEPT;
 
-void* file_reader_new() SOLC_NOEXCEPT;
-void file_reader_set_base_path(void *fr, const char* path) SOLC_NOEXCEPT;
-void file_reader_add_include_path(void *fr, const char* path) SOLC_NOEXCEPT;
-void file_reader_allow_directory(void *fr, const char* path) SOLC_NOEXCEPT;
-void file_reader_add_or_update_file(void *fr, const char* path, const char* content) SOLC_NOEXCEPT;
-char* file_reader_source_unit_name(void*fr, const char* path) SOLC_NOEXCEPT;
-char* file_reader_read(void *fr, const char* name, int* success) SOLC_NOEXCEPT;
+int solc_main(int argc, char const* const* argv) SOLC_NOEXCEPT;
+char* get_out_stem() SOLC_NOEXCEPT;
+char* get_out_dir() SOLC_NOEXCEPT;
+bool do_generate_tvc() SOLC_NOEXCEPT;
 
 #ifdef __cplusplus
 }

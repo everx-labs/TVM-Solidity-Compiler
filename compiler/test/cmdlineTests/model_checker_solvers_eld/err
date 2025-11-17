@@ -1,0 +1,5 @@
+Warning: CHC: Assertion violation happens here.
+ --> input.sol:5:3:
+  |
+5 | 		assert(x > 0);
+  | 		^^^^^^^^^^^^^

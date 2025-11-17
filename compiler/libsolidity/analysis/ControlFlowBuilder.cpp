@@ -227,50 +227,46 @@ bool ControlFlowBuilder::visit(WhileStatement const& _whileStatement)
 	visitNode(_whileStatement);
 
 	switch (_whileStatement.loopType()) {
-		case WhileStatement::LoopType::DO_WHILE: {
-			auto afterWhile = newLabel();
-			auto whileBody = createLabelHere();
-			auto condition = newLabel();
+	case WhileStatement::LoopType::DO_WHILE: {
+		auto afterWhile = newLabel();
+		auto whileBody = createLabelHere();
+		auto condition = newLabel();
 
-			{
-				BreakContinueScope scope(*this, afterWhile, condition);
-				appendControlFlow(_whileStatement.body());
-			}
-
-			placeAndConnectLabel(condition);
-			appendControlFlow(_whileStatement.condition());
-
-			connect(m_currentNode, whileBody);
-			placeAndConnectLabel(afterWhile);
-			break;
+		{
+			BreakContinueScope scope(*this, afterWhile, condition);
+			appendControlFlow(_whileStatement.body());
 		}
 
-		case WhileStatement::LoopType::WHILE_DO: {
-			auto whileCondition = createLabelHere();
+		placeAndConnectLabel(condition);
+		appendControlFlow(_whileStatement.condition());
 
-			appendControlFlow(_whileStatement.condition());
+		connect(m_currentNode, whileBody);
+		placeAndConnectLabel(afterWhile);
+		break;
+	}
 
-			auto nodes = splitFlow<2>();
+	case WhileStatement::LoopType::WHILE_DO:
+	case WhileStatement::LoopType::REPEAT: {
+		auto whileCondition = createLabelHere();
 
-			auto whileBody = nodes[0];
-			auto afterWhile = nodes[1];
+		appendControlFlow(_whileStatement.condition());
 
-			m_currentNode = whileBody;
-			{
-				BreakContinueScope scope(*this, afterWhile, whileCondition);
-				appendControlFlow(_whileStatement.body());
-			}
+		auto nodes = splitFlow<2>();
 
-			connect(m_currentNode, whileCondition);
+		auto whileBody = nodes[0];
+		auto afterWhile = nodes[1];
 
-			m_currentNode = afterWhile;
-			break;
+		m_currentNode = whileBody;
+		{
+			BreakContinueScope scope(*this, afterWhile, whileCondition);
+			appendControlFlow(_whileStatement.body());
 		}
 
-		case WhileStatement::LoopType::REPEAT: {
-			// TODO implement
-			break;
-		}
+		connect(m_currentNode, whileCondition);
+
+		m_currentNode = afterWhile;
+		break;
+	}
 	}
 
 	return false;

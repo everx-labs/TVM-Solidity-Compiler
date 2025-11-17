@@ -21,24 +21,17 @@ REPO_ROOT="$(dirname "$0")"/..
     TEMPDIR=$(mktemp -d)
     SOLDIR="$TEMPDIR/solidity_$versionstring/"
     mkdir "$SOLDIR"
+    # Ensure that submodules are initialized.
+    git submodule update --init --recursive
     # Store the current source
     git checkout-index -a --prefix="$SOLDIR"
+    # shellcheck disable=SC2016
+    SOLDIR="$SOLDIR" git submodule foreach 'git checkout-index -a --prefix="$SOLDIR/$sm_path/"'
     # Store the commit hash
     echo "$commithash" > "$SOLDIR/commit_hash.txt"
     if [ -e prerelease.txt ] && [ ! -s prerelease.txt ]
     then
         cp prerelease.txt "$SOLDIR/"
-    fi
-    # Add dependencies
-    mkdir -p "$SOLDIR/deps/downloads/" 2>/dev/null || true
-    jsoncpp_version="1.9.3"
-    jsoncpp_package_path="$SOLDIR/deps/downloads/jsoncpp-${jsoncpp_version}.tar.gz"
-    jsoncpp_sha256=8593c1d69e703563d94d8c12244e2e18893eeb9a8a9f8aa3d09a327aa45c8f7d
-    wget -O "$jsoncpp_package_path" "https://github.com/open-source-parsers/jsoncpp/archive/${jsoncpp_version}.tar.gz"
-    if ! [ "$(sha256sum "$jsoncpp_package_path")" = "${jsoncpp_sha256}  ${jsoncpp_package_path}" ]
-    then
-        >&2 echo "ERROR: Downloaded jsoncpp source package has wrong checksum."
-        exit 1
     fi
     mkdir -p "$REPO_ROOT/upload"
     tar --owner 0 --group 0 -czf "$REPO_ROOT/upload/solidity_$versionstring.tar.gz" -C "$TEMPDIR" "solidity_$versionstring"

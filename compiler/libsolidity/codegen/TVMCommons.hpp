@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2025 EverX. All Rights Reserved.
+ * Copyright (C) 2019-2026 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -16,59 +16,45 @@
 
 #pragma once
 
-#include <libsolidity/ast/AST.h>
-#include <libsolidity/ast/ASTVisitor.h>
-
-#include <liblangutil/ErrorReporter.h>
 #include <liblangutil/SourceReferenceFormatter.h>
-
-#include <functional>
-#include <regex>
-#include <typeinfo>
-#include <json/json.h>
+#include <libsolidity/ast/AST.h>
 
 #include <boost/algorithm/string/predicate.hpp>
-#include <boost/range/adaptor/reversed.hpp>
+#include <regex>
 #include <utility>
 
 #include <libsolidity/codegen/TvmAst.hpp>
 
 namespace solidity::frontend {
 
-template <typename T> using ast_vec = std::vector<ASTPointer<T>>;
-
-template <typename T1, typename T2>
-T1 const* to(T2 const* ptr) { return dynamic_cast<T1 const*>(ptr); }
-
-template<typename T, typename... Args>
-constexpr bool isIn(const T& v, Args... args) {
-	return (... || (v == (args)));
-}
-
-constexpr uint64_t str2int(const char* str, int i = 0) {
-	return !str[i] ? 5381 : (str2int(str, i+1) * 33) ^ uint64_t(str[i]);
-}
-
-std::string functionName(FunctionDefinition const* _function);
 std::string eventName(EventDefinition const* _event);
 
-bool isAddressOrAddressStdOrContractType(const Type* type);
-bool isUsualArray(const Type* type);
-bool isByteArrayOrString(const Type* type);
-bool isString(const Type* type);
-bool isSlice(const Type* type);
+bool isAddressOrAddressStdOrContractType(Type const* type);
+bool isUsualArray(Type const* type);
+bool isByteArrayOrString(Type const* type);
+bool isString(Type const* type);
+bool isSlice(Type const* type);
 bool isSmallOptional(OptionalType const* type);
 bool optValueAsTuple(Type const* optValueType);
 int optTypeQty(Type const* type);
 
 struct AddressInfo {
-
-	static int stdAddrWithoutAnyCastLength() {
+	static constexpr int stdAddrWithoutAnyCastLength() {
 		// addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt
 		return 2 + 1 + 8 + 256;
 	}
 
-	static int maxBitLength() {
+	static constexpr int stdAddrWithAnyCastLength() {
+		// addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt
+		return 2 + (1 + 5 + 30) + 8 + 256;
+	}
+
+	static constexpr int externalAddressLength() {
+		// addr_extern$01 len:(## 9) external_address:(bits len) = MsgAddressExt;
+		return 2 + 9 + 511;
+	}
+
+	static constexpr int maxBitLength() {
 		// anycast_info$_ depth:(#<= 30) { depth >= 1 }
 		// rewrite_pfx:(bits depth) = Anycast;
 
@@ -79,7 +65,7 @@ struct AddressInfo {
 		// 1 + 5 + 30 + // anycast
 		// 9 + // addr_len
 		// 32 + // workchain_id:int32
-		// 512 // address
+		// 512 // address // TODO, actually 2**9 - 1 == 511
 		return 591;
 	}
 };
@@ -101,19 +87,19 @@ struct TypeInfo {
 	Type::Category category{};
 	bool isQuiet{};
 
-	explicit TypeInfo(const Type* type) {
+	explicit TypeInfo(Type const* type) {
 		category = type->category();
 		isNumeric = true;
 		if (auto* integerType = to<IntegerType>(type)) {
 			isSigned = integerType->isSigned();
-			numBits = int(integerType->numBits());
+			numBits = static_cast<int>(integerType->numBits());
 		} else if (auto* qintegerType = to<QIntegerType>(type)) {
 			isSigned = qintegerType->asIntegerType()->isSigned();
-			numBits = int(qintegerType->asIntegerType()->numBits());
+			numBits = static_cast<int>(qintegerType->asIntegerType()->numBits());
 			isQuiet = true;
 		} else if (auto* varint = to<VarIntegerType>(type)) {
 			isSigned = varint->asIntegerType().isSigned();
-			numBits = int(varint->asIntegerType().numBits());
+			numBits = static_cast<int>(varint->asIntegerType().numBits());
 		} else if (to<BoolType>(type)) {
 			isSigned = true;
 			numBits = 1;
@@ -129,19 +115,19 @@ struct TypeInfo {
 			numBits = bitsForEnum(enumType->numberOfMembers());
 		} else if (auto* fp = to<FixedPointType>(type)) {
 			isSigned = fp->isSigned();
-			numBits = int(fp->numBits());
+			numBits = static_cast<int>(fp->numBits());
 		} else
 			isNumeric = false;
 	}
 };
 
-const Type* getType(const Expression* expr);
+Type const* getType(Expression const* expr);
 
-const Type* getType(const VariableDeclaration* var);
+Type const* getType(VariableDeclaration const* var);
 
-bool isIntegralType(const Type* type);
+bool isIntegralType(Type const* type);
 
-bool isStringOrStringLiteralOrBytes(const Type* type);
+bool isStringOrStringLiteralOrBytes(Type const* type);
 
 std::string typeToDictChar(Type const* keyType);
 
@@ -151,53 +137,49 @@ IntegerType getKeyTypeOfC4();
 
 IntegerType const& getArrayKeyType();
 
-std::tuple<Type const*, Type const*>
-dictKeyValue(Type const* type);
+std::tuple<Type const*, Type const*> dictKeyValue(Type const* type);
 
-std::tuple<Type const*, Type const*>
-realDictKeyValue(Type const* type);
+std::tuple<Type const*, Type const*> realDictKeyValue(Type const* type);
 
 std::vector<ContractDefinition const*> getContractsChain(ContractDefinition const* contract);
 
 enum class StateVarType {
 	Usual,
-	NoStorage,
+	Transient,
 	Unpacked,
 };
 
-std::vector<VariableDeclaration const *> stateVariables(ContractDefinition const* contract, StateVarType stateVarType);
+std::vector<VariableDeclaration const*> stateVariables(ContractDefinition const* _contract, StateVarType stateVarType);
 
 bool isSuper(Expression const* expr);
-bool isAddressThis(const FunctionCall* funCall);
+bool isAddressThis(FunctionCall const* funCall);
 
 FunctionDefinition const* getSuperFunction(
-	const ContractDefinition* currentContract,
-	const ContractDefinition* mainContract,
-	const std::string& hexName
+	ContractDefinition const* currentContract,
+	ContractDefinition const* mainContract,
+	std::string const& hexName
 );
 
 [[noreturn]]
-void cast_error(const ASTNode& node, const std::string& error_message);
+void cast_error(ASTNode const& node, std::string const& error_message);
 
 [[noreturn]]
-void fatal_error(const std::string &error_message);
+void fatal_error(std::string const& error_message);
 
 class PragmaDirectiveHelper {
 public:
-	explicit PragmaDirectiveHelper(std::vector<PragmaDirective const *> const& _pragmaDirectives) :
-			pragmaDirectives{_pragmaDirectives} {
-	}
+	explicit PragmaDirectiveHelper(std::vector<PragmaDirective const*> const& _pragmaDirectives):
+		pragmaDirectives{_pragmaDirectives} {}
 
 	bool hasIgnoreIntOverflow() const {
-		return std::any_of(pragmaDirectives.begin(), pragmaDirectives.end(), [](const auto& pd){
+		return std::ranges::any_of(pragmaDirectives, [](auto const& pd) {
 			return pd->literals().size() == 1 && pd->literals()[0] == "ignoreIntOverflow";
 		});
 	}
 
 	std::optional<std::vector<ASTPointer<Expression>>> hasCopyleft() const {
-		for (PragmaDirective const *pd : pragmaDirectives) {
-			if (pd->literals().size() == 1 &&
-				pd->literals()[0] == "copyleft") {
+		for (PragmaDirective const* pd: pragmaDirectives) {
+			if (pd->literals().size() == 1 && pd->literals()[0] == "copyleft") {
 				return pd->parameter();
 			}
 		}
@@ -205,34 +187,32 @@ public:
 	}
 
 	bool hasUpgradeOldSol() const {
-		return std::any_of(pragmaDirectives.begin(), pragmaDirectives.end(), [](PragmaDirective const *pd){
+		return std::ranges::any_of(pragmaDirectives, [](PragmaDirective const* pd) {
 			return pd->literals().size() == 2 && pd->literals()[0] == "upgrade" && pd->literals()[1] == "oldsol";
 		});
 	}
 
 private:
-	std::vector<PragmaDirective const *> const& pragmaDirectives;
+	std::vector<PragmaDirective const*> const& pragmaDirectives;
 };
 
 class ABITypeSize {
 public:
 	explicit ABITypeSize(Type const* _type);
 
-private:
-	void init(Type const* _type);
-
-public:
 	bool fixedSize = false;
 	bool fixedRefs = false;
 	int maxBits = -1;
 	int maxRefs = -1;
 };
 
-inline std::pair<std::vector<Type const*>, std::vector<ASTNode const*>>
-getParams(const std::vector<VariableDeclaration const*>& params, std::vector<ASTNode const*>::difference_type offset = 0) {
+inline std::pair<std::vector<Type const*>, std::vector<ASTNode const*>> getParams(
+	std::vector<VariableDeclaration const*> const& params,
+	std::vector<ASTNode const*>::difference_type offset = 0
+) {
 	std::vector<Type const*> types;
 	std::vector<ASTNode const*> nodes;
-	for (auto it = params.begin() + offset; it != params.end(); it++) {
+	for (auto it = params.begin() + offset; it != params.end(); ++it) {
 		types.push_back(getType(*it));
 		nodes.push_back(*it);
 	}
@@ -240,9 +220,9 @@ getParams(const std::vector<VariableDeclaration const*>& params, std::vector<AST
 }
 
 
-template<typename T>
+template <typename T>
 std::pair<std::vector<Type const*>, std::vector<ASTNode const*>>
-getParams(const ast_vec<T>& params, size_t offset = 0) {
+getParams(ast_vec<T> const& params, size_t offset = 0) {
 	std::vector<Type const*> types;
 	std::vector<ASTNode const*> nodes;
 	for (auto it = params.begin() + offset; it != params.end(); ++it) {
@@ -252,7 +232,7 @@ getParams(const ast_vec<T>& params, size_t offset = 0) {
 	return std::make_pair(types, nodes);
 }
 
-CallableDeclaration const * getFunctionDeclarationOrConstructor(Expression const* expr, bool quiet = false);
+CallableDeclaration const* getFunctionDeclarationOrConstructor(Expression const* expr, bool quiet = false);
 
 bool isEmptyFunction(FunctionDefinition const* f);
 
@@ -266,41 +246,30 @@ enum class LocationReturn {
 class ControlFlowInfo {
 public:
 	ControlFlowInfo() = default;
-	ControlFlowInfo(int stackSize, bool hasAnalyzeFlag, bool isLoop) : m_stackSize(stackSize),
-																	   m_hasAnalyzeFlag(hasAnalyzeFlag), m_isLoop(isLoop) {}
+	ControlFlowInfo(int stackSize, bool hasAnalyzeFlag, bool isLoop):
+		m_stackSize(stackSize),
+		m_hasAnalyzeFlag(hasAnalyzeFlag),
+		m_isLoop(isLoop) {}
 
-	int stackSize() const {
-		return m_stackSize;
-	}
+	int stackSize() const { return m_stackSize; }
 
-	bool hasAnalyzeFlag() const {
-		return m_hasAnalyzeFlag;
-	}
+	bool hasAnalyzeFlag() const { return m_hasAnalyzeFlag; }
 
-	bool isLoop() const {
-		return m_isLoop;
-	}
+	bool isLoop() const { return m_isLoop; }
 
 private:
-	int m_stackSize {-1};
-	bool m_hasAnalyzeFlag {false};
-	bool m_isLoop {false};
+	int m_stackSize{-1};
+	bool m_hasAnalyzeFlag{false};
+	bool m_isLoop{false};
 };
 
-std::vector<VariableDeclaration const*>
-convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr);
+std::vector<VariableDeclaration const*> convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr);
 
-std::vector<Type const*>
-getTypesFromVarDecls(std::vector<VariableDeclaration const*> const& arr);
+std::vector<Type const*> getTypesFromVarDecls(std::vector<VariableDeclaration const*> const& arr);
 
-std::vector<Type const*>
-getTypesFromVarDecls(std::vector<ASTPointer<VariableDeclaration>> const& arr);
+std::vector<Type const*> getTypesFromVarDecls(std::vector<ASTPointer<VariableDeclaration>> const& arr);
 
-std::pair<
-	std::vector<Type const*>,
-	std::vector<std::string>
->
-getTupleTypes(TupleType const* tuple);
+std::pair<std::vector<Type const*>, std::vector<std::string>> getTupleTypes(TupleType const* tuple);
 
 enum class DataType {
 	Builder,
@@ -337,53 +306,59 @@ enum class GetDictOperation {
 	Exist
 };
 
-enum class SetDictOperation { Set, Replace, Add };
+enum class SetDictOperation {
+	Set,
+	Replace,
+	Add
+};
 
 struct LValueInfo {
 	std::vector<Expression const*> expressions;
 	int stackSizeDiff = 0;
 };
 
-DictValueType toDictValueType(const Type::Category& category);
+DictValueType toDictValueType(Type::Category const& category);
 std::set<CallableDeclaration const*> getAllBaseFunctions(CallableDeclaration const* f);
-bool isLoc(Pointer<TvmAstNode> const& node);
-std::vector<std::string> split(const std::string &s, char sep = '\n');
-int strToInt(const std::string& str);
-int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>>::const_iterator beg,
-				  std::vector<Pointer<TvmAstNode>>::const_iterator end);
+int strToInt(std::string const& str);
+int qtyWithoutLoc(
+	std::vector<Pointer<TvmAstNode>>::const_iterator beg,
+	std::vector<Pointer<TvmAstNode>>::const_iterator end
+);
 int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>> const& arr);
+void trimLoc(std::vector<Pointer<TvmAstNode>>& arr);
 
 namespace StrUtils {
-	std::optional<std::string> toBitString(bigint value, int bitlen, bool isSign);
-	std::string binaryStringToSlice(const std::string & s);
-	std::string toBitString(const std::string& slice);
-	std::optional<std::string> unitSlices(const std::string& sliceA, const std::string& sliceB);
-	std::optional<std::string> unitBitStringToHex(const std::string& bitStringA, const std::string& bitStringB);
-	std::string tonsToBinaryString(const u256& value);
-	std::string tonsToBinaryString(bigint value);
-	std::string boolToBinaryString(bool value);
-	std::string literalToSliceAddress(bigint const& value);
-	bigint toBigint(const std::string& binStr);
-	std::optional<bigint> toNegBigint(const std::string& binStr);
-	std::string toBinString(bigint num);
-	std::string stringToHex(const std::string& str);
+std::optional<std::string> toBitString(bigint value, int bitlen, bool isSign);
+std::string binaryStringToSlice(std::string const& _s);
+std::string toBitString(std::string const& slice);
+std::optional<std::string> unitSlices(std::string const& sliceA, std::string const& sliceB);
+std::optional<std::string> unitBitStringToHex(std::string const& bitStringA, std::string const& bitStringB);
+std::string tonsToBinaryString(u256 const& value);
+std::string tonsToBinaryString(bigint value);
+std::string boolToBinaryString(bool value);
+std::string literalToSliceAddress(bigint const& value);
+bigint toBigint(std::string const& binStr);
+std::optional<bigint> toNegBigint(std::string const& binStr);
+std::string toBinString(bigint num);
+std::string stringToHex(std::string const& str);
+std::string intToHex(uint32_t id);
 }
 
 namespace ExprUtils {
-	std::optional<bigint> constValue(Expression const &_e);
-	std::optional<bool> constBool(Expression const &_e);
+std::optional<bigint> constValue(Expression const& _e);
+std::optional<bool> constBool(Expression const& _e);
 }
 
 namespace MathConsts {
-	std::map<bigint, int> const& power2Exp();
-	std::map<bigint, int> const& power2DecExp();
-	std::map<bigint, int> const& power2NegExp();
-	std::map<int, bigint> const& power10();
+std::map<bigint, int> const& power2Exp();
+std::map<bigint, int> const& power2DecExp();
+std::map<bigint, int> const& power2NegExp();
+std::map<int, bigint> const& power10();
 }
 
 bool isFitUselessUnary(Type const* common, Token op);
 bool isFitUseless(Type const* left, Type const* right, Type const* common, Token op);
-bool isInRange257(bigint value);
+bool isInRange257(bigint const& value);
 
 unsigned short crc16(std::string const& str);
 
@@ -395,6 +370,7 @@ struct ArithmeticOperation {
 };
 std::vector<ArithmeticOperation> tonCombinedArithmeticOperations();
 
-FunctionDefinition const* getRemoteFunctionDefinition(const MemberAccess* memberAccess);
+
+FunctionDefinition const* getRemoteFunctionDefinition(MemberAccess const* memberAccess);
 
 } // end solidity::frontend

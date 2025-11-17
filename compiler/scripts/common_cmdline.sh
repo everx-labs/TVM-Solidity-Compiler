@@ -152,6 +152,7 @@ function stripCLIDecorations
         -e '/^IR:$/d' \
         -e '/^Optimized IR:$/d' \
         -e '/^EVM assembly:$/d' \
+        -e '/^Yul Control Flow Graph:$/d' \
         -e '/^JSON AST (compact format):$/d' \
         -e '/^Function signatures:$/d' \
         -e '/^Contract Storage Layout:$/d' \
@@ -168,4 +169,12 @@ function stripCLIDecorations
 function stripEmptyLines
 {
     sed -e '/^\s*$/d'
+}
+
+# Calculates the total size of bytecode of one or more contracts in bytes.
+# Expects the output from `solc --bin` on standard input.
+function bytecode_size {
+    local bytecode_chars
+    bytecode_chars=$(stripCLIDecorations | stripEmptyLines | wc --chars)
+    echo $(( bytecode_chars / 2 ))
 }

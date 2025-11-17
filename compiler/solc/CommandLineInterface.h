@@ -26,10 +26,6 @@
 
 #include <libsolidity/interface/CompilerStack.h>
 #include <libsolidity/interface/DebugSettings.h>
-#include <liblangutil/EVMVersion.h>
-
-#include <boost/program_options.hpp>
-#include <boost/filesystem/path.hpp>
 #include <libsolidity/interface/FileReader.h>
 #include <libsolidity/interface/SMTSolverCommand.h>
 #include <libsolidity/interface/UniversalCallback.h>
@@ -40,6 +36,8 @@
 
 namespace solidity::frontend
 {
+
+void printReportBug();
 
 class CommandLineInterface
 {
@@ -83,26 +81,36 @@ public:
 	FileReader const& fileReader() const { return m_fileReader; }
 	std::optional<std::string> const& standardJsonInput() const { return m_standardJsonInput; }
 
+	std::string getOutStem() const;
+	std::string getOutDir() const;
+	bool doGenerateTvc() const;
+
 private:
 	void printVersion();
 	void printLicense();
 	void compile();
 	void serveLSP();
+
 	void outputCompilationResults();
+
 	void handleAst();
 	void handleNatspec(bool _natspecDev, std::string const& _contract);
-	bool readInputFilesAndConfigureRemappings();
 
 	/// Tries to read @ m_sourceCodes as a JSONs holding ASTs
 	/// such that they can be imported into the compiler  (importASTs())
 	/// (produced by --combined-json ast <file.sol>
 	/// or standard-json output
-	std::map<std::string, Json::Value> parseAstFromInput();
+	std::map<std::string, Json> parseAstFromInput();
 
 	/// Create a file in the given directory
 	/// @arg _fileName the name of the file
 	/// @arg _data to be written
 	void createFile(std::string const& _fileName, std::string const& _data);
+
+	/// Create a json file in the given directory
+	/// @arg _fileName the name of the file (the extension will be replaced with .json)
+	/// @arg _json json string to be written
+	void createJson(std::string const& _fileName, std::string const& _json);
 
 	/// Returns the stream that should receive normal output. Sets m_hasOutput to true if the
 	/// stream has ever been used unless @arg _markAsUsed is set to false.
@@ -119,7 +127,7 @@ private:
 	std::ostream& m_serr;
 	bool m_hasOutput = false;
 	FileReader m_fileReader;
-	SMTSolverCommand m_solverCommand{"eld"};
+	SMTSolverCommand m_solverCommand;
 	UniversalCallback m_universalCallback{&m_fileReader, m_solverCommand};
 	std::optional<std::string> m_standardJsonInput;
 	std::unique_ptr<frontend::CompilerStack> m_compiler;

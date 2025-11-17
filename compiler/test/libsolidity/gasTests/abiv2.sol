@@ -12,11 +12,14 @@ contract C {
     function f7(uint[31] memory, string[20] memory, C, address) public returns (bytes[] memory, uint16[] memory) {}
     function f8(uint[32] memory, string[] memory, uint32, address) public returns (uint[] memory, uint16[] memory) {}
 }
+// ====
+// EVMVersion: =current
+// bytecodeFormat: legacy
 // ----
 // creation:
-//   codeDepositCost: 1213200
-//   executionCost: 1259
-//   totalCost: 1214459
+//   codeDepositCost: 1208000
+//   executionCost: 1252
+//   totalCost: 1209252
 // external:
 //   a(): 2425
 //   b(uint256): infinite

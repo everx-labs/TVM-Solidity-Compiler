@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2025 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2026 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -12,43 +12,42 @@
  */
 
 #include <boost/range/adaptor/map.hpp>
+
 #include <utility>
 
 #include <libsolidity/ast/TypeProvider.h>
 
 #include <libsolidity/codegen/DictOperations.hpp>
-#include <libsolidity/codegen/TVMPusher.hpp>
-#include <libsolidity/codegen/TVMExpressionCompiler.hpp>
-#include <libsolidity/codegen/TVMStructCompiler.hpp>
 #include <libsolidity/codegen/TVMABI.hpp>
 #include <libsolidity/codegen/TVMConstants.hpp>
+#include <libsolidity/codegen/TVMExpressionCompiler.hpp>
+#include <libsolidity/codegen/TVMPusher.hpp>
+#include <libsolidity/codegen/TVMStructCompiler.hpp>
 
 using namespace solidity::frontend;
 using namespace solidity::util;
 using namespace solidity;
-using namespace std;
 
-StackPusher::StackPusher(TVMCompilerContext *ctx, const int stackSize) :
-	m_ctx(ctx)
-{
+StackPusher::StackPusher(TVMCompilerContext* ctx, int const stackSize):
+	m_ctx(ctx) {
 	change(stackSize);
 	m_instructions.emplace_back();
 }
 
-void StackPusher::pushLoc(const std::string& file, int line) {
+void StackPusher::pushLoc(std::string const& file, int line) {
 	auto op = createNode<Loc>(file, line);
 	m_instructions.back().emplace_back(op);
 }
 
-void StackPusher::pushString(const std::string& _str, bool toSlice) {
+void StackPusher::pushString(std::string const& _str, bool toSlice) {
 	std::string hexStr = StrUtils::stringToHex(_str); // 2 * len(_str) == len(hexStr). One symbol to 2 hex digits
 	solAssert(hexStr.length() % 2 == 0, "");
 	if (4 * hexStr.length() <= TvmConst::MaxPushSliceBitLength && toSlice) {
 		pushSlice("x" + hexStr);
-		return ;
+		return;
 	}
 
-	const int saveStackSize = stackSize();
+	int const saveStackSize = stackSize();
 	m_instructions.back().emplace_back(makePushCellOrSlice(hexStr, toSlice));
 	change(0, 1);
 
@@ -63,73 +62,66 @@ void StackPusher::pushLog() {
 
 bool StackPusher::doesFitInOneCellAndHaveNoStruct(Type const* key, Type const* value) {
 	int keyLength = dictKeyLength(key);
-	return
-		TvmConst::MAX_HASH_MAP_INFO_ABOUT_KEY +
-		keyLength +
-		ABITypeSize{value}.maxBits
-		<
-		TvmConst::CellBitLength;
+	return TvmConst::MAX_HASH_MAP_INFO_ABOUT_KEY + keyLength + ABITypeSize{value}.maxBits < TvmConst::CellBitLength;
 }
 
-DataType
-StackPusher::prepareValueForDictOperations(Type const *keyType, Type const *valueType) {
+DataType StackPusher::prepareValueForDictOperations(Type const* keyType, Type const* valueType) {
 	// stack: value
 
 	switch (toDictValueType(valueType->category())) {
-		case DictValueType::TvmSlice: {
-			return DataType::Slice;
-		}
+	case DictValueType::TvmSlice: {
+		return DataType::Slice;
+	}
 
-		case DictValueType::Address:
-		case DictValueType::Contract: {
-			if (!doesFitInOneCellAndHaveNoStruct(keyType, valueType)) {
-				*this << "NEWC";
-				*this << "STSLICE";
-				*this << "ENDC";
-				return DataType::Cell;
-			}
-			return DataType::Slice;
-		}
-
-		case DictValueType::Array: {
-			if (isByteArrayOrString(valueType)) {
-				return DataType::Cell;
-			}
-			[[fallthrough]];
-		}
-
-		case DictValueType::Bool:
-		case DictValueType::Enum:
-		case DictValueType::FixedBytes:
-		case DictValueType::FixedPoint:
-		case DictValueType::Integer:
-		case DictValueType::Mapping:
-		case DictValueType::Optional:
-		case DictValueType::VarInteger:
-		case DictValueType::Function:
-		{
+	case DictValueType::Address:
+	case DictValueType::Contract: {
+		if (!doesFitInOneCellAndHaveNoStruct(keyType, valueType)) {
 			*this << "NEWC";
-			store(valueType);
-			if (!doesFitInOneCellAndHaveNoStruct(keyType, valueType)) {
-				*this << "ENDC";
-				return DataType::Cell;
-			}
-			return DataType::Builder;
-		}
-
-		case DictValueType::Struct: {
-			StructCompiler sc{this, to<StructType>(valueType)};
-			sc.tupleToBuilder();
-			if (!doesFitInOneCellAndHaveNoStruct(keyType, valueType)) {
-				*this << "ENDC";
-				return DataType::Cell;
-			}
-			return DataType::Builder;
-		}
-
-		case DictValueType::TvmCell: {
+			*this << "STSLICE";
+			*this << "ENDC";
 			return DataType::Cell;
 		}
+		return DataType::Slice;
+	}
+
+	case DictValueType::Array: {
+		if (isByteArrayOrString(valueType)) {
+			return DataType::Cell;
+		}
+		[[fallthrough]];
+	}
+
+	case DictValueType::Bool:
+	case DictValueType::Enum:
+	case DictValueType::FixedBytes:
+	case DictValueType::FixedPoint:
+	case DictValueType::Integer:
+	case DictValueType::Mapping:
+	case DictValueType::Optional:
+	case DictValueType::VarInteger:
+	case DictValueType::Function: {
+		*this << "NEWC";
+		store(valueType);
+		if (!doesFitInOneCellAndHaveNoStruct(keyType, valueType)) {
+			*this << "ENDC";
+			return DataType::Cell;
+		}
+		return DataType::Builder;
+	}
+
+	case DictValueType::Struct: {
+		StructCompiler sc{this, to<StructType>(valueType)};
+		sc.tupleToBuilder();
+		if (!doesFitInOneCellAndHaveNoStruct(keyType, valueType)) {
+			*this << "ENDC";
+			return DataType::Cell;
+		}
+		return DataType::Builder;
+	}
+
+	case DictValueType::TvmCell: {
+		return DataType::Cell;
+	}
 	}
 	solUnimplemented("");
 }
@@ -138,69 +130,68 @@ DataType StackPusher::pushDefaultValueForDict(Type const* keyType, Type const* v
 	startOpaque();
 	std::optional<DataType> value;
 	switch (toDictValueType(valueType->category())) {
-		case DictValueType::TvmSlice: {
-			pushDefaultValue(valueType);
-			value = DataType::Slice;
-			break;
-		}
+	case DictValueType::TvmSlice: {
+		pushDefaultValue(valueType);
+		value = DataType::Slice;
+		break;
+	}
 
-		case DictValueType::Address:
-		case DictValueType::Contract: {
-			pushDefaultValue(valueType);
-			value = prepareValueForDictOperations(keyType, valueType);
-			break;
-		}
+	case DictValueType::Address:
+	case DictValueType::Contract: {
+		pushDefaultValue(valueType);
+		value = prepareValueForDictOperations(keyType, valueType);
+		break;
+	}
 
-		case DictValueType::Array: {
-			if (isByteArrayOrString(valueType)) {
-				pushDefaultValue(valueType);
-				value = DataType::Cell;
-			} else {
-				*this << "NEWC";
-				pushInt(33);
-				*this << "STZEROES";
-				value = DataType::Builder;
-			}
-			break;
-		}
-
-		case DictValueType::Mapping: {
-			pushSlice("x4_");
-			value = DataType::Slice;
-			break;
-		}
-
-		case DictValueType::Bool:
-		case DictValueType::Enum:
-		case DictValueType::FixedBytes:
-		case DictValueType::FixedPoint:
-		case DictValueType::Integer:
-		case DictValueType::Optional:
-		case DictValueType::VarInteger:
-		case DictValueType::Function:
-		{
-			pushDefaultValue(valueType);
-			value = prepareValueForDictOperations(keyType, valueType);
-			break;
-		}
-
-		case DictValueType::Struct: {
-			StructCompiler sc{this, to<StructType>(valueType)};
-			if (doesFitInOneCellAndHaveNoStruct(keyType, valueType)) {
-				sc.createDefaultStructAsSlice();
-				value = DataType::Slice;
-			} else {
-				sc.createDefaultStructAsCell();
-				value = DataType::Cell;
-			}
-			break;
-		}
-
-		case DictValueType::TvmCell: {
+	case DictValueType::Array: {
+		if (isByteArrayOrString(valueType)) {
 			pushDefaultValue(valueType);
 			value = DataType::Cell;
-			break;
+		} else {
+			*this << "NEWC";
+			pushInt(33);
+			*this << "STZEROES";
+			value = DataType::Builder;
 		}
+		break;
+	}
+
+	case DictValueType::Mapping: {
+		pushSlice("x4_");
+		value = DataType::Slice;
+		break;
+	}
+
+	case DictValueType::Bool:
+	case DictValueType::Enum:
+	case DictValueType::FixedBytes:
+	case DictValueType::FixedPoint:
+	case DictValueType::Integer:
+	case DictValueType::Optional:
+	case DictValueType::VarInteger:
+	case DictValueType::Function: {
+		pushDefaultValue(valueType);
+		value = prepareValueForDictOperations(keyType, valueType);
+		break;
+	}
+
+	case DictValueType::Struct: {
+		StructCompiler sc{this, to<StructType>(valueType)};
+		if (doesFitInOneCellAndHaveNoStruct(keyType, valueType)) {
+			sc.createDefaultStructAsSlice();
+			value = DataType::Slice;
+		} else {
+			sc.createDefaultStructAsCell();
+			value = DataType::Cell;
+		}
+		break;
+	}
+
+	case DictValueType::TvmCell: {
+		pushDefaultValue(valueType);
+		value = DataType::Cell;
+		break;
+	}
 	}
 	endOpaque(0, 1, true);
 	return value.value();
@@ -212,33 +203,33 @@ DataType StackPusher::pushDefaultValueForDict(Type const* keyType, Type const* v
 // at/[] - for arrays and mappings
 bool StackPusher::doesDictStoreValueInRef(Type const* keyType, Type const* valueType) {
 	switch (toDictValueType(valueType->category())) {
-		case DictValueType::TvmCell:
+	case DictValueType::TvmCell:
+		return true;
+
+	case DictValueType::TvmSlice:
+		return false;
+
+	case DictValueType::Array: {
+		if (isByteArrayOrString(valueType)) {
 			return true;
-
-		case DictValueType::TvmSlice:
-			return false;
-
-		case DictValueType::Array: {
-			if (isByteArrayOrString(valueType)) {
-				return true;
-			}
-			return !doesFitInOneCellAndHaveNoStruct(keyType, valueType);
 		}
+		return !doesFitInOneCellAndHaveNoStruct(keyType, valueType);
+	}
 
 
-		case DictValueType::Address:
-		case DictValueType::Bool:
-		case DictValueType::Contract:
-		case DictValueType::Enum:
-		case DictValueType::FixedBytes:
-		case DictValueType::FixedPoint:
-		case DictValueType::Integer:
-		case DictValueType::Mapping:
-		case DictValueType::Optional:
-		case DictValueType::VarInteger:
-		case DictValueType::Struct:
-		case DictValueType::Function:
-			return !doesFitInOneCellAndHaveNoStruct(keyType, valueType);
+	case DictValueType::Address:
+	case DictValueType::Bool:
+	case DictValueType::Contract:
+	case DictValueType::Enum:
+	case DictValueType::FixedBytes:
+	case DictValueType::FixedPoint:
+	case DictValueType::Integer:
+	case DictValueType::Mapping:
+	case DictValueType::Optional:
+	case DictValueType::VarInteger:
+	case DictValueType::Struct:
+	case DictValueType::Function:
+		return !doesFitInOneCellAndHaveNoStruct(keyType, valueType);
 	}
 	solUnimplemented("");
 }
@@ -248,18 +239,14 @@ void StackPusher::recoverKeyAndValueAfterDictOperation(
 	Type const* valueType,
 	bool hasKey,
 	bool didUseOpcodeWithRef,
-	const DecodeType& decodeType,
+	DecodeType const& decodeType,
 	bool saveOrigKeyAndNoTuple
-)
-{
-	const bool isValueStruct = valueType->category() == Type::Category::Struct;
-	const bool pushRefCont =
-		isValueStruct &&
-		!didUseOpcodeWithRef &&
-		!doesDictStoreValueInRef(keyType, valueType);
+) {
+	bool const isValueStruct = valueType->category() == Type::Category::Struct;
+	bool const pushRefCont = isValueStruct && !didUseOpcodeWithRef && !doesDictStoreValueInRef(keyType, valueType);
 
 	// stack: value [key]
-	auto preloadValue = [&]() {
+	auto preloadValue = [&] {
 		if (hasKey) {
 			// stack: value key
 			if (saveOrigKeyAndNoTuple) {
@@ -279,144 +266,130 @@ void StackPusher::recoverKeyAndValueAfterDictOperation(
 		// stack: [slice, key] value
 
 		switch (toDictValueType(valueType->category())) {
-			case DictValueType::Address:
-			case DictValueType::Contract:
-			case DictValueType::TvmSlice:
-			{
-				if (didUseOpcodeWithRef) {
-					*this << "CTOS";
-				} else if (doesDictStoreValueInRef(keyType, valueType)) {
-					*this << "PLDREFIDX 0";
-					*this << "CTOS";
-				}
-				break;
+		case DictValueType::Address:
+		case DictValueType::Contract:
+		case DictValueType::TvmSlice: {
+			if (didUseOpcodeWithRef) {
+				*this << "CTOS";
+			} else if (doesDictStoreValueInRef(keyType, valueType)) {
+				*this << "PLDREFIDX 0";
+				*this << "CTOS";
 			}
-			case DictValueType::Array:
-				if (isByteArrayOrString(valueType)) {
-					if (!didUseOpcodeWithRef) {
-						*this << "PLDREFIDX 0";
-					}
-					break;
-				}
-				[[fallthrough]];
-			case DictValueType::Bool:
-			case DictValueType::Enum:
-			case DictValueType::FixedBytes:
-			case DictValueType::FixedPoint:
-			case DictValueType::Integer:
-			case DictValueType::Mapping:
-			case DictValueType::Optional:
-			case DictValueType::Struct:
-			case DictValueType::VarInteger:
-			case DictValueType::Function:
-			{
-				bool pushCallRef = false;
-				if (didUseOpcodeWithRef) {
-					*this << "CTOS";
-					pushCallRef = true;
-				} else if (doesDictStoreValueInRef(keyType, valueType)) {
-					*this << "PLDREFIDX 0";
-					*this << "CTOS";
-					pushCallRef = true;
-				}
-				pushCallRef &= isValueStruct;
-				if (pushCallRef) {
-					startContinuation();
-				}
-				preload(valueType);
-				if (pushCallRef) {
-					pushRefContAndCallX(1, 1, false);
-				}
-				break;
-			}
-			case DictValueType::TvmCell:
-			{
+			break;
+		}
+		case DictValueType::Array:
+			if (isByteArrayOrString(valueType)) {
 				if (!didUseOpcodeWithRef) {
 					*this << "PLDREFIDX 0";
 				}
 				break;
 			}
+			[[fallthrough]];
+		case DictValueType::Bool:
+		case DictValueType::Enum:
+		case DictValueType::FixedBytes:
+		case DictValueType::FixedPoint:
+		case DictValueType::Integer:
+		case DictValueType::Mapping:
+		case DictValueType::Optional:
+		case DictValueType::Struct:
+		case DictValueType::VarInteger:
+		case DictValueType::Function: {
+			if (didUseOpcodeWithRef) {
+				*this << "CTOS";
+			} else if (doesDictStoreValueInRef(keyType, valueType)) {
+				*this << "PLDREFIDX 0";
+				*this << "CTOS";
+			}
+			preload(valueType);
+			break;
+		}
+		case DictValueType::TvmCell: {
+			if (!didUseOpcodeWithRef) {
+				*this << "PLDREFIDX 0";
+			}
+			break;
+		}
 		}
 	};
 
-	auto checkOnMappingOrOptional = [&]() {
+	auto checkOnMappingOrOptional = [&] {
 		if (optValueAsTuple(valueType)) {
 			makeTuple(1);
 		}
 	};
 
 	switch (decodeType) {
-		case DecodeType::DecodeValue:
-			if (pushRefCont) {
-				startContinuation();
-			}
-			preloadValue();
-			if (pushRefCont) {
-				pushRefContAndCallX(1, 1, false);
-			}
-			break;
-		case DecodeType::DecodeValueOrPushDefault: {
-			startContinuation();
-			preloadValue();
-			pushRefCont ? endContinuationFromRef() : endContinuation();
+	case DecodeType::DecodeValue:
+		preloadValue();
+		break;
+	case DecodeType::DecodeValueOrPushDefault: {
+		startContinuation();
+		preloadValue();
+		pushRefCont ? endContinuationFromRef() : endContinuation();
 
-			bool hasEmptyPushCont = tryPollEmptyPushCont();
-			startContinuation();
-			pushDefaultValue(valueType);
-			pushRefCont ? endContinuationFromRef() : endContinuation();
+		bool hasEmptyPushCont = tryPollEmptyPushCont();
+		startContinuation();
+		pushDefaultValue(valueType);
+		pushRefCont ? endContinuationFromRef() : endContinuation();
 
-			if (hasEmptyPushCont)
-				ifNot();
-			else
-				ifElse();
-			break;
+		if (hasEmptyPushCont)
+			ifNot();
+		else
+			ifElse();
+		break;
+	}
+	case DecodeType::DecodeValueOrPushNull: {
+		if (!saveOrigKeyAndNoTuple) {
+			pushAsym("NULLSWAPIFNOT");
 		}
-		case DecodeType::DecodeValueOrPushNull: {
+
+		startContinuation();
+		preloadValue();
+		if (hasKey) {
 			if (!saveOrigKeyAndNoTuple) {
-				pushAsym("NULLSWAPIFNOT");
+				makeTuple(2);
 			}
-
-			startContinuation();
-			preloadValue();
-			if (hasKey) {
-				if (!saveOrigKeyAndNoTuple) {
-					makeTuple(2);
-				}
-			} else {
-				checkOnMappingOrOptional();
-			}
-			isValueStruct ? endContinuationFromRef() : endContinuation();
-
-			if (saveOrigKeyAndNoTuple) {
-				startContinuation();
-				pushNull();
-				pushNull();
-				pushNull();
-				fixStack(-3); // fix stack
-				endContinuation();
-
-				ifElse();
-			} else {
-				_if();
-			}
-
-			break;
-		}
-		case DecodeType::PushNullOrDecodeValue: {
-			pushAsym("NULLSWAPIF");
-
-			startContinuation();
-			preloadValue();
+		} else {
 			checkOnMappingOrOptional();
+		}
+		isValueStruct ? endContinuationFromRef() : endContinuation();
+
+		if (saveOrigKeyAndNoTuple) {
+			startContinuation();
+			pushNull();
+			pushNull();
+			pushNull();
+			fixStack(-3); // fix stack
 			endContinuation();
 
-			ifNot();
-			break;
+			ifElse();
+		} else {
+			_if();
 		}
+
+		break;
+	}
+	case DecodeType::PushNullOrDecodeValue: {
+		pushAsym("NULLSWAPIF");
+
+		startContinuation();
+		preloadValue();
+		checkOnMappingOrOptional();
+		endContinuation();
+
+		ifNot();
+		break;
+	}
 	}
 }
 
-void StackPusher::setDict(Type const &keyType, Type const &valueType, const DataType& dataType, SetDictOperation operation) {
+void StackPusher::setDict(
+	Type const& keyType,
+	Type const& valueType,
+	DataType const& dataType,
+	SetDictOperation operation
+) {
 	DictSet d{*this, keyType, valueType, dataType, operation};
 	d.dictSet();
 }
@@ -425,7 +398,7 @@ void StackPusher::pushInlineFunction(std::string const& name, int take, int ret)
 	solAssert(!ctx().callGraph().tryToAddEdge(ctx().currentFunctionName(), name), "");
 	auto block = ctx().getInlinedFunction(name);
 	solAssert(block->type() == CodeBlock::Type::None, "");
-	for (Pointer<TvmAstNode> const& i : block->instructions())
+	for (Pointer<TvmAstNode> const& i: block->instructions())
 		m_instructions.back().emplace_back(i);
 	change(take, ret);
 }
@@ -434,15 +407,15 @@ void StackPusher::pollLastRetOpcode() {
 	std::vector<Pointer<TvmAstNode>>& opcodes = m_instructions.back();
 	int offset = 0;
 	int size = opcodes.size();
-	while (offset < size && isLoc(opcodes.at(opcodes.size() - 1 - offset)))
+	while (offset < size && convertToLoc(opcodes.at(opcodes.size() - 1 - offset).get()))
 		++offset;
 	int begPos = size - 1 - offset;
 
-	auto opcode = to<ReturnOrBreakOrCont>(opcodes.at(begPos).get());
+	auto opcode = convertToReturnOrBreakOrCont(opcodes.at(begPos).get());
 	solAssert(opcode, "");
-	vector<Pointer<TvmAstNode>> instructions = opcode->body()->instructions();
+	std::vector<Pointer<TvmAstNode>> instructions = opcode->body()->instructions();
 	solAssert(!instructions.empty(), "");
-	auto ret = to<TvmReturn>(instructions.back().get());
+	auto ret = convertToTvmReturn(instructions.back().get());
 	solAssert(ret, "");
 	solAssert(!ret->withIf() && !ret->withAlt(), "");
 	instructions.pop_back();
@@ -454,7 +427,7 @@ void StackPusher::pollLastRetOpcode() {
 bool StackPusher::tryPollEmptyPushCont() {
 	std::vector<Pointer<TvmAstNode>>& opcodes = m_instructions.back();
 	solAssert(opcodes.size() >= 2, "");
-	auto block = dynamic_pointer_cast<CodeBlock>(opcodes.back());
+	auto block = convertToCodeBlock(opcodes.back().get());
 	solAssert(block != nullptr, "");
 	if (block->instructions().empty()) {
 		opcodes.pop_back();
@@ -463,9 +436,7 @@ bool StackPusher::tryPollEmptyPushCont() {
 	return false;
 }
 
-TVMCompilerContext &StackPusher::ctx() const {
-	return *m_ctx;
-}
+TVMCompilerContext& StackPusher::ctx() const { return *m_ctx; }
 
 void StackPusher::change(int delta) {
 	solAssert(lockStack >= 0, "");
@@ -474,15 +445,11 @@ void StackPusher::change(int delta) {
 	}
 }
 
-void StackPusher::change(int take, int ret) {
-	change(-take + ret);
-}
+void StackPusher::change(int take, int ret) { change(-take + ret); }
 
-int StackPusher::stackSize() const {
-	return m_stack.size();
-}
+int StackPusher::stackSize() const { return m_stack.size(); }
 
-void StackPusher::ensureSize(int savedStackSize, const string &location, const ASTNode* node) const {
+void StackPusher::ensureSize(int savedStackSize, std::string const& location, ASTNode const* node) const {
 	if (lockStack == 0) {
 		m_stack.ensureSize(savedStackSize, location, node);
 	}
@@ -509,35 +476,34 @@ void StackPusher::declRetFlag() {
 	change(0, 1);
 }
 
-Pointer<AsymGen>
-StackPusher::makeAsym(const string& cmd) {
-	static std::set<string> asymOpcodes;
+Pointer<AsymGen> StackPusher::makeAsym(std::string const& cmd) {
+	static std::set<std::string> asymOpcodes;
 	if (asymOpcodes.empty()) {
-		for (std::string type : {"", "I", "U"}) {
-			for (std::string suf : {"", "REF"}) {
-				for (std::string op : {"MIN", "MAX"}) {
+		for (std::string type: {"", "I", "U"}) {
+			for (std::string suf: {"", "REF"}) {
+				for (std::string op: {"MIN", "MAX"}) {
 					asymOpcodes.insert("DICT" + type + "REM" + op + suf);
 					asymOpcodes.insert("DICT" + type + op + suf);
 				}
 			}
 
-			for (std::string op : {"SETGET", "ADDGET", "REPLACEGET"})
-				for (std::string suf : {"", "REF", "B"})
+			for (std::string op: {"SETGET", "ADDGET", "REPLACEGET"})
+				for (std::string suf: {"", "REF", "B"})
 					asymOpcodes.insert("DICT" + type + op + suf);
 
-			for (std::string op : {"DELGET"})
-				for (std::string suf : {"", "REF"})
+			for (std::string op: {"DELGET"})
+				for (std::string suf: {"", "REF"})
 					asymOpcodes.insert("DICT" + type + op + suf);
 
-			for (std::string suf : {"", "REF", "PREV", "PREVEQ", "NEXT", "NEXTEQ"})
+			for (std::string suf: {"", "REF", "PREV", "PREVEQ", "NEXT", "NEXTEQ"})
 				asymOpcodes.insert("DICT" + type + "GET" + suf);
 		}
 
-		for (std::string preload : {"", "P"})
-			for (std::string type : {"I", "U"}) {
-				for (std::string size : {"4", "8"})
+		for (std::string preload: {"", "P"})
+			for (std::string type: {"I", "U"}) {
+				for (std::string size: {"4", "8"})
 					asymOpcodes.insert(preload + "LD" + type + "LE" + size + "Q");
-				for (std::string x : {"", "X"})
+				for (std::string x: {"", "X"})
 					asymOpcodes.insert(preload + "LD" + type + x + "Q");
 			}
 
@@ -551,11 +517,6 @@ StackPusher::makeAsym(const string& cmd) {
 			"HASHEXTA_KECCAK512",
 			"HASHEXTA_SHA256",
 			"HASHEXTA_SHA512",
-			"HASHEXT_BLAKE2B",
-			"HASHEXT_KECCAK256",
-			"HASHEXT_KECCAK512",
-			"HASHEXT_SHA256",
-			"HASHEXT_SHA512",
 			"LDDICTQ",
 			"LDMSGADDRQ",
 			"LDSLICEQ",
@@ -567,6 +528,7 @@ StackPusher::makeAsym(const string& cmd) {
 			"PLDSLICEXQ",
 			"RIST255_QADD",
 			"RIST255_QMUL",
+			"RIST255_QMULBASE",
 			"RIST255_QSUB",
 			"SDATASIZEQ",
 			"SPLITQ",
@@ -580,32 +542,28 @@ StackPusher::makeAsym(const string& cmd) {
 		});
 	}
 
-	istringstream iss(cmd);
-	string baseCmd;
+	std::istringstream iss(cmd);
+	std::string baseCmd;
 	iss >> baseCmd;
-	solAssert(asymOpcodes.count(baseCmd) > 0, "Unknown asym opcode: " + cmd);
+	solAssert(asymOpcodes.contains(baseCmd), "Unknown asym opcode: " + cmd);
 
 	return createNode<AsymGen>(cmd);
 }
 
-void StackPusher::push(const Pointer<Stack>& opcode) {
-	m_instructions.back().push_back(opcode);
-}
+void StackPusher::push(Pointer<Stack> const& opcode) { m_instructions.back().push_back(opcode); }
 
-void StackPusher::push(const Pointer<AsymGen>& opcode) {
+void StackPusher::push(Pointer<AsymGen> const& opcode) {
 	// no stack changing
 	solAssert(lockStack >= 0, "");
 	m_instructions.back().push_back(opcode);
 }
 
-void StackPusher::push(const Pointer<HardCode>& opcode) {
+void StackPusher::push(Pointer<HardCode> const& opcode) {
 	m_instructions.back().push_back(opcode);
 	change(opcode->take(), opcode->ret());
 }
 
-void StackPusher::pushAsym(Pointer<AsymGen>&& node) {
-	m_instructions.back().push_back(node);
-}
+void StackPusher::pushAsym(Pointer<AsymGen>&& node) { m_instructions.back().push_back(node); }
 
 void StackPusher::pushAsym(std::string const& opcode) {
 	solAssert(lockStack >= 1, "");
@@ -619,16 +577,14 @@ StackPusher& StackPusher::operator<<(std::string const& opcode) {
 }
 
 void StackPusher::push(std::string const& cmd) {
-	Pointer<StackOpcode> opcode = gen(cmd);
+	Pointer<StackGen> opcode = gen(cmd);
 	change(opcode->take(), opcode->ret());
 	m_instructions.back().push_back(opcode);
 }
 
-void StackPusher::fixStack(int stackDiff) {
-	change(stackDiff);
-}
+void StackPusher::fixStack(int stackDiff) { change(stackDiff); }
 
-void StackPusher::pushCellOrSlice(const Pointer<PushCellOrSlice>& opcode) {
+void StackPusher::pushCellOrSlice(Pointer<CellOrSliceOperation> const& opcode) {
 	solAssert(!m_instructions.empty(), "");
 	m_instructions.back().push_back(opcode);
 	change(0, 1);
@@ -643,12 +599,10 @@ void StackPusher::pushSlice(std::string const& data) {
 void StackPusher::pushPrivateFunctionId(FunctionDefinition const& funDef, bool isCalledByPoint) {
 	auto const [funName, id] = ctx().functionInternalName(&funDef, isCalledByPoint);
 	pushInt(id);
-	ctx().callGraph().addPrivateFunction(id, funName);
+	ctx().callGraph().addDictFunction(id, funName);
 }
 
-void StackPusher::startContinuation() {
-	m_instructions.emplace_back();
-}
+void StackPusher::startContinuation() { m_instructions.emplace_back(); }
 
 void StackPusher::endCont(CodeBlock::Type type) {
 	solAssert(!m_instructions.empty(), "");
@@ -659,20 +613,16 @@ void StackPusher::endCont(CodeBlock::Type type) {
 	m_instructions.back().push_back(b);
 }
 
-void StackPusher::endContinuation() {
-	endCont(CodeBlock::Type::PUSHCONT);
-}
+void StackPusher::endContinuation() { endCont(CodeBlock::Type::PUSHCONT); }
 
-void StackPusher::endContinuationFromRef() {
-	endCont(CodeBlock::Type::PUSHREFCONT);
-}
+void StackPusher::endContinuationFromRef() { endCont(CodeBlock::Type::PUSHREFCONT); }
 
-void StackPusher::endRetOrBreakOrCont(int _take) {
+void StackPusher::endRetOrBreakOrCont(ReturnOrBreakOrCont::Type type, int _take) {
 	solAssert(!m_instructions.empty(), "");
 	std::vector<Pointer<TvmAstNode>> block = m_instructions.back();
 	m_instructions.pop_back();
 	auto b = createNode<CodeBlock>(CodeBlock::Type::None, block);
-	auto r = createNode<ReturnOrBreakOrCont>(_take, b);
+	auto r = createNode<ReturnOrBreakOrCont>(type, _take, b);
 	solAssert(!m_instructions.empty(), "");
 	m_instructions.back().push_back(r);
 }
@@ -687,42 +637,41 @@ void StackPusher::endLogCircuit(LogCircuit::Type type) {
 	m_instructions.back().push_back(lc);
 }
 
-void StackPusher::callRefOrCallX(int take, int ret, bool _isJmp, CodeBlock::Type _blockType, bool isPure) {
+void StackPusher::callRefOrCallX(bool _isJmp, CodeBlock::Type _blockType) {
 	solAssert(!m_instructions.empty(), "");
 	std::vector<Pointer<TvmAstNode>> block = m_instructions.back();
 	m_instructions.pop_back();
 	auto b = createNode<CodeBlock>(_blockType, block);
-	auto subProg = createNode<SubProgram>(take, ret, _isJmp, b, isPure);
+	auto subProg = createNode<SubProgram>(_isJmp, b);
 	solAssert(!m_instructions.empty(), "");
 	m_instructions.back().push_back(subProg);
 }
 
-void StackPusher::pushRefContAndCallX(int take, int ret, bool isPure) {
-	callRefOrCallX(take, ret, false, CodeBlock::Type::PUSHREFCONT, isPure);
-}
+void StackPusher::pushRefContAndCallX() { callRefOrCallX(false, CodeBlock::Type::PUSHREFCONT); }
 
-void StackPusher::pushContAndCallX(int take, int ret, bool isPure) {
-	callRefOrCallX(take, ret, false, CodeBlock::Type::PUSHCONT, isPure);
-}
+void StackPusher::pushContAndCallX() { callRefOrCallX(false, CodeBlock::Type::PUSHCONT); }
 
 void StackPusher::ifElse(bool withJmp) {
-	solAssert(m_instructions.back().size() >= 3, "");
-	auto falseBlock = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
+	solAssert(m_instructions.back().size() >= 2, "");
+	auto falseBlock = std::dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	solAssert(falseBlock != nullptr, "");
 	m_instructions.back().pop_back();
-	auto trueBlock = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
+	auto trueBlock = std::dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	solAssert(trueBlock != nullptr, "");
 	m_instructions.back().pop_back();
 	auto b = createNode<TvmIfElse>(false, withJmp, trueBlock, falseBlock, 0);
 	m_instructions.back().push_back(b);
+	if (withJmp) {
+		ret();
+	}
 }
 
 void StackPusher::pushConditional(int ret) {
 	solAssert(m_instructions.back().size() >= 3, "");
-	auto falseBlock = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
+	auto falseBlock = std::dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	solAssert(falseBlock != nullptr, "");
 	m_instructions.back().pop_back();
-	auto trueBlock = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
+	auto trueBlock = std::dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	solAssert(trueBlock != nullptr, "");
 	m_instructions.back().pop_back();
 	auto b = createNode<TvmIfElse>(false, false, trueBlock, falseBlock, ret);
@@ -732,33 +681,25 @@ void StackPusher::pushConditional(int ret) {
 
 void StackPusher::if_or_ifNot(bool _withNot, bool _withJmp) {
 	solAssert(!m_instructions.back().empty(), "");
-	auto trueBlock = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
+	auto trueBlock = std::dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	solAssert(trueBlock, "");
 	m_instructions.back().pop_back();
 	auto b = createNode<TvmIfElse>(_withNot, _withJmp, trueBlock, nullptr, 0);
 	m_instructions.back().push_back(b);
 }
 
-void StackPusher::_if() {
-	if_or_ifNot(false, false);
-}
+void StackPusher::_if() { if_or_ifNot(false, false); }
 
-void StackPusher::ifNot() {
-	if_or_ifNot(true, false);
-}
+void StackPusher::ifNot() { if_or_ifNot(true, false); }
 
-void StackPusher::ifJmp() {
-	if_or_ifNot(false, true);
-}
+void StackPusher::ifJmp() { if_or_ifNot(false, true); }
 
-void StackPusher::ifNotJmp() {
-	if_or_ifNot(true, true);
-}
+void StackPusher::ifNotJmp() { if_or_ifNot(true, true); }
 
 void StackPusher::repeatOrUntil(bool withBreakOrReturn, bool isRepeat) {
 	solAssert(!m_instructions.back().empty(), "");
 
-	auto loopBody = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
+	auto loopBody = std::dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	m_instructions.back().pop_back();
 	solAssert(loopBody != nullptr, "");
 
@@ -771,20 +712,16 @@ void StackPusher::repeatOrUntil(bool withBreakOrReturn, bool isRepeat) {
 	m_instructions.back().push_back(b);
 }
 
-void StackPusher::repeat(bool withBreakOrReturn) {
-	repeatOrUntil(withBreakOrReturn, true);
-}
+void StackPusher::repeat(bool _withBreakOrReturn) { repeatOrUntil(_withBreakOrReturn, true); }
 
-void StackPusher::until(bool withBreakOrReturn) {
-	repeatOrUntil(withBreakOrReturn, false);
-}
+void StackPusher::until(bool withBreakOrReturn) { repeatOrUntil(withBreakOrReturn, false); }
 
 void StackPusher::_while(bool _withBreakOrReturn) {
 	solAssert(m_instructions.back().size() >= 2, "");
-	auto body = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
+	auto body = std::dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	solAssert(body != nullptr, "");
 	m_instructions.back().pop_back();
-	auto condition = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
+	auto condition = std::dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	solAssert(condition != nullptr, "");
 	m_instructions.back().pop_back();
 	auto b = createNode<While>(false, _withBreakOrReturn, condition, body);
@@ -793,10 +730,10 @@ void StackPusher::_while(bool _withBreakOrReturn) {
 
 void StackPusher::tryOpcode(bool saveAltC2) {
 	solAssert(m_instructions.back().size() >= 2, "");
-	auto catchBody = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
+	auto catchBody = std::dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	solAssert(catchBody != nullptr, "");
 	m_instructions.back().pop_back();
-	auto tryBody = dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
+	auto tryBody = std::dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
 	solAssert(tryBody != nullptr, "");
 	m_instructions.back().pop_back();
 	auto b = createNode<TryCatch>(tryBody, catchBody, saveAltC2);
@@ -830,14 +767,14 @@ void StackPusher::ifNotRet() {
 	change(1, 0);
 }
 
-void StackPusher::_throw(const std::string& cmd) {
+void StackPusher::_throw(std::string const& cmd) {
 	auto opcode = makeTHROW(cmd);
 	m_instructions.back().push_back(opcode);
 	change(opcode->take(), 0);
 }
 
-TVMStack &StackPusher::getStack() {
-//	solUnimplemented("");
+TVMStack& StackPusher::getStack() {
+	//	solUnimplemented("");
 	return m_stack; // TODO delete
 }
 
@@ -890,27 +827,28 @@ void StackPusher::makeTuple(int qty) {
 	} else {
 		solAssert(qty <= 255, "");
 		pushInt(qty);
-		pushStackOpcode("TUPLEVAR", qty + 1, 1);
+		pushStackGenOpcode("TUPLEVAR", qty + 1, 1);
 	}
 }
 
-void StackPusher::pushStackOpcode(const std::string& name, int take, int ret) {
-	auto opcode = createNode<StackOpcode>(name, take, ret);
+void StackPusher::pushStackGenOpcode(std::string const& name, int take, int ret) {
+	auto opcode = createNode<StackGen>(name, take, ret);
 	m_instructions.back().push_back(opcode);
 	change(take, ret);
 }
 
 void StackPusher::resetAllStateVars() {
-	std::vector<VariableDeclaration const *> const usualStateVars = ctx().storageLayout().usualStateVariables();
-	std::vector<VariableDeclaration const *> const unpackedStateVars = ctx().storageLayout().unpackedStateVariables();
-	std::vector<Type const *> const allTypes = getTypesFromVarDecls(ctx().storageLayout().usualAndUnpackedStateVariables());
-	std::vector<VariableDeclaration const *> const nostorageStateVariables = ctx().storageLayout().nostorageStateVars();
+	std::vector<VariableDeclaration const*> const usualStateVars = ctx().storageLayout().usualStateVariables();
+	std::vector<VariableDeclaration const*> const unpackedStateVars = ctx().storageLayout().unpackedStateVariables();
+	std::vector<Type const*> const allTypes =
+		getTypesFromVarDecls(ctx().storageLayout().usualAndUnpackedStateVariables());
+	std::vector<VariableDeclaration const*> const transientStateVariables = ctx().storageLayout().transientStateVars();
 
-	auto getDefaultUnpackedStateVars = [&]() {
-		const int startSize = getStack().size();
+	auto getDefaultUnpackedStateVars = [&] {
+		int const startSize = getStack().size();
 		AbiV2Position position{ctx().storageLayout().getOffsetC4(), 0, allTypes};
 
-		for (VariableDeclaration const *variable: unpackedStateVars | boost::adaptors::reversed)
+		for (VariableDeclaration const* variable: unpackedStateVars | std::views::reverse)
 			pushDefaultValue(variable->type());
 		*this << "NEWC";
 
@@ -927,27 +865,25 @@ void StackPusher::resetAllStateVars() {
 		*this << "FALSE";
 		setIndexQ(TvmConst::C7::FirstIndexForVariables);
 		unpackFirst(TvmConst::C7::FirstIndexForVariables);
-		for (VariableDeclaration const *variable: usualStateVars)
+		for (VariableDeclaration const* variable: usualStateVars)
 			pushDefaultValue(variable->type());
 		if (!unpackedStateVars.empty())
 			getDefaultUnpackedStateVars();
-		for (VariableDeclaration const *variable: nostorageStateVariables)
+		for (VariableDeclaration const* variable: transientStateVariables)
 			pushDefaultValue(variable->type());
-		const int stateVarQty =
-			usualStateVars.size() +
-			(unpackedStateVars.empty() ? 0 : 1) +
-			nostorageStateVariables.size();
+		int const stateVarQty =
+			usualStateVars.size() + (unpackedStateVars.empty() ? 0 : 1) + transientStateVariables.size();
 		makeTuple(TvmConst::C7::FirstIndexForVariables + stateVarQty);
 		popC7();
 	} else {
-		for (VariableDeclaration const *variable: usualStateVars)
+		for (VariableDeclaration const* variable: usualStateVars)
 			pushDefaultValue(variable->type());
-		for (VariableDeclaration const *variable: nostorageStateVariables)
+		for (VariableDeclaration const* variable: transientStateVariables)
 			pushDefaultValue(variable->type());
 
-		for (VariableDeclaration const *variable: nostorageStateVariables | boost::adaptors::reversed)
+		for (VariableDeclaration const* variable: transientStateVariables | std::views::reverse)
 			setGlob(variable);
-		for (VariableDeclaration const *variable: usualStateVars | boost::adaptors::reversed)
+		for (VariableDeclaration const* variable: usualStateVars | std::views::reverse)
 			setGlob(variable);
 
 		if (!unpackedStateVars.empty()) {
@@ -957,8 +893,8 @@ void StackPusher::resetAllStateVars() {
 	}
 }
 
-void StackPusher::getGlob(VariableDeclaration const *vd) {
-	const int index = ctx().storageLayout().getStateVarIndex(vd);
+void StackPusher::getGlob(VariableDeclaration const* vd) {
+	int const index = ctx().storageLayout().getStateVarIndex(vd);
 	getGlob(index);
 }
 
@@ -1005,13 +941,9 @@ void StackPusher::popC7() {
 	m_instructions.back().push_back(opcode);
 }
 
-void StackPusher::callx(int take, int ret) {
-	pushStackOpcode("CALLX", take, ret);
-}
+void StackPusher::callx(int take, int ret) { pushStackGenOpcode("CALLX", take, ret); }
 
-void StackPusher::call(uint32_t id, int take, int ret) {
-	pushStackOpcode("CALL " + toString(id), take, ret);
-}
+void StackPusher::call(uint32_t id, int take, int ret) { pushStackGenOpcode("CALL " + toString(id), take, ret); }
 
 void StackPusher::setGlob(int index) {
 	Pointer<TvmAstNode> opcode = makeSetGlob(index);
@@ -1019,8 +951,8 @@ void StackPusher::setGlob(int index) {
 	m_instructions.back().push_back(opcode);
 }
 
-void StackPusher::setGlob(VariableDeclaration const *vd) {
-	const int index = ctx().storageLayout().getStateVarIndex(vd);
+void StackPusher::setGlob(VariableDeclaration const* vd) {
+	int const index = ctx().storageLayout().getStateVarIndex(vd);
 	solAssert(index >= 0, "");
 	setGlob(index);
 }
@@ -1031,23 +963,15 @@ void StackPusher::pushS(int i) {
 	change(+1);
 }
 
-void StackPusher::pushS2(int i, int j) {
-	solAssert(i >= 0 && j >= 0, "");
-	m_instructions.back().push_back(makePUSH2(i, j));
-	change(+2);
-}
-
 void StackPusher::popS(int i) {
 	solAssert(i >= 1, "");
 	m_instructions.back().push_back(makePOP(i));
 	change(-1);
 }
 
-void StackPusher::pushInt(const bigint& i) {
-	*this << "PUSHINT " + toString(i);
-}
+void StackPusher::pushInt(bigint const& i) { *this << "PUSHINT " + toString(i); }
 
-bool StackPusher::fastLoad(const Type* type) {
+bool StackPusher::fastLoad(Type const* type) {
 	// slice
 	switch (type->category()) {
 	case Type::Category::Optional: {
@@ -1058,7 +982,7 @@ bool StackPusher::fastLoad(const Type* type) {
 			*this << "LDDICT";
 		} else {
 			startOpaque();
-			const int saveStackSize = stackSize();
+			int const saveStackSize = stackSize();
 			auto opt = to<OptionalType>(type);
 
 			auto f = [&](bool reverseOrder) {
@@ -1082,8 +1006,8 @@ bool StackPusher::fastLoad(const Type* type) {
 			};
 
 			*this << "LDI 1"; // hasValue slice
-			exchange(1);  // slice hasValue
-			fixStack(-1); // fix stack
+			exchange(1);	  // slice hasValue
+			fixStack(-1);	  // fix stack
 
 			startContinuation();
 			if (optValueAsTuple(opt->valueType())) {
@@ -1119,7 +1043,7 @@ bool StackPusher::fastLoad(const Type* type) {
 	}
 	case Type::Category::Tuple: {
 		auto tup = to<TupleType>(type);
-		for (auto t : tup->components()) {
+		for (auto t: tup->components()) {
 			load(t, false);
 		}
 		blockSwap(tup->components().size(), 1);
@@ -1132,7 +1056,7 @@ bool StackPusher::fastLoad(const Type* type) {
 	case Type::Category::Struct: {
 		auto st = to<StructType>(type);
 		std::vector<ASTPointer<VariableDeclaration>> const& members = st->structDefinition().members();
-		for (const ASTPointer<VariableDeclaration>& t : members) {
+		for (ASTPointer<VariableDeclaration> const& t: members) {
 			load(t->type(), false);
 		}
 		blockSwap(members.size(), 1);
@@ -1157,7 +1081,7 @@ bool StackPusher::fastLoad(const Type* type) {
 			pushInt(ti.numBits);
 			*this << "LDIX";
 		} else {
-			string cmd = ti.isSigned ? "LDI " : "LDU ";
+			std::string cmd = ti.isSigned ? "LDI " : "LDU ";
 			*this << cmd + toString(ti.numBits);
 		}
 		return true;
@@ -1185,7 +1109,8 @@ bool StackPusher::fastLoad(const Type* type) {
 	case Type::Category::VarInteger: {
 		auto varint = to<VarIntegerType>(type);
 		std::string cmd = "LDVAR";
-		if (!varint->asIntegerType().isSigned()) cmd += "U";
+		if (!varint->asIntegerType().isSigned())
+			cmd += "U";
 		cmd += "INT" + std::to_string(varint->n());
 		*this << cmd;
 		return true;
@@ -1198,7 +1123,7 @@ bool StackPusher::fastLoad(const Type* type) {
 	// false => slice value
 }
 
-void StackPusher::load(const Type *type, bool dataOnTop) {
+void StackPusher::load(Type const* type, bool dataOnTop) {
 	// slice
 	bool directOrder = fastLoad(type);
 	if (directOrder == dataOnTop) {
@@ -1207,8 +1132,8 @@ void StackPusher::load(const Type *type, bool dataOnTop) {
 	// dataOnTop? slice member : member slice
 }
 
-void StackPusher::preload(const Type *type) {
-	const int stackSize = this->stackSize();
+void StackPusher::preload(Type const* type) {
+	int const stackSize = this->stackSize();
 	// on stack there is slice
 	switch (type->category()) {
 	case Type::Category::Optional: {
@@ -1234,7 +1159,7 @@ void StackPusher::preload(const Type *type) {
 			pushInt(ti.numBits);
 			*this << "PLDIX";
 		} else {
-			string cmd = ti.isSigned ? "PLDI " : "PLDU ";
+			std::string cmd = ti.isSigned ? "PLDI " : "PLDU ";
 			*this << cmd + toString(ti.numBits);
 		}
 		break;
@@ -1263,7 +1188,7 @@ void StackPusher::preload(const Type *type) {
 		drop();
 		break;
 	case Type::Category::Tuple: {
-		const auto[types, names] = getTupleTypes(to<TupleType>(type));
+		auto const [types, names] = getTupleTypes(to<TupleType>(type));
 		StructCompiler sc{this, types, names};
 		sc.convertSliceToTuple();
 		break;
@@ -1274,12 +1199,12 @@ void StackPusher::preload(const Type *type) {
 	ensureSize(stackSize);
 }
 
-void StackPusher::loadQ(const Type *type) {
+void StackPusher::loadQ(Type const* type) {
 	// slice ->
 	//    cell slice' true
 	//    slice false
 
-	auto decodeRef = [&](){
+	auto decodeRef = [&] {
 		pushS(0);
 		*this << "SREFS";
 
@@ -1299,89 +1224,89 @@ void StackPusher::loadQ(const Type *type) {
 	};
 
 	switch (type->category()) {
-		case Type::Category::Optional: {
-			solUnimplemented("TODO");
-			break;
-		}
-		case Type::Category::Address:
-		case Type::Category::AddressStd:
-		case Type::Category::Contract:
-			pushAsym("LDMSGADDRQ");
-			break;
-		case Type::Category::TvmCell:
+	case Type::Category::Optional: {
+		solUnimplemented("TODO");
+		break;
+	}
+	case Type::Category::Address:
+	case Type::Category::AddressStd:
+	case Type::Category::Contract:
+		pushAsym("LDMSGADDRQ");
+		break;
+	case Type::Category::TvmCell:
+		decodeRef();
+		break;
+	case Type::Category::Struct: {
+		solUnimplemented("TODO");
+		break;
+	}
+	case Type::Category::Integer:
+	case Type::Category::Enum:
+	case Type::Category::Bool:
+	case Type::Category::FixedPoint:
+	case Type::Category::FixedBytes: {
+		TypeInfo ti{type};
+		solAssert(ti.isNumeric, "");
+		std::string cmd = (ti.isSigned ? "LDIQ " : "LDUQ ") + toString(ti.numBits);
+		pushAsym(cmd);
+		break;
+	}
+	case Type::Category::Function: {
+		solUnimplemented("TODO");
+		break;
+	}
+	case Type::Category::Array: {
+		auto arrayType = to<ArrayType>(type);
+		if (arrayType->isByteArrayOrString()) {
 			decodeRef();
-			break;
-		case Type::Category::Struct: {
-			solUnimplemented("TODO");
-			break;
-		}
-		case Type::Category::Integer:
-		case Type::Category::Enum:
-		case Type::Category::Bool:
-		case Type::Category::FixedPoint:
-		case Type::Category::FixedBytes: {
-			TypeInfo ti{type};
-			solAssert(ti.isNumeric, "");
-			string cmd = (ti.isSigned ? "LDIQ " : "LDUQ ") + toString(ti.numBits);
-			pushAsym(cmd);
-			break;
-		}
-		case Type::Category::Function: {
-			solUnimplemented("TODO");
-			break;
-		}
-		case Type::Category::Array: {
-			auto arrayType = to<ArrayType>(type);
-			if (arrayType->isByteArrayOrString()) {
-				decodeRef();
-			} else {
-				pushAsym("LDUQ 32");
+		} else {
+			pushAsym("LDUQ 32");
 
-				startContinuation();
-				pushAsym("LDDICTQ");
-				{
-					startContinuation(); // u32 dict s
-					rotRev();
-					this->makeTuple(2);
-					blockSwap(1, 1);
-					*this << "TRUE";
-					endContinuation();
-
-					startContinuation(); // u32 s
-					dropUnder(1, 1);
-					*this << "FALSE";
-					endContinuation();
-					ifElse();
-				}
+			startContinuation();
+			pushAsym("LDDICTQ");
+			{
+				startContinuation(); // u32 dict s
+				rotRev();
+				this->makeTuple(2);
+				blockSwap(1, 1);
+				*this << "TRUE";
 				endContinuation();
 
-				startContinuation();
+				startContinuation(); // u32 s
+				popS(1);
 				*this << "FALSE";
 				endContinuation();
-
 				ifElse();
 			}
-			break;
+			endContinuation();
+
+			startContinuation();
+			*this << "FALSE";
+			endContinuation();
+
+			ifElse();
 		}
-		case Type::Category::Mapping:
-			pushAsym("LDDICTQ");
-			break;
-		case Type::Category::VarInteger: {
-			solUnimplemented("TODO");
-			break;
-		}
-		case Type::Category::Tuple: {
-			solUnimplemented("TODO");
-			break;
-		}
-		default:
-			solUnimplemented("QDecode isn't supported for " + type->toString(true));
+		break;
+	}
+	case Type::Category::Mapping:
+		pushAsym("LDDICTQ");
+		break;
+	case Type::Category::VarInteger: {
+		solUnimplemented("TODO");
+		break;
+	}
+	case Type::Category::Tuple: {
+		solUnimplemented("TODO");
+		break;
+	}
+	default:
+		solUnimplemented("QDecode isn't supported for " + type->toString(true));
 	}
 }
 
-void StackPusher::store(const Type *type) {
+void StackPusher::store(Type const* type) {
 	// value builder
-	const int stackSize = this->stackSize();
+	int const stackSize = this->stackSize();
 	int deltaStack = 1;
 	switch (type->category()) {
 	case Type::Category::Optional: {
@@ -1392,16 +1317,16 @@ void StackPusher::store(const Type *type) {
 			*this << "STDICT";
 		} else {
 			startOpaque();
-			exchange(1);	// builder value
-			pushS(0);	// builder value value
-			*this << "ISNULL";	// builder value isnull
-			fixStack(-1); // fix stack
+			exchange(1);	   // builder value
+			pushS(0);		   // builder value value
+			*this << "ISNULL"; // builder value isnull
+			fixStack(-1);	   // fix stack
 			ensureSize(stackSize);
 
 			startContinuation();
 			// builder value
-			drop(1); // builder
-			stzeroes(1);  // builder'
+			drop(1);	 // builder
+			stzeroes(1); // builder'
 			endContinuation();
 			fixStack(+1); // fix stack
 			ensureSize(stackSize);
@@ -1413,8 +1338,8 @@ void StackPusher::store(const Type *type) {
 			}
 			// builder value
 			if (isSmallOptional(optType)) {
-				exchange(1); // value builder
-				stones(1); // value builder'
+				exchange(1);				 // value builder
+				stones(1);					 // value builder'
 				store(optType->valueType()); // builder''
 			} else {
 				// builder' value
@@ -1451,7 +1376,7 @@ void StackPusher::store(const Type *type) {
 		auto members = structType->structDefinition().members();
 		untuple(members.size());
 		this->reverse(members.size() + 1, 0);
-		for (const auto& member : members)
+		for (auto const& member: members)
 			store(member->type());
 		break;
 	}
@@ -1471,10 +1396,10 @@ void StackPusher::store(const Type *type) {
 		if (ti.numBits == 257) {
 			solAssert(ti.isSigned, "");
 			pushInt(ti.numBits);
-			string cmd = "STIX";
+			std::string cmd = "STIX";
 			*this << cmd;
 		} else {
-			string cmd = ti.isSigned? "STI" : "STU";
+			std::string cmd = ti.isSigned ? "STI" : "STU";
 			cmd += " " + toString(ti.numBits);
 			*this << cmd;
 		}
@@ -1493,11 +1418,11 @@ void StackPusher::store(const Type *type) {
 		if (arrayType->isByteArrayOrString()) {
 			*this << "STREF"; // builder
 		} else {
-			exchange(1); // builder arr
+			exchange(1);		  // builder arr
 			*this << "UNTUPLE 2"; // builder size dict
-			exchange(2);// dict size builder
-			*this << "STU 32"; // dict builder'
-			*this << "STDICT"; // builder''
+			exchange(2);		  // dict size builder
+			*this << "STU 32";	  // dict builder'
+			*this << "STDICT";	  // builder''
 		}
 		break;
 	}
@@ -1505,20 +1430,21 @@ void StackPusher::store(const Type *type) {
 		*this << "STB";
 		break;
 	case Type::Category::Tuple: {
-		exchange(1);	// builder value
+		exchange(1); // builder value
 
-		const auto[types, names] = getTupleTypes(to<TupleType>(type));
+		auto const [types, names] = getTupleTypes(to<TupleType>(type));
 		StructCompiler sc{this, types, names};
 		sc.tupleToBuilder();
 		*this << "STBR";
 		break;
 	}
 	case Type::Category::VarInteger: {
-		exchange(1);	// builder value
+		exchange(1); // builder value
 
 		auto varint = to<VarIntegerType>(type);
 		std::string cmd = "STVAR";
-		if (!varint->asIntegerType().isSigned()) cmd += "U";
+		if (!varint->asIntegerType().isSigned())
+			cmd += "U";
 		cmd += "INT" + std::to_string(varint->n());
 		*this << cmd;
 		break;
@@ -1531,7 +1457,7 @@ void StackPusher::store(const Type *type) {
 	ensureSize(stackSize - deltaStack);
 }
 
-void StackPusher::storeQ(const Type *type) {
+void StackPusher::storeQ(Type const* type) {
 	// value builder
 	startOpaque();
 	switch (type->category()) {
@@ -1560,10 +1486,10 @@ void StackPusher::storeQ(const Type *type) {
 		if (ti.numBits == 257) {
 			solAssert(ti.isSigned, "");
 			pushInt(ti.numBits);
-			string cmd = "STIXQ";
+			std::string cmd = "STIXQ";
 			pushAsym(cmd);
 		} else {
-			string cmd = ti.isSigned? "STIQ" : "STUQ";
+			std::string cmd = ti.isSigned ? "STIQ" : "STUQ";
 			cmd += " " + toString(ti.numBits);
 			pushAsym(cmd);
 		}
@@ -1588,11 +1514,11 @@ void StackPusher::pushZeroAddress() {
 }
 
 
-void StackPusher::convert(Type const *leftType, Type const *rightType) {
+void StackPusher::convert(Type const* leftType, Type const* rightType) {
 	TypeConversion{*this}.convert(leftType, rightType);
 }
 
-void StackPusher::checkFit(Type const *type) {
+void StackPusher::checkFit(Type const* type) {
 	switch (type->category()) {
 	case Type::Category::Integer: {
 		auto it = to<IntegerType>(type);
@@ -1631,12 +1557,12 @@ void StackPusher::checkFit(Type const *type) {
 		int size = enumType->numberOfMembers();
 		// TODO special case if size == 2**p
 		pushS(0);
-		pushInt(size); // x x size
-		*this << "LESS"; // x x<size
-		pushS(1); // x x<size x
-		pushInt(-1); // x x<size x -1
+		pushInt(size);		// x x size
+		*this << "LESS";	// x x<size
+		pushS(1);			// x x<size x
+		pushInt(-1);		// x x<size x -1
 		*this << "GREATER"; // x x<size x>-1
-		*this << "AND"; // x (x<size && x>-1)
+		*this << "AND";		// x (x<size && x>-1)
 		this->_throw("THROWIFNOT 4");
 		break;
 	}
@@ -1647,33 +1573,35 @@ void StackPusher::checkFit(Type const *type) {
 }
 
 void StackPusher::pushParameter(std::vector<ASTPointer<VariableDeclaration>> const& params) {
-	for (const ASTPointer<VariableDeclaration>& variable: params) {
+	for (ASTPointer<VariableDeclaration> const& variable: params) {
 		getStack().add(variable.get(), true);
 	}
 }
 
-void StackPusher::pushFragmentInCallRef(int take, int ret, const std::string &functionName) {
+void StackPusher::pushFragmentInCallRef(int take, int ret, std::string const& functionName) {
 	startContinuation();
 	pushFragment(take, ret, functionName);
-	pushRefContAndCallX(take, ret, false);
+	pushRefContAndCallX();
 }
 
 void StackPusher::pushCallOrCallRef(
 	FunctionDefinition const* _functionDef,
-	const std::optional<std::pair<int, int>>& deltaStack,
-	const bool isCalledByPoint
+	std::optional<std::pair<int, int>> const& deltaStack,
+	bool const isCalledByPoint
 ) {
-	auto [take, ret] = deltaStack.has_value() ?
-		deltaStack.value() :
-		std::make_pair<int, int>(_functionDef->parameters().size(), _functionDef->returnParameters().size());
+	auto [take, ret] =
+		deltaStack.has_value()
+			? deltaStack.value()
+			: std::make_pair<int, int>(_functionDef->parameters().size(), _functionDef->returnParameters().size());
 
 	std::string curFunctionName = ctx().currentFunctionName();
 	auto const [functionName, id] = ctx().functionInternalName(_functionDef, isCalledByPoint);
-	if (_functionDef->name() == "onCodeUpgrade" ||
+	if (
+		_functionDef->name() == "onCodeUpgrade" ||
 		m_ctx->callGraph().tryToAddEdge(curFunctionName, functionName) // Does it have a loop?
 	) {
-		if (id < (1 << 14)) {
-			ctx().callGraph().addPrivateFunction(id, functionName);
+		if (id < TvmConst::MaxCallN) {
+			ctx().callGraph().addDictFunction(id, functionName);
 			call(id, take, ret);
 		} else {
 			pushPrivateFunctionId(*_functionDef, isCalledByPoint);
@@ -1685,19 +1613,21 @@ void StackPusher::pushCallOrCallRef(
 	}
 }
 
-void StackPusher::pushFragment(int take, int ret, const std::string& functionName) {
+void StackPusher::pushFragment(int take, int ret, std::string const& functionName) {
 	solAssert(!ctx().callGraph().tryToAddEdge(ctx().currentFunctionName(), functionName), "");
-	pushStackOpcode(".inline " + functionName, take, ret);
+	pushStackGenOpcode(".inline " + functionName, take, ret);
 }
 
 void StackPusher::computeConstCell(std::string const& expName) {
 	solAssert(!ctx().callGraph().tryToAddEdge(ctx().currentFunctionName(), expName), "");
-	pushCellOrSlice(createNode<PushCellOrSlice>(PushCellOrSlice::Type::PUSHREF_COMPUTE, expName, nullptr));
+	pushCellOrSlice(createNode<CellOrSliceOperation>(CellOrSliceOperation::Type::PUSHREF_COMPUTE, expName, nullptr));
 }
 
 void StackPusher::computeConstSlice(std::string const& expName) {
 	solAssert(!ctx().callGraph().tryToAddEdge(ctx().currentFunctionName(), expName), "");
-	pushCellOrSlice(createNode<PushCellOrSlice>(PushCellOrSlice::Type::PUSHREFSLICE_COMPUTE, expName, nullptr));
+	pushCellOrSlice(
+		createNode<CellOrSliceOperation>(CellOrSliceOperation::Type::PUSHREFSLICE_COMPUTE, expName, nullptr)
+	);
 }
 
 
@@ -1718,9 +1648,7 @@ void StackPusher::blockSwap(int down, int up) {
 	push(createNode<Stack>(Stack::Opcode::BLKSWAP, down, up));
 }
 
-void StackPusher::reverse(int i, int j) {
-	push(makeREVERSE(i, j));
-}
+void StackPusher::reverse(int qty, int startIndex) { push(makeREVERSE(qty, startIndex)); }
 
 void StackPusher::dropUnder(int droppedCount, int leftCount) {
 	// drop dropCount elements that are situated under top leftCount elements
@@ -1731,8 +1659,6 @@ void StackPusher::dropUnder(int droppedCount, int leftCount) {
 		// do nothing
 	} else if (leftCount == 0) {
 		drop(droppedCount);
-	} else if (droppedCount == 1 && leftCount == 1) {
-		popS(1);
 	} else {
 		push(createNode<Stack>(Stack::Opcode::BLKDROP2, droppedCount, leftCount));
 		change(-droppedCount);
@@ -1749,15 +1675,11 @@ void StackPusher::exchange(int i, int j) {
 	push(opcode);
 }
 
-void StackPusher::rot() {
-	push(makeROT());
-}
+void StackPusher::rot() { push(makeROT()); }
 
-void StackPusher::rotRev() {
-	push(makeROTREV());
-}
+void StackPusher::rotRev() { push(makeROTREV()); }
 
-Type const* StackPusher::parseIndexType(Type const *type) {
+Type const* StackPusher::parseIndexType(Type const* type) {
 	if (to<ArrayType>(type)) {
 		return TypeProvider::uint(32);
 	}
@@ -1767,7 +1689,7 @@ Type const* StackPusher::parseIndexType(Type const *type) {
 	solUnimplemented("");
 }
 
-void StackPusher::assignStackVariable(Declaration const *name) {
+void StackPusher::assignStackVariable(Declaration const* name) {
 	auto& stack = getStack();
 	int idx = stack.getOffset(name);
 	solAssert(idx >= 0, "");
@@ -1778,7 +1700,7 @@ void StackPusher::assignStackVariable(Declaration const *name) {
 	}
 }
 
-void StackPusher::prepareKeyForDictOperations(Type const *key, bool doIgnoreBytes) {
+void StackPusher::prepareKeyForDictOperations(Type const* key, bool doIgnoreBytes) {
 	// stack: key
 	if (isStringOrStringLiteralOrBytes(key) || key->category() == Type::Category::TvmCell) {
 		if (!doIgnoreBytes) {
@@ -1792,8 +1714,12 @@ void StackPusher::prepareKeyForDictOperations(Type const *key, bool doIgnoreByte
 	}
 }
 
-int StackPusher::int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams,
-									bool isDestBuilder) {
+std::pair<int, int> StackPusher::build_int_msg_info(
+	std::set<int> const& isParamOnStack,
+	std::map<int, std::string> const& constParams,
+	bool isDestBuilder,
+	std::function<void()> const& pushValue
+) {
 	// int_msg_info$0  ihr_disabled:Bool  bounce:Bool(#1)  bounced:Bool
 	//				 src:MsgAddress  dest:MsgAddressInt(#4)
 	//				 value:CurrencyCollection(#5,#6)  ihr_fee:Grams  fwd_fee:Grams
@@ -1802,116 +1728,110 @@ int StackPusher::int_msg_info(const std::set<int> &isParamOnStack, const std::ma
 
 	// currencies$_ grams:Grams other:ExtraCurrencyCollection = CurrencyCollection;
 
-	static const std::vector<int> zeroes {1, 1, 1,
-									2, 2,
-									4, 1, 4, 4,
-									64, 32};
-	std::string bitString = "0";
-	int maxBitStringSize = 0;
+	static std::vector<int> const zeroes{1, 1, 1, 2, 2, 4, 1, 4, 4, 64, 32};
+	int maxBits = 0;
+	int maxRefs = 0;
 	*this << "NEWC";
-	for (int param = 0; param < static_cast<int>(zeroes.size()); ++param) {
-		solAssert(constParams.count(param) == 0 || isParamOnStack.count(param) == 0, "");
+	this->stzeroes(1); // int_msg_info$0
+	++maxBits;
+	for (std::size_t param = 0; param < zeroes.size(); ++param) {
+		solAssert(!constParams.contains(param) || !isParamOnStack.contains(param), "");
 
-		if (constParams.count(param) != 0) {
-			bitString += constParams.at(param);
-			maxBitStringSize += constParams.at(param).length();
-		} else if (isParamOnStack.count(param) == 0) {
-			bitString += std::string(zeroes.at(param), '0');
-			maxBitStringSize += zeroes.at(param);
-			solAssert(param != TvmConst::int_msg_info::dest, "");
-		} else {
-			appendToBuilder(bitString);
-			bitString = "";
+		if (param == 0) {
+			solAssert(!constParams.contains(param) && !isParamOnStack.contains(param), "");
+			// ihr_disabled:Bool
+			this->stones(1);
+			++maxBits;
+		} else if (constParams.contains(param)) {
+			std::string bitStr = constParams.at(param);
+			appendToBuilder(bitStr);
+			maxBits += bitStr.length();
+		} else if (isParamOnStack.contains(param)) {
 			switch (param) {
-				case TvmConst::int_msg_info::bounce:
-					*this << "STI 1";
-					++maxBitStringSize;
-					break;
-				case TvmConst::int_msg_info::dest:
-					if (isDestBuilder) {
-						*this << "STB";
-					} else {
-						*this << "STSLICE";
-					}
-					maxBitStringSize += AddressInfo::maxBitLength();
-					break;
-				case TvmConst::int_msg_info::tons:
-					exchange(1);
-					*this << "STGRAMS";
-					maxBitStringSize += VarUIntegerInfo::maxTonBitLength();
-					break;
-				case TvmConst::int_msg_info::currency:
-					*this << "STDICT";
-					++maxBitStringSize;
-					break;
-				default:
-					solUnimplemented("");
+			case TvmConst::int_msg_info::bounce:
+				*this << "STI 1";
+				++maxBits;
+				break;
+			case TvmConst::int_msg_info::dest:
+				if (isDestBuilder) {
+					*this << "STB";
+				} else {
+					*this << "STSLICE";
+				}
+				maxBits += AddressInfo::stdAddrWithoutAnyCastLength();
+				break;
+			case TvmConst::int_msg_info::tons:
+				solAssert(pushValue == nullptr, "");
+				exchange(1);
+				*this << "STVARUINT16";
+				maxBits += VarUIntegerInfo::maxTonBitLength();
+				break;
+			case TvmConst::int_msg_info::currency:
+				*this << "STDICT";
+				++maxBits;
+				++maxRefs;
+				break;
+			default:
+				solUnimplemented("");
 			}
+		} else if (param == TvmConst::int_msg_info::tons) {
+			pushValue();
+			*this << "STVARUINT16";
+			maxBits += VarUIntegerInfo::maxTonBitLength();
+		} else {
+			int zeroQty = zeroes.at(param);
+			std::string bitStr(zeroQty, '0');
+			appendToBuilder(bitStr);
+			maxBits += zeroQty;
+			solAssert(param != TvmConst::int_msg_info::dest, "");
 		}
 	}
-	appendToBuilder(bitString);
-	bitString = "";
-	return maxBitStringSize;
+	return {maxBits, maxRefs};
 }
 
-int StackPusher::ext_msg_info(const set<int> &isParamOnStack, bool isOut = true) {
-	// ext_in_msg_info$10 src:MsgAddressExt dest:MsgAddressInt
-	// import_fee:Grams = CommonMsgInfo;
-	//
+int StackPusher::build_ext_msg_info(std::set<int> const& isParamOnStack) {
 	// ext_out_msg_info$11 src:MsgAddressInt dest:MsgAddressExt
 	// created_lt:uint64 created_at:uint32 = CommonMsgInfo;
 
-	std::vector<int> zeroes {2, 2};
-	if (isOut) {
-		zeroes.push_back(64);
-		zeroes.push_back(32);
-	} else {
-		zeroes.push_back(4);
-	}
-	std::string bitString = isOut ? "11" : "10";
-	int maxBitStringSize = 0;
+	std::vector<int> zeroes{2, 2, 64, 32};
 	*this << "NEWC";
+	this->stones(2); // ext_out_msg_info$11
+	int maxBitStringSize = 2;
 	for (int param = 0; param < static_cast<int>(zeroes.size()); ++param) {
-		if (isParamOnStack.count(param) == 0) {
-			bitString += std::string(zeroes.at(param), '0');
+		if (!isParamOnStack.contains(param)) {
+			int zeroQty = zeroes.at(param);
+			maxBitStringSize += zeroQty;
+			this->stzeroes(zeroQty);
 		} else {
-			maxBitStringSize += bitString.size();
-			appendToBuilder(bitString);
-			bitString = "";
 			if (param == TvmConst::ext_msg_info::dest) {
 				*this << "STSLICE";
-				maxBitStringSize += AddressInfo::maxBitLength();
-			} else if (param == TvmConst::ext_msg_info::src) {
-				*this << "STB";
-				maxBitStringSize += TvmConst::ExtInboundSrcLength;
+				maxBitStringSize += AddressInfo::externalAddressLength();
 			} else {
 				solUnimplemented("");
 			}
 		}
 	}
-	maxBitStringSize += bitString.size();
-	appendToBuilder(bitString);
-	bitString = "";
 	return maxBitStringSize;
 }
 
 
-void StackPusher::appendToBuilder(const std::string &bitString) {
+void StackPusher::appendToBuilder(std::string const& bitString) {
 	// stack: builder
 	if (bitString.empty()) {
 		return;
 	}
 
-	size_t count = std::count_if(bitString.begin(), bitString.end(), [](char c) { return c == '0'; });
+	size_t count = std::ranges::count_if(bitString, [](char c) { return c == '0'; });
 	if (count == bitString.size()) {
 		stzeroes(count);
 	} else {
-		const std::string hex = StrUtils::binaryStringToSlice(bitString);
+		std::string const hex = StrUtils::binaryStringToSlice(bitString);
 		if (hex.length() * 4 <= 8 * 7 + 1) {
 			*this << "STSLICECONST x" + hex;
 		} else {
 			pushSlice("x" + StrUtils::binaryStringToSlice(bitString));
-			*this << "STSLICER";
+			this->blockSwap(1, 1);
+			*this << "STSLICE";
 		}
 	}
 }
@@ -1945,64 +1865,71 @@ void StackPusher::stones(int qty) {
 	}
 }
 
-void StackPusher::sendrawmsg() {
-	*this << "SENDRAWMSG";
-}
+void StackPusher::sendrawmsg() { *this << "SENDRAWMSG"; }
 
-void StackPusher::sendIntMsg(
-	const std::map<int, Expression const *> &exprs,
-	const std::map<int, std::string> &constParams,
-	const std::function<void(int)> &appendBody,
-	const std::function<void()> &pushSendrawmsgFlag,
-	const std::function<void()> &appendStateInit
+void StackPusher::pushParamsAndSendInternalMessage(
+	std::map<int, Expression const*> const& exprs,
+	std::map<int, std::string> const& constParams,
+	std::function<void(int bitSizeBuilder, int refSizeBuilder)> const& appendBody,
+	std::function<void()> const& pushSendRawMsgFlag,
+	std::function<std::pair<int, int>()> const& appendEitherStateInit,
+	std::function<void()> const& pushValue
 ) {
 	std::set<int> isParamOnStack;
-	for (auto &[param, expr] : exprs | boost::adaptors::reversed) {
+	for (auto& [param, expr]: exprs | std::views::reverse) {
 		isParamOnStack.insert(param);
 		TVMExpressionCompiler{*this}.compileNewExpr(expr);
 	}
-	sendMsg(isParamOnStack, constParams, appendBody, appendStateInit, pushSendrawmsgFlag);
+	sendMessage(
+		isParamOnStack,
+		constParams,
+		appendBody,
+		appendEitherStateInit,
+		pushSendRawMsgFlag,
+		MsgType::Internal,
+		false,
+		pushValue
+	);
 }
 
-
-
-void StackPusher::prepareMsg(
-	const std::set<int>& isParamOnStack,
-	const std::map<int, std::string> &constParams,
-	const std::function<void(int)> &appendBody,
-	const std::function<void()> &appendStateInit,
+void StackPusher::prepareMessage(
+	std::set<int> const& isParamOnStack,
+	std::map<int, std::string> const& constParams,
+	std::function<void(int bitSizeBuilder, int refSizeBuilder)> const& appendBody,
+	std::function<std::pair<int, int>()> const& appendEitherStateInit,
 	MsgType messageType,
-	bool isDestBuilder
+	bool isDestBuilder,
+	std::function<void()> const& pushValue
 ) {
-	int msgInfoSize = 0;
+	int bitSizeBuilder = 0;
+	int refSizeBuilder = 0;
 	switch (messageType) {
-		case MsgType::Internal:
-			msgInfoSize = int_msg_info(isParamOnStack, constParams, isDestBuilder);
-			break;
-		case MsgType::ExternalOut:
-			msgInfoSize = ext_msg_info(isParamOnStack);
-			break;
-		case MsgType::ExternalIn:
-			msgInfoSize = ext_msg_info(isParamOnStack, false);
-			break;
+	case MsgType::Internal:
+		std::tie(bitSizeBuilder, refSizeBuilder) =
+			build_int_msg_info(isParamOnStack, constParams, isDestBuilder, pushValue);
+		break;
+	case MsgType::ExternalOut:
+		bitSizeBuilder = build_ext_msg_info(isParamOnStack);
+		break;
 	}
 	// stack: builder
 
-	if (appendStateInit) {
+	if (appendEitherStateInit) {
 		// stack: values... builder
-		appendToBuilder("1");
-		appendStateInit();
-		++msgInfoSize;
-		// stack: builder-with-stateInit
-	} else {
-		appendToBuilder("0"); // there is no StateInit
-	}
+		appendToBuilder("1"); // Maybe = true
+		++bitSizeBuilder;
 
-	++msgInfoSize;
+		auto const [bits, refs] = appendEitherStateInit();
+		bitSizeBuilder += bits;
+		refSizeBuilder += refs; // Either StateInit ^StateInit
+	} else {
+		appendToBuilder("0"); // Maybe == false
+		++bitSizeBuilder;
+	}
 
 	if (appendBody) {
 		// stack: values... builder
-		appendBody(msgInfoSize);
+		appendBody(bitSizeBuilder, refSizeBuilder);
 		// stack: builder-with-body
 	} else {
 		appendToBuilder("0"); // there is no message body
@@ -2012,25 +1939,34 @@ void StackPusher::prepareMsg(
 	*this << "ENDC"; // stack: cell
 }
 
-void StackPusher::sendMsg(const std::set<int>& isParamOnStack,
-								const std::map<int, std::string> &constParams,
-								const std::function<void(int)> &appendBody,
-								const std::function<void()> &appendStateInit,
-								const std::function<void()> &pushSendrawmsgFlag,
-								MsgType messageType,
-								bool isDestBuilder) {
-	prepareMsg(isParamOnStack, constParams, appendBody, appendStateInit, messageType, isDestBuilder);
-	if (pushSendrawmsgFlag) {
-		pushSendrawmsgFlag();
+void StackPusher::sendMessage(
+	std::set<int> const& isParamOnStack,
+	std::map<int, std::string> const& constParams,
+	std::function<void(int bitSizeBuilder, int refSizeBuilder)> const& appendBody,
+	std::function<std::pair<int, int>()> const& appendEitherStateInit,
+	std::function<void()> const& pushSendRawMsgFlag,
+	MsgType messageType,
+	bool isDestBuilder,
+	std::function<void()> const& pushValue
+) {
+	prepareMessage(
+		isParamOnStack,
+		constParams,
+		appendBody,
+		appendEitherStateInit,
+		messageType,
+		isDestBuilder,
+		pushValue
+	);
+	if (pushSendRawMsgFlag) {
+		pushSendRawMsgFlag();
 	} else {
 		pushInt(TvmConst::SENDRAWMSG::DefaultFlag);
 	}
 	sendrawmsg();
 }
 
-int TVMStack::size() const {
-	return m_size;
-}
+int TVMStack::size() const { return m_size; }
 
 void TVMStack::change(int diff) {
 	if (diff != 0) {
@@ -2045,11 +1981,9 @@ void TVMStack::change(int take, int ret) {
 	change(-take + ret);
 }
 
-bool TVMStack::isParam(Declaration const *name) const {
-	return getStackSize(name) != -1;
-}
+bool TVMStack::isParam(Declaration const* name) const { return getStackSize(name) != -1; }
 
-void TVMStack::add(Declaration const *name, bool doAllocation) {
+void TVMStack::add(Declaration const* name, bool doAllocation) {
 	solAssert(name != nullptr, "");
 	if (doAllocation) {
 		++m_size;
@@ -2060,17 +1994,15 @@ void TVMStack::add(Declaration const *name, bool doAllocation) {
 	m_stackSize.at(m_size - 1) = name;
 }
 
-int TVMStack::getOffset(Declaration const *name) const {
+int TVMStack::getOffset(Declaration const* name) const {
 	solAssert(isParam(name), "");
 	int stackSize = getStackSize(name);
 	return getOffset(stackSize);
 }
 
-int TVMStack::getOffset(int stackSize) const {
-	return m_size - 1 - stackSize;
-}
+int TVMStack::getOffset(int stackSize) const { return m_size - 1 - stackSize; }
 
-int TVMStack::getStackSize(Declaration const *name) const {
+int TVMStack::getStackSize(Declaration const* name) const {
 	int size = std::min<int>(m_stackSize.size(), m_size);
 	for (int i = size - 1; i >= 0; --i) {
 		if (m_stackSize.at(i) == name) {
@@ -2080,98 +2012,63 @@ int TVMStack::getStackSize(Declaration const *name) const {
 	return -1;
 }
 
-void TVMStack::ensureSize(int savedStackSize, const string &location, const ASTNode* node) const {
+void TVMStack::ensureSize(int savedStackSize, std::string const& location, ASTNode const* node) const {
 	if (node != nullptr && savedStackSize != m_size) {
-		cast_error(*node, string{} + "Stack size error: expected: " + toString(savedStackSize)
-								   + " but real: " + toString(m_size) + " at " + location);
+		cast_error(
+			*node,
+			std::string{} +
+				"Stack size error: expected: " +
+				toString(savedStackSize) +
+				" but real: " +
+				toString(m_size) +
+				" at " +
+				location
+		);
 	}
-	solAssert(savedStackSize == m_size, "stack: exp:" + toString(savedStackSize)
-				+ " real: " + toString(m_size) + " at " + location);
+	solAssert(
+		savedStackSize == m_size,
+		"stack: exp:" + toString(savedStackSize) + " real: " + toString(m_size) + " at " + location
+	);
 }
 
 void TVMStack::takeLast(int n) {
 	solAssert(m_size >= n, "");
-	solAssert(int(m_stackSize.size()) >= m_size, "");
+	solAssert(static_cast<int>(m_stackSize.size()) >= m_size, "");
 	m_stackSize.resize(m_size);
-	m_stackSize = vector<Declaration const*>(m_stackSize.end() - n, m_stackSize.end());
+	m_stackSize = std::vector<Declaration const*>(m_stackSize.end() - n, m_stackSize.end());
 	m_size = n;
-	solAssert(int(m_stackSize.size()) == n, "");
+	solAssert(static_cast<int>(m_stackSize.size()) == n, "");
 }
 
-InherHelper::InherHelper(const ContractDefinition *contract) {
-	for (ContractDefinition const* c : contract->annotation().linearizedBaseContracts) {
-		for (FunctionDefinition const *_function : c->definedFunctions()) {
-			const std::set<CallableDeclaration const*>& b = _function->annotation().baseFunctions;
+InherHelper::InherHelper(ContractDefinition const* contract) {
+	for (ContractDefinition const* c: contract->annotation().linearizedBaseContracts) {
+		for (FunctionDefinition const* _function: c->definedFunctions()) {
+			std::set<CallableDeclaration const*> const& b = _function->annotation().baseFunctions;
 			m_baseFunctions.insert(b.begin(), b.end());
 		}
 	}
 }
 
-bool InherHelper::isBaseFunction(CallableDeclaration const* d) const {
-	return m_baseFunctions.count(d) != 0;
-}
+bool InherHelper::isBaseFunction(CallableDeclaration const* d) const { return m_baseFunctions.contains(d); }
 
-bool FunctionCallGraph::tryToAddEdge(std::string const& _v, std::string const& _to) {
-	m_graph[_v].insert(_to);
-	m_graph[_to]; // creates default value if there is no such key
-	for (const auto& k : m_graph | boost::adaptors::map_keys)
-		m_color[k] = Color::White;
-	m_order = {};
-	bool hasLoop{};
-	for (const auto& k : m_graph | boost::adaptors::map_keys)
-		if (dfs(k)) {
-			hasLoop = true;
-			m_graph[_v].erase(_to);
-			break;
-		}
-	return hasLoop;
-}
-
-std::vector<std::string> FunctionCallGraph::DAG() {
-	for (const auto& k : m_graph | boost::adaptors::map_keys)
-		m_color[k] = Color::White;
-	m_order = {};
-	for (const auto& k : m_graph | boost::adaptors::map_keys)
-		dfs(k);
-	return m_order;
-}
-
-bool FunctionCallGraph::dfs(std::string const& v) {
-	if (m_color.at(v) == Color::Black)
-		return false;
-	if (m_color.at(v) == Color::Red)
-		return true;
-
-	// It's white
-	m_color.at(v) = Color::Red;
-	for (std::string const& _to : m_graph.at(v))
-		if (dfs(_to))
-			return true;
-	m_order.emplace_back(v);
-
-	m_color.at(v) = Color::Black;
-	return false;
-}
-
-StorageLayout::StorageLayout(ContractDefinition const *contract) : m_contract(contract) {
+StorageLayout::StorageLayout(ContractDefinition const* contract):
+	m_contract(contract) {
 	auto const c4StateVars = usualStateVariables();
-	for (VariableDeclaration const *variable : c4StateVars) {
+	for (VariableDeclaration const* variable: c4StateVars) {
 		int index = TvmConst::C7::FirstIndexForVariables + m_stateVarIndex.size();
 		m_stateVarIndex[variable] = index;
 	}
-	const auto& unpackedStateVars = unpackedStateVariables();
-	for (VariableDeclaration const *variable : nostorageStateVars()) {
+	auto const& unpackedStateVars = unpackedStateVariables();
+	for (VariableDeclaration const* variable: transientStateVars()) {
 		int index = TvmConst::C7::FirstIndexForVariables + m_stateVarIndex.size() + (unpackedStateVars.empty() ? 0 : 1);
 		m_stateVarIndex[variable] = index;
 	}
 }
 
-int StorageLayout::getStateVarIndex(VariableDeclaration const *variable) const {
-	return m_stateVarIndex.at(variable);
-}
+int StorageLayout::getStateVarIndex(VariableDeclaration const* variable) const { return m_stateVarIndex.at(variable); }
 
-std::vector<Type const *> StorageLayout::getC4Types() const {
-	std::vector<Type const *> types;
+std::vector<Type const*> StorageLayout::getC4Types() const {
+	std::vector<Type const*> types;
 	if (storePubkeyInC4())
 		types.emplace_back(TypeProvider::uint256());
 	if (storeTimestampInC4())
@@ -2185,34 +2082,33 @@ std::vector<Type const *> StorageLayout::getC4Types() const {
 	return types;
 }
 
-std::vector<VariableDeclaration const *> StorageLayout::usualAndUnpackedStateVariables() const {
+std::vector<VariableDeclaration const*> StorageLayout::usualAndUnpackedStateVariables() const {
 	auto stateVars = ::stateVariables(m_contract, StateVarType::Usual);
 	auto unpacked = ::stateVariables(m_contract, StateVarType::Unpacked);
 	stateVars.insert(stateVars.end(), unpacked.begin(), unpacked.end());
 	return stateVars;
 }
 
-std::vector<VariableDeclaration const *> StorageLayout::usualStateVariables() const {
+std::vector<VariableDeclaration const*> StorageLayout::usualStateVariables() const {
 	return ::stateVariables(m_contract, StateVarType::Usual);
 }
 
-std::vector<VariableDeclaration const *> StorageLayout::unpackedStateVariables() const {
+std::vector<VariableDeclaration const*> StorageLayout::unpackedStateVariables() const {
 	return ::stateVariables(m_contract, StateVarType::Unpacked);
 }
 
-std::vector<VariableDeclaration const *> StorageLayout::nostorageStateVars() const {
-	return ::stateVariables(m_contract, StateVarType::NoStorage);
+std::vector<VariableDeclaration const*> StorageLayout::transientStateVars() const {
+	return ::stateVariables(m_contract, StateVarType::Transient);
 }
 
 bool StorageLayout::tooMuchStateVariables() const {
-	return usualStateVariables().size() +
-		(unpackedStateVariables().empty() ? 0 : 1) +
-		nostorageStateVars().size() >= TvmConst::C7::FirstIndexForVariables + 6;
+	return usualStateVariables().size() + (unpackedStateVariables().empty() ? 0 : 1) + transientStateVars().size() >=
+		   TvmConst::C7::FirstIndexForVariables + 6;
 }
 
 FunctionDefinition const* StorageLayout::hasConstructor() const {
-	for (ContractDefinition const* c : getContractsChain(m_contract)) {
-		for (const auto f : c->definedFunctions()) {
+	for (ContractDefinition const* c: getContractsChain(m_contract)) {
+		for (auto const f: c->definedFunctions()) {
 			if (f->isConstructor())
 				return f;
 		}
@@ -2220,25 +2116,21 @@ FunctionDefinition const* StorageLayout::hasConstructor() const {
 	return nullptr;
 }
 
-bool StorageLayout::storePubkeyInC4() const {
-	return m_contract->externalMsgHeaders() != nullptr;
-}
+bool StorageLayout::storePubkeyInC4() const { return m_contract->externalMsgHeaders() != nullptr; }
 
 bool StorageLayout::storeTimestampInC4() const {
 	return m_contract->externalMsgHeaders() && m_contract->externalMsgHeaders()->hasTime();
 }
 
 int StorageLayout::getOffsetC4() const {
-	return
-		(storePubkeyInC4() ? 256 : 0) + // pubkey
-		(storeTimestampInC4() ? 64 : 0) +
-		(hasConstructor() ? 1 : 0); // constructor flag
+	return (storePubkeyInC4() ? 256 : 0) +								 // pubkey
+		   (storeTimestampInC4() ? 64 : 0) + (hasConstructor() ? 1 : 0); // constructor flag
 }
 
 std::vector<std::pair<VariableDeclaration const*, int>> StorageLayout::getStaticVariables() const {
 	int shift = 0;
 	std::vector<std::pair<VariableDeclaration const*, int>> res;
-	for (VariableDeclaration const* v : usualAndUnpackedStateVariables()) {
+	for (VariableDeclaration const* v: usualAndUnpackedStateVariables()) {
 		if (v->isStatic()) {
 			res.emplace_back(v, TvmConst::C4::PersistenceMembersStartIndex + shift++);
 		}
@@ -2250,24 +2142,19 @@ int StorageLayout::getUnpackIndex() const {
 	return TvmConst::C7::FirstIndexForVariables + usualStateVariables().size();
 }
 
-TVMCompilerContext::TVMCompilerContext(ContractDefinition const *contract, PragmaDirectiveHelper const &pragmaHelper) :
+TVMCompilerContext::TVMCompilerContext(ContractDefinition const* contract, PragmaDirectiveHelper const& pragmaHelper):
 	m_contract{contract},
 	m_pragmaHelper{pragmaHelper},
 	m_usage{*contract},
 	m_inherHelper{contract},
-	m_storageLayout{contract}
-{
+	m_storageLayout{contract} {
 	solAssert(m_contract, "");
 	m_isUncheckedBlock.push(false);
 	ignoreIntOverflow = m_pragmaHelper.hasIgnoreIntOverflow();
 }
-PragmaDirectiveHelper const &TVMCompilerContext::pragmaHelper() const {
-	return m_pragmaHelper;
-}
+PragmaDirectiveHelper const& TVMCompilerContext::pragmaHelper() const { return m_pragmaHelper; }
 
-bool TVMCompilerContext::isStdlib() const {
-	return m_contract->name() == "stdlib";
-}
+bool TVMCompilerContext::isStdlib() const { return m_contract->name() == "stdlib"; }
 
 std::pair<std::string, uint32_t>
 TVMCompilerContext::functionInternalName(FunctionDefinition const* _function, bool calledByPoint) const {
@@ -2275,11 +2162,15 @@ TVMCompilerContext::functionInternalName(FunctionDefinition const* _function, bo
 	if (isStdlib()) {
 		functionName = _function->name();
 	} else {
-		const std::string hexName = _function->externalIdentifierHex();
+		std::string const hexName = _function->externalIdentifierHex();
 		ContractDefinition const* contract = _function->annotation().contract;
 		if (contract && contract->isLibrary())
-			functionName = _function->annotation().contract->name() + "_" +
-							   (calledByPoint ? "with_obj_" : "") + _function->name() + "_" + hexName;
+			functionName = _function->annotation().contract->name() +
+						   "_" +
+						   (calledByPoint ? "with_obj_" : "") +
+						   _function->name() +
+						   "_" +
+						   hexName;
 		else if (_function->isFree())
 			functionName = (calledByPoint ? "with_obj_" : "") + _function->name() + "_" + hexName + "_free_internal";
 		else if (calledByPoint && isBaseFunction(_function) && _function->name() != "onCodeUpgrade")
@@ -2292,14 +2183,13 @@ TVMCompilerContext::functionInternalName(FunctionDefinition const* _function, bo
 	if (_function->functionID().has_value())
 		id = _function->functionID().value();
 	else {
-		id = ChainDataEncoder::toHash256(functionName);
-		id &= (1 << 14) - 1;
+		id = ChainDataEncoder::toPrivateFunctionId(functionName);
 	}
 	return {functionName, id};
 }
 
-string TVMCompilerContext::getFunctionExternalName(FunctionDefinition const *_function) {
-	const string& fname = _function->name();
+std::string TVMCompilerContext::getFunctionExternalName(FunctionDefinition const* _function) {
+	std::string const& fname = _function->name();
 	solAssert(_function->functionIsExternallyVisible(), "Internal error: expected public function: " + fname);
 	if (_function->isConstructor()) {
 		return "constructor";
@@ -2310,53 +2200,48 @@ string TVMCompilerContext::getFunctionExternalName(FunctionDefinition const *_fu
 	return fname;
 }
 
-const ContractDefinition *TVMCompilerContext::getContract() const {
-	return m_contract;
-}
+ContractDefinition const* TVMCompilerContext::getContract() const { return m_contract; }
 
 bool TVMCompilerContext::ignoreIntegerOverflow() const {
 	solAssert(!m_isUncheckedBlock.empty(), "");
 	return ignoreIntOverflow || m_isUncheckedBlock.top();
 }
 
-void TVMCompilerContext::addInlineFunction(const std::string& name, Pointer<CodeBlock> body) {
-	solAssert(m_inlinedFunctions.count(name) == 0, "");
+void TVMCompilerContext::addInlineFunction(std::string const& name, Pointer<CodeBlock> body) {
+	solAssert(!m_inlinedFunctions.contains(name), "");
 	m_inlinedFunctions[name] = std::move(body);
 }
 
-Pointer<CodeBlock> TVMCompilerContext::getInlinedFunction(const std::string& name) {
+Pointer<CodeBlock> TVMCompilerContext::getInlinedFunction(std::string const& name) {
 	return m_inlinedFunctions.at(name);
 }
 
 void TVMCompilerContext::addPublicFunction(
 	FunctionDefinition const* function,
 	uint32_t functionId,
-	const std::string& functionName
+	std::string const& functionName
 ) {
-	if (function->isExternalMsg() && function->isInternalMsg()) {
-		addIntPublicFunction(functionId, functionName);
-		addExtPublicFunction(functionId, functionName);
-	} else if (function->isExternalMsg())
-		addExtPublicFunction(functionId, functionName);
+	if (function->isExternalMsg())
+		addExternalMsgPublicFunction(functionId, functionName);
 	else
-		addIntPublicFunction(functionId, functionName);
+		addInternalMsgPublicFunction(functionId, functionName);
 }
 
-void TVMCompilerContext::addExtPublicFunction(uint32_t functionId, const std::string& functionName) {
+void TVMCompilerContext::addExternalMsgPublicFunction(uint32_t functionId, std::string const& functionName) {
 	m_extPublicFunctions.emplace_back(functionId, functionName);
 }
 
-void TVMCompilerContext::addIntPublicFunction(uint32_t functionId, const std::string& functionName) {
+void TVMCompilerContext::addInternalMsgPublicFunction(uint32_t functionId, std::string const& functionName) {
 	m_intPublicFunctions.emplace_back(functionId, functionName);
 }
 
-const std::vector<std::pair<uint32_t, std::string>>& TVMCompilerContext::getExtPublicFunctions() {
-	std::sort(m_extPublicFunctions.begin(), m_extPublicFunctions.end());
+std::vector<std::pair<uint32_t, std::string>> const& TVMCompilerContext::getExtPublicFunctions() {
+	std::ranges::sort(m_extPublicFunctions);
 	return m_extPublicFunctions;
 }
 
-const std::vector<std::pair<uint32_t, std::string>>& TVMCompilerContext::getIntPublicFunctions() {
-	std::sort(m_intPublicFunctions.begin(), m_intPublicFunctions.end());
+std::vector<std::pair<uint32_t, std::string>> const& TVMCompilerContext::getIntPublicFunctions() {
+	std::ranges::sort(m_intPublicFunctions);
 	return m_intPublicFunctions;
 }
 
@@ -2371,16 +2256,12 @@ void StackPusher::pushEmptyArray() {
 	*this << "TUPLE 2";
 }
 
-void StackPusher::pushNull() {
-	*this << "NULL";
-}
+void StackPusher::pushNull() { *this << "NULL"; }
 
-void StackPusher::pushNaN() {
-	*this << "PUSHNAN";
-}
+void StackPusher::pushNaN() { *this << "PUSHNAN"; }
 
 void StackPusher::pushEmptyCell() {
-	pushCellOrSlice(createNode<PushCellOrSlice>(PushCellOrSlice::Type::PUSHREF, "", nullptr));
+	pushCellOrSlice(createNode<CellOrSliceOperation>(CellOrSliceOperation::Type::PUSHREF, "", nullptr));
 }
 
 void StackPusher::pushDefaultValue(Type const* _type) {
@@ -2447,7 +2328,7 @@ void StackPusher::pushDefaultValue(Type const* _type) {
 	}
 	case Type::Category::Tuple: {
 		auto tuple = to<TupleType>(_type);
-		for (Type const* comp : tuple->components())
+		for (Type const* comp: tuple->components())
 			pushDefaultValue(comp);
 		returnValues = tuple->components().size();
 		break;
@@ -2462,20 +2343,16 @@ void StackPusher::pushDefaultValue(Type const* _type) {
 	endOpaque(0, returnValues, true);
 }
 
-void StackPusher::getDict(
-	Type const& keyType,
-	Type const& valueType,
-	const GetDictOperation op
-) {
+void StackPusher::getDict(Type const& keyType, Type const& valueType, GetDictOperation const op) {
 	GetFromDict d(*this, keyType, valueType, op, std::nullopt);
 	d.getDict();
 }
 
 void StackPusher::getAndSetDict(
-	const Type &keyType,
-	const Type &valueType,
-	const GetDictOperation op,
-	const DataType inputValueType
+	Type const& keyType,
+	Type const& valueType,
+	GetDictOperation const op,
+	DataType const inputValueType
 ) {
 	GetFromDict d(*this, keyType, valueType, op, inputValueType);
 	d.getDict();
@@ -2485,20 +2362,8 @@ void StackPusher::byteLengthOfCell() {
 	pushInt(0xFFFFFFFF);
 	*this << "CDATASIZE";
 	drop(1);
-	dropUnder(1, 1);
+	popS(1);
 	*this << "RSHIFT 3";
-}
-
-void StackPusher::was_c4_to_c7_called() {
-	int index = -1;
-	if (ctx().storageLayout().storePubkeyInC4()) {
-		index = TvmConst::C7::TvmPubkey;
-	} else {
-		solAssert(!ctx().storageLayout().usualAndUnpackedStateVariables().empty(), "");
-		index = TvmConst::C7::FirstIndexForVariables;
-	}
-	getGlob(index);
-	*this << "ISNULL";
 }
 
 void StackPusher::checkCtorCalled() {
@@ -2509,7 +2374,7 @@ void StackPusher::checkCtorCalled() {
 void StackPusher::checkIfCtorCalled(bool ifFlag) {
 	startContinuation();
 	checkCtorCalled();
-	endContinuationFromRef();
+	endContinuation();
 	if (ifFlag) {
 		ifJmp();
 	} else {
@@ -2519,7 +2384,7 @@ void StackPusher::checkIfCtorCalled(bool ifFlag) {
 
 void StackPusher::add(StackPusher const& pusher) {
 	solAssert(pusher.m_instructions.size() == 1, "");
-	for (const Pointer<TvmAstNode>& op : pusher.m_instructions.back()) {
+	for (Pointer<TvmAstNode> const& op: pusher.m_instructions.back()) {
 		m_instructions.back().emplace_back(op);
 	}
 }
@@ -2529,9 +2394,7 @@ void StackPusher::clear() {
 	m_instructions.emplace_back();
 }
 
-void StackPusher::takeLast(int n) {
-	m_stack.takeLast(n);
-}
+void StackPusher::takeLast(int n) { m_stack.takeLast(n); }
 
 void TypeConversion::convert(Type const* leftType, Type const* rightType) {
 	// TODO separate implicit conversion and explicit conversion
@@ -2545,12 +2408,12 @@ void TypeConversion::convert(Type const* leftType, Type const* rightType) {
 		auto l = to<OptionalType>(leftType);
 		convert(l->valueType(), rightType);
 		// optional(uint, uint) q = (1, 2);
-		if (l->valueType()->category() == Type::Category::Tuple){
+		if (l->valueType()->category() == Type::Category::Tuple) {
 			if (rightType->category() != Type::Category::Null) {
 				auto tt = to<TupleType>(l->valueType());
 				m_pusher.makeTuple(tt->components().size());
 			}
-		// optional([mapping|optional]) q = ...
+			// optional([mapping|optional]) q = ...
 		} else if (optValueAsTuple(l->valueType())) {
 			m_pusher.makeTuple(1);
 		}
@@ -2584,7 +2447,7 @@ void TypeConversion::convert(Type const* leftType, Type const* rightType) {
 		break;
 	case Type::Category::Tuple:
 		fromTuple(leftType, to<TupleType>(rightType));
-		break ;
+		break;
 	case Type::Category::StringLiteral:
 		fromStringLiteral(leftType, to<StringLiteralType>(rightType));
 		break;
@@ -2617,11 +2480,10 @@ void TypeConversion::convert(Type const* leftType, Type const* rightType) {
 
 void TypeConversion::integerToInteger(IntegerType const* leftType, IntegerType const* rightType) const {
 	if (rightType->isImplicitlyConvertibleTo(*leftType))
-		return ;
+		return;
 
 	bigint x = (bigint(1) << leftType->numBits()) - 1;
-	m_pusher << "PUSHINT " + toString(x)
-		  << "AND";
+	m_pusher << "PUSHINT " + toString(x) << "AND";
 
 	if (leftType->isSigned()) {
 		m_pusher.startOpaque();
@@ -2683,9 +2545,8 @@ void TypeConversion::fixedBytesToFixedBytes(FixedBytesType const* leftType, Fixe
 	}
 }
 
-auto TypeConversion::bytesToFixedBytes(FixedBytesType const *rightType) const -> void {
+auto TypeConversion::bytesToFixedBytes(FixedBytesType const* rightType) const -> void {
 	size_t bits = rightType->numBytes() * 8;
-	m_pusher.startContinuation();
 	m_pusher.startOpaque();
 	m_pusher << "CTOS"; // slice
 	m_pusher.pushAsym("LDUQ " + std::to_string(bits));
@@ -2718,13 +2579,15 @@ auto TypeConversion::bytesToFixedBytes(FixedBytesType const *rightType) const ->
 	m_pusher.endContinuation();
 	m_pusher.ifElse();
 	m_pusher.endOpaque(1, 1);
-	m_pusher.pushRefContAndCallX(1, 1, false);
 }
 
-void TypeConversion::stringLiteralToFixedBytes(FixedBytesType const* leftType, StringLiteralType const* rightType) const {
+void TypeConversion::stringLiteralToFixedBytes(
+	FixedBytesType const* leftType,
+	StringLiteralType const* rightType
+) const {
 	size_t bytes = 0;
 	u256 value = 0;
-	for (char c : rightType->value()) {
+	for (char c: rightType->value()) {
 		auto x = static_cast<uint8_t>(c);
 		value = value * 256 + x;
 		++bytes;
@@ -2760,8 +2623,9 @@ void TypeConversion::convertIntegerToAddress(Type const* t) const {
 		m_pusher.pushSlice("x" + StrUtils::binaryStringToSlice(StrUtils::literalToSliceAddress(r->value2())));
 	} else {
 		m_pusher << "NEWC";
-		m_pusher << "STSLICECONST x801_"; // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 // 10 0  00000000 1 = 801
-		m_pusher << "STU 256"; // address:bits256
+		m_pusher
+			<< "STSLICECONST x801_"; // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 // 10 0  00000000 1 = 801
+		m_pusher << "STU 256";		 // address:bits256
 		m_pusher << "ENDC";
 		m_pusher << "CTOS";
 	}
@@ -2891,8 +2755,7 @@ void TypeConversion::fromFixedBytesType(Type const* leftType, FixedBytesType con
 	}
 	case Type::Category::Integer: {
 		auto intType = to<IntegerType>(leftType);
-		if (intType && !intType->isSigned() &&
-			(intType->numBits() >= 8 * rightType->numBytes()))
+		if (intType && !intType->isSigned() && (intType->numBits() >= 8 * rightType->numBytes()))
 			break;
 		solUnimplemented("");
 		break;
@@ -2977,9 +2840,9 @@ void TypeConversion::fromSlice(Type const* leftType) const {
 	case Type::Category::Array: {
 		auto arrType = to<ArrayType>(leftType);
 		solAssert(arrType->isByteArrayOrString(), "");
-		m_pusher << "NEWC"    // s b
-			  << "STSLICE" // b'
-			  << "ENDC";   // cell
+		m_pusher << "NEWC"	  // s b
+				 << "STSLICE" // b'
+				 << "ENDC";	  // cell
 		break;
 	}
 	default:
@@ -3005,10 +2868,15 @@ void TypeConversion::fromStringLiteral(Type const* leftType, StringLiteralType c
 		break;
 	case Type::Category::Array:
 		break;
-	case Type::Category::TvmSlice:
+	case Type::Category::TvmSlice: {
 		m_pusher.drop();
-		m_pusher.pushSlice("x" + rightType->value());
+		auto value = rightType->value();
+		if (value == "" || value == "_") {
+			value = "8_";
+		}
+		m_pusher.pushSlice("x" + value);
 		break;
+	}
 	default:
 		solUnimplemented(leftType->toString());
 		break;

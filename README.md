@@ -27,13 +27,13 @@ Original Instructions about how to build and install the Solidity compiler can b
 #### Ubuntu Linux
 
 ```shell
-git clone https://github.com/broxus/TVM-Solidity-Compiler
+git clone --recurse-submodules https://github.com/broxus/TVM-Solidity-Compiler
 cd TVM-Solidity-Compiler
 sh ./compiler/scripts/install_deps.sh
 mkdir build
 cd build
 cmake ../compiler/ -DCMAKE_BUILD_TYPE=Release
-cmake --build . -- -j8
+cmake --build . --parallel
 ```
 
 #### Windows 10
@@ -42,7 +42,7 @@ Install Visual Studio Build Tools 2019, Git bash, cmake.
 Run Developer PowerShell for VS 2019
 
 ```shell
-git clone https://github.com/broxus/TVM-Solidity-Compiler
+git clone --recurse-submodules https://github.com/broxus/TVM-Solidity-Compiler
 cd TVM-Solidity-Compiler
 compiler\scripts\install_deps.ps1
 mkdir build

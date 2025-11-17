@@ -163,7 +163,7 @@ struct ErrorId
 	bool operator!=(ErrorId const& _rhs) const { return !(*this == _rhs); }
 	bool operator<(ErrorId const& _rhs) const { return error < _rhs.error; }
 };
-constexpr ErrorId operator"" _error(unsigned long long _error) { return ErrorId{ _error }; }
+constexpr ErrorId operator""_error(unsigned long long _error) { return ErrorId{ _error }; }
 
 class Error: virtual public util::Exception
 {
@@ -256,6 +256,11 @@ public:
 		return false;
 	}
 
+	static bool hasErrorsWarningsOrInfos(ErrorList const& _list)
+	{
+		return !_list.empty();
+	}
+
 	static std::string formatErrorSeverity(Severity _severity)
 	{
 		switch (_severity)
@@ -302,5 +307,9 @@ private:
 
 	static std::map<Type, std::string> const m_errorTypeNames;
 };
+
+inline auto GITHUB_BUG_MESSAGE =
+	"Caught unexpected exception while compiling.\n"
+	"Please, report your bug to https://github.com/broxus/TVM-Solidity-Compiler/issues";
 
 }

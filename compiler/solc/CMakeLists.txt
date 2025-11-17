@@ -31,3 +31,11 @@ elseif(SOLC_STATIC_STDLIBS AND UNIX AND NOT APPLE)
 		LINK_FLAGS "-static-libgcc -static-libstdc++"
 	)
 endif()
+
+
+install(TARGETS solcli
+		EXPORT SolidityTargets
+		ARCHIVE DESTINATION lib
+		LIBRARY DESTINATION lib
+		RUNTIME DESTINATION bin
+)

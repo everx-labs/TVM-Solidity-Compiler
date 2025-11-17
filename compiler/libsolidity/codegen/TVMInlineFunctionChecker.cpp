@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2024 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2025 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -13,12 +13,12 @@
 
 #include <boost/range/adaptor/map.hpp>
 
-#include <libsolidity/codegen/TVMInlineFunctionChecker.hpp>
 #include <libsolidity/codegen/TVMCommons.hpp>
+#include <libsolidity/codegen/TVMInlineFunctionChecker.hpp>
 
 using namespace solidity::frontend;
 
-bool TVMInlineFunctionChecker::visit(Identifier const &_identifier) {
+bool TVMInlineFunctionChecker::visit(Identifier const& _identifier) {
 	auto functionType = to<FunctionType>(_identifier.annotation().type);
 	auto funDef = to<FunctionDefinition>(_identifier.annotation().referencedDeclaration);
 	if (functionType && funDef && funDef->isInline()) {
@@ -27,7 +27,7 @@ bool TVMInlineFunctionChecker::visit(Identifier const &_identifier) {
 	return false;
 }
 
-bool TVMInlineFunctionChecker::visit(FunctionDefinition const &_node) {
+bool TVMInlineFunctionChecker::visit(FunctionDefinition const& _node) {
 	currentFunctionDefinition = &_node;
 	graph[currentFunctionDefinition];
 	solAssert(currentFunctionDefinition->isInline(), "");
@@ -37,10 +37,10 @@ bool TVMInlineFunctionChecker::visit(FunctionDefinition const &_node) {
 
 bool TVMInlineFunctionChecker::dfs(FunctionDefinition const* v) {
 	color[v] = 1;
-	for (FunctionDefinition const* to : graph[v]) {
+	for (FunctionDefinition const* to: graph[v]) {
 		if (color[to] == 0) {
 			parent[to] = v;
-			if (dfs (to)) {
+			if (dfs(to)) {
 				return true;
 			}
 		} else if (color[to] == 1) {
@@ -48,7 +48,6 @@ bool TVMInlineFunctionChecker::dfs(FunctionDefinition const* v) {
 			cycleStart = to;
 			return true;
 		} else if (color[to] == 2) {
-			continue;
 		} else {
 			solUnimplemented("");
 		}
@@ -63,7 +62,7 @@ std::vector<FunctionDefinition const*> TVMInlineFunctionChecker::functionOrder()
 	solAssert(!oneCall, "");
 	oneCall = true;
 
-	for (FunctionDefinition const* v : graph | boost::adaptors::map_keys) {
+	for (FunctionDefinition const* v: graph | boost::adaptors::map_keys) {
 		if (color[v] == 0) {
 			if (dfs(v)) {
 				break;
@@ -73,12 +72,12 @@ std::vector<FunctionDefinition const*> TVMInlineFunctionChecker::functionOrder()
 
 	if (cycleStart) {
 		std::vector<FunctionDefinition const*> cycle;
-		cycle.push_back (cycleStart);
+		cycle.push_back(cycleStart);
 		for (FunctionDefinition const* v = cycleEnd; v != cycleStart; v = parent[v]) {
 			cycle.push_back(v);
 		}
-		cycle.push_back (cycleStart);
-		reverse (cycle.begin(), cycle.end());
+		cycle.push_back(cycleStart);
+		std::ranges::reverse(cycle);
 
 		std::string errMsg{};
 		for (size_t i = 0; i < cycle.size(); ++i) {
@@ -87,7 +86,7 @@ std::vector<FunctionDefinition const*> TVMInlineFunctionChecker::functionOrder()
 				errMsg += " -> ";
 			}
 		}
-		cast_error(*cycle[0], "There are a cycle of inline function calls: " + errMsg);
+		cast_error(*cycle[0], "There is a cycle of inline function calls: " + errMsg);
 	}
 
 	return order;

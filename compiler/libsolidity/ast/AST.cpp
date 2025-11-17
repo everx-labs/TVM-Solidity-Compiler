@@ -119,18 +119,23 @@ SourceUnitAnnotation& SourceUnit::annotation() const
 std::set<SourceUnit const*> SourceUnit::referencedSourceUnits(bool _recurse, std::set<SourceUnit const*> _skipList) const
 {
 	std::set<SourceUnit const*> sourceUnits;
+	referencedSourceUnits(sourceUnits, _recurse, _skipList);
+	return sourceUnits;
+}
+
+void SourceUnit::referencedSourceUnits(std::set<SourceUnit const*>& _referencedSourceUnits, bool _recurse, std::set<SourceUnit const*>& _skipList) const
+{
 	for (ImportDirective const* importDirective: filteredNodes<ImportDirective>(nodes()))
 	{
 		auto const& sourceUnit = importDirective->annotation().sourceUnit;
-		if (!_skipList.count(sourceUnit))
+		auto [skipListIt, notOnSkipListYet] = _skipList.insert(sourceUnit);
+		if (notOnSkipListYet)
 		{
-			_skipList.insert(sourceUnit);
-			sourceUnits.insert(sourceUnit);
+			_referencedSourceUnits.insert(sourceUnit);
 			if (_recurse)
-				sourceUnits += sourceUnit->referencedSourceUnits(true, _skipList);
+				sourceUnit->referencedSourceUnits(_referencedSourceUnits, true, _skipList);
 		}
 	}
-	return sourceUnits;
 }
 
 ImportAnnotation& ImportDirective::annotation() const
@@ -417,7 +422,6 @@ std::multimap<std::string, FunctionDefinition const*> const& ContractDefinition:
 		return result;
 	});
 }
-
 
 TypeNameAnnotation& TypeName::annotation() const
 {

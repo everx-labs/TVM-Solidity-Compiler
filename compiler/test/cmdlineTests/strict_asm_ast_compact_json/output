@@ -1,31 +1,25 @@
 
-======= strict_asm_ast_compact_json/input.yul (EVM) =======
+======= input.yul (EVM) =======
 AST:
 
 {
-    "code":
-    {
-        "block":
-        {
-            "nativeSrc": "60:246:0",
+    "code": {
+        "block": {
+            "nativeSrc": "60:85:0",
             "nodeType": "YulBlock",
             "src": "-1:-1:0",
-            "statements":
-            [
+            "statements": [
                 {
-                    "nativeSrc": "60:246:0",
+                    "nativeSrc": "70:69:0",
                     "nodeType": "YulBlock",
                     "src": "-1:-1:0",
-                    "statements":
-                    [
+                    "statements": [
                         {
-                            "expression":
-                            {
-                                "arguments":
-                                [
+                            "expression": {
+                                "arguments": [
                                     {
                                         "kind": "number",
-                                        "nativeSrc": "122:2:0",
+                                        "nativeSrc": "121:2:0",
                                         "nodeType": "YulLiteral",
                                         "src": "60:41:0",
                                         "type": "",
@@ -33,25 +27,24 @@ AST:
                                     },
                                     {
                                         "kind": "number",
-                                        "nativeSrc": "126:3:0",
+                                        "nativeSrc": "125:3:0",
                                         "nodeType": "YulLiteral",
                                         "src": "60:41:0",
                                         "type": "",
                                         "value": "128"
                                     }
                                 ],
-                                "functionName":
-                                {
+                                "functionName": {
                                     "name": "mstore",
-                                    "nativeSrc": "115:6:0",
+                                    "nativeSrc": "114:6:0",
                                     "nodeType": "YulIdentifier",
                                     "src": "60:41:0"
                                 },
-                                "nativeSrc": "115:15:0",
+                                "nativeSrc": "114:15:0",
                                 "nodeType": "YulFunctionCall",
                                 "src": "60:41:0"
                             },
-                            "nativeSrc": "115:15:0",
+                            "nativeSrc": "114:15:0",
                             "nodeType": "YulExpressionStatement",
                             "src": "60:41:0"
                         }

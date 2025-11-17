@@ -146,10 +146,10 @@ bool StackOptimizer::visit(CodeBlock &_node) {
 			//Printer p{std::cout};
 			//std::cout << i << "\n";
 			//std::cout << "<<<<<\n";
-			//for (const auto& x  : _node.instructions())
+			//for (auto const& x  : _node.instructions())
 			//    x->accept(p);
 			//std::cout << "=====\n";
-			//for (const auto& x  : instructions)
+			//for (auto const& x  : instructions)
 			//    x->accept(p);
 			//std::cout << ">>>>>\n";
 			//_node.upd(instructions);
@@ -196,7 +196,7 @@ bool StackOptimizer::visit(LogCircuit &_node) {
 
 bool StackOptimizer::visit(TvmIfElse &_node) {
 	delta(-1);
-	for (const auto& body : {_node.trueBody(), _node.falseBody()}) {
+	for (auto const& body : {_node.trueBody(), _node.falseBody()}) {
 		if (body) {
 			int savedStack = size();
 			startScope();
@@ -312,16 +312,16 @@ void StackOptimizer::endVisitNode(TvmAstNode const&) {
 	solUnimplemented("StackOptimizer::endVisitNode");
 }
 
-bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNode>>& instructions) {
+bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNode>>& instructions) const {
 	Pointer<TvmAstNode> const& op = instructions.at(index);
-	if (to<Loc>(op.get()))
+	if (convertToLoc(op.get()))
 		return false;
 
 	size_t index2 = index + 1;
-	while (index2 < instructions.size() && isLoc(instructions.at(index2)))
+	while (index2 < instructions.size() && convertToLoc(instructions.at(index2).get()))
 		++index2;
 
-	auto stack = to<Stack>(op.get());
+	auto stack = convertToStack(op.get());
 	bool ok = false;
 	std::vector<Pointer<TvmAstNode>> commands;
 
@@ -331,16 +331,16 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 	// =>
 	// ...
 	// gen(0, 1)
-	if (auto gen = to<Gen>(op.get());
+	if (auto gen = convertToGen(op.get());
 		gen && gen->isPure() && std::make_pair(gen->take(), gen->ret()) == std::make_pair(0, 1)
 	) {
 		Simulator sim{instructions.begin() + index + 1, instructions.end(), 1, 1, false, true};
 		bool good = true;
 		{
-			auto glob = to<Glob>(op.get());
+			auto glob = convertToGlob(op.get());
 			if (glob) {
 				good = glob->opcode() == Glob::Opcode::GetOrGetVar &&
-						sim.setGlobIndexes().count(glob->index()) == 0 &&
+				       !sim.setGlobIndexes().contains(glob->index()) &&
 						!sim.wasCall();
 			}
 		}
@@ -584,8 +584,8 @@ bool StackOptimizer::successfullyUpdate(int index, std::vector<Pointer<TvmAstNod
 	if (!ok && !isDrop(op)) {
 		bool isPrevFlag{};
 		if (index > 0) {
-			Pointer<TvmAstNode> prevOp = instructions.at(index - 1);
-			isPrevFlag = to<DeclRetFlag>(prevOp.get()) != nullptr;
+			Pointer<TvmAstNode> const& prevOp = instructions.at(index - 1);
+			isPrevFlag = convertToDeclRetFlag(prevOp.get()) != nullptr;
 		}
 		if (scopeSize() >= 1 && !isPrevFlag) {
 			auto beg = instructions.begin() + index;
@@ -658,12 +658,12 @@ void StackOptimizer::delta(int delta) {
 	solAssert(m_stackSize.back() >= 0, "");
 }
 
-int StackOptimizer::size() {
+int StackOptimizer::size() const {
 	solAssert(!m_stackSize.empty(), "");
 	return m_stackSize.back();
 }
 
-int StackOptimizer::scopeSize() {
+int StackOptimizer::scopeSize() const {
 	solAssert(!m_stackSize.empty(), "");
 	int n = m_stackSize.size();
 	int scopeSize = m_stackSize.at(n - 1) - (n == 1 ? 0 : m_stackSize.at(n - 2));

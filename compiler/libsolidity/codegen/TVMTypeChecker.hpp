@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2024 EverX. All Rights Reserved.
+ * Copyright (C) 2019-2025 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -18,7 +18,7 @@ namespace solidity::frontend {
 class InherHelper;
 class PragmaDirectiveHelper;
 
-class TVMTypeChecker : public ASTConstVisitor {
+class TVMTypeChecker: public ASTConstVisitor {
 public:
 	explicit TVMTypeChecker(langutil::ErrorReporter& _errorReporter);
 
@@ -27,21 +27,21 @@ private:
 	void check_onCodeUpgrade(FunctionDefinition const& f) const;
 
 public:
-	bool visit(TryStatement const& _node) override;
+	bool visit(TryStatement const& _tryStatement) override;
 	bool visit(VariableDeclaration const& _variable) override;
 	bool visit(Mapping const& _mapping) override;
-	bool visit(FunctionDefinition const& fc) override;
-	bool visit(ContractDefinition const& ) override;
-	bool visit(IndexRangeAccess const& ) override;
+	bool visit(FunctionDefinition const& f) override;
+	bool visit(ContractDefinition const&) override;
+	bool visit(IndexRangeAccess const&) override;
 	void checkDeprecation(FunctionCall const& _functionCall) const;
 	void checkSupport(FunctionCall const& _functionCall) const;
-	bool visit(FunctionCall const& ) override;
-	bool visit(PragmaDirective const& ) override;
-	bool visit(MemberAccess const& ) override;
+	bool visit(FunctionCall const&) override;
+	bool visit(PragmaDirective const&) override;
+	bool visit(MemberAccess const&) override;
 	bool visit(FunctionCallOptions const& _node) override;
 	void endVisit(ContractDefinition const&) override;
 
-	void checkMainContract(ContractDefinition const *_mainContract, PragmaDirectiveHelper const& pragmaHelper) const;
+	void checkMainContract(ContractDefinition const* _mainContract, PragmaDirectiveHelper const& pragmaHelper) const;
 
 private:
 	std::unique_ptr<InherHelper> m_inherHelper;
@@ -50,4 +50,3 @@ private:
 };
 
 }
-

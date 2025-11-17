@@ -23,7 +23,7 @@ ABI Encoding and Decoding Functions
 - ``abi.encodeWithSelector(bytes4 selector, ...) returns (bytes memory)``: :ref:`ABI <ABI>`-encodes
   the given arguments starting from the second and prepends the given four-byte selector
 - ``abi.encodeCall(function functionPointer, (...)) returns (bytes memory)``: ABI-encodes a call to ``functionPointer`` with the arguments found in the
-  tuple. Performs a full type-check, ensuring the types match the function signature. Result equals ``abi.encodeWithSelector(functionPointer.selector, (...))``
+  tuple. Performs a full type-check, ensuring the types match the function signature. Result equals ``abi.encodeWithSelector(functionPointer.selector, ...)``
 - ``abi.encodeWithSignature(string memory signature, ...) returns (bytes memory)``: Equivalent
   to ``abi.encodeWithSelector(bytes4(keccak256(bytes(signature))), ...)``
 
@@ -66,6 +66,7 @@ Block and Transaction Properties
 - ``blobhash(uint index) returns (bytes32)``: versioned hash of the ``index``-th blob associated with the current transaction.
   A versioned hash consists of a single byte representing the version (currently ``0x01``), followed by the last 31 bytes
   of the SHA256 hash of the KZG commitment (`EIP-4844 <https://eips.ethereum.org/EIPS/eip-4844>`_).
+  Returns zero if no blob with the given index exists.
 - ``block.basefee`` (``uint``): current block's base fee (`EIP-3198 <https://eips.ethereum.org/EIPS/eip-3198>`_ and `EIP-1559 <https://eips.ethereum.org/EIPS/eip-1559>`_)
 - ``block.blobbasefee`` (``uint``): current block's blob base fee (`EIP-7516 <https://eips.ethereum.org/EIPS/eip-7516>`_ and `EIP-4844 <https://eips.ethereum.org/EIPS/eip-4844>`_)
 - ``block.chainid`` (``uint``): current chain id
@@ -118,7 +119,7 @@ Contract-related
 
 - ``this`` (current contract's type): the current contract, explicitly convertible to ``address`` or ``address payable``
 - ``super``: a contract one level higher in the inheritance hierarchy
-- ``selfdestruct(address payable recipient)``: destroy the current contract, sending its funds to the given address
+- ``selfdestruct(address payable recipient)``: send all funds to the given address and (only on EVMs before Cancun or when invoked within the transaction creating the contract) destroy the contract.
 
 .. index:: type;name, type;creationCode, type;runtimeCode, type;interfaceId, type;min, type;max
 
@@ -159,7 +160,7 @@ Modifiers
 - ``pure`` for functions: Disallows modification or access of state.
 - ``view`` for functions: Disallows modification of state.
 - ``payable`` for functions: Allows them to receive Ether together with a call.
-- ``constant`` for state variables: Disallows assignment (except initialisation), does not occupy storage slot.
+- ``constant`` for state variables: Disallows assignment (except initialization), does not occupy storage slot.
 - ``immutable`` for state variables: Allows assignment at construction time and is constant when deployed. Is stored in code.
 - ``anonymous`` for events: Does not store event signature as topic.
 - ``indexed`` for event parameters: Stores the parameter as topic.

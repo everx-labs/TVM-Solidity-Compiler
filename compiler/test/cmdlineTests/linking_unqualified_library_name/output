@@ -1,0 +1,20 @@
+
+======= contract1.sol:C =======
+Binary:
+<BYTECODE REMOVED>__$4a937a7d3d68a205b3b2520e23ccff31ea$__<BYTECODE REMOVED>
+
+// $4a937a7d3d68a205b3b2520e23ccff31ea$ -> error.sol:Log
+
+======= contract2.sol:C =======
+Binary:
+<BYTECODE REMOVED>__$b77e1024bb5d89efefbab5fb1f7cb8fde7$__<BYTECODE REMOVED>
+
+// $b77e1024bb5d89efefbab5fb1f7cb8fde7$ -> math.sol:Log
+
+======= error.sol:Log =======
+Binary:
+<BYTECODE REMOVED>
+
+======= math.sol:Log =======
+Binary:
+<BYTECODE REMOVED>

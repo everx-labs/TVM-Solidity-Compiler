@@ -1,0 +1,10 @@
+{
+	"language": "Solidity",
+	"sources": {
+		"A": {"urls": ["in.sol"]}
+	},
+	"settings": {
+		"optimizer": {"details": {"yulDetails": 7}
+		}
+	}
+}

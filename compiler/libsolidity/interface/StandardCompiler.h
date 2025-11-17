@@ -58,8 +58,8 @@ public:
 
 	/// Sets all input parameters according to @a _input which conforms to the standardized input
 	/// format, performs compilation and returns a standardized output.
-	Json::Value compile(Json::Value const& _input) noexcept;
-	/// Parses input as JSON and peforms the above processing steps, returning a serialized JSON
+	Json compile(Json const& _input) noexcept;
+	/// Parses input as JSON and performs the above processing steps, returning a serialized JSON
 	/// output. Parsing errors are returned as regular errors.
 	std::string compile(std::string const& _input) noexcept;
 
@@ -67,36 +67,36 @@ private:
 	struct InputsAndSettings
 	{
 		std::string language;
-		Json::Value errors;
-
-		std::vector<std::string> includePaths;
-		bool parserErrorRecovery = false;
-		std::string mainContract;
-
+		Json errors;
 		CompilerStack::State stopAfter = CompilerStack::State::CompilationSuccessful;
 		std::map<std::string, std::string> sources;
-		std::map<std::string, Json::Value> jsonSources;
+		std::map<std::string, Json> jsonSources;
 		std::map<util::h256, std::string> smtLib2Responses;
-		langutil::EVMVersion evmVersion;
-		langutil::TVMVersion tvmVersion;
 		std::vector<ImportRemapper::Remapping> remappings;
 		RevertStrings revertStrings = RevertStrings::Default;
-		OptimiserSettings optimiserSettings = OptimiserSettings::minimal();
+		OptimiserSettings optimiserSettings;
 		std::optional<langutil::DebugInfoSelection> debugInfoSelection;
 		std::map<std::string, util::h160> libraries;
 		bool metadataLiteralSources = false;
 		CompilerStack::MetadataFormat metadataFormat = CompilerStack::defaultMetadataFormat();
 		CompilerStack::MetadataHash metadataHash = CompilerStack::MetadataHash::IPFS;
-		Json::Value outputSelection;
+		Json outputSelection;
 		bool viaIR = false;
+
+		std::vector<std::string> includePaths;
+		bool parserErrorRecovery = false;
+		std::string mainContract;
+		langutil::TVMVersion tvmVersion;
 	};
 
 	/// Parses the input json (and potentially invokes the read callback) and either returns
 	/// it in condensed form or an error as a json object.
-	std::variant<InputsAndSettings, Json::Value> parseInput(Json::Value const& _input);
+	std::variant<InputsAndSettings, Json> parseInput(Json const& _input);
 
-	std::map<std::string, Json::Value> parseAstFromInput(StringMap const& _sources);
-	Json::Value compileSolidity(InputsAndSettings _inputsAndSettings);
+	std::map<std::string, Json> parseAstFromInput(StringMap const& _sources);
+	Json importEVMAssembly(InputsAndSettings _inputsAndSettings);
+	Json compileSolidity(InputsAndSettings _inputsAndSettings);
+	Json compileYul(InputsAndSettings _inputsAndSettings);
 
 	ReadCallback::Callback m_readFile;
 

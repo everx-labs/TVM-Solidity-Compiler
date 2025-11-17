@@ -24,6 +24,7 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/test/unit_test.hpp>
 #include <boost/throw_exception.hpp>
+#include <range/v3/algorithm/find_if.hpp>
 #include <fstream>
 #include <memory>
 #include <stdexcept>
@@ -47,10 +48,26 @@ SyntaxTest::SyntaxTest(
 {
 	static std::set<std::string> const compileViaYulAllowedValues{"true", "false"};
 
-	m_compileViaYul = m_reader.stringSetting("compileViaYul", "false");
+	auto const eofEnabled = solidity::test::CommonOptions::get().eofVersion().has_value();
+
+	m_compileViaYul = m_reader.stringSetting("compileViaYul", eofEnabled ? "true" : "false");
 	if (!util::contains(compileViaYulAllowedValues, m_compileViaYul))
 		BOOST_THROW_EXCEPTION(std::runtime_error("Invalid compileViaYul value: " + m_compileViaYul + "."));
+
+	if (m_compileViaYul == "false" && eofEnabled)
+		m_shouldRun = false;
+
 	m_optimiseYul = m_reader.boolSetting("optimize-yul", true);
+
+	static std::map<std::string, PipelineStage> const pipelineStages = {
+		{"parsing", PipelineStage::Parsing},
+		{"analysis", PipelineStage::Analysis},
+		{"compilation", PipelineStage::Compilation}
+	};
+	std::string stopAfter = m_reader.stringSetting("stopAfter", "compilation");
+	if (!pipelineStages.count(stopAfter))
+		BOOST_THROW_EXCEPTION(std::runtime_error("Invalid stopAfter value: " + stopAfter + "."));
+	m_stopAfter = pipelineStages.at(stopAfter);
 }
 
 void SyntaxTest::setupCompiler(CompilerStack& _compiler)
@@ -70,34 +87,28 @@ void SyntaxTest::setupCompiler(CompilerStack& _compiler)
 
 void SyntaxTest::parseAndAnalyze()
 {
-	try
+	runFramework(withPreamble(m_sources.sources), m_stopAfter);
+	if (!pipelineSuccessful() && stageSuccessful(PipelineStage::Analysis) && !compiler().isExperimentalAnalysis())
 	{
-		runFramework(withPreamble(m_sources.sources), PipelineStage::Compilation);
-		if (!pipelineSuccessful() && stageSuccessful(PipelineStage::Analysis) && !compiler().isExperimentalAnalysis())
-		{
-			ErrorList const& errors = compiler().errors();
-			auto codeGeneretionErrorCount = count_if(errors.cbegin(), errors.cend(), [](auto const& error) {
-				return error->type() == Error::Type::CodeGenerationError;
-			});
-			auto errorCount = count_if(errors.cbegin(), errors.cend(), [](auto const& error) {
-				return Error::isError(error->type());
-			});
-			// failing compilation after successful analysis is a rare case,
-			// it assumes that errors contain exactly one error, and the error is of type Error::Type::CodeGenerationError
-			if (codeGeneretionErrorCount != 1 || errorCount != 1)
-				BOOST_THROW_EXCEPTION(std::runtime_error("Compilation failed even though analysis was successful."));
-		}
-	}
-	catch (UnimplementedFeatureError const& _e)
-	{
-		m_errorList.emplace_back(SyntaxTestError{
-			Error::Type::UnimplementedFeatureError,
-			std::nullopt,
-			errorMessage(_e),
-			"",
-			-1,
-			-1
-		});
+		ErrorList const& errors = compiler().errors();
+		static auto isInternalError = [](std::shared_ptr<Error const> const& _error) {
+			return
+				Error::isError(_error->type()) &&
+				_error->type() != Error::Type::CodeGenerationError &&
+				_error->type() != Error::Type::UnimplementedFeatureError
+			;
+		};
+		// Most errors are detected during analysis, and should not happen during code generation.
+		// There are some exceptions, e.g. unimplemented features or stack too deep, but anything else at this stage
+		// is an internal error that signals a bug in the compiler (rather than in user's code).
+		if (
+			auto error = ranges::find_if(errors, isInternalError);
+			error != ranges::end(errors)
+		)
+			BOOST_THROW_EXCEPTION(std::runtime_error(
+				"Unexpected " + Error::formatErrorType((*error)->type()) + " at compilation stage."
+				" This error should NOT be encoded as expectation and should be fixed instead."
+			));
 	}
 
 	filterObtainedErrors();

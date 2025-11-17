@@ -1374,7 +1374,7 @@ BOOST_AUTO_TEST_CASE(bytes_from_calldata_to_memory)
 	ALSO_VIA_YUL(
 		compileAndRun(sourceCode);
 		bytes calldata1 = util::selectorFromSignatureH32("f()").asBytes() + bytes(61, 0x22) + bytes(12, 0x12);
-		sendMessage(calldata1, false);
+		sendMessage(calldata1, bytes(), false);
 		BOOST_CHECK(m_transactionSuccessful);
 		BOOST_CHECK(m_output == encodeArgs(util::keccak256(bytes{'a', 'b', 'c'} + calldata1)));
 	);
@@ -1474,7 +1474,7 @@ BOOST_AUTO_TEST_CASE(copy_from_calldata_removes_bytes_data)
 		compileAndRun(sourceCode);
 		ABI_CHECK(callContractFunction("set()", 1, 2, 3, 4, 5), encodeArgs(true));
 		BOOST_CHECK(!storageEmpty(m_contractAddress));
-		sendMessage(bytes(), false);
+		sendMessage(bytes(), bytes(), false);
 		BOOST_CHECK(m_transactionSuccessful);
 		BOOST_CHECK(m_output.empty());
 		BOOST_CHECK(storageEmpty(m_contractAddress));
@@ -1680,29 +1680,29 @@ BOOST_AUTO_TEST_CASE(array_copy_storage_abi)
 
 //BOOST_AUTO_TEST_CASE(assignment_to_const_array_vars)
 //{
-//	char const* sourceCode = R"(
-//		contract C {
-//			uint[3] constant x = [uint(1), 2, 3];
-//			uint constant y = x[0] + x[1] + x[2];
-//			function f() public returns (uint) { return y; }
-//		}
-//	)";
-//	compileAndRun(sourceCode);
-//	ABI_CHECK(callContractFunction("f()"), encodeArgs(1 + 2 + 3));
+//    char const* sourceCode = R"(
+//        contract C {
+//            uint[3] constant x = [uint(1), 2, 3];
+//            uint constant y = x[0] + x[1] + x[2];
+//            function f() public returns (uint) { return y; }
+//        }
+//    )";
+//    compileAndRun(sourceCode);
+//    ABI_CHECK(callContractFunction("f()"), encodeArgs(1 + 2 + 3));
 //}
 
 // Disabled until https://github.com/ethereum/solidity/issues/715 is implemented
 //BOOST_AUTO_TEST_CASE(constant_struct)
 //{
-//	char const* sourceCode = R"(
-//		contract C {
-//			struct S { uint x; uint[] y; }
-//			S constant x = S(5, new uint[](4));
-//			function f() public returns (uint) { return x.x; }
-//		}
-//	)";
-//	compileAndRun(sourceCode);
-//	ABI_CHECK(callContractFunction("f()"), encodeArgs(5));
+//    char const* sourceCode = R"(
+//        contract C {
+//            struct S { uint x; uint[] y; }
+//            S constant x = S(5, new uint[](4));
+//            function f() public returns (uint) { return x.x; }
+//        }
+//    )";
+//    compileAndRun(sourceCode);
+//    ABI_CHECK(callContractFunction("f()"), encodeArgs(5));
 //}
 
 BOOST_AUTO_TEST_CASE(evm_exceptions_in_constructor_out_of_baund)

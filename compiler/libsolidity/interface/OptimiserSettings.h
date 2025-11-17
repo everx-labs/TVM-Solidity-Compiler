@@ -43,23 +43,25 @@ struct OptimiserSettings
 {
 	static char constexpr DefaultYulOptimiserSteps[] =
 		"dhfoDgvulfnTUtnIf"            // None of these can make stack problems worse
-		"["
-			"xa[r]EscLM"               // Turn into SSA and simplify
-			"cCTUtTOntnfDIul"          // Perform structural simplification
-			"Lcul"                     // Simplify again
-			"Vcul [j]"                 // Reverse SSA
 
-			// should have good "compilability" property here.
+		"xa[r]EscLM"                   // Turn into SSA and simplify
+		"Vcul [j]"                     // Reverse SSA
 
-			"Tpeul"                    // Run functional expression inliner
-			"xa[rul]"                  // Prune a bit more in SSA
-			"xa[r]cL"                  // Turn into SSA again and simplify
-			"gvif"                     // Run full inliner
-			"CTUca[r]LSsTFOtfDnca[r]Iulc" // SSA plus simplify
-		"]"
+		// should have good "compilability" property here.
+
+		"Trpeul"                       // Run functional expression inliner
+		"xa[r]cL"                      // Turn into SSA again and simplify
+		"gvifM"                        // Run full inliner
+		"CTUca[r]LSsTFOtfDnca[r]Iulc"  // SSA plus simplify
+
+		"scCTUt"
+		"gvifM"                        // Run full inliner
+		"x[scCTUt] TOntnfDIul"         // Perform structural simplification
+		"gvifM"                        // Run full inliner
+
 		"jmul[jul] VcTOcul jmul";      // Make source short and pretty
 
-	static char constexpr DefaultYulOptimiserCleanupSteps[] = "fDnTOcmu";
+	static char constexpr DefaultYulOptimiserCleanupSteps[] = "fDnTOcmuO";
 
 	/// No optimisations at all - not recommended.
 	static OptimiserSettings none()
@@ -109,27 +111,8 @@ struct OptimiserSettings
 		util::unreachable();
 	}
 
-	bool operator==(OptimiserSettings const& _other) const
-	{
-		return
-			runOrderLiterals == _other.runOrderLiterals &&
-			runInliner == _other.runInliner &&
-			runJumpdestRemover == _other.runJumpdestRemover &&
-			runPeephole == _other.runPeephole &&
-			runDeduplicate == _other.runDeduplicate &&
-			runCSE == _other.runCSE &&
-			runConstantOptimiser == _other.runConstantOptimiser &&
-			simpleCounterForLoopUncheckedIncrement == _other.simpleCounterForLoopUncheckedIncrement &&
-			optimizeStackAllocation == _other.optimizeStackAllocation &&
-			runYulOptimiser == _other.runYulOptimiser &&
-			yulOptimiserSteps == _other.yulOptimiserSteps &&
-			expectedExecutionsPerDeployment == _other.expectedExecutionsPerDeployment;
-	}
-
-	bool operator!=(OptimiserSettings const& _other) const
-	{
-		return !(*this == _other);
-	}
+	bool operator==(OptimiserSettings const& _other) const = default;
+	bool operator!=(OptimiserSettings const& _other) const = default;
 
 	/// Move literals to the right of commutative binary operators during code generation.
 	/// This helps exploiting associativity.
@@ -147,11 +130,11 @@ struct OptimiserSettings
 	/// Constant optimizer, which tries to find better representations that satisfy the given
 	/// size/cost-trade-off.
 	bool runConstantOptimiser = false;
-	/// Perform more efficient stack allocation for variables during code generation from Yul to bytecode.
-	bool simpleCounterForLoopUncheckedIncrement = false;
-	/// Yul optimiser with default settings. Will only run on certain parts of the code for now.
-	bool optimizeStackAllocation = false;
 	/// Allow unchecked arithmetic when incrementing the counter of certain kinds of 'for' loop
+	bool simpleCounterForLoopUncheckedIncrement = false;
+	/// Perform more efficient stack allocation for variables during code generation from Yul to bytecode.
+	bool optimizeStackAllocation = false;
+	/// Yul optimiser with default settings. Will only run on certain parts of the code for now.
 	bool runYulOptimiser = false;
 	/// Sequence of optimisation steps to be performed by Yul optimiser.
 	/// Note that there are some hard-coded steps in the optimiser and you cannot disable

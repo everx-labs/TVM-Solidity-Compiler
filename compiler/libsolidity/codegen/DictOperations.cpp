@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2024 EverX. All Rights Reserved.
+ * Copyright (C) 2021-2026 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -12,36 +12,35 @@
  */
 
 #include <libsolidity/codegen/DictOperations.hpp>
-#include <libsolidity/codegen/TVMPusher.hpp>
-#include <libsolidity/codegen/TVMExpressionCompiler.hpp>
 #include <libsolidity/codegen/TVMConstants.hpp>
+#include <libsolidity/codegen/TVMExpressionCompiler.hpp>
+#include <libsolidity/codegen/TVMPusher.hpp>
 
 using namespace solidity;
 using namespace solidity::frontend;
 using namespace solidity::util;
 
-DictOperation::DictOperation(StackPusher& pusher, Type const& keyType, Type const& valueType) :
-		pusher{pusher},
-		keyType{keyType},
-		keyLength{dictKeyLength(&keyType)},
-		valueType{valueType} {
-}
+DictOperation::DictOperation(StackPusher& pusher, Type const& keyType, Type const& valueType):
+	pusher{pusher},
+	keyType{keyType},
+	keyLength{dictKeyLength(&keyType)},
+	valueType{valueType} {}
 
 void DictMinMax::minOrMax(bool saveOrigKeyAndNoTuple) {
 	// stack: dict
 	pusher.pushInt(dictKeyLength(&keyType)); // dict nbits
-	bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
-	dictOpcode = "DICT" + typeToDictChar(&keyType) + (isMin? "MIN" : "MAX") + (isInRef? "REF" : "");
+	bool isInRef = StackPusher::doesDictStoreValueInRef(&keyType, &valueType);
+	dictOpcode = "DICT" + typeToDictChar(&keyType) + (isMin ? "MIN" : "MAX") + (isInRef ? "REF" : "");
 
 	pusher.startOpaque();
 	pusher.pushAsym(dictOpcode); // (value, key, -1) or 0
 	pusher.recoverKeyAndValueAfterDictOperation(
-			&keyType,
-			&valueType,
-			true,
-			isInRef,
-			StackPusher::DecodeType::DecodeValueOrPushNull,
-			saveOrigKeyAndNoTuple
+		&keyType,
+		&valueType,
+		true,
+		isInRef,
+		StackPusher::DecodeType::DecodeValueOrPushNull,
+		saveOrigKeyAndNoTuple
 	);
 	if (saveOrigKeyAndNoTuple)
 		pusher.endOpaque(2, 3);
@@ -49,10 +48,10 @@ void DictMinMax::minOrMax(bool saveOrigKeyAndNoTuple) {
 		pusher.endOpaque(2, 1);
 }
 
-void DictPrevNext::prevNext(bool saveOrigKeyAndNoTuple) {
+void DictPrevNext::prevNext(bool saveOrigKeyAndNoTuple) const {
 	// stack: index dict nbits
 	std::string dictOpcode = std::string{"DICT"} + typeToDictChar(&keyType) + "GET";
-	if (oper == "next"){
+	if (oper == "next") {
 		dictOpcode += "NEXT";
 	} else if (oper == "prev") {
 		dictOpcode += "PREV";
@@ -69,12 +68,12 @@ void DictPrevNext::prevNext(bool saveOrigKeyAndNoTuple) {
 	pusher.pushAsym(dictOpcode); // value key -1 or 0
 
 	pusher.recoverKeyAndValueAfterDictOperation(
-			&keyType,
-			&valueType,
-			true,
-			false,
-			StackPusher::DecodeType::DecodeValueOrPushNull,
-			saveOrigKeyAndNoTuple
+		&keyType,
+		&valueType,
+		true,
+		false,
+		StackPusher::DecodeType::DecodeValueOrPushNull,
+		saveOrigKeyAndNoTuple
 	);
 	pusher.endOpaque(3, saveOrigKeyAndNoTuple ? 3 : 1);
 
@@ -85,24 +84,31 @@ void DictPrevNext::prevNext(bool saveOrigKeyAndNoTuple) {
 	}
 }
 
-GetFromDict::GetFromDict(StackPusher &pusher, const Type &keyType, const Type &valueType,
-						 const GetDictOperation op,
-						 std::optional<DataType> inputValueType) :
-		DictOperation{pusher, keyType, valueType},
-		op{op},
-		inputValueType{inputValueType}
-{
-	bool hasInputValue = isIn(op,GetDictOperation::GetSetFromMapping, GetDictOperation::GetAddFromMapping,
-		GetDictOperation::GetReplaceFromMapping);
+GetFromDict::GetFromDict(
+	StackPusher& pusher,
+	Type const& keyType,
+	Type const& valueType,
+	GetDictOperation const& op,
+	std::optional<DataType> inputValueType
+):
+	DictOperation{pusher, keyType, valueType},
+	op{op},
+	inputValueType{inputValueType} {
+	bool hasInputValue = isIn(
+		op,
+		GetDictOperation::GetSetFromMapping,
+		GetDictOperation::GetAddFromMapping,
+		GetDictOperation::GetReplaceFromMapping
+	);
 	solAssert(hasInputValue == inputValueType.has_value());
 }
 
-void GetFromDict::getDict() {
+void GetFromDict::getDict() const {
 	pusher.pushInt(keyLength); // push keyLength on stack
 	// if op == GetSetFromMapping than stack: value key dict keyLength
 	// else                            stack: key dict keyLength
 
-	const int saveStack = pusher.stackSize();
+	int const saveStack = pusher.stackSize();
 	std::string opcode = "DICT" + typeToDictChar(&keyType);
 	int take{};
 	int ret{};
@@ -141,10 +147,7 @@ void GetFromDict::getDict() {
 		StackPusher::DecodeType decodeType{};
 		if (op == GetDictOperation::GetAddFromMapping)
 			decodeType = StackPusher::DecodeType::PushNullOrDecodeValue;
-		else if (
-			op == GetDictOperation::GetSetFromMapping ||
-			op == GetDictOperation::GetReplaceFromMapping
-		)
+		else if (op == GetDictOperation::GetSetFromMapping || op == GetDictOperation::GetReplaceFromMapping)
 			decodeType = StackPusher::DecodeType::DecodeValueOrPushNull;
 		else
 			solUnimplemented("");
@@ -169,7 +172,7 @@ void GetFromDict::getDict() {
 		take = 3;
 		ret = 1;
 		opcode += "GET";
-		bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
+		bool isInRef = StackPusher::doesDictStoreValueInRef(&keyType, &valueType);
 		if (isInRef) {
 			opcode += "REF";
 		}
@@ -194,7 +197,7 @@ void GetFromDict::getDict() {
 		take = 3;
 		ret = 2;
 		opcode += "DELGET";
-		bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
+		bool isInRef = StackPusher::doesDictStoreValueInRef(&keyType, &valueType);
 		if (isInRef) {
 			opcode += "REF";
 		}
@@ -209,21 +212,23 @@ void GetFromDict::getDict() {
 	pusher.ensureSize(saveStack - take + ret);
 }
 
-void GetFromDict::checkExist() {
+void GetFromDict::checkExist() const {
 	pusher.startOpaque();
 	pusher.pushAsym("NULLSWAPIFNOT");
-	pusher.dropUnder(1, 1);
+	pusher.popS(1);
 	pusher.endOpaque(1, 1, true);
 }
 
-DictSet::DictSet(StackPusher &pusher, const Type &keyType, const Type &valueType, const DataType &dataType,
-				 SetDictOperation operation) :
-		DictOperation{pusher, keyType, valueType},
-		dataType{dataType},
-		operation{operation}
-{
-
-}
+DictSet::DictSet(
+	StackPusher& pusher,
+	Type const& keyType,
+	Type const& valueType,
+	DataType const& dataType,
+	SetDictOperation operation
+):
+	DictOperation{pusher, keyType, valueType},
+	dataType{dataType},
+	operation{operation} {}
 
 void DictSet::dictSet() {
 	// stack: value key dict
@@ -232,64 +237,64 @@ void DictSet::dictSet() {
 	// stack: value index dict keyBitLength
 	opcode = "DICT" + typeToDictChar(&keyType);
 	switch (operation) {
-		case SetDictOperation::Set:
-			opcode += "SET";
-			break;
-		case SetDictOperation::Replace:
-			opcode += "REPLACE";
-			break;
-		case SetDictOperation::Add:
-			opcode += "ADD";
-			break;
+	case SetDictOperation::Set:
+		opcode += "SET";
+		break;
+	case SetDictOperation::Replace:
+		opcode += "REPLACE";
+		break;
+	case SetDictOperation::Add:
+		opcode += "ADD";
+		break;
 	}
 
 	switch (dataType) {
-		case DataType::Builder:
-			opcode += "B";
-			break;
-		case DataType::Cell:
-			opcode += "REF";
-			break;
-		case DataType::Slice:
-			break;
+	case DataType::Builder:
+		opcode += "B";
+		break;
+	case DataType::Cell:
+		opcode += "REF";
+		break;
+	case DataType::Slice:
+		break;
 	}
 
-	switch (operation) {
-		case SetDictOperation::Set:
-			pusher << opcode;
-			break;
-		case SetDictOperation::Replace:
-		case SetDictOperation::Add:
-			pusher << opcode;
-			break;
-	}
+	pusher << opcode;
 }
 
-DelMinOrMax::DelMinOrMax(StackPusher &pusher, const Type &keyType, const Type &valueType, bool isDelMin,
-						 const MemberAccess *memberAccess) :
-		DictOperation{pusher, keyType, valueType},
-		isDelMin{isDelMin},
-		memberAccess{memberAccess},
-		ec{new TVMExpressionCompiler{pusher}}
-{
-
-}
+DelMinOrMax::DelMinOrMax(
+	StackPusher& pusher,
+	Type const& keyType,
+	Type const& valueType,
+	bool isDelMin,
+	MemberAccess const* memberAccess
+):
+	DictOperation{pusher, keyType, valueType},
+	isDelMin{isDelMin},
+	memberAccess{memberAccess},
+	ec{new TVMExpressionCompiler{pusher}} {}
 
 void DelMinOrMax::delMinOrMax() {
-	bool isInRef = pusher.doesDictStoreValueInRef(&keyType, &valueType);
-	opcode = "DICT" + typeToDictChar(&keyType) + "REM" + (isDelMin? "MIN" : "MAX") + (isInRef? "REF" : "");
+	bool isInRef = StackPusher::doesDictStoreValueInRef(&keyType, &valueType);
+	opcode = "DICT" + typeToDictChar(&keyType) + "REM" + (isDelMin ? "MIN" : "MAX") + (isInRef ? "REF" : "");
 	stackSize = pusher.stackSize();
 
 	lValueInfo = ec->expandLValue(&memberAccess->expression(), true); // lValue... map
-	pusher.pushInt(keyLength); // dict nbits
+	pusher.pushInt(keyLength);										  // dict nbits
 
 	pusher.startOpaque();
 	pusher.pushAsym(opcode); //  D value key -1
-	pusher.recoverKeyAndValueAfterDictOperation(&keyType, &valueType, true, isInRef, StackPusher::DecodeType::DecodeValueOrPushNull);
+	pusher.recoverKeyAndValueAfterDictOperation(
+		&keyType,
+		&valueType,
+		true,
+		isInRef,
+		StackPusher::DecodeType::DecodeValueOrPushNull
+	);
 	pusher.endOpaque(2, 2);
 
 	// mapLValue... D optPair
-	const int cntOfValuesOnStack = pusher.stackSize() - stackSize;
+	int const cntOfValuesOnStack = pusher.stackSize() - stackSize;
 	pusher.blockSwap(cntOfValuesOnStack - 1, 1); // optPair mapLValue... map
-	ec->collectLValue(lValueInfo, true); // value key
+	ec->collectLValue(lValueInfo, true);		 // value key
 }

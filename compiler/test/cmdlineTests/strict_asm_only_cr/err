@@ -1,0 +1,5 @@
+Error: Expected keyword "object".
+ --> input.yul:1:2:
+  |
+1 | 
+  | ^

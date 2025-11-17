@@ -22,13 +22,21 @@
 
 #include <libsolidity/analysis/PostTypeContractLevelChecker.h>
 
+#include <fmt/format.h>
 #include <libsolidity/ast/AST.h>
+#include <libsolidity/ast/ASTUtils.h>
+#include <libsolidity/ast/TypeProvider.h>
 #include <libsolutil/FunctionSelector.h>
 #include <liblangutil/ErrorReporter.h>
+
+#include <range/v3/action/reverse.hpp>
+
+#include <limits>
 
 using namespace solidity;
 using namespace solidity::langutil;
 using namespace solidity::frontend;
+using namespace solidity::util;
 
 bool PostTypeContractLevelChecker::check(SourceUnit const& _sourceUnit)
 {
@@ -51,7 +59,7 @@ bool PostTypeContractLevelChecker::check(ContractDefinition const& _contract)
 	for (ErrorDefinition const* error: _contract.interfaceErrors())
 	{
 		std::string signature = error->functionType(true)->externalSignature();
-		uint32_t hash = util::selectorFromSignatureU32(signature);
+		uint32_t hash = selectorFromSignatureU32(signature);
 		// Fail if there is a different signature for the same hash.
 		if (!errorHashes[hash].empty() && !errorHashes[hash].count(signature))
 		{

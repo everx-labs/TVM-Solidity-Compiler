@@ -31,7 +31,6 @@
 #include <functional>
 
 using solidity::frontend::ReadCallback;
-using solidity::langutil::InternalCompilerError;
 using solidity::util::errinfo_comment;
 using solidity::util::readFileAsString;
 using solidity::util::joinHumanReadable;
@@ -165,17 +164,9 @@ ReadCallback::Result FileReader::readFile(std::string const& _kind, std::string 
 		m_sourceCodes[_sourceUnitName] = contents;
 		return ReadCallback::Result{true, contents};
 	}
-	catch (util::Exception const& _exception)
-	{
-		return ReadCallback::Result{false, "Exception in read callback: " + boost::diagnostic_information(_exception)};
-	}
-	catch (std::exception const& _exception)
-	{
-		return ReadCallback::Result{false, "Exception in read callback: " + boost::diagnostic_information(_exception)};
-	}
 	catch (...)
 	{
-		return ReadCallback::Result{false, "Unknown exception in read callback: " + boost::current_exception_diagnostic_information()};
+		return ReadCallback::Result{false, "Exception in read callback: " + boost::current_exception_diagnostic_information()};
 	}
 }
 
@@ -271,7 +262,7 @@ boost::filesystem::path FileReader::normalizeCLIPathForVFS(
 
 	// If the path is on the same drive as the working dir, for portability we prefer not to
 	// include the root name. Do this only for non-UNC paths - my experiments show that on Windows
-	// when the working dir is an UNC path, / does not not actually refer to the root of the UNC path.
+	// when the working dir is an UNC path, / does not actually refer to the root of the UNC path.
 
 	boost::filesystem::path normalizedRootPath = normalizeCLIRootPathForVFS(normalizedPath, canonicalWorkDir);
 

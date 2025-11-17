@@ -41,13 +41,12 @@ from test_helpers import replace_version_pragmas
 from test_helpers import settings_from_preset
 from test_helpers import SettingsPreset
 
-CURRENT_EVM_VERSION: str = "shanghai"
+CURRENT_EVM_VERSION: str = "prague"
 
 @dataclass
 class TestConfig:
     name: str
     repo_url: str
-    ref_type: str
     ref: str
     compile_only_presets: List[SettingsPreset] = field(default_factory=list)
     settings_presets: List[SettingsPreset] = field(default_factory=lambda: list(SettingsPreset))
@@ -75,7 +74,7 @@ class BaseRunner(metaclass=ABCMeta):
 
     def setup_solc(self) -> str:
         if self.solc_binary_type == "solcjs":
-            # TODO: add support to solc-js
+            # TODO: add support for solc-js
             raise NotImplementedError()
         print("Setting up solc...")
         solc_version_output = subprocess.check_output(
@@ -134,7 +133,7 @@ def run_test(runner: BaseRunner):
     print(f"Using compiler version {solc_version}")
 
     # Download project
-    download_project(runner.test_dir, runner.config.repo_url, runner.config.ref_type, runner.config.ref)
+    download_project(runner.test_dir, runner.config.repo_url, runner.config.ref)
 
     # Configure run environment
     runner.setup_environment()

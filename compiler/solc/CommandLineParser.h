@@ -26,7 +26,6 @@
 #include <libsolidity/interface/ImportRemapper.h>
 
 #include <liblangutil/DebugInfoSelection.h>
-#include <liblangutil/EVMVersion.h>
 #include <liblangutil/TVMVersion.h>
 
 #include <libsolutil/JSON.h>
@@ -84,6 +83,10 @@ struct CompilerOutputs
 			{"devdoc", &CompilerOutputs::natspecDev},
 			{"metadata", &CompilerOutputs::metadata},
 			{"storage-layout", &CompilerOutputs::storageLayout},
+			{"transient-storage-layout", &CompilerOutputs::transientStorageLayout},
+			{"yul-cfg-json", &CompilerOutputs::yulCFGJson},
+			{"ethdebug", &CompilerOutputs::ethdebug},
+			{"ethdebug-runtime", &CompilerOutputs::ethdebugRuntime},
 		};
 		return components;
 	}
@@ -96,6 +99,7 @@ struct CompilerOutputs
 	bool abi = false;
 	bool ir = false;
 	bool irAstJson = false;
+	bool yulCFGJson = false;
 	bool irOptimized = false;
 	bool irOptimizedAstJson = false;
 	bool signatureHashes = false;
@@ -103,6 +107,9 @@ struct CompilerOutputs
 	bool natspecDev = false;
 	bool metadata = false;
 	bool storageLayout = false;
+	bool transientStorageLayout = false;
+	bool ethdebug = false;
+	bool ethdebugRuntime = false;
 };
 
 struct CombinedJsonRequests
@@ -121,6 +128,7 @@ struct CombinedJsonRequests
 			{"bin-runtime", &CombinedJsonRequests::binaryRuntime},
 			{"opcodes", &CombinedJsonRequests::opcodes},
 			{"storage-layout", &CombinedJsonRequests::storageLayout},
+			{"transient-storage-layout", &CombinedJsonRequests::transientStorageLayout},
 			{"generated-sources", &CombinedJsonRequests::generatedSources},
 			{"generated-sources-runtime", &CombinedJsonRequests::generatedSourcesRuntime},
 			{"srcmap", &CombinedJsonRequests::srcMap},
@@ -141,6 +149,7 @@ struct CombinedJsonRequests
 	bool binaryRuntime = false;
 	bool opcodes = false;
 	bool storageLayout = false;
+	bool transientStorageLayout = false;
 	bool generatedSources = false;
 	bool generatedSourcesRuntime = false;
 	bool srcMap = false;
@@ -177,7 +186,6 @@ struct CommandLineOptions
 	{
 		boost::filesystem::path dir;
 		bool overwriteFiles = false;
-		langutil::EVMVersion evmVersion;
 		bool viaIR = false;
 		RevertStrings revertStrings = RevertStrings::Default;
 		std::optional<langutil::DebugInfoSelection> debugInfoSelection;
@@ -233,6 +241,7 @@ struct CommandLineOptions
 		bool printFunctionIds = false;
 		bool printPrivateFunctionIds = false;
 		langutil::TVMVersion tvmVersion;
+		bool debugMode = false;
 	} tvmParams;
 };
 

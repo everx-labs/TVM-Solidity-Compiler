@@ -140,16 +140,18 @@ std::optional<ABIType> isFixedPoint(std::string const& type)
 	return fixedPointType;
 }
 
-std::string functionSignatureFromABI(Json::Value const& _functionABI)
+std::string functionSignatureFromABI(Json const& _functionABI)
 {
+	soltestAssert(_functionABI.contains("name"));
+
 	auto inputs = _functionABI["inputs"];
-	std::string signature = {_functionABI["name"].asString() + "("};
+	std::string signature = {_functionABI["name"].get<std::string>() + "("};
 	size_t parameterCount = 0;
 
 	for (auto const& input: inputs)
 	{
 		parameterCount++;
-		signature += input["type"].asString();
+		signature += input["type"].get<std::string>();
 		if (parameterCount < inputs.size())
 			signature += ",";
 	}
@@ -161,15 +163,17 @@ std::string functionSignatureFromABI(Json::Value const& _functionABI)
 
 std::optional<solidity::frontend::test::ParameterList> ContractABIUtils::parametersFromJsonOutputs(
 	ErrorReporter& _errorReporter,
-	Json::Value const& _contractABI,
+	Json const& _contractABI,
 	std::string const& _functionSignature
 )
 {
-	if (!_contractABI)
+	if (_contractABI.empty())
 		return std::nullopt;
 
 	for (auto const& function: _contractABI)
-		if (_functionSignature == functionSignatureFromABI(function))
+		// ABI may contain functions without names (constructor, fallback, receive). Since name is
+		// necessary to calculate the signature, these cannot possibly match and can be safely ignored.
+		if (function.contains("name") && _functionSignature == functionSignatureFromABI(function))
 		{
 			ParameterList inplaceTypeParams;
 			ParameterList dynamicTypeParams;
@@ -177,7 +181,7 @@ std::optional<solidity::frontend::test::ParameterList> ContractABIUtils::paramet
 
 			for (auto const& output: function["outputs"])
 			{
-				std::string type = output["type"].asString();
+				std::string type = output["type"].get<std::string>();
 
 				ABITypes inplaceTypes;
 				ABITypes dynamicTypes;
@@ -209,13 +213,13 @@ std::optional<solidity::frontend::test::ParameterList> ContractABIUtils::paramet
 }
 
 bool ContractABIUtils::appendTypesFromName(
-	Json::Value const& _functionOutput,
+	Json const& _functionOutput,
 	ABITypes& _inplaceTypes,
 	ABITypes& _dynamicTypes,
 	bool _isCompoundType
 )
 {
-	std::string type = _functionOutput["type"].asString();
+	std::string type = _functionOutput["type"].get<std::string>();
 	if (isBool(type))
 		_inplaceTypes.push_back(ABIType{ABIType::Boolean});
 	else if (isUint(type))

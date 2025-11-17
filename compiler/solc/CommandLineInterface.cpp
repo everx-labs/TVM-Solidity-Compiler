@@ -36,10 +36,8 @@
 #include <libsolidity/interface/StandardCompiler.h>
 #include <libsolidity/interface/DebugSettings.h>
 #include <libsolidity/interface/ImportRemapper.h>
-#include <libsolidity/interface/StorageLayout.h>
 #include <libsolidity/lsp/LanguageServer.h>
 #include <libsolidity/lsp/Transport.h>
-
 
 #include <liblangutil/Exceptions.h>
 #include <liblangutil/SourceReferenceFormatter.h>
@@ -93,6 +91,10 @@ std::set<frontend::InputMode> const CompilerInputModes{
 namespace solidity::frontend
 {
 
+void printReportBug() {
+	std::cerr << langutil::GITHUB_BUG_MESSAGE << std::endl;
+}
+
 std::ostream& CommandLineInterface::sout(bool _markAsUsed)
 {
 	if (_markAsUsed)
@@ -120,14 +122,18 @@ static bool needsHumanTargetedStdout(CommandLineOptions const& _options)
 	return
 		_options.compiler.outputs.abi ||
 		_options.compiler.outputs.asmJson ||
+		_options.compiler.outputs.yulCFGJson ||
 		_options.compiler.outputs.binary ||
 		_options.compiler.outputs.binaryRuntime ||
+		_options.compiler.outputs.ethdebug ||
+		_options.compiler.outputs.ethdebugRuntime ||
 		_options.compiler.outputs.metadata ||
 		_options.compiler.outputs.natspecUser ||
 		_options.compiler.outputs.natspecDev ||
 		_options.compiler.outputs.opcodes ||
 		_options.compiler.outputs.signatureHashes ||
-		_options.compiler.outputs.storageLayout;
+		_options.compiler.outputs.storageLayout ||
+		_options.compiler.outputs.transientStorageLayout;
 }
 
 static bool coloredOutput(CommandLineOptions const& _options)
@@ -288,27 +294,27 @@ void CommandLineInterface::readInputFiles()
 		solThrow(CommandLineValidationError, "All specified input files either do not exist or are not regular files.");
 }
 
-std::map<std::string, Json::Value> CommandLineInterface::parseAstFromInput()
+std::map<std::string, Json> CommandLineInterface::parseAstFromInput()
 {
 	solAssert(m_options.input.mode == InputMode::CompilerWithASTImport);
 
-	std::map<std::string, Json::Value> sourceJsons;
+	std::map<std::string, Json> sourceJsons;
 	std::map<std::string, std::string> tmpSources;
 
 	for (SourceCode const& sourceCode: m_fileReader.sourceUnits() | ranges::views::values)
 	{
-		Json::Value ast;
+		Json ast;
 		astAssert(jsonParseStrict(sourceCode, ast), "Input file could not be parsed to JSON");
-		astAssert(ast.isMember("sources"), "Invalid Format for import-JSON: Must have 'sources'-object");
+		astAssert(ast.contains("sources"), "Invalid Format for import-JSON: Must have 'sources'-object");
 
-		for (auto& src: ast["sources"].getMemberNames())
+		for (auto const& [src, value]: ast["sources"].items())
 		{
-			std::string astKey = ast["sources"][src].isMember("ast") ? "ast" : "AST";
+			std::string astKey = value.contains("ast") ? "ast" : "AST";
 
-			astAssert(ast["sources"][src].isMember(astKey), "astkey is not member");
-			astAssert(ast["sources"][src][astKey]["nodeType"].asString() == "SourceUnit",  "Top-level node should be a 'SourceUnit'");
+			astAssert(ast["sources"][src].contains(astKey), "astkey is not member");
+			astAssert(ast["sources"][src][astKey]["nodeType"].get<std::string>() == "SourceUnit",  "Top-level node should be a 'SourceUnit'");
 			astAssert(sourceJsons.count(src) == 0, "All sources must have unique names");
-			sourceJsons.emplace(src, std::move(ast["sources"][src][astKey]));
+			sourceJsons.emplace(src, std::move(value[astKey]));
 			tmpSources[src] = util::jsonCompactPrint(ast);
 		}
 	}
@@ -339,6 +345,11 @@ void CommandLineInterface::createFile(std::string const& _fileName, std::string 
 		solThrow(CommandLineOutputError, "Could not write to file \"" + pathName + "\".");
 }
 
+void CommandLineInterface::createJson(std::string const& _fileName, std::string const& _json)
+{
+	createFile(boost::filesystem::path(_fileName).stem().string() + std::string(".json"), _json);
+}
+
 bool CommandLineInterface::run(int _argc, char const* const* _argv)
 {
 	try
@@ -359,6 +370,12 @@ bool CommandLineInterface::run(int _argc, char const* const* _argv)
 		if (_exception.what() != ""s)
 			report(Error::Severity::Error, _exception.what());
 
+		return false;
+	}
+	catch (UnimplementedFeatureError const& _error)
+	{
+		solAssert(_error.comment(), "Unimplemented feature errors must include a message for the user");
+		report(Error::Severity::Error, stringOrDefault(_error.comment(), "Unimplemented feature"));
 		return false;
 	}
 }
@@ -396,12 +413,6 @@ bool CommandLineInterface::parseArguments(int _argc, char const* const* _argv)
 
 void CommandLineInterface::processInput()
 {
-	if (m_options.output.evmVersion < EVMVersion::constantinople())
-		report(
-			Error::Severity::Warning,
-			"Support for EVM versions older than constantinople is deprecated and will be removed in the future."
-		);
-
 	switch (m_options.input.mode)
 	{
 	case InputMode::Help:
@@ -426,10 +437,10 @@ void CommandLineInterface::processInput()
 		serveLSP();
 		break;
 	case InputMode::Assembler:
-		solUnimplemented("");
+		solUnimplemented("TODO DELETE");
 		break;
 	case InputMode::Linker:
-		solUnimplemented("");
+		solUnimplemented("TODO DELETE");
 		break;
 	case InputMode::Compiler:
 	case InputMode::CompilerWithASTImport:
@@ -437,9 +448,24 @@ void CommandLineInterface::processInput()
 		outputCompilationResults();
 		break;
 	case InputMode::EVMAssemblerJSON:
-		solUnimplemented("");
+		solUnimplemented("TODO DELETE");
 		break;
 	}
+}
+
+std::string CommandLineInterface::getOutStem() const
+{
+	return m_compiler != nullptr ? m_compiler->getOutStem() : "";
+}
+
+std::string CommandLineInterface::getOutDir() const
+{
+	return m_compiler != nullptr ? m_compiler->getOutDir() : "";
+}
+
+bool CommandLineInterface::doGenerateTvc() const
+{
+	return m_compiler != nullptr ? m_compiler->doGenerateTvc() : false;
 }
 
 void CommandLineInterface::printVersion()
@@ -454,7 +480,6 @@ void CommandLineInterface::printLicense()
 	// This is a static variable generated by cmake from LICENSE.txt
 	sout() << licenseText << std::endl;
 }
-
 
 void CommandLineInterface::compile()
 {
@@ -474,21 +499,25 @@ void CommandLineInterface::compile()
 		m_compiler->setRemappings(m_options.input.remappings);
 		m_compiler->setLibraries(m_options.linker.libraries);
 		m_compiler->setViaIR(m_options.output.viaIR);
-		m_compiler->setEVMVersion(m_options.output.evmVersion);
 		m_compiler->setRevertStringBehaviour(m_options.output.revertStrings);
-		// TODO: Perhaps we should not compile unless requested
-		m_compiler->enableIRGeneration(
-			m_options.compiler.outputs.ir ||
+
+		CompilerStack::PipelineConfig pipelineConfig;
+		pipelineConfig.irOptimization =
 			m_options.compiler.outputs.irOptimized ||
-			m_options.compiler.outputs.irAstJson ||
-			m_options.compiler.outputs.irOptimizedAstJson
-		);
-		m_compiler->enableEvmBytecodeGeneration(
+			m_options.compiler.outputs.irOptimizedAstJson ||
+			m_options.compiler.outputs.yulCFGJson;
+		pipelineConfig.irCodegen =
+			pipelineConfig.irOptimization ||
+			m_options.compiler.outputs.ir ||
+			m_options.compiler.outputs.irAstJson;
+		pipelineConfig.bytecode =
 			m_options.compiler.estimateGas ||
 			m_options.compiler.outputs.asmJson ||
 			m_options.compiler.outputs.opcodes ||
 			m_options.compiler.outputs.binary ||
 			m_options.compiler.outputs.binaryRuntime ||
+			m_options.compiler.outputs.ethdebug ||
+			m_options.compiler.outputs.ethdebugRuntime ||
 			(m_options.compiler.combinedJsonRequests && (
 				m_options.compiler.combinedJsonRequests->binary ||
 				m_options.compiler.combinedJsonRequests->binaryRuntime ||
@@ -499,8 +528,10 @@ void CommandLineInterface::compile()
 				m_options.compiler.combinedJsonRequests->srcMapRuntime ||
 				m_options.compiler.combinedJsonRequests->funDebug ||
 				m_options.compiler.combinedJsonRequests->funDebugRuntime
-			))
-		);
+			));
+
+		// TODO delete add mainContract?
+		m_compiler->selectContracts({{"", {{"", pipelineConfig}}}});
 
 		m_compiler->setOptimiserSettings(m_options.optimiserSettings());
 
@@ -543,13 +574,13 @@ void CommandLineInterface::compile()
 			m_compiler->printFunctionIds();
 		if (m_options.tvmParams.printPrivateFunctionIds)
 			m_compiler->printPrivateFunctionIds();
+		if (m_options.tvmParams.debugMode)
+			m_compiler->debugMode();
 		m_compiler->setOutputFolder(m_options.output.dir.string());
 		m_compiler->setTVMVersion(m_options.tvmParams.tvmVersion);
 
-		bool successful = true;
-		bool didCompileSomething = false;
-		std::tie(successful, didCompileSomething) = m_compiler->compile();
-		m_hasOutput |= didCompileSomething;
+		bool successful = m_compiler->compile(m_options.output.stopAfter);
+		m_hasOutput |= m_compiler->didCompileSomething();
 
 		for (auto const& error: m_compiler->errors())
 		{
@@ -560,6 +591,7 @@ void CommandLineInterface::compile()
 		if (!successful)
 			solThrow(CommandLineExecutionError, "");
 	}
+	// NOTE: This includes langutil::StackTooDeepError.
 	catch (CompilerError const& _exception)
 	{
 		m_hasOutput = true;
@@ -568,20 +600,6 @@ void CommandLineInterface::compile()
 			Error::errorSeverity(Error::Type::CompilerError)
 		);
 		solThrow(CommandLineExecutionError, "");
-	}
-	catch (Error const& _error)
-	{
-		if (_error.type() == Error::Type::DocstringParsingError)
-		{
-			report(Error::Severity::Error, *boost::get_error_info<errinfo_comment>(_error));
-			solThrow(CommandLineExecutionError, "Documentation parsing failed.");
-		}
-		else
-		{
-			m_hasOutput = true;
-			formatter.printErrorInformation(_error);
-			solThrow(CommandLineExecutionError, "");
-		}
 	}
 }
 
@@ -613,9 +631,7 @@ void CommandLineInterface::handleAst()
 		for (auto const& sourceCode: m_fileReader.sourceUnits())
 		{
 			ASTJsonExporter(m_compiler->state(), m_compiler->sourceIndices()).print(sout(), m_compiler->ast(sourceCode.first), m_options.formatting.json);
-			sout() << std::endl;
 		}
-		m_hasOutput = true;
 	}
 }
 

@@ -35,7 +35,7 @@ namespace solidity::frontend::test
 
 using StringPair = std::pair<std::string, std::string>;
 
-class ASTPropertyTest: public TestCase
+class ASTPropertyTest: public EVMVersionRestrictedTestCase
 {
 public:
 	static std::unique_ptr<TestCase> create(Config const& _config)
@@ -56,7 +56,7 @@ private:
 
 	void readExpectations();
 	std::vector<StringPair> readKeyValuePairs(std::string const& _input);
-	void extractTestsFromAST(Json::Value const& _astJson);
+	void extractTestsFromAST(Json const& _astJson);
 	std::string formatExpectations(bool _obtainedResult = true);
 
 	std::vector<std::string> m_testOrder;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2024 EverX. All Rights Reserved.
+ * Copyright (C) 2019-2025 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -16,12 +16,12 @@
 
 #pragma once
 
-#include <vector>
+#include <liblangutil/CharStreamProvider.h>
 #include <liblangutil/ErrorReporter.h>
 #include <liblangutil/TVMVersion.h>
 #include <libsolidity/ast/ASTForward.h>
-#include <liblangutil/CharStreamProvider.h>
 #include <libsolutil/SetOnce.h>
+#include <vector>
 
 class GlobalParams {
 public:
@@ -30,21 +30,14 @@ public:
 	static solidity::util::SetOnce<solidity::langutil::TVMVersion> g_tvmVersion;
 };
 
-std::string getPathToFiles(
-	const std::string& solFileName,
-	const std::string& outputFolder,
-	const std::string& filePrefix
-);
-
 void TVMCompilerProceedContract(
 	solidity::frontend::ContractDefinition const& _contract,
 	std::vector<solidity::frontend::ASTPointer<solidity::frontend::SourceUnit>> const& _sourceUnits,
-	std::vector<solidity::frontend::PragmaDirective const *> const* pragmaDirectives,
+	std::vector<solidity::frontend::PragmaDirective const*> const* pragmaDirectives,
 	bool generateAbi,
 	bool generateCode,
-	const std::string& solFileName,
-	const std::string& outputFolder,
-	const std::string& filePrefix,
+	std::string const& outDirPathAndStem,
 	bool doPrintFunctionIds,
-	bool doPrivateFunctionIds
+	bool doPrivateFunctionIds,
+	bool debugMode
 );

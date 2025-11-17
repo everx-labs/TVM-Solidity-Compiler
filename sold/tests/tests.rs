@@ -10,12 +10,16 @@
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
  */
 
-use assert_cmd::Command;
+use assert_cmd::cargo_bin_cmd;
 use predicates::prelude::*;
-use sold_lib::ERROR_MSG_NO_OUTPUT;
 
 type Status = Result<(), Box<dyn std::error::Error>>;
-const BIN_NAME: &str = "sold";
+
+macro_rules! bin_name {
+    () => {
+        "sold"
+    };
+}
 
 fn remove_all_outputs(name: &str) -> Status {
     std::fs::remove_file(format!("tests/{name}.abi.json"))?;
@@ -27,7 +31,7 @@ fn remove_all_outputs(name: &str) -> Status {
 
 #[test]
 fn test_trivial() -> Status {
-    Command::cargo_bin(BIN_NAME)?
+    cargo_bin_cmd!(bin_name!())
         .arg("tests/Trivial.sol")
         .arg("--output-dir")
         .arg("tests")
@@ -40,7 +44,7 @@ fn test_trivial() -> Status {
 
 #[test]
 fn test_combined() -> Status {
-    Command::cargo_bin(BIN_NAME)?
+    cargo_bin_cmd!(bin_name!())
         .arg("tests/Combined.sol")
         .arg("--output-dir")
         .arg("tests")
@@ -53,7 +57,7 @@ fn test_combined() -> Status {
 
 #[test]
 fn test_multi() -> Status {
-    Command::cargo_bin(BIN_NAME)?
+    cargo_bin_cmd!(bin_name!())
         .arg("tests/Multi.sol")
         .arg("--output-dir")
         .arg("tests")
@@ -68,7 +72,7 @@ fn test_multi() -> Status {
 
 #[test]
 fn test_abi_json() -> Status {
-    Command::cargo_bin(BIN_NAME)?
+    cargo_bin_cmd!(bin_name!())
         .arg("tests/AbiJson.sol")
         .arg("--output-dir")
         .arg("tests")
@@ -77,7 +81,9 @@ fn test_abi_json() -> Status {
         .arg("Contract")
         .assert()
         .success()
-        .stdout(predicate::str::is_empty());
+        .stdout(predicate::str::contains(
+            "ABI was generated and saved to file ",
+        ));
 
     std::fs::remove_file("tests/AbiJson.abi.json")?;
     Ok(())
@@ -85,27 +91,31 @@ fn test_abi_json() -> Status {
 
 #[test]
 fn test_library() -> Status {
-    Command::cargo_bin(BIN_NAME)?
+    cargo_bin_cmd!(bin_name!())
         .arg("tests/Library.sol")
         .arg("--output-dir")
         .arg("tests")
         .assert()
         .success()
-        .stderr(predicate::str::contains(ERROR_MSG_NO_OUTPUT));
+        .stdout(predicate::str::contains(
+            "Compiler run successful. Artifact(s) can be found in directory \"tests\".\n",
+        ));
 
     Ok(())
 }
 
 #[test]
 fn test_abstract() -> Status {
-    Command::cargo_bin(BIN_NAME)?
+    cargo_bin_cmd!(bin_name!())
         .arg("tests/Abstract.sol")
         .arg("--output-dir")
         .arg("tests")
         .arg("--abi-json")
         .assert()
         .success()
-        .stdout(predicate::str::is_empty());
+        .stdout(predicate::str::contains(
+            "ABI was generated and saved to file ",
+        ));
 
     std::fs::remove_file("tests/Abstract.abi.json")?;
     Ok(())
@@ -113,20 +123,22 @@ fn test_abstract() -> Status {
 
 #[test]
 fn test_error_reporting() -> Status {
-    Command::cargo_bin(BIN_NAME)?
+    cargo_bin_cmd!(bin_name!())
         .arg("tests/ErrorReporting.sol")
         .arg("--output-dir")
         .arg("tests")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("Compilation failed"));
+        .stderr(predicate::str::contains(
+            "Error: No matching declaration found after argument-dependent lookup.",
+        ));
 
     Ok(())
 }
 
 #[test]
 fn test_cycle() -> Status {
-    Command::cargo_bin(BIN_NAME)?
+    cargo_bin_cmd!(bin_name!())
         .arg("tests/CycleA.sol")
         .arg("--output-dir")
         .arg("tests")
@@ -141,41 +153,48 @@ fn test_cycle() -> Status {
 
 #[test]
 fn test_private_function_ids() -> Status {
-    Command::cargo_bin(BIN_NAME)?
+    cargo_bin_cmd!(bin_name!())
         .arg("tests/FunctionId.sol")
         .arg("--private-function-ids")
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#"[
-  {
-    "id": 7460,
-    "scope": "C",
-    "sign": "f(int19,uint256,uint256)"
-  },
-  {
-    "id": 7504,
-    "scope": "C",
-    "sign": "add(uint256,uint256)"
-  },
-  {
-    "id": 10141,
-    "scope": "C",
-    "sign": "sub(uint256,uint256)"
-  },
-  {
-    "id": 10143,
-    "scope": "Math",
-    "sign": "mul(uint256,uint256)"
-  }
-"#,
+            "Private function IDs were generated and saved to file ./FunctionId.pids",
         ));
+
+    let real = std::fs::read_to_string("FunctionId.pids")?;
+    let expected = r#"[
+    {
+        "id": 7460,
+        "scope": "C",
+        "sign": "f(int19,uint256,uint256)"
+    },
+    {
+        "id": 7504,
+        "scope": "C",
+        "sign": "add(uint256,uint256)"
+    },
+    {
+        "id": 10141,
+        "scope": "C",
+        "sign": "sub(uint256,uint256)"
+    },
+    {
+        "id": 10143,
+        "scope": "Math",
+        "sign": "mul(uint256,uint256)"
+    }
+]
+"#;
+    assert_eq!(real, expected);
+
+    std::fs::remove_file("FunctionId.pids")?;
     Ok(())
 }
 
 #[test]
 fn test_remapping() -> Status {
-    Command::cargo_bin(BIN_NAME)?
+    cargo_bin_cmd!(bin_name!())
         .arg("tests/ImportRemote.sol")
         .arg("--output-dir")
         .arg("tests")
@@ -189,25 +208,19 @@ fn test_remapping() -> Status {
 
 #[test]
 fn test_userdoc_devdoc() -> Status {
-    Command::cargo_bin(BIN_NAME)?
+    cargo_bin_cmd!(bin_name!())
         .arg("tests/Trivial.sol")
         .arg("--userdoc")
         .arg("--devdoc")
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#"Developer Documentation
-{
-  "kind": "dev",
-  "methods": {},
-  "version": 1
-}
+            r#"
+======= tests/Trivial.sol:Trivial =======
+Developer Documentation
+{"kind":"dev","methods":{},"version":1}
 User Documentation
-{
-  "kind": "user",
-  "methods": {},
-  "version": 1
-}
+{"kind":"user","methods":{},"version":1}
 "#,
         ));
     Ok(())

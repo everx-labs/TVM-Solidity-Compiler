@@ -20,7 +20,6 @@
 
 #include <libsolidity/ast/ASTVisitor.h>
 #include <libsolidity/ast/ASTAnnotations.h>
-#include <liblangutil/EVMVersion.h>
 
 #include <list>
 #include <map>
@@ -40,11 +39,9 @@ class DeclarationTypeChecker: private ASTConstVisitor
 {
 public:
 	DeclarationTypeChecker(
-		langutil::ErrorReporter& _errorReporter,
-		langutil::EVMVersion _evmVersion
+		langutil::ErrorReporter& _errorReporter
 	):
-		m_errorReporter(_errorReporter),
-		m_evmVersion(_evmVersion)
+		m_errorReporter(_errorReporter)
 	{}
 
 	bool check(ASTNode const& _contract);
@@ -68,7 +65,6 @@ private:
 	bool visit(InheritanceSpecifier const& _inheritanceSpecifier) override;
 
 	langutil::ErrorReporter& m_errorReporter;
-	langutil::EVMVersion m_evmVersion;
 	bool m_insideFunctionType = false;
 	bool m_recursiveStructSeen = false;
 	std::set<StructDefinition const*> m_currentStructsSeen;

@@ -21,7 +21,7 @@
 namespace solidity::frontend {
 	class SizeOptimizer : public TvmAstVisitor {
 	public:
-		void optimize(Pointer<Contract>& c);
+		static void optimize(Pointer<Contract> const& c);
 	};
 } // end solidity::frontend
 

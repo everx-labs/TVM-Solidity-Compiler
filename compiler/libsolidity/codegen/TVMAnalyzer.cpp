@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2025 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2026 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -14,34 +14,26 @@
  * AST analyzer specified to search for TVM specific issues.
  */
 
-#include <libsolidity/codegen/TVMAnalyzer.hpp>
 #include <liblangutil/ErrorReporter.h>
-#include <libsolidity/codegen/TVMConstants.hpp>
+#include <libsolidity/codegen/TVMAnalyzer.hpp>
 
 #include "TVM.hpp"
 
 
 using namespace solidity::frontend;
 using namespace solidity::langutil;
-using namespace std;
 
-TVMAnalyzer::TVMAnalyzer(ErrorReporter &_errorReporter):
-	m_errorReporter(_errorReporter)
-{
-}
+TVMAnalyzer::TVMAnalyzer(ErrorReporter& _errorReporter):
+	m_errorReporter(_errorReporter) {}
 
-bool TVMAnalyzer::analyze(const SourceUnit &_sourceUnit)
-{
+bool TVMAnalyzer::analyze(SourceUnit const& _sourceUnit) {
 	_sourceUnit.accept(*this);
 	return !m_errorReporter.hasErrors();
 }
 
 bool TVMAnalyzer::visit(RevertStatement const& _revertStatement) {
-	m_errorReporter.typeError(
-		1594_error,
-		_revertStatement.location(),
-		"Revert statements are not supported currently."
-	);
+	m_errorReporter
+		.typeError(1594_error, _revertStatement.location(), "Revert statements are not supported currently.");
 	return true;
 }
 
@@ -49,7 +41,7 @@ bool TVMAnalyzer::visit(MemberAccess const& _node) {
 	auto funType = to<FunctionType>(_node.annotation().type);
 	if (funType) {
 		if (funType->hasBoundFirstArgument()) {
-			auto printError = [&]{
+			auto printError = [&] {
 				m_errorReporter.fatalTypeError(
 					5939_error,
 					_node.location(),
@@ -90,17 +82,15 @@ bool TVMAnalyzer::visit(Return const& _return) {
 		auto hasName = [&](std::string const& name) -> bool {
 			auto b = _return.names().begin();
 			auto e = _return.names().end();
-			return std::find_if(b, e, [&](ASTPointer<ASTString> const& x){
-				return name == *x;
-			}) != e;
+			return std::find_if(b, e, [&](ASTPointer<ASTString> const& x) { return name == *x; }) != e;
 		};
 		if (!hasName("value") || !hasName("bounce") || !hasName("flag")) {
 			m_errorReporter.fatalDeclarationError(
 				5133_error,
 				_return.location(),
 				std::string{} +
-				"`value`, `bounce` and `flag` options must be explicitly defined for `responsible` functions.\n" +
-				"Hint: use `{value: 0, bounce: false, flag: 64}`."
+					"`value`, `bounce` and `flag` options must be explicitly defined for `responsible` functions.\n" +
+					"Hint: use `{value: 0, bounce: false, flag: 64}`."
 			);
 		}
 	}
@@ -113,9 +103,7 @@ bool TVMAnalyzer::visit(FunctionCall const& _functionCall) {
 	return true;
 }
 
-void TVMAnalyzer::endVisit(FunctionDefinition const&) {
-	m_currentFunction = nullptr;
-}
+void TVMAnalyzer::endVisit(FunctionDefinition const&) { m_currentFunction = nullptr; }
 
 void TVMAnalyzer::endVisit(FunctionCall const&) {
 	solAssert(!m_functionCall.empty(), "");
@@ -126,51 +114,56 @@ void TVMAnalyzer::endVisit(PragmaDirective const& _pragma) {
 	if (!_pragma.literals().empty() && _pragma.literals().at(0) == "copyleft") {
 		std::vector<ASTPointer<Expression>> params = _pragma.parameter();
 
-		auto checkConstInteger = [&](Expression const& _e, SourceLocation const& loc, const std::string& msg, const bigint& max_val){
-			if (_e.annotation().type->category() != Type::Category::RationalNumber) {
-				m_errorReporter.syntaxError(5514_error, loc, msg);
-				return;
-			}
-			auto number = dynamic_cast<RationalNumberType const *>(_e.annotation().type);
-			solAssert(number, "");
-			if (number->isFractional()) {
-				m_errorReporter.syntaxError(8784_error, loc, msg);
-				return;
-			}
-			bigint val = number->value2();
-			if (val < 0 || val >= max_val) {
-				m_errorReporter.syntaxError(5971_error, loc, msg);
-				return;
-			}
-		};
+		auto checkConstInteger =
+			[&](Expression const& _e, SourceLocation const& loc, std::string const& msg, bigint const& max_val) {
+				if (_e.annotation().type->category() != Type::Category::RationalNumber) {
+					m_errorReporter.syntaxError(5514_error, loc, msg);
+					return;
+				}
+				auto number = dynamic_cast<RationalNumberType const*>(_e.annotation().type);
+				solAssert(number, "");
+				if (number->isFractional()) {
+					m_errorReporter.syntaxError(8784_error, loc, msg);
+					return;
+				}
+				bigint val = number->value2();
+				if (val < 0 || val >= max_val) {
+					m_errorReporter.syntaxError(5971_error, loc, msg);
+				}
+			};
 
 		// check type
-		checkConstInteger(*params.at(0), params.at(0)->location(),
-						 "Expected constant integer type (uint8).", bigint(1) << 8);
+		checkConstInteger(
+			*params.at(0),
+			params.at(0)->location(),
+			"Expected constant integer type (uint8).",
+			bigint(1) << 8
+		);
 
 		// check address
-		checkConstInteger(*params.at(1), params.at(1)->location(),
-						 "Expected constant integer type (uint256).", bigint(1) << 256);
+		checkConstInteger(
+			*params.at(1),
+			params.at(1)->location(),
+			"Expected constant integer type (uint256).",
+			bigint(1) << 256
+		);
 	}
 }
 
 
-TVMAnalyzerFlag128::TVMAnalyzerFlag128(ErrorReporter &_errorReporter):
-	m_errorReporter(_errorReporter)
-{
-}
+TVMAnalyzerFlag128::TVMAnalyzerFlag128(ErrorReporter& _errorReporter):
+	m_errorReporter(_errorReporter) {}
 
-bool TVMAnalyzerFlag128::analyze(const SourceUnit &_sourceUnit)
-{
+bool TVMAnalyzerFlag128::analyze(SourceUnit const& _sourceUnit) {
 	_sourceUnit.accept(*this);
 	return !m_errorReporter.hasErrors();
 }
 
 bool TVMAnalyzerFlag128::visit(IfStatement const& _function) {
-	const auto prev128 = m_functionCallWith128Flag;
+	auto const prev128 = m_functionCallWith128Flag;
 	_function.trueStatement().accept(*this);
 	if (_function.falseStatement()) {
-		const auto new128 = m_functionCallWith128Flag;
+		auto const new128 = m_functionCallWith128Flag;
 		m_functionCallWith128Flag = prev128;
 		_function.falseStatement()->accept(*this);
 		if (m_functionCallWith128Flag == nullptr) {
@@ -215,7 +208,7 @@ bool TVMAnalyzerFlag128::visit(FunctionCall const& _functionCall) {
 			}
 		}
 	} else {
-		Expression const *currentExpression = &_functionCall.expression();
+		Expression const* currentExpression = &_functionCall.expression();
 		auto memberAccess = to<MemberAccess>(currentExpression);
 		if (memberAccess) {
 			auto functionDefinition = getRemoteFunctionDefinition(memberAccess);
@@ -242,7 +235,6 @@ bool TVMAnalyzerFlag128::visit(FunctionCall const& _functionCall) {
 							}
 						}
 					}
-
 				}
 			}
 		}
@@ -253,10 +245,10 @@ bool TVMAnalyzerFlag128::visit(FunctionCall const& _functionCall) {
 	}
 
 	if (m_functionCallWith128Flag != nullptr) {
-		m_errorReporter.typeError(2526_error,
+		m_errorReporter.typeError(
+			2526_error,
 			_functionCall.location(),
-			SecondarySourceLocation().append("Sending all balance:",
-						m_functionCallWith128Flag->location()),
+			SecondarySourceLocation().append("Sending all balance:", m_functionCallWith128Flag->location()),
 			"External function call will fail on action phase because all balance was already send."
 		);
 	}
@@ -266,11 +258,12 @@ bool TVMAnalyzerFlag128::visit(FunctionCall const& _functionCall) {
 
 		if (m_function && !m_function->returnParameters().empty() && m_function->functionIsExternallyVisible()) {
 			if (m_functionCallWith128Flag != nullptr) {
-				m_errorReporter.typeError(3337_error,
+				m_errorReporter.typeError(
+					3337_error,
 					m_function->location(),
-					SecondarySourceLocation().append("Sending all balance:",
-								m_functionCallWith128Flag->location()),
-					"Public function (that returns some parameters) will emit the event. It will fail on action phase because all balance was already send."
+					SecondarySourceLocation().append("Sending all balance:", m_functionCallWith128Flag->location()),
+					"Public function (that returns some parameters) will emit the event. It will fail on action phase "
+					"because all balance was already send."
 				);
 			}
 		}
@@ -281,29 +274,25 @@ bool TVMAnalyzerFlag128::visit(FunctionCall const& _functionCall) {
 
 bool TVMAnalyzerFlag128::visit(EmitStatement const& _emit) {
 	if (m_functionCallWith128Flag != nullptr) {
-		m_errorReporter.typeError(8901_error,
+		m_errorReporter.typeError(
+			8901_error,
 			_emit.location(),
-			SecondarySourceLocation().append("Sending all balance:",
-						m_functionCallWith128Flag->location()),
+			SecondarySourceLocation().append("Sending all balance:", m_functionCallWith128Flag->location()),
 			"Emitting the event will fail on action phase because all balance was already send."
 		);
 	}
 	return true;
 }
 
-TVMAnalyzerPackUnpack::TVMAnalyzerPackUnpack(ErrorReporter &_errorReporter):
-	m_errorReporter(_errorReporter)
-{
-}
+TVMAnalyzerPackUnpack::TVMAnalyzerPackUnpack(ErrorReporter& _errorReporter):
+	m_errorReporter(_errorReporter) {}
 
-bool TVMAnalyzerPackUnpack::analyze(const SourceUnit &_sourceUnit)
-{
+bool TVMAnalyzerPackUnpack::analyze(SourceUnit const& _sourceUnit) {
 	_sourceUnit.accept(*this);
 	return !m_errorReporter.hasErrors();
 }
 
 bool TVMAnalyzerPackUnpack::visit(FunctionCall const& _functionCall) {
-
 	auto funcType = to<FunctionType>(_functionCall.expression().annotation().type);
 	if (funcType && funcType->kind() == FunctionType::Kind::TVMUnpackData) {
 		return false;
@@ -315,12 +304,10 @@ bool TVMAnalyzerPackUnpack::visit(FunctionCall const& _functionCall) {
 bool TVMAnalyzerPackUnpack::visit(Identifier const& _node) {
 	auto varDecl = to<VariableDeclaration>(_node.annotation().referencedDeclaration);
 	if (varDecl && varDecl->isUnpacked()) {
-		m_errorReporter.typeError(228_error,
+		m_errorReporter.typeError(
+			7813_error,
 			_node.location(),
-			SecondarySourceLocation().append(
-				"Declaration of unpacked variable:",
-				varDecl->location()
-			),
+			SecondarySourceLocation().append("Declaration of unpacked variable:", varDecl->location()),
 			"Using unpacked variable. Use tvm.unpackData(...) to get the variable."
 		);
 	}
@@ -329,16 +316,13 @@ bool TVMAnalyzerPackUnpack::visit(Identifier const& _node) {
 
 bool TVMAnalyzerPackUnpack::visit(VariableDeclaration const& _node) {
 	if (_node.isUnpacked() && _node.value() != nullptr) {
-		m_errorReporter.typeError(228_error,
-			_node.location(),
-		"Unpacked variable can not be initialized here."
-		);
+		m_errorReporter.typeError(8382_error, _node.location(), "Unpacked variable can not be initialized here.");
 	}
 	return true;
 }
 
-ContactsUsageScanner::ContactsUsageScanner(const ContractDefinition &cd) {
-	for (ContractDefinition const* base : cd.annotation().linearizedBaseContracts) {
+ContactsUsageScanner::ContactsUsageScanner(ContractDefinition const& cd) {
+	for (ContractDefinition const* base: cd.annotation().linearizedBaseContracts) {
 		base->accept(*this);
 	}
 }
@@ -349,11 +333,10 @@ bool ContactsUsageScanner::visit(FunctionCall const& _functionCall) {
 	auto funType = to<FunctionType>(exprType);
 	if (funType) {
 		if (funType->hasDeclaration() &&
-			isIn(funType->kind(), FunctionType::Kind::Internal, FunctionType::Kind::DelegateCall))
-		{
+			isIn(funType->kind(), FunctionType::Kind::Internal, FunctionType::Kind::DelegateCall)) {
 			// Library functions aren't part of contract definition, that's why we use lazy visiting
 			Declaration const& decl = funType->declaration();
-			if (!m_usedFunctions.count(&decl)) {
+			if (!m_usedFunctions.contains(&decl)) {
 				m_usedFunctions.insert(&decl);
 				decl.accept(*this);
 			}
@@ -370,7 +353,7 @@ bool ContactsUsageScanner::visit(FunctionCall const& _functionCall) {
 	return true;
 }
 
-bool ContactsUsageScanner::visit(const MemberAccess &_node) {
+bool ContactsUsageScanner::visit(MemberAccess const& _node) {
 	auto const& expr = _node.expression();
 	auto type = expr.annotation().type;
 
@@ -385,46 +368,13 @@ bool ContactsUsageScanner::visit(const MemberAccess &_node) {
 	return true;
 }
 
-bool ContactsUsageScanner::visit(const FunctionDefinition &fd) {
+bool ContactsUsageScanner::visit(FunctionDefinition const& fd) {
 	if (fd.isResponsible())
 		m_hasResponsibleFunction = true;
 	return true;
 }
 
-bool solidity::frontend::withPrelocatedRetValues(const FunctionDefinition *f) {
-	LocationReturn locationReturn = notNeedsPushContWhenInlining(f->body());
-	if (!f->returnParameters().empty() && isIn(locationReturn, LocationReturn::noReturn, LocationReturn::Anywhere)) {
-		return true;
-	}
-
-	for (const ASTPointer<VariableDeclaration> &retArg : f->returnParameters()) {
-		if (!retArg->name().empty()) {
-			return true;
-		}
-	}
-	return !f->modifiers().empty();
-}
-
-LocationReturn solidity::frontend::notNeedsPushContWhenInlining(const Block &_block) {
-
-	ast_vec<Statement> statements = _block.statements();
-
-	CFAnalyzer bodyScanner{_block};
-	if (!bodyScanner.canReturn()) {
-		return LocationReturn::noReturn;
-	}
-
-	for (std::vector<int>::size_type i = 0; i + 1 < statements.size(); ++i) {
-		CFAnalyzer scanner{*statements[i].get()};
-		if (scanner.canReturn()) {
-			return LocationReturn::Anywhere;
-		}
-	}
-	bool isLastStatementReturn = to<Return>(statements.back().get()) != nullptr;
-	return isLastStatementReturn ? LocationReturn::Last : LocationReturn::Anywhere;
-}
-
-CFAnalyzer::CFAnalyzer(Statement const &node) {
+CFAnalyzer::CFAnalyzer(Statement const& node) {
 	node.accept(*this);
 	solAssert(m_loopDepth == 0, "");
 	m_alwaysReturns = doesAlways<Return>(&node);
@@ -437,40 +387,26 @@ bool CFAnalyzer::startLoop() {
 	return true;
 }
 
-bool CFAnalyzer::visit(ForEachStatement const &) {
-	return startLoop();
-}
+bool CFAnalyzer::visit(ForEachStatement const&) { return startLoop(); }
 
-bool CFAnalyzer::visit(WhileStatement const &) {
-	return startLoop();
-}
+bool CFAnalyzer::visit(WhileStatement const&) { return startLoop(); }
 
-bool CFAnalyzer::visit(ForStatement const &) {
-	return startLoop();
-}
+bool CFAnalyzer::visit(ForStatement const&) { return startLoop(); }
 
-void CFAnalyzer::endVisit(ForEachStatement const &) {
-	m_loopDepth--;
-}
+void CFAnalyzer::endVisit(ForEachStatement const&) { m_loopDepth--; }
 
-void CFAnalyzer::endVisit(WhileStatement const &) {
-	m_loopDepth--;
-}
+void CFAnalyzer::endVisit(WhileStatement const&) { m_loopDepth--; }
 
-void CFAnalyzer::endVisit(ForStatement const &) {
-	m_loopDepth--;
-}
+void CFAnalyzer::endVisit(ForStatement const&) { m_loopDepth--; }
 
-void CFAnalyzer::endVisit(Return const &) {
-	m_canReturn = true;
-}
+void CFAnalyzer::endVisit(Return const&) { m_canReturn = true; }
 
-void CFAnalyzer::endVisit(Break const &) {
+void CFAnalyzer::endVisit(Break const&) {
 	if (m_loopDepth == 0)
 		m_canBreak = true;
 }
 
-void CFAnalyzer::endVisit(Continue const &) {
+void CFAnalyzer::endVisit(Continue const&) {
 	if (m_loopDepth == 0)
 		m_canContinue = true;
 }

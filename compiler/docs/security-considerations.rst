@@ -371,6 +371,16 @@ If your ``mapping`` information must be deleted, consider using a library simila
 `iterable mapping <https://github.com/ethereum/dapp-bin/blob/master/library/iterable_mapping.sol>`_,
 allowing you to traverse the keys and delete their values in the appropriate ``mapping``.
 
+Internal Function Pointers in Upgradeable Contracts
+===================================================
+
+Updating the code of your contract may :ref:`invalidate the values of variables of internal function
+types<function-type-value-stability-across-contract-updates>`.
+Consider such values ephemeral and avoid storing them in state variables.
+If you do, you must ensure that they never persist across code updates and are never used by
+other contracts having access to the same storage space as a result of a delegatecall or account
+abstraction.
+
 Minor Details
 =============
 

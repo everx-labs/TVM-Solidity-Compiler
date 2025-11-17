@@ -1,0 +1,84 @@
+
+======= input.sol:C =======
+EVM assembly:
+    /* "input.sol":60:518  contract C... */
+  mstore(0x40, 0x80)
+    /* "input.sol":101:106  int a */
+  0x00
+    /* "input.sol":181:190  let x,y,z */
+  0x00
+  0x00
+  0x00
+    /* "input.sol":205:206  1 */
+  0x01
+    /* "input.sol":202:203  0 */
+  0x00
+    /* "input.sol":195:207  sstore(0, 1) */
+  sstore
+    /* "input.sol":212:258  for { } sload(4) { } {... */
+tag_3:
+    /* "input.sol":226:227  4 */
+  0x04
+    /* "input.sol":220:228  sload(4) */
+  sload
+    /* "input.sol":212:258  for { } sload(4) { } {... */
+  iszero
+  tag_5
+  jumpi
+  pop
+    /* "input.sol":244:253  exp(x, y) */
+  dup1
+  dup3
+  exp
+    /* "input.sol":212:258  for { } sload(4) { } {... */
+  jump(tag_3)
+tag_5:
+    /* "input.sol":216:219  { } */
+  pop
+  pop
+  pop
+    /* "input.sol":268:269  2 */
+  0x02
+    /* "input.sol":263:269  a := 2 */
+  swap1
+  pop
+    /* "input.sol":369:370  3 */
+  0x03
+    /* "input.sol":366:367  2 */
+  0x02
+    /* "input.sol":359:371  sstore(2, 3) */
+  sstore
+    /* "input.sol":390:391  5 */
+  0x05
+    /* "input.sol":384:392  sload(5) */
+  sload
+  iszero
+    /* "input.sol":376:509  for { } sload(5) { } {... */
+tag_6:
+    /* "input.sol":384:392  sload(5) */
+  dup1
+    /* "input.sol":376:509  for { } sload(5) { } {... */
+  iszero
+  tag_6
+  jumpi
+    /* "input.sol":380:383  { } */
+  pop
+    /* "input.sol":340:513  {... */
+  pop
+    /* "input.sol":60:518  contract C... */
+  dataSize(sub_0)
+  dup1
+  dataOffset(sub_0)
+  0x00
+  codecopy
+  0x00
+  return
+stop
+
+sub_0: assembly {
+        /* "input.sol":60:518  contract C... */
+      mstore(0x40, 0x80)
+      revert(0x00, 0x00)
+
+    auxdata: <AUXDATA REMOVED>
+}

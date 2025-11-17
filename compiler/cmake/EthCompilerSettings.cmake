@@ -89,9 +89,15 @@ if (("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU") OR ("${CMAKE_CXX_COMPILER_ID}" MA
 
 	# Additional GCC-specific compiler settings.
 	if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
-		# Check that we've got GCC 8.0 or newer.
-		if (NOT (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 8.0))
-			message(FATAL_ERROR "${PROJECT_NAME} requires g++ 8.0 or greater.")
+		# Check that we've got GCC 11.0 or newer.
+		if (NOT (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 11.0))
+			message(FATAL_ERROR "${PROJECT_NAME} requires g++ 11.0 or greater.")
+		endif ()
+
+		# GCC 12 emits warnings for string concatenations with operator+ under O3
+		# See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=105651
+		if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 12.0 AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13.0)
+			add_compile_options(-Wno-error=restrict)
 		endif ()
 
 		# Use fancy colors in the compiler diagnostics
@@ -99,11 +105,13 @@ if (("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU") OR ("${CMAKE_CXX_COMPILER_ID}" MA
 
 	# Additional Clang-specific compiler settings.
 	elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
-		# Check that we've got clang 7.0 or newer.
-		if (NOT (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 7.0))
-			message(FATAL_ERROR "${PROJECT_NAME} requires clang++ 7.0 or greater.")
+		# Check that we've got clang 14.0 or newer.
+		if (NOT (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 14.0))
+			message(FATAL_ERROR "${PROJECT_NAME} requires clang++ 14.0 or greater.")
 		endif ()
 
+		# use std::invoke_result, superseding std::result_of which has been removed in c++20
+		add_compile_definitions(BOOST_ASIO_HAS_STD_INVOKE_RESULT)
 		if ("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
 			# Set stack size to 32MB - by default Apple's clang defines a stack size of 8MB.
 			# Normally 16MB is enough to run all tests, but it will exceed the stack, if -DSANITIZE=address is used.
@@ -162,6 +170,10 @@ if (("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU") OR ("${CMAKE_CXX_COMPILER_ID}" MA
 			set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -s ALLOW_TABLE_GROWTH=1")
 			# Disable warnings about not being pure asm.js due to memory growth.
 			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-almost-asm")
+			# Increase stack size from 5MB to 16MB to prevent stack overflow issues.
+			set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -s TOTAL_STACK=16mb")
+			# Increase memory size from 16MB to 32MB since the stack size is now 16MB.
+			set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -s INITIAL_MEMORY=32mb")
 		endif()
 	endif()
 
@@ -171,25 +183,25 @@ elseif (DEFINED MSVC)
 	# CMAKE_CXX_FLAGS_RELWITHDEBINFO for GCC/Clang does not include NDEBUG
 	string(REPLACE "/DNDEBUG" " " CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
 
-	add_compile_options(/MP)						# enable parallel compilation
-	add_compile_options(/EHsc)						# specify Exception Handling Model in msvc
+	add_compile_options(/MP)                              # enable parallel compilation
+	add_compile_options(/EHsc)                            # specify Exception Handling Model in msvc
 	if(PEDANTIC)
-		add_compile_options(/WX)					# enable warnings-as-errors
+		add_compile_options(/WX)                          # enable warnings-as-errors
 	endif()
-	add_compile_options(/wd4068)					# disable unknown pragma warning (4068)
-	add_compile_options(/wd4996)					# disable unsafe function warning (4996)
-	add_compile_options(/wd4503)					# disable decorated name length exceeded, name was truncated (4503)
-	add_compile_options(/wd4267)					# disable conversion from 'size_t' to 'type', possible loss of data (4267)
-	add_compile_options(/wd4180)					# disable qualifier applied to function type has no meaning; ignored (4180)
-	add_compile_options(/wd4290)					# disable C++ exception specification ignored except to indicate a function is not __declspec(nothrow) (4290)
-	add_compile_options(/wd4244)					# disable conversion from 'type1' to 'type2', possible loss of data (4244)
-	add_compile_options(/wd4800)					# disable forcing value to bool 'true' or 'false' (performance warning) (4800)
-	add_compile_options(-D_WIN32_WINNT=0x0600)		# declare Windows Vista API requirement
-	add_compile_options(-DNOMINMAX)					# undefine windows.h MAX && MIN macros cause it cause conflicts with std::min && std::max functions
-	add_compile_options(/utf-8)						# enable utf-8 encoding (solves warning 4819)
-	add_compile_options(-DBOOST_REGEX_NO_LIB)		# disable automatic boost::regex library selection
-	add_compile_options(-D_REGEX_MAX_STACK_COUNT=200000L)	# increase std::regex recursion depth limit
-	add_compile_options(/permissive-)				# specify standards conformance mode to the compiler
+	add_compile_options(/wd4068)                          # disable unknown pragma warning (4068)
+	add_compile_options(/wd4996)                          # disable unsafe function warning (4996)
+	add_compile_options(/wd4503)                          # disable decorated name length exceeded, name was truncated (4503)
+	add_compile_options(/wd4267)                          # disable conversion from 'size_t' to 'type', possible loss of data (4267)
+	add_compile_options(/wd4180)                          # disable qualifier applied to function type has no meaning; ignored (4180)
+	add_compile_options(/wd4290)                          # disable C++ exception specification ignored except to indicate a function is not __declspec(nothrow) (4290)
+	add_compile_options(/wd4244)                          # disable conversion from 'type1' to 'type2', possible loss of data (4244)
+	add_compile_options(/wd4800)                          # disable forcing value to bool 'true' or 'false' (performance warning) (4800)
+	add_compile_options(-D_WIN32_WINNT=0x0600)            # declare Windows Vista API requirement
+	add_compile_options(-DNOMINMAX)                       # undefine windows.h MAX && MIN macros cause it cause conflicts with std::min && std::max functions
+	add_compile_options(/utf-8)                           # enable utf-8 encoding (solves warning 4819)
+	add_compile_options(-DBOOST_REGEX_NO_LIB)             # disable automatic boost::regex library selection
+	add_compile_options(-D_REGEX_MAX_STACK_COUNT=200000L) # increase std::regex recursion depth limit
+	add_compile_options(/permissive-)                     # specify standards conformance mode to the compiler
 
 	# disable empty object file warning
 	set(CMAKE_STATIC_LINKER_FLAGS "${CMAKE_STATIC_LINKER_FLAGS} /ignore:4221")
@@ -260,20 +272,3 @@ if(COVERAGE)
 	endif()
 	add_compile_options(-g --coverage)
 endif()
-
-# SMT Solvers integration
-option(USE_Z3 "Allow compiling with Z3 SMT solver integration" ON)
-if(UNIX AND NOT APPLE)
-	option(USE_Z3_DLOPEN "Dynamically load the Z3 SMT solver instead of linking against it." OFF)
-endif()
-option(USE_CVC4 "Allow compiling with CVC4 SMT solver integration" ON)
-
-if (("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU") OR ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang"))
-	option(USE_LD_GOLD "Use GNU gold linker" ON)
-	if (USE_LD_GOLD)
-		execute_process(COMMAND ${CMAKE_CXX_COMPILER} -fuse-ld=gold -Wl,--version ERROR_QUIET OUTPUT_VARIABLE LD_VERSION)
-		if ("${LD_VERSION}" MATCHES "GNU gold")
-			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fuse-ld=gold")
-		endif ()
-	endif ()
-endif ()

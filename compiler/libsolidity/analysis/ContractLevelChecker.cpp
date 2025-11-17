@@ -23,6 +23,7 @@
 #include <libsolidity/analysis/ContractLevelChecker.h>
 
 #include <libsolidity/ast/AST.h>
+#include <libsolidity/ast/ASTUtils.h>
 #include <libsolidity/ast/TypeProvider.h>
 #include <libsolidity/analysis/TypeChecker.h>
 #include <libsolutil/FunctionSelector.h>
@@ -30,6 +31,7 @@
 
 #include <fmt/format.h>
 
+#include <range/v3/algorithm/find_if.hpp>
 #include <range/v3/view/reverse.hpp>
 
 using namespace solidity;
@@ -555,5 +557,3 @@ void ContractLevelChecker::checkBaseABICompatibility(ContractDefinition const& _
 		);
 
 }
-
-

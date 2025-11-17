@@ -68,8 +68,10 @@ public:
 	static TvmSliceType const* tvmslice() noexcept { return &m_tvmslice; }
 	static TvmBuilderType const* tvmbuilder() noexcept { return &m_tvmbuilder; }
 	static StringBuilderType const* stringBuilder() noexcept { return &m_stringBuilder; }
+
 	static FixedBytesType const* byte() { return fixedBytes(1); }
 	static FixedBytesType const* fixedBytes(unsigned m) { return m_bytesM.at(m - 1).get(); }
+
 	static ArrayType const* bytesStorage();
 	static ArrayType const* bytesMemory();
 	static ArrayType const* bytesCalldata();
@@ -162,7 +164,8 @@ public:
 	);
 
 	/// @returns a highly customized FunctionType, use with care.
-	static FunctionType const* function(TypePointers const& _parameterTypes,
+	static FunctionType const* function(
+		TypePointers const& _parameterTypes,
 		TypePointers const& _returnParameterTypes,
 		strings _parameterNames = strings{},
 		strings _returnParameterNames = strings{},
@@ -255,7 +258,7 @@ private:
 	static std::array<std::unique_ptr<QIntegerType>, 256> const m_quintM;
 	static std::unique_ptr<QBoolType> const m_qbool;
 	static std::array<std::unique_ptr<FixedBytesType>, 32> const m_bytesM;
-	static std::array<std::unique_ptr<MagicType>, 10> const m_magics;        ///< MagicType's except MetaType
+	static std::array<std::unique_ptr<MagicType>, 11> const m_magics;        ///< MagicType's except MetaType
 
 	std::map<std::pair<unsigned, IntegerType::Modifier>, std::unique_ptr<VarIntegerType>> m_varinteger{};
 	std::map<std::pair<unsigned, unsigned>, std::unique_ptr<FixedPointType>> m_ufixedMxN{};

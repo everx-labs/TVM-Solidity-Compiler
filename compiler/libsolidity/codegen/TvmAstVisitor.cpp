@@ -20,7 +20,6 @@
 #include <libsolidity/codegen/TvmAstVisitor.hpp>
 #include <liblangutil/Exceptions.h>
 #include <libsolidity/codegen/TVMCommons.hpp>
-#include <libsolidity/codegen/TVMConstants.hpp>
 
 using namespace solidity::frontend;
 
@@ -248,7 +247,7 @@ bool Printer::visit(Stack &_node) {
 	int i = _node.i();
 	int j = _node.j();
 	int k = _node.k();
-	auto printSS = [&](){
+	auto printSS = [&]{
 		m_out << " S" << i;
 		if (j != -1) {
 			m_out << ", S" << j;
@@ -257,7 +256,7 @@ bool Printer::visit(Stack &_node) {
 			}
 		}
 	};
-	auto printIndexes = [&](){
+	auto printIndexes = [&]{
 		solAssert(i != -1, "");
 		m_out << " " << i;
 		if (j != -1) {
@@ -609,7 +608,7 @@ bool Printer::visit(TvmIfElse &_node) {
 				tabs();
 				m_out << "{" << std::endl;
 				++m_tab;
-				for (Pointer<TvmAstNode> const &n: body->instructions()) {
+				for (Pointer<TvmAstNode> const& n: body->instructions()) {
 					n->accept(*this);
 				}
 				--m_tab;
@@ -713,7 +712,7 @@ bool Printer::visit(Contract &_node) {
 		) {
 			std::string name = fun->name();
 			uint32_t id = fun->functionId().value();
-			if (privFuncs.count(id) == 0)
+			if (!privFuncs.contains(id))
 				privFuncs[id] = name;
 			else
 				solAssert(privFuncs[id] == name, "");
@@ -721,7 +720,7 @@ bool Printer::visit(Contract &_node) {
 	}
 	bool hasOnTickTock = false;
 	bool hasMainExternal = false;
-	for (const Pointer<Function>& f : _node.functions()) {
+	for (Pointer<Function> const& f : _node.functions()) {
 		hasOnTickTock |= f->name() == "onTickTock";
 		hasMainExternal |= f->name() == "main_external";
 		f->accept(*this);
@@ -734,10 +733,7 @@ bool Printer::visit(Contract &_node) {
 		m_out << ".blob x4_ ; special = nothing" << std::endl;
 		m_out << ".blob xc_ ; code = just" << std::endl;
 
-		auto printCode = [&](){
-			tabs(); m_out << ".cell { ; code cell" << std::endl;
-			++m_tab;
-
+		auto printCode = [&]{
 			tabs(); m_out << "SETCP0" << std::endl;
 			tabs(); m_out << "DICTPUSHCONST 19, {" << std::endl;
 			++m_tab;
@@ -763,36 +759,36 @@ bool Printer::visit(Contract &_node) {
 
 			tabs(); m_out << "DICTIGETJMPZ" << std::endl;
 			tabs(); m_out << "THROW 11" << std::endl;
-
-			--m_tab;
-			tabs(); m_out << "}" << std::endl; // end code
 		};
 
 		if (_node.upgradeOldSolidity()) {
-			int func_id = 2;
 			tabs(); m_out << ".cell { ; wrapper for code" << std::endl;
 			++m_tab;
 			tabs(); m_out << ".cell { ; wrapper for code" << std::endl;
 			++m_tab;
-			tabs(); m_out << "PUSHINT " << func_id << std::endl;
-			tabs(); m_out << "EQUAL" << std::endl;
-			tabs(); m_out << "THROWIFNOT " << TvmConst::RuntimeException::onCodeUpdataNot2 << std::endl;
-			tabs(); m_out << "PUSHREF" << std::endl;
+			tabs(); m_out << "MODPOW2 14" << std::endl;
+			tabs(); m_out << "PUSHREF {" << std::endl;
 			++m_tab;
 			printCode();
 			--m_tab;
+			tabs(); m_out << "}" << std::endl;
 			tabs(); m_out << "DUP" << std::endl;
 			tabs(); m_out << "SETCODE" << std::endl;
 			tabs(); m_out << "CTOS" << std::endl;
 			tabs(); m_out << "BLESS" << std::endl;
+			tabs(); m_out << "DUP" << std::endl;
 			tabs(); m_out << "POP C3" << std::endl;
-			tabs(); m_out << "CALL 2" << std::endl;
+			tabs(); m_out << "CALLX" << std::endl;
 			--m_tab;
 			tabs(); m_out << "}" << std::endl; // end code
 			--m_tab;
 			tabs(); m_out << "}" << std::endl; // end code
 		} else {
+			tabs(); m_out << ".cell { ; code cell" << std::endl;
+			++m_tab;
 			printCode();
+			--m_tab;
+			tabs(); m_out << "}" << std::endl; // end code
 		}
 
 		m_out << ".blob xc_ ; data = just" << std::endl;
@@ -843,12 +839,12 @@ bool Printer::visitNode(TvmAstNode const&) {
 	solUnimplemented("");
 }
 
-void Printer::tabs() {
+void Printer::tabs() const {
 	solAssert(m_tab >= 0, "");
 	m_out << std::string(m_tab, '\t');
 }
 
-void Printer::printPushInt(std::string const& str, std::string const& comment) {
+void Printer::printPushInt(std::string const& str, std::string const& comment) const {
 	std::map<bigint, int> const& power2Exp = MathConsts::power2Exp();
 	std::map<bigint, int> const& power2DecExp = MathConsts::power2DecExp();
 	std::map<bigint, int> const& power2NegExp = MathConsts::power2NegExp();
@@ -856,13 +852,13 @@ void Printer::printPushInt(std::string const& str, std::string const& comment) {
 	bool didPrint = false;
 	if (str.at(0) != '$') {
 		bigint val = bigint{str};
-		if (power2Exp.count(val) && power2Exp.at(val) >= 7) {
+		if (power2Exp.contains(val) && power2Exp.at(val) >= 7) {
 			m_out << "PUSHPOW2 " << power2Exp.at(val);
 			didPrint = true;
-		} else if (power2DecExp.count(val) && power2DecExp.at(val) >= 8) {
+		} else if (power2DecExp.contains(val) && power2DecExp.at(val) >= 8) {
 			m_out << "PUSHPOW2DEC " << power2DecExp.at(val);
 			didPrint = true;
-		} else if (power2NegExp.count(val) && power2NegExp.at(val) >= 8) {
+		} else if (power2NegExp.contains(val) && power2NegExp.at(val) >= 8) {
 			m_out << "PUSHNEGPOW2 " << power2NegExp.at(val);
 			didPrint = true;
 		}
@@ -875,7 +871,7 @@ void Printer::printPushInt(std::string const& str, std::string const& comment) {
 	}
 }
 
-void Printer::printPushInt(int i) {
+void Printer::printPushInt(int i) const {
 	printPushInt(std::to_string(i));
 }
 
@@ -883,13 +879,15 @@ bool LocSquasher::visit(CodeBlock &_node) {
 	std::vector<Pointer<TvmAstNode>> res0;
 
 	{
-		std::vector<Pointer<TvmAstNode>> a = _node.instructions();
+		std::vector<Pointer<TvmAstNode>> const& a = _node.instructions();
 		std::vector<Pointer<TvmAstNode>> b;
 		if (!a.empty()) {
 			b.push_back(a.front());
 			for (size_t i = 1; i < a.size(); ++i) {
-				if (!b.empty() && dynamic_cast<Loc const *>(b.back().get()) &&
-					dynamic_cast<Loc const *>(a[i].get()))
+				if (!b.empty() &&
+					convertToLoc(b.back().get()) &&
+					convertToLoc(a[i].get())
+				)
 					b.pop_back();
 				b.push_back(a[i]);
 			}
@@ -899,9 +897,9 @@ bool LocSquasher::visit(CodeBlock &_node) {
 
 
 	std::vector<Pointer<TvmAstNode>> res;
-	std::optional<Pointer<Loc>> lastLoc;
-	for (const Pointer<TvmAstNode>& node : res0) {
-		auto loc = std::dynamic_pointer_cast<Loc>(node);
+	std::optional<Loc const*> lastLoc;
+	for (Pointer<TvmAstNode> const& node : res0) {
+		auto loc = convertToLoc(node.get());
 		if (loc) {
 			if (!lastLoc || std::make_pair(lastLoc.value()->file(), lastLoc.value()->line()) !=
 							std::make_pair(loc->file(), loc->line())) {
@@ -924,16 +922,16 @@ void DeleterAfterRet::endVisit(CodeBlock &_node) {
 	bool didFind{};
 	std::vector<Pointer<TvmAstNode>> newInstrs;
 	for (Pointer<TvmAstNode> const& opcode : _node.instructions()) {
-		auto ret = to<ReturnOrBreakOrCont>(opcode.get());
-		auto ifElse = to<TvmIfElse>(opcode.get());
+		auto ret = convertToReturnOrBreakOrCont(opcode.get());
+		auto ifElse = convertToTvmIfElse(opcode.get());
 		bool ifElseWithJmp = ifElse && ifElse->falseBody() != nullptr && ifElse->withJmp();
-		auto _throw = to<TvmException>(opcode.get());
+		auto _throw = convertToTvmException(opcode.get());
 		bool th = _throw && !_throw->withIf();
 		if (!didFind && (ret || ifElseWithJmp || th)) {
 			didFind = true;
 			newInstrs.emplace_back(opcode);
 		} else {
-			if (!didFind || to<Loc>(opcode.get())) {
+			if (!didFind || convertToLoc(opcode.get())) {
 				newInstrs.emplace_back(opcode);
 			}
 		}
@@ -947,9 +945,9 @@ bool DeleterCallX::visit(Function &_node) {
 	if (qtyWithoutLoc(inst) == 1) {
 		std::vector<Pointer<TvmAstNode>> newCmds;
 		for (Pointer<TvmAstNode> const& op : inst) {
-			if (to<Loc>(op.get())) {
+			if (convertToLoc(op.get())) {
 				newCmds.emplace_back(op);
-			} else if (auto sub = to<SubProgram>(op.get()); sub) {
+			} else if (auto sub = convertToSubProgram(op.get()); sub) {
 				newCmds.insert(newCmds.end(), sub->block()->instructions().begin(), sub->block()->instructions().end());
 			} else {
 				return false;
@@ -963,19 +961,19 @@ bool DeleterCallX::visit(Function &_node) {
 void LogCircuitExpander::endVisit(CodeBlock &_node) {
 	std::vector<Pointer<TvmAstNode>> block;
 	for (Pointer<TvmAstNode> const& opcode : _node.instructions()) {
-		auto lc = to<LogCircuit>(opcode.get());
+		auto lc = convertToLogCircuit(opcode.get());
 		if (lc) {
 			m_stackSize = 1;
 			m_newInst = {};
 			bool isPure = true;
-			std::vector<Pointer<TvmAstNode>> const &inst = lc->body()->instructions();
+			std::vector<Pointer<TvmAstNode>> const& inst = lc->body()->instructions();
 			for (size_t i = 0; i < inst.size(); ++i) {
 				Pointer<TvmAstNode> op = inst.at(i);
 				if (i == 0) {
 					solAssert(isDrop(inst.at(i)).value() == 1, "");
 					continue;
 				}
-				if (to<LogCircuit>(op.get()) && i + 1 != inst.size()) {
+				if (convertToLogCircuit(op.get()) && i + 1 != inst.size()) {
 					isPure = false; // never happens
 				}
 
@@ -984,9 +982,9 @@ void LogCircuitExpander::endVisit(CodeBlock &_node) {
 			if (isPure) {
 				solAssert(m_stackSize == 2, "");
 				Pointer<TvmAstNode> tail = m_newInst.back();
-				bool hasTailLogCircuit = !m_newInst.empty() && to<LogCircuit>(m_newInst.back().get());
+				bool hasTailLogCircuit = !m_newInst.empty() && convertToLogCircuit(m_newInst.back().get());
 				if (hasTailLogCircuit) {
-					if (to<LogCircuit>(m_newInst.back().get())->type() != lc->type()) {
+					if (convertToLogCircuit(m_newInst.back().get())->type() != lc->type()) {
 						block.emplace_back(opcode);
 						continue;
 					}
@@ -1018,14 +1016,14 @@ void LogCircuitExpander::endVisit(CodeBlock &_node) {
 }
 
 bool LogCircuitExpander::isPureOperation(Pointer<TvmAstNode> const& op) {
-	auto gen = to<Gen>(op.get());
+	auto gen = convertToGen(op.get());
 	if (gen && gen->isPure()) {
 		m_newInst.emplace_back(op);
 		m_stackSize += -gen->take() + gen->ret();
 		return true;
 	}
 
-	if (to<LogCircuit>(op.get())) {
+	if (convertToLogCircuit(op.get())) {
 		m_newInst.emplace_back(op);
 		m_stackSize += -2 + 1;
 		return true;

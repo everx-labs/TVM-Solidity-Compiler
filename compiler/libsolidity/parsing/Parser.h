@@ -25,7 +25,6 @@
 
 #include <libsolidity/ast/AST.h>
 #include <liblangutil/ParserBase.h>
-#include <liblangutil/EVMVersion.h>
 
 namespace solidity::langutil
 {
@@ -40,10 +39,10 @@ class Parser: public langutil::ParserBase
 public:
 	explicit Parser(
 		langutil::ErrorReporter& _errorReporter,
-		langutil::EVMVersion _evmVersion
+		std::optional<uint8_t> _eofVersion
 	):
 		ParserBase(_errorReporter),
-		m_evmVersion(_evmVersion)
+		m_eofVersion(_eofVersion)
 	{}
 
 	ASTPointer<SourceUnit> parse(langutil::CharStream& _charStream);
@@ -75,14 +74,14 @@ private:
 		Visibility visibility = Visibility::Default;
 		StateMutability stateMutability = StateMutability::NonPayable;
 		std::vector<ASTPointer<ModifierInvocation>> modifiers;
+		ASTPointer<Expression> experimentalReturnExpression;
+
 		std::optional<uint32_t> functionID{};
 		bool isInline = false;
 		bool responsible = false;
 		bool externalMsg = false;
-		bool internalMsg = false;
 		bool assembly = false;
 		bool isGetter = false;
-		ASTPointer<Expression> experimentalReturnExpression;
 	};
 
 	/// Struct to share parsed function call arguments.
@@ -109,7 +108,8 @@ private:
 	ASTPointer<OverrideSpecifier> parseOverrideSpecifier();
 	StateMutability parseStateMutability();
 	FunctionHeaderParserResult parseFunctionHeader(bool _isStateVariable);
-	ASTPointer<ASTNode> parseFunctionDefinition(bool _freeFunction = false, bool _allowBody = true);
+	ASTPointer<ForAllQuantifier> parseQuantifiedFunctionDefinition();
+	ASTPointer<FunctionDefinition> parseFunctionDefinition(bool _freeFunction = false, bool _allowBody = true);
 	ASTPointer<StructDefinition> parseStructDefinition();
 	ASTPointer<EnumDefinition> parseEnumDefinition();
 	ASTPointer<UserDefinedValueTypeDefinition> parseUserDefinedValueTypeDefinition();
@@ -181,6 +181,7 @@ private:
 	FunctionCallArguments parseFunctionCallArguments();
 	FunctionCallArguments parseNamedArguments();
 	std::pair<ASTPointer<ASTString>, langutil::SourceLocation> expectIdentifierWithLocation();
+
 	///@}
 
 	///@{
@@ -235,10 +236,10 @@ private:
 	/// or an expression;
 	IndexAccessedPath parseIndexAccessedPath();
 	/// @returns a typename parsed in look-ahead fashion from something like "a.b[8][2**70]",
-	/// or an empty pointer if an empty @a _pathAndIncides has been supplied.
+	/// or an empty pointer if an empty @a _pathAndIndices has been supplied.
 	ASTPointer<TypeName> typeNameFromIndexAccessStructure(IndexAccessedPath const& _pathAndIndices);
 	/// @returns an expression parsed in look-ahead fashion from something like "a.b[8][2**70]",
-	/// or an empty pointer if an empty @a _pathAndIncides has been supplied.
+	/// or an empty pointer if an empty @a _pathAndIndices has been supplied.
 	ASTPointer<Expression> expressionFromIndexAccessStructure(IndexAccessedPath const& _pathAndIndices);
 
 	ASTPointer<ASTString> expectIdentifierToken();
@@ -258,7 +259,7 @@ private:
 
 	/// Flag that signifies whether '_' is parsed as a PlaceholderStatement or a regular identifier.
 	bool m_insideModifier = false;
-	langutil::EVMVersion m_evmVersion;
+	std::optional<uint8_t> m_eofVersion;
 	/// Counter for the next AST node ID
 	int64_t m_currentNodeID = 0;
 	/// Flag that indicates whether experimental mode is enabled in the current source unit

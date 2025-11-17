@@ -6,7 +6,7 @@
 ## You can pass a branch name as argument to this script (which, if no argument is given,
 ## will default to "develop").
 ##
-## If the given branch is "release", the resulting package will be uploaded to
+## If the given branch matches a release version tag, the resulting package will be uploaded to
 ## ethereum/ethereum PPA, or ethereum/ethereum-dev PPA otherwise.
 ##
 ## It will clone the Solidity git from github, determine the version,
@@ -23,22 +23,22 @@
 ## Additionally the following entries in /etc/dput.cf are required:
 ##
 ##  [ethereum-dev]
-##  fqdn			= ppa.launchpad.net
-##  method			= ftp
-##  incoming		= ~ethereum/ethereum-dev
-##  login			= anonymous
+##  fqdn            = ppa.launchpad.net
+##  method          = ftp
+##  incoming        = ~ethereum/ethereum-dev
+##  login           = anonymous
 ##
 ##  [ethereum]
-##  fqdn			= ppa.launchpad.net
-##  method			= ftp
-##  incoming		= ~ethereum/ethereum
-##  login			= anonymous
+##  fqdn            = ppa.launchpad.net
+##  method          = ftp
+##  incoming        = ~ethereum/ethereum
+##  login           = anonymous
 ##
 ##  [ethereum-static]
-##  fqdn			= ppa.launchpad.net
-##  method			= ftp
-##  incoming		= ~ethereum/ethereum-static
-##  login			= anonymous
+##  fqdn            = ppa.launchpad.net
+##  method          = ftp
+##  incoming        = ~ethereum/ethereum-static
+##  login           = anonymous
 ##
 ##############################################################################
 
@@ -66,9 +66,9 @@ sourcePPAConfig
 packagename=solc
 
 # This needs to be a still active release
-static_build_distribution=focal
+static_build_distribution=noble
 
-DISTRIBUTIONS="focal jammy lunar mantic"
+DISTRIBUTIONS="jammy noble oracular plucky"
 
 if is_release
 then
@@ -92,7 +92,6 @@ cd "$distribution"
 if [ "$distribution" = STATIC ]
 then
     pparepo=ethereum-static
-    SMTDEPENDENCY=""
     CMAKE_OPTIONS="-DSOLC_LINK_STATIC=On -DCMAKE_EXE_LINKER_FLAGS=-static"
 else
     if is_release
@@ -101,20 +100,6 @@ else
     else
         pparepo=ethereum-dev
     fi
-    if [ "$distribution" = focal ]
-    then
-        SMTDEPENDENCY="libz3-static-dev,
-            libcvc4-dev,
-            "
-    elif [ "$distribution" = disco ]
-    then
-        SMTDEPENDENCY="libz3-static-dev,
-            libcvc4-dev,
-            "
-    else
-        SMTDEPENDENCY="libz3-static-dev,
-            "
-    fi
     CMAKE_OPTIONS=""
 fi
 ppafilesurl=https://launchpad.net/~ethereum/+archive/ubuntu/${pparepo}/+files
@@ -122,12 +107,6 @@ ppafilesurl=https://launchpad.net/~ethereum/+archive/ubuntu/${pparepo}/+files
 # Fetch source
 git clone --depth 2 --recursive https://github.com/ethereum/solidity.git -b "$branch"
 mv solidity solc
-
-# Fetch dependencies
-mkdir -p ./solc/deps/downloads/ 2>/dev/null || true
-wget -O ./solc/deps/downloads/jsoncpp-1.9.3.tar.gz https://github.com/open-source-parsers/jsoncpp/archive/1.9.3.tar.gz
-wget -O ./solc/deps/downloads/range-v3-0.12.0.tar.gz https://github.com/ericniebler/range-v3/archive/0.12.0.tar.gz
-wget -O ./solc/deps/downloads/fmt-9.1.0.tar.gz https://github.com/fmtlib/fmt/archive/9.1.0.tar.gz
 
 # Determine version
 cd solc
@@ -162,7 +141,7 @@ Source: solc
 Section: science
 Priority: extra
 Maintainer: Christian (Buildserver key) <builds@ethereum.org>
-Build-Depends: ${SMTDEPENDENCY}debhelper (>= 9.0.0),
+Build-Depends: debhelper (>= 9.0.0),
                cmake,
                g++ (>= 5.0),
                git,
@@ -210,8 +189,8 @@ export DH_OPTIONS
 override_dh_auto_test:
 
 #override_dh_installdocs:
-#	make -C docs html
-#	dh_installdocs docs/_build/html
+#    make -C docs html
+#    dh_installdocs docs/_build/html
 
 override_dh_shlibdeps:
 	dh_shlibdeps --dpkg-shlibdeps-params=--ignore-missing-info

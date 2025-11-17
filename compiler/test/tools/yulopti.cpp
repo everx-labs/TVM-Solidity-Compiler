@@ -58,13 +58,10 @@
 #include <range/v3/view/stride.hpp>
 #include <range/v3/view/transform.hpp>
 
-#include <cctype>
 #include <string>
-#include <sstream>
 #include <iostream>
 #include <variant>
 
-using namespace std;
 using namespace solidity;
 using namespace solidity::util;
 using namespace solidity::langutil;
@@ -79,50 +76,51 @@ public:
 	static void printErrors(CharStream const& _charStream, ErrorList const& _errors)
 	{
 		SourceReferenceFormatter{
-			cerr,
+			std::cerr,
 			SingletonCharStreamProvider(_charStream),
 			true,
 			false
 		}.printErrorInformation(_errors);
 	}
 
-	void parse(string const& _input)
+	void parse(std::string const& _input)
 	{
 		ErrorList errors;
 		ErrorReporter errorReporter(errors);
 		CharStream _charStream(_input, "");
 		try
 		{
-			m_ast = yul::Parser(errorReporter, m_dialect).parse(_charStream);
-			if (!m_ast || !errorReporter.errors().empty())
+			auto ast = yul::Parser(errorReporter, m_dialect).parse(_charStream);
+			if (!ast || errorReporter.hasErrors())
 			{
-				cerr << "Error parsing source." << endl;
+				std::cerr << "Error parsing source." << std::endl;
 				printErrors(_charStream, errors);
 				throw std::runtime_error("Could not parse source.");
 			}
-			m_analysisInfo = make_unique<yul::AsmAnalysisInfo>();
+			m_astRoot = std::make_shared<yul::Block>(std::get<yul::Block>(ASTCopier{}(ast->root())));
+			m_analysisInfo = std::make_unique<yul::AsmAnalysisInfo>();
 			AsmAnalyzer analyzer(
 				*m_analysisInfo,
 				errorReporter,
 				m_dialect
 			);
-			if (!analyzer.analyze(*m_ast) || !errorReporter.errors().empty())
+			if (!analyzer.analyze(*m_astRoot) || errorReporter.hasErrors())
 			{
-				cerr << "Error analyzing source." << endl;
+				std::cerr << "Error analyzing source." << std::endl;
 				printErrors(_charStream, errors);
 				throw std::runtime_error("Could not analyze source.");
 			}
 		}
 		catch(...)
 		{
-			cerr << "Fatal error during parsing: " << endl;
+			std::cerr << "Fatal error during parsing: " << std::endl;
 			printErrors(_charStream, errors);
 			throw;
 		}
 	}
 
 	void printUsageBanner(
-		map<char, string> const& _extraOptions,
+		std::map<char, std::string> const& _extraOptions,
 		size_t _columns
 	)
 	{
@@ -134,10 +132,10 @@ public:
 			max_element(_extraOptions.begin(), _extraOptions.end(), hasShorterString)->second.size()
 		);
 
-		vector<string> overlappingAbbreviations =
+		std::vector<std::string> overlappingAbbreviations =
 			ranges::views::set_intersection(_extraOptions | ranges::views::keys, optimiserSteps | ranges::views::keys) |
-			ranges::views::transform([](char _abbreviation){ return string(1, _abbreviation); }) |
-			ranges::to<vector>();
+			ranges::views::transform([](char _abbreviation){ return std::string(1, _abbreviation); }) |
+			ranges::to<std::vector>();
 
 		yulAssert(
 			overlappingAbbreviations.empty(),
@@ -148,10 +146,10 @@ public:
 			"Please update the code to use a different character and recompile yulopti."
 		);
 
-		vector<tuple<char, string>> sortedOptions =
+		std::vector<std::tuple<char, std::string>> sortedOptions =
 			ranges::views::concat(optimiserSteps, _extraOptions) |
-			ranges::to<vector<tuple<char, string>>>() |
-			ranges::actions::sort([](tuple<char, string> const& _a, tuple<char, string> const& _b) {
+			ranges::to<std::vector<std::tuple<char, std::string>>>() |
+			ranges::actions::sort([](std::tuple<char, std::string> const& _a, std::tuple<char, std::string> const& _b) {
 				return (
 					!boost::algorithm::iequals(get<1>(_a), get<1>(_b)) ?
 					boost::algorithm::lexicographical_compare(get<1>(_a), get<1>(_b), boost::algorithm::is_iless()) :
@@ -164,35 +162,35 @@ public:
 		for (size_t row = 0; row < rows; ++row)
 		{
 			for (auto const& [key, name]: sortedOptions | ranges::views::drop(row) | ranges::views::stride(rows))
-				cout << key << ": " << setw(static_cast<int>(longestDescriptionLength)) << setiosflags(ios::left) << name << " ";
+				std::cout << key << ": " << std::setw(static_cast<int>(longestDescriptionLength)) << std::setiosflags(std::ios::left) << name << " ";
 
-			cout << endl;
+			std::cout << std::endl;
 		}
 	}
 
 	void disambiguate()
 	{
-		*m_ast = std::get<yul::Block>(Disambiguator(m_dialect, *m_analysisInfo)(*m_ast));
+		*m_astRoot = std::get<yul::Block>(Disambiguator(m_dialect, *m_analysisInfo)(*m_astRoot));
 		m_analysisInfo.reset();
-		m_nameDispenser.reset(*m_ast);
+		m_nameDispenser.reset(*m_astRoot);
 	}
 
-	void runSteps(string _source, string _steps)
+	void runSteps(std::string _source, std::string _steps)
 	{
 		parse(_source);
 		disambiguate();
-		OptimiserSuite{m_context}.runSequence(_steps, *m_ast);
-		cout << AsmPrinter{m_dialect}(*m_ast) << endl;
+		OptimiserSuite{m_context}.runSequence(_steps, *m_astRoot);
+		std::cout << AsmPrinter{m_dialect}(*m_astRoot) << std::endl;
 	}
 
-	void runInteractive(string _source, bool _disambiguated = false)
+	void runInteractive(std::string _source, bool _disambiguated = false)
 	{
 		bool disambiguated = _disambiguated;
 		while (true)
 		{
 			parse(_source);
 			disambiguated = disambiguated || (disambiguate(), true);
-			map<char, string> const& extraOptions = {
+			std::map<char, std::string> const& extraOptions = {
 				// QUIT starts with a non-letter character on purpose to get it to show up on top of the list
 				{'#', ">>> QUIT <<<"},
 				{',', "VarNameCleaner"},
@@ -200,10 +198,10 @@ public:
 			};
 
 			printUsageBanner(extraOptions, 4);
-			cout << "? ";
-			cout.flush();
+			std::cout << "? ";
+			std::cout.flush();
 			char option = static_cast<char>(readStandardInputChar());
-			cout << ' ' << option << endl;
+			std::cout << ' ' << option << std::endl;
 
 			try
 			{
@@ -213,40 +211,40 @@ public:
 					case '#':
 						return;
 					case ',':
-						VarNameCleaner::run(m_context, *m_ast);
+						VarNameCleaner::run(m_context, *m_astRoot);
 						// VarNameCleaner destroys the unique names guarantee of the disambiguator.
 						disambiguated = false;
 						break;
 					case ';':
 					{
 						Object obj;
-						obj.code = m_ast;
-						StackCompressor::run(m_dialect, obj, true, 16);
+						obj.setCode(std::make_shared<AST>(m_dialect, std::get<yul::Block>(ASTCopier{}(*m_astRoot))));
+						*m_astRoot = std::get<1>(StackCompressor::run(obj, true, 16));
 						break;
 					}
 					default:
 						OptimiserSuite{m_context}.runSequence(
 							std::string_view(&option, 1),
-							*m_ast
+							*m_astRoot
 						);
 				}
-				_source = AsmPrinter{m_dialect}(*m_ast);
+				_source = AsmPrinter{m_dialect}(*m_astRoot);
 			}
 			catch (...)
 			{
-				cerr << endl << "Exception during optimiser step:" << endl;
-				cerr << boost::current_exception_diagnostic_information() << endl;
+				std::cerr << std::endl << "Exception during optimiser step:" << std::endl;
+				std::cerr << boost::current_exception_diagnostic_information() << std::endl;
 			}
-			cout << "----------------------" << endl;
-			cout << _source << endl;
+			std::cout << "----------------------" << std::endl;
+			std::cout << _source << std::endl;
 		}
 	}
 
 private:
-	shared_ptr<yul::Block> m_ast;
-	Dialect const& m_dialect{EVMDialect::strictAssemblyForEVMObjects(EVMVersion{})};
-	unique_ptr<AsmAnalysisInfo> m_analysisInfo;
-	set<YulString> const m_reservedIdentifiers = {};
+	std::shared_ptr<yul::Block> m_astRoot;
+	Dialect const& m_dialect{EVMDialect::strictAssemblyForEVMObjects(EVMVersion{}, std::nullopt)};
+	std::unique_ptr<AsmAnalysisInfo> m_analysisInfo;
+	std::set<YulName> const m_reservedIdentifiers = {};
 	NameDispenser m_nameDispenser{m_dialect, m_reservedIdentifiers};
 	OptimiserStepContext m_context{
 		m_dialect,
@@ -275,12 +273,12 @@ int main(int argc, char** argv)
 		options.add_options()
 			(
 				"input-file",
-				po::value<string>(),
+				po::value<std::string>(),
 				"input file"
 			)
 			(
 				"steps",
-				po::value<string>(),
+				po::value<std::string>(),
 				"steps to execute non-interactively"
 			)
 			(
@@ -302,43 +300,43 @@ int main(int argc, char** argv)
 
 		if (arguments.count("help"))
 		{
-			cout << options;
+			std::cout << options;
 			return 0;
 		}
 
-		string input;
+		std::string input;
 		if (arguments.count("input-file"))
 		{
-			string filename = arguments["input-file"].as<string>();
+			std::string filename = arguments["input-file"].as<std::string>();
 			if (filename == "-")
 			{
 				nonInteractive = true;
-				input = readUntilEnd(cin);
+				input = readUntilEnd(std::cin);
 			}
 			else
-				input = readFileAsString(arguments["input-file"].as<string>());
+				input = readFileAsString(arguments["input-file"].as<std::string>());
 		}
 		else
 		{
-			cout << options;
+			std::cout << options;
 			return 1;
 		}
 
 		if (nonInteractive && !arguments.count("steps"))
 		{
-			cout << options;
+			std::cout << options;
 			return 1;
 		}
 
 		YulOpti yulOpti;
 		bool disambiguated = false;
 		if (!nonInteractive)
-			cout << input << endl;
+			std::cout << input << std::endl;
 		if (arguments.count("steps"))
 		{
-			string sequence = arguments["steps"].as<string>();
+			std::string sequence = arguments["steps"].as<std::string>();
 			if (!nonInteractive)
-				cout << "----------------------" << endl;
+				std::cout << "----------------------" << std::endl;
 			yulOpti.runSteps(input, sequence);
 			disambiguated = true;
 		}
@@ -349,23 +347,23 @@ int main(int argc, char** argv)
 	}
 	catch (po::error const& _exception)
 	{
-		cerr << _exception.what() << endl;
+		std::cerr << _exception.what() << std::endl;
 		return 1;
 	}
 	catch (FileNotFound const& _exception)
 	{
-		cerr << "File not found:" << _exception.comment() << endl;
+		std::cerr << "File not found:" << _exception.comment() << std::endl;
 		return 1;
 	}
 	catch (NotAFile const& _exception)
 	{
-		cerr << "Not a regular file:" << _exception.comment() << endl;
+		std::cerr << "Not a regular file:" << _exception.comment() << std::endl;
 		return 1;
 	}
 	catch(...)
 	{
-		cerr << endl << "Exception:" << endl;
-		cerr << boost::current_exception_diagnostic_information() << endl;
+		std::cerr << std::endl << "Exception:" << std::endl;
+		std::cerr << boost::current_exception_diagnostic_information() << std::endl;
 		return 1;
 	}
 }
