@@ -1,4 +1,4 @@
-### 0.79.0 (2024-07-15)
+### 0.79.0 (2025-07-15)
 
 Bugfixes:
  * See [issues #174–186](https://github.com/everx-labs/TVM-Solidity-Compiler/issues/).
@@ -19,7 +19,7 @@ Compiler features:
    * [tvm.packData()](API.md#tvmpackdata)
  * [Contract-library](API.md#contract-library) and [tvm.loadLibrary()](API.md#tvmloadlibrary)
 
-### 0.78.0 (2024-05-16)
+### 0.78.0 (2025-05-16)
 
 Supported `ton` features (`solc --tvm-version ton ...`):
    * Using opcode `INCOMINGVALUE` for [msg.value](API.md#msgvalue).
