@@ -401,6 +401,7 @@ void ViewPureChecker::endVisit(MemberAccess const& _memberAccess)
 			{MagicType::Kind::Gosh, "zipDiff"},
 			{MagicType::Kind::Gosh, "vergrth16"},
 			{MagicType::Kind::Gosh, "poseidon"},
+			{MagicType::Kind::Gosh, "zkhalo2verify"},
             {MagicType::Kind::Gosh, "sha1"},
             {MagicType::Kind::Gosh, "sha256"},
             {MagicType::Kind::Gosh, "keccak256"},

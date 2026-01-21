@@ -1655,6 +1655,7 @@ public:
 		GoshKECCAK256,
 		GoshVergrth16,
 		GoshPoseidon,
+		GoshZKHALO2VERIFY,
 
 		GoshMINTECC,
 		GoshRUNWASM,

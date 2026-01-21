@@ -3463,6 +3463,7 @@ std::string FunctionType::richIdentifier() const
 	case Kind::GoshKECCAK256: id += "goshkeccak256"; break;
 	case Kind::GoshVergrth16: id += "goshvergrth16"; break;
 	case Kind::GoshPoseidon: id += "goshposeidon"; break;
+	case Kind::GoshZKHALO2VERIFY: id += "goshzkhalo2verify"; break;
 	case Kind::GoshMINTECC: id += "goshmintecc"; break;
 	case Kind::GoshBURNECC: id += "goshburnecc"; break;
 	case Kind::GoshCNVRTSHELLQ: id += "goshcnvrtshellq"; break;
@@ -5619,6 +5620,19 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 				StateMutability::Pure,
 				nullptr, FunctionType::Options::withArbitraryParameters()
 		)});
+
+		members.push_back({
+			"zkhalo2verify",
+			TypeProvider::function(
+				{TypeProvider::uint256(),  TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::bytesMemory()},
+				{TypeProvider::boolean()},
+				{{}, {}, {}, {}},
+				{{}},
+				FunctionType::Kind::GoshZKHALO2VERIFY,
+				StateMutability::Pure,
+				nullptr, FunctionType::Options::withArbitraryParameters()
+		)});
+		
 
 		members.push_back({
 			"vergrth16",

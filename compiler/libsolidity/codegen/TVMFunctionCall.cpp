@@ -2596,6 +2596,8 @@ void FunctionCallCompiler::goshFunction() {
          		return "VERGRTH16";
 			case FunctionType::Kind::GoshPoseidon:
          		return "POSEIDON";
+			case FunctionType::Kind::GoshZKHALO2VERIFY:
+         		return "ZKHALO2VERIFY";
       		case FunctionType::Kind::GoshMINTECC:
          		return "MINTECC";
 			case FunctionType::Kind::GoshRUNWASM:
