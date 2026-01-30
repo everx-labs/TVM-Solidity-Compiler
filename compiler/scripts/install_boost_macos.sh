@@ -89,7 +89,7 @@ echo "=== Building and Installing Boost to ${INSTALL_PREFIX} (may take a while) 
 NUM_CORES=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
 echo "Using ${NUM_CORES} cores for building Boost."
 # Install to the specified prefix
-./b2 install -j${NUM_CORES}
+./b2 install -j${NUM_CORES} link=static runtime-link=static
 
 # After successful installation, set environment variables
 set_github_env_vars

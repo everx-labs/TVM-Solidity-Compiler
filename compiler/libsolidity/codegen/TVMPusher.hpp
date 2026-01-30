@@ -14,6 +14,7 @@
 #pragma once
 
 #include <map>
+#include <stack>
 
 #include <liblangutil/Exceptions.h>
 #include <libsolidity/ast/AST.h>

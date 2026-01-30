@@ -25,7 +25,7 @@ set(ETH_SCRIPTS_DIR ${ETH_CMAKE_DIR}/scripts)
 ## use multithreaded boost libraries, with -mt suffix
 set(Boost_USE_MULTITHREADED ON)
 option(Boost_USE_STATIC_LIBS "Link Boost statically" ON)
-if (WIN32)
+if (WIN32 OR APPLE)
 	option(Boost_USE_STATIC_RUNTIME "Link Boost against static C++ runtime libraries" ON)
 endif()
 
@@ -44,7 +44,7 @@ else()
 	# Boost 1.67 moved container_hash into is own module.
 	# Boost 1.70 comes with its own BoostConfig.cmake and is the new (non-deprecated) behavior
 	find_package(Boost 1.70.0 QUIET COMPONENTS ${BOOST_COMPONENTS})
-	if (NOT ${Boost_FOUND})
+	if (NOT ${Boost_FOUND} OR NOT TARGET Boost::filesystem OR NOT Boost_FILESYSTEM_LIBRARY OR NOT Boost_PROGRAM_OPTIONS_LIBRARY)
 		# If the boost version is < 1.70.0, there is no boost config delivered with it, revert to old behavior
 		# todo drop this once cmake minimum version >= 3.30 is reached
 		if(POLICY CMP0167)

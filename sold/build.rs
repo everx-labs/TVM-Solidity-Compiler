@@ -133,34 +133,29 @@ fn main() {
         println!("cargo:rustc-link-lib=static={boost_fs_lib}");
     } else {
         if cfg!(target_os = "macos") {
-            let mut boost_lib_path_found = false;
-            if let Ok(boost_root_env) = env::var("BOOST_ROOT") {
-                let boost_lib_dir = PathBuf::from(&boost_root_env).join("lib");
-                if boost_lib_dir.exists() {
-                    println!("cargo:rustc-link-search=native={}", boost_lib_dir.display());
-                    println!(
-                        "build.rs: Added BOOST_ROOT/lib to link search path: {}",
-                        boost_lib_dir.display()
-                    );
-                    boost_lib_path_found = true;
-                } else {
-                    println!("build.rs: BOOST_ROOT environment variable was set to '{}', but '{}' does not exist.", boost_root_env, boost_lib_dir.display());
-                }
+            let boost_root_env = env::var("BOOST_ROOT").unwrap_or_else(|_| {
+                panic!(r"BOOST_ROOT is required on macOS for static Boost. Run compiler/scripts/install_boost_macos.sh and set BOOST_ROOT to the install prefix.");
+            });
+            let boost_lib_dir = PathBuf::from(&boost_root_env).join("lib");
+            if !boost_lib_dir.exists() {
+                let boost_lib_dir_display = format!("{boost_lib_dir:?}");
+                panic!("BOOST_ROOT was set to '{boost_root_env}', but '{boost_lib_dir_display}' does not exist.");
             }
-
-            if !boost_lib_path_found {
-                // Fallback to Homebrew if BOOST_ROOT didn't yield a valid path
-                println!("build.rs: BOOST_ROOT not found or invalid, falling back to Homebrew paths for Boost.");
-                match env::var("HOMEBREW_PREFIX") {
-                    Ok(brew_prefix) => {
-                        println!("cargo:rustc-link-search=native={brew_prefix}/lib");
-                    }
-                    Err(_) => {
-                        println!("cargo:rustc-link-search=native=/opt/homebrew/lib");
-                        println!("cargo:rustc-link-search=native=/usr/local/lib");
-                    }
-                }
+            let boost_filesystem = boost_lib_dir.join("libboost_filesystem.a");
+            let boost_program_options = boost_lib_dir.join("libboost_program_options.a");
+            if !boost_filesystem.exists() || !boost_program_options.exists() {
+                let boost_lib_dir_display = format!("{boost_lib_dir:?}");
+                panic!(
+                    "Static Boost libraries not found in {boost_lib_dir_display}. Expected libboost_filesystem.a and libboost_program_options.a. Run compiler/scripts/install_boost_macos.sh and set BOOST_ROOT to the install prefix."
+                );
             }
+            println!("cargo:rustc-link-search=native={}", boost_lib_dir.display());
+            println!(
+                "build.rs: Added BOOST_ROOT/lib to link search path: {}",
+                boost_lib_dir.display()
+            );
+            println!("cargo:rustc-link-arg={}", boost_filesystem.display());
+            println!("cargo:rustc-link-arg={}", boost_program_options.display());
         } else if cfg!(target_os = "freebsd") {
             println!("cargo:rustc-link-search=native=/usr/local/lib");
         } else if cfg!(target_os = "linux") {
@@ -170,7 +165,9 @@ fn main() {
         }
         println!("cargo:rustc-link-search=native=/usr/local/lib");
 
-        if cfg!(target_os = "freebsd") {
+        if cfg!(target_os = "macos") {
+            // Boost static archives are linked explicitly via rustc-link-arg above.
+        } else if cfg!(target_os = "freebsd") {
             println!("cargo:rustc-link-lib=boost_filesystem");
         } else {
             println!("cargo:rustc-link-lib=static=boost_filesystem");
