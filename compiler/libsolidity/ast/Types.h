@@ -1457,6 +1457,7 @@ public:
 		TVMSlicePreloadRef, ///< slice.preloadRef()
 		TVMSliceSize, ///< slice.size()
 		TVMSliceSkip, ///< slice.skip()
+		TVMSliceLoadBouncedMsgTag, ///< slice.loadBouncedMsgTag()
 
 		StructUnpack, ///< <struct>.unpack()
 

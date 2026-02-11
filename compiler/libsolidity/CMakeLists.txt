@@ -141,8 +141,6 @@ set(sources
 	codegen/TVM.hpp
 	codegen/TVMABI.cpp
 	codegen/TVMABI.hpp
-	codegen/TVMAnalyzer.cpp
-	codegen/TVMAnalyzer.hpp
 	codegen/TVMCommons.cpp
 	codegen/TVMCommons.hpp
 	codegen/TVMConstants.hpp
@@ -156,17 +154,19 @@ set(sources
 	codegen/TVMFunctionCall.hpp
 	codegen/TVMFunctionCompiler.cpp
 	codegen/TVMFunctionCompiler.hpp
-	codegen/TVMInlineFunctionChecker.cpp
-	codegen/TVMInlineFunctionChecker.hpp
 	codegen/TVMPusher.cpp
 	codegen/TVMPusher.hpp
 	codegen/TVMStructCompiler.cpp
 	codegen/TVMStructCompiler.hpp
-	codegen/TVMTypeChecker.cpp
-	codegen/TVMTypeChecker.hpp
 	codegen/TvmAst.cpp
 	codegen/TvmAst.hpp
 	codegen/TvmAstVisitor.hpp
+	codegen/analysis/TVMAnalyzer.cpp
+	codegen/analysis/TVMAnalyzer.hpp
+	codegen/analysis/TVMInlineFunctionChecker.cpp
+	codegen/analysis/TVMInlineFunctionChecker.hpp
+	codegen/analysis/TVMTypeChecker.cpp
+	codegen/analysis/TVMTypeChecker.hpp
 	codegen/helpers/FunctionCallGraph.cpp
 	codegen/helpers/FunctionCallGraph.hpp
 	codegen/helpers/utils.hpp

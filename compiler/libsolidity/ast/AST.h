@@ -640,7 +640,7 @@ public:
 	/// Returns the ether receiver function or nullptr if no receive function was specified.
 	FunctionDefinition const* receiveFunction() const;
 
-	/// Returns the ether onBounce function or nullptr if no onBounce function was specified.
+	/// Returns the ether onBouncedMessage function or nullptr if no onBouncedMessage function was specified.
 	FunctionDefinition const* onBounceFunction() const;
 
 	std::string fullyQualifiedName() const { return sourceUnitName() + ":" + name(); }
@@ -1073,7 +1073,7 @@ public:
 		m_experimentalReturnExpression(_experimentalReturnExpression)
 	{
 		solAssert(_kind == Token::Constructor || _kind == Token::Function ||
-			  _kind == Token::Fallback || _kind == Token::Receive || _kind == Token::onBounce ||
+			  _kind == Token::Fallback || _kind == Token::Receive || _kind == Token::OnBouncedMessage ||
 			  _kind == Token::onTickTock
 		  , "");
 		solAssert(isOrdinary() == !name().empty(), "");
@@ -1088,7 +1088,7 @@ public:
 	bool isOrdinary() const { return m_kind == Token::Function; }
 	bool isConstructor() const { return m_kind == Token::Constructor; }
 	bool isFallback() const { return m_kind == Token::Fallback; }
-	bool isOnBounce() const { return m_kind == Token::onBounce; }
+	bool isOnBouncedMessage() const { return m_kind == Token::OnBouncedMessage; }
 	bool isReceive() const { return m_kind == Token::Receive; }
 	bool isOnTickTock() const { return m_kind == Token::onTickTock; }
 	bool isFree() const { return m_free; }

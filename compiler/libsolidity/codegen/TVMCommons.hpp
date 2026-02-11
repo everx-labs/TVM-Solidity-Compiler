@@ -18,8 +18,8 @@
 
 #include <liblangutil/SourceReferenceFormatter.h>
 #include <libsolidity/ast/AST.h>
+#include <libsolidity/ast/TypeProvider.h>
 
-#include <boost/algorithm/string/predicate.hpp>
 #include <regex>
 #include <utility>
 
@@ -71,11 +71,7 @@ struct AddressInfo {
 };
 
 struct VarUIntegerInfo {
-	static int maxTonBitLength() {
-		return 4 + 15 * 8;
-		// var_uint$_ {n:#} len:(#< n) value:(uint (len * 8)) = VarUInteger n;
-		// nanograms$_ amount:(VarUInteger 16) = Grams;
-	}
+	static int maxTonBitLength() { return TypeProvider::coins()->maxBitSizeInCell(); }
 };
 
 int bitsForEnum(size_t val_count);

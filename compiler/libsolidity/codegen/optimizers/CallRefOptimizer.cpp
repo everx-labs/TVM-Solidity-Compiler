@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 EverX. All Rights Reserved.
+ * Copyright (C) 2025-2026 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -319,7 +319,7 @@ void CallRefInliner::optimize(Pointer<Contract> const& contract, std::vector<std
 	}
 
 	for (std::string const& functionName: functionDag) {
-		if (nameToFunc.contains(functionName) && functionName != "on_bounce") {
+		if (nameToFunc.contains(functionName) && functionName != TvmConst::ON_BOUNCED_MESSAGE) {
 			Function* func = nameToFunc.at(functionName);
 			CallRefInlinerPrivate callRefInlinerPrivate{func};
 			contract->accept(callRefInlinerPrivate);

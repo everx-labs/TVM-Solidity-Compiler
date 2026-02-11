@@ -1,4 +1,4 @@
-### 0.80.0 (2026-01-22)
+### 0.80.0 (2026-02-09)
 
 Bugfixes:
  * Now [pragma upgrade oldsol](API.md#pragma-upgrade-oldsol) can be used to upgrade contracts that were compiled
@@ -14,6 +14,7 @@ It is also true for [abi.encodeData()](API.md#abiencodedata) and [abi.encodeIntM
 The problem caused type check error. 
 
 Breaking changes:
+ * Function `onBouncedMessage` is delete. Migrate on [onBouncedMessage](API.md#onbouncedmessage)
  * Use `--tvm-version ton` as default (instead of `--tvm-version ever`).
  * Option `splitDepth` is renamed to `prefixLength`. `prefixLength` has `uint5` type instead of `uint8` type.
  * Option `flag` has `uint8` type instead of `uint16` type.
@@ -31,6 +32,7 @@ Breaking changes:
  * If cmd-line option `--function-ids` is used then output is printed in the file (not in stdout).
 
 Compiler features:
+ * Added option [extra_flags](API.md#addresstransfer) to use bounce format.
  * Added option [prefix](API.md#code-option-usage) to deploy contract in the shard.
  * Added [prefix](API.md#uint256prefix) to get prefix of the contract's address.
  * Generate more effective code for creating messages. More compact packing: inlining `stateInit` and body in the

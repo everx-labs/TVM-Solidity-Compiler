@@ -106,6 +106,7 @@ protected:
 		std::variant<int8_t, std::function<void()>> const& wid,
 		std::function<void()> const& pushPrefix,
 		std::variant<bigint, std::function<void()>> const& value,
+		std::variant<bigint, std::function<void()>> const& extraFlags,
 		std::variant<bool, std::function<void()>> const& pushBounce,
 		std::function<void()> const& pushCurrency,
 		std::function<void(int bitSizeBuilder, int refSizeBuilder)> const& appendBody,

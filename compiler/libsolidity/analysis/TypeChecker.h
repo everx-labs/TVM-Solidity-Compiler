@@ -106,7 +106,7 @@ private:
 
 	void typeCheckFallbackFunction(FunctionDefinition const& _function);
 	void typeCheckConstructor(FunctionDefinition const& _function);
-	void typeCheckOnBounce(FunctionDefinition const& _function);
+	void typeCheckOnBouncedMessage(FunctionDefinition const& _function);
 	void typeCheckOnTickTock(FunctionDefinition const& _function);
 	void checkNeedCallback(FunctionType const * callee, ASTNode const& node) const;
 

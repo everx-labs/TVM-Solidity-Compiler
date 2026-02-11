@@ -206,7 +206,7 @@ FunctionDefinition const* ContractDefinition::onBounceFunction() const
 {
 	for (ContractDefinition const* contract: annotation().linearizedBaseContracts)
 		for (FunctionDefinition const* f: contract->definedFunctions())
-			if (f->isOnBounce())
+			if (f->isOnBouncedMessage())
 				return f;
 	return nullptr;
 }

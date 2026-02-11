@@ -491,7 +491,7 @@ Pointer<Function> TVMFunctionCompiler::generateLibFunctionWithObject(
 Pointer<Function> TVMFunctionCompiler::generateReceive(TVMCompilerContext& ctx, FunctionDefinition const* function) {
 	std::string const name = "receive";
 	ctx.setCurrentFunction(function, name);
-	auto f = generateReceiveOrFallbackOrOnBounce(ctx, function, name, 0);
+	auto f = generateReceiveOrFallbackOrOnBouncedMessage(ctx, function, name, 0);
 	ctx.resetCurrentFunction();
 	return f;
 }
@@ -499,19 +499,20 @@ Pointer<Function> TVMFunctionCompiler::generateReceive(TVMCompilerContext& ctx, 
 Pointer<Function> TVMFunctionCompiler::generateFallback(TVMCompilerContext& ctx, FunctionDefinition const* function) {
 	std::string const name = "fallback";
 	ctx.setCurrentFunction(function, name);
-	auto f = generateReceiveOrFallbackOrOnBounce(ctx, function, name, 0);
+	auto f = generateReceiveOrFallbackOrOnBouncedMessage(ctx, function, name, 0);
 	ctx.resetCurrentFunction();
 	return f;
 }
 
-Pointer<Function> TVMFunctionCompiler::generateOnBounce(TVMCompilerContext& ctx, FunctionDefinition const* function) {
-	ctx.setCurrentFunction(function, "on_bounce");
-	Pointer<Function> f = generateReceiveOrFallbackOrOnBounce(ctx, function, "on_bounce", 1);
+Pointer<Function>
+TVMFunctionCompiler::generateOnBouncedMessage(TVMCompilerContext& ctx, FunctionDefinition const* function) {
+	ctx.setCurrentFunction(function, TvmConst::ON_BOUNCED_MESSAGE);
+	Pointer<Function> f = generateReceiveOrFallbackOrOnBouncedMessage(ctx, function, TvmConst::ON_BOUNCED_MESSAGE, 1);
 	ctx.resetCurrentFunction();
 	return f;
 }
 
-Pointer<Function> TVMFunctionCompiler::generateReceiveOrFallbackOrOnBounce(
+Pointer<Function> TVMFunctionCompiler::generateReceiveOrFallbackOrOnBouncedMessage(
 	TVMCompilerContext& ctx,
 	FunctionDefinition const* function,
 	std::string const& name,
@@ -575,6 +576,7 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() const {
 			nullptr,
 			StackPusher::MsgType::ExternalOut,
 			false,
+			nullptr,
 			nullptr
 		);
 		m_pusher.fixStack(params.size()); // fix stack
@@ -603,6 +605,7 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() const {
 			pushSendMessageFlag,
 			StackPusher::MsgType::Internal,
 			false,
+			nullptr,
 			nullptr
 		);
 	}
@@ -1517,6 +1520,7 @@ bool TVMFunctionCompiler::visit(EmitStatement const& _emit) {
 		nullptr,
 		StackPusher::MsgType::ExternalOut,
 		false,
+		nullptr,
 		nullptr
 	);
 	return false;
@@ -1726,9 +1730,7 @@ TVMFunctionCompiler::generateMainInternal(TVMCompilerContext& ctx, ContractDefin
 	if (!isEmptyFunction(contract->onBounceFunction())) {
 		pusher.startContinuation();
 		pusher.pushS(0);
-		pusher << "LDSLICE 32";
-		pusher.popS(1);
-		pusher.pushFragment(0, 0, "on_bounce");
+		pusher.pushFragment(0, 0, TvmConst::ON_BOUNCED_MESSAGE);
 		pusher.endContinuationFromRef();
 		pusher.ifJmp();
 	} else {

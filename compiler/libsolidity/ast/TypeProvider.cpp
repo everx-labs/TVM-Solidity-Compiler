@@ -16,6 +16,8 @@
 */
 // SPDX-License-Identifier: GPL-3.0
 
+#include <libsolidity/codegen/TVMConstants.hpp>
+
 #include <libsolidity/ast/AST.h>
 #include <libsolidity/ast/TypeProvider.h>
 #include <boost/algorithm/string.hpp>
@@ -609,3 +611,5 @@ UserDefinedValueType const* TypeProvider::userDefinedValueType(UserDefinedValueT
 {
 	return createAndGet<UserDefinedValueType>(_definition);
 }
+
+IntegerType const* TypeProvider::extraFlags() { return uint(TvmConst::EXTRA_FLAG_SIZE); }

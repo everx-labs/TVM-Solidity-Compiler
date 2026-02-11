@@ -377,10 +377,12 @@ std::pair<ContractKind, bool> Parser::parseContractKind()
 	return std::make_pair(kind, abstract);
 }
 
-std::tuple<ASTPointer<ExternalMsgHeaders>, ASTPointer<ReplayProtection>, bool> Parser::parseAttributes() {
+std::tuple<ASTPointer<ExternalMsgHeaders>, ASTPointer<ReplayProtection>, bool, SourceLocation> Parser::parseAttributes() {
 	ASTPointer<ExternalMsgHeaders> externalMsgHeaders;
 	ASTPointer<ReplayProtection> replayProtection;
+
 	bool isContractLibrary = false;
+	SourceLocation contractLibraryLocation;
 
 	auto checkReplayProtection = [&]() {
 		if (replayProtection != nullptr) {
@@ -394,7 +396,7 @@ std::tuple<ASTPointer<ExternalMsgHeaders>, ASTPointer<ReplayProtection>, bool> P
 	};
 
 	while (m_scanner->currentToken() == Token::Hash) {
-		ASTNodeFactory nodeFactory2(*this);
+		ASTNodeFactory nodeFactory(*this);
 		expectToken(Token::Hash, true);
 		expectToken(Token::LBrack, true);
 		if (currentToken() == Token::Identifier && currentLiteral() == "ExternalMessage") {
@@ -427,43 +429,51 @@ std::tuple<ASTPointer<ExternalMsgHeaders>, ASTPointer<ReplayProtection>, bool> P
 			expectToken(Token::RParen, true);
 			expectToken(Token::RBrack, true);
 
-			nodeFactory2.markEndPosition();
-			externalMsgHeaders = nodeFactory2.createNode<ExternalMsgHeaders>(headerNames, headerLocations);
+			nodeFactory.markEndPosition();
+			externalMsgHeaders = nodeFactory.createNode<ExternalMsgHeaders>(headerNames, headerLocations);
 		} else if (currentToken() == Token::Identifier && currentLiteral() == "TimeReplayProt") {
 			checkReplayProtection();
 			advance();
 			expectToken(Token::RBrack, true);
 
-			nodeFactory2.markEndPosition();
-			replayProtection = nodeFactory2.createNode<ReplayProtection>(ReplayProtection::ReplayProtectionType::TimeReplayProt);
+			nodeFactory.markEndPosition();
+			replayProtection = nodeFactory.createNode<ReplayProtection>(ReplayProtection::ReplayProtectionType::TimeReplayProt);
 		} else if (currentToken() == Token::Identifier && currentLiteral() == "SeqnoReplayProt") {
 			checkReplayProtection();
 			advance();
 			expectToken(Token::RBrack, true);
 
-			nodeFactory2.markEndPosition();
-			replayProtection = nodeFactory2.createNode<ReplayProtection>(ReplayProtection::ReplayProtectionType::SeqnoReplayProt);
+			nodeFactory.markEndPosition();
+			replayProtection = nodeFactory.createNode<ReplayProtection>(ReplayProtection::ReplayProtectionType::SeqnoReplayProt);
 		} else if (currentToken() == Token::Identifier && currentLiteral() == "CustomReplayProt") {
 			checkReplayProtection();
 			advance();
 			expectToken(Token::RBrack, true);
 
-			nodeFactory2.markEndPosition();
-			replayProtection = nodeFactory2.createNode<ReplayProtection>(ReplayProtection::ReplayProtectionType::CustomReplayProt);
+			nodeFactory.markEndPosition();
+			replayProtection = nodeFactory.createNode<ReplayProtection>(ReplayProtection::ReplayProtectionType::CustomReplayProt);
 		} else if (currentToken() == Token::Identifier && currentLiteral() == "Library") {
-			checkReplayProtection();
+			if (isContractLibrary) {
+				m_errorReporter.declarationError(
+					3704_error,
+					m_scanner->currentLocation(),
+					SecondarySourceLocation().append("Another annotation is here:", contractLibraryLocation),
+					"The contract is already marked as \"Library\"."
+				);
+			}
 			advance();
 			expectToken(Token::RBrack, true);
 
-			nodeFactory2.markEndPosition();
+			nodeFactory.markEndPosition();
 			isContractLibrary = true;
+			contractLibraryLocation = nodeFactory.location();
 		} else {
-			fatalParserError(9041_error, "Keyword ExternalMessage/TimeReplayProt/SeqnoReplayProt/CustomReplayProt expected.");
+			fatalParserError(9041_error, "Keyword ExternalMessage/TimeReplayProt/SeqnoReplayProt/CustomReplayProt/Library expected.");
 		}
 	}
 
 
-	return {externalMsgHeaders, replayProtection, isContractLibrary};
+	return {externalMsgHeaders, replayProtection, isContractLibrary, contractLibraryLocation};
 }
 
 ASTPointer<ContractDefinition> Parser::parseContractDefinition()
@@ -477,8 +487,33 @@ ASTPointer<ContractDefinition> Parser::parseContractDefinition()
 	std::vector<ASTPointer<ASTNode>> subNodes;
 	std::pair<ContractKind, bool> contractKind{};
 	documentation = parseStructuredDocumentation();
-	auto [externalMsgHeaders, replayProtection, isContractLibrary] = parseAttributes();
+	auto [externalMsgHeaders, replayProtection, isContractLibrary, contractLibraryLocation] = parseAttributes();
 	contractKind = parseContractKind();
+	switch (contractKind.first) {
+	case ContractKind::Contract:
+		break;
+	case ContractKind::Interface:
+	case ContractKind::Library:
+		std::string contractKindName = contractKind.first == ContractKind::Interface ? "Interface" : "Library";
+
+		if (externalMsgHeaders != nullptr || replayProtection != nullptr || isContractLibrary) {
+			SourceLocation loc;
+			if (externalMsgHeaders != nullptr)
+				loc = externalMsgHeaders->location();
+			if (replayProtection != nullptr)
+				loc = replayProtection->location();
+			if (isContractLibrary)
+				loc = contractLibraryLocation;
+
+			m_errorReporter.parserError(
+				4823_error,
+				m_scanner->currentLocation(),
+				SecondarySourceLocation().append("See:", loc),
+				contractKindName + " can not have any annotation via #[some_annotation]."
+			);
+		}
+		break;
+	}
 	std::tie(name, nameLocation) = expectIdentifierWithLocation();
 	while (true)
 	{
@@ -513,7 +548,8 @@ ASTPointer<ContractDefinition> Parser::parseContractDefinition()
 			currentTokenValue == Token::Constructor ||
 			currentTokenValue == Token::Receive ||
 			currentTokenValue == Token::Fallback ||
-			currentTokenValue == Token::onBounce ||
+			currentTokenValue == Token::OnBouncedMessage ||
+			currentTokenValue == Token::OnBounce ||
 			currentTokenValue == Token::onTickTock
 		)
 			subNodes.push_back(parseFunctionDefinition());
@@ -850,7 +886,8 @@ ASTPointer<FunctionDefinition> Parser::parseFunctionDefinition(bool _freeFunctio
 		if (
 			m_scanner->currentToken() == Token::Constructor ||
 			m_scanner->currentToken() == Token::Fallback ||
-			m_scanner->currentToken() == Token::onBounce ||
+			m_scanner->currentToken() == Token::OnBouncedMessage ||
+			m_scanner->currentToken() == Token::OnBounce ||
 			m_scanner->currentToken() == Token::Receive ||
 			m_scanner->currentToken() == Token::onTickTock
 		)
@@ -859,7 +896,8 @@ ASTPointer<FunctionDefinition> Parser::parseFunctionDefinition(bool _freeFunctio
 				{Token::Constructor, "constructor"},
 				{Token::Fallback, "fallback function"},
 				{Token::Receive, "receive function"},
-				{Token::onBounce, "onBounce function"},
+				{Token::OnBouncedMessage, "onBouncedMessage function"},
+				{Token::OnBounce, "onBounce function"},
 				{Token::onTickTock, "onTickTock function"},
 			}.at(m_scanner->currentToken());
 			nameLocation = currentLocation();
@@ -880,8 +918,17 @@ ASTPointer<FunctionDefinition> Parser::parseFunctionDefinition(bool _freeFunctio
 	}
 	else
 	{
-		solAssert(kind == Token::Constructor || kind == Token::Fallback || kind == Token::onBounce ||
+		solAssert(kind == Token::Constructor || kind == Token::Fallback ||
+			kind == Token::OnBouncedMessage || kind == Token::OnBounce ||
 				  kind == Token::Receive || kind == Token::onTickTock, "");
+		if (m_scanner->currentToken() == Token::OnBounce)
+		{
+			fatalParserError(
+				6162_error,
+				"\"onBounce(TvmSlice s)\" function is deprecated. Use \"onBouncedMessage(TvmSlice s)\" function.\n"
+				"How to migrate: https://github.com/broxus/TVM-Solidity-Compiler/blob/master/API.md#onbouncedmessage"
+			);
+		}
 		advance();
 		name = std::make_shared<ASTString>();
 	}

@@ -167,7 +167,7 @@ void ViewPureChecker::reportMutability(
 			m_errorReporter.typeError(
 				6669_error,
 				_location,
-				SecondarySourceLocation().append("Function declaration is here", *funcDecl),
+				SecondarySourceLocation().append("Function declaration is here:", *funcDecl),
 				errText
 			);
 		} else {
@@ -185,7 +185,7 @@ void ViewPureChecker::reportMutability(
 			m_errorReporter.typeError(
 				5861_error,
 				_location,
-				SecondarySourceLocation().append("Function declaration is here", *funcDecl),
+				SecondarySourceLocation().append("Function declaration is here:", *funcDecl),
 				errText
 			);
 		} else {

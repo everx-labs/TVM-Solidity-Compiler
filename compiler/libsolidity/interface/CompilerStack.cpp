@@ -81,10 +81,10 @@
 #include <string>
 
 #include <libsolidity/codegen/TVM.hpp>
-#include <libsolidity/codegen/TVMTypeChecker.hpp>
+#include <libsolidity/codegen/analysis/TVMTypeChecker.hpp>
 #include <libsolidity/codegen/TVMABI.hpp>
 #include <libsolidity/codegen/TVMContractCompiler.hpp>
-#include <libsolidity/codegen/TVMAnalyzer.hpp>
+#include <libsolidity/codegen/analysis/TVMAnalyzer.hpp>
 #include <libsolidity/codegen/Printer.hpp>
 
 using namespace solidity;
@@ -629,6 +629,20 @@ bool CompilerStack::analyzeLegacy(bool _noErrorsSoFar)
 				if (source->ast && !tvmAnalyzer128.analyze(*source->ast))
 					noErrors = false;
 		}
+	}
+
+	if (noErrors) {
+		ExtMsgAnalyzer extMsgAnalyzer(m_errorReporter);
+		for (Source const* source: m_sourceOrder)
+			if (source->ast && !extMsgAnalyzer.analyze(*source->ast))
+				noErrors = false;
+	}
+
+	if (noErrors) {
+		ExtraFlagAnalyzer extraFlagAnalyzer(m_errorReporter);
+		for (Source const* source: m_sourceOrder)
+			if (source->ast && !extraFlagAnalyzer.analyze(*source->ast))
+				noErrors = false;
 	}
 
 	if (noErrors)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2025 EverX. All Rights Reserved.
+ * Copyright (C) 2019-2026 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 struct TvmConst {
 	// F12_n — CALL n for 0 ≤ n < 2**14 ( – n), an encoding of CALL n for larger values of n.
@@ -34,8 +35,12 @@ struct TvmConst {
 	constexpr static int CONTINUE_FLAG = 1;
 	constexpr static int RETURN_FLAG = 4;
 
+	constexpr static int EXTRA_FLAG_SIZE = 8;
+
 	// https://tonviewer.com/config#18
 	constexpr static int CELL_PRICE_PS = 500;
+
+	inline static std::string const ON_BOUNCED_MESSAGE = "onBouncedMessage";
 
 	struct C4 {
 		// length of key in dict c4
@@ -111,6 +116,7 @@ struct TvmConst {
 		constexpr static int dest = 4;
 		constexpr static int tons = 5;
 		constexpr static int currency = 6;
+		constexpr static int extra_flags = 7;
 	};
 	struct ext_msg_info {
 		constexpr static int src = 0;

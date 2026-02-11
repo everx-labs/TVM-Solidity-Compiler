@@ -761,8 +761,8 @@ bool TypeChecker::visit(FunctionDefinition const& _function)
 		if (!_function.functionIsExternallyVisible()) {
 			m_errorReporter.typeError(7446_error, _function.location(), R"(Private/internal function can't be marked as externalMsg.)");
 		}
-		if (_function.isReceive() || _function.isFallback() || _function.isOnBounce() || _function.isOnTickTock()) {
-			m_errorReporter.typeError(1399_error, _function.location(), R"(receiver, fallback, onBounce and onTickTock functions can't be marked as externalMsg.)");
+		if (_function.isReceive() || _function.isFallback() || _function.isOnBouncedMessage() || _function.isOnTickTock()) {
+			m_errorReporter.typeError(1399_error, _function.location(), R"(receiver, fallback, onBouncedMessage and onTickTock functions can't be marked as externalMsg.)");
 		}
 	}
 	auto const& returnParameterList = _function.returnParameterList();
@@ -897,12 +897,12 @@ bool TypeChecker::visit(FunctionDefinition const& _function)
 		typeCheckFallbackFunction(_function);
 	else if (_function.isConstructor())
 		typeCheckConstructor(_function);
-	else if (_function.isOnBounce())
-		typeCheckOnBounce(_function);
+	else if (_function.isOnBouncedMessage())
+		typeCheckOnBouncedMessage(_function);
 	else if (_function.isOnTickTock())
 		typeCheckOnTickTock(_function);
 
-	if (_function.functionIsExternallyVisible() && !_function.isOnBounce())
+	if (_function.functionIsExternallyVisible() && !_function.isOnBouncedMessage())
 	{
 		for (const auto& params : {_function.parameters(), _function.returnParameters()}) {
 			for (ASTPointer<VariableDeclaration> const &var : params) {
@@ -1285,7 +1285,7 @@ bool TypeChecker::visit(Return const& _return) {
 					_return.options().at(i)->location(),
 					"Unknown call option \"" +
 					name +
-					R"(". Possible options: "value", "currencies", "bounce", and "flag".)"
+					R"(". Possible options: "value", "currencies", "bounce" and "flag".)"
 			);
 		} else {
 			Type const* expType = nameToType.at(name);
@@ -2217,18 +2217,18 @@ void TypeChecker::typeCheckConstructor(FunctionDefinition const& _function)
 	}
 }
 
-void TypeChecker::typeCheckOnBounce(const FunctionDefinition &_function) {
-	solAssert(_function.isOnBounce(), "");
+void TypeChecker::typeCheckOnBouncedMessage(const FunctionDefinition &_function) {
+	solAssert(_function.isOnBouncedMessage(), "");
 
 	if (_function.libraryFunction())
-		m_errorReporter.typeError(1510_error, _function.location(), "Libraries cannot have onBounce functions.");
+		m_errorReporter.typeError(1510_error, _function.location(), "Libraries cannot have onBouncedMessage functions.");
 
 	if (_function.visibility() != Visibility::External)
-		m_errorReporter.typeError(4869_error, _function.location(), "onBounce function must be defined as \"external\".");
+		m_errorReporter.typeError(4869_error, _function.location(), "onBouncedMessage function must be defined as \"external\".");
 	if (!_function.returnParameters().empty())
-		m_errorReporter.typeError(3628_error, _function.returnParameterList()->location(), "onBounce function cannot return values.");
+		m_errorReporter.typeError(3628_error, _function.returnParameterList()->location(), "onBouncedMessage function cannot return values.");
 	if (_function.parameters().size() != 1 || _function.parameters().at(0)->type()->category() != Type::Category::TvmSlice)
-		m_errorReporter.typeError(5297_error, _function.parameterList().location(), "onBounce function should take one parameter (TvmSlice body).");
+		m_errorReporter.typeError(5297_error, _function.parameterList().location(), "onBouncedMessage function should take one parameter (TvmSlice s).");
 }
 
 
@@ -4118,6 +4118,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 	}
 
 	int setBounce = -1;
+	int setExtraFlags = -1;
 	int setCurrencies = -1;
 	int setFlag = -1;
 	int setPubkey = -1;
@@ -4177,7 +4178,7 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		optionNames = {"code", "pubkey", "varInit", "prefix", "prefixLength", "wid"};
 	else
 		optionNames = {"callback"};
-	for (auto const x : {"stateInit", "value", "currencies", "bounce", "flag"})
+	for (auto const x : {"stateInit", "value", "currencies", "bounce", "flag", "extra_flags"})
 		optionNames.emplace_back(x);
 
 	for (size_t i = 0; i < _functionCallOptions.names().size(); ++i)
@@ -4200,6 +4201,9 @@ bool TypeChecker::visit(FunctionCallOptions const& _functionCallOptions)
 		} else if (name == "bounce") {
 			expectType(*options[i], *TypeProvider::boolean());
 			setCheckOption(setBounce, "bounce", i);
+		} else if (name == "extra_flags") {
+			expectType(*options[i], *TypeProvider::extraFlags());
+			setCheckOption(setExtraFlags, "extra_flags", i);
 		} else if (name == "flag") {
 			expectType(*options[i], *TypeProvider::uint(8));
 			setCheckOption(setFlag, "flag", i);

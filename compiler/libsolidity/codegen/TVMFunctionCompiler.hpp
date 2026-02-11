@@ -57,7 +57,7 @@ public:
 	generateLibFunctionWithObject(TVMCompilerContext& ctx, FunctionDefinition const* function, std::string const& name);
 	static Pointer<Function> generateReceive(TVMCompilerContext& ctx, FunctionDefinition const* function);
 	static Pointer<Function> generateFallback(TVMCompilerContext& ctx, FunctionDefinition const* function);
-	static Pointer<Function> generateOnBounce(TVMCompilerContext& ctx, FunctionDefinition const* function);
+	static Pointer<Function> generateOnBouncedMessage(TVMCompilerContext& ctx, FunctionDefinition const* function);
 	static Pointer<Function> generatePublicFunction(TVMCompilerContext& ctx, FunctionDefinition const* function);
 	static Pointer<Function> generateGetterFunction(TVMCompilerContext& ctx, FunctionDefinition const* function);
 	static void generateFunctionWithModifiers(StackPusher& pusher, FunctionDefinition const* function, bool pushArgs);
@@ -65,7 +65,7 @@ public:
 	void decodeFunctionParamsAndInitVars(bool isResponsible) const;
 
 protected:
-	static Pointer<Function> generateReceiveOrFallbackOrOnBounce(
+	static Pointer<Function> generateReceiveOrFallbackOrOnBouncedMessage(
 		TVMCompilerContext& ctx,
 		FunctionDefinition const* function,
 		std::string const& name,

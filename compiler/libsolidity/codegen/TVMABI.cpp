@@ -282,7 +282,7 @@ std::vector<FunctionDefinition const*> TVMABI::publicFunctions(ContractDefinitio
 				_function->isPublic() &&
 				!_function->isReceive() &&
 				!_function->isFallback() &&
-				!_function->isOnBounce() &&
+				!_function->isOnBouncedMessage() &&
 				!_function->isOnTickTock() &&
 				_function->visibility() != Visibility::Getter)
 				publicFunctions.push_back(_function);

@@ -25,9 +25,9 @@
 #include <libsolidity/codegen/TVMContractCompiler.hpp>
 #include <libsolidity/codegen/TVMExpressionCompiler.hpp>
 #include <libsolidity/codegen/TVMFunctionCompiler.hpp>
-#include <libsolidity/codegen/TVMInlineFunctionChecker.hpp>
 #include <libsolidity/codegen/TvmAst.hpp>
 #include <libsolidity/codegen/TvmAstVisitor.hpp>
+#include <libsolidity/codegen/analysis/TVMInlineFunctionChecker.hpp>
 #include <libsolidity/codegen/optimizers/CallRefOptimizer.hpp>
 #include <libsolidity/codegen/optimizers/MiscOptimizer.hpp>
 #include <libsolidity/codegen/optimizers/PeepholeOptimizer.hpp>
@@ -115,10 +115,10 @@ Pointer<Contract> TVMContractCompiler::generateContractCode(
 			if (_function->isConstructor() || !_function->isImplemented() || _function->isInline())
 				continue;
 
-			if (_function->isOnBounce()) {
-				if (!ctx.isOnBounceGenerated()) {
-					ctx.setIsOnBounce();
-					functions.emplace_back(TVMFunctionCompiler::generateOnBounce(ctx, _function));
+			if (_function->isOnBouncedMessage()) {
+				if (!ctx.isOnBouncedMessageGenerated()) {
+					ctx.setIsOnBouncedMessage();
+					functions.emplace_back(TVMFunctionCompiler::generateOnBouncedMessage(ctx, _function));
 				}
 			} else if (_function->isReceive()) {
 				if (!ctx.isReceiveGenerated()) {

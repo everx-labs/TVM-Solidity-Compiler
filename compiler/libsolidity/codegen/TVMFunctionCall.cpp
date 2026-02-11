@@ -644,6 +644,7 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const& _functionCa
 	std::optional<uint32_t> callbackFunctionId;
 	std::function<std::pair<int, int>()> appendEitherStateInit;
 	std::function<void()> pushValue;
+	std::function<void()> pushExtraFlags;
 
 	auto functionOptions = to<FunctionCallOptions>(&_functionCall.expression());
 	if (functionOptions == nullptr) {
@@ -684,7 +685,7 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const& _functionCa
 
 	// parse options they are stored in two vectors: names and options
 	for (auto const& option: functionOptions->names())
-		if (!isIn(*option, "stateInit", "flag", "value", "currencies", "bounce", "callback"))
+		if (!isIn(*option, "stateInit", "flag", "value", "currencies", "bounce", "callback", "extra_flags"))
 			cast_error(_functionCall, "Unsupported function call option: " + *option);
 
 	// Search for stateInit option
@@ -720,6 +721,16 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const& _functionCa
 		}
 	} else
 		cast_error(_functionCall, "Explicitly define message value, e.g. f{value: 1 ton}(...)");
+
+	// Search for extra_flags option
+	if (Expression const* valueExpr = findOption("extra_flags")) {
+		auto const& value = ExprUtils::constValue(*valueExpr);
+		if (value.has_value())
+			constParams[TvmConst::int_msg_info::extra_flags] = StrUtils::tonsToBinaryString(u256(value.value()));
+		else {
+			pushExtraFlags = [this, valueExpr] { acceptExpr(valueExpr); };
+		}
+	}
 
 	// remote_addr
 	exprs[TvmConst::int_msg_info::dest] = &memberAccess->expression();
@@ -765,7 +776,8 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const& _functionCa
 		appendBody,
 		pushSendRawMsgFlag,
 		appendEitherStateInit,
-		pushValue
+		pushValue,
+		pushExtraFlags
 	);
 	return true;
 }
@@ -788,11 +800,13 @@ FunctionDefinition const* FunctionCallCompiler::getRemoteFunctionDefinition(Memb
 void FunctionCallCompiler::abiBuildIntMsg() const {
 	int const stackSize = m_pusher.stackSize();
 	std::function<void()> pushValue;
+	std::function<void()> pushExtraFlags;
 
 	int destArg = -1;
 	int valueArg = -1;
 	int currenciesArg = -1;
 	int bounceArg = -1;
+	int extraFlagsArg = -1;
 	int callArg = -1;
 	int stateInit = -1;
 	for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
@@ -808,6 +822,9 @@ void FunctionCallCompiler::abiBuildIntMsg() const {
 			break;
 		case str2int("bounce"):
 			bounceArg = arg;
+			break;
+		case str2int("extra_flags"):
+			extraFlagsArg = arg;
 			break;
 		case str2int("call"):
 			callArg = arg;
@@ -861,7 +878,9 @@ void FunctionCallCompiler::abiBuildIntMsg() const {
 			 {currenciesArg, "currencies", TvmConst::int_msg_info::currency},
 			 {valueArg, "value", TvmConst::int_msg_info::tons},
 			 {destArg, "dest", TvmConst::int_msg_info::dest},
-			 {bounceArg, "bounce", TvmConst::int_msg_info::bounce}
+			 {bounceArg, "bounce", TvmConst::int_msg_info::bounce},
+			 {extraFlagsArg, "extra_flags", TvmConst::int_msg_info::extra_flags}
+
 		 }) {
 		if (argIndex != -1) {
 			std::optional<bigint> value = ExprUtils::constValue(*m_arguments.at(argIndex));
@@ -872,6 +891,8 @@ void FunctionCallCompiler::abiBuildIntMsg() const {
 				constParams[id] = StrUtils::boolToBinaryString(*flag);
 			} else if (name == "value") {
 				pushValue = [this, argIndex, name] { pushArgAndConvert(argIndex, name); };
+			} else if (name == "extra_flags") {
+				pushExtraFlags = [this, argIndex, name] { pushArgAndConvert(argIndex, name); };
 			} else {
 				pushArgAndConvert(argIndex, name);
 				isParamOnStack.insert(id);
@@ -898,7 +919,8 @@ void FunctionCallCompiler::abiBuildIntMsg() const {
 		appendEitherStateInit,
 		StackPusher::MsgType::Internal,
 		false,
-		pushValue
+		pushValue,
+		pushExtraFlags
 	);
 
 	solAssert(m_pusher.stackSize() == stackSize + 1, "");
@@ -1210,7 +1232,13 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const& _node) const {
 		} else if (boost::starts_with(memberName, "load")) {
 			stackDelta = 1;
 			std::optional<std::string> opcode;
-			if (memberName == "loadRefAsSlice") {
+			if (memberName == "loadBouncedMsgTag") {
+				m_pusher << "LDU 32";
+				m_pusher.blockSwap(1, 1);
+				m_pusher.pushInt(0xFFFF'FFFE);
+				m_pusher << "EQUAL";
+				m_pusher.blockSwap(1, 1);
+			} else if (memberName == "loadRefAsSlice") {
 				m_pusher << "LDREFRTOS";
 				m_pusher.exchange(1);
 			} else if (memberName == "loadRef") {
@@ -2046,6 +2074,7 @@ void FunctionCallCompiler::addressMethod() {
 		std::function<void()> pushSendRawMsgFlag;
 		std::function<std::pair<int, int>()> appendEitherStateInit;
 		std::function<void()> pushValue;
+		std::function<void()> pushExtraFlags;
 
 		auto setValue = [&](Expression const* expr) {
 			auto const& value = ExprUtils::constValue(*expr);
@@ -2053,6 +2082,15 @@ void FunctionCallCompiler::addressMethod() {
 				constParams[TvmConst::int_msg_info::tons] = StrUtils::tonsToBinaryString(u256(value.value()));
 			} else {
 				pushValue = [this, expr] { acceptExpr(expr); };
+			}
+		};
+
+		auto setExtraFlags = [&](Expression const* expr) {
+			auto const& value = ExprUtils::constValue(*expr);
+			if (value.has_value()) {
+				constParams[TvmConst::int_msg_info::extra_flags] = StrUtils::tonsToBinaryString(u256(value.value()));
+			} else {
+				pushExtraFlags = [this, expr] { acceptExpr(expr); };
 			}
 		};
 
@@ -2085,6 +2123,9 @@ void FunctionCallCompiler::addressMethod() {
 				switch (str2int(m_names[arg]->c_str())) {
 				case str2int("value"):
 					setValue(m_arguments[arg].get());
+					break;
+				case str2int("extra_flags"):
+					setExtraFlags(m_arguments[arg].get());
 					break;
 				case str2int("bounce"):
 					setBounce(m_arguments[arg].get());
@@ -2142,7 +2183,8 @@ void FunctionCallCompiler::addressMethod() {
 			appendBody,
 			pushSendRawMsgFlag,
 			appendEitherStateInit,
-			pushValue
+			pushValue,
+			pushExtraFlags
 		);
 	} else if (m_memberAccess->memberName() == "isStdZero") {
 		acceptExpr(&m_memberAccess->expression());
@@ -3479,6 +3521,7 @@ bool FunctionCallCompiler::checkSolidityUnits() const {
 			nullptr,
 			[&] { m_pusher << "PUSHINT " + toString(TvmConst::SENDRAWMSG::SelfDestruct); },
 			nullptr,
+			nullptr,
 			nullptr
 		);
 		return true;
@@ -3786,14 +3829,25 @@ void FunctionCallCompiler::createNewContract() const {
 	}
 
 	std::variant<bigint, std::function<void()>> pushValue;
+	{
+		Expression const* value = findOption("value");
+		solAssert(value, "");
+		std::optional<bigint> v = ExprUtils::constValue(*value);
+		if (v) {
+			pushValue = v.value();
+		} else {
+			pushValue = [this, value] { acceptExpr(value); };
+		}
+	}
 
-	Expression const* value = findOption("value");
-	solAssert(value, "");
-	std::optional<bigint> v = ExprUtils::constValue(*value);
-	if (v) {
-		pushValue = v.value();
-	} else {
-		pushValue = [this, value] { acceptExpr(value); };
+	std::variant<bigint, std::function<void()>> pushExtraFlags;
+	if (Expression const* extra_flags = findOption("extra_flags")) {
+		std::optional<bigint> efs = ExprUtils::constValue(*extra_flags);
+		if (efs) {
+			pushExtraFlags = efs.value();
+		} else {
+			pushExtraFlags = [this, extra_flags] { acceptExpr(extra_flags); };
+		}
 	}
 
 	std::variant<bool, std::function<void()>> pushBounce = true;
@@ -3840,6 +3894,7 @@ void FunctionCallCompiler::createNewContract() const {
 		pushWid,
 		pushPrefix,
 		pushValue,
+		pushExtraFlags,
 		pushBounce,
 		pushCurrency,
 		pushBody,
@@ -3854,6 +3909,7 @@ void FunctionCallCompiler::deployNewContract(
 	std::variant<int8_t, std::function<void()>> const& wid,
 	std::function<void()> const& pushPrefix,
 	std::variant<bigint, std::function<void()>> const& value,
+	std::variant<bigint, std::function<void()>> const& extraFlags,
 	std::variant<bool, std::function<void()>> const& pushBounce,
 	std::function<void()> const& pushCurrency,
 	std::function<void(int bitSizeBuilder, int refSizeBuilder)> const& appendBody,
@@ -3948,6 +4004,13 @@ void FunctionCallCompiler::deployNewContract(
 		pushValue = [value] { std::get<1>(value)(); };
 	}
 
+	std::function<void()> pushExtraFlags;
+	if (extraFlags.index() == 0) {
+		constParams[TvmConst::int_msg_info::extra_flags] = StrUtils::tonsToBinaryString(std::get<0>(extraFlags));
+	} else {
+		pushExtraFlags = [extraFlags] { std::get<1>(extraFlags)(); };
+	}
+
 	exprs[TvmConst::int_msg_info::dest] = [&] {
 		int stackIndex = m_pusher.stackSize() - destAddressStack;
 		m_pusher.pushS(stackIndex);
@@ -3981,7 +4044,8 @@ void FunctionCallCompiler::deployNewContract(
 		pushSendRawMsgFlag,
 		StackPusher::MsgType::Internal,
 		isDestBuilder,
-		pushValue
+		pushValue,
+		pushExtraFlags
 	);
 	// stack: destAddress
 }

@@ -159,7 +159,8 @@ namespace solidity::langutil
 	K(Event, "event", 0)                                               \
 	K(External, "external", 0)                                         \
 	K(Fallback, "fallback", 0)                                         \
-	K(onBounce, "onBounce", 0)                                         \
+	K(OnBouncedMessage, "onBouncedMessage", 0)                         \
+	K(OnBounce, "onBounce", 0)                                         \
 	K(For, "for", 0)                                                   \
 	K(Function, "function", 0)                                         \
 	K(FunctionID, "functionID", 0)                                     \

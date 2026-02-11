@@ -44,6 +44,7 @@ When deploying contracts, you should use the latest released version of Solidity
       * [\<TvmSlice\>.loadSlice() and \<TvmSlice\>.loadSliceQ()](#tvmsliceloadslice-and-tvmsliceloadsliceq)
       * [\<TvmSlice\>.skip()](#tvmsliceskip)
       * [\<TvmSlice\>.loadZeroes(), \<TvmSlice\>.loadOnes() and \<TvmSlice\>.loadSame()](#tvmsliceloadzeroes-tvmsliceloadones-and-tvmsliceloadsame)
+      * [\<TvmSlice\>.loadBouncedMsgTag()](#tvmsliceloadbouncedmsgtag)
     * [TvmSlice preload primitives](#tvmslice-preload-primitives)
       * [\<TvmSlice\>.preload()](#tvmslicepreload)
       * [\<TvmSlice\>.preloadQ()](#tvmslicepreloadq)
@@ -223,6 +224,7 @@ When deploying contracts, you should use the latest released version of Solidity
   * [getter](#getter)
   * [receive](#receive)
   * [fallback](#fallback)
+  * [onBouncedMessage](#onbouncedmessage)
   * [onBounce](#onbounce)
   * [onTickTock](#onticktock)
   * [onCodeUpgrade](#oncodeupgrade)
@@ -952,6 +954,19 @@ Skips the first `bits` bits and `refs` references from the `TvmSlice`.
 (3) Returns the count `n` of leading bits equal to `0 ≤ value ≤ 1` in `TvmSlice`, and removes these bits from `TvmSlice`.
 
 See also: [\<TvmBuilder\>.storeZeroes(), \<TvmBuilder\>.storeOnes() and \<TvmBuilder\>.storeSame()](#tvmbuilderstorezeroes-tvmbuilderstoreones-and-tvmbuilderstoresame).
+
+##### \<TvmSlice\>.loadBouncedMsgTag()
+
+```TVMSolidity
+<TvmSlice>.loadBouncedMsgTag() returns (bool isNewBouncedMsgType);
+```
+
+Load 32-bit bounced message constructor tag and check whether the constructor tag is equal to `0xFFFFFFFE`.
+Note: bounced message constructor tag is equal to `0xFFFFFFFF` or `0xFFFFFFFE`.
+
+See also:
+ * [Extra message flags and new bounce format](https://github.com/ton-blockchain/ton/blob/master/doc/GlobalVersions.md#extra-message-flags-and-new-bounce-format)
+ * [onBouncedMessage](#onbouncedmessage)
 
 ##### TvmSlice preload primitives
 
@@ -2579,6 +2594,11 @@ an empty set.
 (only at the computing phase, not at the action phase!), then funds will be returned. Otherwise, (flag isn't
 set or transaction terminated successfully) the address accepts the funds even if the account
 doesn't exist or is frozen. Defaults to `true`.
+* `extra_flags` (`uint8`) bit mask
+  * If `(extra_flags & 1) = 1` the new bounce format is enabled. The bounced message now contains the root cell of 
+    the body of the failed message, with all the refs removed from it.
+  * `If (extra_flags & 2) = 2` is also set, the bounced message contains the entire body of the original message, 
+    without removing any refs.
 * `flag` (`uint8`) - flag that used to send the internal outbound message. Defaults to `0`.
 * `body` (`TvmCell`) -  body (payload) attached to the internal message. Defaults to an empty
 TvmCell.
@@ -2607,7 +2627,7 @@ no effect.
 * `flag + 32` - means that the current account must be destroyed if its resulting balance is zero.
 For example, `flag: 128 + 32` is used to send all balance and destroy the contract.
 
-In order to clarify flags usage see [this sample](https://github.com/everx-labs/samples/blob/main/solidity/20_bomber.sol).
+In order to clarify flags usage see [this sample](https://github.com/everx-labs/samples/blob/master/solidity/20_bomber.sol).
 
 ```TVMSolidity
 address dest = ...;
@@ -2617,6 +2637,7 @@ uint8 flag = ...;
 TvmCell body = ...;
 mapping(uint32 => varuint32) c = ...;
 TvmCell stateInit = ...;
+uint8 extra_flags = 3;
 // sequential order of parameters
 addr.transfer(value);
 addr.transfer(value, bounce);
@@ -2626,12 +2647,12 @@ addr.transfer(value, bounce, flag, body, c);
 // using named parameters
 destination.transfer({value: 1 ever, bounce: false, flag: 128, body: cell, currencies: c});
 destination.transfer({bounce: false, value: 1 ever, flag: 128, body: cell});
-destination.transfer({value: 1 ever, bounce: false, stateInit: stateInit});
+destination.transfer({value: 1 ever, bounce: false, stateInit: stateInit, extra_flags: extra_flags});
 ```
 
 See example of `address.transfer()` usage:
 
-* [giver](https://github.com/everx-labs/samples/blob/main/solidity/7_Giver.sol)
+* [giver](https://github.com/everx-labs/samples/blob/master/solidity/7_Giver.sol)
 
 #### address_std
 
@@ -2766,8 +2787,8 @@ If you use mapping as an input or output param for public/external functions,
 
 See example of how to work with mappings:
 
-* [database](https://github.com/everx-labs/samples/blob/main/solidity/13_BankCollector.sol)
-* [client](https://github.com/everx-labs/samples/blob/main/solidity/13_BankCollectorClient.sol)
+* [database](https://github.com/everx-labs/samples/blob/master/solidity/13_BankCollector.sol)
+* [client](https://github.com/everx-labs/samples/blob/master/solidity/13_BankCollectorClient.sol)
 
 ##### Keyword `emptyMap`
 
@@ -3597,41 +3618,51 @@ contract ContractB {
 }
 ```
 
-#### onBounce
+#### onBouncedMessage
 
 ```TVMSolidity
-onBounce(TvmSlice body) external {
+onBouncedMessage(TvmSlice s) external {
     /*...*/
 }
 ```
 
-`onBounce` function is executed when contract receives a bounced inbound internal message.
+`onBouncedMessage` function is executed when contract receives a bounced inbound internal message.
 The message is generated by the network if the contract sends an internal message with `bounce: true` and either
  * called contract doesn't exist;
- * called contract fails at the storage/credit/computing phase (not at the action phase!)
+ * called contract fails at the storage/credit/computing phase 
+ * message flag +16 was set and called contract fails at the action phase.
 
 The message is generated only if the remaining message value is enough for sending one back.
 
-`body` depends on TVM realisation and settings:
- 1. `body` can be empty.
- 2. If `CapBounceMsgBody` [capability](#tvm-capabilities) is set, then `body` contains at most 256 data bits of the original message (without references). Note: the function id takes `32` bits and the function's parameters can take at most `224` bits.
- 3. If `CapBounceMsgBody` and `CapFullBodyInBounced` [capabilities](#tvm-capabilities) are set, then `body` is the same as in the second option, but `body` contains the full original message in the first reference.
-
-If `onBounce` function is not defined, then the contract does
-nothing on receiving a bounced message.
-
-If the `onBounce` function throws an exception, then another bounced message is not generated.
-
-Example of how to use `onBounce` function for option 2:
-
-* [onBounceHandler](https://github.com/everx-labs/samples/blob/main/solidity/16_onBounceHandler.sol)
-
-Example of getting function ID if `CapBounceMsgBody` and `CapFullBodyInBounced` [capabilities](#tvm-capabilities) are set:
+If the `onBouncedMessage` function throws an exception, then another bounced message is not generated.
 
 ```TVMSolidity
-onBounce(TvmSlice body) external {
-    TvmSlice fullBody = body.loadRef().toSlice();
-    uint32 functionId = fullBody.load(uint32);
+onBouncedMessage(TvmSlice s) external pure {
+    bool isNewBouncedMsgType = s.loadBouncedMsgTag();
+    if (isNewBouncedMsgType) {
+        // new style of bounced message
+    } else {
+        // old style of bounced message
+    }
+}
+```
+See also: [Extra message flags and new bounce format](https://github.com/ton-blockchain/ton/blob/master/doc/GlobalVersions.md#extra-message-flags-and-new-bounce-format).
+
+#### onBounce
+
+How to migrate from `onBounce` (for tvm-solidity < 0.80.0) to `onBouncedMessage`:
+
+```TVMSolidity
+// old code
+onBounce(TvmSlice s) external {
+    uint32 functionId = s.load(uint32);
+}
+
+// new code
+onBouncedMessage(TvmSlice s) external {
+    // just skip 0xFFFFFFFF
+    s.loadBouncedMsgTag();
+    uint32 functionId = s.load(uint32);
 }
 ```
 
@@ -3672,8 +3703,8 @@ Function `onCodeUpgrade` had function id = 2 (for compiler <= 0.65.0). Now, it h
 
 See example of how to upgrade code of the contract:
 
-* [old contract](https://github.com/everx-labs/samples/blob/main/solidity/12_BadContract.sol)
-* [new contract](https://github.com/everx-labs/samples/blob/main/solidity/12_NewVersion.sol)
+* [old contract](https://github.com/everx-labs/samples/blob/master/solidity/12_BadContract.sol)
+* [new contract](https://github.com/everx-labs/samples/blob/master/solidity/12_NewVersion.sol)
 
 It's good to pass `TvmCell cell` to the public function that calls `onCodeUpgrade(TvmCell cell, ...)`
 function. `TvmCell cell` may contain some data that may be useful for the new contract.
@@ -3714,7 +3745,7 @@ NB: Do not use [tvm.commit()](#tvmcommit) or [tvm.accept()](#tvmaccept) in this 
 See also: [Contract execution](#contract-execution).
 See an example of how to define this function:
 
-* [Custom replay protection](https://github.com/everx-labs/samples/blob/main/solidity/14_CustomReplayProtection.sol)
+* [Custom replay protection](https://github.com/everx-labs/samples/blob/master/solidity/14_CustomReplayProtection.sol)
 
 ### Function specifiers
 
@@ -3959,9 +3990,9 @@ contract Caller {
 
 See also:
 
-* Example of callback usage: [24_SquareProvider](https://github.com/everx-labs/samples/blob/main/solidity/24_SquareProvider.sol)
-* Example of callback usage: [4.1_CentralBank](https://github.com/everx-labs/samples/blob/main/solidity/4.1_CentralBank.sol)
-and [4.1_CurrencyExchange.sol](https://github.com/everx-labs/samples/blob/main/solidity/4.1_CurrencyExchange.sol)
+* Example of callback usage: [24_SquareProvider](https://github.com/everx-labs/samples/blob/master/solidity/24_SquareProvider.sol)
+* Example of callback usage: [4.1_CentralBank](https://github.com/everx-labs/samples/blob/master/solidity/4.1_CentralBank.sol)
+and [4.1_CurrencyExchange.sol](https://github.com/everx-labs/samples/blob/master/solidity/4.1_CurrencyExchange.sol)
 * [return](#return)
 
 ### Delete variables
@@ -4140,7 +4171,7 @@ This action is required to process external messages that bring no value.
 
 See example of how to use this function:
 
-* [accumulator](https://github.com/everx-labs/samples/blob/main/solidity/1_Accumulator.sol)
+* [accumulator](https://github.com/everx-labs/samples/blob/master/solidity/1_Accumulator.sol)
 
 ##### tvm.setGasLimit()
 
@@ -4312,8 +4343,8 @@ after the successful termination of the current run of the smart contract).
 
 See example of how to use this function:
 
-* [old contract](https://github.com/everx-labs/samples/blob/main/solidity/12_BadContract.sol)
-* [new contract](https://github.com/everx-labs/samples/blob/main/solidity/12_NewVersion.sol)
+* [old contract](https://github.com/everx-labs/samples/blob/master/solidity/12_BadContract.sol)
+* [new contract](https://github.com/everx-labs/samples/blob/master/solidity/12_NewVersion.sol)
 
 ##### tvm.configParam()
 
@@ -4391,7 +4422,7 @@ Example:
 tvm.rawReserve(1 ever, 4 + 8);
 ```
 
-See also: [23_rawReserve.sol](https://github.com/everx-labs/samples/blob/main/solidity/23_rawReserve.sol)
+See also: [23_rawReserve.sol](https://github.com/everx-labs/samples/blob/master/solidity/23_rawReserve.sol)
 
 ##### tvm.initCodeHash()
 
@@ -4569,12 +4600,12 @@ onchain) and use `code` if you want to create account state in the `new` express
 Constructor function parameters don't influence the address. See
 [New contract address problem](#new-contract-address-problem).
 
-[Step-by-step description how to deploy contracts from the contract here](https://github.com/everx-labs/samples/blob/main/solidity/17_ContractProducer.md).  
+[Step-by-step description how to deploy contracts from the contract here](https://github.com/everx-labs/samples/blob/master/solidity/17_ContractProducer.md).  
 
 Examples:
 
-* [WalletProducer](https://github.com/everx-labs/samples/blob/main/solidity/17_ContractProducer.sol).
-* [SelfDeployer](https://github.com/everx-labs/samples/blob/main/solidity/21_self_deploy.sol).
+* [WalletProducer](https://github.com/everx-labs/samples/blob/master/solidity/17_ContractProducer.sol).
+* [SelfDeployer](https://github.com/everx-labs/samples/blob/master/solidity/21_self_deploy.sol).
 
 ##### `stateInit` option usage
 
@@ -4645,6 +4676,11 @@ Defaults to an empty set.
 * `bounce` (`bool`) - if it's set and deploy falls (only at the computing phase, not at the action
 phase!), then funds will be returned. Otherwise, (flag isn't set or deploying terminated successfully)
 the address accepts the funds. Defaults to `true`.
+* `extra_flags` (`uint8`) bit mask
+  * If `(extra_flags & 1) = 1` the new bounce format is enabled. The bounced message now contains the root cell of 
+    the body of the failed message, with all the refs removed from it.
+  * `If (extra_flags & 2) = 2` is also set, the bounced message contains the entire body of the original message, 
+    without removing any refs.
 * `wid` (`uint8`) - workchain id of the new account address. Defaults to `0`.
 * `flag` (`uint8`) - flag used to send the outbound internal message. Defaults to `0`.
 Possible values of the `flag` are described here: [\<address\>.transfer()](#addresstransfer).
@@ -4664,20 +4700,20 @@ address newWallet = new SimpleWallet{
 You can also deploy the contract via [\<address\>.transfer()](#addresstransfer).
 Just set the option `stateInit`.
 
-* [Example of usage](https://github.com/everx-labs/samples/blob/main/solidity/11_ContractDeployer.sol)
-* [Step-by-step description how to deploy contracts from the contract here](https://github.com/everx-labs/samples/blob/main/solidity/17_ContractProducer.md).
+* [Example of usage](https://github.com/everx-labs/samples/blob/master/solidity/11_ContractDeployer.sol)
+* [Step-by-step description how to deploy contracts from the contract here](https://github.com/everx-labs/samples/blob/master/solidity/17_ContractProducer.md).
 
 ##### Deploy the contract with no constructor
 
 If the contract does not have constructor explicitly and does not have state variables with initialisation, then in `*.abi.json` file there is no `constructor` function and no `_constructorFlag` field.
 
-For example: [1_Accumulator_no_ctor.sol](https://github.com/everx-labs/samples/blob/main/solidity/1_Accumulator_no_ctor.sol) and [1_Accumulator_no_ctor.abi.json](https://github.com/everx-labs/samples/blob/main/solidity/1_Accumulator_no_ctor.abi.json). To deploy this contractor by external message with help `ever-cli`, use parameter `method`  for `deploy` and `deployx` commands:
+For example: [1_Accumulator_no_ctor.sol](https://github.com/everx-labs/samples/blob/master/solidity/1_Accumulator_no_ctor.sol) and [1_Accumulator_no_ctor.abi.json](https://github.com/everx-labs/samples/blob/master/solidity/1_Accumulator_no_ctor.abi.json). To deploy this contractor by external message with help `ever-cli`, use parameter `method`  for `deploy` and `deployx` commands:
 
 ```bash
 ever-cli deploy --method add '{"delta": 123}' ...
 ```
 
-To deploy a contractor by internal message, use option `stateInit` for [External function calls](#external-function-calls). See `deployNoConstructor` and `deployNoConstructor2` functions [11_ContractDeployer.sol](https://github.com/everx-labs/samples/blob/main/solidity/11_ContractDeployer.sol) as samples of deploying [11_Waller_no_constructor.sol](https://github.com/everx-labs/samples/blob/main/solidity/11_Waller_no_constructor.sol). 
+To deploy a contractor by internal message, use option `stateInit` for [External function calls](#external-function-calls). See `deployNoConstructor` and `deployNoConstructor2` functions [11_ContractDeployer.sol](https://github.com/everx-labs/samples/blob/master/solidity/11_ContractDeployer.sol) as samples of deploying [11_Waller_no_constructor.sol](https://github.com/everx-labs/samples/blob/master/solidity/11_Waller_no_constructor.sol). 
 
 ##### New contract address problem
 
@@ -4692,18 +4728,18 @@ Let's consider how to protect against this problem:
 We must Check if we didn't forget to set the public key in the contract and the
 inbound message is signed by that key. If hacker doesn't have your private
 key, then he can't sign message to call the constructor.
-See [constructor of WalletProducer](https://github.com/everx-labs/samples/blob/main/solidity/17_ContractProducer.sol).
+See [constructor of WalletProducer](https://github.com/everx-labs/samples/blob/master/solidity/17_ContractProducer.sol).
 2. Constructor is called by internal message.
 We should define static variable in the new contract that will contain
 address of the creator. Address of the creator will be a part of the `stateInit`.
 And in the constructor we must check address of the message sender.
-See [function `deployWallet` how to deploy contract](https://github.com/everx-labs/samples/blob/main/solidity/17_ContractProducer.sol).  
-See [constructor of SimpleWallet](https://github.com/everx-labs/samples/blob/main/solidity/17_SimpleWallet.sol).  
+See [function `deployWallet` how to deploy contract](https://github.com/everx-labs/samples/blob/master/solidity/17_ContractProducer.sol).  
+See [constructor of SimpleWallet](https://github.com/everx-labs/samples/blob/master/solidity/17_SimpleWallet.sol).  
 If some contract should deploy plenty of contracts (with some contract's
 public key), then it's a good idea to declare static variable in the deployed
 contract. This variable can contain some sequence number. It will allow
 each new contact to have unique `stateInit`.
-See [SimpleWallet](https://github.com/everx-labs/samples/blob/main/solidity/17_SimpleWallet.sol).  
+See [SimpleWallet](https://github.com/everx-labs/samples/blob/master/solidity/17_SimpleWallet.sol).  
 **Note**: contract's public key (`tvm.pubkey()`) is a part of `stateInit`.
 
 ##### Misc functions from `tvm`
@@ -4716,7 +4752,7 @@ tvm.code() returns (TvmCell);
 
 Returns contract's code. [Capabilities](#tvm-capabilities) required: `CapMycode`.
 
-See [SelfDeployer](https://github.com/everx-labs/samples/blob/main/solidity/21_self_deploy.sol).
+See [SelfDeployer](https://github.com/everx-labs/samples/blob/master/solidity/21_self_deploy.sol).
 
 ##### tvm.pubkey()
 
@@ -4746,8 +4782,8 @@ after termination of the current run of the smart contract.
 
 See example of how to use this function:
 
-* [old contract](https://github.com/everx-labs/samples/blob/main/solidity/12_BadContract.sol)
-* [new contract](https://github.com/everx-labs/samples/blob/main/solidity/12_NewVersion.sol)
+* [old contract](https://github.com/everx-labs/samples/blob/master/solidity/12_BadContract.sol)
+* [new contract](https://github.com/everx-labs/samples/blob/master/solidity/12_NewVersion.sol)
 
 ##### tvm.resetStorage()
 
@@ -5922,11 +5958,11 @@ abi.decodeFunctionParams(ContractName) returns (TypeA /*a*/, TypeB /*b*/, ...);
 ```
 
 Loads parameters of the function or constructor (if contract type is provided). This function is usually used in
-**[onBounce](#onbounce)** function.
+**[onBouncedMessage](#onbouncedmessage)** function.
 
-See example of how to use **onBounce** function:
+See example of how to use **onBouncedMessage** function:
 
-* [onBounceHandler](https://github.com/everx-labs/samples/blob/main/solidity/16_onBounceHandler.sol)
+* [onBounceHandler](https://github.com/everx-labs/samples/blob/master/solidity/16_onBounceHandler.sol)
 
 ##### abi.codeSalt()
 
@@ -5983,7 +6019,7 @@ contract MyContract {
 
 See example of how to use this function:
 
-* [onBounceHandler](https://github.com/everx-labs/samples/blob/main/solidity/16_onBounceHandler.sol)
+* [onBounceHandler](https://github.com/everx-labs/samples/blob/master/solidity/16_onBounceHandler.sol)
 
 ##### abi.encodeIntMsg()
 
@@ -5995,7 +6031,8 @@ abi.encodeIntMsg({
     call: {function, [callbackFunction,] arg0, arg1, arg2, ...},
     bounce: bool,
     currencies: mapping(uint32 => varuint32),
-    stateInit: TvmCell
+    stateInit: TvmCell,
+    extra_flags: uint8
 })
 returns (TvmCell);
 
@@ -6006,7 +6043,8 @@ abi.encodeIntMsg({
     call: {ContractName, arg0, arg1, arg2, ...},
     bounce: bool,
     currencies: mapping(uint32 => varuint32),
-    stateInit: TvmCell
+    stateInit: TvmCell,
+    extra_flags: uint8
 })
 returns (TvmCell);
 ```
@@ -6117,7 +6155,7 @@ of the current smart contract and destroys the current account.
 
 See example of how to use the `selfdestruct` function:
 
-* [Kamikaze](https://github.com/everx-labs/samples/blob/main/solidity/8_Kamikaze.sol)
+* [Kamikaze](https://github.com/everx-labs/samples/blob/master/solidity/8_Kamikaze.sol)
 
 #### gasToValue()
 
@@ -6260,7 +6298,7 @@ int res = math.divr(15, 10); // res == 2
 Before executing any contract function special code is executed. In `*.code` file there are two special
 functions: `main_internal` and `main_external` that run on internal and external messages
 respectively. These functions initialize some internal global variables and call contract
-function of special function like `receive`, `fallback`, `onBounce`, `onTickTock`, etc.
+function of special function like `receive`, `fallback`, `onBouncedMessage`, `onTickTock`, etc.
 
 Before calling contract's function `main_external` does:
 

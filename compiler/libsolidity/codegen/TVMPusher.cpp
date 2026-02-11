@@ -1718,7 +1718,8 @@ std::pair<int, int> StackPusher::build_int_msg_info(
 	std::set<int> const& isParamOnStack,
 	std::map<int, std::string> const& constParams,
 	bool isDestBuilder,
-	std::function<void()> const& pushValue
+	std::function<void()> const& pushValue,
+	std::function<void()> const& pushExtraFlags
 ) {
 	// int_msg_info$0  ihr_disabled:Bool  bounce:Bool(#1)  bounced:Bool
 	//				 src:MsgAddress  dest:MsgAddressInt(#4)
@@ -1771,6 +1772,12 @@ std::pair<int, int> StackPusher::build_int_msg_info(
 				++maxBits;
 				++maxRefs;
 				break;
+			case TvmConst::int_msg_info::extra_flags:
+				solAssert(pushExtraFlags == nullptr, "");
+				exchange(1);
+				*this << "STVARUINT16";
+				maxBits += TvmConst::EXTRA_FLAG_SIZE;
+				break;
 			default:
 				solUnimplemented("");
 			}
@@ -1778,6 +1785,10 @@ std::pair<int, int> StackPusher::build_int_msg_info(
 			pushValue();
 			*this << "STVARUINT16";
 			maxBits += VarUIntegerInfo::maxTonBitLength();
+		} else if (pushExtraFlags && param == TvmConst::int_msg_info::extra_flags) {
+			pushExtraFlags();
+			*this << "STVARUINT16";
+			maxBits += TvmConst::EXTRA_FLAG_SIZE;
 		} else {
 			int zeroQty = zeroes.at(param);
 			std::string bitStr(zeroQty, '0');
@@ -1873,7 +1884,8 @@ void StackPusher::pushParamsAndSendInternalMessage(
 	std::function<void(int bitSizeBuilder, int refSizeBuilder)> const& appendBody,
 	std::function<void()> const& pushSendRawMsgFlag,
 	std::function<std::pair<int, int>()> const& appendEitherStateInit,
-	std::function<void()> const& pushValue
+	std::function<void()> const& pushValue,
+	std::function<void()> const& pushExtraFlags
 ) {
 	std::set<int> isParamOnStack;
 	for (auto& [param, expr]: exprs | std::views::reverse) {
@@ -1888,7 +1900,8 @@ void StackPusher::pushParamsAndSendInternalMessage(
 		pushSendRawMsgFlag,
 		MsgType::Internal,
 		false,
-		pushValue
+		pushValue,
+		pushExtraFlags
 	);
 }
 
@@ -1899,14 +1912,15 @@ void StackPusher::prepareMessage(
 	std::function<std::pair<int, int>()> const& appendEitherStateInit,
 	MsgType messageType,
 	bool isDestBuilder,
-	std::function<void()> const& pushValue
+	std::function<void()> const& pushValue,
+	std::function<void()> const& pushExtraFlags
 ) {
 	int bitSizeBuilder = 0;
 	int refSizeBuilder = 0;
 	switch (messageType) {
 	case MsgType::Internal:
 		std::tie(bitSizeBuilder, refSizeBuilder) =
-			build_int_msg_info(isParamOnStack, constParams, isDestBuilder, pushValue);
+			build_int_msg_info(isParamOnStack, constParams, isDestBuilder, pushValue, pushExtraFlags);
 		break;
 	case MsgType::ExternalOut:
 		bitSizeBuilder = build_ext_msg_info(isParamOnStack);
@@ -1947,7 +1961,8 @@ void StackPusher::sendMessage(
 	std::function<void()> const& pushSendRawMsgFlag,
 	MsgType messageType,
 	bool isDestBuilder,
-	std::function<void()> const& pushValue
+	std::function<void()> const& pushValue,
+	std::function<void()> const& pushExtraFlags
 ) {
 	prepareMessage(
 		isParamOnStack,
@@ -1956,7 +1971,8 @@ void StackPusher::sendMessage(
 		appendEitherStateInit,
 		messageType,
 		isDestBuilder,
-		pushValue
+		pushValue,
+		pushExtraFlags
 	);
 	if (pushSendRawMsgFlag) {
 		pushSendRawMsgFlag();

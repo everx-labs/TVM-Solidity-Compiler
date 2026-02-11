@@ -19,9 +19,9 @@
 #include <liblangutil/Exceptions.h>
 #include <libsolidity/ast/AST.h>
 
-#include <libsolidity/codegen/TVMAnalyzer.hpp>
 #include <libsolidity/codegen/TVMCommons.hpp>
 #include <libsolidity/codegen/TvmAst.hpp>
+#include <libsolidity/codegen/analysis/TVMAnalyzer.hpp>
 #include <libsolidity/codegen/helpers/FunctionCallGraph.hpp>
 
 namespace solidity::frontend {
@@ -113,8 +113,8 @@ public:
 	}
 	bool isReceiveGenerated() const { return m_isReceiveGenerated; }
 	void setIsReceiveGenerated() { m_isReceiveGenerated = true; }
-	bool isOnBounceGenerated() const { return m_isOnBounceGenerated; }
-	void setIsOnBounce() { m_isOnBounceGenerated = true; }
+	bool isOnBouncedMessageGenerated() const { return m_isOnBouncedMessageGenerated; }
+	void setIsOnBouncedMessage() { m_isOnBouncedMessageGenerated = true; }
 	bool isBaseFunction(CallableDeclaration const* d) const;
 	ContactsUsageScanner const& usage() const { return m_usage; }
 
@@ -151,7 +151,7 @@ private:
 	std::vector<std::pair<uint32_t, std::string>> m_intPublicFunctions;
 	FunctionDefinition const* m_fallback{};
 	bool m_isReceiveGenerated{};
-	bool m_isOnBounceGenerated{};
+	bool m_isOnBouncedMessageGenerated{};
 	ContactsUsageScanner m_usage;
 
 	std::set<std::pair<std::string, TupleExpression const*>> m_constArrays;
@@ -319,7 +319,8 @@ public:
 		std::set<int> const& isParamOnStack,
 		std::map<int, std::string> const& constParams,
 		bool isDestBuilder,
-		std::function<void()> const& pushValue
+		std::function<void()> const& pushValue,
+		std::function<void()> const& pushExtraFlags
 	);
 	[[nodiscard]]
 	int build_ext_msg_info(std::set<int> const& isParamOnStack);
@@ -379,7 +380,8 @@ public:
 		std::function<void(int bitSizeBuilder, int refSizeBuilder)> const& appendBody,
 		std::function<void()> const& pushSendRawMsgFlag,
 		std::function<std::pair<int, int>()> const& appendEitherStateInit,
-		std::function<void()> const& pushValue
+		std::function<void()> const& pushValue,
+		std::function<void()> const& pushExtraFlags
 	);
 
 	enum class MsgType {
@@ -395,7 +397,8 @@ public:
 		std::function<void()> const& pushSendRawMsgFlag,
 		MsgType messageType,
 		bool isDestBuilder,
-		std::function<void()> const& pushValue
+		std::function<void()> const& pushValue,
+		std::function<void()> const& pushExtraFlags
 	);
 
 	void prepareMessage(
@@ -405,7 +408,8 @@ public:
 		std::function<std::pair<int, int>()> const& appendEitherStateInit,
 		MsgType messageType,
 		bool isDestBuilder,
-		std::function<void()> const& pushValue
+		std::function<void()> const& pushValue,
+		std::function<void()> const& pushExtraFlags
 	);
 
 	void byteLengthOfCell();

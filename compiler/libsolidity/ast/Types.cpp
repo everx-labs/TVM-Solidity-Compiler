@@ -3285,6 +3285,7 @@ std::string FunctionType::richIdentifier() const
 	case Kind::TVMSlicePreloadRef: id += "tvmslicepreloadref"; break;
 	case Kind::TVMSliceSize: id += "tvmslicesize"; break;
 	case Kind::TVMSliceSkip: id += "tvmsliceskip"; break;
+	case Kind::TVMSliceLoadBouncedMsgTag: id += "tvmsliceloadbouncedmsgtag"; break;
 
 	case Kind::TVMCellDepth: id += "tvmcelldepth"; break;
 	case Kind::TVMCellToSlice: id += "tvmcelltoslice"; break;
@@ -5226,6 +5227,7 @@ MemberList::MemberMap getABIMembers() {
 				TypeProvider::boolean(),
 				TypeProvider::callList(),
 				TypeProvider::tvmcell(),
+				TypeProvider::extraFlags(),
 			},
 			{TypeProvider::tvmcell()},
 			{
@@ -5235,6 +5237,7 @@ MemberList::MemberMap getABIMembers() {
 				"bounce", // can be omitted
 				"call", // mandatory
 				"stateInit", // can be omitted
+				"extra_flags", // can be omitted
 			},
 			{{}},
 			FunctionType::Kind::ABIEncodeIntMsg,
@@ -6687,6 +6690,16 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				{},
 				{{}},
 				FunctionType::Kind::TVMSlicePreloadRef,
+				StateMutability::Pure
+			)
+		},
+		{
+			"loadBouncedMsgTag", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::boolean()},
+				strings{},
+				strings{std::string()},
+				FunctionType::Kind::TVMSliceLoadBouncedMsgTag,
 				StateMutability::Pure
 			)
 		},

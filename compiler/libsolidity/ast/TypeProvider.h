@@ -121,6 +121,7 @@ public:
 		return m_qbool.get();
 	}
 
+	static IntegerType const* extraFlags();
 	static IntegerType const* uint(unsigned _bits) { return integer(_bits, IntegerType::Modifier::Unsigned); }
 	static IntegerType const* int_(unsigned _bits) { return integer(_bits, IntegerType::Modifier::Signed); }
 
