@@ -121,7 +121,7 @@ void Opaque::accept(TvmAstVisitor& _visitor) {
 
 bool Opaque::operator==(TvmAstNode const& _node) const {
 	auto op = convertToOpaque(&_node);
-	return op && std::tie(*m_block.get(), m_take, m_ret) == std::tie(*op->m_block.get(), op->m_take, op->m_ret);
+	return op && std::tie(m_take, m_ret) == std::tie(op->m_take, op->m_ret) && m_block.get()->operator==(*op->m_block);
 }
 
 void AsymGen::accept(TvmAstVisitor& _visitor) { _visitor.visit(*this); }
@@ -205,7 +205,7 @@ void ReturnOrBreakOrCont::accept(TvmAstVisitor& _visitor) {
 
 bool ReturnOrBreakOrCont::operator==(TvmAstNode const& _node) const {
 	auto r = convertToReturnOrBreakOrCont(&_node);
-	return r && std::tie(m_take, *m_body.get()) == std::tie(r->m_take, *r->m_body.get());
+	return r && m_take == r->m_take && m_body.get()->operator==(*r->m_body);
 }
 
 void TvmException::accept(TvmAstVisitor& _visitor) { _visitor.visit(*this); }
@@ -280,7 +280,7 @@ bool CellOrSliceOperation::operator==(TvmAstNode const& _node) const {
 			// p->m_child == nullptr also
 			return true;
 		}
-		return m_child.get()->operator==(*p->m_child.get());
+		return m_child.get()->operator==(*p->m_child);
 	}
 	return false;
 }
@@ -366,7 +366,7 @@ bool SubProgram::operator==(TvmAstNode const& _node) const {
 		return true;
 	}
 	if (m_block != nullptr && s->m_block != nullptr) {
-		return m_block.get()->operator==(*s->m_block.get());
+		return m_block.get()->operator==(*s->m_block);
 	}
 	return false;
 }
@@ -379,7 +379,7 @@ void LogCircuit::accept(TvmAstVisitor& _visitor) {
 
 bool LogCircuit::operator==(TvmAstNode const& _node) const {
 	auto l = convertToLogCircuit(&_node);
-	return l && std::tie(m_type, *m_body.get()) == std::tie(l->m_type, *l->m_body.get());
+	return l && m_type == l->m_type && m_body.get()->operator==(*l->m_body);
 }
 
 TvmIfElse::TvmIfElse(

@@ -538,7 +538,7 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() const {
 	std::vector<VariableDeclaration const*> ret = convertArray(params);
 
 	if (params.empty() || (!m_function->isExternalMsg() && !m_function->isResponsible())) {
-		m_pusher.fixStack(-params.size());
+		m_pusher.fixStack(-static_cast<int>(params.size()));
 		return;
 	}
 
