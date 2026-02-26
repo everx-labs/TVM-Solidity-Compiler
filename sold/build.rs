@@ -131,6 +131,8 @@ fn main() {
         let boost_fs_lib = find_boost_lib_name("libboost_filesystem", &absolute_boost_lib_dir)
             .expect("Failed to find boost_filesystem lib name");
         println!("cargo:rustc-link-lib=static={boost_fs_lib}");
+        // boost::process::search_path on Windows pulls in SHGetFileInfoW.
+        println!("cargo:rustc-link-lib=shell32");
     } else {
         if cfg!(target_os = "macos") {
             let boost_root_env = env::var("BOOST_ROOT").unwrap_or_else(|_| {

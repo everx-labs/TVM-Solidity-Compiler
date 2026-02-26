@@ -186,6 +186,9 @@ set(sources
 
 add_library(solidity ${sources})
 target_link_libraries(solidity PUBLIC langutil solutil Boost::boost Boost::filesystem Boost::system fmt::fmt-header-only Threads::Threads)
+if (WIN32)
+	target_link_libraries(solidity PUBLIC shell32)
+endif()
 if (EMSCRIPTEN)
     if(NOT ${Z3_FOUND})
             message(FATAL_ERROR "Z3 library must be present for EMSCRIPTEN build")
