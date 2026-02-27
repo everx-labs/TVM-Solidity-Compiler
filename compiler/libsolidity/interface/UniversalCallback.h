@@ -34,21 +34,26 @@ public:
 		m_solver{_solver}
 	{}
 
-	frontend::ReadCallback::Callback callback()
+	ReadCallback::Result operator()(std::string const& _kind, std::string const& _data)
 	{
-		return [this](std::string const& _kind, std::string const& _data) -> ReadCallback::Result {
-			if (_kind == ReadCallback::kindString(ReadCallback::Kind::ReadFile))
-				if (!m_fileReader)
-					return ReadCallback::Result{false, "No import callback."};
-				else
-					return m_fileReader->readFile(_kind, _data);
-			else if (_kind == ReadCallback::kindString(ReadCallback::Kind::SMTQuery))
-				return m_solver.solve(_kind, _data);
-			solAssert(false, "Unknown callback kind.");
-		};
+		if (_kind == ReadCallback::kindString(ReadCallback::Kind::ReadFile))
+			if (!m_fileReader)
+				return ReadCallback::Result{false, "No import callback."};
+			else
+				return m_fileReader->readFile(_kind, _data);
+		else if (_kind == ReadCallback::kindString(ReadCallback::Kind::SMTQuery))
+			return m_solver.solve(_kind, _data);
+		solAssert(false, "Unknown callback kind.");
+	}
+
+	frontend::ReadCallback::Callback callback() const
+	{
+		return *this;
 	}
 
 	void resetImportCallback() { m_fileReader = nullptr; }
+
+	SMTSolverCommand& smtCommand() { return m_solver; }
 
 private:
 	FileReader* m_fileReader;

@@ -1,0 +1,20 @@
+{
+  "contracts": {
+    "input.sol:C": {
+      "userdoc": {
+        "kind": "user",
+        "methods": {},
+        "notice": "Description for users.",
+        "version": 1
+      }
+    },
+    "input.sol:D": {
+      "userdoc": {
+        "kind": "user",
+        "methods": {},
+        "version": 1
+      }
+    }
+  },
+  "version": "<VERSION REMOVED>"
+}

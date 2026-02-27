@@ -40,21 +40,21 @@ public:
 	bool visit(TvmUntil &_node) override;
 	bool visit(TryCatch &_node) override;
 	bool visit(While &_node) override;
-	bool visit(Function &_node) override;
+	bool visit(Function &f) override;
 	bool visit(Contract &_node) override;
 	void endVisit(CodeBlock &_node) override;
 protected:
 	bool visitNode(TvmAstNode const&) override;
 	void endVisitNode(TvmAstNode const&) override;
 private:
-	bool successfullyUpdate(int index, std::vector<Pointer<TvmAstNode>>& instructions);
+	bool successfullyUpdate(int index, std::vector<Pointer<TvmAstNode>>& instructions) const;
 	void initStack(int size);
 	void delta(int delta);
-	int size();
-	int scopeSize();
+	int size() const;
+	int scopeSize() const;
 	void startScope();
 	void endScope();
-private:
+
 	bool m_didSome{};
 	std::vector<int> m_stackSize;
 };

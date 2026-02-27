@@ -16,12 +16,4 @@
 #![allow(dead_code)]
 #![allow(deref_nullptr)]
 
-// include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
-#[cfg(target_os = "freebsd")]
-include!("bindings-freebsd.rs");
-#[cfg(target_os = "linux")]
-include!("bindings-linux.rs");
-#[cfg(target_os = "macos")]
-include!("bindings-macos.rs");
-#[cfg(target_os = "windows")]
-include!("bindings-windows.rs");
+include!(concat!(env!("OUT_DIR"), "/bindings.rs"));

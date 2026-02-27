@@ -1,0 +1,5 @@
+Error: Identifier not found or not unique.
+ --> input.sol:5:164:
+  |
+5 |  ... ffffffffffffffffffffffffffffffffff(announcementType Type,
+  |                                         ^^^^^^^^^^^^^^^^

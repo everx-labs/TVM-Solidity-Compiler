@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2024 EverX. All Rights Reserved.
+ * Copyright (C) 2019-2025 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -26,35 +26,34 @@ namespace solidity::frontend {
 
 class StackPusher;
 
-class StructCompiler : public boost::noncopyable {
+class StructCompiler: public boost::noncopyable {
 public:
-	StructCompiler(StackPusher *pusher, TupleType const* tuple);
-	StructCompiler(StackPusher *pusher, StructType const* structType);
-	StructCompiler(
-		StackPusher *pusher,
-		std::vector<Type const*>  memberTypes,
-		std::vector<std::string>  memberNames
-	);
-	void createDefaultStruct();
-	void createDefaultStructAsCell();
-	void createDefaultStructAsSlice();
+	StructCompiler(StackPusher* pusher, TupleType const* tuple);
+	StructCompiler(StackPusher* pusher, StructType const* structType);
+	StructCompiler(StackPusher* pusher, std::vector<Type const*> memberTypes, std::vector<std::string> memberNames);
+	void createDefaultStruct() const;
+	void createDefaultStructAsCell() const;
+	void createDefaultStructAsSlice() const;
+
 private:
-	void createDefaultStruct(bool asSlice);
+	void createDefaultStruct(bool asSlice) const;
+
 public:
-	void pushMember(const std::string &memberName);
-	void setMemberForTuple(const std::string &memberName);
+	void pushMember(std::string const& memberName);
+	void setMemberForTuple(std::string const& memberName);
 	// MyStruct(1, 2, 4) or MyStruct({x: 1, y: 2, z: 4})
-	void structConstructor(ast_vec<ASTString> const& names, const std::function<void(int, Type const*)>& pushParam);
-	void tupleToBuilder();
-	void convertSliceToTuple();
+	void structConstructor(
+		ast_vec<ASTString> const& names,
+		std::function<void(int, Type const*)> const& pushParam
+	) const;
+	void tupleToBuilder() const;
+	void convertSliceToTuple() const;
 
 private:
-	int getIndex(const std::string& name);
+	int getIndex(std::string const& name);
 
-private:
 	std::vector<std::string> m_names;
 	std::vector<Type const*> m_types;
-	StackPusher *pusher{};
+	StackPusher* pusher{};
 }; // end StructCompiler
 } // end solidity::frontend
-

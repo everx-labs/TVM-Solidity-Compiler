@@ -94,6 +94,8 @@ public:
 	/// @returns contents of storage at @param _addr.
 	StorageMap const& get_address_storage(evmc::address const& _addr);
 
+	u256 totalCodeDepositGas() const { return m_totalCodeDepositGas; }
+
 	static Address convertFromEVMC(evmc::address const& _addr);
 	static evmc::address convertToEVMC(Address const& _addr);
 	static util::h256 convertFromEVMC(evmc::bytes32 const& _data);
@@ -122,21 +124,36 @@ private:
 	template <evmc_revision Revision>
 	static evmc::Result precompileALTBN128PairingProduct(evmc_message const& _message) noexcept;
 	static evmc::Result precompileBlake2f(evmc_message const& _message) noexcept;
-	static evmc::Result precompileGeneric(evmc_message const& _message, std::map<bytes, EVMPrecompileOutput> const& _inOut) noexcept;
+	/// Generic implementation of a precompile for testing, with hard-coded answers for hard-coded inputs.
+	/// @param _message EVM message to handle.
+	/// @param _inOut Hard-coded inputs and corresponding outputs to be returned.
+	/// @param _ignoresTrailingInput Enable if the precompile only cares about the initial part of
+	///     its input and works exactly the same, regardless of what's in the remaining part. The message will
+	///     be considered a match for a test input even if it's longer.
+	static evmc::Result precompileGeneric(
+		evmc_message const& _message,
+		std::map<bytes, EVMPrecompileOutput> const& _inOut,
+		bool _ignoresTrailingInput = false
+	) noexcept;
 	/// @returns a result object with gas usage and result data taken from @a _data.
 	/// The outcome will be a failure if the limit < required.
 	/// @note The return value is only valid as long as @a _data is alive!
 	static evmc::Result resultWithGas(int64_t gas_limit, int64_t gas_required, bytes const& _data) noexcept;
 	static evmc::Result resultWithFailure() noexcept;
 
-	/// Store the accounts that have been created in the current transaction.
-	std::unordered_set<evmc::address> newlyCreatedAccounts;
-
 	evmc::VM& m_vm;
 	/// EVM version requested by the testing tool
 	langutil::EVMVersion m_evmVersion;
 	/// EVM version requested from EVMC (matches the above)
 	evmc_revision m_evmRevision;
+
+	/// Store the accounts that have been created in the current transaction.
+	std::unordered_set<evmc::address> m_newlyCreatedAccounts;
+
+	/// The part of the total cost of the current transaction that paid for the code deposits.
+	/// I.e. GAS_CODE_DEPOSIT times the total size of deployed code of all newly created contracts,
+	/// including the current contract itself if it was a creation transaction.
+	u256 m_totalCodeDepositGas;
 };
 
 class EVMHostPrinter

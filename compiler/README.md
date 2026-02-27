@@ -8,7 +8,7 @@
 
 You can talk to us on Gitter and Matrix, tweet at us on X (previously Twitter) or create a new topic in the Solidity forum. Questions, feedback, and suggestions are welcome!
 
-Solidity is a statically typed, contract-oriented, high-level language for implementing smart contracts on the Ethereum platform.
+Solidity is a statically-typed, contract-oriented, high-level language for implementing smart contracts on the Ethereum platform.
 
 For a good overview and starting point, please check out the official [Solidity Language Portal](https://soliditylang.org).
 
@@ -72,7 +72,7 @@ The Solidity documentation is hosted using [Read the Docs](https://docs.solidity
 
 Solidity is still under development. Contributions are always welcome!
 Please follow the
-[Developers Guide](https://docs.soliditylang.org/en/latest/contributing.html)
+[Developer's Guide](https://docs.soliditylang.org/en/latest/contributing.html)
 if you want to help.
 
 You can find our current feature and bug priorities for forthcoming

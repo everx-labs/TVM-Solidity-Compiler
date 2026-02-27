@@ -37,12 +37,13 @@ set -ev
 SCRIPT_DIR="$(realpath "$(dirname "$0")/..")"
 # shellcheck source=scripts/common.sh
 source "${SCRIPT_DIR}/common.sh"
+ROOT_DIR="${SCRIPT_DIR}/.."
 
 function build() {
     local build_dir="$1"
     local prerelease_source="${2:-ci}"
 
-    cd /root/project
+    cd "${ROOT_DIR}"
 
     # shellcheck disable=SC2166
     if [[ "$CIRCLE_BRANCH" = release || -n "$CIRCLE_TAG" || -n "$FORCE_RELEASE" || "$(git tag --points-at HEAD 2>/dev/null)" == v* ]]

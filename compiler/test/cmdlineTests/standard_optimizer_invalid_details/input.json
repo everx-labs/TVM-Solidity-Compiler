@@ -1,0 +1,9 @@
+{
+	"language": "Solidity",
+	"sources": {
+		"A": {"urls": ["in.sol"]}
+	},
+	"settings": {
+		"optimizer": {"details": {"notThere": true}}
+	}
+}

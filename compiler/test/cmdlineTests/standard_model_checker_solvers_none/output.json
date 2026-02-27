@@ -1,6 +1,5 @@
 {
-    "errors":
-    [
+    "errors": [
         {
             "component": "general",
             "errorCode": "7649",
@@ -14,18 +13,16 @@
         {
             "component": "general",
             "errorCode": "7710",
-            "formattedMessage": "Warning: BMC analysis was not possible since no SMT solver was found and enabled. The accepted solvers for BMC are cvc4 and z3.
+            "formattedMessage": "Warning: BMC analysis was not possible since no SMT solver was found and enabled. The accepted solvers for BMC are cvc5 and z3.
 
 ",
-            "message": "BMC analysis was not possible since no SMT solver was found and enabled. The accepted solvers for BMC are cvc4 and z3.",
+            "message": "BMC analysis was not possible since no SMT solver was found and enabled. The accepted solvers for BMC are cvc5 and z3.",
             "severity": "warning",
             "type": "Warning"
         }
     ],
-    "sources":
-    {
-        "A":
-        {
+    "sources": {
+        "A": {
             "id": 0
         }
     }

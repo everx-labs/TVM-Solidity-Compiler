@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2024 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2026 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -14,16 +14,15 @@
 #pragma once
 
 #include <map>
+#include <stack>
 
-#include <liblangutil/ErrorReporter.h>
 #include <liblangutil/Exceptions.h>
-#include <liblangutil/SourceReferenceFormatter.h>
 #include <libsolidity/ast/AST.h>
-#include <libsolidity/ast/ASTVisitor.h>
 
 #include <libsolidity/codegen/TVMCommons.hpp>
 #include <libsolidity/codegen/TvmAst.hpp>
-#include <libsolidity/codegen/TVMAnalyzer.hpp>
+#include <libsolidity/codegen/analysis/TVMAnalyzer.hpp>
+#include <libsolidity/codegen/helpers/FunctionCallGraph.hpp>
 
 namespace solidity::frontend {
 
@@ -36,57 +35,34 @@ public:
 	bool isParam(Declaration const* name) const;
 	void add(Declaration const* name, bool doAllocation);
 	int getOffset(Declaration const* name) const;
-	int getOffset(int stackPos) const;
+	int getOffset(int stackSize) const;
 	int getStackSize(Declaration const* name) const;
-	void ensureSize(int savedStackSize, const std::string& location = "", const ASTNode* node = nullptr) const;
+	void ensureSize(int savedStackSize, std::string const& location = "", ASTNode const* node = nullptr) const;
 	void takeLast(int n);
 
 private:
 	int m_size{};
-	std::vector<Declaration const*> m_stackSize;
+	std::vector<Declaration const*> m_stackSize{};
 };
 
 class InherHelper {
 public:
 	explicit InherHelper(ContractDefinition const* contract);
 	bool isBaseFunction(CallableDeclaration const* d) const;
+
 private:
 	std::set<CallableDeclaration const*> m_baseFunctions;
-};
-
-class FunctionCallGraph : private boost::noncopyable {
-public:
-	// Adds the edge and returns true if the edge doesn't create a loop
-	bool tryToAddEdge(std::string const& _v, std::string const& _to);
-	std::vector<std::string> DAG();
-	void addPrivateFunction(uint32_t id, std::string name) {
-		if (m_privcateFuncs.count(id))
-			solAssert(m_privcateFuncs.at(id) == name);
-		else
-			m_privcateFuncs.emplace(id, name);
-	}
-	std::map<uint32_t, std::string> privateFunctions() const { return m_privcateFuncs; }
-private:
-	bool dfs(std::string const& _v);
-private:
-	std::map<std::string, std::set<std::string>> m_graph;
-	enum class Color {
-		White, Red, Black
-	};
-	std::map<std::string, Color> m_color;
-	std::vector<std::string> m_order;
-	std::map<uint32_t, std::string> m_privcateFuncs;
 };
 
 class StorageLayout {
 public:
 	explicit StorageLayout(ContractDefinition const* contract);
-	int getStateVarIndex(VariableDeclaration const *variable) const;
-	std::vector<Type const *> getC4Types() const;
-	std::vector<VariableDeclaration const *> usualAndUnpackedStateVariables() const;
-	std::vector<VariableDeclaration const *> usualStateVariables() const;
-	std::vector<VariableDeclaration const *> unpackedStateVariables() const;
-	std::vector<VariableDeclaration const *> nostorageStateVars() const;
+	int getStateVarIndex(VariableDeclaration const* variable) const;
+	std::vector<Type const*> getC4Types() const;
+	std::vector<VariableDeclaration const*> usualAndUnpackedStateVariables() const;
+	std::vector<VariableDeclaration const*> usualStateVariables() const;
+	std::vector<VariableDeclaration const*> unpackedStateVariables() const;
+	std::vector<VariableDeclaration const*> transientStateVars() const;
 	bool tooMuchStateVariables() const;
 	FunctionDefinition const* hasConstructor() const;
 	bool storePubkeyInC4() const;
@@ -108,10 +84,10 @@ public:
 	std::pair<std::string, uint32_t>
 	functionInternalName(FunctionDefinition const* _function, bool calledByPoint) const;
 	static std::string getFunctionExternalName(FunctionDefinition const* _function);
-	const ContractDefinition* getContract() const;
+	ContractDefinition const* getContract() const;
 	bool ignoreIntegerOverflow() const;
-	void setCurrentFunction(FunctionDefinition const* _f, std::string _name) {
-		solAssert(m_currentFunction == nullptr && !m_currentFunctionName.has_value(),  "");
+	void setCurrentFunction(FunctionDefinition const* _f, std::string const& _name) {
+		solAssert(m_currentFunction == nullptr && !m_currentFunctionName.has_value(), "");
 		m_currentFunction = _f;
 		m_currentFunctionName = _name;
 	}
@@ -121,13 +97,13 @@ public:
 		m_currentFunction = nullptr;
 		m_currentFunctionName.reset();
 	}
-	void addInlineFunction(const std::string& name, Pointer<CodeBlock> body);
-	Pointer<CodeBlock> getInlinedFunction(const std::string& name);
-	void addPublicFunction(FunctionDefinition const* function, uint32_t functionId, const std::string& functionName);
-	void addExtPublicFunction(uint32_t functionId, const std::string& functionName);
-	void addIntPublicFunction(uint32_t functionId, const std::string& functionName);
-	const std::vector<std::pair<uint32_t, std::string>>& getExtPublicFunctions();
-	const std::vector<std::pair<uint32_t, std::string>>& getIntPublicFunctions();
+	void addInlineFunction(std::string const& name, Pointer<CodeBlock> body);
+	Pointer<CodeBlock> getInlinedFunction(std::string const& name);
+	void addPublicFunction(FunctionDefinition const* function, uint32_t functionId, std::string const& functionName);
+	void addExternalMsgPublicFunction(uint32_t functionId, std::string const& functionName);
+	void addInternalMsgPublicFunction(uint32_t functionId, std::string const& functionName);
+	std::vector<std::pair<uint32_t, std::string>> const& getExtPublicFunctions();
+	std::vector<std::pair<uint32_t, std::string>> const& getIntPublicFunctions();
 
 	FunctionCallGraph& callGraph() { return m_callGraph; }
 	FunctionDefinition const* fallBack() const { return m_fallback; }
@@ -137,8 +113,8 @@ public:
 	}
 	bool isReceiveGenerated() const { return m_isReceiveGenerated; }
 	void setIsReceiveGenerated() { m_isReceiveGenerated = true; }
-	bool isOnBounceGenerated() const { return m_isOnBounceGenerated; }
-	void setIsOnBounce() { m_isOnBounceGenerated = true; }
+	bool isOnBouncedMessageGenerated() const { return m_isOnBouncedMessageGenerated; }
+	void setIsOnBouncedMessage() { m_isOnBouncedMessageGenerated = true; }
 	bool isBaseFunction(CallableDeclaration const* d) const;
 	ContactsUsageScanner const& usage() const { return m_usage; }
 
@@ -148,7 +124,7 @@ public:
 	void addNewArray(std::string const& name, FunctionCall const* arr) { m_newArray.emplace(name, arr); }
 	std::set<std::pair<std::string, FunctionCall const*>> const& newArrays() const { return m_newArray; }
 
-	void addBuildTuple(std::string const& name, const std::vector<Type const*>& types) {
+	void addBuildTuple(std::string const& name, std::vector<Type const*> const& types) {
 		m_tuples.emplace(name, types);
 	}
 	std::map<std::string, std::vector<Type const*>> const& buildTuple() const { return m_tuples; }
@@ -173,9 +149,9 @@ private:
 	FunctionCallGraph m_callGraph;
 	std::vector<std::pair<uint32_t, std::string>> m_extPublicFunctions;
 	std::vector<std::pair<uint32_t, std::string>> m_intPublicFunctions;
-	FunctionDefinition const * m_fallback{};
+	FunctionDefinition const* m_fallback{};
 	bool m_isReceiveGenerated{};
-	bool m_isOnBounceGenerated{};
+	bool m_isOnBouncedMessageGenerated{};
 	ContactsUsageScanner m_usage;
 
 	std::set<std::pair<std::string, TupleExpression const*>> m_constArrays;
@@ -202,50 +178,58 @@ public:
 
 	[[nodiscard]]
 	TVMCompilerContext& ctx() const;
+
 private:
 	void change(int delta);
 	void change(int take, int ret);
+
 public:
 	int stackSize() const;
-	void ensureSize(int savedStackSize, const std::string &location = "", const ASTNode* node = nullptr) const;
+	void ensureSize(int savedStackSize, std::string const& location = "", ASTNode const* node = nullptr) const;
 	void startOpaque();
 	void endOpaque(int take, int ret, bool isPure = false);
 	void declRetFlag();
-	static Pointer<AsymGen> makeAsym(const std::string& cmd);
-public:
-	void push(const Pointer<Stack>& opcode);
-	void push(const Pointer<AsymGen>& opcode);
-	void push(const Pointer<HardCode>& opcode);
+	static Pointer<AsymGen> makeAsym(std::string const& cmd);
+	void push(Pointer<Stack> const& opcode);
+	void push(Pointer<AsymGen> const& opcode);
+	void push(Pointer<HardCode> const& opcode);
 	void pushAsym(Pointer<AsymGen>&& node);
 	void pushAsym(std::string const& opcode);
 	StackPusher& operator<<(std::string const& opcode);
-	void push(std::string const& opcode);
+	void push(std::string const& cmd);
 	void fixStack(int stackDiff);
+
 private:
-	void pushCellOrSlice(const Pointer<PushCellOrSlice>& opcode);
+	void pushCellOrSlice(Pointer<CellOrSliceOperation> const& opcode);
+
 public:
 	void pushSlice(std::string const& data);
 	void pushPrivateFunctionId(FunctionDefinition const& funDef, bool isCalledByPoint);
 	void startContinuation();
+
 private:
 	void endCont(CodeBlock::Type type);
+
 public:
 	void endContinuation();
 	void endContinuationFromRef();
-	void endRetOrBreakOrCont(int _take);
+	void endRetOrBreakOrCont(ReturnOrBreakOrCont::Type type, int _take);
 	void endLogCircuit(LogCircuit::Type type);
 
 private:
-	void callRefOrCallX(int take, int ret, bool _isJmp, CodeBlock::Type _blockType, bool isPure);
+	void callRefOrCallX(bool _isJmp, CodeBlock::Type _blockType);
+
 public:
-	void pushRefContAndCallX(int take, int ret, bool isPure);
-	void pushContAndCallX(int take, int ret, bool isPure);
+	void pushRefContAndCallX();
+	void pushContAndCallX();
 
 
-	void ifElse(bool useJmp = false);
+	void ifElse(bool withJmp = false);
 	void pushConditional(int ret);
+
 private:
 	void if_or_ifNot(bool _withNot, bool _withJmp);
+
 public:
 	void _if();
 	void ifNot();
@@ -254,6 +238,7 @@ public:
 
 private:
 	void repeatOrUntil(bool withBreakOrReturn, bool isRepeat);
+
 public:
 	void repeat(bool _withBreakOrReturn);
 	void until(bool withBreakOrReturn);
@@ -264,11 +249,11 @@ public:
 	void ifRetAlt();
 	void ifret();
 	void ifNotRet();
-	void _throw(const std::string& cmd);
+	void _throw(std::string const& cmd);
 
 	TVMStack& getStack();
-	void pushLoc(const std::string& file, int line);
-	void pushString(const std::string& str, bool toSlice);
+	void pushLoc(std::string const& file, int line);
+	void pushString(std::string const& _str, bool toSlice);
 	void pushLog();
 	void untuple(int n);
 	void unpackFirst(int n);
@@ -277,9 +262,9 @@ public:
 	void setIndex(int index);
 	void setIndexQ(int index);
 	void makeTuple(int qty);
-	void pushStackOpcode(const std::string& name, int take, int ret);
+	void pushStackGenOpcode(std::string const& name, int take, int ret);
 	void resetAllStateVars();
-	void getGlob(VariableDeclaration const * vd);
+	void getGlob(VariableDeclaration const* vd);
 	void getGlob(int index);
 	void pushRoot();
 	void popRoot();
@@ -290,31 +275,34 @@ public:
 	void callx(int take, int ret);
 	void call(uint32_t id, int take, int ret);
 	void setGlob(int index);
-	void setGlob(VariableDeclaration const * vd);
+	void setGlob(VariableDeclaration const* vd);
 	void pushS(int i);
-	void pushS2(int i, int j); // TODO delete
 	void popS(int i);
-	void pushInt(const bigint& i);
+	void pushInt(bigint const& i);
 	void stzeroes(int qty);
 	void stones(int qty);
 	void sendrawmsg();
 	// return true if on stack there are (value, slice) else false if (slice, value)
 	[[nodiscard]]
-	bool fastLoad(const Type* type);
-	void load(const Type* type, bool dataOnTop);
+	bool fastLoad(Type const* type);
+	void load(Type const* type, bool dataOnTop);
 
-	void preload(const Type *type);
-	void loadQ(const Type *type);
+	void preload(Type const* type);
+	void loadQ(Type const* type);
 
-	void store(const Type *type);
-	void storeQ(const Type *type);
+	void store(Type const* type);
+	void storeQ(Type const* type);
 	void pushZeroAddress();
-	void convert(Type const *leftType, Type const *rightType);
-	void checkFit(Type const *type);
+	void convert(Type const* leftType, Type const* rightType);
+	void checkFit(Type const* type);
 	void pushParameter(std::vector<ASTPointer<VariableDeclaration>> const& params);
-	void pushFragmentInCallRef(int take, int ret, const std::string& fname);
-	void pushCallOrCallRef(FunctionDefinition const* _functionDef, const std::optional<std::pair<int, int>>& deltaStack, bool isCalledByPoint);
-	void pushFragment(int take, int ret, const std::string& functionName);
+	void pushFragmentInCallRef(int take, int ret, std::string const& functionName);
+	void pushCallOrCallRef(
+		FunctionDefinition const* _functionDef,
+		std::optional<std::pair<int, int>> const& deltaStack,
+		bool isCalledByPoint
+	);
+	void pushFragment(int take, int ret, std::string const& functionName);
 	void computeConstCell(std::string const& expName);
 	void computeConstSlice(std::string const& expName);
 	void drop(int cnt = 1);
@@ -327,10 +315,16 @@ public:
 	void rotRev();
 	void prepareKeyForDictOperations(Type const* key, bool doIgnoreBytes);
 	[[nodiscard]]
-	int int_msg_info(const std::set<int> &isParamOnStack, const std::map<int, std::string> &constParams, bool isDestBuilder);
+	std::pair<int, int> build_int_msg_info(
+		std::set<int> const& isParamOnStack,
+		std::map<int, std::string> const& constParams,
+		bool isDestBuilder,
+		std::function<void()> const& pushValue,
+		std::function<void()> const& pushExtraFlags
+	);
 	[[nodiscard]]
-	int ext_msg_info(const std::set<int> &isParamOnStack, bool isOut);
-	void appendToBuilder(const std::string& bitString);
+	int build_ext_msg_info(std::set<int> const& isParamOnStack);
+	void appendToBuilder(std::string const& bitString);
 	void checkOptionalValue();
 	static bool doesFitInOneCellAndHaveNoStruct(Type const* key, Type const* value);
 	[[nodiscard]]
@@ -351,31 +345,27 @@ public:
 		Type const* valueType,
 		bool hasKey,
 		bool didUseOpcodeWithRef,
-		const DecodeType& decodeType,
+		DecodeType const& decodeType,
 		bool saveOrigKeyAndNoTuple = false
 	);
 	static Type const* parseIndexType(Type const* type);
 
 	void setDict(
-		Type const &keyType,
-		Type const &valueType,
-		const DataType& dataType,
-		SetDictOperation opcode = SetDictOperation::Set
+		Type const& keyType,
+		Type const& valueType,
+		DataType const& dataType,
+		SetDictOperation operation = SetDictOperation::Set
 	);
 
 	void assignStackVariable(Declaration const* name);
 
-	void getDict(
-		const Type& keyType,
-		const Type& valueType,
-		const GetDictOperation op
-	);
+	void getDict(Type const& keyType, Type const& valueType, GetDictOperation const op);
 
 	void getAndSetDict(
-		const Type &keyType,
-		const Type &valueType,
-		const GetDictOperation op,
-		const DataType inputValueType
+		Type const& keyType,
+		Type const& valueType,
+		GetDictOperation const op,
+		DataType const inputValueType
 	);
 
 	void pushEmptyArray();
@@ -383,36 +373,47 @@ public:
 	void pushNaN();
 	void pushEmptyCell();
 	void pushDefaultValue(Type const* _type);
-	void sendIntMsg(const std::map<int, const Expression *> &exprs,
-					const std::map<int, std::string> &constParams,
-					const std::function<void(int)> &appendBody,
-					const std::function<void()> &pushSendrawmsgFlag,
-					const std::function<void()> &appendStateInit);
 
-	enum class MsgType{
+	void pushParamsAndSendInternalMessage(
+		std::map<int, Expression const*> const& exprs,
+		std::map<int, std::string> const& constParams,
+		std::function<void(int bitSizeBuilder, int refSizeBuilder)> const& appendBody,
+		std::function<void()> const& pushSendRawMsgFlag,
+		std::function<std::pair<int, int>()> const& appendEitherStateInit,
+		std::function<void()> const& pushValue,
+		std::function<void()> const& pushExtraFlags
+	);
+
+	enum class MsgType {
 		Internal,
-		ExternalOut,
-		ExternalIn
+		ExternalOut
 	};
 
-	void sendMsg(const std::set<int>& isParamOnStack,
-				 const std::map<int, std::string> &constParams,
-				 const std::function<void(int)> &appendBody,
-				 const std::function<void()> &appendStateInit,
-				 const std::function<void()> &pushSendrawmsgFlag,
-				 MsgType messageType = MsgType::Internal,
-				 bool isDestBuilder = false);
+	void sendMessage(
+		std::set<int> const& isParamOnStack,
+		std::map<int, std::string> const& constParams,
+		std::function<void(int bitSizeBuilder, int refSizeBuilder)> const& appendBody,
+		std::function<std::pair<int, int>()> const& appendEitherStateInit,
+		std::function<void()> const& pushSendRawMsgFlag,
+		MsgType messageType,
+		bool isDestBuilder,
+		std::function<void()> const& pushValue,
+		std::function<void()> const& pushExtraFlags
+	);
 
-	void prepareMsg(const std::set<int>& isParamOnStack,
-				 const std::map<int, std::string> &constParams,
-				 const std::function<void(int)> &appendBody,
-				 const std::function<void()> &appendStateInit,
-				 MsgType messageType = MsgType::Internal,
-				 bool isDestBuilder = false);
+	void prepareMessage(
+		std::set<int> const& isParamOnStack,
+		std::map<int, std::string> const& constParams,
+		std::function<void(int bitSizeBuilder, int refSizeBuilder)> const& appendBody,
+		std::function<std::pair<int, int>()> const& appendEitherStateInit,
+		MsgType messageType,
+		bool isDestBuilder,
+		std::function<void()> const& pushValue,
+		std::function<void()> const& pushExtraFlags
+	);
 
 	void byteLengthOfCell();
 
-	void was_c4_to_c7_called();
 	void checkCtorCalled();
 	void checkIfCtorCalled(bool ifFlag);
 	bool hasLock() const { return lockStack > 0; }
@@ -429,7 +430,8 @@ private:
 
 class TypeConversion {
 public:
-	TypeConversion(StackPusher& _pusher) : m_pusher{_pusher} { }
+	explicit TypeConversion(StackPusher& _pusher):
+		m_pusher{_pusher} {}
 	void convert(Type const* leftType, Type const* rightType);
 	void convertIntegerToLibraryContinuation() const;
 	void convertIntegerToLibraryExoticCell() const;
@@ -456,7 +458,6 @@ private:
 	void fromStringLiteral(Type const* leftType, StringLiteralType const* rightType) const;
 	void fromCell(Type const* leftType) const;
 
-private:
 	StackPusher& m_pusher;
 }; // end TypeConversion
 

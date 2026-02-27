@@ -42,6 +42,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <iosfwd>
 #include <string>
 #include <tuple>
@@ -64,12 +65,11 @@ namespace solidity::langutil
 
 #define IGNORE_TOKEN(name, string, precedence)
 
-#define TOKEN_LIST(T, K)												\
-	/* End of source indicator. */										\
-	T(EOS, "EOS", 0)													\
-																		\
-																		\
-	/* Punctuators (ECMA-262, section 7.7, page 15). */				\
+#define TOKEN_LIST(T, K)                                                \
+	/* End of source indicator. */                                      \
+	T(EOS, "EOS", 0)                                                    \
+	\
+	/* Punctuators (ECMA-262, section 7.7, page 15). */                 \
 	T(LParen, "(", 0)                                                   \
 	T(RParen, ")", 0)                                                   \
 	T(LBrack, "[", 0)                                                   \
@@ -84,9 +84,9 @@ namespace solidity::langutil
 	T(Hash, "#", 0)	                                                    \
 	T(RightArrow, "->", 0)                                              \
 	\
-	/* Assignment operators. */										\
-	/* IsAssignmentOp() relies on this block of enum values being */	\
-	/* contiguous and sorted in the same order!*/						\
+	/* Assignment operators. */                                         \
+	/* IsAssignmentOp() relies on this block of enum values being */    \
+	/* contiguous and sorted in the same order!*/                       \
 	T(Assign, "=", 2)                                                   \
 	/* The following have to be in exactly the same order as the simple binary operators*/ \
 	T(AssignBitOr, "|=", 2)                                           \
@@ -159,12 +159,12 @@ namespace solidity::langutil
 	K(Event, "event", 0)                                               \
 	K(External, "external", 0)                                         \
 	K(Fallback, "fallback", 0)                                         \
-	K(onBounce, "onBounce", 0)                                         \
+	K(OnBouncedMessage, "onBouncedMessage", 0)                         \
+	K(OnBounce, "onBounce", 0)                                         \
 	K(For, "for", 0)                                                   \
 	K(Function, "function", 0)                                         \
 	K(FunctionID, "functionID", 0)                                     \
 	K(ExternalMsg, "externalMsg", 0)                                   \
-	K(InternalMsg, "internalMsg", 0)                                   \
 	K(Hex, "hex", 0)                                                   \
 	K(If, "if", 0)                                                     \
 	K(Indexed, "indexed", 0)                                           \
@@ -177,7 +177,6 @@ namespace solidity::langutil
 	K(Mapping, "mapping", 0)                                           \
 	K(Modifier, "modifier", 0)                                         \
 	K(New, "new", 0)                                                   \
-	K(NoStorage, "nostorage", 0)                                       \
 	K(Unpacked, "unpacked", 0)                                         \
 	K(Optional, "optional", 0)                                         \
 	K(TvmVector, "vector", 0)                                          \
@@ -333,6 +332,7 @@ namespace solidity::langutil
 	K(Itself, "itself", 0)                                             \
 	K(StaticAssert, "static_assert", 0)                                \
 	K(Builtin, "__builtin", 0)                                         \
+	K(ForAll, "forall", 0)                                             \
 	T(ExperimentalEnd, nullptr, 0) /* used as experimental enum end marker */ \
 	\
 	/* Illegal token - not able to scan. */                            \
@@ -370,9 +370,7 @@ namespace TokenTraits
 	constexpr bool isUnaryOp(Token op) { return (Token::Not <= op && op <= Token::Delete) || op == Token::Sub; }
 	constexpr bool isCountOp(Token op) { return op == Token::Inc || op == Token::Dec; }
 	constexpr bool isShiftOp(Token op) { return (Token::SHL <= op) && (op <= Token::SHR); }
-	constexpr bool isVariableVisibilitySpecifier(Token op) {
-		return op == Token::Public || op == Token::Private || op == Token::Internal;
-	}
+	constexpr bool isVariableVisibilitySpecifier(Token op) { return op == Token::Public || op == Token::Private || op == Token::Internal; }
 	constexpr bool isVisibilitySpecifier(Token op) { return isVariableVisibilitySpecifier(op) || op == Token::External || op == Token::Getter; }
 
 	constexpr bool isStateMutabilitySpecifier(Token op)
@@ -380,7 +378,6 @@ namespace TokenTraits
 		return op == Token::Pure || op == Token::View || op == Token::Payable;
 	}
 
-	// TODO RENAME
 	constexpr bool isTonSubdenomination(Token op) { return (Token::SubNano <= op && op <= Token::SubGEver); }
 	constexpr bool isTimeSubdenomination(Token op) { return op == Token::SubSecond || op == Token::SubMinute || op == Token::SubHour || op == Token::SubDay || op == Token::SubWeek || op == Token::SubYear; }
 	constexpr bool isReservedKeyword(Token op) { return (Token::After <= op && op <= Token::Var); }
@@ -434,7 +431,7 @@ namespace TokenTraits
 		return _token > Token::NonExperimentalEnd && _token < Token::ExperimentalEnd;
 	}
 
-	bool isYulKeyword(std::string const& _literal);
+	bool isYulKeyword(std::string_view _literal);
 
 	Token AssignmentToBinaryOp(Token op);
 

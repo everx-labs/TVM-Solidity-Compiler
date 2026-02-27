@@ -17,7 +17,6 @@
 #include <libsolidity/codegen/StackOpcodeSquasher.hpp>
 
 using namespace solidity::frontend;
-using namespace std;
 
 StackState::StackState(int _size) {
 	m_size = _size;
@@ -27,7 +26,7 @@ StackState::StackState(int _size) {
 	updHash();
 }
 
-bool StackState::apply(Stack const &opcode) {
+bool StackState::apply(Stack const& opcode) {
 	auto execPUSHS = [this](int index) -> bool {
 		if (index < m_size && m_size + 1 <= StackState::MAX_STACK_DEPTH) {
 			int8_t val = m_values[index];
@@ -382,7 +381,7 @@ void StackOpcodeSquasher::init() {
 						addEdge(std::make_shared<Stack>(Stack::Opcode::PUSH3_S, i, j, k));
 		}
 
-		std::stable_sort(edges.begin(), edges.end(), [](Edge const &a, Edge const &b){
+		std::ranges::stable_sort(edges, [](Edge const& a, Edge const& b){
 			return a.gas < b.gas;
 		});
 
@@ -413,7 +412,7 @@ void StackOpcodeSquasher::init() {
 				int8_t const nextOpcodeQty = front->opcodeQty + 1;
 				int const gas = front->gas;
 				q.erase(front);
-				for (Edge const &e: edges) {
+				for (Edge const& e: edges) {
 					StackState nextState = state;
 					if (nextState.apply(*e.opcode)) {
 						auto it = dp.find(nextState);
@@ -424,8 +423,7 @@ void StackOpcodeSquasher::init() {
 								q.emplace(QData{nextState, nextGasCost, nextOpcodeQty});
 						} else if (it->second.gasCost > nextGasCost) {
 							q.erase(QData{nextState, it->second.gasCost});
-							dp.erase(it);
-							dp.emplace(nextState, DpState{nextGasCost, state, e.opcode});
+							it->second = DpState{nextGasCost, state, e.opcode};
 							if (nextOpcodeQty < MAX_DEPTH) {
 								q.emplace(QData{nextState, nextGasCost, nextOpcodeQty});
 							}
@@ -433,7 +431,7 @@ void StackOpcodeSquasher::init() {
 					}
 				}
 			}
-			m_dp[_withCompoundOpcodes][stackSize] = dp;
+			m_dp[_withCompoundOpcodes][stackSize] = std::move(dp);
 		}
 		//auto end = high_resolution_clock::now();
 		//auto duration = duration_cast<std::chrono::milliseconds>(end - begin);
@@ -452,6 +450,6 @@ std::vector<Pointer<TvmAstNode>> StackOpcodeSquasher::recover(int startStackSize
 		state = it.prevState;
 		res.push_back(it.opcode);
 	}
-	std::reverse(res.begin(), res.end());
+	std::ranges::reverse(res);
 	return res;
 }

@@ -85,8 +85,9 @@ registering with a username and password, all you need is an Ethereum keypair.
 .. code-block:: solidity
 
     // SPDX-License-Identifier: GPL-3.0
-    pragma solidity ^0.8.4;
+    pragma solidity ^0.8.26;
 
+    // This will only compile via IR
     contract Coin {
         // The keyword "public" makes variables
         // accessible from other contracts
@@ -118,12 +119,7 @@ registering with a username and password, all you need is an Ethereum keypair.
         // Sends an amount of existing coins
         // from any caller to an address
         function send(address receiver, uint amount) public {
-            if (amount > balances[msg.sender])
-                revert InsufficientBalance({
-                    requested: amount,
-                    available: balances[msg.sender]
-                });
-
+            require(amount <= balances[msg.sender], InsufficientBalance(amount, balances[msg.sender]));
             balances[msg.sender] -= amount;
             balances[receiver] += amount;
             emit Sent(msg.sender, receiver, amount);
@@ -156,7 +152,7 @@ creates a public state variable, but it is a more complex datatype.
 The :ref:`mapping <mapping-types>` type maps addresses to :ref:`unsigned integers <integers>`.
 
 Mappings can be seen as `hash tables <https://en.wikipedia.org/wiki/Hash_table>`_ which are
-virtually initialised such that every possible key exists from the start and is mapped to a
+virtually initialized such that every possible key exists from the start and is mapped to a
 value whose byte-representation is all zeros. However, it is neither possible to obtain a list of all keys of
 a mapping, nor a list of all values. Record what you
 added to the mapping, or use it in a context where this is not needed. Or
@@ -225,8 +221,8 @@ than the maximum value of ``uint`` (``2**256 - 1``). This is also true for the s
 :ref:`Errors <errors>` allow you to provide more information to the caller about
 why a condition or operation failed. Errors are used together with the
 :ref:`revert statement <revert-statement>`. The ``revert`` statement unconditionally
-aborts and reverts all changes similar to the ``require`` function, but it also
-allows you to provide the name of an error and additional data which will be supplied to the caller
+aborts and reverts all changes, much like the :ref:`require function <assert-and-require-statements>`.
+Both approaches allow you to provide the name of an error and additional data which will be supplied to the caller
 (and eventually to the front-end application or block explorer) so that
 a failure can more easily be debugged or reacted upon.
 
@@ -304,7 +300,7 @@ These blocks form a linear sequence in time, and that is where the word "blockch
 Blocks are added to the chain at regular intervals, although these intervals may be subject to change in the future.
 For the most up-to-date information, it is recommended to monitor the network, for example, on `Etherscan <https://etherscan.io/chart/blocktime>`_.
 
-As part of the "order selection mechanism" (which is called "mining") it may happen that
+As part of the "order selection mechanism", which is called `attestation <https://ethereum.org/en/developers/docs/consensus-mechanisms/pos/attestations/>`_, it may happen that
 blocks are reverted from time to time, but only at the "tip" of the chain. The more
 blocks are added on top of a particular block, the less likely this block will be reverted. So it might be that your transactions
 are reverted and even removed from the blockchain, but the longer you wait, the less
@@ -419,13 +415,15 @@ In case of an exception that reverts changes, already used up gas is not refunde
 Since EVM executors can choose to include a transaction or not,
 transaction senders cannot abuse the system by setting a low gas price.
 
-.. index:: ! storage, ! memory, ! stack
+.. index:: ! storage, ! memory, ! stack, ! transient storage
 
-Storage, Memory and the Stack
-=============================
+.. _locations:
 
-The Ethereum Virtual Machine has three areas where it can store data:
-storage, memory and the stack.
+Storage, Transient Storage, Memory and the Stack
+================================================
+
+The Ethereum Virtual Machine has different areas where it can store data with the most
+prominent being storage, transient storage, memory and the stack.
 
 Each account has a data area called **storage**, which is persistent between function calls
 and transactions.
@@ -436,7 +434,15 @@ you should minimize what you store in persistent storage to what the contract ne
 Store data like derived calculations, caching, and aggregates outside of the contract.
 A contract can neither read nor write to any storage apart from its own.
 
-The second data area is called **memory**, of which a contract obtains
+Similar to storage, there is another data area called **transient storage**,
+where the main difference is that it is reset at the end of each transaction.
+The values stored in this data location persist only across function calls originating
+from the first call of the transaction.
+When the transaction ends, the transient storage is reset and the values stored there
+become unavailable to calls in subsequent transactions.
+Despite this, the cost of reading and writing to transient storage is significantly lower than for storage.
+
+The third data area is called **memory**, of which a contract obtains
 a freshly cleared instance for each message call. Memory is linear and can be
 addressed at byte level, but reads are limited to a width of 256 bits, while writes
 can be either 8 bits or 256 bits wide. Memory is expanded by a word (256-bit), when
@@ -457,6 +463,31 @@ Of course it is possible to move stack elements to storage or memory
 in order to get deeper access to the stack,
 but it is not possible to just access arbitrary elements deeper in the stack
 without first removing the top of the stack.
+
+Calldata, Returndata and Code
+=============================
+
+There are also other data areas which are not as apparent as those discussed previously.
+However, they are routinely used during the execution of smart contract transactions.
+
+The calldata region is the data sent to a transaction as part of a smart contract transaction.
+For example, when creating a contract, calldata would be the constructor code of the new contract.
+The parameters of external functions are always initially stored in calldata in an ABI-encoded form
+and only then decoded into the location specified in their declaration.
+If declared as ``memory``, the compiler will eagerly decode them into memory at the beginning of the function,
+while marking them as ``calldata`` means that this will be done lazily, only when accessed.
+Value types and ``storage`` pointers are decoded directly onto the stack.
+
+The returndata is the way a smart contract can return a value after a call.
+In general, external Solidity functions use the ``return`` keyword to ABI-encode values into the returndata area.
+
+The code is the region where the EVM instructions of a smart contract are stored.
+Code is the bytes read, interpreted, and executed by the EVM during smart contract execution.
+Instruction data stored in the code is persistent as part of a contract account state field.
+Immutable and constant variables are stored in the code region.
+All references to immutables are replaced with the values assigned to them.
+A similar process is performed for constants which have their expressions inlined
+in the places where they are referenced in the smart contract code.
 
 .. index:: ! instruction
 
@@ -506,6 +537,7 @@ operations, loops should be preferred over recursive calls. Furthermore,
 only 63/64th of the gas can be forwarded in a message call, which causes a
 depth limit of a little less than 1000 in practice.
 
+.. _delegatecall:
 .. index:: delegatecall, library
 
 Delegatecall and Libraries
@@ -563,9 +595,23 @@ idea, but it is potentially dangerous, as if someone sends Ether to removed
 contracts, the Ether is forever lost.
 
 .. warning::
-    From version 0.8.18 and up, the use of ``selfdestruct`` in both Solidity and Yul will trigger a
-    deprecation warning, since the ``SELFDESTRUCT`` opcode will eventually undergo breaking changes in behavior
-    as stated in `EIP-6049 <https://eips.ethereum.org/EIPS/eip-6049>`_.
+    From ``EVM >= Cancun`` onwards, ``selfdestruct`` will **only** send all Ether in the account to the given recipient and not destroy the contract.
+    However, when ``selfdestruct`` is called in the same transaction that creates the contract calling it,
+    the behaviour of ``selfdestruct`` before Cancun hardfork (i.e., ``EVM <= Shanghai``) is preserved and will destroy the current contract,
+    deleting any data, including storage keys, code and the account itself.
+    See `EIP-6780 <https://eips.ethereum.org/EIPS/eip-6780>`_ for more details.
+
+    The new behaviour is the result of a network-wide change that affects all contracts present on
+    the Ethereum mainnet and testnets.
+    It is important to note that this change is dependent on the EVM version of the chain on which
+    the contract is deployed.
+    The ``--evm-version`` setting used when compiling the contract has no bearing on it.
+
+    Also, note that the ``selfdestruct`` opcode has been deprecated in Solidity version 0.8.18,
+    as recommended by `EIP-6049 <https://eips.ethereum.org/EIPS/eip-6049>`_.
+    The deprecation is still in effect and the compiler will still emit warnings on its use.
+    Any use in newly deployed contracts is strongly discouraged even if the new behavior is taken into account.
+    Future changes to the EVM might further reduce the functionality of the opcode.
 
 .. warning::
     Even if a contract is removed by ``selfdestruct``, it is still part of the
@@ -589,7 +635,7 @@ Precompiled Contracts
 =====================
 
 There is a small set of contract addresses that are special:
-The address range between ``1`` and (including) ``8`` contains
+The address range between ``1`` and (including) ``0x0a`` contains
 "precompiled contracts" that can be called as any other contract
 but their behavior (and their gas consumption) is not defined
 by EVM code stored at that address (they do not contain code)

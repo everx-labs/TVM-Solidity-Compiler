@@ -15,10 +15,15 @@ contract Main {
         return flag;
     }
 }
+// ====
+// bytecodeFormat: legacy,>=EOFv1
 // ----
 // constructor(): "abc", true
-// gas irOptimized: 104394
-// gas legacy: 143300
-// gas legacyOptimized: 102961
+// gas irOptimized: 80174
+// gas irOptimized code: 24200
+// gas legacy: 85098
+// gas legacy code: 58200
+// gas legacyOptimized: 80132
+// gas legacyOptimized code: 22800
 // getFlag() -> true
 // getName() -> "abc"

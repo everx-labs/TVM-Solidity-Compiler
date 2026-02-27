@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022-2025 EverX. All Rights Reserved.
+ * Copyright (C) 2025 EverX. All Rights Reserved.
  *
  * Licensed under the SOFTWARE EVALUATION License (the "License"); you may not use
  * this file except in compliance with the License.
@@ -10,19 +10,19 @@
  * See the  GNU General Public License for more details at: https://www.gnu.org/licenses/gpl-3.0.html
  */
 
-use crate::json;
+use std::fs::OpenOptions;
+
+use anyhow::{bail, format_err};
+use base64::{engine::general_purpose, Engine as _};
+use ever_abi::contract::MAX_SUPPORTED_VERSION;
+use ever_abi::token::{Cursor, Detokenizer, Tokenizer};
+use ever_abi::{add_sign_to_function_call, ParamType, Token, TokenValue};
 use ever_block::{
     boc, BuilderData, Cell, Deserializable, HashmapE, HashmapType, IBitstring, Serializable,
     SliceData,
 };
-use std::fs::OpenOptions;
-
-use anyhow::{bail, format_err};
-use ever_abi::contract::MAX_SUPPORTED_VERSION;
-use ever_abi::token::{Cursor, Detokenizer, Tokenizer};
-use ever_abi::{add_sign_to_function_call, ParamType, Token, TokenValue};
-
 use ever_block::{BocReader, Result, StateInit, Status};
+use serde_json::json;
 
 fn read_abi(abi_path: &str) -> Result<String> {
     std::fs::read_to_string(abi_path)
@@ -47,14 +47,14 @@ pub fn init_contract(state_init_path: &str, abi_path: &str, static_values: &str)
             .map_err(|e| format_err!("File {} is not valid stateInit: {}", state_init_path, e))?;
         state_init.set_data(new_data);
     }
-    let cell_state_init = state_init.serialize()?;
+    let cell_state_init: Cell = state_init.serialize()?;
     let hash = cell_state_init.repr_hash().as_hex_string();
     let new_state_init = boc::write_boc(&cell_state_init)?;
 
     std::fs::write(state_init_path, new_state_init)?;
     println!(
         r#"{{
-    state_init_hash: "{hash}"
+    "state_init_hash": "{hash}"
 }}
 "#
     );
@@ -96,7 +96,7 @@ pub fn encode_value(str_abi: &str, params: &str) -> Status {
 
     let cell_bytes = ever_block::write_boc(&resulting_cell)?;
     let ser_msg = json!({
-        "cell_in_base64": base64::encode(cell_bytes)
+        "cell_in_base64": general_purpose::STANDARD.encode(cell_bytes)
     });
     println!("{ser_msg:#}");
 
@@ -105,19 +105,13 @@ pub fn encode_value(str_abi: &str, params: &str) -> Status {
 
 pub fn encode_body(abi_path: &str, method: &str, method_args: &str) -> Status {
     let abi = read_abi(abi_path)?;
-    let encoded_body = ever_abi::encode_function_call(
-        abi.as_str(),
-        method,
-        None,
-        method_args,
-        true,
-        None,
-        None
-    )?.into_cell()?;
+    let encoded_body =
+        ever_abi::encode_function_call(abi.as_str(), method, None, method_args, true, None, None)?
+            .into_cell()?;
 
     let cell_bytes = ever_block::write_boc(&encoded_body)?;
     let ser_msg = json!({
-        "body": base64::encode(cell_bytes)
+        "body": general_purpose::STANDARD.encode(cell_bytes)
     });
 
     println!("{ser_msg:#}");
@@ -132,9 +126,8 @@ pub fn encode_ext_message(
     lifetime: &Option<String>,
     address: &str,
     method: &str,
-    params: &str
+    params: &str,
 ) -> Status {
-
     let mut expired_at = 0;
 
     let mut js_headers = json!({
@@ -148,18 +141,16 @@ pub fn encode_ext_message(
     }
     let headers = format!("{js_headers:#}");
 
-
     // eprintln!("headers: {}", headers);
 
     let abi = read_abi(abi_path)?;
-
 
     let (msg, data_to_sign) = ever_abi::prepare_function_call_for_sign(
         abi.as_str(),
         method,
         Some(headers.as_str()),
         params,
-        Some(address)
+        Some(address),
     )?;
 
     // println!("sign: {}", sign);
@@ -178,11 +169,12 @@ pub fn encode_ext_message(
         &signature,
         Some(&sign_key.verifying_key()),
         msg,
-    )?.into_cell()?;
+    )?
+    .into_cell()?;
 
     let cell_bytes = ever_block::write_boc(&signed_msg)?;
     let ser_msg = json!({
-        "message": base64::encode(cell_bytes),
+        "message": general_purpose::STANDARD.encode(cell_bytes),
         "expire": expired_at,
     });
 
@@ -192,7 +184,7 @@ pub fn encode_ext_message(
 }
 
 pub fn decode_abi_param(abi_fragment: &str, base64_cell: &str) -> Status {
-    let data = base64::decode(base64_cell)?;
+    let data = general_purpose::STANDARD.decode(base64_cell)?;
     let cell = ever_block::read_single_root_boc(data)?;
 
     let param = serde_json::from_str::<ever_abi::Param>(abi_fragment)?;
@@ -233,10 +225,17 @@ pub fn decode_abi_param(abi_fragment: &str, base64_cell: &str) -> Status {
     Ok(())
 }
 
-pub fn decode_state_data(abi_path: &str, base64_cell: &str) -> Status {
+pub fn decode_state_data(abi_path: &str, base64_data_or_path: &str) -> Status {
     let abi = read_abi(abi_path)?;
-    let data = base64::decode(base64_cell)?;
+
+    let path = std::path::Path::new(base64_data_or_path);
+    let data = if path.exists() {
+        std::fs::read(base64_data_or_path)?
+    } else {
+        general_purpose::STANDARD.decode(base64_data_or_path)?
+    };
     let cell = ever_block::read_single_root_boc(data)?;
+
     let fields = ever_abi::decode_storage_fields(abi.as_str(), SliceData::load_cell(cell)?, false)?;
     println!("{}", fields);
     Ok(())

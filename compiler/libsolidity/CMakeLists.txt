@@ -68,6 +68,8 @@ set(sources
 	ast/Types.h
 	ast/TypeProvider.cpp
 	ast/TypeProvider.h
+	experimental/analysis/Analysis.cpp
+	experimental/analysis/Analysis.h
 	interface/CompilerStack.cpp
 	interface/CompilerStack.h
 	interface/DebugSettings.h
@@ -83,6 +85,7 @@ set(sources
 	interface/SMTSolverCommand.h
 	interface/StandardCompiler.cpp
 	interface/StandardCompiler.h
+	interface/UniversalCallback.h
 	interface/Version.cpp
 	interface/Version.h
 	lsp/DocumentHoverHandler.cpp
@@ -132,24 +135,12 @@ set(sources
 
 	codegen/DictOperations.cpp
 	codegen/DictOperations.hpp
-	codegen/PeepholeOptimizer.cpp
-	codegen/PeepholeOptimizer.hpp
-	codegen/SizeOptimizer.cpp
-	codegen/SizeOptimizer.hpp
-	codegen/StackOpcodeSquasher.cpp
-	codegen/StackOpcodeSquasher.hpp
-	codegen/StackOptimizer.cpp
-	codegen/StackOptimizer.hpp
+	codegen/Printer.cpp
+	codegen/Printer.hpp
 	codegen/TVM.cpp
 	codegen/TVM.hpp
 	codegen/TVMABI.cpp
 	codegen/TVMABI.hpp
-	codegen/TVMAnalyzer.cpp
-	codegen/TVMAnalyzer.hpp
-	codegen/TvmAst.cpp
-	codegen/TvmAst.hpp
-	codegen/TvmAstVisitor.cpp
-	codegen/TvmAstVisitor.hpp
 	codegen/TVMCommons.cpp
 	codegen/TVMCommons.hpp
 	codegen/TVMConstants.hpp
@@ -163,20 +154,47 @@ set(sources
 	codegen/TVMFunctionCall.hpp
 	codegen/TVMFunctionCompiler.cpp
 	codegen/TVMFunctionCompiler.hpp
-	codegen/TVMInlineFunctionChecker.cpp
-	codegen/TVMInlineFunctionChecker.hpp
 	codegen/TVMPusher.cpp
 	codegen/TVMPusher.hpp
-	codegen/TVMSimulator.cpp
-	codegen/TVMSimulator.hpp
 	codegen/TVMStructCompiler.cpp
 	codegen/TVMStructCompiler.hpp
-	codegen/TVMTypeChecker.cpp
-	codegen/TVMTypeChecker.hpp
+	codegen/TvmAst.cpp
+	codegen/TvmAst.hpp
+	codegen/TvmAstVisitor.hpp
+	codegen/analysis/TVMAnalyzer.cpp
+	codegen/analysis/TVMAnalyzer.hpp
+	codegen/analysis/TVMInlineFunctionChecker.cpp
+	codegen/analysis/TVMInlineFunctionChecker.hpp
+	codegen/analysis/TVMTypeChecker.cpp
+	codegen/analysis/TVMTypeChecker.hpp
+	codegen/helpers/FunctionCallGraph.cpp
+	codegen/helpers/FunctionCallGraph.hpp
+	codegen/helpers/utils.hpp
+	codegen/optimizers/CallRefOptimizer.cpp
+	codegen/optimizers/CallRefOptimizer.hpp
+	codegen/optimizers/MiscOptimizer.cpp
+	codegen/optimizers/MiscOptimizer.hpp
+	codegen/optimizers/PeepholeOptimizer.cpp
+	codegen/optimizers/PeepholeOptimizer.hpp
+	codegen/optimizers/StackOpcodeSquasher.cpp
+	codegen/optimizers/StackOpcodeSquasher.hpp
+	codegen/optimizers/StackOptimizer.cpp
+	codegen/optimizers/StackOptimizer.hpp
+	codegen/optimizers/TVMSimulator.cpp
+	codegen/optimizers/TVMSimulator.hpp
 )
 
 add_library(solidity ${sources})
 target_link_libraries(solidity PUBLIC langutil solutil Boost::boost Boost::filesystem Boost::system fmt::fmt-header-only Threads::Threads)
+if (WIN32)
+	target_link_libraries(solidity PUBLIC shell32)
+endif()
+if (EMSCRIPTEN)
+    if(NOT ${Z3_FOUND})
+            message(FATAL_ERROR "Z3 library must be present for EMSCRIPTEN build")
+    endif()
+    target_link_libraries(solidity PUBLIC z3::libz3)
+endif()
 
 target_compile_definitions(solidity PRIVATE BOOST_PROCESS_V1_COMPATIBILITY)
 install(TARGETS solidity

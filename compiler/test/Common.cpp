@@ -16,23 +16,27 @@
 */
 // SPDX-License-Identifier: GPL-3.0
 
-#include <stdexcept>
-#include <iostream>
 #include <test/Common.h>
+
 #include <test/EVMHost.h>
 #include <test/libsolidity/util/SoltestErrors.h>
 
+#include <libyul/backends/evm/EVMDialect.h>
+
 #include <libsolutil/Assertions.h>
 #include <libsolutil/StringUtils.h>
+
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
+
 #include <range/v3/all.hpp>
+
+#include <iostream>
+#include <stdexcept>
 
 namespace fs = boost::filesystem;
 namespace po = boost::program_options;
-
-using namespace std;
 
 namespace solidity::test
 {
@@ -78,7 +82,10 @@ std::optional<fs::path> findInDefaultPath(std::string const& lib_name)
 		fs::current_path() / ".." / "deps" / "lib",
 		fs::current_path() / ".." / ".." / "deps",
 		fs::current_path() / ".." / ".." / "deps" / "lib",
-		fs::current_path()
+		fs::current_path(),
+#ifdef __APPLE__
+		fs::current_path().root_path() / fs::path("usr") / "local" / "lib",
+#endif
 	};
 	for (auto const& basePath: searchPath)
 	{
@@ -122,40 +129,44 @@ void CommonOptions::addOptions()
 
 void CommonOptions::validate() const
 {
-	assertThrow(
+	solRequire(
 		!testPath.empty(),
 		ConfigException,
 		"No test path specified. The --testpath argument must not be empty when given."
 	);
-	assertThrow(
+	solRequire(
 		fs::exists(testPath),
 		ConfigException,
 		"Invalid test path specified."
 	);
-	assertThrow(
+	solRequire(
 		batches > 0,
 		ConfigException,
 		"Batches needs to be at least 1."
 	);
-	assertThrow(
+	solRequire(
 		selectedBatch < batches,
 		ConfigException,
 		"Selected batch has to be less than number of batches."
 	);
 
-	if (enforceGasTest)
+	if (!enforceGasTest)
+		std::cout << std::endl << "WARNING :: Gas cost expectations are not being enforced" << std::endl << std::endl;
+	else if (evmVersion() != langutil::EVMVersion{} || useABIEncoderV1)
 	{
-		assertThrow(
-			evmVersion() == langutil::EVMVersion{},
-			ConfigException,
-			"Gas costs can only be enforced on latest evm version."
-		);
-		assertThrow(
-			useABIEncoderV1 == false,
-			ConfigException,
-			"Gas costs can only be enforced on abi encoder v2."
-		);
+		std::cout << std::endl << "WARNING :: Enforcing gas cost expectations with non-standard settings:" << std::endl;
+		if (evmVersion() != langutil::EVMVersion{})
+			std::cout << "- EVM version: " << evmVersion().name() << " (default: " << langutil::EVMVersion{}.name() << ")" << std::endl;
+		if (useABIEncoderV1)
+			std::cout << "- ABI coder: v1 (default: v2)" << std::endl;
+		std::cout << std::endl << "DO NOT COMMIT THE UPDATED EXPECTATIONS." << std::endl << std::endl;
 	}
+
+	solRequire(
+		!eofVersion().has_value() || evmVersion().supportsEOF(),
+		ConfigException,
+		"EOF is not supported by EVM versions earlier than " + langutil::EVMVersion::firstWithEOF().name() + "."
+	);
 }
 
 bool CommonOptions::parse(int argc, char const* const* argv)
@@ -175,7 +186,7 @@ bool CommonOptions::parse(int argc, char const* const* argv)
 			// Request as uint64_t, since uint8_t will be parsed as character by boost.
 			uint64_t eofVersion = arguments["eof-version"].as<uint64_t>();
 			if (eofVersion != 1)
-				BOOST_THROW_EXCEPTION(std::runtime_error("Invalid EOF version: " + to_string(eofVersion)));
+				BOOST_THROW_EXCEPTION(std::runtime_error("Invalid EOF version: " + std::to_string(eofVersion)));
 			m_eofVersion = 1;
 		}
 
@@ -212,18 +223,18 @@ bool CommonOptions::parse(int argc, char const* const* argv)
 	return true;
 }
 
-string CommonOptions::toString(vector<string> const& _selectedOptions) const
+std::string CommonOptions::toString(std::vector<std::string> const& _selectedOptions) const
 {
 	if (_selectedOptions.empty())
 		return "";
 
-	auto boolToString = [](bool _value) -> string { return _value ? "true" : "false"; };
+	auto boolToString = [](bool _value) -> std::string { return _value ? "true" : "false"; };
 	// Using std::map to avoid if-else/switch-case block
-	map<string, string> optionValueMap = {
+	std::map<std::string, std::string> optionValueMap = {
 		{"evmVersion", evmVersion().name()},
 		{"optimize", boolToString(optimize)},
 		{"useABIEncoderV1", boolToString(useABIEncoderV1)},
-		{"batch", to_string(selectedBatch + 1) + "/" + to_string(batches)},
+		{"batch", std::to_string(selectedBatch + 1) + "/" + std::to_string(batches)},
 		{"enforceGasTest", boolToString(enforceGasTest)},
 		{"enforceGasTestMinValue", enforceGasTestMinValue.str()},
 		{"disableSemanticTests", boolToString(disableSemanticTests)},
@@ -232,18 +243,18 @@ string CommonOptions::toString(vector<string> const& _selectedOptions) const
 		{"showMetadata", boolToString(showMetadata)}
 	};
 
-	soltestAssert(ranges::all_of(_selectedOptions, [&optionValueMap](string const& _option) { return optionValueMap.count(_option) > 0; }));
+	soltestAssert(ranges::all_of(_selectedOptions, [&optionValueMap](std::string const& _option) { return optionValueMap.count(_option) > 0; }));
 
-	vector<string> optionsWithValues = _selectedOptions |
-		ranges::views::transform([&optionValueMap](string const& _option) { return _option + "=" + optionValueMap.at(_option); }) |
-		ranges::to<vector>();
+	std::vector<std::string> optionsWithValues = _selectedOptions |
+		ranges::views::transform([&optionValueMap](std::string const& _option) { return _option + "=" + optionValueMap.at(_option); }) |
+		ranges::to<std::vector>();
 
 	return solidity::util::joinHumanReadable(optionsWithValues);
 }
 
-void CommonOptions::printSelectedOptions(ostream& _stream, string const& _linePrefix, vector<string> const& _selectedOptions) const
+void CommonOptions::printSelectedOptions(std::ostream& _stream, std::string const& _linePrefix, std::vector<std::string> const& _selectedOptions) const
 {
-	_stream << _linePrefix << "Run Settings: " << toString(_selectedOptions) << endl;
+	_stream << _linePrefix << "Run Settings: " << toString(_selectedOptions) << std::endl;
 }
 
 langutil::EVMVersion CommonOptions::evmVersion() const
@@ -258,6 +269,12 @@ langutil::EVMVersion CommonOptions::evmVersion() const
 	else
 		return langutil::EVMVersion();
 }
+
+yul::EVMDialect const& CommonOptions::evmDialect() const
+{
+	return yul::EVMDialect::strictAssemblyForEVMObjects(evmVersion(), eofVersion());
+}
+
 
 CommonOptions const& CommonOptions::get()
 {
@@ -287,6 +304,20 @@ bool isValidSemanticTestPath(boost::filesystem::path const& _testPath)
 			return false;
 	}
 	return true;
+}
+
+boost::unit_test::precondition::predicate_t nonEOF()
+{
+	return [](boost::unit_test::test_unit_id) {
+		return !solidity::test::CommonOptions::get().eofVersion().has_value();
+	};
+}
+
+boost::unit_test::precondition::predicate_t onEOF()
+{
+	return [](boost::unit_test::test_unit_id) {
+		return solidity::test::CommonOptions::get().eofVersion().has_value();
+	};
 }
 
 boost::unit_test::precondition::predicate_t minEVMVersionCheck(langutil::EVMVersion _minEVMVersion)

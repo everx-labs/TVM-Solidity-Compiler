@@ -1,0 +1,12 @@
+
+======= input.yul (EVM) =======
+
+Text representation:
+    /* "input.yul":41:43   */
+  0x2a
+    /* "input.yul":38:39   */
+  0x00
+    /* "input.yul":31:44   */
+  sstore
+    /* "input.yul":27:48   */
+  stop

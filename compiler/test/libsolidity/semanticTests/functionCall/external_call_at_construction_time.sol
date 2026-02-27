@@ -6,7 +6,7 @@ contract T {
 }
 contract U {
     constructor() { this.f(); }
-    function f() external returns (uint) {}
+    function f() external externalMsg returns (uint) {}
 }
 
 contract C {
@@ -18,6 +18,7 @@ contract C {
 }
 // ====
 // EVMVersion: >=byzantium
+// bytecodeFormat: legacy
 // ----
 // f(uint256): 0 -> FAILURE
 // f(uint256): 1 -> FAILURE

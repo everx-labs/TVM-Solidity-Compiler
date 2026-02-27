@@ -23,8 +23,6 @@
 #include <functional>
 #include <string>
 
-#include <boost/filesystem.hpp>
-
 namespace solidity::frontend
 {
 

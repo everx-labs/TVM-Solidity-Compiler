@@ -1,46 +1,5 @@
 {
-    "errors":
-    [
-        {
-            "component": "general",
-            "errorCode": "1218",
-            "formattedMessage": "Warning: CHC: Error trying to invoke SMT solver.
- --> A:7:15:
-  |
-7 | \t\t\t\t\t\treturn (a / b, a % b);
-  | \t\t\t\t\t\t        ^^^^^
-
-",
-            "message": "CHC: Error trying to invoke SMT solver.",
-            "severity": "warning",
-            "sourceLocation":
-            {
-                "end": 182,
-                "file": "A",
-                "start": 177
-            },
-            "type": "Warning"
-        },
-        {
-            "component": "general",
-            "errorCode": "1218",
-            "formattedMessage": "Warning: CHC: Error trying to invoke SMT solver.
- --> A:7:22:
-  |
-7 | \t\t\t\t\t\treturn (a / b, a % b);
-  | \t\t\t\t\t\t               ^^^^^
-
-",
-            "message": "CHC: Error trying to invoke SMT solver.",
-            "severity": "warning",
-            "sourceLocation":
-            {
-                "end": 189,
-                "file": "A",
-                "start": 184
-            },
-            "type": "Warning"
-        },
+    "errors": [
         {
             "component": "general",
             "errorCode": "5840",
@@ -52,10 +11,8 @@
             "type": "Warning"
         }
     ],
-    "sources":
-    {
-        "A":
-        {
+    "sources": {
+        "A": {
             "id": 0
         }
     }

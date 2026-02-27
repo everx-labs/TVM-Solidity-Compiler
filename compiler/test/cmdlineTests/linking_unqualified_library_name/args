@@ -1,0 +1,1 @@
+contract1.sol contract2.sol --bin --libraries Log:0x7777777777777777777777777777777777777777

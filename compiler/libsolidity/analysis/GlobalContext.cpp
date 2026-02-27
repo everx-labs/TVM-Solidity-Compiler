@@ -28,61 +28,68 @@
 #include <libsolidity/ast/TypeProvider.h>
 #include <libsolidity/ast/Types.h>
 #include <memory>
+#include <unordered_map>
 
 namespace solidity::frontend
 {
 
 namespace
 {
+
 /// Magic variables get negative ids for easy differentiation
 int magicVariableToID(std::string const& _name)
 {
-	if (_name == "abi") return -1;
-	else if (_name == "addmod") return -2;
-	else if (_name == "assert") return -3;
-	else if (_name == "block") return -4;
-	else if (_name == "blockhash") return -5;
-	else if (_name == "ecrecover") return -6;
-	else if (_name == "gasleft") return -7;
-	else if (_name == "keccak256") return -8;
-	else if (_name == "msg") return -15;
-	else if (_name == "mulmod") return -16;
-	else if (_name == "now") return -17;
-	else if (_name == "require") return -18;
-	else if (_name == "revert") return -19;
-	else if (_name == "ripemd160") return -20;
-	else if (_name == "selfdestruct") return -21;
-	else if (_name == "sha256") return -22;
-	else if (_name == "sha3") return -23;
-	else if (_name == "super") return -25;
-	else if (_name == "tx") return -26;
-	else if (_name == "type") return -27;
-	else if (_name == "this") return -28;
-	else if (_name == "blobhash") return -29;
-	else if (_name == "gasToValue") return -60;
-	else if (_name == "valueToGas") return -61;
-	else if (_name == "bitSize") return -62;
-	else if (_name == "uBitSize") return -63;
-	else if (_name == "tvm") return -101;
-	else if (_name == "logtvm") return -102;
-	else if (_name == "math") return -103;
-	else if (_name == "format") return -104;
-	else if (_name == "rnd") return -105;
-	else if (_name == "stoi") return -106;
-	else if (_name == "gosh") return -107;
-	else if (_name == "bls") return -108;
-	else if (_name == "gasConsumed") return -109;
-	else if (_name == "sha256") return -110;
-	else if (_name == "sha512") return -111;
-	else if (_name == "blake2b") return -112;
-	else if (_name == "keccak256") return -113;
-	else if (_name == "keccak512") return -114;
-	else if (_name == "rist255") return -115;
-	else
-		solAssert(false, "Unknown magic variable: \"" + _name + "\".");
+	static std::unordered_map<std::string, int> const magicVariables = {
+		{"abi", -1},
+		{"addmod", -2},
+		{"assert", -3},
+		{"block", -4},
+		{"blockhash", -5},
+		{"ecrecover", -6},
+		{"gasleft", -7},
+		{"keccak256", -8},
+		{"msg", -15},
+		{"mulmod", -16},
+		{"now", -17},
+		{"require", -18},
+		{"revert", -19},
+		{"ripemd160", -20},
+		{"selfdestruct", -21},
+		{"sha256", -22},
+		{"sha3", -23},
+		{"suicide", -24},
+		{"super", -25},
+		{"tx", -26},
+		{"type", -27},
+		{"this", -28},
+		{"blobhash", -29},
+		{"gasToValue", -60},
+		{"valueToGas", -61},
+		{"bitSize", -62},
+		{"uBitSize", -63},
+		{"tvm", -101},
+		{"logtvm", -102},
+		{"math", -103},
+		{"format", -104},
+		{"rnd", -105},
+		{"stoi", -106},
+		{"gosh", -107},
+		{"bls", -108},
+		{"gasConsumed", -109},
+		{"sha256", -110},
+		{"sha512", -111},
+		{"blake2b", -112},
+		{"keccak256", -113},
+		{"keccak512", -114},
+		{"rist255", -115},
+	};
+
+	if (auto id = magicVariables.find(_name); id != magicVariables.end())
+		return id->second;
+	solAssert(false, "Unknown magic variable: \"" + _name + "\".");
 }
 
-inline std::vector<std::shared_ptr<MagicVariableDeclaration const>> constructMagicVariables(langutil::EVMVersion _evmVersion)
+inline std::vector<std::shared_ptr<MagicVariableDeclaration const>> constructMagicVariables()
 {
 	static auto const magicVarDecl = [](std::string const& _name, Type const* _type) {
 		return std::make_shared<MagicVariableDeclaration>(magicVariableToID(_name), _name, _type);
@@ -97,10 +104,13 @@ inline std::vector<std::shared_ptr<MagicVariableDeclaration const>> constructMag
 		magicVarDecl("msg", TypeProvider::magic(MagicType::Kind::Message)),
 		magicVarDecl("mulmod", TypeProvider::function(strings{"uint256", "uint256", "uint256"}, strings{"uint256"}, FunctionType::Kind::MulMod, StateMutability::Pure)),
 		magicVarDecl("now", TypeProvider::uint(32)),
-		magicVarDecl("require", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::Require, StateMutability::Pure, FunctionType::Options::withArbitraryParameters())),
-		magicVarDecl("revert", TypeProvider::function(strings(), strings(), FunctionType::Kind::Revert, StateMutability::Pure, FunctionType::Options::withArbitraryParameters())),
+		magicVarDecl("require", TypeProvider::function(strings{"bool"}, strings{}, FunctionType::Kind::Require, StateMutability::Pure)),
+		magicVarDecl("require", TypeProvider::function(strings{"bool", "uint16"}, strings{}, FunctionType::Kind::Require, StateMutability::Pure)),
+		magicVarDecl("require", TypeProvider::function(strings{"bool", "uint16", "uint32"}, strings{}, FunctionType::Kind::Require, StateMutability::Pure)),
+		magicVarDecl("revert", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::Revert, StateMutability::Pure)),
+		magicVarDecl("revert", TypeProvider::function(strings{"uint16"}, strings{}, FunctionType::Kind::Revert, StateMutability::Pure)),
+		magicVarDecl("revert", TypeProvider::function(strings{"uint16", "uint32"}, strings{}, FunctionType::Kind::Revert, StateMutability::Pure)),
 		magicVarDecl("selfdestruct", TypeProvider::function(strings{"address payable"}, strings{}, FunctionType::Kind::Selfdestruct)),
-
 		magicVarDecl("format", TypeProvider::function(strings{}, strings{"string"}, FunctionType::Kind::Format, StateMutability::Pure, FunctionType::Options::withArbitraryParameters())),
 		magicVarDecl("gosh", TypeProvider::magic(MagicType::Kind::Gosh)),
 		magicVarDecl("logtvm", TypeProvider::function(strings{"string"}, strings{}, FunctionType::Kind::LogTVM, StateMutability::Pure)),
@@ -151,18 +161,13 @@ inline std::vector<std::shared_ptr<MagicVariableDeclaration const>> constructMag
 		magicVarDecl("keccak512", TypeProvider::function({}, {}, FunctionType::Kind::HashExt, StateMutability::Pure, FunctionType::Options::withArbitraryParameters())),
 	};
 
-	if (_evmVersion >= langutil::EVMVersion::cancun())
-		magicVariableDeclarations.push_back(
-			magicVarDecl("blobhash", TypeProvider::function(strings{"uint256"}, strings{"bytes32"}, FunctionType::Kind::BlobHash, StateMutability::View))
-		);
-
 	return magicVariableDeclarations;
 }
 
 }
 
-GlobalContext::GlobalContext(langutil::EVMVersion _evmVersion):
-	m_magicVariables{constructMagicVariables(_evmVersion)}
+GlobalContext::GlobalContext():
+	m_magicVariables{constructMagicVariables()}
 {
 }
 

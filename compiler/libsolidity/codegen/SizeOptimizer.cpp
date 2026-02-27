@@ -19,7 +19,7 @@
 
 #include <libsolidity/codegen/SizeOptimizer.hpp>
 
-using namespace std;
+
 using namespace solidity::util;
 using namespace solidity::frontend;
 
@@ -39,7 +39,7 @@ private:
 
 bool SizeOptimizerPrivate::visit(PushCellOrSlice &_node) {
 	if (_node.type() == PushCellOrSlice::Type::PUSHSLICE) {
-		auto slice = dynamic_pointer_cast<PushCellOrSlice>(_node.shared_from_this());
+		auto slice = std::dynamic_pointer_cast<PushCellOrSlice>(_node.shared_from_this());
 		m_qty[slice].push_back(slice);
 	}
 	return false;
@@ -60,7 +60,7 @@ void SizeOptimizerPrivate::upd() {
 	}
 }
 
-void SizeOptimizer::optimize(Pointer<Contract>& c){
+void SizeOptimizer::optimize(Pointer<Contract> const& c){
 	SizeOptimizerPrivate sp;
 	c->accept(sp);
 	sp.upd();

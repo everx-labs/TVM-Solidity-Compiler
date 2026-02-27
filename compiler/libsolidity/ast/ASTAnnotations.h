@@ -27,6 +27,7 @@
 #include <libsolidity/ast/ASTEnums.h>
 #include <libsolidity/ast/ExperimentalFeatures.h>
 
+#include <libsolutil/Numeric.h>
 #include <libsolutil/SetOnce.h>
 
 #include <map>
@@ -59,8 +60,8 @@ struct ASTAnnotation
 
 struct DocTag
 {
-	std::string content;	///< The text content of the tag.
-	std::string paramName;	///< Only used for @param, stores the parameter name.
+	std::string content;    ///< The text content of the tag.
+	std::string paramName;  ///< Only used for @param, stores the parameter name.
 };
 
 struct StructurallyDocumentedAnnotation
@@ -162,6 +163,12 @@ struct ContractDefinitionAnnotation: TypeDeclarationAnnotation, StructurallyDocu
 
 	// Per-contract map from function AST IDs to internal dispatch function IDs.
 	std::map<FunctionDefinition const*, uint64_t> internalFunctionIDs;
+};
+
+struct StorageLayoutSpecifierAnnotation: ASTAnnotation
+{
+	// The evaluated value of the expression specifying the contract storage layout base
+	util::SetOnce<u256> baseSlot;
 };
 
 struct CallableDeclarationAnnotation: DeclarationAnnotation
@@ -271,10 +278,6 @@ struct ExpressionAnnotation: ASTAnnotation
 	util::SetOnce<bool> isLValue;
 	/// Whether the expression is used in a context where the LValue is actually required.
 	bool willBeWrittenTo = false;
-	/// Whether the expression is an lvalue that is only assigned.
-	/// Would be false for --, ++, delete, +=, -=, ....
-	/// Only relevant if isLvalue == true
-	bool lValueOfOrdinaryAssignment = false;
 
 	/// Types and - if given - names of arguments if the expr. is a function
 	/// that is called, used for overload resolution
@@ -340,6 +343,10 @@ struct FunctionCallAnnotation: ExpressionAnnotation
 /// Used to integrate with name and type resolution.
 /// @{
 struct TypeClassDefinitionAnnotation: TypeDeclarationAnnotation, StructurallyDocumentedAnnotation
+{
+};
+
+struct ForAllQuantifierAnnotation: StatementAnnotation, ScopableAnnotation
 {
 };
 /// @}

@@ -343,6 +343,43 @@ void joinMap(std::map<K, V>& _a, std::map<K, V>&& _b, F _conflictSolver)
 	}
 }
 
+template<typename T>
+class UniqueVector
+{
+public:
+	std::vector<T> const& contents() const { return m_contents; }
+	size_t size() const { return m_contents.size(); }
+	bool empty() const { return m_contents.empty(); }
+	auto begin() const { return m_contents.begin(); }
+	auto end() const { return m_contents.end(); }
+	void clear() { m_contents.clear(); }
+	bool contains(T const& _value) const
+	{
+		return std::find(m_contents.begin(), m_contents.end(), _value) != m_contents.end();
+	}
+
+	void pushBack(T _value)
+	{
+		if (!contains(_value))
+			m_contents.emplace_back(std::move(_value));
+	}
+
+	void pushBack(UniqueVector<T> const& _values)
+	{
+		for (auto&& value: _values)
+			pushBack(value);
+	}
+
+	void removeAll(std::vector<T> const& _values)
+	{
+		for (auto const& value: _values)
+			m_contents.erase(std::find(m_contents.begin(), m_contents.end(), value));
+	}
+
+private:
+	std::vector<T> m_contents;
+};
+
 namespace detail
 {
 
@@ -433,7 +470,7 @@ inline std::string asString(bytesConstRef _b)
 }
 
 /// Converts a string to a byte array containing the string's (byte) data.
-inline bytes asBytes(std::string const& _b)
+inline bytes asBytes(std::string_view const _b)
 {
 	return bytes((uint8_t const*)_b.data(), (uint8_t const*)(_b.data() + _b.size()));
 }
@@ -514,6 +551,29 @@ void iterateReplacingWindow(std::vector<T>& _vector, F const& _f, std::index_seq
 
 }
 
+/// Checks if two collections possess a non-empty intersection.
+/// Assumes that both inputs are sorted in ascending order.
+template<typename Collection1, typename Collection2>
+requires (
+	std::forward_iterator<std::ranges::iterator_t<Collection1>> &&
+	std::forward_iterator<std::ranges::iterator_t<Collection2>>
+)
+bool hasNonemptyIntersectionSorted(Collection1 const& _collection1, Collection2 const& _collection2)
+{
+	auto it1 = std::ranges::begin(_collection1);
+	auto it2 = std::ranges::begin(_collection2);
+	while (it1 != std::ranges::end(_collection1) && it2 != std::ranges::end(_collection2))
+	{
+		if (*it1 == *it2)
+			return true;
+		if (*it1 < *it2)
+			++it1;
+		else
+			++it2;
+	}
+	return false;
+}
+
 /// Function that iterates over the vector @param _vector,
 /// calling the function @param _f on sequences of @tparam N of its
 /// elements. If @param _f returns a vector, these elements are replaced by
@@ -532,7 +592,7 @@ void iterateReplacingWindow(std::vector<T>& _vector, F const& _f)
 	detail::iterateReplacingWindow(_vector, _f, std::make_index_sequence<N>{});
 }
 
-/// @returns true iff @a _str passess the hex address checksum test.
+/// @returns true iff @a _str passes the hex address checksum test.
 /// @param _strict if false, hex strings with only uppercase or only lowercase letters
 /// are considered valid.
 bool passesAddressChecksum(std::string const& _str, bool _strict);
@@ -541,8 +601,8 @@ bool passesAddressChecksum(std::string const& _str, bool _strict);
 /// @param hex strings that look like an address
 std::string getChecksummedAddress(std::string const& _addr);
 
-bool isValidHex(std::string const& _string);
-bool isValidDecimal(std::string const& _string);
+bool isValidHex(std::string_view _string);
+bool isValidDecimal(std::string_view _string);
 
 /// @returns a quoted string if all characters are printable ASCII chars,
 /// or its hex representation otherwise.
@@ -587,6 +647,16 @@ std::vector<T> make_vector(Args&&... _args)
 	result.reserve(sizeof...(_args));
 	detail::variadicEmplaceBack(result, std::forward<Args>(_args)...);
 	return result;
+}
+
+inline std::string stringOrDefault(std::string _string, std::string _defaultString = "")
+{
+	return (!_string.empty() ? std::move(_string) : std::move(_defaultString));
+}
+
+inline std::string stringOrDefault(std::string const* _string, std::string const& _defaultString = "")
+{
+	return (_string ? stringOrDefault(*_string, _defaultString) : _defaultString);
 }
 
 }

@@ -23,6 +23,7 @@
 #include <libsolidity/analysis/ContractLevelChecker.h>
 
 #include <libsolidity/ast/AST.h>
+#include <libsolidity/ast/ASTUtils.h>
 #include <libsolidity/ast/TypeProvider.h>
 #include <libsolidity/analysis/TypeChecker.h>
 #include <libsolutil/FunctionSelector.h>
@@ -30,6 +31,7 @@
 
 #include <fmt/format.h>
 
+#include <range/v3/algorithm/find_if.hpp>
 #include <range/v3/view/reverse.hpp>
 
 using namespace solidity;
@@ -107,7 +109,7 @@ void ContractLevelChecker::checkDuplicateFunctions(ContractDefinition const& _co
 	FunctionDefinition const* constructor = nullptr;
 	FunctionDefinition const* fallback = nullptr;
 	FunctionDefinition const* receive = nullptr;
-	FunctionDefinition const* onBounce = nullptr;
+	FunctionDefinition const* onBouncedMessage = nullptr;
 	FunctionDefinition const* onTickTock = nullptr;
 	for (FunctionDefinition const* function: _contract.definedFunctions())
 		if (function->isConstructor())
@@ -132,16 +134,16 @@ void ContractLevelChecker::checkDuplicateFunctions(ContractDefinition const& _co
 				);
 			fallback = function;
 		}
-		else if (function->isOnBounce())
+		else if (function->isOnBouncedMessage())
 		{
-			if (onBounce)
+			if (onBouncedMessage)
 				m_errorReporter.declarationError(
 						9645_error,
 						function->location(),
-						SecondarySourceLocation().append("Another declaration is here:", onBounce->location()),
-						"Only one onBounce function is allowed."
+						SecondarySourceLocation().append("Another declaration is here:", onBouncedMessage->location()),
+						"Only one onBouncedMessage function is allowed."
 				);
-			onBounce = function;
+			onBouncedMessage = function;
 		}
 		else if (function->isReceive())
 		{
@@ -555,5 +557,3 @@ void ContractLevelChecker::checkBaseABICompatibility(ContractDefinition const& _
 		);
 
 }
-
-

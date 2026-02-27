@@ -23,7 +23,7 @@
 
 #pragma once
 
-#include <liblangutil/EVMVersion.h>
+#include <liblangutil/TVMVersion.h>
 
 #include <libsolidity/ast/ASTAnnotations.h>
 #include <libsolidity/ast/ASTForward.h>
@@ -48,33 +48,21 @@ class TypeChecker: private ASTConstVisitor
 {
 public:
 	/// @param _errorReporter provides the error logging functionality.
-	TypeChecker(langutil::EVMVersion _evmVersion, langutil::ErrorReporter& _errorReporter):
-		m_evmVersion(_evmVersion),
+	TypeChecker(langutil::TVMVersion tvmVersion, std::optional<uint8_t> _eofVersion, langutil::ErrorReporter& _errorReporter):
+		m_tvmVersion{tvmVersion},
+		m_eofVersion(_eofVersion),
 		m_errorReporter(_errorReporter)
-	{}
-
-	TypeChecker(langutil::ErrorReporter& _errorReporter):
-			m_errorReporter(_errorReporter)
 	{}
 
 	/// Performs type checking on the given source and all of its sub-nodes.
 	/// @returns true iff all checks passed. Note even if all checks passed, errors() can still contain warnings
 	bool checkTypeRequirements(SourceUnit const& _source);
 
-	/// @returns the type of an expression and asserts that it is present.
-	Type const* type(Expression const& _expression) const;
-	/// @returns the type of the given variable and throws if the type is not present
-	/// (this can happen for variables with non-explicit types before their types are resolved)
-	Type const* type(VariableDeclaration const& _variable) const;
-
 	static bool typeSupportedByOldABIEncoder(Type const& _type, bool _isLibraryCall);
 
 private:
 
 	bool visit(ContractDefinition const& _contract) override;
-	/// Checks (and warns) if a tuple assignment might cause unexpected overwrites in storage.
-	/// Should only be called if the left hand side is tuple-typed.
-	void checkDoubleStorageAssignment(Assignment const& _assignment);
 	// Checks whether the expression @arg _expression can be assigned from type @arg _type
 	// and reports an error, if not.
 	void checkExpressionAssignment(Type const& _type, Expression const& _expression);
@@ -85,24 +73,24 @@ private:
 	TypePointers typeCheckABIDecodeAndRetrieveReturnType(
 		FunctionCall const& _functionCall,
 		bool _abiEncoderV2
-	);
+	) const;
 
 	void typeCheckABIEncodeStateInit(
 		FunctionCall const& _functionCall,
 		const std::function<bool(const std::string&)>& hasName,
 		const std::function<int(const std::string&)>& findName
-	);
+	) const;
 	void typeCheckABIEncodeData(
 		FunctionCall const& _functionCall,
 		const std::function<bool(const std::string&)>& hasName,
 		const std::function<int(const std::string&)>& findName
-	);
+	) const;
 
-	void typeCheckCallBack(FunctionType const* remoteFunction, Expression const& option);
-	TypePointers checkSliceDecode(std::vector<ASTPointer<Expression const>> const& _args);
-	TypePointers checkSliceDecodeQ(std::vector<ASTPointer<Expression const>> const& _args);
-	TypePointers getReturnTypesForTVMConfig(FunctionCall const& _functionCall);
-	TypePointers typeCheckMetaTypeFunctionAndRetrieveReturnType(FunctionCall const& _functionCall);
+	void typeCheckCallBack(FunctionType const* remoteFunction, Expression const& option) const;
+	TypePointers checkSliceDecode(std::vector<ASTPointer<Expression const>> const& arguments) const;
+	TypePointers checkSliceDecodeQ(std::vector<ASTPointer<Expression const>> const& arguments) const;
+	TypePointers getReturnTypesForTVMConfig(FunctionCall const& _functionCall) const;
+	TypePointers typeCheckMetaTypeFunctionAndRetrieveReturnType(FunctionCall const& _functionCall) const;
 
 	/// Performs type checks and determines result types for type conversion FunctionCall nodes.
 	Type const* typeCheckTypeConversionAndRetrieveReturnType(
@@ -118,15 +106,15 @@ private:
 
 	void typeCheckFallbackFunction(FunctionDefinition const& _function);
 	void typeCheckConstructor(FunctionDefinition const& _function);
-	void typeCheckOnBounce(FunctionDefinition const& _function);
+	void typeCheckOnBouncedMessage(FunctionDefinition const& _function);
 	void typeCheckOnTickTock(FunctionDefinition const& _function);
-	void checkNeedCallback(FunctionType const * callee, ASTNode const& node);
+	void checkNeedCallback(FunctionType const * callee, ASTNode const& node) const;
 
 	/// Performs general number and type checks of arguments against function call and struct ctor FunctionCall node parameters.
 	void typeCheckFunctionGeneralChecks(
 		FunctionCall const& _functionCall,
 		FunctionTypePointer _functionType,
-		std::set<std::string> _ignoreOptions = {}
+		const std::set<std::string>& _ignoreOptions = {}
 	);
 
 	/// Performs general checks and checks specific to ABI encode functions
@@ -161,7 +149,7 @@ private:
 		FunctionDefinition const* calleeDefinition,
 		FunctionDefinition const* callbackFunc,
 		langutil::SourceLocation const& _location
-	);
+	) const;
 
 	/// Performs checks specific to the ABI encode functions of type ABIEncodeCall
 	void typeCheckABIEncodeCallFunction(FunctionCall const& _functionCall);
@@ -207,7 +195,9 @@ private:
 	bool visit(WhileStatement const& _whileStatement) override;
 	bool visit(ForStatement const& _forStatement) override;
 	bool visit(ForEachStatement const& _forStatement) override;
+	bool visit(Return const& _return) override;
 	void endVisit(Return const& _return) override;
+	bool visit(EmitStatement const& _emit) override;
 	void endVisit(EmitStatement const& _emit) override;
 	void endVisit(RevertStatement const& _revert) override;
 	bool visit(VariableDeclarationStatement const& _variable) override;
@@ -251,7 +241,7 @@ private:
 	/// convertible to @a _expectedType.
 	bool expectType(Expression const& _expression, Type const& _expectedType, bool acceptExpression = true);
 	/// Runs type checks on @a _expression to infer its type and then checks that it is an LValue.
-	void requireLValue(Expression const& _expression, bool _ordinaryAssignment);
+	void requireLValue(Expression const& _expression);
 
 	bool useABICoderV2() const;
 
@@ -265,14 +255,43 @@ private:
 			return m_currentSourceUnit;
 	}
 
+	void checkArgNumAndIsIntOrVarInt(
+		std::vector<ASTPointer<Expression const>> const& arguments,
+		size_t arguments_cnt,
+		const std::function<bool(size_t, size_t)>& cmpOperator,
+		const std::string& errorMsg,
+		langutil::SourceLocation const& _functionCallLocation
+	) const;
+	void checkArgNumAndIsIntOrQintOrVarInt(
+		std::vector<ASTPointer<Expression const>> const& arguments,
+		size_t arguments_cnt,
+		const std::function<bool(size_t, size_t)>& cmpOperator,
+		const std::string& errorMsg,
+		langutil::SourceLocation const& _functionCallLocation
+	) const;
+	void checkArgQtyAndIsIntOrQIntOrVarIntOrFixedPoint(
+		std::vector<ASTPointer<Expression const>> const& arguments,
+		size_t arguments_cnt,
+		const std::function<bool(size_t, size_t)>& cmpOperator,
+		const std::string& errorMsg,
+		langutil::SourceLocation const& _functionCallLocation
+	);
+	void checkAllAreNotFractions(std::vector<ASTPointer<Expression const>> const& arguments) const;
+	Type const* getCommonType(std::vector<ASTPointer<Expression const>> const& arguments) const;
+	void checkAtLeastOneArg(size_t size, langutil::SourceLocation const& _functionCallLocation) const;
+	void checkHasNamedParams(size_t size, langutil::SourceLocation const& _functionCallLocation) const;
+
 	SourceUnit const* m_currentSourceUnit = nullptr;
 	ContractDefinition const* m_currentContract = nullptr;
 	FunctionDefinition const* m_currentFunction = nullptr;
 
-	langutil::EVMVersion m_evmVersion;
+	langutil::TVMVersion m_tvmVersion;
+	std::optional<uint8_t> m_eofVersion;
 
 	langutil::ErrorReporter& m_errorReporter;
-	std::map<std::string, StructType const*> m_structs;
+
+public:
+	static const std::string IS_NOT_SUPPORTED_VM;
 };
 
 }

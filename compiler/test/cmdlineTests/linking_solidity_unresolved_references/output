@@ -1,0 +1,24 @@
+
+======= input.sol:C =======
+Binary:
+<BYTECODE REMOVED>__$a7fb54ac3bf4ba657d4a55d066b3521d62$__<BYTECODE REMOVED>__$a7fb54ac3bf4ba657d4a55d066b3521d62$__<BYTECODE REMOVED>
+
+// $a7fb54ac3bf4ba657d4a55d066b3521d62$ -> input.sol:L2
+// $a7fb54ac3bf4ba657d4a55d066b3521d62$ -> input.sol:L2
+Binary of the runtime part:
+<BYTECODE REMOVED>__$a7fb54ac3bf4ba657d4a55d066b3521d62$__<BYTECODE REMOVED>__$a7fb54ac3bf4ba657d4a55d066b3521d62$__<BYTECODE REMOVED>
+
+// $a7fb54ac3bf4ba657d4a55d066b3521d62$ -> input.sol:L2
+// $a7fb54ac3bf4ba657d4a55d066b3521d62$ -> input.sol:L2
+
+======= input.sol:L1 =======
+Binary:
+<BYTECODE REMOVED>
+Binary of the runtime part:
+<BYTECODE REMOVED>
+
+======= input.sol:L2 =======
+Binary:
+<BYTECODE REMOVED>
+Binary of the runtime part:
+<BYTECODE REMOVED>

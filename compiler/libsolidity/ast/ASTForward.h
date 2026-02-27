@@ -99,6 +99,7 @@ class Identifier;
 class ElementaryTypeNameExpression;
 class Literal;
 class StructuredDocumentation;
+class StorageLayoutSpecifier;
 
 /// Experimental Solidity nodes
 /// @{
@@ -107,6 +108,7 @@ class TypeClassInstantiation;
 class TypeClassName;
 class TypeDefinition;
 class Builtin;
+class ForAllQuantifier;
 /// @}
 
 class VariableScope;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2024 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2025 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -24,34 +24,48 @@ namespace solidity::frontend {
 
 class TVMCompilerContext;
 
-class TVMContractCompiler: private boost::noncopyable {
+class TVMContractCompiler: boost::noncopyable {
 public:
-	static void printFunctionIds(ContractDefinition const& contract, PragmaDirectiveHelper const& pragmaHelper);
-	static void printPrivateFunctionIds(
+	static void printFunctionIds(
+		std::string const& fileName,
 		ContractDefinition const& contract,
-		std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
 		PragmaDirectiveHelper const& pragmaHelper
 	);
+	static void printPrivateFunctionIds(
+		std::string const& fileName,
+		ContractDefinition const& contract,
+		std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
+		PragmaDirectiveHelper const& pragmaHelper,
+		bool debugMode
+	);
 	static void generateABI(
-		const std::string& fileName,
+		std::string const& fileName,
 		ContractDefinition const* contract,
 		std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
-		std::vector<PragmaDirective const *> const& pragmaDirectives
+		std::vector<PragmaDirective const*> const& pragmaDirectives
 	);
 	static void generateCodeAndSaveToFile(
 		std::string const& fileName,
 		ContractDefinition const& contract,
 		std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
-		PragmaDirectiveHelper const &pragmaHelper
+		PragmaDirectiveHelper const& pragmaHelper,
+		bool debugMode
 	);
 	static Pointer<Contract> generateContractCode(
 		ContractDefinition const* contract,
-		std::vector<ASTPointer<SourceUnit>>const& _sourceUnits,
-		PragmaDirectiveHelper const& pragmaHelper
+		std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
+		PragmaDirectiveHelper const& pragmaHelper,
+		bool debugMode
 	);
-	static void optimizeCode(Pointer<Contract>& c);
+	static void optimizeCode(Pointer<Contract> const& c, std::vector<std::string> const& functionDag);
+
 private:
-	static void fillInlineFunctions(TVMCompilerContext& ctx, ContractDefinition const* contract, std::vector<ASTPointer<SourceUnit>>const& _sourceUnits);
+	static void fillInlineFunctions(
+		TVMCompilerContext& ctx,
+		ContractDefinition const* contract,
+		std::vector<ASTPointer<SourceUnit>> const& _sourceUnits
+	);
+	static std::ofstream openFile(std::string const& fileName);
 };
 
-}	// end solidity::frontend
+} // end solidity::frontend

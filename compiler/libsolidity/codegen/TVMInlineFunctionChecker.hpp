@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2024 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2025 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -17,10 +17,10 @@
 
 namespace solidity::frontend {
 
-class TVMInlineFunctionChecker : public ASTConstVisitor {
+class TVMInlineFunctionChecker: public ASTConstVisitor {
 public:
 	TVMInlineFunctionChecker() = default;
-	bool visit(Identifier const& _node) override;
+	bool visit(Identifier const& _identifier) override;
 	bool visit(FunctionDefinition const& _node) override;
 	bool dfs(FunctionDefinition const* v);
 	std::vector<FunctionDefinition const*> functionOrder();
@@ -38,4 +38,3 @@ private:
 };
 
 } // end solidity::frontend
-

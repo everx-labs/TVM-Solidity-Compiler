@@ -37,8 +37,7 @@ function test_fn { npm run test; }
 function elementfi_test
 {
     local repo="https://github.com/element-fi/elf-contracts"
-    local ref_type=branch
-    local ref=main
+    local ref="<latest-release>"
     local config_file="hardhat.config.ts"
     local config_var=config
 
@@ -60,7 +59,7 @@ function elementfi_test
     print_presets_or_exit "$SELECTED_PRESETS"
 
     setup_solc "$DIR" "$BINARY_TYPE" "$BINARY_PATH"
-    download_project "$repo" "$ref_type" "$ref" "$DIR"
+    download_project "$repo" "$ref" "$DIR"
 
     chmod +x scripts/load-balancer-contracts.sh
     scripts/load-balancer-contracts.sh
@@ -94,15 +93,13 @@ function elementfi_test
     sed -i 's|it(\("should prevent withdrawal of Principal Tokens and Interest Tokens before the tranche expires "\)|it.skip(\1|g' test/trancheTest.ts
     sed -i 's|it(\("should prevent withdrawal of more Principal Tokens and Interest Tokens than the user has"\)|it.skip(\1|g' test/trancheTest.ts
 
-    # This test file is very flaky. There's one particular cases that fails randomly (see
-    # https://github.com/element-fi/elf-contracts/issues/240) but some others also depends on an external
+    # This test file is very flaky. There's one particular case that fails randomly (see
+    # https://github.com/element-fi/elf-contracts/issues/240) but some others also depend on an external
     # service which makes tests time out when that service is down.
     # "ProviderError: Too Many Requests error received from eth-mainnet.alchemyapi.io"
     rm test/mockERC20YearnVaultTest.ts
 
-    # Several tests fail unless we use the exact versions hard-coded in package-lock.json
-    #neutralize_package_lock
-
+    neutralize_package_lock
     neutralize_package_json_hooks
     force_hardhat_compiler_binary "$config_file" "$BINARY_TYPE" "$BINARY_PATH"
     force_hardhat_compiler_settings "$config_file" "$(first_word "$SELECTED_PRESETS")" "$config_var"

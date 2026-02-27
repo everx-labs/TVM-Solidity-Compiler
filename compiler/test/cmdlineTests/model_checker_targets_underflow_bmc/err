@@ -1,0 +1,12 @@
+Warning: BMC: Underflow (resulting value less than 0) happens here.
+ --> input.sol:7:3:
+  |
+7 | 		--x;
+  | 		^^^
+Note: Counterexample:
+  <result> = (- 1)
+  a = 0
+  x = 0
+
+Note: Callstack:
+Note:

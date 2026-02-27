@@ -1,0 +1,11 @@
+Warning: BMC: Assertion violation happens here.
+  --> input.sol:11:3:
+   |
+11 | 		assert(x > 0);
+   | 		^^^^^^^^^^^^^
+Note: Counterexample:
+  a = 0
+  x = 0
+
+Note: Callstack:
+Note:

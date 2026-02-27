@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2025 EverX. All Rights Reserved.
+ * Copyright (C) 2019-2026 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -22,28 +22,10 @@
 #include <libsolidity/codegen/TVMCommons.hpp>
 #include <libsolidity/codegen/TVMConstants.hpp>
 
-using namespace std;
 using namespace solidity::langutil;
 using namespace solidity::util;
 
 namespace solidity::frontend {
-
-std::string functionName(FunctionDefinition const *_function) {
-	if (_function->isConstructor()) {
-		return _function->annotation().contract->name();
-	}
-
-	if (_function->isReceive()) {
-		return "receive";
-	}
-	if (_function->isFallback()) {
-		return "fallback";
-	}
-	if (_function->isOnBounce()) {
-		return "onBounce";
-	}
-	return _function->name();
-}
 
 std::string eventName(EventDefinition const* _event) {
 	ContractDefinition const* contract = _event->annotation().contract;
@@ -54,26 +36,26 @@ std::string eventName(EventDefinition const* _event) {
 	return _event->name();
 }
 
-void cast_error(const ASTNode &node, const string &error_message) {
+void cast_error(ASTNode const& node, std::string const& error_message) {
 	GlobalParams::g_errorReporter->fatalParserError(9768_error, node.location(), error_message);
 	BOOST_THROW_EXCEPTION(FatalError()); // never throw, just for [[noreturn]]
 }
 
-void fatal_error(const string &error_message) {
+void fatal_error(std::string const& error_message) {
 	GlobalParams::g_errorReporter->error(5711_error, Error::Type::TypeError, SourceLocation(), error_message);
 	BOOST_THROW_EXCEPTION(FatalError()); // never throw, just for [[noreturn]]
 }
 
 FunctionDefinition const* getSuperFunction(
-	const ContractDefinition *currentContract,
-	const ContractDefinition *mainContract,
-	const string &hexName
+	ContractDefinition const* currentContract,
+	ContractDefinition const* mainContract,
+	std::string const& hexName
 ) {
 	FunctionDefinition const* prev = nullptr;
-	for (auto c : getContractsChain(mainContract)) {
+	for (auto c: getContractsChain(mainContract)) {
 		if (c == currentContract)
 			break;
-		for (FunctionDefinition const* f : c->definedFunctions()) {
+		for (FunctionDefinition const* f: c->definedFunctions()) {
 			if (f->isOrdinary() && f->externalIdentifierHex() == hexName) {
 				prev = f;
 			}
@@ -82,32 +64,28 @@ FunctionDefinition const* getSuperFunction(
 	return prev;
 }
 
-const Type *getType(const VariableDeclaration *var) {
-	return var->annotation().type;
-}
+Type const* getType(VariableDeclaration const* var) { return var->annotation().type; }
 
-bool isAddressOrAddressStdOrContractType(const Type *type) {
+bool isAddressOrAddressStdOrContractType(Type const* type) {
 	return to<AddressType>(type) || to<AddressStdType>(type) || to<ContractType>(type);
 }
 
-bool isUsualArray(const Type *type) {
+bool isUsualArray(Type const* type) {
 	auto arrayType = to<ArrayType>(type);
 	return arrayType && !arrayType->isByteArrayOrString();
 }
 
-bool isByteArrayOrString(const Type *type) {
+bool isByteArrayOrString(Type const* type) {
 	auto arrayType = to<ArrayType>(type);
 	return arrayType && arrayType->isByteArrayOrString();
 }
 
-bool isString(const Type *type) {
+bool isString(Type const* type) {
 	auto arrayType = to<ArrayType>(type);
 	return type->category() == Type::Category::StringLiteral || (arrayType && arrayType->isString());
 }
 
-bool isSlice(const Type * type) {
-	return to<TvmSliceType>(type) != nullptr;
-}
+bool isSlice(Type const* type) { return to<TvmSliceType>(type) != nullptr; }
 
 bool isSmallOptional(OptionalType const* type) {
 	ABITypeSize size{type->valueType()};
@@ -136,30 +114,26 @@ int bitsForEnum(size_t val_count) {
 	return 8 * bytes;
 }
 
-const Type *getType(const Expression *expr) {
-	return expr->annotation().type;
-}
+Type const* getType(Expression const* expr) { return expr->annotation().type; }
 
-bool isIntegralType(const Type *type) {
-	return TypeInfo(type).isNumeric;
-}
+bool isIntegralType(Type const* type) { return TypeInfo(type).isNumeric; }
 
-bool isStringOrStringLiteralOrBytes(const Type *type) {
+bool isStringOrStringLiteralOrBytes(Type const* type) {
 	auto arrayType = to<ArrayType>(type);
 	return type->category() == Type::Category::StringLiteral || (arrayType && arrayType->isByteArrayOrString());
 }
 
-std::string typeToDictChar(Type const *keyType) {
+std::string typeToDictChar(Type const* keyType) {
 	TypeInfo ti(keyType);
 	if (ti.isNumeric) {
-		return ti.isSigned? "I" : "U";
+		return ti.isSigned ? "I" : "U";
 	} else if (isStringOrStringLiteralOrBytes(keyType) || keyType->category() == Type::Category::TvmCell) {
 		return "U";
 	}
 	return ""; // dict key is slice
 }
 
-int dictKeyLength(Type const *key) {
+int dictKeyLength(Type const* key) {
 	if (isIn(key->category(), Type::Category::Address, Type::Category::AddressStd, Type::Category::Contract)) {
 		return AddressInfo::stdAddrWithoutAnyCastLength();
 	}
@@ -169,15 +143,15 @@ int dictKeyLength(Type const *key) {
 		return ti.numBits;
 	}
 
-	if (isStringOrStringLiteralOrBytes(key) || key->category() == Type::Category::TvmCell){
+	if (isStringOrStringLiteralOrBytes(key) || key->category() == Type::Category::TvmCell) {
 		return 256; // hash of tree of cells
 	}
 
 	auto structType = to<StructType>(key);
 	if (structType) {
 		int bitLength = 0;
-		StructDefinition const &structDefinition = structType->structDefinition();
-		for (const auto &member : structDefinition.members()) {
+		StructDefinition const& structDefinition = structType->structDefinition();
+		for (auto const& member: structDefinition.members()) {
 			TypeInfo ti2{member->type()};
 			solAssert(ti2.isNumeric, "");
 			bitLength += ti2.numBits;
@@ -187,27 +161,23 @@ int dictKeyLength(Type const *key) {
 	solUnimplemented("");
 }
 
-IntegerType getKeyTypeOfC4() {
-	return IntegerType(TvmConst::C4::KeyLength);
-}
+IntegerType getKeyTypeOfC4() { return IntegerType(TvmConst::C4::KeyLength); }
 
 IntegerType const& getArrayKeyType() {
 	return *TypeProvider::integer(TvmConst::ArrayKeyLength, IntegerType::Modifier::Unsigned);
 }
 
-std::tuple<Type const*, Type const*>
-dictKeyValue(Type const* type) {
+std::tuple<Type const*, Type const*> dictKeyValue(Type const* type) {
 	auto mapType = to<MappingType>(type);
 	solAssert(mapType, "");
 	return {mapType->keyType(), mapType->valueType()};
 }
 
-std::tuple<Type const*, Type const*>
-realDictKeyValue(Type const* type) {
+std::tuple<Type const*, Type const*> realDictKeyValue(Type const* type) {
 	Type const* keyType{};
 	Type const* valueType{};
 	if (auto mapType = to<MappingType>(type)) {
-		keyType = mapType->realKeyType();
+		keyType = mapType->keyType();
 		valueType = mapType->valueType();
 	} else {
 		solUnimplemented("");
@@ -215,31 +185,28 @@ realDictKeyValue(Type const* type) {
 	return {keyType, valueType};
 }
 
-vector<ContractDefinition const *> getContractsChain(ContractDefinition const *contract) {
-	vector<FunctionDefinition const*> result;
+std::vector<ContractDefinition const*> getContractsChain(ContractDefinition const* contract) {
+	std::vector<FunctionDefinition const*> result;
 	auto contracts = contract->annotation().linearizedBaseContracts;
-	std::reverse(contracts.begin(), contracts.end());
+	std::ranges::reverse(contracts);
 	return contracts;
 }
 
-std::vector<VariableDeclaration const *> stateVariables(
-	ContractDefinition const* _contract,
-	StateVarType stateVarType
-) {
-	std::vector<VariableDeclaration const *> variableDeclarations;
-	std::vector<ContractDefinition const *> mainChain = getContractsChain(_contract);
-	for (ContractDefinition const * contract: mainChain)
-		for (VariableDeclaration const *variable: contract->stateVariables())
+std::vector<VariableDeclaration const*> stateVariables(ContractDefinition const* _contract, StateVarType stateVarType) {
+	std::vector<VariableDeclaration const*> variableDeclarations;
+	std::vector<ContractDefinition const*> mainChain = getContractsChain(_contract);
+	for (ContractDefinition const* contract: mainChain)
+		for (VariableDeclaration const* variable: contract->stateVariables())
 			if (!variable->isConstant()) {
-				bool isNoStorage = variable->isNoStorage();
+				bool isTransient = variable->isTransient();
 				bool isUnpacked = variable->isUnpacked();
 				bool ok = false;
 				switch (stateVarType) {
 				case StateVarType::Usual:
-					ok = !isNoStorage && !isUnpacked;
+					ok = !isTransient && !isUnpacked;
 					break;
-				case StateVarType::NoStorage:
-					ok = isNoStorage;
+				case StateVarType::Transient:
+					ok = isTransient;
 					break;
 				case StateVarType::Unpacked:
 					ok = isUnpacked;
@@ -252,14 +219,14 @@ std::vector<VariableDeclaration const *> stateVariables(
 	return variableDeclarations;
 }
 
-bool isSuper(Expression const *expr) {
+bool isSuper(Expression const* expr) {
 	if (auto identifier = to<Identifier>(expr)) {
 		return identifier->name() == "super";
 	}
 	return false;
 }
 
-bool isAddressThis(const FunctionCall *funCall) {
+bool isAddressThis(FunctionCall const* funCall) {
 	if (!funCall)
 		return false;
 	auto arguments = funCall->arguments();
@@ -280,12 +247,12 @@ CallableDeclaration const* getFunctionDeclarationOrConstructor(Expression const*
 	if (f) {
 		return to<CallableDeclaration>(&f->declaration());
 	}
-	auto tt = dynamic_cast<const TypeType*>(expr->annotation().type);
+	auto tt = dynamic_cast<TypeType const*>(expr->annotation().type);
 	if (quiet && !tt) {
 		return nullptr;
 	}
 	solAssert(tt, "");
-	auto contractType = dynamic_cast<const ContractType*>(tt->actualType());
+	auto contractType = dynamic_cast<ContractType const*>(tt->actualType());
 	if (quiet && !contractType) {
 		return nullptr;
 	}
@@ -297,91 +264,84 @@ bool isEmptyFunction(FunctionDefinition const* f) {
 	return f == nullptr || (f->modifiers().empty() && f->body().statements().empty());
 }
 
-std::vector<VariableDeclaration const*>
-convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr) {
+std::vector<VariableDeclaration const*> convertArray(std::vector<ASTPointer<VariableDeclaration>> const& arr) {
 	std::vector<VariableDeclaration const*> ret;
 	ret.reserve(arr.size());
-	for (const auto& v : arr)
+	for (auto const& v: arr)
 		ret.emplace_back(v.get());
 	return ret;
 }
 
-std::vector<Type const*>
-getTypesFromVarDecls(std::vector<VariableDeclaration const*> const& arr) {
-	std::vector<Type const*>  ret;
+std::vector<Type const*> getTypesFromVarDecls(std::vector<VariableDeclaration const*> const& arr) {
+	std::vector<Type const*> ret;
 	ret.reserve(arr.size());
-	for (const auto& v : arr)
+	for (auto const& v: arr)
 		ret.emplace_back(v->type());
 	return ret;
 }
 
-std::vector<Type const*>
-getTypesFromVarDecls(std::vector<ASTPointer<VariableDeclaration>> const& arr) {
-	std::vector<Type const*>  ret;
+std::vector<Type const*> getTypesFromVarDecls(std::vector<ASTPointer<VariableDeclaration>> const& arr) {
+	std::vector<Type const*> ret;
 	ret.reserve(arr.size());
-	for (const auto& v : arr)
+	for (auto const& v: arr)
 		ret.emplace_back(v->type());
 	return ret;
 }
 
-std::pair<
-	std::vector<Type const*>,
-	std::vector<std::string>
->
-getTupleTypes(TupleType const* tuple) {
+std::pair<std::vector<Type const*>, std::vector<std::string>> getTupleTypes(TupleType const* tuple) {
 	std::vector<std::string> names;
 	std::vector<Type const*> types;
 	int i = 0;
-	for (Type const* comp : tuple->components()) {
+	for (Type const* comp: tuple->components()) {
 		types.emplace_back(comp);
-		names.emplace_back(to_string(i));
+		names.emplace_back(std::to_string(i));
 
 		++i;
 	}
 	return {types, names};
 }
 
-DictValueType toDictValueType(const Type::Category& category) {
+DictValueType toDictValueType(Type::Category const& category) {
 	switch (category) {
-		case Type::Category::Address:
-		case Type::Category::AddressStd:
-			return DictValueType::Address;
-		case Type::Category::Array:
-			return DictValueType::Array;
-		case Type::Category::Bool:
-			return DictValueType::Bool;
-		case Type::Category::Contract:
-			return DictValueType::Contract;
-		case Type::Category::Enum:
-			return DictValueType::Enum;
-		case Type::Category::FixedBytes:
-			return DictValueType::FixedBytes;
-		case Type::Category::Integer:
-			return DictValueType::Integer;
-		case Type::Category::Mapping:
-			return DictValueType::Mapping;
-		case Type::Category::Optional:
-			return DictValueType::Optional;
-		case Type::Category::Struct:
-			return DictValueType::Struct;
-		case Type::Category::TvmCell:
-			return DictValueType::TvmCell;
-		case Type::Category::TvmSlice:
-			return DictValueType::TvmSlice;
-		case Type::Category::VarInteger:
-			return DictValueType::VarInteger;
-		case Type::Category::Function:
-			return DictValueType::Function;
-		case Type::Category::FixedPoint:
-			return DictValueType::FixedPoint;
-		default:
-			solUnimplemented("");
+	case Type::Category::Address:
+	case Type::Category::AddressStd:
+		return DictValueType::Address;
+	case Type::Category::Array:
+		return DictValueType::Array;
+	case Type::Category::Bool:
+		return DictValueType::Bool;
+	case Type::Category::Contract:
+		return DictValueType::Contract;
+	case Type::Category::Enum:
+		return DictValueType::Enum;
+	case Type::Category::FixedBytes:
+		return DictValueType::FixedBytes;
+	case Type::Category::Integer:
+		return DictValueType::Integer;
+	case Type::Category::Mapping:
+		return DictValueType::Mapping;
+	case Type::Category::Optional:
+		return DictValueType::Optional;
+	case Type::Category::Struct:
+		return DictValueType::Struct;
+	case Type::Category::TvmCell:
+		return DictValueType::TvmCell;
+	case Type::Category::TvmSlice:
+		return DictValueType::TvmSlice;
+	case Type::Category::VarInteger:
+		return DictValueType::VarInteger;
+	case Type::Category::Function:
+		return DictValueType::Function;
+	case Type::Category::FixedPoint:
+		return DictValueType::FixedPoint;
+	default:
+		solUnimplemented("");
 	}
 }
 
 std::set<CallableDeclaration const*> getAllBaseFunctions(CallableDeclaration const* f) {
 	std::set<CallableDeclaration const*> res;
-	for (CallableDeclaration const* base : f->annotation().baseFunctions) {
+	for (CallableDeclaration const* base: f->annotation().baseFunctions) {
 		res.insert(base);
 		std::set<CallableDeclaration const*> cur = getAllBaseFunctions(base);
 		res.insert(cur.begin(), cur.end());
@@ -389,27 +349,22 @@ std::set<CallableDeclaration const*> getAllBaseFunctions(CallableDeclaration con
 	return res;
 }
 
-
 ABITypeSize::ABITypeSize(Type const* _type) {
-	init(_type);
-}
-
-void ABITypeSize::init(Type const* type) {
-	if (type->category() == Type::Category::AddressStd) {
-		maxBits = 2 + (1 + 5 + 30) + 8 + 256;
+	if (_type->category() == Type::Category::AddressStd) {
+		maxBits = AddressInfo::stdAddrWithAnyCastLength();
 		maxRefs = 0;
-	} else if (isAddressOrAddressStdOrContractType(type)){
+	} else if (isAddressOrAddressStdOrContractType(_type)) {
 		maxBits = AddressInfo::maxBitLength();
 		maxRefs = 0;
-	} else if (auto varint = to<VarIntegerType>(type)) {
+	} else if (auto varint = to<VarIntegerType>(_type)) {
 		maxBits = varint->maxBitSizeInCell();
 		maxRefs = 0;
-	} else if (isIntegralType(type)) {
-		TypeInfo ti{type};
+	} else if (isIntegralType(_type)) {
+		TypeInfo ti{_type};
 		solAssert(ti.isNumeric, "");
 		maxBits = ti.numBits;
 		maxRefs = 0;
-	} else if (auto arrayType = to<ArrayType>(type)) {
+	} else if (auto arrayType = to<ArrayType>(_type)) {
 		if (arrayType->isByteArrayOrString()) {
 			maxBits = 0;
 			maxRefs = 1;
@@ -417,10 +372,10 @@ void ABITypeSize::init(Type const* type) {
 			maxBits = 32 + 1;
 			maxRefs = 1;
 		}
-	} else if (to<TvmCellType>(type)) {
+	} else if (to<TvmCellType>(_type)) {
 		maxBits = 0;
 		maxRefs = 1;
-	} else if (auto opt = to<OptionalType>(type)) {
+	} else if (auto opt = to<OptionalType>(_type)) {
 		if (isSmallOptional(opt)) {
 			ABITypeSize size{opt->valueType()};
 			maxBits = 1 + size.maxBits;
@@ -429,89 +384,77 @@ void ABITypeSize::init(Type const* type) {
 			maxBits = 1;
 			maxRefs = 1;
 		}
-	} else if (auto st = to<StructType>(type)) {
+	} else if (auto st = to<StructType>(_type)) {
 		maxBits = 0;
 		maxRefs = 0;
-		for (const auto& t : st->structDefinition().members()) {
+		for (auto const& t: st->structDefinition().members()) {
 			ABITypeSize size{t->type()};
 			maxBits += size.maxBits;
 			maxRefs += size.maxRefs;
 		}
-	} else if (auto tup = to<TupleType>(type)) {
+	} else if (auto tup = to<TupleType>(_type)) {
 		maxBits = 0;
 		maxRefs = 0;
-		for (auto t : tup->components()) {
+		for (auto t: tup->components()) {
 			ABITypeSize size{t};
 			maxBits += size.maxBits;
 			maxRefs += size.maxRefs;
 		}
-	} else if (to<MappingType>(type)) {
+	} else if (to<MappingType>(_type)) {
 		maxBits = 1;
 		maxRefs = 1;
-	} else if (to<FunctionType>(type)) {
+	} else if (to<FunctionType>(_type)) {
 		maxBits = 32;
 		maxRefs = 0;
-	} else if (to<TvmSliceType>(type) || to<TvmBuilderType>(type)) {
+	} else if (to<TvmSliceType>(_type) || to<TvmBuilderType>(_type)) {
 		maxBits = 1023;
 		maxRefs = 3;
-	} else if (auto userDefType = to<UserDefinedValueType>(type)) {
-		return init(&userDefType->underlyingType());
+	} else if (auto userDefType = to<UserDefinedValueType>(_type)) {
+		*this = ABITypeSize{&userDefType->underlyingType()};
 	} else {
-		solUnimplemented("Undefined type: " + type->toString());
+		solUnimplemented("Undefined type: " + _type->toString());
 	}
 
-	fixedSize =
-		to<IntegerType>(type) ||
-		to<QIntegerType>(type) ||
-		to<BoolType>(type) ||
-		to<QBoolType>(type) ||
-		to<EnumType>(type) ||
-		to<TvmCellType>(type) ||
-		to<FunctionType>(type) ||
-		to<FixedBytesType>(type) ||
-		to<FixedPointType>(type);
+	fixedSize = to<IntegerType>(_type) ||
+				to<QIntegerType>(_type) ||
+				to<BoolType>(_type) ||
+				to<QBoolType>(_type) ||
+				to<EnumType>(_type) ||
+				to<TvmCellType>(_type) ||
+				to<FunctionType>(_type) ||
+				to<FixedBytesType>(_type) ||
+				to<FixedPointType>(_type);
 
-	fixedRefs = fixedSize || to<AddressType>(type) || to<ContractType>(type);
+	fixedRefs = fixedSize || to<AddressType>(_type) || to<ContractType>(_type);
 
 	solAssert(maxBits != -1);
 	solAssert(maxRefs != -1);
 }
 
-bool isLoc(Pointer<TvmAstNode> const& node) {
-	auto c = dynamic_pointer_cast<Loc>(node);
-	return c != nullptr;
-}
-
-vector<string> split (const string &s, char sep) {
-	vector<string> result;
-	stringstream ss (s);
-	string item;
-
-	while (getline (ss, item, sep)) {
-		result.push_back (item);
-	}
-
-	return result;
-}
-
-int strToInt(const std::string& str) {
-	const std::string& trimed = boost::algorithm::trim_copy(str);
+int strToInt(std::string const& str) {
+	std::string const& trimed = boost::algorithm::trim_copy(str);
 	return boost::lexical_cast<int>(trimed);
 }
 
-int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>>::const_iterator beg,
-				  std::vector<Pointer<TvmAstNode>>::const_iterator end) {
+int qtyWithoutLoc(
+	std::vector<Pointer<TvmAstNode>>::const_iterator beg,
+	std::vector<Pointer<TvmAstNode>>::const_iterator end
+) {
 	int qty = 0;
 	for (auto it = beg; it != end; ++it) {
-		if (!to<Loc>((*it).get())){
+		if (!convertToLoc(it->get())) {
 			++qty;
 		}
 	}
 	return qty;
 }
 
-int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>> const& arr) {
-	return qtyWithoutLoc(arr.begin(), arr.end());
+int qtyWithoutLoc(std::vector<Pointer<TvmAstNode>> const& arr) { return qtyWithoutLoc(arr.begin(), arr.end()); }
+
+void trimLoc(std::vector<Pointer<TvmAstNode>>& arr) {
+	while (!arr.empty() && convertToLoc(arr.back().get())) {
+		arr.pop_back();
+	}
 }
 
 std::optional<std::string> StrUtils::toBitString(bigint value, int bitlen, bool isSign) {
@@ -544,7 +487,7 @@ std::optional<std::string> StrUtils::toBitString(bigint value, int bitlen, bool 
 	return s;
 }
 
-std::string StrUtils::binaryStringToSlice(const std::string &_s) {
+std::string StrUtils::binaryStringToSlice(std::string const& _s) {
 	std::string s = _s;
 	bool haveCompletionTag = false;
 	if (s.size() % 4 != 0) {
@@ -565,7 +508,7 @@ std::string StrUtils::binaryStringToSlice(const std::string &_s) {
 	return ans;
 }
 
-std::string StrUtils::toBitString(const std::string& slice) {
+std::string StrUtils::toBitString(std::string const& slice) {
 	std::string bitString;
 	if (slice.at(0) == 'x') {
 		for (std::size_t i = 1; i < slice.size(); ++i) {
@@ -591,12 +534,12 @@ std::string StrUtils::toBitString(const std::string& slice) {
 	return bitString;
 }
 
-std::optional<std::string> StrUtils::unitSlices(const std::string& sliceA, const std::string& sliceB) {
+std::optional<std::string> StrUtils::unitSlices(std::string const& sliceA, std::string const& sliceB) {
 	return unitBitStringToHex(toBitString(sliceA), toBitString(sliceB));
 }
 
-std::optional<std::string> StrUtils::unitBitStringToHex(const std::string& bitStringA, const std::string& bitStringB) {
-	const std::string& bitString = bitStringA + bitStringB;
+std::optional<std::string> StrUtils::unitBitStringToHex(std::string const& bitStringA, std::string const& bitStringB) {
+	std::string const& bitString = bitStringA + bitStringB;
 	if (bitString.length() > TvmConst::CellBitLength) {
 		// TODO implement
 		return std::nullopt;
@@ -604,9 +547,7 @@ std::optional<std::string> StrUtils::unitBitStringToHex(const std::string& bitSt
 	return {"x" + StrUtils::binaryStringToSlice(bitString)};
 }
 
-std::string StrUtils::tonsToBinaryString(const u256& value) {
-	return tonsToBinaryString(bigint(value));
-}
+std::string StrUtils::tonsToBinaryString(u256 const& value) { return tonsToBinaryString(bigint(value)); }
 
 std::string StrUtils::tonsToBinaryString(bigint value) {
 	std::string s;
@@ -616,7 +557,7 @@ std::string StrUtils::tonsToBinaryString(bigint value) {
 			len = i;
 			break;
 		}
-		s += value % 2 == 0? "0" : "1";
+		s += value % 2 == 0 ? "0" : "1";
 		value /= 2;
 	}
 	solAssert(len <= 120, "coins value must fit into 120 bit");
@@ -625,19 +566,17 @@ std::string StrUtils::tonsToBinaryString(bigint value) {
 		len++;
 	}
 	std::reverse(s.rbegin(), s.rbegin() + len);
-	len = len/8;
+	len = len / 8;
 	std::string res;
 	for (int i = 0; i < 4; ++i) {
-		res += len % 2 == 0? "0" : "1";
+		res += len % 2 == 0 ? "0" : "1";
 		len /= 2;
 	}
 	std::reverse(res.rbegin(), res.rbegin() + 4);
 	return res + s;
 }
 
-std::string StrUtils::boolToBinaryString(bool value) {
-	return value ? "1" : "0";
-}
+std::string StrUtils::boolToBinaryString(bool value) { return value ? "1" : "0"; }
 
 std::string StrUtils::literalToSliceAddress(bigint const& value) {
 	// addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt;
@@ -649,9 +588,9 @@ std::string StrUtils::literalToSliceAddress(bigint const& value) {
 	return s;
 }
 
-bigint StrUtils::toBigint(const std::string& binStr) {
+bigint StrUtils::toBigint(std::string const& binStr) {
 	bigint res;
-	for (char ch : binStr) {
+	for (char ch: binStr) {
 		res <<= 1;
 		if (ch == '1')
 			++res;
@@ -659,7 +598,7 @@ bigint StrUtils::toBigint(const std::string& binStr) {
 	return res;
 }
 
-std::optional<bigint> StrUtils::toNegBigint(const std::string& binStr) {
+std::optional<bigint> StrUtils::toNegBigint(std::string const& binStr) {
 	if (binStr.at(0) != '1')
 		return {};
 	bigint res = StrUtils::toBigint(binStr) - (bigint(1) << binStr.length());
@@ -673,35 +612,40 @@ std::string StrUtils::toBinString(bigint num) {
 		res += num % 2 == 0 ? "0" : "1";
 		num /= 2;
 	}
-	std::reverse(res.begin(), res.end());
+	std::ranges::reverse(res);
 	return res;
 }
 
 // e.g.: hello -> 68656c6c6f
-std::string StrUtils::stringToHex(const std::string& str) {
+std::string StrUtils::stringToHex(std::string const& str) {
 	std::string slice;
-	for (char index : str) {
+	for (char index: str) {
 		std::stringstream ss;
-		ss << std::hex << std::setfill('0') << std::setw(2)
-		   << (static_cast<unsigned>(index) & 0xFFu);
+		ss << std::hex << std::setfill('0') << std::setw(2) << (static_cast<unsigned>(index) & 0xFFu);
 		slice += ss.str();
 	}
 	return slice;
 }
 
+std::string StrUtils::intToHex(uint32_t id) {
+	std::ostringstream oss;
+	oss << std::hex << std::setfill('0') << std::setw(8) << id;
+	return oss.str();
+}
 
-std::optional<bigint> ExprUtils::constValue(const Expression &_e) {
+std::optional<bigint> ExprUtils::constValue(Expression const& _e) {
 	// TODO see ConstantEvaluator ?
 	if (*_e.annotation().isPure) {
 		if (auto memberAccess = to<MemberAccess>(&_e)) {
-			if (auto variable = dynamic_cast<VariableDeclaration const *>(memberAccess->annotation().referencedDeclaration)) {
+			if (auto variable =
+					dynamic_cast<VariableDeclaration const*>(memberAccess->annotation().referencedDeclaration)) {
 				return constValue(*variable->value());
 			}
 		}
 
 		if (auto ident = to<Identifier>(&_e)) {
-			IdentifierAnnotation &identifierAnnotation = ident->annotation();
-			const auto *variable = to<VariableDeclaration>(identifierAnnotation.referencedDeclaration);
+			IdentifierAnnotation& identifierAnnotation = ident->annotation();
+			auto const* variable = to<VariableDeclaration>(identifierAnnotation.referencedDeclaration);
 			if (variable) {
 				return constValue(*variable->value());
 			}
@@ -709,7 +653,7 @@ std::optional<bigint> ExprUtils::constValue(const Expression &_e) {
 	}
 
 	if (_e.annotation().type->category() == Type::Category::RationalNumber) {
-		auto number = dynamic_cast<RationalNumberType const *>(_e.annotation().type);
+		auto number = dynamic_cast<RationalNumberType const*>(_e.annotation().type);
 		solAssert(number, "");
 		bigint val = number->value2();
 		return val;
@@ -798,34 +742,22 @@ std::pair<bool, int> getSignAndBits(Type const* type) {
 
 bool isFitUselessUnary(Type const* common, Token op) {
 	auto const [isSigned, numBits] = getSignAndBits(common);
-	return
-		(
-			!isSigned &&
-			numBits == 256 &&
-			op == Token::Inc
-		);
+	return (!isSigned && numBits == 256 && op == Token::Inc);
 }
 
 bool isFitUseless(Type const* left, Type const* right, Type const* common, Token op) {
 	bool const isLeftSigned = getSignAndBits(left->mobileType()).first;
 	bool const isRightSigned = getSignAndBits(right->mobileType()).first;
 	auto const [isSigned, numBits] = getSignAndBits(common);
-	return
-		(
-			!isSigned &&
-			numBits == 256 &&
-			isIn(op, Token::Add, Token::Exp, Token::Mul, Token::SHL)
-		)
-		||
-		(
-			// we should throw an overflow exception if case of type(SignType).min / -1,
-			// e.g. -128/-1 does not fit into int8
-			(!isLeftSigned || !isRightSigned) &&
-			op == Token::Div
-		);
+	return (!isSigned && numBits == 256 && isIn(op, Token::Add, Token::Exp, Token::Mul, Token::SHL)) ||
+		   (
+			   // we should throw an overflow exception if case of type(SignType).min / -1,
+			   // e.g. -128/-1 does not fit into int8
+			   (!isLeftSigned || !isRightSigned) && op == Token::Div
+		   );
 }
 
-bool isInRange257(bigint value) {
+bool isInRange257(bigint const& value) {
 	bigint maxUint256 = bigint(1) << 256;
 	return -maxUint256 <= value && value < maxUint256;
 }
@@ -841,16 +773,13 @@ bool isInRange257(bigint value) {
   MaxLen: 4095 байт (32767 бит)
 */
 namespace {
-unsigned short crc16(char const *pcBlock, unsigned short len)
-{
+unsigned short crc16(char const* pcBlock, unsigned short len) {
 	unsigned short crc = 0;
-	unsigned char i;
 
-	while (len--)
-	{
-		crc ^= (unsigned char)(*pcBlock++) << 8;
+	while (len--) {
+		crc ^= static_cast<unsigned char>(*pcBlock++) << 8;
 
-		for (i = 0; i < 8; i++)
+		for (unsigned char i = 0; i < 8; i++)
 			crc = crc & 0x8000 ? (crc << 1) ^ 0x1021 : crc << 1;
 	}
 	return crc;
@@ -858,23 +787,21 @@ unsigned short crc16(char const *pcBlock, unsigned short len)
 }
 
 
-unsigned short crc16(std::string const& str) {
-	return crc16(str.c_str(), str.size());
-}
+unsigned short crc16(std::string const& str) { return crc16(str.c_str(), str.size()); }
 
 std::vector<ArithmeticOperation> tonCombinedArithmeticOperations() {
 	static std::vector<ArithmeticOperation> answer;
 	if (answer.empty()) {
 		for (auto const& oper: std::vector<ArithmeticOperation>{
-			{"mulAddDivMod", 4, 2, false},
-			{"addDivMod", 3, 2, false},
-			{"addRShiftMod", 3, 2, true},
-			{"lShiftAddDivMod", 4, 2, true},
-		}) {
-			for (auto const& [pref, type] : std::vector<std::tuple<std::string, Type const*>>{
-				{"", TypeProvider::int257()},
-				{"q", TypeProvider::qInteger(257, IntegerType::Modifier::Signed)},
-			}) {
+				 {"mulAddDivMod", 4, 2, false},
+				 {"addDivMod", 3, 2, false},
+				 {"addRShiftMod", 3, 2, true},
+				 {"lShiftAddDivMod", 4, 2, true},
+			 }) {
+			for (auto const& [pref, type]: std::vector<std::tuple<std::string, Type const*>>{
+					 {"", TypeProvider::int257()},
+					 {"q", TypeProvider::qInteger(257, IntegerType::Modifier::Signed)},
+				 }) {
 				auto name = oper.name;
 				if (pref == "q") {
 					name = toUpper(oper.name.at(0)) + oper.name.substr(1);
@@ -886,12 +813,12 @@ std::vector<ArithmeticOperation> tonCombinedArithmeticOperations() {
 		}
 
 		for (auto const& oper: std::vector<ArithmeticOperation>{
-			{"mulAddRShift", 4, 2, true},
-		}) {
-			for (auto const& [pref, type] : std::vector<std::tuple<std::string, Type const*>>{
-				{"", TypeProvider::int257()},
-				{"q", TypeProvider::qInteger(257, IntegerType::Modifier::Signed)},
-			}) {
+				 {"mulAddRShift", 4, 2, true},
+			 }) {
+			for (auto const& [pref, type]: std::vector<std::tuple<std::string, Type const*>>{
+					 {"", TypeProvider::int257()},
+					 {"q", TypeProvider::qInteger(257, IntegerType::Modifier::Signed)},
+				 }) {
 				auto name = oper.name;
 				if (pref == "q") {
 					name = toUpper(oper.name.at(0)) + oper.name.substr(1);
@@ -905,7 +832,7 @@ std::vector<ArithmeticOperation> tonCombinedArithmeticOperations() {
 	return answer;
 }
 
-FunctionDefinition const* getRemoteFunctionDefinition(const MemberAccess* memberAccess) {
+FunctionDefinition const* getRemoteFunctionDefinition(MemberAccess const* memberAccess) {
 	auto expr = &memberAccess->expression();
 	if (isSuper(expr))
 		return nullptr;

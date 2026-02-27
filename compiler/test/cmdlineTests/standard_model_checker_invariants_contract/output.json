@@ -1,6 +1,5 @@
 {
-    "errors":
-    [
+    "errors": [
         {
             "component": "general",
             "errorCode": "1391",
@@ -15,21 +14,19 @@
             "component": "general",
             "errorCode": "1180",
             "formattedMessage": "Info: Contract invariant(s) for A:test:
-(!(x >= 1) || true)
+(true || !(x >= 1))
 
 
 ",
             "message": "Contract invariant(s) for A:test:
-(!(x >= 1) || true)
+(true || !(x >= 1))
 ",
             "severity": "info",
             "type": "Info"
         }
     ],
-    "sources":
-    {
-        "A":
-        {
+    "sources": {
+        "A": {
             "id": 0
         }
     }

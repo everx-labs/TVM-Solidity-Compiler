@@ -17,15 +17,13 @@
 // SPDX-License-Identifier: GPL-3.0
 #include <test/tools/ossfuzz/yulFuzzerCommon.h>
 
-using namespace std;
 using namespace solidity;
 using namespace solidity::yul;
 using namespace solidity::yul::test::yul_fuzzer;
 
 yulFuzzerUtil::TerminationReason yulFuzzerUtil::interpret(
-	ostream& _os,
-	shared_ptr<yul::Block> _ast,
-	Dialect const& _dialect,
+	std::ostream& _os,
+	AST const& _ast,
 	bool _disableMemoryTracing,
 	bool _outputStorageOnly,
 	size_t _maxSteps,
@@ -53,7 +51,7 @@ yulFuzzerUtil::TerminationReason yulFuzzerUtil::interpret(
 	TerminationReason reason = TerminationReason::None;
 	try
 	{
-		Interpreter::run(state, _dialect, *_ast, true, _disableMemoryTracing);
+		Interpreter::run(state, _ast, true, _disableMemoryTracing);
 	}
 	catch (StepLimitReached const&)
 	{
@@ -65,7 +63,7 @@ yulFuzzerUtil::TerminationReason yulFuzzerUtil::interpret(
 	}
 	catch (ExpressionNestingLimitReached const&)
 	{
-		reason = TerminationReason::ExpresionNestingLimitReached;
+		reason = TerminationReason::ExpressionNestingLimitReached;
 	}
 	catch (ExplicitlyTerminated const&)
 	{
@@ -84,5 +82,5 @@ bool yulFuzzerUtil::resourceLimitsExceeded(TerminationReason _reason)
 	return
 		_reason == yulFuzzerUtil::TerminationReason::StepLimitReached ||
 		_reason == yulFuzzerUtil::TerminationReason::TraceLimitReached ||
-		_reason == yulFuzzerUtil::TerminationReason::ExpresionNestingLimitReached;
+		_reason == yulFuzzerUtil::TerminationReason::ExpressionNestingLimitReached;
 }

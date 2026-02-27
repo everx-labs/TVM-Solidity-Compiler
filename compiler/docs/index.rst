@@ -4,7 +4,7 @@ Solidity
 Solidity is an object-oriented, high-level language for implementing smart contracts.
 Smart contracts are programs that govern the behavior of accounts within the Ethereum state.
 
-Solidity is a `curly-bracket language <https://en.wikipedia.org/wiki/List_of_programming_languages_by_type#Curly-bracket_languages>`_ designed to target the Ethereum Virtual Machine (EVM).
+Solidity is a `curly-bracket language <https://en.wikipedia.org/wiki/List_of_programming_languages_by_type#Curly_bracket_languages>`_ designed to target the Ethereum Virtual Machine (EVM).
 It is influenced by C++, Python, and JavaScript.
 You can find more details about which languages Solidity has been inspired by in the :doc:`language influences <language-influences>` section.
 
@@ -29,7 +29,7 @@ read our :doc:`contributors guide <contributing>` for more details.
 .. Hint::
 
   You can download this documentation as PDF, HTML or Epub
-  by clicking on the versions flyout menu in the bottom-left corner and selecting the preferred download format.
+  by clicking on the versions flyout menu in the bottom-right corner and selecting the preferred download format.
 
 
 Getting Started
@@ -89,7 +89,7 @@ The English version stands as a reference.
 You can switch between languages by clicking on the flyout menu in the bottom-left corner
 and selecting the preferred language.
 
-* `Chinese <https://docs.soliditylang.org/zh/latest/>`_
+* `Chinese <https://docs.soliditylang.org/zh-cn/latest/>`_
 * `French <https://docs.soliditylang.org/fr/latest/>`_
 * `Indonesian <https://github.com/solidity-docs/id-indonesian>`_
 * `Japanese <https://github.com/solidity-docs/ja-japanese>`_

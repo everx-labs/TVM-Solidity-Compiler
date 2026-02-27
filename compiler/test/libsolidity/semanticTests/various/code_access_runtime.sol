@@ -21,6 +21,8 @@ contract C {
 }
 // ====
 // EVMVersion: >=constantinople
+// bytecodeFormat: legacy
 // ----
 // test() -> 42
-// gas legacy: 100235
+// gas legacy: 76034
+// gas legacy code: 24200

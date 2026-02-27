@@ -20,9 +20,6 @@
 
 #include <solc/Exceptions.h>
 
-#include <liblangutil/EVMVersion.h>
-#include <liblangutil/TVMVersion.h>
-
 #include <boost/algorithm/string.hpp>
 
 #include <range/v3/view/transform.hpp>
@@ -31,8 +28,9 @@
 
 #include <fmt/format.h>
 
+#include <liblangutil/TVMVersion.h>
+
 using namespace solidity::langutil;
-using namespace solidity::yul;
 
 namespace po = boost::program_options;
 
@@ -45,7 +43,6 @@ static std::string const g_strIncludePath = "include-path";
 static std::string const g_strAssemble = "assemble";
 static std::string const g_strCombinedJson = "combined-json";
 static std::string const g_strEVM = "evm";
-static std::string const g_strEVMVersion = "evm-version";
 static std::string const g_strEOFVersion = "experimental-eof-version";
 static std::string const g_strViaIR = "via-ir";
 static std::string const g_strExperimentalViaIR = "experimental-via-ir";
@@ -56,7 +53,6 @@ static std::string const g_strImportEvmAssemblerJson = "import-asm-json";
 static std::string const g_strInputFile = "input-file";
 static std::string const g_strYul = "yul";
 static std::string const g_strYulDialect = "yul-dialect";
-static std::string const g_strDebugInfo = "debug-info";
 static std::string const g_strIPFS = "ipfs";
 static std::string const g_strLicense = "license";
 static std::string const g_strLibraries = "libraries";
@@ -90,7 +86,6 @@ static std::string const g_strOutputDir = "output-dir";
 static std::string const g_strOverwrite = "overwrite";
 static std::string const g_strRevertStrings = "revert-strings";
 static std::string const g_strStopAfter = "stop-after";
-static std::string const g_strParsing = "parsing";
 
 static std::string const g_strContract = "contract";
 static std::string const g_strOutputPrefix = "output-prefix";
@@ -99,6 +94,7 @@ static std::string const g_strABI = "abi-json";
 static std::string const g_strFunctionIds = "function-ids";
 static std::string const g_strPrivateFunctionIds = "private-function-ids";
 static std::string const g_strTVMVersion = "tvm-version";
+static std::string const g_strDebug = "debug";
 
 
 /// Possible arguments to for --revert-strings
@@ -110,8 +106,6 @@ static std::set<std::string> const g_revertStringsArgs
 	revertStringsToString(RevertStrings::VerboseDebug)
 };
 
-static std::string const g_strSources = "sources";
-static std::string const g_strSourceList = "sourceList";
 static std::string const g_strStandardJSON = "standard-json";
 static std::string const g_strStrictAssembly = "strict-assembly";
 static std::string const g_strSwarm = "swarm";
@@ -241,7 +235,6 @@ bool CommandLineOptions::operator==(CommandLineOptions const& _other) const noex
 		input.noImportCallback == _other.input.noImportCallback &&
 		output.dir == _other.output.dir &&
 		output.overwriteFiles == _other.output.overwriteFiles &&
-		output.evmVersion == _other.output.evmVersion &&
 		output.viaIR == _other.output.viaIR &&
 		output.revertStrings == _other.output.revertStrings &&
 		output.debugInfoSelection == _other.output.debugInfoSelection &&
@@ -272,7 +265,10 @@ OptimiserSettings CommandLineOptions::optimiserSettings() const
 	if (optimizer.optimizeEvmasm)
 		settings = OptimiserSettings::standard();
 	else
-		settings = OptimiserSettings::minimal();
+		if (input.mode == InputMode::EVMAssemblerJSON)
+			settings = OptimiserSettings::none();
+		else
+			settings = OptimiserSettings::minimal();
 
 	settings.runYulOptimiser = optimizer.optimizeYul;
 	if (optimizer.optimizeYul)
@@ -483,6 +479,9 @@ void CommandLineParser::parseOutputSelection()
 			CompilerOutputs::componentName(&CompilerOutputs::binary),
 			CompilerOutputs::componentName(&CompilerOutputs::irOptimized),
 			CompilerOutputs::componentName(&CompilerOutputs::astCompactJson),
+			CompilerOutputs::componentName(&CompilerOutputs::asmJson),
+			CompilerOutputs::componentName(&CompilerOutputs::yulCFGJson),
+			CompilerOutputs::componentName(&CompilerOutputs::ethdebug),
 		};
 		static std::set<std::string> const evmAssemblyJsonImportModeOutputs = {
 			CompilerOutputs::componentName(&CompilerOutputs::binary),
@@ -605,7 +604,8 @@ General Information)").c_str(),
 		(
 			(g_strOutputDir + ",o").c_str(),
 			po::value<std::string>()->value_name("path"),
-			"Output directory (by default, current directory is used)"
+			"If given, creates one file per output component and contract/file at the specified directory."
+			" By default, the current directory is used."
 		)
 		(
 			g_strOverwrite.c_str(),
@@ -614,7 +614,7 @@ General Information)").c_str(),
 		(
 			g_strTVMVersion.c_str(),
 			po::value<std::string>()->value_name("version")->default_value(TVMVersion{}.name()),
-			"Select desired TVM version. Either ever, ton, gosh."
+			"Select desired TVM version. Either ton, ever, gosh."
 		)
 	;
 	desc.add(outputOptions);
@@ -656,6 +656,15 @@ General Information)").c_str(),
 		(CompilerOutputs::componentName(&CompilerOutputs::natspecDev).c_str(), "Natspec developer documentation of all contracts.")
 	;
 	desc.add(outputComponents);
+
+	po::options_description optimizerOptions("Optimizer Options");
+	optimizerOptions.add_options()
+		(
+			g_strDebug.c_str(),
+			"Disable optimizer."
+		)
+	;
+	desc.add(optimizerOptions);
 
 	desc.add_options()(g_strInputFile.c_str(), po::value<std::vector<std::string>>(), "input file");
 	return desc;
@@ -708,7 +717,6 @@ void CommandLineParser::processArgs()
 		g_strLink,
 		g_strAssemble,
 		g_strStrictAssembly,
-		g_strYul,
 		g_strImportAst,
 		g_strLSP,
 		g_strImportEvmAssemblerJson,
@@ -724,7 +732,7 @@ void CommandLineParser::processArgs()
 		m_options.input.mode = InputMode::StandardJson;
 	else if (m_args.count(g_strLSP))
 		m_options.input.mode = InputMode::LanguageServer;
-	else if (m_args.count(g_strAssemble) > 0 || m_args.count(g_strStrictAssembly) > 0 || m_args.count(g_strYul) > 0)
+	else if (m_args.count(g_strAssemble) > 0 || m_args.count(g_strStrictAssembly) > 0)
 		m_options.input.mode = InputMode::Assembler;
 	else if (m_args.count(g_strLink) > 0)
 		m_options.input.mode = InputMode::Linker;
@@ -741,6 +749,13 @@ void CommandLineParser::processArgs()
 		m_options.input.mode == InputMode::Version
 	)
 		return;
+
+	if (m_args.count(g_strYul) > 0)
+		solThrow(
+			CommandLineValidationError,
+			"The typed Yul dialect formerly accessible via --yul is no longer supported, "
+			"please use --strict-assembly instead."
+		);
 
 	std::map<std::string, std::set<InputMode>> validOptionInputModeCombinations = {
 		// TODO: This should eventually contain all options.
@@ -802,6 +817,7 @@ void CommandLineParser::processArgs()
 			g_strCombinedJson,
 			g_strInputFile,
 			g_strJsonIndent,
+			g_strOptimize,
 			g_strPrettyJson,
 			"srcmap",
 			"srcmap-runtime",
@@ -930,15 +946,6 @@ void CommandLineParser::processArgs()
 	if (m_options.input.mode == InputMode::Linker)
 		return;
 
-	if (m_args.count(g_strEVMVersion))
-	{
-		std::string versionOptionStr = m_args[g_strEVMVersion].as<std::string>();
-		std::optional<langutil::EVMVersion> versionOption = langutil::EVMVersion::fromString(versionOptionStr);
-		if (!versionOption)
-			solThrow(CommandLineValidationError, "Invalid option for --" + g_strEVMVersion + ": " + versionOptionStr);
-		m_options.output.evmVersion = *versionOption;
-	}
-
 	if (m_args.count(g_strEOFVersion))
 	{
 		// Request as uint64_t, since uint8_t will be parsed as character by boost.
@@ -977,7 +984,6 @@ void CommandLineParser::processArgs()
 			solThrow(CommandLineValidationError, message);
 		}
 
-		// switch to assembly mode
 		return;
 	}
 	else if (countEnabledOptions({g_strYulDialect, g_strMachine}) >= 1)
@@ -1033,18 +1039,15 @@ void CommandLineParser::processArgs()
 		m_options.tvmParams.tvmVersion = *versionOption;
 	}
 
-	if (m_args.count(g_strContract))
+	if (m_args.contains(g_strContract))
 		m_options.tvmParams.mainContract = m_args[g_strContract].as<std::string>();
-	if (m_args.count(g_strOutputPrefix))
+	if (m_args.contains(g_strOutputPrefix))
 		m_options.tvmParams.fileNamePrefix = m_args[g_strOutputPrefix].as<std::string>();
-	if (m_args.count(g_strABI))
-		m_options.tvmParams.abi = true;
-	if (m_args.count(g_strAsm))
-		m_options.tvmParams.code = true;
-	if (m_args.count(g_strFunctionIds))
-		m_options.tvmParams.printFunctionIds = true;
-	if (m_args.count(g_strPrivateFunctionIds))
-		m_options.tvmParams.printPrivateFunctionIds = true;
+	m_options.tvmParams.abi = m_args.contains(g_strABI);
+	m_options.tvmParams.code = m_args.contains(g_strAsm);
+	m_options.tvmParams.printFunctionIds = m_args.contains(g_strFunctionIds);
+	m_options.tvmParams.printPrivateFunctionIds = m_args.contains(g_strPrivateFunctionIds);
+	m_options.tvmParams.debugMode = m_args.contains(g_strDebug);
 
 	if (
 		!m_options.tvmParams.code &&
@@ -1062,9 +1065,63 @@ void CommandLineParser::processArgs()
 	solAssert(
 		m_options.input.mode == InputMode::Compiler ||
 		m_options.input.mode == InputMode::CompilerWithASTImport ||
-		m_options.input.mode == InputMode::EVMAssemblerJSON,
-		"It's OK?"
+		m_options.input.mode == InputMode::EVMAssemblerJSON
 	);
+
+	bool incompatibleEthdebugOutputs =
+		m_options.compiler.outputs.asmJson || m_options.compiler.outputs.irAstJson || m_options.compiler.outputs.irOptimizedAstJson ||
+		m_options.optimizer.optimizeYul || m_options.optimizer.optimizeEvmasm;
+
+	bool incompatibleEthdebugInputs = m_options.input.mode != InputMode::Compiler;
+
+	static std::string enableEthdebugMessage =
+		"--" + CompilerOutputs::componentName(&CompilerOutputs::ethdebug) + " / --" + CompilerOutputs::componentName(&CompilerOutputs::ethdebugRuntime);
+
+	static std::string enableIrMessage = "--" + CompilerOutputs::componentName(&CompilerOutputs::ir) + " / --" + CompilerOutputs::componentName(&CompilerOutputs::irOptimized);
+
+	if (m_options.compiler.outputs.ethdebug || m_options.compiler.outputs.ethdebugRuntime)
+	{
+		if (!m_options.output.viaIR)
+			solThrow(
+				CommandLineValidationError,
+				enableEthdebugMessage + " output can only be selected, if --via-ir was specified."
+			);
+
+		if (incompatibleEthdebugOutputs)
+			solThrow(
+				CommandLineValidationError,
+				enableEthdebugMessage + " output can only be used with " + enableIrMessage + ". Optimization (using --" + g_strOptimize + ") is not yet supported with ethdebug."
+			);
+
+		if (!m_options.output.debugInfoSelection.has_value())
+		{
+			m_options.output.debugInfoSelection = DebugInfoSelection::Default();
+			m_options.output.debugInfoSelection->enable("ethdebug");
+		}
+		else
+		{
+			if (!m_options.output.debugInfoSelection->ethdebug)
+				solThrow(
+					CommandLineValidationError,
+					"--debug-info must contain ethdebug, when compiling with " + enableEthdebugMessage + "."
+				);
+		}
+	}
+
+	if (
+		m_options.output.debugInfoSelection.has_value() && m_options.output.debugInfoSelection->ethdebug &&
+		(!(m_options.compiler.outputs.ir || m_options.compiler.outputs.ethdebug || m_options.compiler.outputs.ethdebugRuntime) || incompatibleEthdebugOutputs)
+	)
+		solThrow(
+			CommandLineValidationError,
+			"--debug-info ethdebug can only be used with " + enableIrMessage + " and/or " + enableEthdebugMessage + ". Optimization (using --" + g_strOptimize + ") is not yet supported with ethdebug."
+		);
+
+	if (m_options.output.debugInfoSelection.has_value() && m_options.output.debugInfoSelection->ethdebug && incompatibleEthdebugInputs)
+		solThrow(
+			CommandLineValidationError,
+			"Invalid input mode for --debug-info ethdebug / --ethdebug / --ethdebug-runtime."
+		);
 }
 
 void CommandLineParser::parseCombinedJsonOption()
@@ -1094,7 +1151,8 @@ void CommandLineParser::parseCombinedJsonOption()
 			&CombinedJsonRequests::natspecDev,
 			&CombinedJsonRequests::natspecUser,
 			&CombinedJsonRequests::signatureHashes,
-			&CombinedJsonRequests::storageLayout
+			&CombinedJsonRequests::storageLayout,
+			&CombinedJsonRequests::transientStorageLayout
 		};
 
 		for (auto const invalidOption: invalidOptions)

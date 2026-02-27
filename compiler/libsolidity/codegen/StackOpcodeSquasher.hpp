@@ -14,7 +14,6 @@
 #pragma once
 
 #include <libsolidity/codegen/TvmAst.hpp>
-#include <map>
 #include <unordered_map>
 
 namespace solidity::frontend {
@@ -46,7 +45,7 @@ public:
 	std::array<int8_t, MAX_STACK_DEPTH> const& values() const { return m_values; }
 private:
 	void updHash();
-private:
+
 	std::size_t m_hash{};
 	int8_t m_size;
 	std::array<int8_t, MAX_STACK_DEPTH> m_values{};
@@ -69,14 +68,10 @@ private:
 };
 } // end solidity::frontend
 
-namespace std {
-
 template <>
-struct hash<solidity::frontend::StackState> {
-std::size_t operator()(const solidity::frontend::StackState& k) const {
-	return k.getHash();
-}
+struct std::hash<solidity::frontend::StackState> {
+	std::size_t operator()(const solidity::frontend::StackState& k) const noexcept {
+		return k.getHash();
+	}
 };
-
-}
 

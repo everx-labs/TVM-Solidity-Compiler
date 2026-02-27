@@ -102,7 +102,7 @@ jobs:
       - name: Build Rust Binary (${{ env.RELEASE_BIN }})
         shell: bash
         run: |
-          cargo build --release
+          cargo build --release --manifest-path sold/Cargo.toml
       - name: List target/release contents (Debug)
         shell: bash
         run: ls -lah target/release

@@ -22,10 +22,13 @@
  */
 
 #include <libsolidity/analysis/StaticAnalyzer.h>
-
 #include <libsolidity/analysis/ConstantEvaluator.h>
 #include <libsolidity/ast/AST.h>
+#include <libsolidity/ast/ASTUtils.h>
 #include <liblangutil/ErrorReporter.h>
+
+#include <range/v3/view/enumerate.hpp>
+
 #include <memory>
 
 using namespace solidity;
@@ -49,6 +52,15 @@ bool StaticAnalyzer::analyze(SourceUnit const& _sourceUnit)
 {
 	_sourceUnit.accept(*this);
 	return !Error::containsErrors(m_errorReporter.errors());
+}
+
+bool StaticAnalyzer::visit(Assignment const& _assignment)
+{
+	Type const* lhsType = _assignment.leftHandSide().annotation().type;
+	Type const* rhsType = _assignment.rightHandSide().annotation().type;
+	solAssert(lhsType && rhsType, "Both left and right hand side expressions in an assignment must have a type.");
+
+	return true;
 }
 
 bool StaticAnalyzer::visit(ContractDefinition const& _contract)
@@ -199,7 +211,8 @@ bool StaticAnalyzer::visit(BinaryOperation const& _operation)
 {
 	if (
 		*_operation.rightExpression().annotation().isPure &&
-		(_operation.getOperator() == Token::Div || _operation.getOperator() == Token::Mod)
+		(_operation.getOperator() == Token::Div || _operation.getOperator() == Token::Mod) &&
+		ConstantEvaluator::evaluate(m_errorReporter, _operation.leftExpression())
 	)
 		if (auto rhs = ConstantEvaluator::evaluate(m_errorReporter, _operation.rightExpression()))
 			if (rhs->value == 0)

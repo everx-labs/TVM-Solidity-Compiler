@@ -6,9 +6,14 @@ contract C {
 		assert(msg.data.length == 0);
 	}
 }
+// ====
+// bytecodeFormat: legacy
 // ----
 // constructor(): 42 ->
-// gas irOptimized: 145578
-// gas legacy: 173845
-// gas legacyOptimized: 137877
+// gas irOptimized: 68239
+// gas irOptimized code: 69000
+// gas legacy: 78076
+// gas legacy code: 90200
+// gas legacyOptimized: 68321
+// gas legacyOptimized code: 64600
 // s() -> 0x20, 0

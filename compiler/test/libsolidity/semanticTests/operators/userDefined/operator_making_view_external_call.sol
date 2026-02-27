@@ -45,23 +45,29 @@ function loadAdder() pure returns (IAdderPure adder) {
 
 contract C {
     function testMul(Int32 x, Int32 y) public returns (Int32) {
-        storeAdder(new Adder());
+        storeAdder(new Adder{salt: hex"00"}());
 
         return x + y;
     }
 
     function testInc(Int32 x) public returns (Int32) {
-        storeAdder(new Adder());
+        storeAdder(new Adder{salt: hex"01"}());
 
         return -x;
     }
 }
+// ====
+// EVMVersion: >=constantinople
 // ----
 // testMul(int32,int32): 42, 10 -> 420
 // gas irOptimized: 102563
-// gas legacy: 183981
-// gas legacyOptimized: 123563
+// gas legacy: 57117
+// gas legacy code: 127000
+// gas legacyOptimized: 55246
+// gas legacyOptimized code: 68400
 // testInc(int32): 42 -> 43
 // gas irOptimized: 102386
-// gas legacy: 183239
-// gas legacyOptimized: 123251
+// gas legacy: 56378
+// gas legacy code: 127000
+// gas legacyOptimized: 54943
+// gas legacyOptimized code: 68400

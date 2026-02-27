@@ -26,9 +26,9 @@ include(EthPolicy)
 eth_policy()
 
 # project name and version should be set after cmake_policy CMP0048
-set(PROJECT_VERSION "0.79.0")
+set(PROJECT_VERSION "0.80.0")
 # OSX target needed in order to support std::visit
-set(CMAKE_OSX_DEPLOYMENT_TARGET "10.14")
+set(CMAKE_OSX_DEPLOYMENT_TARGET "13.3")
 project(solidity VERSION ${PROJECT_VERSION} LANGUAGES C CXX)
 
 include(TestBigEndian)
@@ -38,30 +38,49 @@ if (IS_BIG_ENDIAN)
 endif()
 
 option(SOLC_LINK_STATIC "Link solc executable statically on supported platforms" OFF)
-option(WITH_TESTS "Run solc tests" OFF)
 option(SOLC_STATIC_STDLIBS "Link solc against static versions of libgcc and libstdc++ on supported platforms" OFF)
-option(STRICT_Z3_VERSION "Use the latest version of Z3" ON)
+option(STRICT_Z3_VERSION "Require the exact version of Z3 solver expected by our test suite." ON)
 option(PEDANTIC "Enable extra warnings and pedantic build flags. Treat all warnings as errors." ON)
 option(PROFILE_OPTIMIZER_STEPS "Output performance metrics for the optimiser steps." OFF)
+option(
+	IGNORE_VENDORED_DEPENDENCIES
+	"Ignore libraries provided as submodules of the repository and allow CMake to look for \
+them in the typical locations, including system-wide dirs."
+	OFF
+)
+option(
+	ONLY_BUILD_SOLIDITY_LIBRARIES
+	"Only build library targets that can be statically linked against. Do not build executables or tests."
+	OFF
+)
+mark_as_advanced(PROFILE_OPTIMIZER_STEPS)
+mark_as_advanced(IGNORE_VENDORED_DEPENDENCIES)
+mark_as_advanced(ONLY_BUILD_SOLIDITY_LIBRARIES)
 
 # Setup cccache.
 include(EthCcache)
 
 # Let's find our dependencies
 include(EthDependencies)
-include(fmtlib)
-include(jsoncpp)
-include(range-v3)
-include_directories(SYSTEM ${JSONCPP_INCLUDE_DIR})
+if (NOT IGNORE_VENDORED_DEPENDENCIES)
+  include(fmtlib)
+  include(nlohmann-json)
+  include(range-v3)
+else ()
+  message(WARNING "-- Ignoring vendored dependencies. Will use installed versions if found. Versions may differ from the ones the compiler was tested with. Make sure to run the test suite and thoroughly test the resulting binaries before using them in production.")
+  find_package(fmt REQUIRED)
+  find_package(nlohmann_json REQUIRED)
+  find_package(range-v3 REQUIRED)
+endif()
 
 find_package(Threads)
 
 if(NOT PEDANTIC)
-	message(WARNING "-- Pedantic build flags turned off. Warnings will not make compilation fail. This is NOT recommended in development builds.")
+  message(WARNING "-- Pedantic build flags turned off. Warnings will not make compilation fail. This is NOT recommended in development builds.")
 endif()
 
 if (PROFILE_OPTIMIZER_STEPS)
-	add_definitions(-DPROFILE_OPTIMIZER_STEPS)
+    add_definitions(-DPROFILE_OPTIMIZER_STEPS)
 endif()
 
 # Figure out what compiler and system are we using
@@ -82,15 +101,44 @@ configure_file("${PROJECT_SOURCE_DIR}/cmake/templates/license.h.in" include/lice
 include(EthOptions)
 configure_project(TESTS)
 
+if(EMSCRIPTEN)
+    set(TESTED_Z3_VERSION "4.13.3")
+    set(MINIMUM_Z3_VERSION "4.8.16")
+    find_package(Z3)
+    if (${Z3_FOUND})
+      add_definitions(-DEMSCRIPTEN_BUILD)
+      if (${STRICT_Z3_VERSION})
+        if (NOT ("${Z3_VERSION_STRING}" VERSION_EQUAL ${TESTED_Z3_VERSION}))
+          message(
+            FATAL_ERROR
+            "SMTChecker tests require Z3 ${TESTED_Z3_VERSION} for all tests to pass.\n"
+          )
+        endif()
+      else()
+        if ("${Z3_VERSION_STRING}" VERSION_LESS ${MINIMUM_Z3_VERSION})
+          message(
+            FATAL_ERROR
+            "Solidity requires Z3 ${MINIMUM_Z3_VERSION} or newer."
+          )
+        endif()
+      endif()
+    else()
+        message(FATAL_ERROR "Solidity requires Z3 for emscripten build.")
+    endif()
+endif()
+
 add_subdirectory(libsolutil)
 add_subdirectory(liblangutil)
 add_subdirectory(libsolidity)
 add_subdirectory(libsolc)
 add_subdirectory(libstdlib)
-if (WITH_TESTS)
-	add_subdirectory(test2)
-endif()
 
-if (NOT EMSCRIPTEN)
-	add_subdirectory(solc)
+if (NOT ONLY_BUILD_SOLIDITY_LIBRARIES)
+    if (NOT EMSCRIPTEN)
+        add_subdirectory(solc)
+    endif()
+
+    if (TESTS AND NOT EMSCRIPTEN)
+        add_subdirectory(test2)
+    endif()
 endif()

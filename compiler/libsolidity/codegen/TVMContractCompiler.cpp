@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2025 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2026 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -15,88 +15,85 @@
  */
 
 #include <fstream>
+
 #include <boost/algorithm/string/replace.hpp>
-#include <boost/range/adaptor/map.hpp>
 
 #include <libsolidity/interface/Version.h>
 
-#include <libsolidity/codegen/PeepholeOptimizer.hpp>
-#include <libsolidity/codegen/SizeOptimizer.hpp>
-#include <libsolidity/codegen/StackOptimizer.hpp>
+#include <libsolidity/codegen/Printer.hpp>
 #include <libsolidity/codegen/TVMABI.hpp>
-#include <libsolidity/codegen/TvmAst.hpp>
-#include <libsolidity/codegen/TvmAstVisitor.hpp>
-#include <libsolidity/codegen/TVMConstants.hpp>
 #include <libsolidity/codegen/TVMContractCompiler.hpp>
 #include <libsolidity/codegen/TVMExpressionCompiler.hpp>
 #include <libsolidity/codegen/TVMFunctionCompiler.hpp>
-#include <libsolidity/codegen/TVMInlineFunctionChecker.hpp>
+#include <libsolidity/codegen/TvmAst.hpp>
+#include <libsolidity/codegen/TvmAstVisitor.hpp>
+#include <libsolidity/codegen/analysis/TVMInlineFunctionChecker.hpp>
+#include <libsolidity/codegen/optimizers/CallRefOptimizer.hpp>
+#include <libsolidity/codegen/optimizers/MiscOptimizer.hpp>
+#include <libsolidity/codegen/optimizers/PeepholeOptimizer.hpp>
+#include <libsolidity/codegen/optimizers/StackOptimizer.hpp>
 
 using namespace solidity::frontend;
-using namespace std;
 using namespace solidity::util;
 
 
 void TVMContractCompiler::printFunctionIds(
+	std::string const& fileName,
 	ContractDefinition const& contract,
 	PragmaDirectiveHelper const& pragmaHelper
 ) {
-	Json::Value functionIds = TVMABI::generateFunctionIdsJson(contract, pragmaHelper);
-	cout << functionIds << endl;
+	std::ofstream outFile = openFile(fileName);
+	Json functionIds = TVMABI::generateFunctionIdsJson(contract, pragmaHelper);
+	outFile << std::setw(TVMABI::INDENT_SPACES) << functionIds << std::endl;
+	std::cout << "Function IDs were generated and saved to file " << fileName << std::endl;
 }
 
 void TVMContractCompiler::printPrivateFunctionIds(
+	std::string const& fileName,
 	ContractDefinition const& contract,
 	std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
-	PragmaDirectiveHelper const& pragmaHelper
+	PragmaDirectiveHelper const& pragmaHelper,
+	bool debugMode
 ) {
-	Json::Value functionIds = TVMABI::generatePrivateFunctionIdsJson(contract, _sourceUnits, pragmaHelper);
-	cout << functionIds << endl;
+	std::ofstream outFile = openFile(fileName);
+	Json functionIds = TVMABI::generatePrivateFunctionIdsJson(contract, _sourceUnits, pragmaHelper, debugMode);
+	outFile << std::setw(TVMABI::INDENT_SPACES) << functionIds << std::endl;
+	std::cout << "Private function IDs were generated and saved to file " << fileName << std::endl;
 }
 
 void TVMContractCompiler::generateABI(
-	const std::string& fileName,
-	ContractDefinition const *contract,
+	std::string const& fileName,
+	ContractDefinition const* contract,
 	std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
-	std::vector<PragmaDirective const *> const &pragmaDirectives
+	std::vector<PragmaDirective const*> const& pragmaDirectives
 ) {
-	if (!fileName.empty()) {
-		ofstream ofile;
-		ofile.open(fileName);
-		if (!ofile)
-			fatal_error("Failed to open the output file: " + fileName);
-		TVMABI::generateABI(contract, _sourceUnits, pragmaDirectives, &ofile);
-		ofile.close();
-		cout << "ABI was generated and saved to file " << fileName << endl;
-	} else {
-		TVMABI::generateABI(contract, _sourceUnits, pragmaDirectives);
-	}
+	std::ofstream outFile = openFile(fileName);
+	TVMABI::generateABI(contract, _sourceUnits, pragmaDirectives, outFile);
+	outFile.close();
+	std::cout << "ABI was generated and saved to file " << fileName << std::endl;
 }
 
 void TVMContractCompiler::generateCodeAndSaveToFile(
-	const std::string& fileName,
+	std::string const& fileName,
 	ContractDefinition const& contract,
-	std::vector<ASTPointer<SourceUnit>>const& _sourceUnits,
-	PragmaDirectiveHelper const &pragmaHelper
+	std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
+	PragmaDirectiveHelper const& pragmaHelper,
+	bool debugMode
 ) {
-	Pointer<Contract> codeContract = generateContractCode(&contract, _sourceUnits, pragmaHelper);
+	Pointer<Contract> codeContract = generateContractCode(&contract, _sourceUnits, pragmaHelper, debugMode);
 
-	ofstream ofile;
-	ofile.open(fileName);
-	if (!ofile) {
-		fatal_error("Failed to open the output file: " + fileName);
-	}
-	Printer p{ofile};
+	std::ofstream outFile = openFile(fileName);
+	Printer p{outFile};
 	codeContract->accept(p);
-	ofile.close();
-	cout << "Code was generated and saved to file " << fileName << endl;
+	outFile.close();
+	std::cout << "Code was generated and saved to file " << fileName << std::endl;
 }
 
-Pointer<Contract>
-TVMContractCompiler::generateContractCode(
-	ContractDefinition const *contract,
-	std::vector<ASTPointer<SourceUnit>>const& _sourceUnits,
-	PragmaDirectiveHelper const &pragmaHelper
+Pointer<Contract> TVMContractCompiler::generateContractCode(
+	ContractDefinition const* contract,
+	std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
+	PragmaDirectiveHelper const& pragmaHelper,
+	bool debugMode
 ) {
 	std::vector<Pointer<Function>> functions;
 	std::map<uint32_t, std::string> getters;
@@ -113,18 +110,15 @@ TVMContractCompiler::generateContractCode(
 		functions.emplace_back(f);
 	}
 
-	for (ContractDefinition const* c : contract->annotation().linearizedBaseContracts) {
-		for (FunctionDefinition const *_function : c->definedFunctions()) {
-			if (_function->isConstructor() ||
-				!_function->isImplemented() ||
-				_function->isInline()
-			)
+	for (ContractDefinition const* c: contract->annotation().linearizedBaseContracts) {
+		for (FunctionDefinition const* _function: c->definedFunctions()) {
+			if (_function->isConstructor() || !_function->isImplemented() || _function->isInline())
 				continue;
 
-			if (_function->isOnBounce()) {
-				if (!ctx.isOnBounceGenerated()) {
-					ctx.setIsOnBounce();
-					functions.emplace_back(TVMFunctionCompiler::generateOnBounce(ctx, _function));
+			if (_function->isOnBouncedMessage()) {
+				if (!ctx.isOnBouncedMessageGenerated()) {
+					ctx.setIsOnBouncedMessage();
+					functions.emplace_back(TVMFunctionCompiler::generateOnBouncedMessage(ctx, _function));
 				}
 			} else if (_function->isReceive()) {
 				if (!ctx.isReceiveGenerated()) {
@@ -142,7 +136,10 @@ TVMContractCompiler::generateContractCode(
 				if (!ctx.isBaseFunction(_function))
 					functions.emplace_back(TVMFunctionCompiler::generateOnCodeUpgrade(ctx, _function));
 			} else {
-				if (!ctx.isStdlib() && !ctx.getContract()->isContractLibrary() && _function->isPublic() && !ctx.isBaseFunction(_function)) {
+				if (!ctx.isStdlib() &&
+					!ctx.getContract()->isContractLibrary() &&
+					_function->isPublic() &&
+					!ctx.isBaseFunction(_function)) {
 					if (_function->visibility() == Visibility::Getter) {
 						functions.emplace_back(TVMFunctionCompiler::generateGetterFunction(ctx, _function));
 						uint32_t functionId = crc16(_function->name());
@@ -151,13 +148,13 @@ TVMContractCompiler::generateContractCode(
 						solAssert(emplace, "");
 					} else {
 						functions.emplace_back(TVMFunctionCompiler::generatePublicFunction(ctx, _function));
-						uint32_t functionId = ChainDataEncoder::calculateFunctionIDWithReason(_function,
-																					ReasonOfOutboundMessage::RemoteCallInternal);
+						uint32_t functionId = ChainDataEncoder::
+							calculateFunctionIDWithReason(_function, ReasonOfOutboundMessage::RemoteCallInternal);
 
 						ctx.addPublicFunction(_function, functionId, _function->name());
 					}
 				}
-				auto const[functionName, id] = ctx.functionInternalName(_function, true);
+				auto const [functionName, id] = ctx.functionInternalName(_function, true);
 				functions.emplace_back(TVMFunctionCompiler::generateFunction(ctx, _function, functionName, id));
 			}
 		}
@@ -177,17 +174,21 @@ TVMContractCompiler::generateContractCode(
 
 	// generate library functions
 	for (std::shared_ptr<SourceUnit> const& source: _sourceUnits) {
-		for (ASTPointer<ASTNode> const &node: source->nodes()) {
-			if (auto lib = dynamic_cast<ContractDefinition const *>(node.get())) {
+		for (ASTPointer<ASTNode> const& node: source->nodes()) {
+			if (auto lib = dynamic_cast<ContractDefinition const*>(node.get())) {
 				if (lib->isLibrary()) {
-					for (FunctionDefinition const *function : lib->definedFunctions()) {
+					for (FunctionDefinition const* function: lib->definedFunctions()) {
 						if (!function->modifiers().empty()) {
-							cast_error(*function->modifiers().at(0).get(),
-									   "Modifiers for library functions are not supported yet.");
+							cast_error(
+								*function->modifiers().at(0).get(),
+								"Modifiers for library functions are not supported yet."
+							);
 						}
 						if (!function->parameters().empty()) {
-							const std::string name = ctx.functionInternalName(function, true).first;
-							functions.emplace_back(TVMFunctionCompiler::generateLibFunctionWithObject(ctx, function, name));
+							std::string const name = ctx.functionInternalName(function, true).first;
+							functions.emplace_back(
+								TVMFunctionCompiler::generateLibFunctionWithObject(ctx, function, name)
+							);
 						}
 						auto const [name, id] = ctx.functionInternalName(function, false);
 						functions.emplace_back(TVMFunctionCompiler::generateFunction(ctx, function, name, id));
@@ -199,14 +200,16 @@ TVMContractCompiler::generateContractCode(
 
 	// generate free functions
 	for (std::shared_ptr<SourceUnit> const& source: _sourceUnits) {
-		for (ASTPointer<ASTNode> const &node: source->nodes()) {
-			if (auto function = dynamic_cast<FunctionDefinition const *>(node.get())) {
+		for (ASTPointer<ASTNode> const& node: source->nodes()) {
+			if (auto function = dynamic_cast<FunctionDefinition const*>(node.get())) {
 				if (function->isFree() && !function->isInlineAssembly()) {
 					if (!function->modifiers().empty())
-						cast_error(*function->modifiers().at(0).get(),
-								   "Modifiers for free functions are not supported yet.");
+						cast_error(
+							*function->modifiers().at(0).get(),
+							"Modifiers for free functions are not supported yet."
+						);
 					if (!function->parameters().empty()) {
-						const std::string name = ctx.functionInternalName(function, true).first;
+						std::string const name = ctx.functionInternalName(function, true).first;
 						functions.emplace_back(TVMFunctionCompiler::generateLibFunctionWithObject(ctx, function, name));
 					}
 					auto const [name, id] = ctx.functionInternalName(function, false);
@@ -229,21 +232,22 @@ TVMContractCompiler::generateContractCode(
 		it = ctx.constArrays().begin();
 	}
 
-	for (const auto&[name, arr] : ctx.newArrays())
+	for (auto const& [name, arr]: ctx.newArrays())
 		functions.emplace_back(TVMFunctionCompiler::generateNewArrays(ctx, name, arr));
 
-	for (const auto&[name, types] : ctx.buildTuple())
+	for (auto const& [name, types]: ctx.buildTuple())
 		functions.emplace_back(TVMFunctionCompiler::generateBuildTuple(ctx, name, types));
 
 	std::map<std::string, Pointer<Function>> functionsInMap;
-	for (const auto& func : functions) {
+	for (auto const& func: functions) {
 		std::string name = func->name();
-		solAssert(functionsInMap.count(name) == 0, "");
+		solAssert(!functionsInMap.contains(name), "");
 		functionsInMap[name] = func;
 	}
 	std::vector<Pointer<Function>> functionOrder;
-	for (std::string const& funcDef : ctx.callGraph().DAG()) {
-		if (functionsInMap.count(funcDef) == 0) {
+	std::vector<std::string> functionDag = ctx.callGraph().DAG();
+	for (std::string const& funcDef: ctx.callGraph().DAG()) {
+		if (!functionsInMap.contains(funcDef)) {
 			// TODO check stdlib function or inline function
 			continue;
 		}
@@ -251,25 +255,42 @@ TVMContractCompiler::generateContractCode(
 		functionOrder.emplace_back(f);
 		functionsInMap.erase(functionsInMap.find(funcDef));
 	}
-	for (const auto& func : functions) {
-		if (functionsInMap.count(func->name()) != 0)
+	for (auto const& func: functions) {
+		if (functionsInMap.contains(func->name()))
 			functionOrder.emplace_back(func);
 	}
 
 	Contract::ContractType type;
-	if (ctx.isStdlib()) type = Contract::ContractType::StdLibrary;
-	else if (ctx.getContract()->isContractLibrary()) type = Contract::ContractType::ContractLibrary;
-	else type = Contract::ContractType::Contract;
+	if (ctx.isStdlib())
+		type = Contract::ContractType::StdLibrary;
+	else if (ctx.getContract()->isContractLibrary())
+		type = Contract::ContractType::ContractLibrary;
+	else
+		type = Contract::ContractType::Contract;
 
 	Pointer<Contract> c = createNode<Contract>(
-			type,
-			ctx.getPragmaSaveAllFunctions(),
-			pragmaHelper.hasUpgradeOldSol(),
-			std::string{"sol "} + solidity::frontend::VersionNumber,
-			functionOrder,
-			ctx.callGraph().privateFunctions(),
-			getters
+		type,
+		ctx.getPragmaSaveAllFunctions(),
+		pragmaHelper.hasUpgradeOldSol(),
+		std::string{"sol "} + solidity::frontend::VersionNumber,
+		functionOrder,
+		ctx.callGraph().privateFunctions(),
+		getters
 	);
+
+
+	if (!debugMode) {
+		optimizeCode(c, functionDag);
+	}
+
+	return c;
+}
+
+void TVMContractCompiler::optimizeCode(Pointer<Contract> const& c, std::vector<std::string> const& functionDag) {
+	Printer printer{std::cerr, ""};
+	bool debugCode = false;
+	if (debugCode)
+		c->accept(printer);
 
 	DeleterAfterRet d;
 	c->accept(d);
@@ -277,57 +298,87 @@ TVMContractCompiler::generateContractCode(
 	LocSquasher sq;
 	c->accept(sq);
 
-	optimizeCode(c);
-
-	return c;
-}
-
-void TVMContractCompiler::optimizeCode(Pointer<Contract>& c) {
-	DeleterCallX dc;
-	c->accept(dc);
-
 	LogCircuitExpander lce;
 	c->accept(lce);
+	if (debugCode)
+		c->accept(printer);
+
+	CallRefToCallXOptimizer::optimize(c);
+	if (debugCode)
+		c->accept(printer);
+
+	CallRefInliner::optimize(c, functionDag);
+	if (debugCode)
+		c->accept(printer);
 
 	{
-		StackOptimizer opt;
+		StackOptimizer opt{false};
 		c->accept(opt);
+		if (debugCode)
+			c->accept(printer);
 	}
 
 	lce = LogCircuitExpander{};
 	c->accept(lce);
+	if (debugCode)
+		c->accept(printer);
 
-	for (int i = 0; i < 10; ++i) { // TODO
+	for (int i = 0; i < 2; ++i) {
 		PeepholeOptimizer peepHole{{}};
 		c->accept(peepHole);
+		if (debugCode)
+			c->accept(printer);
 
-		StackOptimizer opt;
+		StackOptimizer opt{false};
 		c->accept(opt);
+		if (debugCode)
+			c->accept(printer);
 	}
 
-	PeepholeOptimizer peepHole = PeepholeOptimizer{{}};
+	for (int i = 0; i < 2; ++i) {
+		PeepholeOptimizer peepHole{{}};
+		c->accept(peepHole);
+		if (debugCode)
+			c->accept(printer);
+
+		StackOptimizer opt{true};
+		c->accept(opt);
+		if (debugCode)
+			c->accept(printer);
+	}
+
+	PeepholeOptimizer peepHole{1 << static_cast<size_t>(OptFlags::UnpackOpaque)};
+	c->accept(peepHole);
+	if (debugCode)
+		c->accept(printer);
+
+	peepHole = PeepholeOptimizer{
+		1 << static_cast<size_t>(OptFlags::UnpackOpaque) |
+		1 << static_cast<size_t>(OptFlags::OptimizeSlice) |
+		1 << static_cast<size_t>(OptFlags::UseCompoundOpcodes) |
+		1 << static_cast<size_t>(OptFlags::UseR) |
+		1 << static_cast<size_t>(OptFlags::UnpackIfElse)
+	};
 	c->accept(peepHole);
 
-	peepHole = PeepholeOptimizer{1 << OptFlags::UnpackOpaque};
-	c->accept(peepHole);
+	for (int i = 0; i < 2; ++i) {
+		CallRefInliner::optimize(c, functionDag);
 
-	peepHole = PeepholeOptimizer{(1 << OptFlags::UnpackOpaque) | (1 << OptFlags::UseCompoundOpcodes)};
-	c->accept(peepHole);
+		c->accept(peepHole);
+	}
 
-	peepHole = PeepholeOptimizer{(1 << OptFlags::OptimizeSlice) | (1 << OptFlags::UseCompoundOpcodes)};
-	c->accept(peepHole);
-
-	LocSquasher sq = LocSquasher{};
+	sq = LocSquasher{};
 	c->accept(sq);
-
-	SizeOptimizer so{};
-	so.optimize(c);
 }
 
-void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractDefinition const *contract, std::vector<ASTPointer<SourceUnit>>const& _sourceUnits) {
-	std::set<FunctionDefinition const *> inlineFunctions;
-	for (ContractDefinition const *base : contract->annotation().linearizedBaseContracts | boost::adaptors::reversed) {
-		for (FunctionDefinition const *function : base->definedFunctions()) {
+void TVMContractCompiler::fillInlineFunctions(
+	TVMCompilerContext& ctx,
+	ContractDefinition const* contract,
+	std::vector<ASTPointer<SourceUnit>> const& _sourceUnits
+) {
+	std::set<FunctionDefinition const*> inlineFunctions;
+	for (ContractDefinition const* base: contract->annotation().linearizedBaseContracts | std::views::reverse) {
+		for (FunctionDefinition const* function: base->definedFunctions()) {
 			if (function->isInline()) {
 				inlineFunctions.insert(function);
 			}
@@ -335,8 +386,8 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 	}
 	// generate free functions
 	for (std::shared_ptr<SourceUnit> const& source: _sourceUnits) {
-		for (ASTPointer<ASTNode> const &node: source->nodes()) {
-			if (auto function = dynamic_cast<FunctionDefinition const *>(node.get())) {
+		for (ASTPointer<ASTNode> const& node: source->nodes()) {
+			if (auto function = dynamic_cast<FunctionDefinition const*>(node.get())) {
 				if (function->isFree() && !function->isInlineAssembly() && function->isInline()) {
 					inlineFunctions.insert(function);
 				}
@@ -345,13 +396,13 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 	}
 
 	TVMInlineFunctionChecker inlineFunctionChecker;
-	for (FunctionDefinition const *function : inlineFunctions) {
+	for (FunctionDefinition const* function: inlineFunctions) {
 		function->accept(inlineFunctionChecker);
 	}
-	std::vector<FunctionDefinition const *> order = inlineFunctionChecker.functionOrder();
+	std::vector<FunctionDefinition const*> order = inlineFunctionChecker.functionOrder();
 
-	for (FunctionDefinition const * function : order) {
-		const std::string name = ctx.functionInternalName(function, false).first;
+	for (FunctionDefinition const* function: order) {
+		std::string const name = ctx.functionInternalName(function, false).first;
 		ctx.setCurrentFunction(function, name);
 		StackPusher pusher{&ctx};
 		TVMFunctionCompiler::generateFunctionWithModifiers(pusher, function, true);
@@ -361,3 +412,10 @@ void TVMContractCompiler::fillInlineFunctions(TVMCompilerContext &ctx, ContractD
 	}
 }
 
+std::ofstream TVMContractCompiler::openFile(std::string const& fileName) {
+	std::ofstream outFile;
+	outFile.open(fileName);
+	if (!outFile)
+		fatal_error("Failed to open the output file: " + fileName);
+	return outFile;
+}

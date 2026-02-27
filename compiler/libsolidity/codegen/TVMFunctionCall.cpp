@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2025 EverX. All Rights Reserved.
+ * Copyright (C) 2020-2026 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -14,30 +14,31 @@
  * Function call compiler for TVM
  */
 
+#include <format>
+
 #include <boost/algorithm/string.hpp>
 
 #include <liblangutil/SourceReferenceExtractor.h>
 #include <libsolidity/ast/TypeProvider.h>
 
-#include <libsolidity/codegen/TVMCommons.hpp>
 #include <libsolidity/codegen/DictOperations.hpp>
+#include <libsolidity/codegen/TVM.hpp>
 #include <libsolidity/codegen/TVMABI.hpp>
+#include <libsolidity/codegen/TVMCommons.hpp>
 #include <libsolidity/codegen/TVMConstants.hpp>
 #include <libsolidity/codegen/TVMExpressionCompiler.hpp>
 #include <libsolidity/codegen/TVMFunctionCall.hpp>
 #include <libsolidity/codegen/TVMStructCompiler.hpp>
-#include <libsolidity/codegen/TVM.hpp>
 
 using namespace solidity::frontend;
 using namespace solidity::langutil;
 using namespace solidity::util;
-using namespace std;
 
 FunctionCallCompiler::FunctionCallCompiler(
-	StackPusher &m_pusher,
+	StackPusher& m_pusher,
 	FunctionCall const& _functionCall,
 	bool isCurrentResultNeeded
-) :
+):
 	m_pusher{m_pusher},
 	m_exprCompiler{m_pusher},
 	m_functionCall{_functionCall},
@@ -46,11 +47,42 @@ FunctionCallCompiler::FunctionCallCompiler(
 	m_funcType{to<FunctionType>(m_functionCall.expression().annotation().type)},
 	m_retType{m_functionCall.annotation().type},
 	m_isCurrentResultNeeded{isCurrentResultNeeded},
-	m_names{m_functionCall.names()}
-{
+	m_names{m_functionCall.names()} {
+	if (m_funcType != nullptr) {
+		std::vector<std::string> const& functionNames = m_funcType->parameterNames();
+		std::vector<ASTPointer<ASTString>> const& functionCallNames = m_functionCall.names();
+		argQty = std::max(m_arguments.size(), std::max(functionNames.size(), functionCallNames.size()));
+		m_declarationIndex = std::vector<size_t>(argQty, INDEX_INF); // argOrder[callIndex] = declarationIndex;
+
+		if (functionCallNames.empty()) {
+			// ff(a, b);
+			for (size_t i = 0; i < argQty; ++i) {
+				m_declarationIndex[i] = i;
+			}
+		} else {
+			// ff({b: b, a: a});
+			// solAssert(functionCallNames.size() == argQty, "");
+			std::map<std::string, int> nameToIndex;
+			for (size_t i = 0; i < functionCallNames.size(); ++i) {
+				nameToIndex[*functionCallNames[i]] = i;
+			}
+			for (size_t i = 0; i < functionNames.size(); ++i) {
+				std::string functionName = functionNames[i];
+				if (nameToIndex.contains(functionName))
+					m_declarationIndex[nameToIndex.at(functionName)] = i;
+			}
+		}
+
+		m_callIndex = std::vector<size_t>(argQty, INDEX_INF);
+		for (size_t callIndex = 0; callIndex < argQty; ++callIndex) {
+			if (m_declarationIndex[callIndex] != INDEX_INF) {
+				m_callIndex[m_declarationIndex[callIndex]] = callIndex;
+			}
+		}
+	}
 }
 
-void FunctionCallCompiler::structConstructorCall() {
+void FunctionCallCompiler::structConstructorCall() const {
 	auto const& type = dynamic_cast<TypeType const&>(*m_functionCall.expression().annotation().type);
 	auto const& structType = dynamic_cast<StructType const&>(*type.actualType());
 	auto pushParam = [&](int index, Type const* targetType) {
@@ -61,9 +93,7 @@ void FunctionCallCompiler::structConstructorCall() {
 }
 
 void FunctionCallCompiler::compile() {
-	auto reportError = [&](){
-		cast_error(m_functionCall, "Unsupported function call");
-	};
+	auto reportError = [&] { cast_error(m_functionCall, "Unsupported function call"); };
 
 	if (m_funcType) {
 		switch (m_funcType->kind()) {
@@ -89,7 +119,9 @@ void FunctionCallCompiler::compile() {
 		checkSolidityUnits() ||
 		checkLocalFunctionOrLibCallOrFuncVarCall()) {
 		// do nothing
-	} else if (m_memberAccess != nullptr && getType(&m_memberAccess->expression())->category() == Type::Category::Struct) {
+	} else if (
+		m_memberAccess != nullptr && getType(&m_memberAccess->expression())->category() == Type::Category::Struct
+	) {
 		if (!structMethodCall()) {
 			reportError();
 		}
@@ -119,9 +151,7 @@ void FunctionCallCompiler::compile() {
 				tvmVectorMethods();
 			} else if (category == Type::Category::TvmStack) {
 				tvmStackMethods();
-			} else if (
-				checkForOptionalMethods(*m_memberAccess))
-			{
+			} else if (checkForOptionalMethods(*m_memberAccess)) {
 				// nothing
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "tvm") {
 				if (m_funcType->kind() == FunctionType::Kind::ABIEncodeIntMsg) {
@@ -194,24 +224,25 @@ void FunctionCallCompiler::compile() {
 
 void FunctionCallCompiler::arrayPush(StackPusher& pusher, Type const* arrayBaseType, DataType dataType) {
 	// arr value
-	pusher.exchange(1); // value' arr
-	pusher << "UNTUPLE 2";  // value' size dict
-	pusher.pushS(1); // value' size dict size
-	pusher << "INC"; // value' size dict newSize
-	pusher.blockSwap(3, 1); // newSize value' size dict
+	pusher.exchange(1);											 // value' arr
+	pusher << "UNTUPLE 2";										 // value' size dict
+	pusher.pushS(1);											 // value' size dict size
+	pusher << "INC";											 // value' size dict newSize
+	pusher.blockSwap(3, 1);										 // newSize value' size dict
 	pusher.setDict(getArrayKeyType(), *arrayBaseType, dataType); // newSize dict'
-	pusher << "TUPLE 2";  // arr
+	pusher << "TUPLE 2";										 // arr
 }
 
-bool FunctionCallCompiler::checkForMappingOrCurrenciesMethods() {
+bool FunctionCallCompiler::checkForMappingOrCurrenciesMethods() const {
 	if (m_memberAccess == nullptr || !to<MappingType>(m_memberAccess->expression().annotation().type))
 		return false;
 
-	const ASTString &memberName = m_memberAccess->memberName();
+	ASTString const& memberName = m_memberAccess->memberName();
 	if (isIn(memberName, "delMin", "delMax")) {
 		mappingDelMinOrMax(memberName == std::string{"delMin"});
-	} else  if (isIn(memberName, "at", "fetch", "exists", "replace", "add",
-									"getSet", "getAdd", "getDel", "getReplace")) {
+	} else if (
+		isIn(memberName, "at", "fetch", "exists", "replace", "add", "getSet", "getAdd", "getDel", "getReplace")
+	) {
 		mappingGetSet();
 	} else if (isIn(memberName, "min", "max")) {
 		mappingMinMaxMethod(memberName == std::string{"min"});
@@ -228,7 +259,7 @@ bool FunctionCallCompiler::checkForMappingOrCurrenciesMethods() {
 	return true;
 }
 
-void FunctionCallCompiler::mappingDelMinOrMax(bool isDelMin) {
+void FunctionCallCompiler::mappingDelMinOrMax(bool isDelMin) const {
 	Type const* keyType{};
 	Type const* valueType{};
 	std::tie(keyType, valueType) = dictKeyValue(m_memberAccess->expression().annotation().type);
@@ -237,12 +268,12 @@ void FunctionCallCompiler::mappingDelMinOrMax(bool isDelMin) {
 	d.delMinOrMax();
 }
 
-void FunctionCallCompiler::mappingGetSet() {
+void FunctionCallCompiler::mappingGetSet() const {
 	Type const* keyType{};
 	Type const* valueType{};
 	std::tie(keyType, valueType) = dictKeyValue(m_memberAccess->expression().annotation().type);
 
-	const ASTString &memberName = m_memberAccess->memberName();
+	ASTString const& memberName = m_memberAccess->memberName();
 	if (isIn(memberName, "fetch", "at")) {
 		pushArgs(); // index
 		m_pusher.prepareKeyForDictOperations(keyType, false);
@@ -257,8 +288,8 @@ void FunctionCallCompiler::mappingGetSet() {
 		acceptExpr(&m_memberAccess->expression()); // index dict
 		m_pusher.getDict(*keyType, *valueType, GetDictOperation::Exist);
 	} else if (isIn(memberName, "getDel")) {
-		const int stackSize = m_pusher.stackSize();
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
+		int const stackSize = m_pusher.stackSize();
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
 
 		pushArgAndConvert(0); // lValue... map key
 		m_pusher.prepareKeyForDictOperations(keyType, false);
@@ -266,14 +297,14 @@ void FunctionCallCompiler::mappingGetSet() {
 
 		m_pusher.getDict(*keyType, *valueType, GetDictOperation::GetDelFromMapping); // lValue... map' value
 
-		const int cntOfValuesOnStack = m_pusher.stackSize() - stackSize;
-		m_pusher.blockSwap(cntOfValuesOnStack - 1, 1); // value lValue... map'
+		int const cntOfValuesOnStack = m_pusher.stackSize() - stackSize;
+		m_pusher.blockSwap(cntOfValuesOnStack - 1, 1);	// value lValue... map'
 		m_exprCompiler.collectLValue(lValueInfo, true); // value
 	} else if (isIn(memberName, "replace", "add", "getSet", "getAdd", "getReplace")) {
-		const int stackSize = m_pusher.stackSize();
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true); // lValue... map
-		pushArgAndConvert(1); // lValue... map value
-		const DataType& dataType = m_pusher.prepareValueForDictOperations(keyType, valueType); // lValue... map value'
+		int const stackSize = m_pusher.stackSize();
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true); // lValue... map
+		pushArgAndConvert(1);																   // lValue... map value
+		DataType const& dataType = m_pusher.prepareValueForDictOperations(keyType, valueType); // lValue... map value'
 		pushArgAndConvert(0); // mapLValue... map value key
 		m_pusher.prepareKeyForDictOperations(keyType, false);
 		m_pusher.rot(); // mapLValue... value key map
@@ -304,15 +335,15 @@ void FunctionCallCompiler::mappingGetSet() {
 			m_pusher.getAndSetDict(*keyType, *valueType, op, dataType);
 			// mapLValue... map optValue
 		}
-		const int cntOfValuesOnStack = m_pusher.stackSize() - stackSize;  // mapLValue... map optValue
-		m_pusher.blockSwap(cntOfValuesOnStack - 1, 1); // optValue mapLValue... map
-		m_exprCompiler.collectLValue(lValueInfo, true); // optValue
+		int const cntOfValuesOnStack = m_pusher.stackSize() - stackSize; // mapLValue... map optValue
+		m_pusher.blockSwap(cntOfValuesOnStack - 1, 1);					 // optValue mapLValue... map
+		m_exprCompiler.collectLValue(lValueInfo, true);					 // optValue
 	} else {
 		solUnimplemented("");
 	}
 }
 
-void FunctionCallCompiler::mappingMinMaxMethod(bool isMin) {
+void FunctionCallCompiler::mappingMinMaxMethod(bool isMin) const {
 	Type const* keyType{};
 	Type const* valueType{};
 	std::tie(keyType, valueType) = dictKeyValue(m_memberAccess->expression().annotation().type);
@@ -323,21 +354,21 @@ void FunctionCallCompiler::mappingMinMaxMethod(bool isMin) {
 	compiler.minOrMax();
 }
 
-void FunctionCallCompiler::mappingPrevNextMethods() {
+void FunctionCallCompiler::mappingPrevNextMethods() const {
 	Type const* keyType{};
 	Type const* valueType{};
 	std::tie(keyType, valueType) = dictKeyValue(m_memberAccess->expression().annotation().type);
 
-	pushArgAndConvert(0); // index
+	pushArgAndConvert(0);								 // index
 	m_pusher.prepareKeyForDictOperations(keyType, true); // index'
-	acceptExpr(&m_memberAccess->expression()); // index' dict
-	m_pusher.pushInt(dictKeyLength(keyType)); // index' dict nbits
+	acceptExpr(&m_memberAccess->expression());			 // index' dict
+	m_pusher.pushInt(dictKeyLength(keyType));			 // index' dict nbits
 
 	DictPrevNext compiler{m_pusher, *keyType, *valueType, m_memberAccess->memberName()};
 	compiler.prevNext();
 }
 
-void FunctionCallCompiler::mappingKeysOrValues(bool areKeys) {
+void FunctionCallCompiler::mappingKeysOrValues(bool areKeys) const {
 	m_pusher.pushEmptyArray();
 
 	acceptExpr(&m_memberAccess->expression());
@@ -399,12 +430,12 @@ void FunctionCallCompiler::mappingKeysOrValues(bool areKeys) {
 	// keys
 }
 
-void FunctionCallCompiler::mappingEmpty() {
+void FunctionCallCompiler::mappingEmpty() const {
 	acceptExpr(&m_memberAccess->expression());
 	m_pusher << "DICTEMPTY";
 }
 
-void FunctionCallCompiler::superFunctionCall(MemberAccess const &_node) {
+void FunctionCallCompiler::superFunctionCall(MemberAccess const& _node) const {
 	pushArgs();
 	auto someFunDecl = to<FunctionDefinition>(_node.annotation().referencedDeclaration);
 	FunctionDefinition const* superFunc = getSuperFunction(
@@ -417,7 +448,7 @@ void FunctionCallCompiler::superFunctionCall(MemberAccess const &_node) {
 	m_pusher.pushCallOrCallRef(superFunc, std::nullopt, true);
 }
 
-void FunctionCallCompiler::userDefinedValueMethods(MemberAccess const &_memberAccess) {
+void FunctionCallCompiler::userDefinedValueMethods(MemberAccess const& _memberAccess) const {
 	if (isIn(_memberAccess.memberName(), "wrap", "unwrap")) {
 		pushArgs();
 	} else {
@@ -425,30 +456,30 @@ void FunctionCallCompiler::userDefinedValueMethods(MemberAccess const &_memberAc
 	}
 }
 
-void FunctionCallCompiler::addressMethods(MemberAccess const &_node) {
+void FunctionCallCompiler::addressMethods(MemberAccess const& _node) const {
 	if (_node.memberName() == "makeAddrExtern") {
 		// addr_extern$01 len:(## 9) external_address:(bits len) = MsgAddressExt;
-		const auto& num = ExprUtils::constValue(*m_arguments.at(0));
-		const auto& len = ExprUtils::constValue(*m_arguments.at(1));
+		auto const& num = ExprUtils::constValue(*m_arguments.at(0));
+		auto const& len = ExprUtils::constValue(*m_arguments.at(1));
 		if (num.has_value() && len.has_value()) {
 			std::string addr = "01";
 			addr += StrUtils::toBitString(len.value(), 9, false).value();
-			addr += StrUtils::toBitString(num.value(), int(len.value()), false).value();
+			addr += StrUtils::toBitString(num.value(), static_cast<int>(len.value()), false).value();
 			m_pusher.pushSlice("x" + StrUtils::binaryStringToSlice(addr));
 		} else {
 			pushArgs();
-			m_pusher.pushS(0); // numb cntBit cntBit
+			m_pusher.pushS(0);	// numb cntBit cntBit
 			m_pusher << "NEWC"; // numb cntBit cntBit builder
 			m_pusher << "STSLICECONST x6_";
-			m_pusher << "STU 9"; // numb cntBit builder''
+			m_pusher << "STU 9";  // numb cntBit builder''
 			m_pusher.exchange(1); // numb builder'' cntBit
-			m_pusher << "STUX"; // builder'''
+			m_pusher << "STUX";	  // builder'''
 			m_pusher << "ENDC";
 			m_pusher << "CTOS"; // extAddress
 		}
 	} else if (_node.memberName() == "makeAddrStd") {
-		const auto& wid = ExprUtils::constValue(*m_arguments.at(0));
-		const auto& val = ExprUtils::constValue(*m_arguments.at(1));
+		auto const& wid = ExprUtils::constValue(*m_arguments.at(0));
+		auto const& val = ExprUtils::constValue(*m_arguments.at(1));
 		if (wid.has_value() && val.has_value()) {
 			// TODO delete this
 			std::string addr = "100";
@@ -469,19 +500,14 @@ void FunctionCallCompiler::addressMethods(MemberAccess const &_node) {
 	}
 }
 
-bool FunctionCallCompiler::libraryCall() {
-
-	auto funcViaObject = [this](FunctionDefinition const* function){
-		const int argQty = static_cast<int>(m_arguments.size());
-		const int retQty = static_cast<int>(function->returnParameters().size());
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
+bool FunctionCallCompiler::libraryCall() const {
+	auto funcViaObject = [this](FunctionDefinition const* function) {
+		int const argQty = static_cast<int>(m_arguments.size());
+		int const retQty = static_cast<int>(function->returnParameters().size());
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
 		// lValue.. arg0
-		pushArgs();  // lValue.. arg0 arg1 arg2 ...
-		m_pusher.pushCallOrCallRef(
-			function,
-			std::make_pair(argQty + 1, retQty + 1),
-			true
-		);
+		pushArgs(); // lValue.. arg0 arg1 arg2 ...
+		m_pusher.pushCallOrCallRef(function, std::make_pair(argQty + 1, retQty + 1), true);
 		// lValue.. arg0 ret0 ret1 ...
 		m_pusher.blockSwap(lValueInfo.stackSizeDiff, retQty);
 		// ret0 ret1 ... lValue.. arg0
@@ -489,13 +515,13 @@ bool FunctionCallCompiler::libraryCall() {
 	};
 
 	if (auto function = to<FunctionDefinition>(m_memberAccess->annotation().referencedDeclaration)) {
-		DeclarationAnnotation const &da = function->annotation();
+		DeclarationAnnotation const& da = function->annotation();
 		if (da.contract == nullptr) {
 			// using {add} for uint; // free function
 			// a.add(b);
 			funcViaObject(function);
 			return true;
-		} else  if (da.contract->contractKind() == ContractKind::Library) {
+		} else if (da.contract->contractKind() == ContractKind::Library) {
 			auto t = getType(&m_memberAccess->expression());
 			if (t->category() == Type::Category::TypeType) {
 				// uint z = MyLib.sum(a, b);
@@ -513,22 +539,19 @@ bool FunctionCallCompiler::libraryCall() {
 
 std::function<void()> FunctionCallCompiler::generateDataSection(
 	bool data_map_supported,
-	const std::function<void()>& pushKey,
+	std::function<void()> const& pushKey,
 	Expression const* vars,
 	ContractType const* ct
-) {
-	auto getDeclAndIndex =
-		[](std::vector<std::pair<VariableDeclaration const*, int>> staticVars, const std::string& name)
-	{
-		auto pos = find_if(staticVars.begin(), staticVars.end(), [&](auto v) {
-			return v.first->name() == name;
-		});
+) const {
+	auto getDeclAndIndex = [](std::vector<std::pair<VariableDeclaration const*, int>> staticVars,
+							  std::string const& name) {
+		auto pos = std::ranges::find_if(staticVars, [&](auto v) { return v.first->name() == name; });
 		solAssert(pos != staticVars.end(), "");
 		return *pos;
 	};
 
 	if (data_map_supported) {
-		return [pushKey, this, vars, ct, getDeclAndIndex]() {
+		return [pushKey, this, vars, ct, getDeclAndIndex] {
 			// creat dict with variable values
 			m_pusher << "NULL";
 			// stack: builder dict
@@ -536,7 +559,7 @@ std::function<void()> FunctionCallCompiler::generateDataSection(
 			Type const* valueType = TypeProvider::uint256();
 
 			pushKey();
-			const DataType& dataType = m_pusher.prepareValueForDictOperations(&keyType, valueType);
+			DataType const& dataType = m_pusher.prepareValueForDictOperations(&keyType, valueType);
 			m_pusher.pushInt(0); // index of pubkey
 			// stack: dict value key
 			m_pusher.rot();
@@ -544,17 +567,18 @@ std::function<void()> FunctionCallCompiler::generateDataSection(
 			m_pusher.setDict(getKeyTypeOfC4(), *valueType, dataType);
 			// stack: dict'
 			if (vars) {
-				std::vector<PragmaDirective const *> _pragmaDirectives;
+				std::vector<PragmaDirective const*> _pragmaDirectives;
 				PragmaDirectiveHelper pragmaHelper{_pragmaDirectives};
 				TVMCompilerContext cc{&ct->contractDefinition(), pragmaHelper};
-				std::vector<std::pair<VariableDeclaration const*, int>> staticVars = cc.storageLayout().getStaticVariables();
+				std::vector<std::pair<VariableDeclaration const*, int>> staticVars =
+					cc.storageLayout().getStaticVariables();
 				auto initVars = to<InitializerList>(vars);
 				for (size_t i = 0; i < initVars->names().size(); ++i) {
-					const ASTPointer<ASTString> &name = initVars->names().at(i);
-					const auto &[varDecl, varIndex] = getDeclAndIndex(staticVars, *name);
+					ASTPointer<ASTString> const& name = initVars->names().at(i);
+					auto const& [varDecl, varIndex] = getDeclAndIndex(staticVars, *name);
 					valueType = varDecl->type();
 					pushExprAndConvert(initVars->options().at(i).get(), valueType); // stack: dict value
-					const DataType& dataType2 = m_pusher.prepareValueForDictOperations(&keyType, valueType);
+					DataType const& dataType2 = m_pusher.prepareValueForDictOperations(&keyType, valueType);
 					m_pusher.pushInt(varIndex);
 					// stack: dict value key
 					m_pusher.rot();
@@ -568,7 +592,7 @@ std::function<void()> FunctionCallCompiler::generateDataSection(
 			m_pusher << "ENDC";
 		};
 	} else {
-		return [pushKey, this, vars, ct, getDeclAndIndex]() {
+		return [pushKey, this, vars, ct, getDeclAndIndex] {
 			StorageLayout const storageLayout{&ct->contractDefinition()};
 
 			std::map<VariableDeclaration const*, Expression const*> varValue;
@@ -576,15 +600,15 @@ std::function<void()> FunctionCallCompiler::generateDataSection(
 				std::vector<std::pair<VariableDeclaration const*, int>> staticVars = storageLayout.getStaticVariables();
 				auto initVars = to<InitializerList>(vars);
 				for (size_t i = 0; i < initVars->names().size(); ++i) {
-					const ASTPointer<ASTString> &name = initVars->names().at(i);
-					const auto &[varDecl, _] = getDeclAndIndex(staticVars, *name);
+					ASTPointer<ASTString> const& name = initVars->names().at(i);
+					auto const& [varDecl, _] = getDeclAndIndex(staticVars, *name);
 					varValue[varDecl] = initVars->options().at(i).get();
 				}
 			}
 
-			std::vector<VariableDeclaration const *> stateVars = storageLayout.usualAndUnpackedStateVariables();
-			for (VariableDeclaration const* var : stateVars | boost::adaptors::reversed) {
-				if (varValue.count(var) == 0)
+			std::vector<VariableDeclaration const*> stateVars = storageLayout.usualAndUnpackedStateVariables();
+			for (VariableDeclaration const* var: stateVars | std::views::reverse) {
+				if (!varValue.contains(var))
 					m_pusher.pushDefaultValue(var->type());
 				else
 					pushExprAndConvert(varValue.at(var), var->type());
@@ -601,7 +625,7 @@ std::function<void()> FunctionCallCompiler::generateDataSection(
 				m_pusher << "STU 64";
 			if (storageLayout.hasConstructor())
 				m_pusher << "STSLICECONST 0"; // constructor flag
-			const std::vector<Type const *> memberTypes = getTypesFromVarDecls(stateVars);
+			std::vector<Type const*> const memberTypes = getTypesFromVarDecls(stateVars);
 			if (!memberTypes.empty()) {
 				ChainDataEncoder encoder{&m_pusher};
 				AbiV2Position position{storageLayout.getOffsetC4(), 0, memberTypes};
@@ -612,83 +636,19 @@ std::function<void()> FunctionCallCompiler::generateDataSection(
 	}
 }
 
-bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCall) {
-	std::map<int, Expression const *> exprs;
-	std::map<int, std::string> constParams = {{TvmConst::int_msg_info::ihr_disabled, "1"}};
-	std::function<void(int)> appendBody;
-	std::function<void()> pushSendrawmsgFlag;
+bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const& _functionCall) const {
+	std::map<int, Expression const*> exprs;
+	std::map<int, std::string> constParams;
+	std::function<void()> pushSendRawMsgFlag;
 	FunctionDefinition const* functionDefinition{};
 	std::optional<uint32_t> callbackFunctionId;
-	std::function<void()> appendStateInit;
+	std::function<std::pair<int, int>()> appendEitherStateInit;
+	std::function<void()> pushValue;
+	std::function<void()> pushExtraFlags;
 
-	if (auto functionOptions = to<FunctionCallOptions>(&_functionCall.expression())) {
-		auto memberAccess = to<MemberAccess>(&functionOptions->expression());
-		if (!memberAccess)
-			return false;
-
-		// function definition
-		functionDefinition = getRemoteFunctionDefinition(memberAccess);
-		if (functionDefinition == nullptr) {
-			return false;
-		}
-
-		// parse options they are stored in two vectors: names and options
-		for (const auto &option: functionOptions->names())
-			if (!isIn(*option, "stateInit", "flag", "value", "currencies", "bounce", "callback"))
-				cast_error(_functionCall, "Unsupported function call option: " + *option);
-
-		// Search for stateInit option
-		if (Expression const* stateInit = findOption("stateInit"))
-			appendStateInit = [this, stateInit](){
-				// Either StateInit ^StateInit
-				m_pusher << "STSLICECONST 1"; // ^StateInit
-				acceptExpr(stateInit);
-				m_pusher << "STREFR";
-			};
-
-		// Search for bounce option
-		if (Expression const* bounce = findOption("bounce"))
-			exprs[TvmConst::int_msg_info::bounce] = bounce;
-		else
-			constParams[TvmConst::int_msg_info::bounce] = "1";
-
-		// Search for currencies option
-		if (Expression const* currencies = findOption("currencies"))
-			exprs[TvmConst::int_msg_info::currency] = currencies;
-		else
-			constParams[TvmConst::int_msg_info::currency] = "0";
-
-		// Search for value (ton) option
-		if (Expression const* valueExpr = findOption("value")) {
-			const auto& value = ExprUtils::constValue(*valueExpr);
-			if (value.has_value())
-				constParams[TvmConst::int_msg_info::tons] = StrUtils::tonsToBinaryString(u256(value.value()));
-			else
-				exprs[TvmConst::int_msg_info::tons] = valueExpr;
-		} else
-			cast_error(_functionCall, "Explicitly define message value, e.g. f{value: 1 ton}(...)");
-
-		// remote_addr
-		exprs[TvmConst::int_msg_info::dest] = &memberAccess->expression();
-
-
-
-		if (Expression const* callback = findOption("callback")) {
-			CallableDeclaration const* remoteFunction = getFunctionDeclarationOrConstructor(callback);
-			callbackFunctionId = ChainDataEncoder::calculateFunctionIDWithReason(
-					remoteFunction,
-					ReasonOfOutboundMessage::RemoteCallInternal
-			);
-		}
-
-		// Search for sendRawMsg flag option
-		if (Expression const* flag = findOption("flag")) {
-			pushSendrawmsgFlag = [flag, this]() {
-				acceptExpr(flag);
-			};
-		}
-	} else {
-		Expression const *currentExpression = &_functionCall.expression();
+	auto functionOptions = to<FunctionCallOptions>(&_functionCall.expression());
+	if (functionOptions == nullptr) {
+		Expression const* currentExpression = &_functionCall.expression();
 
 		auto memberAccess = to<MemberAccess>(currentExpression);
 		if (memberAccess == nullptr) {
@@ -699,7 +659,6 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 		if (functionDefinition == nullptr) {
 			return false;
 		}
-		// return false;
 
 		auto contract = functionDefinition->annotation().contract;
 		if (contract && contract->isContractLibrary()) {
@@ -711,41 +670,119 @@ bool FunctionCallCompiler::checkRemoteMethodCall(FunctionCall const &_functionCa
 			return true;
 		}
 
-		SourceReference sr = SourceReferenceExtractor::extract(*GlobalParams::g_charStreamProvider, &m_functionCall.location());
-		// const std::string computeName = toString(sr.position.line) + "_column_" + toString(sr.position.column) + "_ast_id_" +
-										// toString(m_functionCall.id());
-		//solUnimplemented(sr.text);
 		cast_error(_functionCall, "Explicitly define message value, e.g. f{value: 1 ton}(...)");
 	}
+
+	auto memberAccess = to<MemberAccess>(&functionOptions->expression());
+	if (!memberAccess)
+		return false;
+
+	// function definition
+	functionDefinition = getRemoteFunctionDefinition(memberAccess);
+	if (functionDefinition == nullptr) {
+		return false;
+	}
+
+	// parse options they are stored in two vectors: names and options
+	for (auto const& option: functionOptions->names())
+		if (!isIn(*option, "stateInit", "flag", "value", "currencies", "bounce", "callback", "extra_flags"))
+			cast_error(_functionCall, "Unsupported function call option: " + *option);
+
+	// Search for stateInit option
+	if (Expression const* stateInit = findOption("stateInit"))
+		appendEitherStateInit = [this, stateInit] {
+			// Either StateInit ^StateInit
+			m_pusher << "STSLICECONST 1"; // ^StateInit
+			acceptExpr(stateInit);
+			m_pusher.blockSwap(1, 1);
+			m_pusher << "STREF";
+			return std::pair<int, int>{1, 1};
+		};
+
+	// Search for bounce option
+	if (Expression const* bounce = findOption("bounce"))
+		exprs[TvmConst::int_msg_info::bounce] = bounce;
+	else
+		constParams[TvmConst::int_msg_info::bounce] = "1";
+
+	// Search for currencies option
+	if (Expression const* currencies = findOption("currencies"))
+		exprs[TvmConst::int_msg_info::currency] = currencies;
+	else
+		constParams[TvmConst::int_msg_info::currency] = "0";
+
+	// Search for value (ton) option
+	if (Expression const* valueExpr = findOption("value")) {
+		auto const& value = ExprUtils::constValue(*valueExpr);
+		if (value.has_value())
+			constParams[TvmConst::int_msg_info::tons] = StrUtils::tonsToBinaryString(u256(value.value()));
+		else {
+			pushValue = [this, valueExpr] { acceptExpr(valueExpr); };
+		}
+	} else
+		cast_error(_functionCall, "Explicitly define message value, e.g. f{value: 1 ton}(...)");
+
+	// Search for extra_flags option
+	if (Expression const* valueExpr = findOption("extra_flags")) {
+		auto const& value = ExprUtils::constValue(*valueExpr);
+		if (value.has_value())
+			constParams[TvmConst::int_msg_info::extra_flags] = StrUtils::tonsToBinaryString(u256(value.value()));
+		else {
+			pushExtraFlags = [this, valueExpr] { acceptExpr(valueExpr); };
+		}
+	}
+
+	// remote_addr
+	exprs[TvmConst::int_msg_info::dest] = &memberAccess->expression();
+
+
+	if (Expression const* callback = findOption("callback")) {
+		CallableDeclaration const* remoteFunction = getFunctionDeclarationOrConstructor(callback);
+		callbackFunctionId = ChainDataEncoder::
+			calculateFunctionIDWithReason(remoteFunction, ReasonOfOutboundMessage::RemoteCallInternal);
+	}
+
+	// Search for sendRawMsg flag option
+	if (Expression const* flag = findOption("flag")) {
+		pushSendRawMsgFlag = [flag, this] { acceptExpr(flag); };
+	}
+
 
 	pushArgs(true);
 
 	std::vector<VariableDeclaration const*> argDecl = convertArray(functionDefinition->parameters());
-	const bool isLib = functionDefinition->annotation().contract->isLibrary();
+	bool const isLib = functionDefinition->annotation().contract->isLibrary();
 	if (isLib) {
 		argDecl.erase(argDecl.begin(), argDecl.begin() + 1);
 	}
 	solAssert(m_arguments.size() == argDecl.size(), "");
 
-	appendBody = [&](int builderSize) {
+	std::function<void(int bitSizeBuilder, int refSizeBuilder)> appendBody = [&](int bitSizeBuilder,
+																				 int refSizeBuilder) {
 		ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
 			argDecl,
-			ChainDataEncoder::calculateFunctionIDWithReason(
-				functionDefinition,
-				ReasonOfOutboundMessage::RemoteCallInternal,
-				isLib
-			),
+			ChainDataEncoder::
+				calculateFunctionIDWithReason(functionDefinition, ReasonOfOutboundMessage::RemoteCallInternal, isLib),
 			callbackFunctionId,
-			builderSize,
+			bitSizeBuilder,
+			refSizeBuilder,
 			true
 		);
 	};
 
-	m_pusher.sendIntMsg(exprs, constParams, appendBody, pushSendrawmsgFlag, appendStateInit);
+	m_pusher.pushParamsAndSendInternalMessage(
+		exprs,
+		constParams,
+		appendBody,
+		pushSendRawMsgFlag,
+		appendEitherStateInit,
+		pushValue,
+		pushExtraFlags
+	);
 	return true;
 }
 
-const FunctionDefinition* FunctionCallCompiler::getRemoteFunctionDefinition(const MemberAccess* memberAccess) {
+FunctionDefinition const* FunctionCallCompiler::getRemoteFunctionDefinition(MemberAccess const* memberAccess) {
 	auto expr = &memberAccess->expression();
 	if (isSuper(expr))
 		return nullptr;
@@ -760,84 +797,102 @@ const FunctionDefinition* FunctionCallCompiler::getRemoteFunctionDefinition(cons
 	return f;
 }
 
-void FunctionCallCompiler::abiBuildIntMsg() {
-	const int stackSize = m_pusher.stackSize();
+void FunctionCallCompiler::abiBuildIntMsg() const {
+	int const stackSize = m_pusher.stackSize();
+	std::function<void()> pushValue;
+	std::function<void()> pushExtraFlags;
 
 	int destArg = -1;
 	int valueArg = -1;
 	int currenciesArg = -1;
 	int bounceArg = -1;
+	int extraFlagsArg = -1;
 	int callArg = -1;
 	int stateInit = -1;
 	for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
 		switch (str2int(m_names[arg]->c_str())) {
-			case str2int("dest"):
-				destArg = arg;
-				break;
-			case str2int("value"):
-				valueArg = arg;
-				break;
-			case str2int("currencies"):
-				currenciesArg = arg;
-				break;
-			case str2int("bounce"):
-				bounceArg = arg;
-				break;
-			case str2int("call"):
-				callArg = arg;
-				break;
-			case str2int("stateInit"):
-				stateInit = arg;
-				break;
-			default:
-				solUnimplemented("");
+		case str2int("dest"):
+			destArg = arg;
+			break;
+		case str2int("value"):
+			valueArg = arg;
+			break;
+		case str2int("currencies"):
+			currenciesArg = arg;
+			break;
+		case str2int("bounce"):
+			bounceArg = arg;
+			break;
+		case str2int("extra_flags"):
+			extraFlagsArg = arg;
+			break;
+		case str2int("call"):
+			callArg = arg;
+			break;
+		case str2int("stateInit"):
+			stateInit = arg;
+			break;
+		default:
+			solUnimplemented("");
 		}
 	}
 
 
 	auto callList = to<CallList>(m_arguments[callArg].get());
-	const std::vector<ASTPointer<Expression const>> args = callList->arguments();
+	std::vector<ASTPointer<Expression const>> const args = callList->arguments();
 	auto functionDefinition = to<FunctionDefinition>(getFunctionDeclarationOrConstructor(callList->function()));
-	const bool needCallback = functionDefinition->isResponsible();
-	const int shift = needCallback ? 1 : 0;
+	bool const needCallback = functionDefinition != nullptr && functionDefinition->isResponsible();
+	int const shift = needCallback ? 1 : 0;
 
 	for (int idx = static_cast<int>(args.size()) - 1; shift <= idx; --idx) {
-		ASTPointer<Expression const> const &arg = args.at(idx);
+		ASTPointer<Expression const> const& arg = args.at(idx);
 		acceptExpr(arg.get());
 		m_pusher.convert(functionDefinition->parameters().at(idx - shift)->type(), getType(arg.get()));
 	}
 
 	std::set<int> isParamOnStack;
-	std::map<int, std::string> constParams = {{TvmConst::int_msg_info::ihr_disabled, "1"}};
-	std::function<void(int)> appendBody = [&](int msgInfoSize){
-		std::optional<uint32_t> callbackFunctionId;
-		if (needCallback) {
-			CallableDeclaration const* callback = getFunctionDeclarationOrConstructor(args.at(0).get());
-			callbackFunctionId = ChainDataEncoder::calculateFunctionIDWithReason(callback, ReasonOfOutboundMessage::RemoteCallInternal);
+	std::map<int, std::string> constParams;
+	std::function<void(int bitSizeBuilder, int refSizeBuilder)> appendBody = [&](int bitSizeBuilder,
+																				 int refSizeBuilder) {
+		if (functionDefinition != nullptr) {
+			std::optional<uint32_t> callbackFunctionId;
+			if (needCallback) {
+				CallableDeclaration const* callback = getFunctionDeclarationOrConstructor(args.at(0).get());
+				callbackFunctionId = ChainDataEncoder::
+					calculateFunctionIDWithReason(callback, ReasonOfOutboundMessage::RemoteCallInternal);
+			}
+			std::vector<VariableDeclaration const*> params = convertArray(functionDefinition->parameters());
+			ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
+				params,
+				ChainDataEncoder::
+					calculateFunctionIDWithReason(functionDefinition, ReasonOfOutboundMessage::RemoteCallInternal),
+				callbackFunctionId,
+				bitSizeBuilder,
+				refSizeBuilder,
+				true
+			);
 		}
-		std::vector<VariableDeclaration const *> params = convertArray(functionDefinition->parameters());
-		ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
-			params,
-			ChainDataEncoder::calculateFunctionIDWithReason(functionDefinition, ReasonOfOutboundMessage::RemoteCallInternal),
-			callbackFunctionId,
-			msgInfoSize,
-			true
-		);
 	};
 
-	for (const auto& [argIndex, name, id] : std::vector<std::tuple<int, std::string, int>>{
-		{currenciesArg, "currencies", TvmConst::int_msg_info::currency},
-		{valueArg, "value", TvmConst::int_msg_info::tons},
-		{destArg, "dest", TvmConst::int_msg_info::dest},
-		{bounceArg, "bounce", TvmConst::int_msg_info::bounce}
-	}) {
-		if (argIndex != - 1) {
+	for (auto const& [argIndex, name, id]: std::vector<std::tuple<int, std::string, int>>{
+			 {currenciesArg, "currencies", TvmConst::int_msg_info::currency},
+			 {valueArg, "value", TvmConst::int_msg_info::tons},
+			 {destArg, "dest", TvmConst::int_msg_info::dest},
+			 {bounceArg, "bounce", TvmConst::int_msg_info::bounce},
+			 {extraFlagsArg, "extra_flags", TvmConst::int_msg_info::extra_flags}
+
+		 }) {
+		if (argIndex != -1) {
 			std::optional<bigint> value = ExprUtils::constValue(*m_arguments.at(argIndex));
 			std::optional<bool> flag = ExprUtils::constBool(*m_arguments.at(argIndex));
 			if (value) {
 				constParams[id] = StrUtils::tonsToBinaryString(*value);
 			} else if (flag) {
 				constParams[id] = StrUtils::boolToBinaryString(*flag);
+			} else if (name == "value") {
+				pushValue = [this, argIndex, name] { pushArgAndConvert(argIndex, name); };
+			} else if (name == "extra_flags") {
+				pushExtraFlags = [this, argIndex, name] { pushArgAndConvert(argIndex, name); };
 			} else {
 				pushArgAndConvert(argIndex, name);
 				isParamOnStack.insert(id);
@@ -845,29 +900,34 @@ void FunctionCallCompiler::abiBuildIntMsg() {
 		}
 	}
 
-	std::function<void()> appendStateInit;
+	std::function<std::pair<int, int>()> appendEitherStateInit;
 	if (stateInit != -1) {
-		appendStateInit = [&](){
+		appendEitherStateInit = [&] {
 			// Either StateInit ^StateInit
 			m_pusher << "STSLICECONST 1"; // ^StateInit
 			pushArgAndConvert(stateInit, "stateInit");
-			m_pusher << "STREFR";
+			m_pusher.blockSwap(1, 1);
+			m_pusher << "STREF";
+			return std::pair<int, int>{1, 1};
 		};
 	}
 
-	m_pusher.prepareMsg(
+	m_pusher.prepareMessage(
 		isParamOnStack,
 		constParams,
 		appendBody,
-		appendStateInit,
-		StackPusher::MsgType::Internal
+		appendEitherStateInit,
+		StackPusher::MsgType::Internal,
+		false,
+		pushValue,
+		pushExtraFlags
 	);
 
 	solAssert(m_pusher.stackSize() == stackSize + 1, "");
 }
 
-void FunctionCallCompiler::abiBuildDataInit() {
-	const int stackSize = m_pusher.stackSize();
+void FunctionCallCompiler::abiBuildDataInit() const {
+	int const stackSize = m_pusher.stackSize();
 	int keyArg = -1;
 	int varArg = -1;
 	int contrArg = -1;
@@ -878,21 +938,21 @@ void FunctionCallCompiler::abiBuildDataInit() {
 	} else {
 		for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
 			switch (str2int(m_names[arg]->c_str())) {
-				case str2int("varInit"):
-					varArg = arg;
-					break;
-				case str2int("pubkey"):
-					keyArg = arg;
-					break;
-				case str2int("contr"):
-					contrArg = arg;
-					break;
-				default:
-					solUnimplemented("");
+			case str2int("varInit"):
+				varArg = arg;
+				break;
+			case str2int("pubkey"):
+				keyArg = arg;
+				break;
+			case str2int("contr"):
+				contrArg = arg;
+				break;
+			default:
+				solUnimplemented("");
 			}
 		}
 	}
-	auto pushKey = [this, keyArg]() {
+	auto pushKey = [this, keyArg] {
 		if (keyArg == -1) {
 			m_pusher.pushInt(0);
 		} else {
@@ -902,23 +962,18 @@ void FunctionCallCompiler::abiBuildDataInit() {
 	ContractType const* ct{};
 	if (contrArg != -1) {
 		Type const* type = m_arguments.at(contrArg)->annotation().type;
-		auto tt = dynamic_cast<const TypeType*>(type);
+		auto tt = dynamic_cast<TypeType const*>(type);
 		type = tt->actualType();
 		ct = to<ContractType>(type);
 	}
 
 	bool data_map_supported = m_memberAccess->memberName() == "encodeOldDataInit";
-	generateDataSection(
-		data_map_supported,
-		pushKey,
-		varArg != -1 ? m_arguments[varArg].get() : nullptr,
-		ct
-	)();
+	generateDataSection(data_map_supported, pushKey, varArg != -1 ? m_arguments[varArg].get() : nullptr, ct)();
 
 	solAssert(m_pusher.stackSize() == stackSize + 1, "");
 }
 
-bool FunctionCallCompiler::checkTvmABIDeployMethods(Type::Category category) {
+bool FunctionCallCompiler::checkTvmABIDeployMethods(Type::Category category) const {
 	if (category != Type::Category::Magic)
 		return false;
 
@@ -933,38 +988,33 @@ bool FunctionCallCompiler::checkTvmABIDeployMethods(Type::Category category) {
 		std::map<StateInitMembers, std::function<void()>> exprs;
 		if (m_names.empty()) {
 			solAssert(m_arguments.size() == 2 || m_arguments.size() == 3, "");
-			exprs[StateInitMembers::Code] = [&](){
-				pushArgAndConvert(0);
-			};
-			exprs[StateInitMembers::Data] = [&](){
-				pushArgAndConvert(1);
-			};
+			exprs[StateInitMembers::Code] = [&] { pushArgAndConvert(0); };
+			exprs[StateInitMembers::Data] = [&] { pushArgAndConvert(1); };
 			if (m_arguments.size() >= 3) {
-				exprs[StateInitMembers::SplitDepth] = [&](){
-					pushArgAndConvert(2);
-				};
+				exprs[StateInitMembers::PrefixLength] = [&] { pushArgAndConvert(2); };
 			}
 		} else {
 			bool dataIsSet = false;
-			// string("code"), string("data"), string("splitDepth"), string("varInit"), string("pubkey")
+			// std::string("code"), std::string("data"), std::string("prefixLength"), std::string("varInit"),
+			// std::string("pubkey")
 			for (int arg = 0; arg < static_cast<int>(m_arguments.size()); ++arg) {
 				switch (str2int(m_names[arg]->c_str())) {
 				case str2int("code"):
 					codeArg = arg;
-					exprs[StateInitMembers::Code] = [this, codeArg, name = *m_names.at(arg)](){
+					exprs[StateInitMembers::Code] = [this, codeArg, name = *m_names.at(arg)] {
 						pushArgAndConvert(codeArg, name);
 					};
 					break;
 				case str2int("data"):
 					dataArg = arg;
-					exprs[StateInitMembers::Data] = [this, dataArg, name = *m_names.at(arg)](){
+					exprs[StateInitMembers::Data] = [this, dataArg, name = *m_names.at(arg)] {
 						pushArgAndConvert(dataArg, name);
 					};
 					dataIsSet = true;
 					break;
-				case str2int("splitDepth"):
+				case str2int("prefixLength"):
 					depthArg = arg;
-					exprs[StateInitMembers::SplitDepth] = [this, depthArg, name = *m_names.at(arg)](){
+					exprs[StateInitMembers::PrefixLength] = [this, depthArg, name = *m_names.at(arg)] {
 						pushArgAndConvert(depthArg, name);
 					};
 					break;
@@ -982,7 +1032,7 @@ bool FunctionCallCompiler::checkTvmABIDeployMethods(Type::Category category) {
 				}
 			}
 			if (!dataIsSet) {
-				auto pushKey = [this, keyArg]() {
+				auto pushKey = [this, keyArg] {
 					if (keyArg == -1) {
 						m_pusher.pushInt(0);
 					} else {
@@ -993,17 +1043,17 @@ bool FunctionCallCompiler::checkTvmABIDeployMethods(Type::Category category) {
 				ContractType const* contractType{};
 				if (contrArg != -1) {
 					Type const* type = m_arguments[contrArg]->annotation().type;
-					auto tt = dynamic_cast<const TypeType *>(type);
+					auto tt = dynamic_cast<TypeType const*>(type);
 					type = tt->actualType();
 					contractType = to<ContractType>(type);
 				}
-				exprs[StateInitMembers::Data] = generateDataSection(false, pushKey,
-																	hasVars ? m_arguments[varArg].get() : nullptr,
-																	contractType);
+				exprs[StateInitMembers::Data] =
+					generateDataSection(false, pushKey, hasVars ? m_arguments[varArg].get() : nullptr, contractType);
 			}
 		}
 
 		encodeStateInit(exprs);
+		m_pusher << "ENDC";
 		return true;
 	}
 
@@ -1016,16 +1066,16 @@ bool FunctionCallCompiler::checkTvmABIDeployMethods(Type::Category category) {
 	return false;
 }
 
-void FunctionCallCompiler::abiDecodeData() {
-	pushArgAndConvert(1);
+void FunctionCallCompiler::abiDecodeData() const {
+	pushArgConvertToMobileType(1);
 	decodeData();
 }
 
-int FunctionCallCompiler::decodeData() {
+int FunctionCallCompiler::decodeData() const {
 	std::vector<Type const*> stateVarTypes;
 
 	if (auto retTuple = to<TupleType>(m_retType)) {
-		for (Type const* type : retTuple->components())
+		for (Type const* type: retTuple->components())
 			stateVarTypes.push_back(type);
 	} else {
 		stateVarTypes.push_back(m_retType);
@@ -1038,9 +1088,8 @@ int FunctionCallCompiler::decodeData() {
 	return stateVarTypes.size();
 }
 
-int FunctionCallCompiler::decodeFunctionParams() {
-	CallableDeclaration const *functionDefinition = getFunctionDeclarationOrConstructor(
-					m_arguments.at(0).get());
+int FunctionCallCompiler::decodeFunctionParams() const {
+	CallableDeclaration const* functionDefinition = getFunctionDeclarationOrConstructor(m_arguments.at(0).get());
 	if (functionDefinition) {
 		// lvalue.. slice
 		auto fd = to<FunctionDefinition>(functionDefinition);
@@ -1050,7 +1099,7 @@ int FunctionCallCompiler::decodeFunctionParams() {
 		}
 		// lvalue.. callback slice
 		ChainDataDecoder decoder{&m_pusher};
-		vector<Type const *> types = getParams(functionDefinition->parameters()).first;
+		std::vector<Type const*> types = getParams(functionDefinition->parameters()).first;
 		decoder.decodePublicFunctionParameters(types, isResponsible, true);
 
 		return functionDefinition->parameters().size() + (isResponsible ? 1 : 0);
@@ -1060,25 +1109,25 @@ int FunctionCallCompiler::decodeFunctionParams() {
 	return 0;
 }
 
-void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
-	auto returnTypes = [&](bool fromOptional){
+void FunctionCallCompiler::sliceMethods(MemberAccess const& _node) const {
+	auto returnTypes = [&](bool fromOptional) {
 		Type const* type{};
 		if (fromOptional) {
 			solAssert(to<OptionalType>(m_retType), "");
-			type= to<OptionalType>(m_retType)->valueType();
+			type = to<OptionalType>(m_retType)->valueType();
 		} else {
 			type = m_retType;
 		}
 
-		TypePointers returnTypes;
-		if (auto const *targetTupleType = to<TupleType>(type))
-			returnTypes = targetTupleType->components();
+		TypePointers types;
+		if (auto const* targetTupleType = to<TupleType>(type))
+			types = targetTupleType->components();
 		else
-			returnTypes = TypePointers{type};
-		return returnTypes;
+			types = TypePointers{type};
+		return types;
 	};
 
-	const auto& value = m_arguments.empty() ? nullopt : ExprUtils::constValue(*m_arguments[0]);
+	auto const& value = m_arguments.empty() ? std::nullopt : ExprUtils::constValue(*m_arguments[0]);
 	ASTString const& memberName = _node.memberName();
 	if (memberName == "empty") {
 		acceptExpr(&_node.expression());
@@ -1134,7 +1183,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		acceptExpr(&_node.expression());
 		m_pusher << "SDEPTH";
 	} else if (memberName == "skip") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true);
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true);
 		if (m_arguments.size() == 1) {
 			pushArgAndConvert(0);
 			m_pusher << "SDSKIPFIRST";
@@ -1145,7 +1194,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		}
 		m_exprCompiler.collectLValue(lValueInfo, true);
 	} else if (isIn(memberName, "loadFunctionParams", "decodeFunctionParams", "loadStateVars", "decodeStateVars")) {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true);
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true);
 		int paramQty = -1;
 		if (isIn(memberName, "loadFunctionParams", "decodeFunctionParams")) {
 			paramQty = decodeFunctionParams();
@@ -1161,7 +1210,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		m_exprCompiler.collectLValue(lValueInfo, true);
 	} else if (isIn(memberName, "load", "decode", "loadQ", "decodeQ") || boost::starts_with(memberName, "load")) {
 		int stackDelta = 0;
-		const int stackSize = m_pusher.stackSize();
+		int const stackSize = m_pusher.stackSize();
 		bool isLValue = *_node.expression().annotation().isLValue;
 		LValueInfo lValueInfo;
 		if (isLValue) {
@@ -1183,7 +1232,13 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		} else if (boost::starts_with(memberName, "load")) {
 			stackDelta = 1;
 			std::optional<std::string> opcode;
-			if (memberName == "loadRefAsSlice") {
+			if (memberName == "loadBouncedMsgTag") {
+				m_pusher << "LDU 32";
+				m_pusher.blockSwap(1, 1);
+				m_pusher.pushInt(0xFFFF'FFFE);
+				m_pusher << "EQUAL";
+				m_pusher.blockSwap(1, 1);
+			} else if (memberName == "loadRefAsSlice") {
 				m_pusher << "LDREFRTOS";
 				m_pusher.exchange(1);
 			} else if (memberName == "loadRef") {
@@ -1226,9 +1281,9 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 				m_pusher.drop();
 				m_pusher.endOpaque(1, 2);
 			} else if (memberName == "loadTons") {
-				opcode = "LDGRAMS";
+				opcode = "LDVARUINT16";
 			} else if (memberName == "loadSlice") {
-				const auto& value2 = m_arguments.size() == 2 ? ExprUtils::constValue(*m_arguments[1]) : nullopt;
+				auto const& value2 = m_arguments.size() == 2 ? ExprUtils::constValue(*m_arguments[1]) : std::nullopt;
 				if (m_arguments.size() == 1 || (value2.has_value() && value2.value() == 0)) {
 					if (value.has_value() && 0 < value && value <= 256) {
 						m_pusher << "LDSLICE " + value->str();
@@ -1242,7 +1297,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 					m_pusher << "SPLIT";
 				}
 			} else if (memberName == "loadSliceQ") {
-				string cmd;
+				std::string cmd;
 				int take{};
 				if (m_arguments.size() == 1) {
 					if (value.has_value() && 0 < value && value <= 256) {
@@ -1275,10 +1330,10 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 				m_pusher.blockSwap(2, 1);
 				m_pusher << "LSHIFT 8"
 						 << "ADD";
-				m_pusher.pushS(0); // s v v
-				m_pusher.pushInt((1<<15) - 1); // s v v 32767
-				m_pusher << "GREATER"; // s v v>32767
-				m_pusher.fixStack(-1); // fix stack
+				m_pusher.pushS(0);				 // s v v
+				m_pusher.pushInt((1 << 15) - 1); // s v v 32767
+				m_pusher << "GREATER";			 // s v v>32767
+				m_pusher.fixStack(-1);			 // fix stack
 				m_pusher.startContinuation();
 				// s v
 				m_pusher.pushInt(1 << 16);
@@ -1354,7 +1409,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		}
 	} else if (isIn(memberName, "preloadInt", "preloadUint")) {
 		acceptExpr(&_node.expression());
-		string cmd = string{} + "PLD" + (memberName == "preloadInt" ? "I" : "U");
+		std::string cmd = std::string{} + "PLD" + (memberName == "preloadInt" ? "I" : "U");
 		if (value.has_value() && 1 <= value && value <= 256) {
 			cmd += " " + value->str();
 		} else {
@@ -1364,14 +1419,14 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		m_pusher << cmd;
 	} else if (isIn(memberName, "preloadIntLE4", "preloadIntLE8", "preloadUintLE4", "preloadUintLE8")) {
 		acceptExpr(&_node.expression());
-		string cmd = "PLD";
+		std::string cmd = "PLD";
 		cmd += boost::starts_with(memberName, "preloadInt") ? "I" : "U";
 		cmd += "LE";
 		cmd += boost::ends_with(memberName, "4") ? "4" : "8";
 		m_pusher << cmd;
 	} else if (isIn(memberName, "preloadIntQ", "preloadUintQ")) {
 		acceptExpr(&_node.expression());
-		string cmd = string{} + "PLD" + (memberName == "preloadIntQ" ? "I" : "U");
+		std::string cmd = std::string{} + "PLD" + (memberName == "preloadIntQ" ? "I" : "U");
 		int take{};
 		if (value.has_value() && 1 <= value && value <= 256) {
 			take = 1;
@@ -1388,7 +1443,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		m_pusher.endOpaque(take, 1);
 	} else if (isIn(memberName, "preloadIntLE4Q", "preloadIntLE8Q", "preloadUintLE4Q", "preloadUintLE8Q")) {
 		acceptExpr(&_node.expression());
-		string cmd = "PLD";
+		std::string cmd = "PLD";
 		cmd += boost::starts_with(memberName, "preloadInt") ? "I" : "U";
 		cmd += "LE";
 		cmd += boost::ends_with(memberName, "4Q") ? "4" : "8";
@@ -1413,7 +1468,7 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 		}
 	} else if (memberName == "preloadSliceQ") {
 		acceptExpr(&_node.expression());
-		string cmd;
+		std::string cmd;
 		int take{};
 		int ret{};
 		if (m_arguments.size() == 1) {
@@ -1446,13 +1501,13 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const &_node) {
 	}
 }
 
-void FunctionCallCompiler::tvmVectorMethods() {
+void FunctionCallCompiler::tvmVectorMethods() const {
 	auto vectorType = to<TvmVectorType>(m_memberAccess->expression().annotation().type);
 	auto valueTupleType = to<TupleType>(vectorType->valueType());
 
 	ASTString const& memberName = m_memberAccess->memberName();
 	if (memberName == "push") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
 		pushArgs();
 		if (valueTupleType) {
 			// lValue... vector element...
@@ -1462,7 +1517,7 @@ void FunctionCallCompiler::tvmVectorMethods() {
 		m_pusher << "TPUSH";
 		m_exprCompiler.collectLValue(lValueInfo, true);
 	} else if (memberName == "pop") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
 		m_pusher << "TPOP";
 		// lValue... vector lastElement
 		m_pusher.blockSwap(lValueInfo.stackSizeDiff, 1);
@@ -1487,22 +1542,22 @@ void FunctionCallCompiler::tvmVectorMethods() {
 	}
 }
 
-void FunctionCallCompiler::tvmStackMethods() {
+void FunctionCallCompiler::tvmStackMethods() const {
 	ASTString const& memberName = m_memberAccess->memberName();
 	if (memberName == "push") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
 		acceptExpr(m_arguments[0].get());
 		// lValue... stack element
 		m_pusher.blockSwap(1, 1);
 		m_pusher << "TUPLE 2";
 		m_exprCompiler.collectLValue(lValueInfo, true);
 	} else if (memberName == "pop") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
 		// lValue... stack
-		m_pusher << "UNTUPLE 2"; // lValue... value stack
-		m_pusher.blockSwap(1, 1); // lValue... stack value
+		m_pusher << "UNTUPLE 2";						 // lValue... value stack
+		m_pusher.blockSwap(1, 1);						 // lValue... stack value
 		m_pusher.blockSwap(lValueInfo.stackSizeDiff, 1); // value lValue... stack
-		m_exprCompiler.collectLValue(lValueInfo, true); // value
+		m_exprCompiler.collectLValue(lValueInfo, true);	 // value
 	} else if (memberName == "top") {
 		acceptExpr(&m_memberAccess->expression());
 		m_pusher.indexWithExcep(0);
@@ -1510,13 +1565,13 @@ void FunctionCallCompiler::tvmStackMethods() {
 		acceptExpr(&m_memberAccess->expression());
 		m_pusher << "ISNULL";
 	} else if (memberName == "sort") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
 		// lValue... stack
-		pushArgs(); // lValue... stack lessFunc
+		pushArgs();											 // lValue... stack lessFunc
 		m_pusher.pushFragmentInCallRef(2, 1, "__stackSort"); // lValue... stack
-		m_exprCompiler.collectLValue(lValueInfo, true); // value
+		m_exprCompiler.collectLValue(lValueInfo, true);		 // value
 	} else if (memberName == "reverse") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
 		// lValue... stack
 		m_pusher.pushFragmentInCallRef(1, 1, "__stackReverse"); // lValue... stack
 		m_exprCompiler.collectLValue(lValueInfo, true);
@@ -1525,10 +1580,10 @@ void FunctionCallCompiler::tvmStackMethods() {
 	}
 }
 
-void FunctionCallCompiler::builderMethods(MemberAccess const &_node) {
+void FunctionCallCompiler::builderMethods(MemberAccess const& _node) const {
 	ASTString const& memberName = _node.memberName();
 	if (boost::starts_with(memberName, "store")) {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true);
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true);
 
 		std::optional<std::string> opcode;
 		bool doSwap = false;
@@ -1540,23 +1595,24 @@ void FunctionCallCompiler::builderMethods(MemberAccess const &_node) {
 			pushArgAndConvert(0);
 			Type::Category cat = m_arguments.at(0)->annotation().type->category();
 			switch (cat) {
-				case Type::Category::TvmBuilder:
-					m_pusher << "STBREFR";
-					break;
-				case Type::Category::TvmCell:
-					m_pusher << "STREFR";
-					break;
-				case Type::Category::TvmSlice:
-					m_pusher << "NEWC";
-					m_pusher << "STSLICE";
-					m_pusher << "STBREFR";
-					break;
-				default:
-					solUnimplemented("");
+			case Type::Category::TvmBuilder:
+				m_pusher << "STBREFR";
+				break;
+			case Type::Category::TvmCell:
+				m_pusher.blockSwap(1, 1);
+				m_pusher << "STREF";
+				break;
+			case Type::Category::TvmSlice:
+				m_pusher << "NEWC";
+				m_pusher << "STSLICE";
+				m_pusher << "STBREFR";
+				break;
+			default:
+				solUnimplemented("");
 			}
 		} else if (memberName == "store") {
 			int args = 0;
-			for (const auto &argument: m_arguments | boost::adaptors::reversed) {
+			for (auto const& argument: m_arguments | std::views::reverse) {
 				if (ExprUtils::constBool(*argument)) {
 					continue;
 				}
@@ -1564,7 +1620,7 @@ void FunctionCallCompiler::builderMethods(MemberAccess const &_node) {
 				++args;
 			}
 			m_pusher.blockSwap(1, args);
-			for (const auto &argument: m_arguments) {
+			for (auto const& argument: m_arguments) {
 				std::optional<bool> value = ExprUtils::constBool(*argument);
 				if (value) {
 					if (*value)
@@ -1586,16 +1642,10 @@ void FunctionCallCompiler::builderMethods(MemberAccess const &_node) {
 		} else if (isIn(memberName, "storeSigned", "storeInt", "storeUnsigned", "storeUint")) {
 			std::string cmd = "ST";
 			cmd += isIn(memberName, "storeSigned", "storeInt") ? "I" : "U";
-			pushArgAndConvert(0);
-			const auto& val = ExprUtils::constValue(*m_arguments[1]);
-			if (val.has_value() && 1 <= val && val <= 256) {
-				m_pusher << cmd + "R " + val.value().str();
-			} else {
-				pushArgAndConvert(1);
-				m_pusher << cmd + "XR";
-			}
+			pushArgs();
+			m_pusher << cmd + "X" + "R";
 		} else if (memberName == "storeTons") {
-			opcode = "STGRAMS";
+			opcode = "STVARUINT16";
 		} else if (memberName == "storeSame") {
 			opcode = "STSAME";
 		} else if (memberName == "storeIntLE2") {
@@ -1609,7 +1659,7 @@ void FunctionCallCompiler::builderMethods(MemberAccess const &_node) {
 			m_pusher.endContinuation();
 			m_pusher._if();
 			m_pusher.pushInt(1 << 8);
-			m_pusher << "DIVMOD"; // s a1 a0
+			m_pusher << "DIVMOD";	  // s a1 a0
 			m_pusher.blockSwap(1, 2); // a1 a0 s
 			m_pusher << "STU 8"
 					 << "STU 8";
@@ -1622,7 +1672,7 @@ void FunctionCallCompiler::builderMethods(MemberAccess const &_node) {
 		} else if (memberName == "storeUintLE2") {
 			pushArgs();
 			m_pusher.pushInt(1 << 8);
-			m_pusher << "DIVMOD"; // b a1 a0
+			m_pusher << "DIVMOD";	  // b a1 a0
 			m_pusher.blockSwap(1, 2); // a1 a0 b
 			m_pusher << "STU 8"
 					 << "STU 8";
@@ -1634,7 +1684,7 @@ void FunctionCallCompiler::builderMethods(MemberAccess const &_node) {
 			doSwap = true;
 		} else if (isIn(memberName, "storeSha256", "storeSha512", "storeBlake2b", "storeKeccak256", "storeKeccak512")) {
 			// lValue... builder
-			pushArgs(); // lValue... builder args...
+			pushAllArgsAndConvertToMobileType();  // lValue... builder args...
 			m_pusher.pushInt(m_arguments.size()); // lValue... builder args... n
 			m_pusher.startOpaque();
 			m_pusher.pushAsym("HASHEXTA_" + boost::to_upper_copy<std::string>(memberName.substr(5)));
@@ -1651,7 +1701,7 @@ void FunctionCallCompiler::builderMethods(MemberAccess const &_node) {
 		}
 
 		m_exprCompiler.collectLValue(lValueInfo, true);
-	} else  if (memberName == "bits") {
+	} else if (memberName == "bits") {
 		acceptExpr(&_node.expression());
 		m_pusher << "BBITS";
 	} else if (memberName == "refs") {
@@ -1688,7 +1738,7 @@ void FunctionCallCompiler::builderMethods(MemberAccess const &_node) {
 	}
 }
 
-void FunctionCallCompiler::qIntOrBoolMethods() {
+void FunctionCallCompiler::qIntOrBoolMethods() const {
 	ASTString const& memberName = m_memberAccess->memberName();
 	Type const* qType = m_memberAccess->expression().annotation().type;
 	if (memberName == "isNaN") {
@@ -1710,23 +1760,23 @@ void FunctionCallCompiler::qIntOrBoolMethods() {
 			m_pusher.pushNull(); // q null
 		else
 			solUnimplemented("");
-		m_pusher.pushS(1); // q default q
-		m_pusher << "ISNAN"; // q default isNaN
+		m_pusher.pushS(1);		 // q default q
+		m_pusher << "ISNAN";	 // q default isNaN
 		m_pusher.exchange(0, 2); // isNaN default q
-		m_pusher << "CONDSEL"; // default | q
+		m_pusher << "CONDSEL";	 // default | q
 		solAssert(startSize + 1 == m_pusher.stackSize(), "");
 	} else {
 		solUnimplemented("");
 	}
 }
 
-void FunctionCallCompiler::stringBuilderMethods() {
+void FunctionCallCompiler::stringBuilderMethods() const {
 	ASTString const& memberName = m_memberAccess->memberName();
 	if (memberName == "toString") {
 		acceptExpr(&m_memberAccess->expression());
 		m_pusher.pushFragmentInCallRef(1, 1, "__makeString");
 	} else if (memberName == "append") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
 		pushArgs();
 		if (m_funcType->kind() == FunctionType::Kind::StringBuilderAppendByte) {
 			m_pusher.pushFragmentInCallRef(2, 1, "__appendBytes1");
@@ -1743,8 +1793,8 @@ void FunctionCallCompiler::stringBuilderMethods() {
 	}
 }
 
-void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
-	Type const *type = _node.expression().annotation().type;
+void FunctionCallCompiler::arrayMethods(MemberAccess const& _node) const {
+	Type const* type = _node.expression().annotation().type;
 	if (_node.memberName() == "empty") {
 		acceptExpr(&_node.expression());
 		if (isUsualArray(type)) {
@@ -1796,7 +1846,7 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 		pushArgAndConvert(0);
 		cellBitRefQty();
 	} else if (_node.memberName() == "push") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true);
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true);
 		auto arrayBaseType = to<ArrayType>(getType(&_node.expression()))->baseType();
 		IntegerType const& key = getArrayKeyType();
 		DataType dataType;
@@ -1810,22 +1860,22 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 		arrayPush(m_pusher, arrayBaseType, dataType);
 		m_exprCompiler.collectLValue(lValueInfo, true);
 	} else if (_node.memberName() == "pop") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true);
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true);
 		// arr
-		m_pusher << "UNTUPLE 2"; // size dict
-		m_pusher.pushS(1); // size dict size
+		m_pusher << "UNTUPLE 2";																  // size dict
+		m_pusher.pushS(1);																		  // size dict size
 		m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::PopFromEmptyArray)); // size dict
-		m_pusher.exchange(1); // dict size
-		m_pusher << "DEC"; // dict newSize
-		m_pusher.pushS(0); // dict newSize newSize
-		m_pusher.rot(); // newSize newSize dict
+		m_pusher.exchange(1);																	  // dict size
+		m_pusher << "DEC";																		  // dict newSize
+		m_pusher.pushS(0);							// dict newSize newSize
+		m_pusher.rot();								// newSize newSize dict
 		m_pusher.pushInt(TvmConst::ArrayKeyLength); // newSize newSize dict 32
-		m_pusher << "DICTUDEL"; // newSize dict ?
-		m_pusher.drop(1);  // newSize dict
-		m_pusher << "TUPLE 2";  // arr
+		m_pusher << "DICTUDEL";						// newSize dict ?
+		m_pusher.drop(1);							// newSize dict
+		m_pusher << "TUPLE 2";						// arr
 		m_exprCompiler.collectLValue(lValueInfo, true);
 	} else if (_node.memberName() == "append") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true);
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), true);
 		pushArgAndConvert(0);
 		m_pusher.pushFragmentInCallRef(2, 1, "__concatenateStrings");
 		m_exprCompiler.collectLValue(lValueInfo, true);
@@ -1834,7 +1884,7 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const &_node) {
 	}
 }
 
-bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
+bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const& _node) const {
 	auto optional = to<OptionalType>(_node.expression().annotation().type);
 	if (!optional)
 		return false;
@@ -1842,12 +1892,12 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 	auto retTuple = to<TupleType>(m_retType);
 	int retQty = retTuple ? retTuple->components().size() : 1;
 
-	ASTString const &memberName = _node.memberName();
+	ASTString const& memberName = _node.memberName();
 	if (memberName == "hasValue") {
 		acceptExpr(&_node.expression());
 		m_pusher << "ISNULL";
 		m_pusher << "NOT";
-	} else  if (memberName == "get") {
+	} else if (memberName == "get") {
 		acceptExpr(&_node.expression());
 		m_pusher.pushS(0);
 		m_pusher.checkOptionalValue();
@@ -1862,12 +1912,10 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 		solAssert(startSize + 1 == m_pusher.stackSize(), "");
 		if (memberName == "getOr")
 			pushArgs();
-		else if (memberName == "getOrDefault")
-		{
+		else if (memberName == "getOrDefault") {
 			m_pusher.pushDefaultValue(optional->valueType());
 			solAssert(startSize + 1 + retQty == m_pusher.stackSize(), "");
-		}
-		else
+		} else
 			solUnimplemented("");
 
 		// opt default... isNull
@@ -1876,10 +1924,10 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 		solAssert(startSize + 1 + retQty + 1 == m_pusher.stackSize(), "");
 		if (retTuple || optValueAsTuple(m_retType)) {
 			m_pusher.fixStack(-1); // opt default...
+			m_pusher.startOpaque();
 			m_pusher.startContinuation();
 			{
 				// opt default
-                // TODO correct m_pusher.dropUnder(retQty, retQty); !!!!!
 				m_pusher.dropUnder(1, retQty); // default...
 				m_pusher.fixStack(+1);
 			}
@@ -1897,30 +1945,32 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 			}
 			m_pusher.endContinuation();
 			m_pusher.ifElse();
+			m_pusher.endOpaque(1 + retQty, retQty);
 			solAssert(startSize + retQty == m_pusher.stackSize(), "");
 		} else {
 			// opt default isNull
 			m_pusher.exchange(0, 2); // isNull default opt
-			m_pusher << "CONDSEL"; // default | opt
+			m_pusher << "CONDSEL";	 // default | opt
 			solAssert(startSize + retQty == m_pusher.stackSize(), "");
 		}
 	} else if (memberName == "set") {
 		Type const* rightType{};
 		if (m_arguments.size() >= 2) {
-			vector<Type const*> types;
-			for (ASTPointer<Expression const> const& arg : m_arguments) {
+			std::vector<Type const*> types;
+			for (ASTPointer<Expression const> const& arg: m_arguments) {
 				types.push_back(getType(arg.get()));
 			}
 			rightType = TypeProvider::tuple(types);
 		} else {
 			rightType = getType(m_arguments.at(0).get());
 		}
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), false);
-		pushArgs(false, false);
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), false);
+		pushArgWithoutConvertion();
+
 		m_pusher.convert(getType(&_node.expression()), rightType);
 		m_exprCompiler.collectLValue(lValueInfo, true);
 	} else if (memberName == "reset") {
-		const LValueInfo lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), false);
+		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&_node.expression(), false);
 		m_pusher.pushDefaultValue(optional);
 		m_exprCompiler.collectLValue(lValueInfo, true);
 	} else {
@@ -1929,7 +1979,7 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const &_node) {
 	return true;
 }
 
-void FunctionCallCompiler::cellMethods(MemberAccess const &_node) {
+void FunctionCallCompiler::cellMethods(MemberAccess const& _node) const {
 	ASTString const& memberName = _node.memberName();
 	acceptExpr(&_node.expression());
 	if (memberName == "toSlice")
@@ -1952,11 +2002,24 @@ void FunctionCallCompiler::cellMethods(MemberAccess const &_node) {
 		solUnimplemented("");
 }
 
-void FunctionCallCompiler::integerMethods() {
+void FunctionCallCompiler::integerMethods() const {
 	acceptExpr(&m_memberAccess->expression());
+	// stack: value
 	switch (m_funcType->kind()) {
 	case FunctionType::Kind::IntCast: {
 		m_pusher.convert(m_retType, m_memberAccess->expression().annotation().type);
+		break;
+	}
+	case FunctionType::Kind::Uint256Prefix: {
+		// stack: value
+		m_pusher.pushInt(256);
+		// stack: value 256
+		pushArgs();
+		// stack: value 256 prefixLength
+		m_pusher << "SUB";
+		// stack: value 256-prefixLength
+		m_pusher << "RSHIFT";
+		// stack: value >> (256-prefixLength)
 		break;
 	}
 	default:
@@ -1964,58 +2027,75 @@ void FunctionCallCompiler::integerMethods() {
 	}
 }
 
-void FunctionCallCompiler::variantMethods(MemberAccess const& _node) {
-
-	auto isUint = [&](){
-		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
-				"PUSHCONT {",
-				"	UFITS 256",
-				"	TRUE",
-				"}",
-				"PUSHCONT {",
-				"	FALSE",
-				"}",
-				"TRYARGS 1, 1"
-		}, 1, 1, true));
+void FunctionCallCompiler::variantMethods(MemberAccess const& _node) const {
+	auto isUint = [&] {
+		m_pusher.push(
+			createNode<HardCode>(
+				std::vector<std::string>{
+					"PUSHCONT {",
+					"	UFITS 256",
+					"	TRUE",
+					"}",
+					"PUSHCONT {",
+					"	FALSE",
+					"}",
+					"TRYARGS 1, 1"
+				},
+				1,
+				1,
+				true
+			)
+		);
 	};
 
 	switch (m_funcType->kind()) {
-		case FunctionType::Kind::VariantToUint: {
-			acceptExpr(&_node.expression());
-			m_pusher.pushS(0);
-			isUint();
-			m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::BadVariant));
-			break;
-		}
-		case FunctionType::Kind::VariantIsUint: {
-			acceptExpr(&_node.expression());
-			isUint();
-			break;
-		}
-		default:
-			solUnimplemented("");
+	case FunctionType::Kind::VariantToUint: {
+		acceptExpr(&_node.expression());
+		m_pusher.pushS(0);
+		isUint();
+		m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::BadVariant));
+		break;
+	}
+	case FunctionType::Kind::VariantIsUint: {
+		acceptExpr(&_node.expression());
+		isUint();
+		break;
+	}
+	default:
+		solUnimplemented("");
 	}
 }
 
 void FunctionCallCompiler::addressMethod() {
 	if (m_memberAccess->memberName() == "transfer") { // addr.transfer(...)
-		std::map<int, Expression const *> exprs;
-		std::map<int, std::string> constParams{{TvmConst::int_msg_info::ihr_disabled, "1"}, {TvmConst::int_msg_info::bounce, "1"}};
-		std::function<void(int)> appendBody;
-		std::function<void()> pushSendrawmsgFlag;
-		std::function<void()> appendStateInit;
+		std::map<int, Expression const*> exprs;
+		std::map<int, std::string> constParams{{TvmConst::int_msg_info::bounce, "1"}};
+		std::function<void(int bitSizeBuilder, int refSizeBuilder)> appendBody;
+		std::function<void()> pushSendRawMsgFlag;
+		std::function<std::pair<int, int>()> appendEitherStateInit;
+		std::function<void()> pushValue;
+		std::function<void()> pushExtraFlags;
 
 		auto setValue = [&](Expression const* expr) {
-			const auto& value = ExprUtils::constValue(*expr);
+			auto const& value = ExprUtils::constValue(*expr);
 			if (value.has_value()) {
 				constParams[TvmConst::int_msg_info::tons] = StrUtils::tonsToBinaryString(u256(value.value()));
 			} else {
-				exprs[TvmConst::int_msg_info::tons] = expr;
+				pushValue = [this, expr] { acceptExpr(expr); };
 			}
 		};
 
-		auto setBounce = [&](auto expr){
-			const std::optional<bool> value = ExprUtils::constBool(*expr);
+		auto setExtraFlags = [&](Expression const* expr) {
+			auto const& value = ExprUtils::constValue(*expr);
+			if (value.has_value()) {
+				constParams[TvmConst::int_msg_info::extra_flags] = StrUtils::tonsToBinaryString(u256(value.value()));
+			} else {
+				pushExtraFlags = [this, expr] { acceptExpr(expr); };
+			}
+		};
+
+		auto setBounce = [&](auto expr) {
+			std::optional<bool> const value = ExprUtils::constBool(*expr);
 			if (value.has_value()) {
 				constParams[TvmConst::int_msg_info::bounce] = value.value() ? "1" : "0";
 			} else {
@@ -2025,11 +2105,13 @@ void FunctionCallCompiler::addressMethod() {
 		};
 
 		auto setAppendStateInit = [&](Expression const* expr) {
-			appendStateInit = [expr, this](){
+			appendEitherStateInit = [expr, this] {
 				// Either StateInit ^StateInit
 				m_pusher << "STSLICECONST 1"; // ^StateInit
 				acceptExpr(expr);
-				m_pusher << "STREFR";
+				m_pusher.blockSwap(1, 1);
+				m_pusher << "STREF";
+				return std::pair<int, int>{1, 1};
 			};
 		};
 
@@ -2037,36 +2119,37 @@ void FunctionCallCompiler::addressMethod() {
 
 		int argumentQty = static_cast<int>(m_arguments.size());
 		if (!m_names.empty() || argumentQty == 0) {
-			// string("value"), string("bounce"), string("flag"), string("body"), string("currencies")
 			for (int arg = 0; arg < argumentQty; ++arg) {
 				switch (str2int(m_names[arg]->c_str())) {
-					case str2int("value"):
-						setValue(m_arguments[arg].get());
-						break;
-					case str2int("bounce"):
-						setBounce(m_arguments[arg].get());
-						break;
-					case str2int("flag"):
-						pushSendrawmsgFlag = [e = m_arguments[arg], this](){
-							acceptExpr(e.get());
-						};
-						break;
-					case str2int("body"):
-						appendBody = [e = m_arguments[arg], this](int /*size*/){
-							m_pusher.stones(1);
-							acceptExpr(e.get());
-							m_pusher << "STREFR";
-							return false;
-						};
-						break;
-					case str2int("currencies"):
-						exprs[TvmConst::int_msg_info::currency] = m_arguments[arg].get();
-						break;
-					case str2int("stateInit"):
-						setAppendStateInit(m_arguments[arg].get());
-						break;
-					default:
-						solUnimplemented("");
+				case str2int("value"):
+					setValue(m_arguments[arg].get());
+					break;
+				case str2int("extra_flags"):
+					setExtraFlags(m_arguments[arg].get());
+					break;
+				case str2int("bounce"):
+					setBounce(m_arguments[arg].get());
+					break;
+				case str2int("flag"):
+					pushSendRawMsgFlag = [e = m_arguments[arg], this] { acceptExpr(e.get()); };
+					break;
+				case str2int("body"):
+					appendBody = [e = m_arguments[arg], this](int /*bitSizeBuilder*/, int /*refSizeBuilder*/) {
+						m_pusher.stones(1);
+						acceptExpr(e.get());
+						m_pusher.blockSwap(1, 1);
+						m_pusher << "STREF";
+						return false;
+					};
+					break;
+				case str2int("currencies"):
+					exprs[TvmConst::int_msg_info::currency] = m_arguments[arg].get();
+					break;
+				case str2int("stateInit"):
+					setAppendStateInit(m_arguments[arg].get());
+					break;
+				default:
+					solUnimplemented("");
 				}
 			}
 		} else {
@@ -2076,15 +2159,14 @@ void FunctionCallCompiler::addressMethod() {
 				setBounce(m_arguments[1].get());
 			}
 			if (argumentQty >= 3) {
-				pushSendrawmsgFlag = [&]() {
-					pushArgAndConvert(2);
-				};
+				pushSendRawMsgFlag = [&] { pushArgAndConvert(2); };
 			}
 			if (argumentQty >= 4) {
-				appendBody = [&](int /*size*/) {
+				appendBody = [&](int /*bitSizeBuilder*/, int /*refSizeBuilder*/) {
 					m_pusher.stones(1);
 					pushArgAndConvert(3);
-					m_pusher << "STREFR";
+					m_pusher.blockSwap(1, 1);
+					m_pusher << "STREF";
 					return false;
 				};
 			}
@@ -2095,7 +2177,15 @@ void FunctionCallCompiler::addressMethod() {
 				setAppendStateInit(m_arguments.at(5).get());
 			}
 		}
-		m_pusher.sendIntMsg(exprs, constParams, appendBody, pushSendrawmsgFlag, appendStateInit);
+		m_pusher.pushParamsAndSendInternalMessage(
+			exprs,
+			constParams,
+			appendBody,
+			pushSendRawMsgFlag,
+			appendEitherStateInit,
+			pushValue,
+			pushExtraFlags
+		);
 	} else if (m_memberAccess->memberName() == "isStdZero") {
 		acceptExpr(&m_memberAccess->expression());
 		m_pusher.pushZeroAddress();
@@ -2122,33 +2212,40 @@ void FunctionCallCompiler::addressMethod() {
 		m_pusher << "INDEX_NOEXCEP 0";
 		m_pusher << "EQINT 2"; // t tag==2
 
-		m_pusher.push(createNode<HardCode>(std::vector<std::string>{
-			"PUSHCONT {",
-			"	SECOND",
-			"	ISNULL",
-			"}",
-			"PUSHCONT {",
-			"	DROP",
-			"	FALSE",
-			"}",
-			"IFELSE"
-		}, 2, 1, true));
+		m_pusher.push(
+			createNode<HardCode>(
+				std::vector<std::string>{
+					"PUSHCONT {",
+					"	SECOND",
+					"	ISNULL",
+					"}",
+					"PUSHCONT {",
+					"	DROP",
+					"	FALSE",
+					"}",
+					"IFELSE"
+				},
+				2,
+				1,
+				true
+			)
+		);
 	} else {
 		solUnimplemented("");
 	}
 }
 
-bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_node) {
+bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const& _node) const {
 	if (_node.memberName() == "rawConfigParam") { // tvm.rawConfigParam
-		const int stackSize = m_pusher.stackSize();
+		int const stackSize = m_pusher.stackSize();
 		pushArgAndConvert(0);
 		m_pusher << "CONFIGOPTPARAM";
 		solAssert(stackSize + 1 == m_pusher.stackSize(), "");
 		return true;
 	}
 	if (_node.memberName() == "configParam") { // tvm.configParam
-		const int stackSize = m_pusher.stackSize();
-		auto paramNumberLiteral = dynamic_cast<const Literal *>(m_arguments[0].get());
+		int const stackSize = m_pusher.stackSize();
+		auto paramNumberLiteral = dynamic_cast<Literal const*>(m_arguments[0].get());
 
 		Type const* type = paramNumberLiteral->annotation().type;
 		u256 value = type->literalValue(paramNumberLiteral);
@@ -2212,7 +2309,7 @@ bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_n
 			m_pusher.endOpaque(1, 5);
 		}
 
-		if (paramNumber == "17"){
+		if (paramNumber == "17") {
 			//_    min_stake:Grams    max_stake:Grams
 			//     min_total_stake:Grams    max_stake_factor:uint32 = ConfigParam 17;
 			m_pusher.pushInt(17);
@@ -2222,9 +2319,9 @@ bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_n
 
 			m_pusher.startContinuation();
 			m_pusher << "CTOS";
-			m_pusher << "LDGRAMS";
-			m_pusher << "LDGRAMS";
-			m_pusher << "LDGRAMS";
+			m_pusher << "LDVARUINT16";
+			m_pusher << "LDVARUINT16";
+			m_pusher << "LDVARUINT16";
 			m_pusher << "LDU 32";
 			m_pusher << "ENDS";
 			m_pusher << "TRUE";
@@ -2272,7 +2369,7 @@ bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_n
 
 			m_pusher.startContinuation();
 			m_pusher << "CTOS";
-			m_pusher << "LDU 8"; // constructor
+			m_pusher << "LDU 8";  // constructor
 			m_pusher << "LDU 32"; // utime_since
 			m_pusher << "LDU 32"; // utime_until
 			m_pusher << "LDU 16"; // total
@@ -2290,8 +2387,8 @@ bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_n
 			m_pusher << "PUSHINT 0"; // total
 			m_pusher << "PUSHINT 0"; // main
 			m_pusher << "PUSHINT 0"; // total_weight
-			m_pusher << "NULL"; // ValidatorDescr
-			m_pusher << "FALSE"; //
+			m_pusher << "NULL";		 // ValidatorDescr
+			m_pusher << "FALSE";	 //
 			m_pusher.endContinuation();
 
 			m_pusher.ifElse();
@@ -2303,7 +2400,7 @@ bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const &_n
 	return false;
 }
 
-bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node) {
+bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const& _node) const {
 	if (_node.memberName() == "sendrawmsg") {
 		// tvm.sendrawmsg
 		pushArgs();
@@ -2311,14 +2408,14 @@ bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const &_node) {
 	} else if (_node.memberName() == "sendMsg") { // tvm.sendMsg
 		pushArgs();
 		m_pusher << "SENDMSG";
-	}  else {
+	} else {
 		return false;
 	}
 	return true;
 }
 
-void FunctionCallCompiler::msgFunction(MemberAccess const &_node) {
-	if (_node.memberName() == "pubkey") { // msg.pubkey
+void FunctionCallCompiler::msgFunction(MemberAccess const& _node) const {
+	if (_node.memberName() == "pubkey") { // msg.pubkey()
 		m_pusher.getGlob(TvmConst::C7::MsgPubkey);
 		m_pusher.startOpaque();
 		m_pusher.pushS(0);
@@ -2334,43 +2431,40 @@ void FunctionCallCompiler::msgFunction(MemberAccess const &_node) {
 	}
 }
 
-void FunctionCallCompiler::rndFunction(MemberAccess const &_node) {
+void FunctionCallCompiler::rndFunction(MemberAccess const& _node) const {
 	switch (m_funcType->kind()) {
-		case FunctionType::Kind::RndNext:
+	case FunctionType::Kind::RndNext:
+		pushArgs();
+		if (m_arguments.empty()) {
+			m_pusher << "RANDU256";
+		} else {
+			m_pusher << "RAND";
+		}
+		break;
+	case FunctionType::Kind::RndSetSeed: {
+		pushArgAndConvert(0);
+		m_pusher << "SETRAND";
+		break;
+	}
+	case FunctionType::Kind::RndGetSeed: {
+		m_pusher << "RANDSEED";
+		break;
+	}
+	case FunctionType::Kind::RndShuffle: {
+		if (m_arguments.empty()) {
+			m_pusher << "LTIME";
+		} else {
 			pushArgs();
-			if (m_arguments.empty()) {
-				m_pusher << "RANDU256";
-			} else {
-				m_pusher << "RAND";
-			}
-			break;
-		case FunctionType::Kind::RndSetSeed:
-		{
-			pushArgAndConvert(0);
-			m_pusher << "SETRAND";
-			break;
 		}
-		case FunctionType::Kind::RndGetSeed:
-		{
-			m_pusher << "RANDSEED";
-			break;
-		}
-		case FunctionType::Kind::RndShuffle:
-		{
-			if (m_arguments.empty()) {
-				m_pusher << "LTIME";
-			} else {
-				pushArgs();
-			}
-			m_pusher << "ADDRAND";
-			break;
-		}
-		default:
-			cast_error(_node, "Unsupported function call");
+		m_pusher << "ADDRAND";
+		break;
+	}
+	default:
+		cast_error(_node, "Unsupported function call");
 	}
 }
 
-void FunctionCallCompiler::rist255Function() {
+void FunctionCallCompiler::rist255Function() const {
 	pushArgs();
 
 	switch (m_funcType->kind()) {
@@ -2395,12 +2489,19 @@ void FunctionCallCompiler::rist255Function() {
 		break;
 	}
 	case FunctionType::Kind::Rist255Mul: {
-		m_pusher.blockSwap(1, 1);
 		m_pusher << "RIST255_MUL";
 		break;
 	}
 	case FunctionType::Kind::Rist255Mulbase: {
 		m_pusher << "RIST255_MULBASE";
+		break;
+	}
+	case FunctionType::Kind::Rist255QMulbase: {
+		m_pusher.startOpaque();
+		m_pusher.pushAsym("RIST255_QMULBASE");
+		m_pusher.pushAsym("NULLSWAPIFNOT");
+		m_pusher.drop();
+		m_pusher.endOpaque(1, 1);
 		break;
 	}
 	case FunctionType::Kind::Rist255QAdd: {
@@ -2420,7 +2521,6 @@ void FunctionCallCompiler::rist255Function() {
 		break;
 	}
 	case FunctionType::Kind::Rist255QMul: {
-		m_pusher.blockSwap(1, 1);
 		m_pusher.startOpaque();
 		m_pusher.pushAsym("RIST255_QMUL");
 		m_pusher.pushAsym("NULLSWAPIFNOT");
@@ -2437,10 +2537,9 @@ void FunctionCallCompiler::rist255Function() {
 	}
 }
 
-void FunctionCallCompiler::blsFunction() {
+void FunctionCallCompiler::blsFunction() const {
 	bool useTuple =
-		!m_arguments.empty() &&
-		m_arguments.at(0)->annotation().type->category() == Type::Category::TvmVector;
+		!m_arguments.empty() && m_arguments.at(0)->annotation().type->category() == Type::Category::TvmVector;
 
 	switch (m_funcType->kind()) {
 	case FunctionType::Kind::BlsVerify:
@@ -2450,34 +2549,48 @@ void FunctionCallCompiler::blsFunction() {
 	case FunctionType::Kind::BlsAggregate:
 		pushArgs();
 		if (useTuple)
-			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
-				"DUP",
-				"TLEN",
-				"EXPLODEVAR",
-				"BLS_AGGREGATE",
-			}, 1, 1, false));
+			m_pusher.push(
+				createNode<HardCode>(
+					std::vector<std::string>{
+						"DUP",
+						"TLEN",
+						"EXPLODEVAR",
+						"BLS_AGGREGATE",
+					},
+					1,
+					1,
+					false
+				)
+			);
 		else {
 			m_pusher.pushInt(m_arguments.size());
-			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
-				"BLS_AGGREGATE"
-			}, m_arguments.size() + 1, 1, false));
+			m_pusher.push(
+				createNode<HardCode>(std::vector<std::string>{"BLS_AGGREGATE"}, m_arguments.size() + 1, 1, false)
+			);
 		}
 		break;
 	case FunctionType::Kind::BlsFastAggregateVerify:
 		if (useTuple) {
 			pushArgs();
-			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
-							  // pks msg sig
-				"ROT",        // msg sig pks
-				"DUP",        // msg sig pks pks
-				"TLEN",       // msg sig pks n
-				"EXPLODEVAR", // msg sig pk1 .. pksN n
-				"PUSHINT 2",  // msg sig pk1 .. pksN n 2
-				"PUSH S1",    // msg sig pk1 .. pksN n 2 n
-				"INC",        // msg sig pk1 .. pksN n 2 n+1
-				"BLKSWX",
-				"BLS_FASTAGGREGATEVERIFY",
-			}, 3, 1, false));
+			m_pusher.push(
+				createNode<HardCode>(
+					std::vector<std::string>{
+						// pks msg sig
+						"ROT",		  // msg sig pks
+						"DUP",		  // msg sig pks pks
+						"TLEN",		  // msg sig pks n
+						"EXPLODEVAR", // msg sig pk1 .. pksN n
+						"PUSHINT 2",  // msg sig pk1 .. pksN n 2
+						"PUSH S1",	  // msg sig pk1 .. pksN n 2 n
+						"INC",		  // msg sig pk1 .. pksN n 2 n+1
+						"BLKSWX",
+						"BLS_FASTAGGREGATEVERIFY",
+					},
+					3,
+					1,
+					false
+				)
+			);
 		} else {
 			int n = m_arguments.size() - 2;
 			for (int i = 0; i < n; ++i)
@@ -2485,51 +2598,72 @@ void FunctionCallCompiler::blsFunction() {
 			m_pusher.pushInt(n);
 			pushArgAndConvert(n);
 			pushArgAndConvert(n + 1);
-			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
-				"BLS_FASTAGGREGATEVERIFY",
-			}, n + 3, 1, false));
+			m_pusher.push(
+				createNode<HardCode>(
+					std::vector<std::string>{
+						"BLS_FASTAGGREGATEVERIFY",
+					},
+					n + 3,
+					1,
+					false
+				)
+			);
 		}
 		break;
 	case FunctionType::Kind::BlsAggregateVerify:
 		if (useTuple) {
 			pushArgs();
-			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
-				// pksMsgs sig
-				"SWAP",       // sig pksMsgs
-				"DUP",        // sig pksMsgs pksMsgs
-				"TLEN",       // sig pksMsgs n
-				"EXPLODEVAR", // sig (pk, msg)... n
-				"DUP",        // sig (pk, msg)... n i
-				"ADDCONST 1", // sig (pk, msg)... n i  // i = n+1..1
-				"PUSH S1",    // sig (pk, msg)... n i n
-				"PUSHCONT {",
-							  // sig (pk, msg)... n i
-				"DUP",        // sig (pk, msg)... n i i
-				"\tROLLX",    // sig (pk, msg)... n i (pk[i], msg[i])
-				"\tUNPAIR",   // sig (pk, msg)... n i pk[i] msg[i]
-				"\tPUSH S2",  // sig (pk, msg)... n i pk[i] msg[i] i
-				"\tPUSHINT 2",// sig (pk, msg)... n i pk[i] msg[i] i 2
-				"\tBLKSWX",   // sig (pk, msg)... n i
-				"\tDEC",
-				"}",
-				"REPEAT",
-							  // sig pk0, msg0 ... pkN, msgN n 1
-				"PUSH S1",    // sig pk0, msg0 ... pkN, msgN n 1 n
-				"MULCONST 2", // sig pk0, msg0 ... pkN, msgN n 1 2*n
-				"ADD",        // sig pk0, msg0 ... pkN, msgN n 2*n+1
-				"ROLLX",      // pk0, msg0 ... pkN, msgN n sig
-				"BLS_AGGREGATEVERIFY",
-			}, 2, 1, false));
+			m_pusher.push(
+				createNode<HardCode>(
+					std::vector<std::string>{
+						// pksMsgs sig
+						"SWAP",		  // sig pksMsgs
+						"DUP",		  // sig pksMsgs pksMsgs
+						"TLEN",		  // sig pksMsgs n
+						"EXPLODEVAR", // sig (pk, msg)... n
+						"DUP",		  // sig (pk, msg)... n i
+						"ADDCONST 1", // sig (pk, msg)... n i  // i = n+1..1
+						"PUSH S1",	  // sig (pk, msg)... n i n
+						"PUSHCONT {",
+						// sig (pk, msg)... n i
+						"DUP",		   // sig (pk, msg)... n i i
+						"\tROLLX",	   // sig (pk, msg)... n i (pk[i], msg[i])
+						"\tUNPAIR",	   // sig (pk, msg)... n i pk[i] msg[i]
+						"\tPUSH S2",   // sig (pk, msg)... n i pk[i] msg[i] i
+						"\tPUSHINT 2", // sig (pk, msg)... n i pk[i] msg[i] i 2
+						"\tBLKSWX",	   // sig (pk, msg)... n i
+						"\tDEC",
+						"}",
+						"REPEAT",
+						// sig pk0, msg0 ... pkN, msgN n 1
+						"PUSH S1",	  // sig pk0, msg0 ... pkN, msgN n 1 n
+						"MULCONST 2", // sig pk0, msg0 ... pkN, msgN n 1 2*n
+						"ADD",		  // sig pk0, msg0 ... pkN, msgN n 2*n+1
+						"ROLLX",	  // pk0, msg0 ... pkN, msgN n sig
+						"BLS_AGGREGATEVERIFY",
+					},
+					2,
+					1,
+					false
+				)
+			);
 		} else {
 			int n = (m_arguments.size() - 1) / 2;
 			for (int i = 0; i < 2 * n; ++i)
 				pushArgAndConvert(i);
 			m_pusher.pushInt(n);
 			pushArgAndConvert(2 * n);
-			solAssert(2 * n == int(m_arguments.size()) - 1, "ddddd");
-			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
-				"BLS_AGGREGATEVERIFY",
-			}, 2 * n + 2, 1, false));
+			solAssert(2 * n == static_cast<int>(m_arguments.size()) - 1, "ddddd");
+			m_pusher.push(
+				createNode<HardCode>(
+					std::vector<std::string>{
+						"BLS_AGGREGATEVERIFY",
+					},
+					2 * n + 2,
+					1,
+					false
+				)
+			);
 		}
 		break;
 	case FunctionType::Kind::BlsG1Add:
@@ -2604,36 +2738,42 @@ void FunctionCallCompiler::blsFunction() {
 	case FunctionType::Kind::BlsG1MultiExp:
 	case FunctionType::Kind::BlsG2MultiExp: {
 		pushArgs();
-		std::string opcode = m_funcType->kind() == FunctionType::Kind::BlsG1MultiExp? "BLS_G1_MULTIEXP" : "BLS_G2_MULTIEXP";
+		std::string opcode =
+			m_funcType->kind() == FunctionType::Kind::BlsG1MultiExp ? "BLS_G1_MULTIEXP" : "BLS_G2_MULTIEXP";
 		if (useTuple) {
-			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
-				// xs
-				"DUP",        // xs xs
-				"TLEN",       // xs n
-				"EXPLODEVAR", // (x, s)... n
-				"DUP",        // (x, s)... n i
-				"ADDCONST 1", // (x, s)... n i  // i = n+1..1
-				"PUSH S1",    // (x, s)... n i n
-				"PUSHCONT {",
-							  // (x, s)... n i
-				"DUP",        // (x, s)... n i i
-				"\tROLLX",    // (x, s)... n i (x[i], s[i])
-				"\tUNPAIR",   // (x, s)... n i x[i] s[i]
-				"\tPUSH S2",  // (x, s)... n i x[i] s[i] i
-				"\tPUSHINT 2",// (x, s)... n i x[i] s[i] i 2
-				"\tBLKSWX",   // (x, s)... n i
-				"\tDEC",
-				"}",
-				"REPEAT",
-							  // x0, s0 ... xN, sN n 1
-				"DROP",       // x0, s0 ... xN, sN n
-				opcode
-			}, 1, 1, false));
+			m_pusher.push(
+				createNode<HardCode>(
+					std::vector<std::string>{
+						// xs
+						"DUP",		  // xs xs
+						"TLEN",		  // xs n
+						"EXPLODEVAR", // (x, s)... n
+						"DUP",		  // (x, s)... n i
+						"ADDCONST 1", // (x, s)... n i  // i = n+1..1
+						"PUSH S1",	  // (x, s)... n i n
+						"PUSHCONT {",
+						// (x, s)... n i
+						"DUP",		   // (x, s)... n i i
+						"\tROLLX",	   // (x, s)... n i (x[i], s[i])
+						"\tUNPAIR",	   // (x, s)... n i x[i] s[i]
+						"\tPUSH S2",   // (x, s)... n i x[i] s[i] i
+						"\tPUSHINT 2", // (x, s)... n i x[i] s[i] i 2
+						"\tBLKSWX",	   // (x, s)... n i
+						"\tDEC",
+						"}",
+						"REPEAT",
+						// x0, s0 ... xN, sN n 1
+						"DROP", // x0, s0 ... xN, sN n
+						opcode
+					},
+					1,
+					1,
+					false
+				)
+			);
 		} else {
 			m_pusher.pushInt(m_arguments.size() / 2);
-			m_pusher.push(createNode<HardCode>(std::vector<std::string>{
-				opcode
-			}, m_arguments.size() + 1, 1, false));
+			m_pusher.push(createNode<HardCode>(std::vector<std::string>{opcode}, m_arguments.size() + 1, 1, false));
 		}
 		break;
 	}
@@ -2642,8 +2782,8 @@ void FunctionCallCompiler::blsFunction() {
 	}
 }
 
-void FunctionCallCompiler::goshFunction() {
-	auto typeToOpcode = [&]() -> std::string {
+void FunctionCallCompiler::goshFunction() const {
+	auto typeToOpcode = [&] {
 		switch (m_funcType->kind()) {
 		case FunctionType::Kind::GoshDiff:
 			return "DIFF";
@@ -2675,42 +2815,40 @@ void FunctionCallCompiler::goshFunction() {
 	};
 
 	pushArgs();
-	string opcode = typeToOpcode();
+	std::string opcode = typeToOpcode();
 	m_pusher << opcode;
 }
 
-void FunctionCallCompiler::codeSalt() {
-	pushArgs(); // code
-	m_pusher << "CTOS"; // sliceCode
-	m_pusher << "PLDREFIDX 0"; // dict
+void FunctionCallCompiler::codeSalt() const {
+	pushArgs();									// code
+	m_pusher << "CTOS";							// sliceCode
+	m_pusher << "PLDREFIDX 0";					// dict
 	m_pusher.pushInt(crc16("__codeSaltIndex")); // dict index
-	m_pusher.blockSwap(1, 1); // index dict
-	GetFromDict op{m_pusher, *TypeProvider::int_(19), *TypeProvider::tvmcell(),
-		GetDictOperation::Fetch, std::nullopt
-	};
+	m_pusher.blockSwap(1, 1);					// index dict
+	GetFromDict op{m_pusher, *TypeProvider::int_(19), *TypeProvider::tvmcell(), GetDictOperation::Fetch, std::nullopt};
 	op.getDict();
 }
 
-void FunctionCallCompiler::setCodeSalt() {
-	pushArgs(); // salt sliceCode
+void FunctionCallCompiler::setCodeSalt() const {
+	pushArgs();				  // salt sliceCode
 	m_pusher.blockSwap(1, 1); // salt sliceCode
-	m_pusher << "CTOS";             // salt sliceCode
-	m_pusher << "LDREF";            // salt dict sliceCode
+	m_pusher << "CTOS";		  // salt sliceCode
+	m_pusher << "LDREF";	  // salt dict sliceCode
 	m_pusher.blockSwap(1, 1); // salt sliceCode dict
 	m_pusher.pushInt(crc16("__codeSaltIndex"));
 	// salt sliceCode dict index
-	m_pusher.blockSwap(1, 1); // salt sliceCode index dict
-	m_pusher.blockSwap(1, 3); // sliceCode index dict salt
-	m_pusher.blockSwap(2, 1); // sliceCode salt index dict
-	m_pusher.pushInt(19);         // sliceCode salt index dict 19
-	m_pusher << "DICTISETREF";     // sliceCode dict
-	m_pusher << "NEWC";            // sliceCode dict b
+	m_pusher.blockSwap(1, 1);  // salt sliceCode index dict
+	m_pusher.blockSwap(1, 3);  // sliceCode index dict salt
+	m_pusher.blockSwap(2, 1);  // sliceCode salt index dict
+	m_pusher.pushInt(19);	   // sliceCode salt index dict 19
+	m_pusher << "DICTISETREF"; // sliceCode dict
+	m_pusher << "NEWC";		   // sliceCode dict b
 	m_pusher << "STREF";
 	m_pusher << "STSLICE";
 	m_pusher << "ENDC";
 }
 
-void FunctionCallCompiler::functionId() {
+void FunctionCallCompiler::functionId() const {
 	auto callDef = getFunctionDeclarationOrConstructor(m_arguments.at(0).get());
 	uint32_t funcID;
 	if (callDef == nullptr) {
@@ -2725,22 +2863,22 @@ void FunctionCallCompiler::functionId() {
 	m_pusher.pushInt(funcID);
 }
 
-void FunctionCallCompiler::abiEncodeBody() {
+void FunctionCallCompiler::abiEncodeBody() const {
 	CallableDeclaration const* callDef = getFunctionDeclarationOrConstructor(m_arguments.at(0).get());
-	if (callDef == nullptr) { // if no constructor (default constructor)
+	if (callDef == nullptr) {
 		m_pusher << "NEWC";
-		ChainDataEncoder{&m_pusher}.createDefaultConstructorMessage2();
 	} else {
 		auto funcDef = to<FunctionDefinition>(callDef);
-		const bool needCallback = funcDef->isResponsible();
-		const int shift = needCallback ? 1 : 0;
+		bool const needCallback = funcDef->isResponsible();
+		int const shift = needCallback ? 1 : 0;
 		std::optional<uint32_t> callbackFunctionId;
 		if (needCallback) {
 			CallableDeclaration const* callback = getFunctionDeclarationOrConstructor(m_arguments.at(1).get());
-			callbackFunctionId = ChainDataEncoder::calculateFunctionIDWithReason(callback, ReasonOfOutboundMessage::RemoteCallInternal);
+			callbackFunctionId =
+				ChainDataEncoder::calculateFunctionIDWithReason(callback, ReasonOfOutboundMessage::RemoteCallInternal);
 		}
-		const ast_vec<VariableDeclaration> &parameters = callDef->parameters();
-		std::vector<Type const *> types = getParams(parameters).first;
+		ast_vec<VariableDeclaration> const& parameters = callDef->parameters();
+		std::vector<Type const*> types = getParams(parameters).first;
 		AbiV2Position position{32, 0, types};
 		for (int i = m_arguments.size() - 1; i >= 1 + shift; --i) {
 			acceptExpr(m_arguments.at(i).get());
@@ -2750,26 +2888,28 @@ void FunctionCallCompiler::abiEncodeBody() {
 			convertArray(parameters),
 			ChainDataEncoder::calculateFunctionIDWithReason(callDef, ReasonOfOutboundMessage::RemoteCallInternal),
 			callbackFunctionId,
-			position
+			position,
+			true
 		);
 	}
 	m_pusher << "ENDC";
 }
 
-bool FunctionCallCompiler::checkForTvmC4(const MemberAccess &_node) {
+bool FunctionCallCompiler::checkForTvmC4(MemberAccess const& _node) const {
 	auto const& name = _node.memberName();
 	if (name != "unpackData" && name != "packData")
 		return false;
 
 	auto const& usualStateVars = m_pusher.ctx().storageLayout().usualStateVariables();
-	std::vector<VariableDeclaration const *> allStateVars = m_pusher.ctx().storageLayout().usualAndUnpackedStateVariables();
+	std::vector<VariableDeclaration const*> allStateVars =
+		m_pusher.ctx().storageLayout().usualAndUnpackedStateVariables();
 	std::vector<Type const*> const& varTypes = getTypesFromVarDecls(allStateVars);
 	std::vector<bool> varNeeded(allStateVars.size());
 
 	if (name == "unpackData") {
 		std::vector<VariableDeclaration const*> expectedOrder;
 		std::set<VariableDeclaration const*> neededStateVarSet;
-		for (auto const& arg : m_arguments) {
+		for (auto const& arg: m_arguments) {
 			auto identifier = to<Identifier>(arg.get());
 			Declaration const* declaration = identifier->annotation().referencedDeclaration;
 			auto variableDeclaration = to<VariableDeclaration>(declaration);
@@ -2782,8 +2922,8 @@ bool FunctionCallCompiler::checkForTvmC4(const MemberAccess &_node) {
 
 		std::vector<VariableDeclaration const*> stackOrder;
 		for (size_t i = 0; i < allStateVars.size(); ++i) {
-			const auto stateVar = allStateVars.at(i);
-			if (neededStateVarSet.count(stateVar)) {
+			auto const stateVar = allStateVars.at(i);
+			if (neededStateVarSet.contains(stateVar)) {
 				varNeeded[i] = true;
 				stackOrder.emplace_back(stateVar);
 			}
@@ -2805,7 +2945,7 @@ bool FunctionCallCompiler::checkForTvmC4(const MemberAccess &_node) {
 		for (size_t i = 0; i < expectedOrder.size(); ++i) {
 			if (*expectedOrder.at(i) != *stackOrder.at(i)) {
 				size_t j = i + 1;
-				for (; ; ++j) {
+				for (;; ++j) {
 					if (*expectedOrder.at(i) == *stackOrder.at(j)) {
 						break;
 					}
@@ -2815,19 +2955,19 @@ bool FunctionCallCompiler::checkForTvmC4(const MemberAccess &_node) {
 			}
 		}
 	} else if (name == "packData") {
-		std::map<int, std::function<void()> > varIndexToPush;
+		std::map<int, std::function<void()>> varIndexToPush;
 		for (size_t i = 0; i < m_names.size(); ++i) {
 			int varIndex = 0;
 			for (;; ++varIndex)
 				if (allStateVars.at(varIndex)->name() == *m_names[i])
 					break;
 			varNeeded[varIndex] = true;
-			varIndexToPush[varIndex] = [this, i] {
-				pushArgAndConvert(i);
+			varIndexToPush[varIndex] = [this, i, varIndex, &varTypes] {
+				pushExprAndConvert(m_arguments.at(i).get(), varTypes.at(varIndex));
 			};
 		}
 
-		const int stackSize = m_pusher.stackSize();
+		int const stackSize = m_pusher.stackSize();
 		m_pusher.getGlob(m_pusher.ctx().storageLayout().getUnpackIndex());
 		// stack: slice
 
@@ -2849,7 +2989,7 @@ bool FunctionCallCompiler::checkForTvmC4(const MemberAccess &_node) {
 	return true;
 }
 
-bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
+bool FunctionCallCompiler::checkForTvmFunction(MemberAccess const& _node) const {
 	auto const& name = _node.memberName();
 	if (name == "pubkey") { // tvm.pubkey
 		m_pusher.getGlob(TvmConst::C7::TvmPubkey);
@@ -2859,18 +2999,18 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 	} else if (name == "accept") { // tvm.accept
 		m_pusher << "ACCEPT";
 	} else if (name == "hash") { // tvm.hash
-		pushArgs();
+		pushArgConvertToMobileType(0);
 		switch (m_arguments.at(0)->annotation().type->category()) {
-			case Type::Category::TvmCell:
-			case Type::Category::Array:
-			case Type::Category::StringLiteral:
-				m_pusher << "HASHCU";
-				break;
-			case Type::Category::TvmSlice:
-				m_pusher << "HASHSU";
-				break;
-			default:
-				solUnimplemented("");
+		case Type::Category::TvmCell:
+		case Type::Category::Array:
+		case Type::Category::StringLiteral:
+			m_pusher << "HASHCU";
+			break;
+		case Type::Category::TvmSlice:
+			m_pusher << "HASHSU";
+			break;
+		default:
+			solUnimplemented("");
 		}
 	} else if (name == "p256CheckSign") { // tvm.p256CheckSign
 		pushArgs();
@@ -2905,18 +3045,14 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		m_pusher << "SETCODE";
 	} else if (name == "bindump") { // tvm.bindump
 		pushArgs();
-		if (getType(m_arguments[0].get())->category() == Type::Category::TvmCell)
-			m_pusher << "CTOS";
 		m_pusher << "BINDUMP";
 		m_pusher.drop();
 	} else if (name == "hexdump") { // tvm.hexdump
 		pushArgs();
-		if (getType(m_arguments[0].get())->category() == Type::Category::TvmCell)
-		m_pusher << "CTOS";
 		m_pusher << "HEXDUMP";
 		m_pusher.drop();
 	} else if (name == "setCurrentCode") { // tvm.setCurrentCode
-		const int stackSize = m_pusher.stackSize();
+		int const stackSize = m_pusher.stackSize();
 		pushArgs();
 		m_pusher << "CTOS";
 		m_pusher << "BLESS";
@@ -2934,7 +3070,7 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		m_pusher << "COMMIT";
 	} else if (name == "log") { // tvm.log
 		compileLog();
-	} else if (name == "resetStorage") { //tvm.resetStorage
+	} else if (name == "resetStorage") { // tvm.resetStorage
 		m_pusher.resetAllStateVars();
 	} else if (name == "functionId") { // tvm.functionId
 		functionId();
@@ -2946,14 +3082,7 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 		solAssert(isIn(n, 2, 3), "");
 		m_pusher << (n == 2 ? "RAWRESERVE" : "RAWRESERVEX");
 	} else if (isIn(name, "exit", "exit1")) {
-		m_pusher.was_c4_to_c7_called();
-		m_pusher.fixStack(-1); // fix stack
-
-		m_pusher.startContinuation();
 		m_pusher.pushFragment(0, 0, "c7_to_c4");
-		m_pusher.endContinuationFromRef();
-		m_pusher.ifNot();
-
 		if (name == "exit")
 			m_pusher._throw("THROW 0");
 		else
@@ -2991,16 +3120,16 @@ bool FunctionCallCompiler::checkForTvmFunction(const MemberAccess &_node) {
 	return true;
 }
 
-void FunctionCallCompiler::abiFunction() {
+void FunctionCallCompiler::abiFunction() const {
 	switch (m_funcType->kind()) {
 	case FunctionType::Kind::ABIEncode: {
-		std::vector<Type const *> types;
-		for (ASTPointer<Expression const> const& arg : m_arguments) {
+		std::vector<Type const*> types;
+		for (ASTPointer<Expression const> const& arg: m_arguments) {
 			types.emplace_back(arg->annotation().type->mobileType());
 		}
 		AbiV2Position position{0, 0, types};
 
-		for (ASTPointer<Expression const> const& arg : m_arguments | boost::adaptors::reversed) {
+		for (ASTPointer<Expression const> const& arg: m_arguments | std::views::reverse) {
 			acceptExpr(arg.get());
 		}
 		m_pusher << "NEWC";
@@ -3013,7 +3142,7 @@ void FunctionCallCompiler::abiFunction() {
 		std::vector<Type const*> types;
 		auto te = to<TupleExpression>(m_arguments.at(1).get());
 		if (te) {
-			for (const ASTPointer<Expression>& e : te->components()) {
+			for (ASTPointer<Expression> const& e: te->components()) {
 				auto const* argTypeType = dynamic_cast<TypeType const*>(e->annotation().type);
 				Type const* actualType = argTypeType->actualType();
 				types.emplace_back(actualType);
@@ -3043,7 +3172,7 @@ void FunctionCallCompiler::abiFunction() {
 		break;
 	}
 	case FunctionType::Kind::ABIDecodeFunctionParams: {
-		pushArgAndConvert(1);
+		pushArgConvertToMobileType(1);
 		decodeFunctionParams();
 		break;
 	}
@@ -3052,12 +3181,11 @@ void FunctionCallCompiler::abiFunction() {
 	}
 }
 
-void FunctionCallCompiler::mathFunction(const MemberAccess &_node) {
+void FunctionCallCompiler::mathFunction(MemberAccess const& _node) const {
 	auto isCombArithOpers = [](std::string const& name) {
-		const auto combArithOpers =  tonCombinedArithmeticOperations();
-		return std::find_if(combArithOpers.begin(), combArithOpers.end(), [&](auto const& op) {
-			return op.name == name;
-		}) != combArithOpers.end();
+		auto const combArithOpers = tonCombinedArithmeticOperations();
+		return std::ranges::find_if(combArithOpers, [&](auto const& op) { return op.name == name; }) !=
+			   combArithOpers.end();
 	};
 
 	bool isQuiet = false;
@@ -3069,20 +3197,20 @@ void FunctionCallCompiler::mathFunction(const MemberAccess &_node) {
 		isQuiet = true;
 	std::string const prefix = isQuiet ? "Q" : "";
 
-	const auto& memberName = _node.memberName();
+	auto const& memberName = _node.memberName();
 	if (memberName == "max") {
-		pushArgs();
+		pushArgAndConvertToCommon();
 		for (int i = 0; i + 1 < static_cast<int>(m_arguments.size()); ++i)
 			m_pusher << prefix + "MAX";
 	} else if (memberName == "min") {
-		pushArgs();
+		pushArgAndConvertToCommon();
 		for (int i = 0; i + 1 < static_cast<int>(m_arguments.size()); ++i)
 			m_pusher << prefix + "MIN";
 	} else if (memberName == "minmax") {
-		pushArgs();
+		pushArgAndConvertToCommon();
 		m_pusher << prefix + "MINMAX";
 	} else if (isIn(memberName, "divr", "divc")) {
-		pushArgs();
+		pushArgAndConvertToCommon();
 		if (m_retType->category() == Type::Category::FixedPoint) {
 			int power = to<FixedPointType>(m_retType)->fractionalDigits();
 			m_pusher.pushInt(MathConsts::power10().at(power)); // res 10^n
@@ -3093,34 +3221,32 @@ void FunctionCallCompiler::mathFunction(const MemberAccess &_node) {
 		}
 		Type const* leftType = m_arguments.at(0)->annotation().type;
 		Type const* rightType = m_arguments.at(1)->annotation().type;
-		if (!isFitUseless(leftType, rightType, m_retType, Token::Div) &&
-			!m_pusher.ctx().ignoreIntegerOverflow())
+		if (!isFitUseless(leftType, rightType, m_retType, Token::Div) && !m_pusher.ctx().ignoreIntegerOverflow())
 			m_pusher.checkFit(m_retType);
 	} else if (isIn(memberName, "mulmod")) {
-		pushArgs();
+		pushArgAndConvertToCommon();
 		m_pusher << prefix + boost::to_upper_copy<std::string>(memberName);
 	} else if (isCombArithOpers(memberName)) {
-		pushArgs();
+		pushArgAndConvertToCommon();
 		m_pusher << boost::to_upper_copy<std::string>(memberName);
 	} else if (isIn(memberName, "muldiv", "muldivr", "muldivc")) {
-		pushArgs();
+		pushArgAndConvertToCommon();
 		m_pusher << prefix + boost::to_upper_copy<std::string>(memberName);
 		if (!m_pusher.ctx().ignoreIntegerOverflow())
 			m_pusher.checkFit(m_retType);
 	} else if (memberName == "divmod") {
-		pushArgs();
+		pushArgAndConvertToCommon();
 		m_pusher << prefix + "DIVMOD";
 		Type const* leftType = m_arguments.at(0)->annotation().type;
 		Type const* rightType = m_arguments.at(1)->annotation().type;
 		Type const* resType = retTuple->components().at(0);
-		if (!isFitUseless(leftType, rightType, resType, Token::Div) &&
-			!m_pusher.ctx().ignoreIntegerOverflow()) {
+		if (!isFitUseless(leftType, rightType, resType, Token::Div) && !m_pusher.ctx().ignoreIntegerOverflow()) {
 			m_pusher.blockSwap(1, 1);
 			m_pusher.checkFit(resType);
 			m_pusher.blockSwap(1, 1);
 		}
 	} else if (memberName == "muldivmod") {
-		pushArgs();
+		pushArgAndConvertToCommon();
 		m_pusher << prefix + "MULDIVMOD";
 		if (!m_pusher.ctx().ignoreIntegerOverflow()) {
 			m_pusher.exchange(1);
@@ -3128,25 +3254,25 @@ void FunctionCallCompiler::mathFunction(const MemberAccess &_node) {
 			m_pusher.exchange(1);
 		}
 	} else if (memberName == "abs") {
-		pushArgs();
+		pushArgWithoutConvertion();
 		m_pusher << "ABS";
 		if (!m_pusher.ctx().ignoreIntegerOverflow())
 			m_pusher.checkFit(m_retType);
 	} else if (memberName == "modpow2") {
 		pushExprAndConvert(m_arguments[0].get(), m_retType);
-		const Expression * expression = m_arguments[1].get();
-		const auto& value = ExprUtils::constValue(*expression);
+		Expression const* expression = m_arguments[1].get();
+		auto const& value = ExprUtils::constValue(*expression);
 		if (!value.has_value() || value < 0 || value >= 256)
 			cast_error(*expression, "Expected a constant integer in the range 1 - 255.");
 		m_pusher << prefix + "MODPOW2 " + value->str();
 	} else if (memberName == "sign") {
-		pushArgs();
+		pushArgConvertToMobileType(0);
 		m_pusher << prefix + "SGN";
 	} else
 		cast_error(m_functionCall, "Unsupported function call");
 }
 
-bool FunctionCallCompiler::checkBaseContractCall(MemberAccess const &_node) {
+bool FunctionCallCompiler::checkBaseContractCall(MemberAccess const& _node) const {
 	auto funDef = to<FunctionDefinition>(_node.annotation().referencedDeclaration);
 	if (funDef) {
 		// calling base contract method
@@ -3157,7 +3283,7 @@ bool FunctionCallCompiler::checkBaseContractCall(MemberAccess const &_node) {
 	return false;
 }
 
-bool FunctionCallCompiler::checkAddressThis() {
+bool FunctionCallCompiler::checkAddressThis() const {
 	// compile  "address(this)"
 	if (isAddressThis(&m_functionCall)) {
 		m_pusher << "MYADDR";
@@ -3166,7 +3292,7 @@ bool FunctionCallCompiler::checkAddressThis() {
 	return false;
 }
 
-void FunctionCallCompiler::createObject() {
+void FunctionCallCompiler::createObject() const {
 	switch (m_retType->category()) {
 	case Type::Category::TvmCell:
 	case Type::Category::TvmBuilder:
@@ -3177,7 +3303,7 @@ void FunctionCallCompiler::createObject() {
 	}
 }
 
-void FunctionCallCompiler::typeConversion() {
+void FunctionCallCompiler::typeConversion() const {
 	solAssert(m_arguments.size() == 1, "");
 	Type const* argType = m_arguments[0]->annotation().type;
 
@@ -3188,9 +3314,11 @@ void FunctionCallCompiler::typeConversion() {
 			auto b = to<IntegerType>(funCall->annotation().type);
 			auto c = to<IntegerType>(m_retType);
 			if (a && b && c) {
-				if (!a->isSigned() && !b->isSigned() && c->isSigned() &&
-					a->numBits() < b->numBits() && b->numBits() == c->numBits()
-				) {
+				if (!a->isSigned() &&
+					!b->isSigned() &&
+					c->isSigned() &&
+					a->numBits() < b->numBits() &&
+					b->numBits() == c->numBits()) {
 					acceptExpr(funCall->arguments().at(0).get());
 					// no conversion
 					return;
@@ -3199,16 +3327,21 @@ void FunctionCallCompiler::typeConversion() {
 		}
 	}
 
-	auto getDigits = [](Type const* type)-> int {
+	auto getDigits = [](Type const* type) -> int {
 		if (auto fix = to<FixedPointType>(type))
 			return fix->fractionalDigits();
-		if (isIn(type->category(), Type::Category::Integer, Type::Category::QInteger,
-				 Type::Category::VarInteger, Type::Category::Enum))
+		if (isIn(
+				type->category(),
+				Type::Category::Integer,
+				Type::Category::QInteger,
+				Type::Category::VarInteger,
+				Type::Category::Enum
+			))
 			return 0;
 		solUnimplemented("");
 	};
 
-	auto adjustDigits = [&]() {
+	auto adjustDigits = [&] {
 		int const delta = getDigits(m_retType) - getDigits(argType->mobileType());
 		if (delta > 0) {
 			m_pusher.pushInt(MathConsts::power10().at(delta));
@@ -3249,13 +3382,13 @@ void FunctionCallCompiler::typeConversion() {
 	}
 }
 
-bool FunctionCallCompiler::checkLocalFunctionOrLibCall(const Identifier *identifier) {
+bool FunctionCallCompiler::checkLocalFunctionOrLibCall(Identifier const* identifier) const {
 	auto functionDefinition = to<FunctionDefinition>(identifier->annotation().referencedDeclaration);
 	if (!functionDefinition)
 		return false;
 	pushArgs();
 	if (functionDefinition->isInline()) {
-		const string& functionName = m_pusher.ctx().functionInternalName(functionDefinition, false).first;
+		std::string const& functionName = m_pusher.ctx().functionInternalName(functionDefinition, false).first;
 		int take = m_funcType->parameterTypes().size();
 		int ret = m_funcType->returnParameterTypes().size();
 		m_pusher.pushInlineFunction(functionName, take, ret);
@@ -3267,9 +3400,9 @@ bool FunctionCallCompiler::checkLocalFunctionOrLibCall(const Identifier *identif
 			int take = functionDefinition->parameters().size();
 			int ret = functionDefinition->returnParameters().size();
 			std::vector<std::string> lines;
-			for(ASTPointer<Statement> const& s : functionDefinition->body().statements()) {
+			for (ASTPointer<Statement> const& s: functionDefinition->body().statements()) {
 				auto assembly = to<FreeInlineAssembly>(s.get());
-				for (ASTPointer<Expression> const& line : assembly->lines()) {
+				for (ASTPointer<Expression> const& line: assembly->lines()) {
 					auto str = to<Literal>(line.get());
 					lines.push_back(str->value());
 				}
@@ -3282,23 +3415,23 @@ bool FunctionCallCompiler::checkLocalFunctionOrLibCall(const Identifier *identif
 	return true;
 }
 
-bool FunctionCallCompiler::checkHashFunctions() {
+bool FunctionCallCompiler::checkHashFunctions() const {
 	if (m_funcType == nullptr)
 		return false;
 
-	auto hashExt = [&]() {
+	auto hashExt = [&] {
 		auto ident = to<Identifier>(&m_functionCall.expression());
 		auto opcode = "HASHEXT_" + boost::to_upper_copy<std::string>(ident->name());
 
-		pushArgs();
+		pushAllArgsAndConvertToMobileType();
 		m_pusher.pushInt(m_arguments.size());
-		m_pusher.pushStackOpcode(opcode, m_arguments.size() + 1, 1);
+		m_pusher.pushStackGenOpcode(opcode, m_arguments.size() + 1, 1);
 	};
 
 	switch (m_funcType->kind()) {
 	case FunctionType::Kind::SHA256: {
 		if (m_arguments.size() == 1) {
-			pushArgAndConvert(0);
+			pushArgConvertToMobileType(0);
 			Type const* arg = m_arguments.at(0)->annotation().type;
 			auto arrType = to<ArrayType>(arg);
 			if (arrType && arrType->isByteArrayOrString())
@@ -3337,256 +3470,262 @@ bool FunctionCallCompiler::checkHashFunctions() {
 	return true;
 }
 
-bool FunctionCallCompiler::checkSolidityUnits() {
+bool FunctionCallCompiler::checkSolidityUnits() const {
 	if (m_funcType == nullptr) {
 		return false;
 	}
 
 	switch (m_funcType->kind()) {
-		case FunctionType::Kind::GasToValue: {
-			pushArgs();
-			if (m_arguments.size() == 1) {
-				solAssert(*GlobalParams::g_tvmVersion != TVMVersion::ton());
-				m_pusher << "GASTOGRAM";
-			} else {
-				if (*GlobalParams::g_tvmVersion == TVMVersion::ton())
-					m_pusher << "GETGASFEE";
-				else
-					m_pusher.pushFragmentInCallRef(2, 1, "__gasToTon");
-			}
-			return true;
+	case FunctionType::Kind::GasToValue: {
+		pushArgs();
+		if (m_arguments.size() == 1) {
+			solAssert(*GlobalParams::g_tvmVersion != TVMVersion::ton());
+			m_pusher << "GASTOGRAM";
+		} else {
+			if (*GlobalParams::g_tvmVersion == TVMVersion::ton())
+				m_pusher << "GETGASFEE";
+			else
+				m_pusher.pushFragmentInCallRef(2, 1, "__gasToTon");
 		}
-		case FunctionType::Kind::ValueToGas: {
-			pushArgs();
-			if (m_arguments.size() == 1) {
-				solAssert(*GlobalParams::g_tvmVersion != TVMVersion::ton());
-				m_pusher << "GRAMTOGAS";
-			} else {
-				m_pusher.pushFragmentInCallRef(2, 1, "__tonToGas");
-			}
-			return true;
+		return true;
+	}
+	case FunctionType::Kind::ValueToGas: {
+		pushArgs();
+		if (m_arguments.size() == 1) {
+			solAssert(*GlobalParams::g_tvmVersion != TVMVersion::ton());
+			m_pusher << "GRAMTOGAS";
+		} else {
+			m_pusher.pushFragmentInCallRef(2, 1, "__tonToGas");
 		}
-		case FunctionType::Kind::BitSize: {
-			pushArgs();
-			m_pusher << "BITSIZE";
-			return true;
-		}
-		case FunctionType::Kind::UBitSize: {
-			pushArgs();
-			m_pusher << "UBITSIZE";
-			return true;
-		}
+		return true;
+	}
+	case FunctionType::Kind::BitSize: {
+		pushArgs();
+		m_pusher << "BITSIZE";
+		return true;
+	}
+	case FunctionType::Kind::UBitSize: {
+		pushArgs();
+		m_pusher << "UBITSIZE";
+		return true;
+	}
 
-		case FunctionType::Kind::Selfdestruct: { // "selfdestruct"
-			const std::map<int, std::string> constParams{
-					{TvmConst::int_msg_info::ihr_disabled, "1"},
-					{TvmConst::int_msg_info::tons,         StrUtils::tonsToBinaryString(u256(0))},
-					{TvmConst::int_msg_info::bounce,       "0"},
-			};
-			m_pusher.sendIntMsg(
-					{{TvmConst::int_msg_info::dest, m_arguments[0].get()}},
-					constParams,
-					nullptr,
-					[&]() { m_pusher << "PUSHINT " + toString(TvmConst::SENDRAWMSG::SelfDestruct); },
-					nullptr);
-			return true;
-		}
+	case FunctionType::Kind::Selfdestruct: { // "selfdestruct"
+		std::map<int, std::string> const constParams{
+			{TvmConst::int_msg_info::tons, StrUtils::tonsToBinaryString(u256(0))},
+			{TvmConst::int_msg_info::bounce, "0"},
+		};
+		m_pusher.pushParamsAndSendInternalMessage(
+			{{TvmConst::int_msg_info::dest, m_arguments[0].get()}},
+			constParams,
+			nullptr,
+			[&] { m_pusher << "PUSHINT " + toString(TvmConst::SENDRAWMSG::SelfDestruct); },
+			nullptr,
+			nullptr,
+			nullptr
+		);
+		return true;
+	}
 
-		case FunctionType::Kind::Require: {
-			if (m_arguments.size() == 1) {
+	case FunctionType::Kind::Require: {
+		if (m_arguments.size() == 1) {
+			pushArgAndConvert(0);
+			m_pusher._throw("THROWIFNOT " + toString(TvmConst::RuntimeException::DefaultError));
+		} else if (m_arguments.size() == 2 || m_arguments.size() == 3) {
+			Type const* type1 = m_arguments.at(1)->annotation().type;
+			auto arr = dynamic_cast<ArrayType const*>(type1);
+			if (dynamic_cast<StringLiteralType const*>(type1) || (arr && arr->isString())) {
+				pushArgAndConvert(1);
 				pushArgAndConvert(0);
-				m_pusher._throw("THROWIFNOT 100");
-			} else if (m_arguments.size() == 2 || m_arguments.size() == 3) {
-				Type const* type1 = m_arguments.at(1)->annotation().type;
-				auto arr = dynamic_cast<ArrayType const*>(type1);
-				if (dynamic_cast<StringLiteralType const*>(type1) || (arr && arr->isString())){
-					pushArgAndConvert(1);
-					pushArgAndConvert(0);
-					m_pusher._throw("THROWARGIFNOT 100");
-				} else {
-					if (m_arguments.size() == 3)
-						pushArgAndConvert(2);
-					const auto &exceptionCode = ExprUtils::constValue(*m_arguments[1].get());
-					if (exceptionCode.has_value() && exceptionCode.value() <= 1) {
-						cast_error(*m_arguments[1].get(), "Error code must be at least two");
-					}
-					if (exceptionCode.has_value() && exceptionCode.value() < 2048) {
-						pushArgAndConvert(0);
-						if (m_arguments.size() == 3)
-							m_pusher._throw("THROWARGIFNOT " + toString(exceptionCode.value()));
-						else
-							m_pusher._throw("THROWIFNOT " + toString(exceptionCode.value()));
-					} else {
-						pushArgAndConvert(1);
-						if (!exceptionCode.has_value()) {
-							m_pusher.pushInt(2);
-							m_pusher << "MAX";
-						}
-						pushArgAndConvert(0);
-						if (m_arguments.size() == 3)
-							m_pusher._throw("THROWARGANYIFNOT");
-						else
-							m_pusher._throw("THROWANYIFNOT");
-					}
-				}
+				m_pusher._throw("THROWARGIFNOT " + toString(TvmConst::RuntimeException::DefaultError));
 			} else {
-				cast_error(m_functionCall, R"("require" takes from one to three m_arguments.)");
-			}
-			return true;
-		}
-		case FunctionType::Kind::Revert: {
-			if (m_arguments.empty()) {
-				m_pusher._throw("THROW 100");
-			} else {
-				if (!isIn(static_cast<int>(m_arguments.size()), 1, 2)) {
-					cast_error(m_functionCall, R"("revert" takes up to two m_arguments.)");
-				}
-				const auto &exceptionCode = ExprUtils::constValue(*m_arguments[0].get());
-				bool withArg = m_arguments.size() == 2;
-				if (withArg) {
-					pushArgAndConvert(1);
-				}
+				if (m_arguments.size() == 3)
+					pushArgAndConvert(2);
+				auto const& exceptionCode = ExprUtils::constValue(*m_arguments[1].get());
 				if (exceptionCode.has_value() && exceptionCode.value() <= 1) {
-					cast_error(*m_arguments[0].get(), "Error code must be at least two");
+					cast_error(*m_arguments[1].get(), "Error code must be at least two");
 				}
 				if (exceptionCode.has_value() && exceptionCode.value() < 2048) {
-					m_pusher._throw((withArg ? "THROWARG " : "THROW ") + toString(exceptionCode.value()));
-				} else {
 					pushArgAndConvert(0);
+					if (m_arguments.size() == 3)
+						m_pusher._throw("THROWARGIFNOT " + toString(exceptionCode.value()));
+					else
+						m_pusher._throw("THROWIFNOT " + toString(exceptionCode.value()));
+				} else {
+					pushArgAndConvert(1);
 					if (!exceptionCode.has_value()) {
 						m_pusher.pushInt(2);
 						m_pusher << "MAX";
 					}
-					m_pusher._throw(withArg ? "THROWARGANY" : "THROWANY");
+					pushArgAndConvert(0);
+					if (m_arguments.size() == 3)
+						m_pusher._throw("THROWARGANYIFNOT");
+					else
+						m_pusher._throw("THROWANYIFNOT");
 				}
-
 			}
-			return true;
+		} else {
+			cast_error(m_functionCall, R"("require" takes from one to three m_arguments.)");
 		}
-		case FunctionType::Kind::LogTVM: {
-			compileLog();
-			return true;
-		}
-		case FunctionType::Kind::Format: {
-			const int stackSize = m_pusher.stackSize();
-			auto literal = to<Literal>(m_arguments[0].get());
-			std::string formatStr = literal->value();
-			size_t pos = 0;
-			std::vector<std::pair<std::string, std::string> > substrings;
-			while (true) {
-				pos = formatStr.find('{', pos);
-				size_t close_pos = formatStr.find('}', pos);
-				if (pos == string::npos || close_pos == string::npos)
-					break;
-				if (formatStr[pos + 1] != ':' && close_pos != pos + 1) {
-					pos++;
-					continue;
+		return true;
+	}
+	case FunctionType::Kind::Revert: {
+		if (m_arguments.empty()) {
+			m_pusher._throw("THROW " + toString(TvmConst::RuntimeException::DefaultError));
+		} else {
+			if (!isIn(static_cast<int>(m_arguments.size()), 1, 2)) {
+				cast_error(m_functionCall, R"("revert" takes up to two m_arguments.)");
+			}
+			auto const& exceptionCode = ExprUtils::constValue(*m_arguments[0].get());
+			bool withArg = m_arguments.size() == 2;
+			if (withArg) {
+				pushArgAndConvert(1);
+			}
+			if (exceptionCode.has_value() && exceptionCode.value() <= 1) {
+				cast_error(*m_arguments[0].get(), "Error code must be at least two");
+			}
+			if (exceptionCode.has_value() && exceptionCode.value() < 2048) {
+				m_pusher._throw((withArg ? "THROWARG " : "THROW ") + toString(exceptionCode.value()));
+			} else {
+				pushArgAndConvert(0);
+				if (!exceptionCode.has_value()) {
+					m_pusher.pushInt(2);
+					m_pusher << "MAX";
 				}
-
-				std::string format = formatStr.substr(pos + 1, close_pos - pos - 1);
-				if (format[0] == ':')
-					format.erase(0, 1);
-				substrings.emplace_back(formatStr.substr(0, pos), format);
-				formatStr = formatStr.substr(close_pos + 1);
-				pos = 0;
+				m_pusher._throw(withArg ? "THROWARGANY" : "THROWANY");
 			}
-			// stack: Stack(TvmBuilder)
-			m_pusher << "NEWC";
-			m_pusher << "NULL";
-			m_pusher << "TUPLE 2";
+		}
+		return true;
+	}
+	case FunctionType::Kind::LogTVM: {
+		compileLog();
+		return true;
+	}
+	case FunctionType::Kind::Format: {
+		int const stackSize = m_pusher.stackSize();
+		auto literal = to<Literal>(m_arguments[0].get());
+		std::string formatStr = literal->value();
+		size_t pos = 0;
+		std::vector<std::pair<std::string, std::string>> substrings;
+		while (true) {
+			pos = formatStr.find('{', pos);
+			size_t close_pos = formatStr.find('}', pos);
+			if (pos == std::string::npos || close_pos == std::string::npos)
+				break;
+			if (formatStr[pos + 1] != ':' && close_pos != pos + 1) {
+				pos++;
+				continue;
+			}
 
-			auto pushConstStr = [&](const string& constStr) {
-				if (!constStr.empty()) {
-					size_t maxSlice = TvmConst::CellBitLength / 8;
-					for(size_t i = 0; i  < constStr.length(); i += maxSlice) {
-						m_pusher.pushString(constStr.substr(i, min(maxSlice, constStr.length() - i)), true);
-						// stack: Stack(TvmBuilder) slice
-						m_pusher.pushFragmentInCallRef(2, 1, "__appendSliceToStringBuilder");
-					}
+			std::string format = formatStr.substr(pos + 1, close_pos - pos - 1);
+			if (format[0] == ':')
+				format.erase(0, 1);
+			substrings.emplace_back(formatStr.substr(0, pos), format);
+			formatStr = formatStr.substr(close_pos + 1);
+			pos = 0;
+		}
+		// stack: Stack(TvmBuilder)
+		m_pusher << "NEWC";
+		m_pusher << "NULL";
+		m_pusher << "TUPLE 2";
+
+		auto pushConstStr = [&](std::string const& constStr) {
+			if (!constStr.empty()) {
+				size_t maxSlice = TvmConst::CellBitLength / 8;
+				for (size_t i = 0; i < constStr.length(); i += maxSlice) {
+					m_pusher.pushString(constStr.substr(i, std::min(maxSlice, constStr.length() - i)), true);
 					// stack: Stack(TvmBuilder) slice
+					m_pusher.pushFragmentInCallRef(2, 1, "__appendSliceToStringBuilder");
 				}
-			};
-			for (size_t it = 0; it < substrings.size(); it++) {
-				// stack: Stack(TvmBuilder)
-				pushConstStr(substrings[it].first);
-
-				Type::Category cat = m_arguments[it + 1]->annotation().type->category();
-				Type const *argType = m_arguments[it + 1]->annotation().type;
-				acceptExpr(m_arguments[it + 1].get());
-				if (cat == Type::Category::Integer || cat == Type::Category::RationalNumber) {
-					// stack: Stack(TvmBuilder)
-					std::string format = substrings[it].second;
-					bool leadingZeroes = !format.empty() && format[0] == '0';
-					bool isHex = !format.empty() && (format.back() == 'x' || format.back() == 'X');
-					bool isLower = isHex && !format.empty() && format.back() == 'x';
-					bool isTon = !format.empty() && format.back() == 't';
-					if (!isTon) {
-						while (!format.empty() && (format.back() < '0' || format.back() > '9')) {
-							format.pop_back();
-						}
-						int width = 0;
-						if (!format.empty()) {
-							try {
-								width = boost::lexical_cast<int>(format);
-							} catch (boost::bad_lexical_cast const&) {
-								cast_error(*m_arguments[0], "Invalid format width."
-									" Can not convert \"" + format + "\" to integer.");
-							}
-						}
-						if (width < 0 || width > 127)
-							cast_error(m_functionCall, "Width should be in range of 0 to 127.");
-						// stack: stack x
-						m_pusher.pushInt(width);
-						m_pusher << (leadingZeroes ? "TRUE" : "FALSE");
-						// stack: stack x width leadingZeroes
-						if (isHex) {
-							if (isLower)
-								m_pusher << "TRUE";
-							else
-								m_pusher << "FALSE";
-							m_pusher.pushFragmentInCallRef(5, 1, "__convertIntToHexString");
-						} else {
-							m_pusher.pushFragmentInCallRef(4, 1, "__convertIntToString");
-						}
-					} else {
-						m_pusher.pushInt(9);
-						m_pusher.pushInt(MathConsts::power10().at(9));
-						m_pusher.pushFragmentInCallRef(4, 1, "__convertFixedPointToString");
-					}
-				} else if (cat == Type::Category::Address || cat == Type::Category::AddressStd) {
-					m_pusher.pushFragmentInCallRef(2, 1, "__convertAddressToHexString");
-				} else if (isStringOrStringLiteralOrBytes(argType)) {
-					m_pusher.pushFragmentInCallRef(2, 1, "__appendStringToStringBuilder");
-				} else if (cat == Type::Category::FixedPoint) {
-					int power = to<FixedPointType>(argType)->fractionalDigits();
-					m_pusher.pushInt(power);
-					m_pusher.pushInt(MathConsts::power10().at(power));
-					m_pusher.pushFragmentInCallRef(4, 1, "__convertFixedPointToString");
-				} else if (cat == Type::Category::Bool) {
-					m_pusher.pushFragmentInCallRef(2, 1, "__convertBoolToStringBuilder");
-				} else {
-					cast_error(*m_arguments[it + 1].get(), "Unsupported argument type");
-				}
+				// stack: Stack(TvmBuilder) slice
 			}
-			pushConstStr(formatStr);
+		};
+		for (size_t it = 0; it < substrings.size(); it++) {
+			// stack: Stack(TvmBuilder)
+			pushConstStr(substrings[it].first);
 
-			m_pusher.pushFragmentInCallRef(1, 1, "__makeString");
+			Type::Category cat = m_arguments[it + 1]->annotation().type->category();
+			Type const* argType = m_arguments[it + 1]->annotation().type;
+			acceptExpr(m_arguments[it + 1].get());
+			if (cat == Type::Category::Integer || cat == Type::Category::RationalNumber) {
+				// stack: Stack(TvmBuilder)
+				std::string format = substrings[it].second;
+				bool leadingZeroes = !format.empty() && format[0] == '0';
+				bool isHex = !format.empty() && (format.back() == 'x' || format.back() == 'X');
+				bool isLower = isHex && !format.empty() && format.back() == 'x';
+				bool isTon = !format.empty() && format.back() == 't';
+				if (!isTon) {
+					while (!format.empty() && (format.back() < '0' || format.back() > '9')) {
+						format.pop_back();
+					}
+					int width = 0;
+					if (!format.empty()) {
+						try {
+							width = boost::lexical_cast<int>(format);
+						} catch (boost::bad_lexical_cast const&) {
+							cast_error(
+								*m_arguments[0],
+								"Invalid format width."
+								" Can not convert \"" +
+									format +
+									"\" to integer."
+							);
+						}
+					}
+					if (width < 0 || width > 127)
+						cast_error(m_functionCall, "Width should be in range of 0 to 127.");
+					// stack: stack x
+					m_pusher.pushInt(width);
+					m_pusher << (leadingZeroes ? "TRUE" : "FALSE");
+					// stack: stack x width leadingZeroes
+					if (isHex) {
+						if (isLower)
+							m_pusher << "TRUE";
+						else
+							m_pusher << "FALSE";
+						m_pusher.pushFragmentInCallRef(5, 1, "__convertIntToHexString");
+					} else {
+						m_pusher.pushFragmentInCallRef(4, 1, "__convertIntToString");
+					}
+				} else {
+					m_pusher.pushInt(9);
+					m_pusher.pushInt(MathConsts::power10().at(9));
+					m_pusher.pushFragmentInCallRef(4, 1, "__convertFixedPointToString");
+				}
+			} else if (cat == Type::Category::Address || cat == Type::Category::AddressStd) {
+				m_pusher.pushFragmentInCallRef(2, 1, "__convertAddressToHexString");
+			} else if (isStringOrStringLiteralOrBytes(argType)) {
+				m_pusher.pushFragmentInCallRef(2, 1, "__appendStringToStringBuilder");
+			} else if (cat == Type::Category::FixedPoint) {
+				int power = to<FixedPointType>(argType)->fractionalDigits();
+				m_pusher.pushInt(power);
+				m_pusher.pushInt(MathConsts::power10().at(power));
+				m_pusher.pushFragmentInCallRef(4, 1, "__convertFixedPointToString");
+			} else if (cat == Type::Category::Bool) {
+				m_pusher.pushFragmentInCallRef(2, 1, "__convertBoolToStringBuilder");
+			} else {
+				cast_error(*m_arguments[it + 1].get(), "Unsupported argument type");
+			}
+		}
+		pushConstStr(formatStr);
 
-			solAssert(stackSize + 1 == m_pusher.stackSize(), "");
-			return true;
-		}
-		case FunctionType::Kind::Stoi: {
-			pushArgAndConvert(0);
-			m_pusher.pushFragmentInCallRef(1, 1, "__stoi");
-			return true;
-		}
-		default:
-			break;
+		m_pusher.pushFragmentInCallRef(1, 1, "__makeString");
+
+		solAssert(stackSize + 1 == m_pusher.stackSize(), "");
+		return true;
+	}
+	case FunctionType::Kind::Stoi: {
+		pushArgAndConvert(0);
+		m_pusher.pushFragmentInCallRef(1, 1, "__stoi");
+		return true;
+	}
+	default:
+		break;
 	}
 	return false;
 }
 
-bool FunctionCallCompiler::checkLocalFunctionOrLibCallOrFuncVarCall() {
+bool FunctionCallCompiler::checkLocalFunctionOrLibCallOrFuncVarCall() const {
 	auto expr = &m_functionCall.expression();
 	if (auto identifier = to<Identifier>(expr); identifier && checkLocalFunctionOrLibCall(identifier)) {
 	} else if (expr->annotation().type->category() == Type::Category::Function) {
@@ -3616,16 +3755,17 @@ bool FunctionCallCompiler::checkLocalFunctionOrLibCallOrFuncVarCall() {
 	return true;
 }
 
-bool FunctionCallCompiler::createNewContract() {
+void FunctionCallCompiler::createNewContract() const {
 	auto functionOptions = to<FunctionCallOptions>(&m_functionCall.expression());
+	solAssert(functionOptions, "");
 	auto newExpr = to<NewExpression>(&functionOptions->expression());
-	if (!newExpr)
-		return false;
+	solAssert(newExpr, "");
 
 	pushArgs(true);
-	const Type* type = newExpr->typeName().annotation().type;
+	// stack: arg[n-1] ... arg[1] arg[0]
+	Type const* type = newExpr->typeName().annotation().type;
 
-	std::function<void()> pushKey = [&]() {
+	std::function<void()> pushKey = [&] {
 		if (Expression const* stateInit = findOption("pubkey")) {
 			acceptExpr(stateInit);
 		} else {
@@ -3633,120 +3773,154 @@ bool FunctionCallCompiler::createNewContract() {
 		}
 	};
 
+	std::function<void()> pushPrefix;
+	if (Expression const* prefix = findOption("prefix")) {
+		pushPrefix = [this, prefix] { acceptExpr(prefix); };
+	}
+
+	std::optional<StateInitInfo> stateInitInfo;
 	if (Expression const* stateInit = findOption("stateInit")) {
+		stateInitInfo = StateInitInfo{false, 0, 0};
 		acceptExpr(stateInit); // stack: stateInit
+		m_pusher.pushS(0);
+		m_pusher << "HASHCU";
+		// stack: stateInit hash
 	} else if (Expression const* code = findOption("code")) {
-		const int ss = m_pusher.stackSize();
 		std::map<StateInitMembers, std::function<void()>> stateInitExprs;
 
 		Expression const* varInit = findOption("varInit");
 		bool hasVars = varInit != nullptr;
 		auto ct = to<ContractType>(newExpr->typeName().annotation().type);
-		stateInitExprs[StateInitMembers::Data] = generateDataSection(
-			false,
-			pushKey,
-			hasVars ? varInit : nullptr,
-			ct
-		);
+		stateInitExprs[StateInitMembers::Data] = generateDataSection(false, pushKey, hasVars ? varInit : nullptr, ct);
 
-		stateInitExprs[StateInitMembers::Code] = [&]() {
-			acceptExpr(code);
-		};
+		stateInitExprs[StateInitMembers::Code] = [&] { acceptExpr(code); };
 
-		if (Expression const* splitDepth = findOption("splitDepth")) {
-			stateInitExprs[StateInitMembers::SplitDepth] = [this, splitDepth]() {
-				acceptExpr(splitDepth); // stack: data code split_depth
-			};
+		if (Expression const* prefixLength = findOption("prefixLength")) {
+			stateInitExprs[StateInitMembers::PrefixLength] = [this, prefixLength] { acceptExpr(prefixLength); };
 		}
 
-		encodeStateInit(stateInitExprs);
-
-		// stack: stateInit
-		solAssert(ss + 1 == m_pusher.stackSize(), "");
+		int bits;
+		int refs;
+		if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
+			bool const savePrefixLength = pushPrefix != nullptr;
+			std::tie(bits, refs) = encodeStateInitAndHash(stateInitExprs, savePrefixLength);
+			// stack: [prefixLength] stateInit hash
+		} else {
+			std::tie(bits, refs) = encodeStateInit(stateInitExprs);
+			m_pusher.pushS(0);
+			m_pusher << "ENDC";
+			m_pusher << "HASHCU";
+			// stack: stateInit hash
+		}
+		stateInitInfo = StateInitInfo{true, bits, refs};
 	} else {
 		solUnimplemented("");
 	}
+	// stack: arg[n-1] ... arg[1] arg[0] [prefixLength] stateInit hash
 
 	std::variant<int8_t, std::function<void()>> pushWid = int8_t{0};
 	if (Expression const* wid = findOption("wid")) {
 		std::optional<bigint> value = ExprUtils::constValue(*wid);
 		if (value) {
-			pushWid = int8_t(value.value());
+			pushWid = static_cast<int8_t>(value.value());
 		} else {
-			pushWid = [this, wid]() {
-				acceptExpr(wid);
-			};
+			pushWid = [this, wid] { acceptExpr(wid); };
 		}
 	}
 
 	std::variant<bigint, std::function<void()>> pushValue;
 	{
-		Expression const *value = findOption("value");
+		Expression const* value = findOption("value");
 		solAssert(value, "");
 		std::optional<bigint> v = ExprUtils::constValue(*value);
 		if (v) {
 			pushValue = v.value();
 		} else {
-			pushValue = [this, value]() {
-				acceptExpr(value);
-			};
+			pushValue = [this, value] { acceptExpr(value); };
+		}
+	}
+
+	std::variant<bigint, std::function<void()>> pushExtraFlags;
+	if (Expression const* extra_flags = findOption("extra_flags")) {
+		std::optional<bigint> efs = ExprUtils::constValue(*extra_flags);
+		if (efs) {
+			pushExtraFlags = efs.value();
+		} else {
+			pushExtraFlags = [this, extra_flags] { acceptExpr(extra_flags); };
 		}
 	}
 
 	std::variant<bool, std::function<void()>> pushBounce = true;
 	if (Expression const* bounce = findOption("bounce")) {
-		if (std::optional<bool> value = ExprUtils::constBool(*bounce)) {
-			pushBounce = value.value();
+		if (std::optional<bool> bounceValue = ExprUtils::constBool(*bounce)) {
+			pushBounce = bounceValue.value();
 		} else {
-			pushBounce = [this, bounce]() {
-				acceptExpr(bounce);
-			};
+			pushBounce = [this, bounce] { acceptExpr(bounce); };
 		}
 	}
 
 	std::function<void()> pushCurrency;
 	if (Expression const* currencies = findOption("currencies")) {
-		pushCurrency = [this, currencies]() {
-			acceptExpr(currencies);
-		};
+		pushCurrency = [this, currencies] { acceptExpr(currencies); };
 	}
 
-	const std::function<void(int builderSize)> pushBody = [&](int builderSize){
-		auto constructor = (to<ContractType>(type))->contractDefinition().constructor();
+	std::function<void(int bitSizeBuilder, int refSizeBuilder)> const pushBody = [&](int bitSizeBuilder,
+																					 int refSizeBuilder) {
+		auto constructor = to<ContractType>(type)->contractDefinition().constructor();
 		if (constructor)
 			ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
 				convertArray(constructor->parameters()),
-				ChainDataEncoder::calculateFunctionIDWithReason(constructor, ReasonOfOutboundMessage::RemoteCallInternal),
+				ChainDataEncoder::
+					calculateFunctionIDWithReason(constructor, ReasonOfOutboundMessage::RemoteCallInternal),
 				{},
-				builderSize,
+				bitSizeBuilder,
+				refSizeBuilder,
 				true
 			);
-		else
-			ChainDataEncoder{&m_pusher}.createDefaultConstructorMsgBodyAndAppendToBuilder(builderSize);
+		else {
+			// body:(Either X ^X) and empty body
+			m_pusher.stzeroes(1);
+		}
 	};
 
-	std::function<void()> pushSendrawmsgFlag;
+	std::function<void()> pushSendRawMsgFlag;
 	if (Expression const* flag = findOption("flag")) {
-		pushSendrawmsgFlag = [flag, this]() { acceptExpr(flag); };
+		pushSendRawMsgFlag = [flag, this] { acceptExpr(flag); };
 	}
 
-	deployNewContract(pushWid, pushValue, pushBounce, pushCurrency, pushBody, pushSendrawmsgFlag, m_arguments.size());
+	// stack: [prefixLength] stateInit hash
+	deployNewContract(
+		stateInitInfo.value(),
+		pushWid,
+		pushPrefix,
+		pushValue,
+		pushExtraFlags,
+		pushBounce,
+		pushCurrency,
+		pushBody,
+		pushSendRawMsgFlag,
+		m_arguments.size()
+	);
 	// stack: destAddress
-	return true;
 }
 
 void FunctionCallCompiler::deployNewContract(
-	const std::variant<int8_t, std::function<void()>>& wid,
-	const std::variant<bigint, std::function<void()>>& value,
-	const std::variant<bool, std::function<void()>>& pushBounce,
-	const std::function<void()>& pushCurrency,
-	const std::function<void(int builderSize)>& appendBody,
-	const std::function<void()>& pushSendrawmsgFlag,
-	const int argQty
-) {
+	StateInitInfo const& stateInitInfo,
+	std::variant<int8_t, std::function<void()>> const& wid,
+	std::function<void()> const& pushPrefix,
+	std::variant<bigint, std::function<void()>> const& value,
+	std::variant<bigint, std::function<void()>> const& extraFlags,
+	std::variant<bool, std::function<void()>> const& pushBounce,
+	std::function<void()> const& pushCurrency,
+	std::function<void(int bitSizeBuilder, int refSizeBuilder)> const& appendBody,
+	std::function<void()> const& pushSendRawMsgFlag,
+	int const argQty
+) const {
+	// stack: [prefixLength] stateInit hash
+
 	std::map<int, std::function<void()>> exprs;
 
-	std::map<int, std::string> constParams = {{TvmConst::int_msg_info::ihr_disabled, "1"}};
+	std::map<int, std::string> constParams;
 
 	if (pushBounce.index() == 0) {
 		constParams[TvmConst::int_msg_info::bounce] = StrUtils::boolToBinaryString(std::get<0>(pushBounce));
@@ -3758,10 +3932,6 @@ void FunctionCallCompiler::deployNewContract(
 		exprs[TvmConst::int_msg_info::currency] = pushCurrency;
 	}
 
-	// stack: stateInit
-	m_pusher.pushS(0);
-	m_pusher << "HASHCU"; // stack: stateInit hash
-
 	if (wid.index() == 0) {
 		int8_t w = std::get<0>(wid);
 		std::string binWID = "100";
@@ -3772,9 +3942,50 @@ void FunctionCallCompiler::deployNewContract(
 		std::get<1>(wid)();
 		m_pusher << "NEWC";
 		m_pusher << "STSLICECONST x9_"; // addr_std$10 anycast:(Maybe Anycast) // 10 0 1 = 9
-		m_pusher << "STI 8"; // workchain_id:int8
+		m_pusher << "STI 8";			// workchain_id:int8
 	}
-	m_pusher << "STU 256"; // address:bits256
+
+	// [prefixLength] stateInit hash builder
+	if (pushPrefix) {
+		// prefixLength stateInit hash builder
+		int const stackSize = m_pusher.stackSize();
+
+		pushPrefix();
+		// prefixLength stateInit hash builder prefix
+		m_pusher.ensureSize(stackSize + 1);
+		m_pusher.blockSwap(1, 1);
+		// prefixLength stateInit hash prefix builder
+		m_pusher.pushS(4);
+		// prefixLength stateInit hash prefix builder prefixLength
+		m_pusher << "STUX";
+		// prefixLength stateInit hash builder
+		m_pusher.blockSwap(1, 1);
+		// prefixLength stateInit builder hash
+		m_pusher.blockSwap(1, 3);
+		// stateInit builder hash prefixLength
+		m_pusher.pushInt(256);
+		// stateInit builder hash prefixLength 256
+		m_pusher << "SUBR";
+		// stateInit builder hash 256-prefixLength
+		m_pusher.pushS(0);
+		// stateInit builder hash 256-prefixLength 256-prefixLength
+		m_pusher << "POW2";
+		// stateInit builder hash 256-prefixLength 2**(256-prefixLength)
+		m_pusher.exchange(1, 2);
+		// stateInit builder 256-prefixLength hash 2**(256-prefixLength)
+		m_pusher << "MOD";
+		// stateInit builder 256-prefixLength hash%mod
+		m_pusher.blockSwap(2, 1);
+		// stateInit hash%mod builder 256-prefixLength
+		m_pusher << "STUX";
+		// stateInit builder
+
+		m_pusher.ensureSize(stackSize - 2);
+	} else {
+		m_pusher << "STU 256"; // address:bits256
+	}
+
+
 	bool isDestBuilder = !m_isCurrentResultNeeded;
 	if (!isDestBuilder) {
 		m_pusher << "ENDC";
@@ -3786,133 +3997,118 @@ void FunctionCallCompiler::deployNewContract(
 	// stack:  destAddress, arg[n-1], ..., arg[1], arg[0], stateInit
 	int destAddressStack = m_pusher.stackSize() - 1 - argQty;
 
+	std::function<void()> pushValue;
 	if (value.index() == 0) {
 		constParams[TvmConst::int_msg_info::tons] = StrUtils::tonsToBinaryString(std::get<0>(value));
 	} else {
-		exprs[TvmConst::int_msg_info::tons] = [&](){
-			std::get<1>(value)();
-		};
+		pushValue = [value] { std::get<1>(value)(); };
 	}
 
-	exprs[TvmConst::int_msg_info::dest] = [&](){
+	std::function<void()> pushExtraFlags;
+	if (extraFlags.index() == 0) {
+		constParams[TvmConst::int_msg_info::extra_flags] = StrUtils::tonsToBinaryString(std::get<0>(extraFlags));
+	} else {
+		pushExtraFlags = [extraFlags] { std::get<1>(extraFlags)(); };
+	}
+
+	exprs[TvmConst::int_msg_info::dest] = [&] {
 		int stackIndex = m_pusher.stackSize() - destAddressStack;
 		m_pusher.pushS(stackIndex);
 	};
 
+	std::function<std::pair<int, int>()> appendEitherStateInit = [&] {
+		// init:(Maybe (Either StateInit ^StateInit))
+		if (stateInitInfo.isBuilder) {
+			m_pusher.stzeroes(1); // stateInit builder
+			m_pusher << "STB";
+			return std::pair<int, int>{stateInitInfo.bits + 1, stateInitInfo.refs};
+		}
 
-	std::function<void()> appendStateInit = [&]() {
 		m_pusher.stones(1); // stateInit builder
 		m_pusher << "STREF";
+		return std::pair<int, int>{1, 1};
 	};
 
+	// stack: stateInit hash
 	std::set<int> isParamOnStack;
-	for (auto &[param, expr] : exprs | boost::adaptors::reversed) {
+	for (auto& [param, expr]: exprs | std::views::reverse) {
 		isParamOnStack.insert(param);
 		expr();
 	}
 
-	m_pusher.sendMsg(
+	m_pusher.sendMessage(
 		isParamOnStack,
 		constParams,
 		appendBody,
-		appendStateInit,
-		pushSendrawmsgFlag,
+		appendEitherStateInit,
+		pushSendRawMsgFlag,
 		StackPusher::MsgType::Internal,
-		isDestBuilder
+		isDestBuilder,
+		pushValue,
+		pushExtraFlags
 	);
 	// stack: destAddress
 }
 
-void FunctionCallCompiler::checkStateInit() const {
-	// _ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
-	//  code:(Maybe ^Cell) data:(Maybe ^Cell)
-	//  library:(HashmapE 256 SimpleLib) = StateInit;
-
-	m_pusher.startContinuation();
-	m_pusher << "CTOS";
-
-	// split_depth:(Maybe (## 5))
-	m_pusher << "LDI 1";
-	m_pusher.exchange(1);
-	m_pusher.fixStack(-1); // fix stack: drop condition
-	m_pusher.startContinuation();
-	m_pusher << "LDI 5";
-	m_pusher.dropUnder(1, 1);
-	m_pusher.endContinuation();
-	m_pusher._if();
-
-	// special:(Maybe TickTock)
-	m_pusher << "LDI 1";
-	m_pusher.exchange(1);
-	m_pusher.fixStack(-1); // fix stack: drop condition
-	m_pusher.startContinuation();
-	// tick_tock$_ tick:Bool tock:Bool = TickTock;
-	m_pusher << "LDI 2";
-	m_pusher.dropUnder(1, 1);
-	m_pusher.endContinuation();
-	m_pusher._if();
-
-	// code:(Maybe ^Cell) data:(Maybe ^Cell)
-	// library:(HashmapE 256 SimpleLib)
-	m_pusher << "LDDICT";
-	m_pusher << "LDDICT";
-	m_pusher << "LDDICT";
-	m_pusher << "ENDS";
-	m_pusher.drop(3);
-
-	m_pusher.pushRefContAndCallX(1, 0, false);
-}
-
-bool FunctionCallCompiler::checkNewExpression() {
-	if (to<FunctionCallOptions>(&m_functionCall.expression())) {
-		return createNewContract();
+bool FunctionCallCompiler::checkNewExpression() const {
+	auto functionCallOptions = to<FunctionCallOptions>(&m_functionCall.expression());
+	if (functionCallOptions != nullptr) {
+		auto newExpression = to<NewExpression>(&functionCallOptions->expression());
+		if (newExpression != nullptr) {
+			createNewContract();
+			return true;
+		}
 	}
 
 	if (to<NewExpression>(&m_functionCall.expression()) == nullptr) {
 		return false;
 	}
 	if (m_retType->category() == Type::Category::Contract) {
-		cast_error(m_functionCall, R"(Unsupported contract creating. Use call options: "stateInit", "value", "flag")");
+		cast_error(m_functionCall, R"(Use options: "stateInit", "value", "flag", etc.)");
 	}
 
 	creatArrayWithDefaultValue();
 	return true;
 }
 
-void FunctionCallCompiler::creatArrayWithDefaultValue() {
+void FunctionCallCompiler::creatArrayWithDefaultValue() const {
 	std::optional<bigint> num = ExprUtils::constValue(*m_arguments.at(0));
 	if (num.has_value() && num.value() == 0) {
 		auto arrayType = to<ArrayType>(m_retType);
 		m_pusher.pushDefaultValue(arrayType);
-		return ;
+		return;
 	}
 
 	if (*m_functionCall.annotation().isPure) {
 		pushArgs();
-		SourceReference sr = SourceReferenceExtractor::extract(*GlobalParams::g_charStreamProvider, &m_functionCall.location());
-		const std::string computeName = "new_array_line_" +
-										toString(sr.position.line) + "_column_" + toString(sr.position.column) + "_ast_id_" +
+		SourceReference sr =
+			SourceReferenceExtractor::extract(*GlobalParams::g_charStreamProvider, &m_functionCall.location());
+		std::string const computeName = "new_array_line_" +
+										toString(sr.position.line) +
+										"_column_" +
+										toString(sr.position.column) +
+										"_ast_id_" +
 										toString(m_functionCall.id());
 		m_pusher.computeConstCell(computeName);
 		m_pusher << "TUPLE 2";
 		m_pusher.ctx().addNewArray(computeName, &m_functionCall);
-		return ;
+		return;
 	}
 
 	honestArrayCreation(false);
 }
 
-void FunctionCallCompiler::honestArrayCreation(bool onlyDict) {
-	const int stackSize = m_pusher.stackSize();
+void FunctionCallCompiler::honestArrayCreation(bool onlyDict) const {
+	int const stackSize = m_pusher.stackSize();
 	auto arrayType = to<ArrayType>(m_retType);
 	IntegerType const& key = getArrayKeyType();
 	Type const* arrayBaseType = arrayType->baseType();
 
-	pushArgAndConvert(0); // N
+	pushArgAndConvert(0);															  // N
 	DataType const& dataType = m_pusher.pushDefaultValueForDict(&key, arrayBaseType); // N value
-	m_pusher.pushInt(0);   // N value iter
-	m_pusher << "NULL"; // N value iter dict
-	m_pusher.pushS(3);     // N value iter dict N
+	m_pusher.pushInt(0);															  // N value iter
+	m_pusher << "NULL";																  // N value iter dict
+	m_pusher.pushS(3);																  // N value iter dict N
 
 	solAssert(stackSize + 5 == m_pusher.stackSize(), "");
 	m_pusher.fixStack(-1); // fix stack: drop replay iterator
@@ -3920,11 +4116,11 @@ void FunctionCallCompiler::honestArrayCreation(bool onlyDict) {
 	{
 		// N value iter dict
 		m_pusher.startContinuation();
-		m_pusher.pushS(2);    // N value iter dict value
-		m_pusher.pushS(2);    // N value iter dict value iter
-		m_pusher << "INC";    // N value iter dict value iter++
-		m_pusher.exchange(3); // N value iter++ dict value iter
-		m_pusher.rot();       // N value iter++ value iter dict
+		m_pusher.pushS(2);										 // N value iter dict value
+		m_pusher.pushS(2);										 // N value iter dict value iter
+		m_pusher << "INC";										 // N value iter dict value iter++
+		m_pusher.exchange(3);									 // N value iter++ dict value iter
+		m_pusher.rot();											 // N value iter++ value iter dict
 		m_pusher.setDict(key, *arrayType->baseType(), dataType); // N value iter++ dict'
 		m_pusher.endContinuation();
 	}
@@ -3932,7 +4128,8 @@ void FunctionCallCompiler::honestArrayCreation(bool onlyDict) {
 	solAssert(stackSize + 4 == m_pusher.stackSize(), "");
 	// N value iter dict
 	if (onlyDict) {
-		m_pusher.dropUnder(3, 1); // dict
+		m_pusher.dropUnder(3, 1);
+		// dict
 	} else {
 		m_pusher.dropUnder(2, 1); // N dict
 		m_pusher << "TUPLE 2";
@@ -3940,7 +4137,7 @@ void FunctionCallCompiler::honestArrayCreation(bool onlyDict) {
 	solAssert(stackSize + 1 == m_pusher.stackSize(), "");
 }
 
-bool FunctionCallCompiler::structMethodCall() {
+bool FunctionCallCompiler::structMethodCall() const {
 	if (m_memberAccess->memberName() != "unpack") {
 		return false;
 	}
@@ -3951,18 +4148,21 @@ bool FunctionCallCompiler::structMethodCall() {
 	return true;
 }
 
-void FunctionCallCompiler::encodeStateInit(const std::map<StateInitMembers, std::function<void()>> &exprs) const {
-	solAssert(exprs.count(StateInitMembers::Special) == 0, "");
-	solAssert(exprs.count(StateInitMembers::Library) == 0, "");
-	solAssert(exprs.count(StateInitMembers::Code) == 1, "Code must be present");
-	solAssert(exprs.count(StateInitMembers::Data) == 1, "Data must be present");
+std::pair<int, int>
+FunctionCallCompiler::encodeStateInit(std::map<StateInitMembers, std::function<void()>> const& exprs) const {
+	// TODO merge with encodeStateInitAndHash
+	solAssert(!exprs.contains(StateInitMembers::Special), "");
+	solAssert(!exprs.contains(StateInitMembers::Library), "");
+	solAssert(exprs.contains(StateInitMembers::Code), "Code must be present");
+	solAssert(exprs.contains(StateInitMembers::Data), "Data must be present");
 
-	const int ss = m_pusher.stackSize();
+	int const ss = m_pusher.stackSize();
 
 	// _ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
 	// code:(Maybe ^Cell) data:(Maybe ^Cell)
 	// library:(HashmapE 256 SimpleLib) = StateInit;
 
+	bool const hasPrefixLength = exprs.contains(StateInitMembers::PrefixLength);
 	// stack: data
 	exprs.at(StateInitMembers::Data)();
 	// stack: code
@@ -3970,8 +4170,8 @@ void FunctionCallCompiler::encodeStateInit(const std::map<StateInitMembers, std:
 
 	// stack: data code
 	// let's store split_depth and special options
-	if (exprs.count(StateInitMembers::SplitDepth) > 0) {
-		exprs.at(StateInitMembers::SplitDepth)();
+	if (exprs.contains(StateInitMembers::PrefixLength)) {
+		exprs.at(StateInitMembers::PrefixLength)();
 		m_pusher << "NEWC";
 		m_pusher.stones(1);
 		m_pusher << "STU 5";
@@ -3983,77 +4183,227 @@ void FunctionCallCompiler::encodeStateInit(const std::map<StateInitMembers, std:
 	}
 
 	// stack: data code builder
-	m_pusher << "STDICT"; // store code
-	m_pusher << "STDICT"; // store data
+	m_pusher << "STDICT";		  // store code
+	m_pusher << "STDICT";		  // store data
 	m_pusher << "STSLICECONST 0"; // store library
-	m_pusher << "ENDC";
 	// stack: stateInit
 	solAssert(ss + 1 == m_pusher.stackSize(), "");
+
+	int bitQty = 5;
+	if (hasPrefixLength) {
+		bitQty += 5;
+	}
+
+	return {bitQty, 2};
 }
 
-void FunctionCallCompiler::pushArgs(bool reversed, bool doConvert) {
-	auto func = [&](const ASTPointer<const Expression> &e, int i) {
+void FunctionCallCompiler::pushArgWithoutConvertion() const {
+	for (auto const& callIndex: m_declarationIndex) {
+		acceptExpr(m_arguments.at(callIndex).get());
+	}
+}
+
+void FunctionCallCompiler::pushArgAndConvertToCommon() const { pushArgs(false, true); }
+
+std::pair<int, int> FunctionCallCompiler::encodeStateInitAndHash(
+	std::map<StateInitMembers, std::function<void()>> const& exprs,
+	bool savePrefixLength
+) const {
+	solAssert(!exprs.contains(StateInitMembers::Special), "");
+	solAssert(!exprs.contains(StateInitMembers::Library), "");
+	solAssert(exprs.contains(StateInitMembers::Code), "Code must be present");
+	solAssert(exprs.contains(StateInitMembers::Data), "Data must be present");
+
+	// _ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
+	// code:(Maybe ^Cell) data:(Maybe ^Cell)
+	// library:(HashmapE 256 SimpleLib) = StateInit;
+
+	bool const hasPrefixLength = exprs.contains(StateInitMembers::PrefixLength);
+	if (hasPrefixLength && savePrefixLength) {
+		exprs.at(StateInitMembers::PrefixLength)();
+	}
+	// stack: [prefixLength] code
+	exprs.at(StateInitMembers::Code)();
+	// stack: [prefixLength] code
+	exprs.at(StateInitMembers::Data)();
+	// stack: [prefixLength] code data
+	if (hasPrefixLength) {
+		if (savePrefixLength)
+			m_pusher.pushS(2);
+		else
+			exprs.at(StateInitMembers::PrefixLength)();
+	}
+
+	// stack: [prefixLength] code data [prefixLength]
+	int shift = hasPrefixLength ? 1 : 0;
+	m_pusher.pushS(1 + shift); // stack: [prefixLength] code data [prefixLength] code
+	m_pusher.pushS(1 + shift); // stack: [prefixLength] code data [prefixLength] code data
+	m_pusher.pushS(1);		   // stack: [prefixLength] code data [prefixLength] code data code
+	m_pusher.pushS(1);		   // stack: [prefixLength] code data [prefixLength] code data code data
+
+	// stack: [prefixLength] code data [prefixLength] code data code data
+	m_pusher << "HASHCU";
+	m_pusher.blockSwap(1, 1);
+	m_pusher << "HASHCU";
+	m_pusher.blockSwap(2, 2);
+	m_pusher << "CDEPTH";
+	m_pusher.blockSwap(1, 1);
+	m_pusher << "CDEPTH";
+	// stack: [prefixLength] code data [prefixLength] dataHash codeHash dataDepth codeDepth
+
+	m_pusher << "NEWC";
+	// stack: [prefixLength] code data [prefixLength] dataHash codeHash dataDepth codeDepth builder
+	m_pusher << "STSLICECONST x02"; // number of refs: code and data refs
+
+	int bitQty = 5;
+	if (hasPrefixLength) {
+		bitQty += 5;
+	}
+	// See standard representation hash calculation
+	int const bitsDescriptor = bitQty / 8 + (bitQty + 7) / 8;
+	std::string strBitsDescriptor = std::format("x{:0{}x}", bitsDescriptor, 2);
+	m_pusher << ("STSLICECONST " + strBitsDescriptor);
+
+	if (hasPrefixLength) {
+		m_pusher << "STSLICECONST 1";
+		// stack: [prefixLength] code data [prefixLength] dataHash codeHash dataDepth codeDepth builder
+		m_pusher.pushS(5);
+		// stack: [prefixLength] code data [prefixLength] dataHash codeHash dataDepth codeDepth builder prefixLength
+		m_pusher.blockSwap(1, 1);
+		m_pusher << "STU 5";
+	} else {
+		m_pusher << "STSLICECONST 0";
+	}
+	m_pusher << "STSLICECONST 0"; // special
+	m_pusher << "STSLICECONST 1"; // code
+	m_pusher << "STSLICECONST 1"; // data
+	m_pusher << "STSLICECONST 0"; // library
+
+	// stack: code data [prefixLength] dataHash codeHash dataDepth codeDepth builder
+	int restBits = (bitQty + 7) / 8 * 8 - bitQty;
+	if (restBits > 0) {
+		// Add completion tag to have an integer number of bytes
+		m_pusher.stones(1);
+		m_pusher.stzeroes(restBits - 1);
+	}
+
+	m_pusher << "STU 16";
+	m_pusher << "STU 16";
+	m_pusher << "STU 256";
+	m_pusher << "STU 256";
+	m_pusher.pushInt(1);
+	m_pusher.pushStackGenOpcode("HASHEXT_SHA256", 2, 1);
+	// stack: [prefixLength] code data [prefixLength] hash
+	m_pusher.blockSwap(2 + shift, 1);
+	// stack: [prefixLength] hash code data [prefixLength]
+	m_pusher.exchange(0 + shift, 1 + shift);
+	// stack: [prefixLength] hash data code [prefixLength]
+	m_pusher << "NEWC";
+	// stack: [prefixLength] hash data code [prefixLength] builder
+
+	if (hasPrefixLength) {
+		m_pusher.stones(1);
+		m_pusher << "STU 5";
+	} else {
+		m_pusher.stzeroes(1);
+	}
+	m_pusher.stzeroes(1);		  // special:(Maybe TickTock)
+	m_pusher.stones(1);			  // code:(Maybe ^Cell)
+	m_pusher.stones(1);			  // data:(Maybe ^Cell)
+	m_pusher << "STSLICECONST 0"; // library:(HashmapE 256 SimpleLib)
+	m_pusher << "STREF";		  // store code
+	m_pusher << "STREF";		  // store data
+	// stack: [prefixLength] hash stateInit
+	m_pusher.blockSwap(1, 1);
+	// stack: [prefixLength] stateInit hash
+
+	return {bitQty, 2};
+}
+
+
+void FunctionCallCompiler::pushArgs(bool reversed, bool doConvertToCommonType) const {
+	auto func = [&](ASTPointer<Expression const> const& e, int declarationIndex) {
 		acceptExpr(e.get());
-		if (doConvert) {
-			Type const *targetType{};
-			if (m_funcType->parameterTypes().empty()) {
-				targetType = m_functionCall.annotation().arguments->targetTypes.at(i);
-			} else {
-				targetType = m_funcType->parameterTypes().at(i);
-			}
-			m_pusher.convert(targetType, e->annotation().type);
+		Type const* targetType;
+		if (doConvertToCommonType) {
+			if (auto tuple = to<TupleType>(m_retType))
+				// See math.muldiv
+				targetType = tuple->components().at(0);
+			else
+				// See math.max
+				targetType = m_retType;
+		} else {
+			targetType = m_funcType->parameterTypes().at(declarationIndex);
 		}
+		m_pusher.convert(targetType, e->annotation().type);
 	};
 
 	if (reversed) {
-		int i = m_funcType->parameterTypes().size() - 1;
-		for (const auto &e : m_arguments | boost::adaptors::reversed) {
-			func(e, i);
-			--i;
+		int declarationIndex = argQty - 1;
+		for (auto const& callIndex: m_declarationIndex | std::views::reverse) {
+			func(m_arguments.at(callIndex), declarationIndex);
+			--declarationIndex;
 		}
 	} else {
-		int i = 0;
-		for (const ASTPointer<const Expression> &e : m_arguments) {
-			func(e, i);
-			++i;
+		int declarationIndex = 0;
+		for (auto const& callIndex: m_declarationIndex) {
+			func(m_arguments.at(callIndex), declarationIndex);
+			++declarationIndex;
 		}
 	}
 }
 
-void FunctionCallCompiler::pushArgAndConvert(int index, const std::string& name) {
-	const ASTPointer<Expression const> &arg = m_arguments.at(index);
+void FunctionCallCompiler::pushArgAndConvert(int declarationIndex) const {
+	int callIndex = m_callIndex.at(declarationIndex);
+	solAssert(callIndex != -1);
+	ASTPointer<Expression const> const& arg = m_arguments.at(callIndex);
 	acceptExpr(arg.get());
-
-	Type const* targetType{};
-	if (!name.empty()) {
-		bool find = false;
-		const vector<string>& names = m_funcType->parameterNames();
-		for (int i = 0; i < static_cast<int>(names.size()); ++i) {
-			if (names.at(i) == name) {
-				targetType = m_funcType->parameterTypes().at(i);
-				find = true;
-				break;
-			}
-		}
-		solAssert(find, "");
-	} else {
-		targetType = m_functionCall.annotation().arguments->targetTypes.at(index);
-	}
-
+	Type const* targetType = m_funcType->parameterTypes().at(declarationIndex);
 	m_pusher.convert(targetType, arg->annotation().type);
 }
 
-void FunctionCallCompiler::pushExprAndConvert(const Expression *expr, Type const* targetType) {
+void FunctionCallCompiler::pushArgAndConvert(int callIndex, std::string const& name) const {
+	for (std::size_t i = 0;; ++i) {
+		if (name == *m_names.at(i)) {
+			solAssert(static_cast<std::size_t>(callIndex) == i);
+			break;
+		}
+	}
+
+	int declarationIndex = m_declarationIndex.at(callIndex);
+	solAssert(declarationIndex != -1);
+
+	ASTPointer<Expression const> const& arg = m_arguments.at(callIndex);
+	acceptExpr(arg.get());
+	Type const* targetType = m_funcType->parameterTypes().at(declarationIndex);
+	m_pusher.convert(targetType, arg->annotation().type);
+}
+
+void FunctionCallCompiler::pushExprAndConvert(Expression const* expr, Type const* targetType) const {
 	acceptExpr(expr);
 	m_pusher.convert(targetType, expr->annotation().type);
 }
 
-void FunctionCallCompiler::acceptExpr(const Expression *expr) {
-	m_exprCompiler.compileNewExpr(expr);
+void FunctionCallCompiler::pushAllArgsAndConvertToMobileType() const {
+	for (std::size_t i = 0; i < m_arguments.size(); ++i) {
+		pushArgConvertToMobileType(i);
+	}
 }
 
-void FunctionCallCompiler::compileLog()
-{
+void FunctionCallCompiler::pushArgConvertToMobileType(int callIndex) const {
+	int declarationIndex = m_declarationIndex.at(callIndex);
+	solAssert(declarationIndex != -1);
+
+	ASTPointer<Expression const> const& arg = m_arguments.at(callIndex);
+	acceptExpr(arg.get());
+
+	Type const* argType = arg->annotation().type;
+	m_pusher.convert(argType->mobileType(), argType);
+}
+
+void FunctionCallCompiler::acceptExpr(Expression const* expr) const { m_exprCompiler.compileNewExpr(expr); }
+
+void FunctionCallCompiler::compileLog() const {
 	auto logstr = m_arguments[0].get();
 	auto literal = to<Literal>(logstr);
 	if (literal && literal->value().size() < 16) {
@@ -4065,19 +4415,19 @@ void FunctionCallCompiler::compileLog()
 	}
 }
 
-Expression const* FunctionCallCompiler::findOption(const std::string& name) {
+Expression const* FunctionCallCompiler::findOption(std::string const& name) const {
 	auto functionOptions = to<FunctionCallOptions>(&m_functionCall.expression());
 	if (!functionOptions)
 		return {};
-	std::vector<ASTPointer<ASTString>> const &optionNames = functionOptions->names();
-	auto iter = find_if(optionNames.begin(), optionNames.end(), [&](auto const& el) { return *el == name; });
+	std::vector<ASTPointer<ASTString>> const& optionNames = functionOptions->names();
+	auto iter = std::ranges::find_if(optionNames, [&](auto const& el) { return *el == name; });
 	if (iter == optionNames.end())
 		return {};
 	size_t index = iter - optionNames.begin();
 	return functionOptions->options().at(index).get();
 }
 
-void FunctionCallCompiler::cellBitRefQty(bool forCell) {
+void FunctionCallCompiler::cellBitRefQty(bool forCell) const {
 	m_pusher.startOpaque();
 
 	if (forCell)

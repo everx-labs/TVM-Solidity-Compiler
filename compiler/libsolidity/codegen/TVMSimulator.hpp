@@ -65,7 +65,7 @@ public:
 	bool visit(Function &_node) override;
 	void endVisit(CodeBlock &_node) override;
 
-	std::optional<std::pair<Pointer<CodeBlock>, bool>> trySimulate(CodeBlock const& block, int begStackSize, int endStackSize);
+	std::optional<std::pair<Pointer<CodeBlock>, bool>> trySimulate(CodeBlock const& body, int begStackSize, int endStackSize);
 	bool isPopAndDrop(Pointer<TvmAstNode> const& a, Pointer<TvmAstNode> const& b);
 
 	bool success() const;
@@ -86,7 +86,6 @@ private:
 		m_ableToConvertOpcode = false;
 	}
 
-private:
 	bool m_wasSet{};
 	bool m_stopSimulationIfSet{};
 	bool m_stopSimulationIfMoved{};

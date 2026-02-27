@@ -62,6 +62,7 @@ private:
 	bool visit(FunctionDefinition const& _function) override;
 	void endVisit(FunctionDefinition const& _function) override;
 
+	bool visit(Assignment const& _assignment) override;
 	bool visit(ExpressionStatement const& _statement) override;
 	bool visit(VariableDeclaration const& _variable) override;
 	bool visit(Identifier const& _identifier) override;

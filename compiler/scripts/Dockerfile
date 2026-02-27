@@ -6,7 +6,7 @@ MAINTAINER chriseth <chris@ethereum.org>
 WORKDIR /solidity
 
 # Build dependencies
-RUN apk update && apk add boost-dev boost-static build-base cmake git
+RUN apk update && apk add boost-dev boost-static build-base cmake git clang
 
 #Copy working directory on travis to the image
 COPY / $WORKDIR
@@ -17,7 +17,7 @@ ARG BUILD_CONCURRENCY="0"
 
 #Install dependencies, eliminate annoying warnings
 RUN sed -i -E -e 's/include <sys\/poll.h>/include <poll.h>/' /usr/include/boost/asio/detail/socket_types.hpp
-RUN cmake -DCMAKE_BUILD_TYPE=Release -DTESTS=0 -DSOLC_LINK_STATIC=1
+RUN cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release -DTESTS=0 -DSOLC_LINK_STATIC=1
 RUN make solc \
     -j$(awk "BEGIN {                                       \
         if (${BUILD_CONCURRENCY} != 0) {                   \

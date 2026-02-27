@@ -113,9 +113,12 @@ contract ERC20 {
 // ----
 // constructor()
 // ~ emit Transfer(address,address,uint256): #0x00, #0x1212121212121212121212121212120000000012, 0x14
-// gas irOptimized: 352698
-// gas legacy: 834932
-// gas legacyOptimized: 412648
+// gas irOptimized: 121322
+// gas irOptimized code: 234600
+// gas legacy: 163350
+// gas legacy code: 671400
+// gas legacyOptimized: 127464
+// gas legacyOptimized code: 285400
 // totalSupply() -> 20
 // gas irOptimized: 23415
 // gas legacy: 23653

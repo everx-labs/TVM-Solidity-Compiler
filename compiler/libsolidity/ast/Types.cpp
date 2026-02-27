@@ -24,6 +24,7 @@
 #include <libsolidity/ast/Types.h>
 
 #include <libsolidity/ast/AST.h>
+#include <libsolidity/ast/ASTUtils.h>
 #include <libsolidity/ast/TypeProvider.h>
 
 #include <libsolidity/analysis/ConstantEvaluator.h>
@@ -157,81 +158,6 @@ void Type::clearCache() const
 	m_stackSize.reset();
 }
 
-void StorageOffsets::computeOffsets(TypePointers const& _types)
-{
-	bigint slotOffset = 0;
-	unsigned byteOffset = 0;
-	std::map<size_t, std::pair<u256, unsigned>> offsets;
-	for (size_t i = 0; i < _types.size(); ++i)
-	{
-		Type const* type = _types[i];
-		if (!type->canBeStored())
-			continue;
-		if (byteOffset + type->storageBytes() > 32)
-		{
-			// would overflow, go to next slot
-			++slotOffset;
-			byteOffset = 0;
-		}
-		solAssert(slotOffset < bigint(1) << 256 ,"Object too large for storage.");
-		offsets[i] = std::make_pair(u256(slotOffset), byteOffset);
-		solAssert(type->storageSize() >= 1, "Invalid storage size.");
-		if (type->storageSize() == 1 && byteOffset + type->storageBytes() <= 32)
-			byteOffset += type->storageBytes();
-		else
-		{
-			slotOffset += type->storageSize();
-			byteOffset = 0;
-		}
-	}
-	if (byteOffset > 0)
-		++slotOffset;
-	solAssert(slotOffset < bigint(1) << 256, "Object too large for storage.");
-	m_storageSize = u256(slotOffset);
-	swap(m_offsets, offsets);
-}
-
-std::pair<u256, unsigned> const* StorageOffsets::offset(size_t _index) const
-{
-	if (m_offsets.count(_index))
-		return &m_offsets.at(_index);
-	else
-		return nullptr;
-}
-
-void MemberList::combine(MemberList const & _other)
-{
-	m_memberTypes += _other.m_memberTypes;
-}
-
-std::pair<u256, unsigned> const* MemberList::memberStorageOffset(std::string const& _name) const
-{
-	StorageOffsets const& offsets = storageOffsets();
-
-	for (auto&& [index, member]: m_memberTypes | ranges::views::enumerate)
-		if (member.name == _name)
-			return offsets.offset(index);
-	return nullptr;
-}
-
-u256 const& MemberList::storageSize() const
-{
-	return storageOffsets().storageSize();
-}
-
-StorageOffsets const& MemberList::storageOffsets() const {
-	return m_storageOffsets.init([&]{
-		TypePointers memberTypes;
-		memberTypes.reserve(m_memberTypes.size());
-		for (auto const& member: m_memberTypes)
-			memberTypes.push_back(member.type);
-
-		StorageOffsets storageOffsets;
-		storageOffsets.computeOffsets(memberTypes);
-
-		return storageOffsets;
-	});
-}
 
 /// Helper functions for type identifier
 namespace
@@ -599,7 +525,7 @@ MemberList::MemberMap AddressType::nativeMembers(ASTNode const*) const
 			{
 				TypeProvider::coins(),
 				TypeProvider::boolean(),
-				TypeProvider::uint(16),
+				TypeProvider::uint(8),
 				TypeProvider::tvmcell(),
 				TypeProvider::extraCurrencyCollection(),
 				TypeProvider::tvmcell(),
@@ -608,9 +534,7 @@ MemberList::MemberMap AddressType::nativeMembers(ASTNode const*) const
 			{"value", "bounce", "flag", "body", "currencies", "stateInit"},
 			{},
 			FunctionType::Kind::AddressTransfer,
-			StateMutability::Pure,
-			nullptr,
-			FunctionType::Options::withArbitraryParameters()
+			StateMutability::Pure
 	));
 	return members;
 }
@@ -702,7 +626,7 @@ MemberList::MemberMap AddressStdType::nativeMembers(ASTNode const*) const {
 		{
 			TypeProvider::coins(),
 			TypeProvider::boolean(),
-			TypeProvider::uint(16),
+			TypeProvider::uint(8),
 			TypeProvider::tvmcell(),
 			TypeProvider::extraCurrencyCollection(),
 			TypeProvider::tvmcell(),
@@ -711,9 +635,7 @@ MemberList::MemberMap AddressStdType::nativeMembers(ASTNode const*) const {
 		{"value", "bounce", "flag", "body", "currencies", "stateInit"},
 		{},
 		FunctionType::Kind::AddressTransfer,
-		StateMutability::Pure,
-		nullptr,
-		FunctionType::Options::withArbitraryParameters()
+		StateMutability::Pure
 	));
 	return members;
 }
@@ -848,8 +770,12 @@ bool IntegerType::operator==(Type const& _other) const
 {
 	if (_other.category() != category())
 		return false;
-	IntegerType const& other = dynamic_cast<IntegerType const&>(_other);
-	return other.m_bits == m_bits && other.m_modifier == m_modifier;
+	return *this == dynamic_cast<IntegerType const&>(_other);
+}
+
+bool IntegerType::operator==(IntegerType const& _other) const
+{
+	return _other.m_bits == m_bits && _other.m_modifier == m_modifier;
 }
 
 std::string IntegerType::toString(bool) const
@@ -866,10 +792,21 @@ MemberList::MemberMap IntegerType::nativeMembers(ASTNode const*) const {
 			strings{},
 			strings{},
 			FunctionType::Kind::IntCast,
-			StateMutability::Pure,
-			nullptr, FunctionType::Options::withArbitraryParameters()
+			StateMutability::Pure
 		)}
 	};
+
+	if (!isSigned() && numBits() == 256) {
+		members.emplace_back("prefix", TypeProvider::function(
+			TypePointers{TypeProvider::uint(5)},
+			TypePointers{TypeProvider::uint(31)},
+			strings{""},
+			strings{""},
+			FunctionType::Kind::Uint256Prefix,
+			StateMutability::Pure
+		));
+	}
+
 	return members;
 }
 
@@ -1299,8 +1236,9 @@ BoolResult RationalNumberType::isExplicitlyConvertibleTo(Type const& _convertTo)
 	if (category == Category::FixedBytes)
 		return false;
 	else if (dynamic_cast<AddressType const*>(&_convertTo) || dynamic_cast<AddressStdType const*>(&_convertTo) || dynamic_cast<ContractType const*>(&_convertTo))
-		return	(m_value == 0) ||
+		return (m_value == 0) ||
 			(!isNegative() &&
+			!isNegative() &&
 			!isFractional() &&
 			integerType());
 	else if (category == Category::Integer)
@@ -1949,16 +1887,20 @@ bool ArrayType::operator==(Type const& _other) const
 {
 	if (_other.category() != category())
 		return false;
-	ArrayType const& other = dynamic_cast<ArrayType const&>(_other);
+	return *this == dynamic_cast<ArrayType const&>(_other);
+}
+
+bool ArrayType::operator==(ArrayType const& _other) const
+{
 	if (
-		other.isByteArray() != isByteArray() ||
-		other.isString() != isString() ||
-		other.isDynamicallySized() != isDynamicallySized()
+		_other.isByteArray() != isByteArray() ||
+		_other.isString() != isString() ||
+		_other.isDynamicallySized() != isDynamicallySized()
 	)
 		return false;
-	if (*other.baseType() != *baseType())
+	if (*_other.baseType() != *baseType())
 		return false;
-	return isDynamicallySized() || length() == other.length();
+	return isDynamicallySized() || length() == _other.length();
 }
 
 bigint ArrayType::unlimitedStaticCalldataSize(bool _padded) const
@@ -2001,26 +1943,6 @@ bigint ArrayType::storageSizeUpperBound() const
 		return 1;
 	else
 		return length() * baseType()->storageSizeUpperBound();
-}
-
-u256 ArrayType::storageSize() const
-{
-	if (isDynamicallySized())
-		return 1;
-
-	bigint size;
-	unsigned baseBytes = baseType()->storageBytes();
-	if (baseBytes == 0)
-		size = 1;
-	else if (baseBytes < 32)
-	{
-		unsigned itemsPerSlot = 32 / baseBytes;
-		size = (bigint(length()) + (itemsPerSlot - 1)) / itemsPerSlot;
-	}
-	else
-		size = bigint(length()) * baseType()->storageSize();
-	solAssert(size < bigint(1) << 256, "Array too large for storage.");
-	return std::max<u256>(1, u256(size));
 }
 
 std::vector<std::tuple<std::string, Type const*>> ArrayType::makeStackItems() const
@@ -2261,7 +2183,14 @@ MemberList::MemberMap ArrayType::nativeMembers(ASTNode const*) const
 	return members;
 }
 
-static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType, Type const* valueType, Type const* realKeyType) {
+static void appendMapMethods(
+	MemberList::MemberMap& members,
+	Type const* keyType,
+	Type const* valueType
+) {
+	Type const* optionalKeyValue =
+		TypeProvider::optional(TypeProvider::tuple(std::vector<Type const*>{keyType, valueType}));
+
 	members.emplace_back("at", TypeProvider::function(
 		TypePointers{keyType},
 		TypePointers{valueType},
@@ -2271,13 +2200,12 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 		StateMutability::Pure
 	));
 
-
 	for (const std::string name : {"min", "max"}) {
 		members.emplace_back(name.c_str(), TypeProvider::function(
 				TypePointers{},
-				TypePointers{},
+				TypePointers{optionalKeyValue},
 				strings{},
-				strings{},
+				strings{{}},
 				FunctionType::Kind::MappingGetMinMax,
 				StateMutability::Pure
 		));
@@ -2285,28 +2213,26 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 	for (const std::string name : {"delMin", "delMax"}) {
 		members.emplace_back(name.c_str(), TypeProvider::function(
 				TypePointers{},
-				TypePointers{},
+				TypePointers{optionalKeyValue},
 				strings{},
-				strings{},
+				strings{{}},
 				FunctionType::Kind::MappingDelMinOrMax,
 				StateMutability::Pure
 		));
 	}
 	for (const std::string name : {"next", "prev", "nextOrEq", "prevOrEq"}) {
 		members.emplace_back(name.c_str(), TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
+				TypePointers{keyType},
+				TypePointers{optionalKeyValue},
+				strings{{}},
+				strings{{}},
 				FunctionType::Kind::MappingGetNextKey,
-				StateMutability::Pure,
-				nullptr,
-				FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 		));
 	}
 	members.emplace_back("keys", TypeProvider::function(
 			{},
-			{TypeProvider::array(realKeyType)},
+			{TypeProvider::array(keyType)},
 			{},
 			{{}},
 			FunctionType::Kind::MappingKeys,
@@ -2374,7 +2300,7 @@ static void appendMapMethods(MemberList::MemberMap& members, Type const* keyType
 MemberList::MemberMap MappingType::nativeMembers(ASTNode const*) const
 {
 	MemberList::MemberMap members;
-	appendMapMethods(members, keyType(), valueType(), realKeyType());
+	appendMapMethods(members, keyType(), valueType());
 	return members;
 }
 
@@ -2537,23 +2463,21 @@ FunctionType const* ContractType::newExpressionType() const
 	return m_constructorType;
 }
 
-std::vector<std::tuple<VariableDeclaration const*, u256, unsigned>> ContractType::stateVariables() const
+std::vector<std::tuple<VariableDeclaration const*, u256, unsigned>> ContractType::linearizedStateVariables() const
 {
 	std::vector<VariableDeclaration const*> variables;
 	for (ContractDefinition const* contract: m_contract.annotation().linearizedBaseContracts | ranges::views::reverse)
 		for (VariableDeclaration const* variable: contract->stateVariables())
 			if (!(variable->isConstant() || variable->immutable()))
 				variables.push_back(variable);
+
 	TypePointers types;
 	for (auto variable: variables)
 		types.push_back(variable->annotation().type);
-	StorageOffsets offsets;
-	offsets.computeOffsets(types);
 
 	std::vector<std::tuple<VariableDeclaration const*, u256, unsigned>> variablesAndOffsets;
 	for (size_t index = 0; index < variables.size(); ++index)
-		if (auto const* offset = offsets.offset(index))
-			variablesAndOffsets.emplace_back(variables[index], offset->first, offset->second);
+		variablesAndOffsets.emplace_back(variables[index], 0, 0);
 	return variablesAndOffsets;
 }
 
@@ -2684,11 +2608,6 @@ bigint StructType::storageSizeUpperBound() const
 	return size;
 }
 
-u256 StructType::storageSize() const
-{
-	return std::max<u256>(1, members(nullptr).storageSize());
-}
-
 std::string StructType::toString(bool /*_withoutDataLocation*/) const
 {
 	std::string ret = "struct " + *m_struct.annotation().canonicalName;
@@ -2788,13 +2707,6 @@ FunctionTypePointer StructType::constructorType() const
 		strings(1, ""),
 		FunctionType::Kind::Internal
 	);
-}
-
-std::pair<u256, unsigned> const& StructType::storageOffsetsOfMember(std::string const& _name) const
-{
-	auto const* offsets = members(nullptr).memberStorageOffset(_name);
-	solAssert(offsets, "Storage offset of non-existing member requested.");
-	return *offsets;
 }
 
 u256 StructType::memoryOffsetOfMember(std::string const& _name) const
@@ -2925,7 +2837,12 @@ bool UserDefinedValueType::operator==(Type const& _other) const
 	if (_other.category() != category())
 		return false;
 	UserDefinedValueType const& other = dynamic_cast<UserDefinedValueType const&>(_other);
-	return other.definition() == definition();
+	return *this == other;
+}
+
+bool UserDefinedValueType::operator==(UserDefinedValueType const& _other) const
+{
+	return _other.definition() == definition();
 }
 
 std::string UserDefinedValueType::toString(bool /* _withoutDataLocation */) const
@@ -3007,11 +2924,6 @@ std::string TupleType::humanReadableName() const
 		str += (t ? t->humanReadableName() : "") + ",";
 	str.pop_back();
 	return str + ")";
-}
-
-u256 TupleType::storageSize() const
-{
-	solAssert(false, "Storage size of non-storable tuple type requested.");
 }
 
 std::vector<std::tuple<std::string, Type const*>> TupleType::makeStackItems() const
@@ -3175,13 +3087,15 @@ FunctionType::FunctionType(ErrorDefinition const& _error):
 		m_parameterTypes.push_back(var->annotation().type);
 	}
 
+	m_returnParameterNames.push_back("");
+	m_returnParameterTypes.push_back(TypeProvider::magic(MagicType::Kind::Error));
+
 	solAssert(
 		m_parameterNames.size() == m_parameterTypes.size(),
 		"Parameter names list must match parameter types list!"
 	);
 	solAssert(
-		m_returnParameterNames.size() == 0 &&
-		m_returnParameterTypes.size() == 0,
+		m_returnParameterNames.size() == m_returnParameterTypes.size(),
 		""
 	);
 }
@@ -3328,6 +3242,7 @@ std::string FunctionType::richIdentifier() const
 	case Kind::BlsG2MultiExp: id += "blsg2multiexp"; break;
 
 	case Kind::IntCast: id += "integercast"; break;
+	case Kind::Uint256Prefix: id += "uint256prefix"; break;
 
 	case Kind::StructUnpack: id += "structunpack"; break;
 
@@ -3347,7 +3262,7 @@ std::string FunctionType::richIdentifier() const
 	case Kind::TVMSliceCompare: id += "tvmslicecompare"; break;
 	case Kind::TVMSliceDataSize: id += "tvmslicedatasize"; break;
 	case Kind::TVMSliceEmpty: id += "tvmsliceempty"; break;
-	case Kind::TVMSliceHas: id += "tvmslicehasxxx"; break;
+	case Kind::TVMSliceHas: id += "tvmslicehas"; break;
 	case Kind::TVMSliceLoad: id += "tvmsliceload"; break;
 	case Kind::TVMSliceLoadFunctionParams: id += "tvmsliceloadfunctionparams"; break;
 	case Kind::TVMSliceLoadInt: id += "tvmsliceloadint"; break;
@@ -3370,6 +3285,7 @@ std::string FunctionType::richIdentifier() const
 	case Kind::TVMSlicePreloadRef: id += "tvmslicepreloadref"; break;
 	case Kind::TVMSliceSize: id += "tvmslicesize"; break;
 	case Kind::TVMSliceSkip: id += "tvmsliceskip"; break;
+	case Kind::TVMSliceLoadBouncedMsgTag: id += "tvmsliceloadbouncedmsgtag"; break;
 
 	case Kind::TVMCellDepth: id += "tvmcelldepth"; break;
 	case Kind::TVMCellToSlice: id += "tvmcelltoslice"; break;
@@ -3426,7 +3342,7 @@ std::string FunctionType::richIdentifier() const
 	case Kind::TVMDeploy: id += "tvmdeploy"; break;
 	case Kind::TVMDuePayment: id += "tvmduepayment"; break;
 	case Kind::TVMLoadLibrary: id += "tvmloadlibrary"; break;
-	case Kind::TVMDump: id += "tvmxxxdump"; break;
+	case Kind::TVMDump: id += "tvmdump"; break;
 	case Kind::TVMExit1: id += "tvmexit1"; break;
 	case Kind::TVMExit: id += "tvmexit"; break;
 	case Kind::TVMHash: id += "tvmhash"; break;
@@ -3459,7 +3375,6 @@ std::string FunctionType::richIdentifier() const
 	case Kind::VariantIsUint: id += "variantisuint"; break;
 	case Kind::VariantToUint: id += "varianttouint"; break;
 
-	case Kind::ExtraCurrencyCollectionMethods: id += "extracurrencycollectionmethods"; break;
 	case Kind::MsgPubkey: id += "msgpubkey"; break;
 	case Kind::AddressIsZero: id += "addressiszero"; break;
 	case Kind::AddressUnpack: id += "addressunpack"; break;
@@ -3520,7 +3435,6 @@ std::string FunctionType::richIdentifier() const
 	case Kind::Unwrap: id += "unwrap"; break;
 	case Kind::SetGas: id += "setgas"; break;
 	case Kind::SetValue: id += "setvalue"; break;
-	case Kind::SetFlag: id += "setflag"; break;
 	case Kind::BlockHash: id += "blockhash"; break;
 	case Kind::AddMod: id += "addmod"; break;
 	case Kind::MulMod: id += "mulmod"; break;
@@ -3713,14 +3627,6 @@ unsigned FunctionType::calldataEncodedSize(bool _padded) const
 	if (_padded)
 		size = ((size + 31) / 32) * 32;
 	return size;
-}
-
-u256 FunctionType::storageSize() const
-{
-	if (m_kind == Kind::External || m_kind == Kind::Internal)
-		return 1;
-	else
-		solAssert(false, "Storage size of non-storable function type requested.");
 }
 
 bool FunctionType::leftAligned() const
@@ -4113,12 +4019,11 @@ bool FunctionType::isPure() const
 		m_kind == Kind::ABIEncodeWithSignature ||
 		m_kind == Kind::ABIDecode ||
 		m_kind == Kind::MetaType ||
+		m_kind == Kind::Wrap ||
+		m_kind == Kind::Unwrap ||
 
 		m_kind == Kind::AddressMakeAddrExtern ||
-		m_kind == Kind::AddressMakeAddrStd ||
-
-		m_kind == Kind::Wrap ||
-		m_kind == Kind::Unwrap;
+		m_kind == Kind::AddressMakeAddrStd;
 }
 
 TypePointers FunctionType::parseElementaryTypeVector(strings const& _types)
@@ -4241,18 +4146,6 @@ Type const* MappingType::encodingType() const
 	return TypeProvider::uint(256);
 }
 
-Type const* MappingType::realKeyType() const
-{
-	auto strOrBytesType = dynamic_cast<ArrayType const*>(m_keyType);
-	if ((strOrBytesType != nullptr && strOrBytesType->isByteArrayOrString()) ||
-		m_keyType->category() == Type::Category::TvmCell
-	) {
-		return TypeProvider::uint256();
-	}
-
-	return m_keyType;
-}
-
 BoolResult MappingType::isImplicitlyConvertibleTo(Type const& _other) const
 {
 	if (Type::isImplicitlyConvertibleTo(_other))
@@ -4262,6 +4155,40 @@ BoolResult MappingType::isImplicitlyConvertibleTo(Type const& _other) const
 		return false;
 	auto map = dynamic_cast<MappingType const*>(&_other);
 	return *keyType() == *map->keyType() && *valueType() == *map->valueType();
+}
+
+
+
+std::string MappingType::richIdentifier() const
+{
+	return "t_mapping" + identifierList(m_keyType, m_valueType);
+}
+
+bool MappingType::operator==(Type const& _other) const
+{
+	if (_other.category() != category())
+		return false;
+	MappingType const& other = dynamic_cast<MappingType const&>(_other);
+	return *other.m_keyType == *m_keyType && *other.m_valueType == *m_valueType;
+}
+
+std::string MappingType::toString(bool _withoutDataLocation) const
+{
+	return "mapping(" + keyType()->toString(_withoutDataLocation) + " => " + valueType()->toString(_withoutDataLocation) + ")";
+}
+
+std::string MappingType::canonicalName() const
+{
+	return "mapping(" + keyType()->canonicalName() + " => " + valueType()->canonicalName() + ")";
+}
+
+TypeResult MappingType::unaryOperatorResult(Token _operator) const {
+	return _operator == Token::Delete ? TypeProvider::tuple(std::vector<Type const*>()) : nullptr;
+}
+
+std::vector<std::tuple<std::string, Type const*>> MappingType::makeStackItems() const
+{
+	return {std::make_tuple("slot", TypeProvider::uint256())};
 }
 
 BoolResult OptionalType::isImplicitlyConvertibleTo(Type const& _other) const
@@ -4279,23 +4206,9 @@ BoolResult OptionalType::isImplicitlyConvertibleTo(Type const& _other) const
 	return r;
 }
 
-std::string MappingType::richIdentifier() const
-{
-	return "t_mapping" + identifierList(m_keyType, m_valueType);
-}
-
 std::string OptionalType::richIdentifier() const
 {
 	return "t_optional_" + m_type->richIdentifier();
-}
-
-
-bool MappingType::operator==(Type const& _other) const
-{
-	if (_other.category() != category())
-		return false;
-	MappingType const& other = dynamic_cast<MappingType const&>(_other);
-	return *other.m_keyType == *m_keyType && *other.m_valueType == *m_valueType;
 }
 
 bool OptionalType::operator==(Type const& _other) const
@@ -4306,19 +4219,9 @@ bool OptionalType::operator==(Type const& _other) const
 	return *other.m_type == *m_type;
 }
 
-std::string MappingType::toString(bool _withoutDataLocation) const
-{
-	return "mapping(" + keyType()->toString(_withoutDataLocation) + " => " + valueType()->toString(_withoutDataLocation) + ")";
-}
-
 std::string OptionalType::toString(bool _short) const
 {
 	return "optional(" + valueType()->toString(_short) + ")";
-}
-
-std::string MappingType::canonicalName() const
-{
-	return "mapping(" + keyType()->canonicalName() + " => " + valueType()->canonicalName() + ")";
 }
 
 std::string OptionalType::canonicalName() const
@@ -4326,8 +4229,90 @@ std::string OptionalType::canonicalName() const
 	return "optional(" + valueType()->canonicalName() + ")";
 }
 
-TypeResult MappingType::unaryOperatorResult(Token _operator) const {
-	return _operator == Token::Delete ? TypeProvider::tuple(std::vector<Type const*>()) : nullptr;
+MemberList::MemberMap OptionalType::nativeMembers(ASTNode const*) const
+{
+	TypePointers comps;
+	strings names;
+	if (auto tuple = dynamic_cast<TupleType const*>(valueType())) {
+		for (Type const* comp : tuple->components()) {
+			comps.emplace_back(comp);
+			names.emplace_back("");
+		}
+	} else {
+		comps.emplace_back(valueType());
+		names.emplace_back("");
+	}
+
+
+	MemberList::MemberMap members = {
+		{
+			"hasValue",
+			TypeProvider::function(
+				{},
+				{TypeProvider::boolean()},
+				{},
+				{{}},
+				FunctionType::Kind::OptionalHasValue,
+				StateMutability::Pure
+			)
+		},
+		{
+			"get",
+			TypeProvider::function(
+				{},
+				{valueType()},
+				{},
+				{{}},
+				FunctionType::Kind::OptionalGet,
+				StateMutability::Pure
+			)
+		},
+		{
+			"getOrDefault",
+			TypeProvider::function(
+				{},
+				{valueType()},
+				{},
+				{{}},
+				FunctionType::Kind::OptionalGetOrDefault,
+				StateMutability::Pure
+			)
+		},
+		{
+			"set",
+			TypeProvider::function(
+				comps,
+				{},
+				names,
+				{},
+				FunctionType::Kind::OptionalSet,
+				StateMutability::Pure
+			)
+		},
+		{
+			"getOr",
+			TypeProvider::function(
+				comps,
+				{valueType()},
+				names,
+				{{}},
+				FunctionType::Kind::OptionalGetOr,
+				StateMutability::Pure
+			)
+		},
+		{
+			"reset",
+			TypeProvider::function(
+				{},
+				{},
+				{},
+				{},
+				FunctionType::Kind::OptionalReset,
+				StateMutability::Pure
+			)
+		}
+	};
+	return members;
 }
 
 TypeResult OptionalType::unaryOperatorResult(Token _operator) const {
@@ -4368,11 +4353,6 @@ std::string EmptyMapType::canonicalName() const {
 	return "emptyMap";
 }
 
-std::vector<std::tuple<std::string, Type const*>> MappingType::makeStackItems() const
-{
-	return {std::make_tuple("slot", TypeProvider::uint256())};
-}
-
 BoolResult NanType::isImplicitlyConvertibleTo(Type const& _other) const
 {
 	return _other.category() == Type::Category::QInteger ||
@@ -4391,7 +4371,7 @@ std::string NanType::toString(bool) const
 
 std::string NanType::canonicalName() const
 {
-    return "NaN";
+	return "NaN";
 }
 
 std::string TypeType::richIdentifier() const
@@ -4405,11 +4385,6 @@ bool TypeType::operator==(Type const& _other) const
 		return false;
 	TypeType const& other = dynamic_cast<TypeType const&>(_other);
 	return *actualType() == *other.actualType();
-}
-
-u256 TypeType::storageSize() const
-{
-	solAssert(false, "Storage size of non-storable type type requested.");
 }
 
 std::vector<std::tuple<std::string, Type const*>> TypeType::makeStackItems() const
@@ -4586,11 +4561,6 @@ ModifierType::ModifierType(ModifierDefinition const& _modifier)
 	swap(params, m_parameterTypes);
 }
 
-u256 ModifierType::storageSize() const
-{
-	solAssert(false, "Storage size of non-storable type type requested.");
-}
-
 std::string ModifierType::richIdentifier() const
 {
 	return "t_modifier" + identifierList(m_parameterTypes);
@@ -4600,6 +4570,11 @@ bool ModifierType::operator==(Type const& _other) const
 {
 	if (_other.category() != category())
 		return false;
+	return *this == dynamic_cast<ModifierType const&>(_other);
+}
+
+bool ModifierType::operator==(ModifierType const& _other) const
+{
 	ModifierType const& other = dynamic_cast<ModifierType const&>(_other);
 
 	if (m_parameterTypes.size() != other.m_parameterTypes.size())
@@ -4677,6 +4652,8 @@ std::string MagicType::richIdentifier() const
 		return "t_magic_bls";
 	case Kind::RIST255:
 		return "t_magic_rist255";
+	case Kind::Error:
+		return "t_error";
 	}
 	return "";
 }
@@ -4690,274 +4667,1179 @@ bool MagicType::operator==(Type const& _other) const
 }
 
 namespace {
-	MemberList::MemberMap getTvmMembers() {
-		MemberList::MemberMap members = {
-			{"code", TypeProvider::function({}, {TypeProvider::tvmcell()}, {}, {{}}, FunctionType::Kind::TVMCode, StateMutability::Pure)},
-			{"codeSalt", TypeProvider::function({TypeProvider::tvmcell()}, {TypeProvider::optional(TypeProvider::tvmcell())}, {{}}, {{}}, FunctionType::Kind::ABICodeSalt, StateMutability::Pure)},
-			{"setCodeSalt", TypeProvider::function({TypeProvider::tvmcell(), TypeProvider::tvmcell()}, {TypeProvider::tvmcell()}, {{}, {}}, {{}}, FunctionType::Kind::ABISetCodeSalt, StateMutability::Pure)},
-			{"pubkey", TypeProvider::function(strings(), strings{"uint"}, FunctionType::Kind::TVMPubkey, StateMutability::Pure)},
-			{"setPubkey", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetPubkey, StateMutability::NonPayable)},
-			{"accept", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMAccept, StateMutability::Pure)},
-			{"commit", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMCommit, StateMutability::NonPayable)},
-			{"rawCommit", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMCommit, StateMutability::NonPayable)},
-			{"getData", TypeProvider::function({}, {TypeProvider::tvmcell()}, {}, {{}}, FunctionType::Kind::TVMCommit, StateMutability::Pure)},
-			{"setData", TypeProvider::function({TypeProvider::tvmcell()}, {}, {{}}, {}, FunctionType::Kind::TVMCommit, StateMutability::NonPayable)},
-			{"resetStorage", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMResetStorage, StateMutability::NonPayable)},
-			{"log", TypeProvider::function(strings{"string"}, strings{}, FunctionType::Kind::LogTVM, StateMutability::Pure)},
-			{"exit", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit, StateMutability::Pure)},
-			{"exit1", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit1, StateMutability::Pure)},
-			{"setGasLimit", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetGasLimit, StateMutability::Pure)},
-			{"initCodeHash", TypeProvider::function({}, {"uint256"}, FunctionType::Kind::TVMInitCodeHash, StateMutability::Pure)},
-			{"buyGas", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetGasLimit, StateMutability::Pure)},
-			{"duePayment", TypeProvider::function({}, {TypeProvider::coins()}, {}, {""}, FunctionType::Kind::TVMDuePayment, StateMutability::Pure)},
-			{"loadLibrary", TypeProvider::function({TypeProvider::uint256()}, {TypeProvider::tvmcell()}, {""}, {""}, FunctionType::Kind::TVMLoadLibrary, StateMutability::Pure)},
+MemberList::MemberMap getTvmMembers() {
+	MemberList::MemberMap members = {
+		{"code", TypeProvider::function({}, {TypeProvider::tvmcell()}, {}, {{}}, FunctionType::Kind::TVMCode, StateMutability::Pure)},
+		{"codeSalt", TypeProvider::function({TypeProvider::tvmcell()}, {TypeProvider::optional(TypeProvider::tvmcell())}, {{}}, {{}}, FunctionType::Kind::ABICodeSalt, StateMutability::Pure)},
+		{"setCodeSalt", TypeProvider::function({TypeProvider::tvmcell(), TypeProvider::tvmcell()}, {TypeProvider::tvmcell()}, {{}, {}}, {{}}, FunctionType::Kind::ABISetCodeSalt, StateMutability::Pure)},
+		{"pubkey", TypeProvider::function(strings(), strings{"bytes32"}, FunctionType::Kind::TVMPubkey, StateMutability::Pure)},
+		{"setPubkey", TypeProvider::function({"bytes32"}, {}, FunctionType::Kind::TVMSetPubkey, StateMutability::NonPayable)},
+		{"accept", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMAccept, StateMutability::Pure)},
+		{"commit", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMCommit, StateMutability::NonPayable)},
+		{"rawCommit", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMCommit, StateMutability::NonPayable)},
+		{"getData", TypeProvider::function({}, {TypeProvider::tvmcell()}, {}, {{}}, FunctionType::Kind::TVMCommit, StateMutability::Pure)},
+		{"setData", TypeProvider::function({TypeProvider::tvmcell()}, {}, {{}}, {}, FunctionType::Kind::TVMCommit, StateMutability::NonPayable)},
+		{"resetStorage", TypeProvider::function(strings(), strings(), FunctionType::Kind::TVMResetStorage, StateMutability::NonPayable)},
+		{"log", TypeProvider::function(strings{"string"}, strings{}, FunctionType::Kind::LogTVM, StateMutability::Pure)},
+		{"exit", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit, StateMutability::Pure)},
+		{"exit1", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit1, StateMutability::Pure)},
+		{"setGasLimit", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetGasLimit, StateMutability::Pure)},
+		{"initCodeHash", TypeProvider::function({}, {"uint256"}, FunctionType::Kind::TVMInitCodeHash, StateMutability::Pure)},
+		{"buyGas", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetGasLimit, StateMutability::Pure)},
+		{"duePayment", TypeProvider::function({}, {TypeProvider::coins()}, {}, {""}, FunctionType::Kind::TVMDuePayment, StateMutability::Pure)},
+		{"loadLibrary", TypeProvider::function({TypeProvider::uint256()}, {TypeProvider::tvmcell()}, {""}, {""}, FunctionType::Kind::TVMLoadLibrary, StateMutability::Pure)},
 
-			// for stdlib
-			{"replayProtectionValue", TypeProvider::function({}, {"uint64"}, FunctionType::Kind::TVMReplayProtTime, StateMutability::Pure)},
-			{"setReplayProtectionValue", TypeProvider::function({"uint64"}, {}, FunctionType::Kind::TVMSetReplayProtTime, StateMutability::Pure)},
-			{"replayProtInterval", TypeProvider::function({}, {"uint64"}, FunctionType::Kind::TVMReplayProtInterval, StateMutability::Pure)},
+		// for stdlib
+		{"replayProtectionValue", TypeProvider::function({}, {"uint64"}, FunctionType::Kind::TVMReplayProtTime, StateMutability::Pure)},
+		{"setReplayProtectionValue", TypeProvider::function({"uint64"}, {}, FunctionType::Kind::TVMSetReplayProtTime, StateMutability::Pure)},
+		{"replayProtInterval", TypeProvider::function({}, {"uint64"}, FunctionType::Kind::TVMReplayProtInterval, StateMutability::Pure)},
 
-			{"rawReserve", TypeProvider::function(
-				TypePointers{TypeProvider::uint256(), TypeProvider::extraCurrencyCollection(),  TypeProvider::uint256()},
-				TypePointers{},
-				strings{std::string{}, std::string{}, std::string{}},
-				strings{},
-				FunctionType::Kind::TVMSetcode,
-				StateMutability::Pure
-			)},
-			{"rawReserve", TypeProvider::function(
-				TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
-				TypePointers{},
-				strings{std::string{}, std::string{}},
-				strings{},
-				FunctionType::Kind::TVMSetcode,
-				StateMutability::Pure
-			)},
-			{"setcode", TypeProvider::function(
-				TypePointers{TypeProvider::tvmcell()},
-				TypePointers{},
-				strings{std::string()},
-				strings{},
-				FunctionType::Kind::TVMSetcode,
-				StateMutability::Pure
-			)},
-			{"setCurrentCode", TypeProvider::function(
-				TypePointers{TypeProvider::tvmcell()},
-				TypePointers{},
-				strings{std::string()},
-				strings{},
-				FunctionType::Kind::TVMSetcode,
-				StateMutability::Pure
-			)},
-			{"bindump", TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::TVMDump,
-				StateMutability::Pure
-			)},
-			{"hexdump", TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::TVMDump,
-				StateMutability::Pure,
+		{"rawReserve", TypeProvider::function(
+			TypePointers{TypeProvider::uint256(), TypeProvider::extraCurrencyCollection(),  TypeProvider::uint256()},
+			TypePointers{},
+			strings{std::string{}, std::string{}, std::string{}},
+			strings{},
+			FunctionType::Kind::TVMSetcode,
+			StateMutability::Pure
+		)},
+		{"rawReserve", TypeProvider::function(
+			TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
+			TypePointers{},
+			strings{std::string{}, std::string{}},
+			strings{},
+			FunctionType::Kind::TVMSetcode,
+			StateMutability::Pure
+		)},
+		{"setcode", TypeProvider::function(
+			TypePointers{TypeProvider::tvmcell()},
+			TypePointers{},
+			strings{std::string()},
+			strings{},
+			FunctionType::Kind::TVMSetcode,
+			StateMutability::Pure
+		)},
+		{"setCurrentCode", TypeProvider::function(
+			TypePointers{TypeProvider::tvmcell()},
+			TypePointers{},
+			strings{std::string()},
+			strings{},
+			FunctionType::Kind::TVMSetcode,
+			StateMutability::Pure
+		)},
+		{"checkSign", TypeProvider::function(
+			TypePointers{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::fixedBytes(32)},
+			TypePointers{TypeProvider::boolean()},
+			strings{std::string(), std::string(), std::string(), std::string()},
+			strings{std::string()},
+			FunctionType::Kind::TVMChecksign,
+			StateMutability::Pure
+		)},
+		{"checkSign", TypeProvider::function(
+			TypePointers{TypeProvider::uint256(), TypeProvider::tvmslice(), TypeProvider::fixedBytes(32)},
+			TypePointers{TypeProvider::boolean()},
+			strings{std::string(), std::string(), std::string()},
+			strings{std::string()},
+			FunctionType::Kind::TVMChecksign,
+			StateMutability::Pure
+		)},
+		{"checkSign", TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice(), TypeProvider::fixedBytes(32)},
+			TypePointers{TypeProvider::boolean()},
+			strings{std::string(), std::string(), std::string()},
+			strings{std::string()},
+			FunctionType::Kind::TVMChecksign,
+			StateMutability::Pure
+		)},
+		{"p256CheckSign", TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::boolean()},
+			strings{std::string(), std::string(), std::string()},
+			strings{std::string()},
+			FunctionType::Kind::TVMP256Checksign,
+			StateMutability::Pure
+		)},
+		{"p256CheckSign", TypeProvider::function(
+			TypePointers{TypeProvider::uint256(), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::boolean()},
+			strings{std::string(), std::string(), std::string()},
+			strings{std::string()},
+			FunctionType::Kind::TVMP256Checksign,
+			StateMutability::Pure
+		)},
+		{"sendrawmsg", TypeProvider::function(
+			TypePointers{TypeProvider::tvmcell(), TypeProvider::uint(8)},
+			TypePointers{},
+			strings{std::string(), std::string()},
+			strings{},
+			FunctionType::Kind::TVMSendRawMsg,
+			StateMutability::Pure
+		)},
+		{"sendMsg", TypeProvider::function(
+			TypePointers{TypeProvider::tvmcell(), TypeProvider::uint(11)},
+			TypePointers{TypeProvider::coins()},
+			strings{{}, {}},
+			strings{{}},
+			FunctionType::Kind::TVMRawMsg,
+			StateMutability::Pure
+		)},
+		{"configParam", TypeProvider::function(
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::TVMConfigParam,
+			StateMutability::Pure
+		)},
+		{"rawConfigParam", TypeProvider::function(
+			{TypeProvider::integer(32, IntegerType::Modifier::Signed)},
+			{TypeProvider::optional(TypeProvider::tvmcell())},
+			{{}},
+			{{}},
+			FunctionType::Kind::TVMRawConfigParam,
+			StateMutability::Pure
+		)},
+		{"buildIntMsg", TypeProvider::function(
+			{
+				TypeProvider::address(),
+				TypeProvider::coins(),
+				TypeProvider::extraCurrencyCollection(),
+				TypeProvider::boolean(),
+				TypeProvider::callList(),
+				TypeProvider::tvmcell(),
+			},
+			{TypeProvider::tvmcell()},
+			{
+				"dest", // mandatory
+				"value", // mandatory
+				"currencies", // can be omitted
+				"bounce", // can be omitted
+				"call", // mandatory
+				"stateInit", // can be omitted
+			},
+			{{}},
+			FunctionType::Kind::ABIEncodeIntMsg,
+			StateMutability::Pure
+		)},
+		{"buildStateInit", TypeProvider::function(
+			TypePointers{
+				TypeProvider::tvmcell(),
+				TypeProvider::tvmcell(),
+				TypeProvider::uint(5),
+				TypeProvider::fixedBytes(32),
 				nullptr,
-				FunctionType::Options::withArbitraryParameters()
-			)},
-			{"hash", TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::TVMHash,
-				StateMutability::Pure,
+				TypeProvider::initializerList()
+				// TypeProvider::uint(31)
+			},
+			TypePointers{TypeProvider::tvmcell()},
+			strings{
+				std::string("code"),	// mandatory
+				std::string("data"),	// conflicts with pubkey and varInit
+				std::string("prefixLength"),	// can be omitted
+				std::string("pubkey"),	// conflicts with data
+				std::string("contr"),
+				std::string("varInit"),	// conflicts with data
+				// std::string("prefix"),
+			},
+			strings{std::string()},
+			FunctionType::Kind::ABIEncodeStateInit,
+			StateMutability::Pure
+		)},
+		{"buildDataInit", TypeProvider::function(
+			{
+				TypeProvider::fixedBytes(32),
+				TypeProvider::initializerList(),
 				nullptr,
-				FunctionType::Options::withArbitraryParameters()
-			)},
-			{"checkSign", TypeProvider::function(
-				TypePointers{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()},
-				TypePointers{TypeProvider::boolean()},
-				strings{std::string(), std::string(), std::string(), std::string()},
-				strings{std::string()},
-				FunctionType::Kind::TVMChecksign,
-				StateMutability::Pure
-			)},
-			{"checkSign", TypeProvider::function(
-				TypePointers{TypeProvider::uint256(), TypeProvider::tvmslice(), TypeProvider::uint256()},
-				TypePointers{TypeProvider::boolean()},
-				strings{std::string(), std::string(), std::string()},
-				strings{std::string()},
-				FunctionType::Kind::TVMChecksign,
-				StateMutability::Pure
-			)},
-			{"p256CheckSign", TypeProvider::function(
-				TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
-				TypePointers{TypeProvider::boolean()},
-				strings{std::string(), std::string(), std::string()},
-				strings{std::string()},
-				FunctionType::Kind::TVMP256Checksign,
-				StateMutability::Pure
-			)},
-			{"p256CheckSign", TypeProvider::function(
-				TypePointers{TypeProvider::uint256(), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
-				TypePointers{TypeProvider::boolean()},
-				strings{std::string(), std::string(), std::string()},
-				strings{std::string()},
-				FunctionType::Kind::TVMP256Checksign,
-				StateMutability::Pure
-			)},
-			{"checkSign", TypeProvider::function(
-				TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice(), TypeProvider::uint256()},
-				TypePointers{TypeProvider::boolean()},
-				strings{std::string(), std::string(), std::string()},
-				strings{std::string()},
-				FunctionType::Kind::TVMChecksign,
-				StateMutability::Pure
-			)},
-			{"sendrawmsg", TypeProvider::function(
-				TypePointers{TypeProvider::tvmcell(), TypeProvider::uint(8)},
-				TypePointers{},
-				strings{std::string(), std::string()},
-				strings{},
-				FunctionType::Kind::TVMSendRawMsg,
-				StateMutability::Pure
-			)},
-			{"sendMsg", TypeProvider::function(
-				TypePointers{TypeProvider::tvmcell(), TypeProvider::uint(11)},
-				TypePointers{TypeProvider::coins()},
-				strings{{}, {}},
-				strings{{}},
-				FunctionType::Kind::TVMRawMsg,
-				StateMutability::Pure
-			)},
-			{"configParam", TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::TVMConfigParam,
-				StateMutability::Pure,
-				nullptr,
-				FunctionType::Options::withArbitraryParameters()
-			)},
-			{"rawConfigParam", TypeProvider::function(
-				{TypeProvider::integer(32, IntegerType::Modifier::Signed)},
-				{TypeProvider::optional(TypeProvider::tvmcell())},
-				{{}},
-				{{}},
-				FunctionType::Kind::TVMRawConfigParam,
-				StateMutability::Pure
-			)},
-			{"buildIntMsg", TypeProvider::function(
-				{
-					TypeProvider::address(),
-					TypeProvider::coins(),
-					TypeProvider::extraCurrencyCollection(),
-					TypeProvider::boolean(),
-					TypeProvider::callList(),
-					TypeProvider::tvmcell(),
-				},
-				{TypeProvider::tvmcell()},
-				{
-					"dest", // mandatory
-					"value", // mandatory
-					"currencies", // can be omitted
-					"bounce", // can be omitted
-					"call", // mandatory
-					"stateInit", // can be omitted
-				},
-				{{}},
-				FunctionType::Kind::ABIEncodeIntMsg,
-				StateMutability::Pure,
-				nullptr,
-				FunctionType::Options::withArbitraryParameters()
-			)},
-			{"buildStateInit", TypeProvider::function(
-				TypePointers{TypeProvider::tvmcell(),
-							 TypeProvider::tvmcell(),
-							 TypeProvider::uint(8),
-							 TypeProvider::initializerList(),
-							 TypeProvider::uint256(),
-							 //TypeProvider::contract(...) it's commented because we should set the concrete contract
-							 // but it can be any contract
-							 },
-				TypePointers{TypeProvider::tvmcell()},
-				strings{std::string("code"),	// mandatory
-						std::string("data"),	// conflicts with pubkey and varInit
-						std::string("splitDepth"),	// can be omitted
-						std::string("varInit"),	// conflicts with data
-						std::string("pubkey"),	// conflicts with data
-						//string("contr")
-					},
-				strings{std::string()},
-				FunctionType::Kind::ABIEncodeStateInit,
-				StateMutability::Pure,
-				nullptr,
-				FunctionType::Options::withArbitraryParameters()
-			)},
-			{"buildDataInit", TypeProvider::function(
-				{
-					TypeProvider::uint256(),
-					TypeProvider::initializerList(),
-					//TypeProvider::contract(...) it's commented because we should set the concrete contract
-				},
-				{TypeProvider::tvmcell()},
-				{"pubkey", "varInit"},
-				{{}},
-				FunctionType::Kind::ABIEncodeData,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
-			)},
-			{"unpackData", TypeProvider::function(
-				{},
-				{},
-				{},
-				{},
-				FunctionType::Kind::TVMUnpackData,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
-			)},
-			{"packData", TypeProvider::function(
-				{},
-				{},
-				{},
-				{},
-				FunctionType::Kind::TVMPackData,
-				StateMutability::NonPayable,
-				nullptr, FunctionType::Options::withArbitraryParameters()
-			)},
-			{"stateInitHash", TypeProvider::function(
-				TypePointers{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint(16), TypeProvider::uint(16)},
-				TypePointers{TypeProvider::uint256()},
-				strings{std::string(), std::string(), std::string(), std::string()},
-				strings{std::string()},
-				FunctionType::Kind::ABIStateInitHash,
-				StateMutability::Pure
-			)},
-			{"functionId", TypeProvider::function(
-				TypePointers{},
-				TypePointers{TypeProvider::uint(32)},
-				strings{},
-				strings{std::string()},
-				FunctionType::Kind::ABIFunctionId,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
-			)},
-			{"encodeBody", TypeProvider::function(
-				TypePointers{},
-				TypePointers{TypeProvider::tvmcell()},
-				strings{},
-				strings{std::string()},
-				FunctionType::Kind::ABIEncodeBody,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
-			)}
-		};
-		return members;
+			},
+			{TypeProvider::tvmcell()},
+			{"pubkey", "varInit", "contr"},
+			{{}},
+			FunctionType::Kind::ABIEncodeData,
+			StateMutability::Pure
+		)},
+		{"unpackData", TypeProvider::function(
+			{},
+			{},
+			{},
+			{},
+			FunctionType::Kind::TVMUnpackData,
+			StateMutability::Pure
+		)},
+		{"packData", TypeProvider::function(
+			{},
+			{},
+			{},
+			{},
+			FunctionType::Kind::TVMPackData,
+			StateMutability::NonPayable
+		)},
+		{"stateInitHash", TypeProvider::function(
+			TypePointers{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint(16), TypeProvider::uint(16)},
+			TypePointers{TypeProvider::uint256()},
+			strings{std::string(), std::string(), std::string(), std::string()},
+			strings{std::string()},
+			FunctionType::Kind::ABIStateInitHash,
+			StateMutability::Pure
+		)},
+		{"functionId", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::uint(32)},
+			strings{},
+			strings{std::string()},
+			FunctionType::Kind::ABIFunctionId,
+			StateMutability::Pure,
+			nullptr, FunctionType::Options::withArbitraryParameters()
+		)},
+		{"encodeBody", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::tvmcell()},
+			strings{},
+			strings{std::string()},
+			FunctionType::Kind::ABIEncodeBody,
+			StateMutability::Pure,
+			nullptr, FunctionType::Options::withArbitraryParameters()
+		)}
+	};
+
+	for (auto const type : std::vector<Type const*>{TypeProvider::int257(), TypeProvider::tvmslice()}) {
+		members.emplace_back("bindump", TypeProvider::function(
+			TypePointers{type},
+			TypePointers{},
+			strings{{}},
+			strings{},
+			FunctionType::Kind::TVMDump,
+			StateMutability::Pure
+		));
+		members.emplace_back("hexdump", TypeProvider::function(
+			TypePointers{type},
+			TypePointers{},
+			strings{{}},
+			strings{},
+			FunctionType::Kind::TVMDump,
+			StateMutability::Pure
+		));
 	}
+
+	members.push_back(
+		{"hash", TypeProvider::function(
+		TypePointers{},
+		TypePointers{},
+		strings{},
+		strings{},
+		FunctionType::Kind::TVMHash,
+		StateMutability::Pure,
+		nullptr
+	)});
+
+	return members;
+}
+
+MemberList::MemberMap getRndMembers() {
+	MemberList::MemberMap members = {
+		{
+			"next",
+			TypeProvider::function({}, {TypeProvider::uint256()}, {}, {{}}, FunctionType::Kind::RndNext, StateMutability::Pure)
+		},
+		{
+			"next",
+			TypeProvider::function({TypeProvider::int257()}, {TypeProvider::int257()}, {{}}, {{}}, FunctionType::Kind::RndNext, StateMutability::Pure)
+		},
+		{
+			"setSeed",
+			TypeProvider::function({TypeProvider::uint256()}, {}, {{}}, {}, FunctionType::Kind::RndSetSeed, StateMutability::Pure)
+		},
+		{
+			"getSeed",
+			TypeProvider::function({}, {TypeProvider::uint256()}, {}, {{}}, FunctionType::Kind::RndGetSeed, StateMutability::Pure)
+		},
+		{
+			"shuffle",
+			TypeProvider::function({}, {}, {}, {}, FunctionType::Kind::RndShuffle, StateMutability::Pure)
+		},
+		{
+			"shuffle",
+			TypeProvider::function({TypeProvider::uint256()}, {}, {{}}, {}, FunctionType::Kind::RndShuffle, StateMutability::Pure)
+		}
+	};
+	return members;
+}
+
+MemberList::MemberMap getMathMembers() {
+	MemberList::MemberMap members = {
+		{
+			"divc",
+			TypeProvider::function(
+				{}, {}, {}, {}, FunctionType::Kind::MathDivC, StateMutability::Pure
+			)
+		},
+		{
+			"divr",
+			TypeProvider::function(
+				{}, {}, {}, {}, FunctionType::Kind::MathDivR, StateMutability::Pure
+			)
+		},
+		{
+			"mulmod",
+			TypeProvider::function(
+				{}, {}, {}, {}, FunctionType::Kind::MathMulMod, StateMutability::Pure
+			)
+		},
+	};
+
+	for (auto const& op: tonCombinedArithmeticOperations()) {
+		Type const* type = TypeProvider::integer(257, IntegerType::Modifier::Signed);
+		if (op.name.at(0) == 'q')
+			type = TypeProvider::qInteger(257, IntegerType::Modifier::Signed);
+		TypePointers take{op.take, type};
+		if (op.withRShift) {
+			take.pop_back();
+			take.push_back(TypeProvider::uint(9));
+		}
+		members.emplace_back(
+			op.name.c_str(),
+			TypeProvider::function(
+				take,
+				TypePointers{op.ret, type},
+				strings{op.take, ""},
+				strings{op.ret, ""},
+				FunctionType::Kind::TonCombArithOper,
+				StateMutability::Pure
+			)
+		);
+	}
+
+	members.emplace_back("max", TypeProvider::function(
+		TypePointers{},
+		TypePointers{},
+		strings{},
+		strings{},
+		FunctionType::Kind::MathMax,
+		StateMutability::Pure
+	));
+	members.emplace_back("min", TypeProvider::function(
+		TypePointers{},
+		TypePointers{},
+		strings{},
+		strings{},
+		FunctionType::Kind::MathMin,
+		StateMutability::Pure
+	));
+	members.emplace_back("minmax", TypeProvider::function(
+		TypePointers{},
+		TypePointers{},
+		strings{},
+		strings{},
+		FunctionType::Kind::MathMinMax,
+		StateMutability::Pure
+	));
+	for(const std::string code : {"muldiv", "muldivr", "muldivc"}) {
+		members.emplace_back(code.c_str(), TypeProvider::function(
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::MathMulDiv,
+			StateMutability::Pure
+		));
+	}
+	members.emplace_back("muldivmod", TypeProvider::function(
+		TypePointers{},
+		TypePointers{},
+		strings{},
+		strings{},
+		FunctionType::Kind::MathMulDivMod,
+		StateMutability::Pure
+	));
+	members.emplace_back("divmod", TypeProvider::function(
+		TypePointers{},
+		TypePointers{},
+		strings{},
+		strings{},
+		FunctionType::Kind::MathDivMod,
+		StateMutability::Pure
+	));
+	members.emplace_back("abs", TypeProvider::function(
+		TypePointers{},
+		TypePointers{},
+		strings{},
+		strings{},
+		FunctionType::Kind::MathAbs,
+		StateMutability::Pure
+	));
+	members.emplace_back("modpow2", TypeProvider::function(
+		TypePointers{},
+		TypePointers{},
+		strings{},
+		strings{},
+		FunctionType::Kind::MathModpow2,
+		StateMutability::Pure
+	));
+	members.emplace_back("sign", TypeProvider::function(
+		TypePointers{},
+		TypePointers{},
+		strings{},
+		strings{},
+		FunctionType::Kind::MathSign,
+		StateMutability::Pure
+	));
+	return members;
+}
+
+MemberList::MemberMap getABIMembers() {
+	return MemberList::MemberMap({
+		{"encode", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::tvmcell()},
+			strings{},
+			strings{{}},
+			FunctionType::Kind::ABIEncode,
+			StateMutability::Pure
+		)},
+		{"encodePacked", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::array()},
+			strings{},
+			strings{1, ""},
+			FunctionType::Kind::ABIEncodePacked,
+			StateMutability::Pure
+		)},
+		{"encodeWithSelector", TypeProvider::function(
+			TypePointers{TypeProvider::fixedBytes(4)},
+			TypePointers{TypeProvider::array()},
+			strings{1, ""},
+			strings{1, ""},
+			FunctionType::Kind::ABIEncodeWithSelector,
+			StateMutability::Pure,
+			nullptr,
+			FunctionType::Options::withArbitraryParameters()
+		)},
+		{"encodeCall", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::array()},
+			strings{},
+			strings{1, ""},
+			FunctionType::Kind::ABIEncodeCall,
+			StateMutability::Pure
+		)},
+		{"encodeWithSignature", TypeProvider::function(
+			TypePointers{TypeProvider::array(true)},
+			TypePointers{TypeProvider::array()},
+			strings{1, ""},
+			strings{1, ""},
+			FunctionType::Kind::ABIEncodeWithSignature,
+			StateMutability::Pure,
+			nullptr,
+			FunctionType::Options::withArbitraryParameters()
+		)},
+		{"decode", TypeProvider::function(
+			TypePointers(),
+			TypePointers(),
+			strings{},
+			strings{},
+			FunctionType::Kind::ABIDecode,
+			StateMutability::Pure
+		)},
+		{"encodeStateInit", TypeProvider::function(
+			TypePointers{
+				TypeProvider::tvmcell(),
+				TypeProvider::tvmcell(),
+				TypeProvider::uint(5),
+				TypeProvider::fixedBytes(32),
+				nullptr,
+				TypeProvider::initializerList(),
+				// TypeProvider::uint(31)
+			},
+			TypePointers{TypeProvider::tvmcell()},
+			strings{
+				std::string("code"),	// mandatory
+				std::string("data"),	// conflicts with pubkey and varInit
+				std::string("prefixLength"),	// can be omitted
+				std::string("pubkey"),	// conflicts with data
+				std::string("contr"),
+				std::string("varInit"),	// conflicts with data
+				// std::string("prefix")
+			},
+			strings{std::string()},
+			FunctionType::Kind::ABIEncodeStateInit,
+			StateMutability::Pure
+		)},
+		{"stateInitHash", TypeProvider::function(
+			TypePointers{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint(16), TypeProvider::uint(16)},
+			TypePointers{TypeProvider::uint256()},
+			strings{std::string(), std::string(), std::string(), std::string()},
+			strings{std::string()},
+			FunctionType::Kind::ABIStateInitHash,
+			StateMutability::Pure
+		)},
+		{"encodeData", TypeProvider::function(
+			{
+				TypeProvider::fixedBytes(32),
+				TypeProvider::initializerList(),
+				nullptr,
+			},
+			{TypeProvider::tvmcell()},
+			{"pubkey", "varInit", "contr"},
+			{{}},
+			FunctionType::Kind::ABIEncodeData,
+			StateMutability::Pure
+		)},
+		{"encodeOldDataInit", TypeProvider::function(
+			{
+				TypeProvider::fixedBytes(32),
+				TypeProvider::initializerList(),
+				nullptr,
+			},
+			{TypeProvider::tvmcell()},
+			{"pubkey", "varInit", "contr"},
+			{{}},
+			FunctionType::Kind::ABIEncodeData,
+			StateMutability::Pure
+		)},
+		{"codeSalt", TypeProvider::function(
+			{TypeProvider::tvmcell()},
+			{TypeProvider::optional(TypeProvider::tvmcell())},
+			{{}},
+			{{}},
+			FunctionType::Kind::ABICodeSalt,
+			StateMutability::Pure
+		)},
+		{"setCodeSalt", TypeProvider::function(
+			{TypeProvider::tvmcell(), TypeProvider::tvmcell()},
+			{TypeProvider::tvmcell()},
+			{{}, {}},
+			{{}},
+			FunctionType::Kind::ABISetCodeSalt,
+			StateMutability::Pure
+		)},
+		{"functionId", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::uint(32)},
+			strings{},
+			strings{std::string()},
+			FunctionType::Kind::ABIFunctionId,
+			StateMutability::Pure,
+			nullptr, FunctionType::Options::withArbitraryParameters()
+		)},
+		{"encodeIntMsg", TypeProvider::function(
+			{
+				TypeProvider::address(),
+				TypeProvider::coins(),
+				TypeProvider::extraCurrencyCollection(),
+				TypeProvider::boolean(),
+				TypeProvider::callList(),
+				TypeProvider::tvmcell(),
+				TypeProvider::extraFlags(),
+			},
+			{TypeProvider::tvmcell()},
+			{
+				"dest", // mandatory
+				"value", // mandatory
+				"currencies", // can be omitted
+				"bounce", // can be omitted
+				"call", // mandatory
+				"stateInit", // can be omitted
+				"extra_flags", // can be omitted
+			},
+			{{}},
+			FunctionType::Kind::ABIEncodeIntMsg,
+			StateMutability::Pure
+		)},
+		{"decodeData", TypeProvider::function(
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::ABIDecodeData,
+			StateMutability::Pure
+		)},
+		{"encodeBody", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::tvmcell()},
+			strings{},
+			strings{std::string()},
+			FunctionType::Kind::ABIEncodeBody,
+			StateMutability::Pure,
+			nullptr, FunctionType::Options::withArbitraryParameters()
+		)},
+		{"decodeFunctionParams", TypeProvider::function(
+			TypePointers{},
+			TypePointers{},
+			strings{},
+			strings{},
+			FunctionType::Kind::ABIDecodeFunctionParams,
+			StateMutability::Pure
+		)}
+	});
+}
+
+MemberList::MemberMap getBLSMembers() {
+	auto members = MemberList::MemberMap({
+	{
+		"verify",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::boolean()},
+			strings{"", "", ""},
+			strings{""},
+			FunctionType::Kind::BlsVerify,
+			StateMutability::Pure
+		)
+	},
+	{
+		"aggregate",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmVector(TypeProvider::tvmslice())},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{""},
+			strings{""},
+			FunctionType::Kind::BlsAggregate,
+			StateMutability::Pure
+		)
+	},
+	{
+		"fastAggregateVerify",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmVector(TypeProvider::tvmslice()), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::boolean()},
+			strings{"", "", ""},
+			strings{""},
+			FunctionType::Kind::BlsFastAggregateVerify,
+			StateMutability::Pure
+		)
+	},
+	{
+		"aggregateVerify",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmVector(TypeProvider::tuple({TypeProvider::tvmslice(), TypeProvider::tvmslice()})), TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::boolean()},
+			strings{"", ""},
+			strings{""},
+			FunctionType::Kind::BlsAggregateVerify,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g1Add",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{"", ""},
+			strings{""},
+			FunctionType::Kind::BlsG1Add,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g1Sub",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{"", ""},
+			strings{""},
+			FunctionType::Kind::BlsG1Sub,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g1Neg",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{""},
+			strings{""},
+			FunctionType::Kind::BlsG1Neg,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g1Mul",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice(), TypeProvider::int257()},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{"", ""},
+			strings{""},
+			FunctionType::Kind::BlsG1Mul,
+			StateMutability::Pure
+		)
+	},
+	{
+		"mapToG1",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{""},
+			strings{""},
+			FunctionType::Kind::BlsMapToG1,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g1IsZero",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::boolean()},
+			strings{""},
+			strings{""},
+			FunctionType::Kind::BlsG1IsZero,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g1InGroup",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::boolean()},
+			strings{""},
+			strings{""},
+			FunctionType::Kind::BlsG1InGroup,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g2Add",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{"", ""},
+			strings{""},
+			FunctionType::Kind::BlsG2Add,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g2Sub",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{"", ""},
+			strings{""},
+			FunctionType::Kind::BlsG2Sub,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g2Neg",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{""},
+			strings{""},
+			FunctionType::Kind::BlsG2Neg,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g2Mul",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice(), TypeProvider::int257()},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{"", ""},
+			strings{""},
+			FunctionType::Kind::BlsG2Mul,
+			StateMutability::Pure
+		)
+	},
+	{
+		"mapToG2",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{""},
+			strings{""},
+			FunctionType::Kind::BlsMapToG2,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g2IsZero",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::boolean()},
+			strings{""},
+			strings{""},
+			FunctionType::Kind::BlsG2IsZero,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g2InGroup",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::boolean()},
+			strings{""},
+			strings{""},
+			FunctionType::Kind::BlsG2InGroup,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g1Zero",
+		TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{},
+			strings{""},
+			FunctionType::Kind::BlsG1Zero,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g2Zero",
+		TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{},
+			strings{""},
+			FunctionType::Kind::BlsG2Zero,
+			StateMutability::Pure
+		)
+	},
+	{
+		"r",
+		TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::uint(255)},
+			strings{},
+			strings{""},
+			FunctionType::Kind::BlsPushR,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g1MultiExp",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmVector(TypeProvider::tuple({TypeProvider::tvmslice(),TypeProvider::int257()}))},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{""},
+			strings{""},
+			FunctionType::Kind::BlsG1MultiExp,
+			StateMutability::Pure
+		)
+	},
+	{
+		"g2MultiExp",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmVector(TypeProvider::tuple({TypeProvider::tvmslice(),TypeProvider::int257()}))},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{""},
+			strings{""},
+			FunctionType::Kind::BlsG2MultiExp,
+			StateMutability::Pure
+		)
+	}
+	});
+	auto args = TypePointers{TypeProvider::tvmslice()};
+	auto argNames = strings{""};
+	for (int n = 1; n <= 255; ++n)
+	{
+		members.emplace_back(
+			"aggregate",
+			TypeProvider::function(
+				args,
+				TypePointers{TypeProvider::tvmslice()},
+				argNames,
+				strings{""},
+				FunctionType::Kind::BlsAggregate,
+				StateMutability::Pure
+			)
+		);
+		{
+			auto favArgs = args;
+			favArgs.emplace_back(TypeProvider::tvmslice());
+			favArgs.emplace_back(TypeProvider::tvmslice());
+			auto favNames = argNames;
+			favNames.emplace_back("");
+			favNames.emplace_back("");
+			members.emplace_back(
+				"fastAggregateVerify",
+				TypeProvider::function(
+					favArgs,
+					TypePointers{TypeProvider::boolean()},
+					favNames,
+					strings{""},
+					FunctionType::Kind::BlsFastAggregateVerify,
+					StateMutability::Pure
+				)
+			);
+		}
+		{
+			auto avArgs = args;
+			avArgs.insert(avArgs.end(), args.begin(), args.end());
+			avArgs.emplace_back(TypeProvider::tvmslice());
+			auto avNames = argNames;
+			avNames.insert(avNames.end(), argNames.begin(), argNames.end());
+			avNames.emplace_back("");
+			members.emplace_back(
+				"aggregateVerify",
+				TypeProvider::function(
+					avArgs,
+					TypePointers{TypeProvider::boolean()},
+					avNames,
+					strings{""},
+					FunctionType::Kind::BlsAggregateVerify,
+					StateMutability::Pure
+				)
+			);
+		}
+		{
+			TypePointers mulArgs;
+			strings mulNames;
+			for (int i = 0; i < n; ++i) {
+				mulArgs.emplace_back(TypeProvider::tvmslice());
+				mulArgs.emplace_back(TypeProvider::int257());
+				mulNames.emplace_back("");
+				mulNames.emplace_back("");
+			}
+			members.emplace_back(
+				"g1MultiExp",
+				TypeProvider::function(
+					mulArgs,
+					TypePointers{TypeProvider::tvmslice()},
+					mulNames,
+					strings{""},
+					FunctionType::Kind::BlsG1MultiExp,
+					StateMutability::Pure
+				)
+			);
+			members.emplace_back(
+				"g2MultiExp",
+				TypeProvider::function(
+					mulArgs,
+					TypePointers{TypeProvider::tvmslice()},
+					mulNames,
+					strings{""},
+					FunctionType::Kind::BlsG1MultiExp,
+					StateMutability::Pure
+				)
+			);
+		}
+
+		//
+		args.emplace_back(TypeProvider::tvmslice());
+		argNames.emplace_back("");
+	}
+	return members;
+}
+
+MemberList::MemberMap getGOSHMembers() {
+	MemberList::MemberMap members;
+	for (auto const&[name, type] : std::vector<std::tuple<std::string, FunctionType::Kind>>{
+			{"diff", FunctionType::Kind::GoshDiff},
+			{"applyPatch", FunctionType::Kind::GoshApplyPatch},
+	}) {
+		members.push_back({ name.c_str(),
+			TypeProvider::function(
+				{TypeProvider::stringMemory(), TypeProvider::stringMemory()},
+				{TypeProvider::stringMemory()},
+				{{}, {}},
+				{{}},
+				type,
+				StateMutability::Pure
+		)});
+	}
+
+	for (auto const&[name, type] : std::vector<std::tuple<std::string, FunctionType::Kind>>{
+			{"applyBinPatch", FunctionType::Kind::GoshApplyBinPatch},
+			{"applyZipBinPatch", FunctionType::Kind::GoshApplyZipBinPatch},
+			{"applyZipPatch", FunctionType::Kind::GoshApplyZipPatch},
+			{"zipDiff", FunctionType::Kind::GoshZipDiff},
+	}) {
+		members.push_back({ name.c_str(),
+			TypeProvider::function(
+				{TypeProvider::bytesMemory(), TypeProvider::bytesMemory()},
+				{TypeProvider::bytesMemory()},
+				{{}, {}},
+				{{}},
+				type,
+				StateMutability::Pure
+		)});
+	}
+
+	members.push_back({ "applyPatchQ",
+		TypeProvider::function(
+			{TypeProvider::stringMemory(), TypeProvider::stringMemory()},
+			{TypeProvider::optional(TypeProvider::stringMemory())},
+			{{}, {}},
+			{{}},
+			FunctionType::Kind::GoshApplyZipPatchQ,
+			StateMutability::Pure
+	)});
+
+	for (auto const&[name, type] : std::vector<std::tuple<std::string, FunctionType::Kind>>{
+			{"applyZipPatchQ", FunctionType::Kind::GoshApplyZipPatchQ},
+			{"applyBinPatchQ", FunctionType::Kind::GoshApplyBinPatchQ},
+			{"applyZipBinPatchQ", FunctionType::Kind::GoshApplyZipBinPatchQ},
+	}) {
+		members.push_back({ name.c_str(),
+			TypeProvider::function(
+				{TypeProvider::bytesMemory(), TypeProvider::bytesMemory()},
+				{TypeProvider::optional(TypeProvider::bytesMemory())},
+				{{}, {}},
+				{{}},
+				type,
+				StateMutability::Pure
+		)});
+	}
+
+	members.push_back({
+		"zip",
+		TypeProvider::function(
+			{TypeProvider::stringMemory()},
+			{TypeProvider::bytesMemory()},
+			{{}},
+			{{}},
+			FunctionType::Kind::GoshZip,
+			StateMutability::Pure
+	)});
+	members.push_back({
+		"unzip",
+		TypeProvider::function(
+			  {TypeProvider::bytesMemory()},
+			  {TypeProvider::stringMemory()},
+			  {{}},
+			  {{}},
+			  FunctionType::Kind::GoshUnzip,
+			  StateMutability::Pure
+	)});
+	return members;
+}
+
+MemberList::MemberMap getRistMembers() {
+	MemberList::MemberMap members = {
+		{
+			"fromHash",
+			TypeProvider::function(
+				TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
+				TypePointers{TypeProvider::uint256()},
+				strings{"", ""},
+				strings{""},
+				FunctionType::Kind::Rist255FromHash,
+				StateMutability::Pure
+			)
+		},
+		{
+			"validate",
+			TypeProvider::function(
+				TypePointers{TypeProvider::uint256()},
+				TypePointers{},
+				strings{""},
+				strings{},
+				FunctionType::Kind::Rist255Validate,
+				StateMutability::Pure
+			)
+		},
+		{
+			"qValidate",
+			TypeProvider::function(
+				TypePointers{TypeProvider::uint256()},
+				TypePointers{TypeProvider::boolean()},
+				strings{""},
+				strings{""},
+				FunctionType::Kind::Rist255QValidate,
+				StateMutability::Pure
+			)
+		},
+		{
+			"add",
+			TypeProvider::function(
+				TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
+				TypePointers{TypeProvider::uint256()},
+				strings{"", ""},
+				strings{""},
+				FunctionType::Kind::Rist255Add,
+				StateMutability::Pure
+			)
+		},
+		{
+			"qAdd",
+			TypeProvider::function(
+				TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
+				TypePointers{TypeProvider::optional(TypeProvider::uint256())},
+				strings{"", ""},
+				strings{""},
+				FunctionType::Kind::Rist255QAdd,
+				StateMutability::Pure
+			)
+		},
+		{
+			"sub",
+			TypeProvider::function(
+				TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
+				TypePointers{TypeProvider::uint256()},
+				strings{"", ""},
+				strings{""},
+				FunctionType::Kind::Rist255Sub,
+				StateMutability::Pure
+			)
+		},
+		{
+			"qSub",
+			TypeProvider::function(
+				TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
+				TypePointers{TypeProvider::optional(TypeProvider::uint256())},
+				strings{"", ""},
+				strings{""},
+				FunctionType::Kind::Rist255QSub,
+				StateMutability::Pure
+			)
+		},
+		{
+			"mul",
+			TypeProvider::function(
+				TypePointers{TypeProvider::uint256(), TypeProvider::int257()},
+				TypePointers{TypeProvider::uint256()},
+				strings{"", ""},
+				strings{""},
+				FunctionType::Kind::Rist255Mul,
+				StateMutability::Pure
+			)
+		},
+		{
+			"qMul",
+			TypeProvider::function(
+				TypePointers{TypeProvider::uint256(), TypeProvider::int257()},
+				TypePointers{TypeProvider::optional(TypeProvider::uint256())},
+				strings{"", ""},
+				strings{""},
+				FunctionType::Kind::Rist255QMul,
+				StateMutability::Pure
+			)
+		},
+		{
+			"mulBase",
+			TypeProvider::function(
+				TypePointers{TypeProvider::int257()},
+				TypePointers{TypeProvider::uint256()},
+				strings{""},
+				strings{""},
+				FunctionType::Kind::Rist255Mulbase,
+				StateMutability::Pure
+			)
+		},
+		{
+			"qMulBase",
+			TypeProvider::function(
+				TypePointers{TypeProvider::int257()},
+				TypePointers{TypeProvider::optional(TypeProvider::uint256())},
+				strings{""},
+				strings{""},
+				FunctionType::Kind::Rist255QMulbase,
+				StateMutability::Pure
+			)
+		},
+		{
+			"l",
+			TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint256()},
+				strings{},
+				strings{""},
+				FunctionType::Kind::Rist255L,
+				StateMutability::Pure
+			)
+		},
+	};
+	return members;
+}
 }
 
 MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
@@ -4979,17 +5861,13 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 	case Kind::Message:
 		return MemberList::MemberMap({
 			{"sender", TypeProvider::address()},
-			{"pubkey", TypeProvider::function(strings(), strings{"uint"}, FunctionType::Kind::MsgPubkey, StateMutability::Pure)},
+			{"pubkey", TypeProvider::function(strings(), strings{"bytes32"}, FunctionType::Kind::MsgPubkey, StateMutability::Pure)},
 			{"createdAt", TypeProvider::uint(32)},
-			{"hasStateInit", TypeProvider::boolean()},
 			{"gas", TypeProvider::uint256()},
 			{"value", TypeProvider::coins()},
 			{"data", TypeProvider::tvmcell()},
 			{"sig", TypeProvider::fixedBytes(4)},
 			{"currencies", TypeProvider::extraCurrencyCollection()},
-			{"isExternal", TypeProvider::boolean()},
-			{"isInternal", TypeProvider::boolean()},
-			{"isTickTock", TypeProvider::boolean()},
 			{"body", TypeProvider::tvmslice()},
 			{"forwardFee", TypeProvider::coins()},
 			{"importFee", TypeProvider::coins()},
@@ -4998,158 +5876,10 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 		return getTvmMembers();
 	}
 	case Kind::Rnd: {
-		MemberList::MemberMap members = {
-			{
-				"next",
-				TypeProvider::function({}, {}, {}, {}, FunctionType::Kind::RndNext, StateMutability::Pure, nullptr, FunctionType::Options::withArbitraryParameters())
-			},
-			{
-				"setSeed",
-				TypeProvider::function({TypeProvider::uint256()}, {}, {{}}, {}, FunctionType::Kind::RndSetSeed, StateMutability::Pure)
-			},
-			{
-				"getSeed",
-				TypeProvider::function({}, {TypeProvider::uint256()}, {}, {{}}, FunctionType::Kind::RndGetSeed, StateMutability::Pure)
-			},
-			{
-				"shuffle",
-				TypeProvider::function({}, {}, {}, {}, FunctionType::Kind::RndShuffle, StateMutability::Pure)
-			},
-			{
-				"shuffle",
-				TypeProvider::function({TypeProvider::uint256()}, {}, {{}}, {}, FunctionType::Kind::RndShuffle, StateMutability::Pure)
-			}
-		};
-		return members;
+		return getRndMembers();
 	}
 	case Kind::Math: {
-		MemberList::MemberMap members = {
-			{
-				"divc",
-				TypeProvider::function(
-					{}, {}, {}, {}, FunctionType::Kind::MathDivC, StateMutability::Pure
-				)
-			},
-			{
-				"divr",
-				TypeProvider::function(
-					{}, {}, {}, {}, FunctionType::Kind::MathDivR, StateMutability::Pure
-				)
-			},
-			{
-				"mulmod",
-				TypeProvider::function(
-					{}, {}, {}, {}, FunctionType::Kind::MathMulMod, StateMutability::Pure
-				)
-			},
-		};
-
-		for (auto const& op: tonCombinedArithmeticOperations()) {
-			Type const* type = TypeProvider::integer(257, IntegerType::Modifier::Signed);
-			if (op.name.at(0) == 'q')
-				type = TypeProvider::qInteger(257, IntegerType::Modifier::Signed);
-			TypePointers take{op.take, type};
-			if (op.withRShift) {
-				take.pop_back();
-				take.push_back(TypeProvider::uint(9));
-			}
-			members.emplace_back(
-				op.name.c_str(),
-				TypeProvider::function(
-					take,
-					TypePointers{op.ret, type},
-					strings{op.take, ""},
-					strings{op.ret, ""},
-					FunctionType::Kind::TonCombArithOper,
-					StateMutability::Pure
-				)
-			);
-		}
-
-		members.emplace_back("max", TypeProvider::function(
-			TypePointers{},
-			TypePointers{},
-			strings{},
-			strings{},
-			FunctionType::Kind::MathMax,
-			StateMutability::Pure,
-			nullptr, FunctionType::Options::withArbitraryParameters()
-		));
-		members.emplace_back("min", TypeProvider::function(
-			TypePointers{},
-			TypePointers{},
-			strings{},
-			strings{},
-			FunctionType::Kind::MathMin,
-			StateMutability::Pure,
-			nullptr, FunctionType::Options::withArbitraryParameters()
-		));
-		members.emplace_back("minmax", TypeProvider::function(
-			TypePointers{},
-			TypePointers{},
-			strings{},
-			strings{},
-			FunctionType::Kind::MathMinMax,
-			StateMutability::Pure,
-			nullptr, FunctionType::Options::withArbitraryParameters()
-		));
-		for(const std::string code : {"muldiv", "muldivr", "muldivc"}) {
-			members.emplace_back(code.c_str(), TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::MathMulDiv,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
-			));
-		}
-		members.emplace_back("muldivmod", TypeProvider::function(
-			TypePointers{},
-			TypePointers{},
-			strings{},
-			strings{},
-			FunctionType::Kind::MathMulDivMod,
-			StateMutability::Pure,
-			nullptr, FunctionType::Options::withArbitraryParameters()
-		));
-		members.emplace_back("divmod", TypeProvider::function(
-			TypePointers{},
-			TypePointers{},
-			strings{},
-			strings{},
-			FunctionType::Kind::MathDivMod,
-			StateMutability::Pure,
-			nullptr, FunctionType::Options::withArbitraryParameters()
-		));
-		members.emplace_back("abs", TypeProvider::function(
-			TypePointers{},
-			TypePointers{},
-			strings{},
-			strings{},
-			FunctionType::Kind::MathAbs,
-			StateMutability::Pure,
-			nullptr, FunctionType::Options::withArbitraryParameters()
-		));
-		members.emplace_back("modpow2", TypeProvider::function(
-			TypePointers{},
-			TypePointers{},
-			strings{},
-			strings{},
-			FunctionType::Kind::MathModpow2,
-			StateMutability::Pure,
-			nullptr, FunctionType::Options::withArbitraryParameters()
-		));
-		members.emplace_back("sign", TypeProvider::function(
-			TypePointers{},
-			TypePointers{},
-			strings{},
-			strings{},
-			FunctionType::Kind::MathSign,
-			StateMutability::Pure,
-			nullptr, FunctionType::Options::withArbitraryParameters()
-		));
-		return members;
+		return getMathMembers();
 	}
 	case Kind::Transaction:
 		return MemberList::MemberMap({
@@ -5161,763 +5891,18 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 			{"timestamp", TypeProvider::uint(64)},
 		});
 	case Kind::ABI:
-		return MemberList::MemberMap({
-			{"encode", TypeProvider::function(
-				TypePointers{},
-				TypePointers{TypeProvider::tvmcell()},
-				strings{},
-				strings{{}},
-				FunctionType::Kind::ABIEncode,
-				StateMutability::Pure,
-				nullptr,
-				FunctionType::Options::withArbitraryParameters()
-			)},
-			{"encodePacked", TypeProvider::function(
-				TypePointers{},
-				TypePointers{TypeProvider::array()},
-				strings{},
-				strings{1, ""},
-				FunctionType::Kind::ABIEncodePacked,
-				StateMutability::Pure,
-				nullptr,
-				FunctionType::Options::withArbitraryParameters()
-			)},
-			{"encodeWithSelector", TypeProvider::function(
-				TypePointers{TypeProvider::fixedBytes(4)},
-				TypePointers{TypeProvider::array()},
-				strings{1, ""},
-				strings{1, ""},
-				FunctionType::Kind::ABIEncodeWithSelector,
-				StateMutability::Pure,
-				nullptr,
-				FunctionType::Options::withArbitraryParameters()
-			)},
-			{"encodeCall", TypeProvider::function(
-				TypePointers{},
-				TypePointers{TypeProvider::array()},
-				strings{},
-				strings{1, ""},
-				FunctionType::Kind::ABIEncodeCall,
-				StateMutability::Pure,
-				nullptr,
-				FunctionType::Options::withArbitraryParameters()
-			)},
-			{"encodeWithSignature", TypeProvider::function(
-				TypePointers{TypeProvider::array(true)},
-				TypePointers{TypeProvider::array()},
-				strings{1, ""},
-				strings{1, ""},
-				FunctionType::Kind::ABIEncodeWithSignature,
-				StateMutability::Pure,
-				nullptr,
-				FunctionType::Options::withArbitraryParameters()
-			)},
-			{"decode", TypeProvider::function(
-				TypePointers(),
-				TypePointers(),
-				strings{},
-				strings{},
-				FunctionType::Kind::ABIDecode,
-				StateMutability::Pure,
-				nullptr,
-				FunctionType::Options::withArbitraryParameters()
-			)},
-			{"encodeStateInit", TypeProvider::function(
-				TypePointers{TypeProvider::tvmcell(),
-							 TypeProvider::tvmcell(),
-							 TypeProvider::uint(8),
-							 TypeProvider::initializerList(),
-							 TypeProvider::uint256(),
-							//TypeProvider::contract(...) it's commented because we should set the concrete contract
-							// but it can be any contract
-				},
-				TypePointers{TypeProvider::tvmcell()},
-				strings{std::string("code"),	// mandatory
-						std::string("data"),	// conflicts with pubkey and varInit
-						std::string("splitDepth"),	// can be omitted
-						std::string("varInit"),	// conflicts with data
-						std::string("pubkey"),	// conflicts with data
-						//string("contr")
-				},
-				strings{std::string()},
-				FunctionType::Kind::ABIEncodeStateInit,
-				StateMutability::Pure,
-				nullptr,
-				FunctionType::Options::withArbitraryParameters()
-			)},
-			{"stateInitHash", TypeProvider::function(
-				TypePointers{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint(16), TypeProvider::uint(16)},
-				TypePointers{TypeProvider::uint256()},
-				strings{std::string(), std::string(), std::string(), std::string()},
-				strings{std::string()},
-				FunctionType::Kind::ABIStateInitHash,
-				StateMutability::Pure
-			)},
-			{"encodeData", TypeProvider::function(
-				{
-					TypeProvider::uint256(),
-					TypeProvider::initializerList(),
-					//TypeProvider::contract(...) it's commented because we should set the concrete contract
-				},
-				{TypeProvider::tvmcell()},
-				{"pubkey", "varInit"},
-				{{}},
-				FunctionType::Kind::ABIEncodeData,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
-			)},
-			{"encodeOldDataInit", TypeProvider::function(
-				{
-						TypeProvider::uint256(),
-						TypeProvider::initializerList(),
-						//TypeProvider::contract(...) it's commented because we should set the concrete contract
-				},
-				{TypeProvider::tvmcell()},
-				{"pubkey", "varInit"},
-				{{}},
-				FunctionType::Kind::ABIEncodeData,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
-			)},
-			{"codeSalt", TypeProvider::function(
-				{TypeProvider::tvmcell()},
-				{TypeProvider::optional(TypeProvider::tvmcell())},
-				{{}},
-				{{}},
-				FunctionType::Kind::ABICodeSalt,
-				StateMutability::Pure
-			)},
-			{"setCodeSalt", TypeProvider::function(
-				{TypeProvider::tvmcell(), TypeProvider::tvmcell()},
-				{TypeProvider::tvmcell()},
-				{{}, {}},
-				{{}},
-				FunctionType::Kind::ABISetCodeSalt,
-				StateMutability::Pure
-			)},
-			{"functionId", TypeProvider::function(
-				TypePointers{},
-				TypePointers{TypeProvider::uint(32)},
-				strings{},
-				strings{std::string()},
-				FunctionType::Kind::ABIFunctionId,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
-			)},
-			{"encodeIntMsg", TypeProvider::function(
-				{
-					TypeProvider::address(),
-					TypeProvider::coins(),
-					TypeProvider::extraCurrencyCollection(),
-					TypeProvider::boolean(),
-					TypeProvider::callList(),
-					TypeProvider::tvmcell(),
-				},
-				{TypeProvider::tvmcell()},
-				{
-					"dest", // mandatory
-					"value", // mandatory
-					"currencies", // can be omitted
-					"bounce", // can be omitted
-					"call", // mandatory
-					"stateInit", // can be omitted
-				},
-				{{}},
-				FunctionType::Kind::ABIEncodeIntMsg,
-				StateMutability::Pure,
-				nullptr,
-				FunctionType::Options::withArbitraryParameters()
-			)},
-			{"decodeData", TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::ABIDecodeData,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
-			)},
-			{"encodeBody", TypeProvider::function(
-				TypePointers{},
-				TypePointers{TypeProvider::tvmcell()},
-				strings{},
-				strings{std::string()},
-				FunctionType::Kind::ABIEncodeBody,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
-			)},
-			{"decodeFunctionParams", TypeProvider::function(
-				TypePointers{},
-				TypePointers{},
-				strings{},
-				strings{},
-				FunctionType::Kind::ABIDecodeFunctionParams,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
-			)}
-		});
+		return getABIMembers();
 	case Kind::BLS: {
-		auto members = MemberList::MemberMap({
-			{
-				"verify",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
-					TypePointers{TypeProvider::boolean()},
-					strings{"", "", ""},
-					strings{""},
-					FunctionType::Kind::BlsVerify,
-					StateMutability::Pure
-				)
-			},
-			{
-				"aggregate",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmVector(TypeProvider::tvmslice())},
-					TypePointers{TypeProvider::tvmslice()},
-					strings{""},
-					strings{""},
-					FunctionType::Kind::BlsAggregate,
-					StateMutability::Pure
-				)
-			},
-			{
-				"fastAggregateVerify",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmVector(TypeProvider::tvmslice()), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
-					TypePointers{TypeProvider::boolean()},
-					strings{"", "", ""},
-					strings{""},
-					FunctionType::Kind::BlsFastAggregateVerify,
-					StateMutability::Pure
-				)
-			},
-			{
-				"aggregateVerify",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmVector(TypeProvider::tuple({TypeProvider::tvmslice(), TypeProvider::tvmslice()})), TypeProvider::tvmslice()},
-					TypePointers{TypeProvider::boolean()},
-					strings{"", ""},
-					strings{""},
-					FunctionType::Kind::BlsAggregateVerify,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g1Add",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice()},
-					TypePointers{TypeProvider::tvmslice()},
-					strings{"", ""},
-					strings{""},
-					FunctionType::Kind::BlsG1Add,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g1Sub",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice()},
-					TypePointers{TypeProvider::tvmslice()},
-					strings{"", ""},
-					strings{""},
-					FunctionType::Kind::BlsG1Sub,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g1Neg",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmslice()},
-					TypePointers{TypeProvider::tvmslice()},
-					strings{""},
-					strings{""},
-					FunctionType::Kind::BlsG1Neg,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g1Mul",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmslice(), TypeProvider::int257()},
-					TypePointers{TypeProvider::tvmslice()},
-					strings{"", ""},
-					strings{""},
-					FunctionType::Kind::BlsG1Mul,
-					StateMutability::Pure
-				)
-			},
-			{
-				"mapToG1",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmslice()},
-					TypePointers{TypeProvider::tvmslice()},
-					strings{""},
-					strings{""},
-					FunctionType::Kind::BlsMapToG1,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g1IsZero",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmslice()},
-					TypePointers{TypeProvider::boolean()},
-					strings{""},
-					strings{""},
-					FunctionType::Kind::BlsG1IsZero,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g1InGroup",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmslice()},
-					TypePointers{TypeProvider::boolean()},
-					strings{""},
-					strings{""},
-					FunctionType::Kind::BlsG1InGroup,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g2Add",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice()},
-					TypePointers{TypeProvider::tvmslice()},
-					strings{"", ""},
-					strings{""},
-					FunctionType::Kind::BlsG2Add,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g2Sub",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice()},
-					TypePointers{TypeProvider::tvmslice()},
-					strings{"", ""},
-					strings{""},
-					FunctionType::Kind::BlsG2Sub,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g2Neg",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmslice()},
-					TypePointers{TypeProvider::tvmslice()},
-					strings{""},
-					strings{""},
-					FunctionType::Kind::BlsG2Neg,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g2Mul",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmslice(), TypeProvider::int257()},
-					TypePointers{TypeProvider::tvmslice()},
-					strings{"", ""},
-					strings{""},
-					FunctionType::Kind::BlsG2Mul,
-					StateMutability::Pure
-				)
-			},
-			{
-				"mapToG2",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmslice()},
-					TypePointers{TypeProvider::tvmslice()},
-					strings{""},
-					strings{""},
-					FunctionType::Kind::BlsMapToG2,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g2IsZero",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmslice()},
-					TypePointers{TypeProvider::boolean()},
-					strings{""},
-					strings{""},
-					FunctionType::Kind::BlsG2IsZero,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g2InGroup",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmslice()},
-					TypePointers{TypeProvider::boolean()},
-					strings{""},
-					strings{""},
-					FunctionType::Kind::BlsG2InGroup,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g1Zero",
-				TypeProvider::function(
-					TypePointers{},
-					TypePointers{TypeProvider::tvmslice()},
-					strings{},
-					strings{""},
-					FunctionType::Kind::BlsG1Zero,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g2Zero",
-				TypeProvider::function(
-					TypePointers{},
-					TypePointers{TypeProvider::tvmslice()},
-					strings{},
-					strings{""},
-					FunctionType::Kind::BlsG2Zero,
-					StateMutability::Pure
-				)
-			},
-			{
-				"r",
-				TypeProvider::function(
-					TypePointers{},
-					TypePointers{TypeProvider::uint(255)},
-					strings{},
-					strings{""},
-					FunctionType::Kind::BlsPushR,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g1MultiExp",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmVector(TypeProvider::tuple({TypeProvider::tvmslice(),TypeProvider::int257()}))},
-					TypePointers{TypeProvider::tvmslice()},
-					strings{""},
-					strings{""},
-					FunctionType::Kind::BlsG1MultiExp,
-					StateMutability::Pure
-				)
-			},
-			{
-				"g2MultiExp",
-				TypeProvider::function(
-					TypePointers{TypeProvider::tvmVector(TypeProvider::tuple({TypeProvider::tvmslice(),TypeProvider::int257()}))},
-					TypePointers{TypeProvider::tvmslice()},
-					strings{""},
-					strings{""},
-					FunctionType::Kind::BlsG2MultiExp,
-					StateMutability::Pure
-				)
-			}
-		});
-		auto args = TypePointers{TypeProvider::tvmslice()};
-		auto argNames = strings{""};
-		for (int n = 1; n <= 255; ++n)
-		{
-			members.emplace_back(
-				"aggregate",
-				TypeProvider::function(
-					args,
-					TypePointers{TypeProvider::tvmslice()},
-					argNames,
-					strings{""},
-					FunctionType::Kind::BlsAggregate,
-					StateMutability::Pure
-				)
-			);
-			{
-				auto favArgs = args;
-				favArgs.emplace_back(TypeProvider::tvmslice());
-				favArgs.emplace_back(TypeProvider::tvmslice());
-				auto favNames = argNames;
-				favNames.emplace_back("");
-				favNames.emplace_back("");
-				members.emplace_back(
-					"fastAggregateVerify",
-					TypeProvider::function(
-						favArgs,
-						TypePointers{TypeProvider::boolean()},
-						favNames,
-						strings{""},
-						FunctionType::Kind::BlsFastAggregateVerify,
-						StateMutability::Pure
-					)
-				);
-			}
-			{
-				auto avArgs = args;
-				avArgs.insert(avArgs.end(), args.begin(), args.end());
-				avArgs.emplace_back(TypeProvider::tvmslice());
-				auto avNames = argNames;
-				avNames.insert(avNames.end(), argNames.begin(), argNames.end());
-				avNames.emplace_back("");
-				members.emplace_back(
-					"aggregateVerify",
-					TypeProvider::function(
-						avArgs,
-						TypePointers{TypeProvider::boolean()},
-						avNames,
-						strings{""},
-						FunctionType::Kind::BlsAggregateVerify,
-						StateMutability::Pure
-					)
-				);
-			}
-			{
-				TypePointers mulArgs;
-				strings mulNames;
-				for (int i = 0; i < n; ++i) {
-					mulArgs.emplace_back(TypeProvider::tvmslice());
-					mulArgs.emplace_back(TypeProvider::int257());
-					mulNames.emplace_back("");
-					mulNames.emplace_back("");
-				}
-				members.emplace_back(
-					"g1MultiExp",
-					TypeProvider::function(
-						mulArgs,
-						TypePointers{TypeProvider::tvmslice()},
-						mulNames,
-						strings{""},
-						FunctionType::Kind::BlsG1MultiExp,
-						StateMutability::Pure
-					)
-				);
-				members.emplace_back(
-					"g2MultiExp",
-					TypeProvider::function(
-						mulArgs,
-						TypePointers{TypeProvider::tvmslice()},
-						mulNames,
-						strings{""},
-						FunctionType::Kind::BlsG1MultiExp,
-						StateMutability::Pure
-					)
-				);
-			}
-
-			//
-			args.emplace_back(TypeProvider::tvmslice());
-			argNames.emplace_back("");
-		}
-		return members;
+		return getBLSMembers();
 	}
 	case Kind::Gosh: {
-		MemberList::MemberMap members;
-		for (auto const&[name, type] : std::vector<std::tuple<std::string, FunctionType::Kind>>{
-				{"diff", FunctionType::Kind::GoshDiff},
-				{"applyPatch", FunctionType::Kind::GoshApplyPatch},
-		}) {
-			members.push_back({ name.c_str(),
-				TypeProvider::function(
-					{TypeProvider::stringMemory(), TypeProvider::stringMemory()},
-					{TypeProvider::stringMemory()},
-					{{}, {}},
-					{{}},
-					type,
-					StateMutability::Pure,
-					nullptr, FunctionType::Options::withArbitraryParameters()
-			)});
-		}
-
-		for (auto const&[name, type] : std::vector<std::tuple<std::string, FunctionType::Kind>>{
-				{"applyBinPatch", FunctionType::Kind::GoshApplyBinPatch},
-				{"applyZipBinPatch", FunctionType::Kind::GoshApplyZipBinPatch},
-				{"applyZipPatch", FunctionType::Kind::GoshApplyZipPatch},
-				{"zipDiff", FunctionType::Kind::GoshZipDiff},
-		}) {
-			members.push_back({ name.c_str(),
-				TypeProvider::function(
-					{TypeProvider::bytesMemory(), TypeProvider::bytesMemory()},
-					{TypeProvider::bytesMemory()},
-					{{}, {}},
-					{{}},
-					type,
-					StateMutability::Pure,
-					nullptr, FunctionType::Options::withArbitraryParameters()
-			)});
-		}
-
-		members.push_back({ "applyPatchQ",
-			TypeProvider::function(
-				{TypeProvider::stringMemory(), TypeProvider::stringMemory()},
-				{TypeProvider::optional(TypeProvider::stringMemory())},
-				{{}, {}},
-				{{}},
-				FunctionType::Kind::GoshApplyZipPatchQ,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
-		)});
-
-		for (auto const&[name, type] : std::vector<std::tuple<std::string, FunctionType::Kind>>{
-				{"applyZipPatchQ", FunctionType::Kind::GoshApplyZipPatchQ},
-				{"applyBinPatchQ", FunctionType::Kind::GoshApplyBinPatchQ},
-				{"applyZipBinPatchQ", FunctionType::Kind::GoshApplyZipBinPatchQ},
-		}) {
-			members.push_back({ name.c_str(),
-				TypeProvider::function(
-					{TypeProvider::bytesMemory(), TypeProvider::bytesMemory()},
-					{TypeProvider::optional(TypeProvider::bytesMemory())},
-					{{}, {}},
-					{{}},
-					type,
-					StateMutability::Pure,
-					nullptr, FunctionType::Options::withArbitraryParameters()
-			)});
-		}
-
-		members.push_back({
-			"zip",
-			TypeProvider::function(
-				{TypeProvider::stringMemory()},
-				{TypeProvider::bytesMemory()},
-				{{}},
-				{{}},
-				FunctionType::Kind::GoshZip,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
-		)});
-		members.push_back({
-			"unzip",
-			TypeProvider::function(
-				  {TypeProvider::bytesMemory()},
-				  {TypeProvider::stringMemory()},
-				  {{}},
-				  {{}},
-				  FunctionType::Kind::GoshUnzip,
-				  StateMutability::Pure,
-					nullptr, FunctionType::Options::withArbitraryParameters()
-		)});
-		return members;
+		return getGOSHMembers();
 	}
 	case Kind::RIST255: {
-		MemberList::MemberMap members = {
-			{
-				"fromHash",
-				TypeProvider::function(
-					TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
-					TypePointers{TypeProvider::uint256()},
-					strings{"", ""},
-					strings{""},
-					FunctionType::Kind::Rist255FromHash,
-					StateMutability::Pure
-				)
-			},
-			{
-				"validate",
-				TypeProvider::function(
-					TypePointers{TypeProvider::uint256()},
-					TypePointers{},
-					strings{""},
-					strings{},
-					FunctionType::Kind::Rist255Validate,
-					StateMutability::Pure
-				)
-			},
-			{
-				"qValidate",
-				TypeProvider::function(
-					TypePointers{TypeProvider::uint256()},
-					TypePointers{TypeProvider::boolean()},
-					strings{""},
-					strings{""},
-					FunctionType::Kind::Rist255QValidate,
-					StateMutability::Pure
-				)
-			},
-			{
-				"add",
-				TypeProvider::function(
-					TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
-					TypePointers{TypeProvider::uint256()},
-					strings{"", ""},
-					strings{""},
-					FunctionType::Kind::Rist255Add,
-					StateMutability::Pure
-				)
-			},
-			{
-				"qAdd",
-				TypeProvider::function(
-					TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
-					TypePointers{TypeProvider::optional(TypeProvider::uint256())},
-					strings{"", ""},
-					strings{""},
-					FunctionType::Kind::Rist255QAdd,
-					StateMutability::Pure
-				)
-			},
-			{
-				"sub",
-				TypeProvider::function(
-					TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
-					TypePointers{TypeProvider::uint256()},
-					strings{"", ""},
-					strings{""},
-					FunctionType::Kind::Rist255Sub,
-					StateMutability::Pure
-				)
-			},
-			{
-				"qSub",
-				TypeProvider::function(
-					TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
-					TypePointers{TypeProvider::optional(TypeProvider::uint256())},
-					strings{"", ""},
-					strings{""},
-					FunctionType::Kind::Rist255QSub,
-					StateMutability::Pure
-				)
-			},
-			{
-				"mul",
-				TypeProvider::function(
-					TypePointers{TypeProvider::int257(), TypeProvider::uint256()},
-					TypePointers{TypeProvider::uint256()},
-					strings{"", ""},
-					strings{""},
-					FunctionType::Kind::Rist255Mul,
-					StateMutability::Pure
-				)
-			},
-			{
-				"qMul",
-				TypeProvider::function(
-					TypePointers{TypeProvider::int257(), TypeProvider::uint256()},
-					TypePointers{TypeProvider::optional(TypeProvider::uint256())},
-					strings{"", ""},
-					strings{""},
-					FunctionType::Kind::Rist255QMul,
-					StateMutability::Pure
-				)
-			},
-			{
-				"mulBase",
-				TypeProvider::function(
-					TypePointers{TypeProvider::int257()},
-					TypePointers{TypeProvider::uint256()},
-					strings{""},
-					strings{""},
-					FunctionType::Kind::Rist255Mulbase,
-					StateMutability::Pure
-				)
-			},
-			{
-				"l",
-				TypeProvider::function(
-					TypePointers{},
-					TypePointers{TypeProvider::uint256()},
-					strings{},
-					strings{""},
-					FunctionType::Kind::Rist255L,
-					StateMutability::Pure
-				)
-			},
-		};
-		return members;
+		return getRistMembers();
 	}
+	case Kind::Error:
+		return {};
 	case Kind::MetaType:
 	{
 		solAssert(
@@ -6002,6 +5987,8 @@ std::string MagicType::toString(bool _withoutDataLocation) const
 		return "bls";
 	case Kind::RIST255:
 		return "rist255";
+	case Kind::Error:
+		return "error";
 	}
 	solAssert(false, "Unknown kind of magic.");
 	return {};
@@ -6017,92 +6004,6 @@ Type const* MagicType::typeArgument() const
 Type const* InaccessibleDynamicType::decodingType() const
 {
 	return TypeProvider::uint(256);
-}
-
-MemberList::MemberMap OptionalType::nativeMembers(ASTNode const*) const
-{
-	TypePointers comps;
-	strings names;
-	if (auto tuple = dynamic_cast<TupleType const*>(valueType())) {
-		for (Type const* comp : tuple->components()) {
-			comps.emplace_back(comp);
-			names.emplace_back("");
-		}
-	} else {
-		comps.emplace_back(valueType());
-		names.emplace_back("");
-	}
-
-
-	MemberList::MemberMap members = {
-		{
-			"hasValue",
-			TypeProvider::function(
-				{},
-				{TypeProvider::boolean()},
-				{},
-				{{}},
-				FunctionType::Kind::OptionalHasValue,
-				StateMutability::Pure
-			)
-		},
-		{
-			"get",
-			TypeProvider::function(
-				{},
-				{valueType()},
-				{},
-				{{}},
-				FunctionType::Kind::OptionalGet,
-				StateMutability::Pure
-			)
-		},
-		{
-			"getOrDefault",
-			TypeProvider::function(
-				{},
-				{valueType()},
-				{},
-				{{}},
-				FunctionType::Kind::OptionalGetOrDefault,
-				StateMutability::Pure
-			)
-		},
-		{
-			"set",
-			TypeProvider::function(
-				comps,
-				{},
-				names,
-				{},
-				FunctionType::Kind::OptionalSet,
-				StateMutability::Pure
-			)
-		},
-		{
-			"getOr",
-			TypeProvider::function(
-				comps,
-				{valueType()},
-				names,
-				{{}},
-				FunctionType::Kind::OptionalGetOr,
-				StateMutability::Pure
-			)
-		},
-		{
-			"reset",
-			TypeProvider::function(
-				{},
-				{},
-				{},
-				{},
-				FunctionType::Kind::OptionalReset,
-				StateMutability::Pure
-			)
-		}
-	};
-	return members;
 }
 
 BoolResult TvmSliceType::isExplicitlyConvertibleTo(Type const& _convertTo) const {
@@ -6133,8 +6034,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				{{}},
 				{{}, {}, {}},
 				FunctionType::Kind::TVMSliceDataSize,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 			)
 		},
 		{
@@ -6144,8 +6044,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				{{}},
 				{{}},
 				FunctionType::Kind::TVMSliceDataSize,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 			)
 		},
 		{
@@ -6185,8 +6084,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				strings{},
 				strings{},
 				FunctionType::Kind::TVMSliceLoad,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 			)
 		},
 		{
@@ -6196,8 +6094,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				strings{},
 				strings{},
 				FunctionType::Kind::TVMSliceLoad,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 			)
 		},
 		{
@@ -6207,8 +6104,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				strings{},
 				strings{},
 				FunctionType::Kind::TVMSlicePreload,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 			)
 		},
 		{
@@ -6218,8 +6114,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				strings{},
 				strings{},
 				FunctionType::Kind::TVMSliceLoadQ,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 			)
 		},
 		{
@@ -6229,8 +6124,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				strings{},
 				strings{},
 				FunctionType::Kind::TVMSliceLoadQ,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 			)
 		},
 		{
@@ -6240,8 +6134,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				strings{},
 				strings{},
 				FunctionType::Kind::TVMSlicePreloadQ,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 			)
 		},
 		{
@@ -6251,8 +6144,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				strings{},
 				strings{},
 				FunctionType::Kind::TVMSliceLoadFunctionParams,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 			)
 		},
 		{
@@ -6262,8 +6154,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				strings{},
 				strings{},
 				FunctionType::Kind::TVMSliceLoadFunctionParams,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 			)
 		},
 		{
@@ -6273,8 +6164,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				strings{},
 				strings{},
 				FunctionType::Kind::TVMSliceLoadStateVars,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 			)
 		},
 		{
@@ -6284,8 +6174,7 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 				strings{},
 				strings{},
 				FunctionType::Kind::TVMSliceLoadStateVars,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 			)
 		},
 		{
@@ -6805,6 +6694,16 @@ MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 			)
 		},
 		{
+			"loadBouncedMsgTag", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::boolean()},
+				strings{},
+				strings{std::string()},
+				FunctionType::Kind::TVMSliceLoadBouncedMsgTag,
+				StateMutability::Pure
+			)
+		},
+		{
 			"loadRefAsSlice", TypeProvider::function(
 				TypePointers{},
 				TypePointers{TypeProvider::tvmslice()},
@@ -7115,9 +7014,14 @@ MemberList::MemberMap TvmStackType::nativeMembers(const ASTNode *) const
 		{
 			"sort",
 			TypeProvider::function(
+				TypePointers{TypeProvider::function(
+					TypePointers{valueType(), valueType()},
+					TypePointers{TypeProvider::boolean()},
+					strings{{}, {}},
+					strings{{}}
+				)},
 				TypePointers{},
-				TypePointers{},
-				strings{},
+				strings{{}},
 				strings{},
 				FunctionType::Kind::TVMStackSort,
 				StateMutability::Pure
@@ -7339,8 +7243,7 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 				strings{},
 				strings{},
 				FunctionType::Kind::TVMBuilderStore,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 			)
 		},
 		{
@@ -7350,8 +7253,7 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 				strings{},
 				strings{""},
 				FunctionType::Kind::TVMBuilderStoreQ,
-				StateMutability::Pure,
-				nullptr, FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 			)
 		},
 		{
@@ -7481,9 +7383,7 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 				{},
 				{},
 				FunctionType::Kind::TVMBuilderHash,
-				StateMutability::Pure,
-				nullptr,
-				FunctionType::Options::withArbitraryParameters()
+				StateMutability::Pure
 			)
 		);
 	}

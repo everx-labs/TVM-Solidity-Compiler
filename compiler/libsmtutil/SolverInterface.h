@@ -26,7 +26,8 @@
 #include <libsolutil/CommonData.h>
 
 #include <range/v3/algorithm/all_of.hpp>
-#include <range/v3/view.hpp>
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/view/split.hpp>
 
 #include <cstdio>
 #include <map>
@@ -41,13 +42,13 @@ namespace solidity::smtutil
 
 struct SMTSolverChoice
 {
-	bool cvc4 = false;
+	bool cvc5 = false;
 	bool eld = false;
 	bool smtlib2 = false;
 	bool z3 = false;
 
 	static constexpr SMTSolverChoice All() noexcept { return {true, true, true, true}; }
-	static constexpr SMTSolverChoice CVC4() noexcept { return {true, false, false, false}; }
+	static constexpr SMTSolverChoice CVC5() noexcept { return {true, false, false, false}; }
 	static constexpr SMTSolverChoice ELD() noexcept { return {false, true, false, false}; }
 	static constexpr SMTSolverChoice SMTLIB2() noexcept { return {false, false, true, false}; }
 	static constexpr SMTSolverChoice Z3() noexcept { return {false, false, false, true}; }
@@ -65,7 +66,7 @@ struct SMTSolverChoice
 
 	SMTSolverChoice& operator&=(SMTSolverChoice const& _other)
 	{
-		cvc4 &= _other.cvc4;
+		cvc5 &= _other.cvc5;
 		eld &= _other.eld;
 		smtlib2 &= _other.smtlib2;
 		z3 &= _other.z3;
@@ -82,7 +83,7 @@ struct SMTSolverChoice
 
 	bool operator==(SMTSolverChoice const& _other) const noexcept
 	{
-		return cvc4 == _other.cvc4 &&
+		return cvc5 == _other.cvc5 &&
 			eld == _other.eld &&
 			smtlib2 == _other.smtlib2 &&
 			z3 == _other.z3;
@@ -90,11 +91,11 @@ struct SMTSolverChoice
 
 	bool setSolver(std::string const& _solver)
 	{
-		static std::set<std::string> const solvers{"cvc4", "eld", "smtlib2", "z3"};
+		static std::set<std::string> const solvers{"cvc5", "eld", "smtlib2", "z3"};
 		if (!solvers.count(_solver))
 			return false;
-		if (_solver == "cvc4")
-			cvc4 = true;
+		if (_solver == "cvc5")
+			cvc5 = true;
 		if (_solver == "eld")
 			eld = true;
 		else if (_solver == "smtlib2")
@@ -105,8 +106,8 @@ struct SMTSolverChoice
 	}
 
 	bool none() const noexcept { return !some(); }
-	bool some() const noexcept { return cvc4 || eld || smtlib2 || z3; }
-	bool all() const noexcept { return cvc4 && eld && smtlib2 && z3; }
+	bool some() const noexcept { return cvc5 || eld || smtlib2 || z3; }
+	bool all() const noexcept { return cvc5 && eld && smtlib2 && z3; }
 };
 
 enum class CheckResult
@@ -124,7 +125,7 @@ public:
 	explicit Expression(std::string _name, std::vector<Expression> _arguments, SortPointer _sort):
 		name(std::move(_name)), arguments(std::move(_arguments)), sort(std::move(_sort)) {}
 	Expression(size_t _number): Expression(std::to_string(_number), {}, SortProvider::uintSort) {}
-	Expression(u256 const& _number): Expression(_number.str(), {}, SortProvider::sintSort) {}
+	Expression(u256 const& _number): Expression(_number.str(), {}, SortProvider::uintSort) {}
 	Expression(s256 const& _number): Expression(
 		_number >= 0 ? _number.str() : "-",
 		_number >= 0 ?
@@ -189,10 +190,7 @@ public:
 
 	static Expression ite(Expression _condition, Expression _trueValue, Expression _falseValue)
 	{
-		if (_trueValue.sort->kind == Kind::Int)
-			smtAssert(_trueValue.sort->kind == _falseValue.sort->kind, "");
-		else
-			smtAssert(*_trueValue.sort == *_falseValue.sort, "");
+		smtAssert(areCompatible(*_trueValue.sort, *_falseValue.sort));
 		SortPointer sort = _trueValue.sort;
 		return Expression("ite", std::vector<Expression>{
 			std::move(_condition), std::move(_trueValue), std::move(_falseValue)
@@ -216,10 +214,7 @@ public:
 		std::shared_ptr<ArraySort> arraySort = std::dynamic_pointer_cast<ArraySort>(_array.sort);
 		smtAssert(arraySort, "");
 		smtAssert(_index.sort, "");
-		if (arraySort->domain->kind == Kind::Int)
-			smtAssert(arraySort->domain->kind == _index.sort->kind, "");
-		else
-			smtAssert(*arraySort->domain == *_index.sort, "");
+		smtAssert(areCompatible(*arraySort->domain, *_index.sort));
 		return Expression(
 			"select",
 			std::vector<Expression>{std::move(_array), std::move(_index)},
@@ -235,11 +230,8 @@ public:
 		smtAssert(arraySort, "");
 		smtAssert(_index.sort, "");
 		smtAssert(_element.sort, "");
-		smtAssert(*arraySort->domain == *_index.sort, "");
-		if (arraySort->domain->kind == Kind::Int)
-			smtAssert(arraySort->range->kind == _element.sort->kind, "");
-		else
-			smtAssert(*arraySort->range == *_element.sort, "");
+		smtAssert(areCompatible(*arraySort->domain, *_index.sort));
+		smtAssert(areCompatible(*arraySort->range, *_element.sort));
 		return Expression(
 			"store",
 			std::vector<Expression>{std::move(_array), std::move(_index), std::move(_element)},
@@ -254,10 +246,7 @@ public:
 		auto arraySort = std::dynamic_pointer_cast<ArraySort>(sortSort->inner);
 		smtAssert(sortSort && arraySort, "");
 		smtAssert(_value.sort, "");
-		if (arraySort->domain->kind == Kind::Int)
-			smtAssert(arraySort->range->kind == _value.sort->kind, "");
-		else
-			smtAssert(*arraySort->range == *_value.sort, "");
+		smtAssert(areCompatible(*arraySort->range, *_value.sort));
 		return Expression(
 			"const_array",
 			std::vector<Expression>{std::move(_sort), std::move(_value)},
@@ -501,6 +490,12 @@ public:
 	SortPointer sort;
 
 private:
+	/// Helper method for checking sort compatibility when creating expressions
+	/// Signed and unsigned Int sorts are compatible even though they are not same
+	static bool areCompatible(Sort const& s1, Sort const& s2)
+	{
+		return s1.kind == Kind::Int ? s1.kind == s2.kind : s1 == s2;
+	}
 	/// Manual constructors, should only be used by SolverInterface and this class itself.
 	Expression(std::string _name, std::vector<Expression> _arguments, Kind _kind):
 		Expression(std::move(_name), std::move(_arguments), std::make_shared<Sort>(_kind)) {}
@@ -518,13 +513,9 @@ DEV_SIMPLE_EXCEPTION(SolverError);
 class SolverInterface
 {
 public:
-	SolverInterface(std::optional<unsigned> _queryTimeout = {}): m_queryTimeout(_queryTimeout) {}
+	SolverInterface() = default;
 
 	virtual ~SolverInterface() = default;
-	virtual void reset() = 0;
-
-	virtual void push() = 0;
-	virtual void pop() = 0;
 
 	virtual void declareVariable(std::string const& _name, SortPointer const& _sort) = 0;
 	Expression newVariable(std::string _name, SortPointer const& _sort)
@@ -535,21 +526,8 @@ public:
 		return Expression(std::move(_name), {}, _sort);
 	}
 
-	virtual void addAssertion(Expression const& _expr) = 0;
-
-	/// Checks for satisfiability, evaluates the expressions if a model
-	/// is available. Throws SMTSolverError on error.
-	virtual std::pair<CheckResult, std::vector<std::string>>
-	check(std::vector<Expression> const& _expressionsToEvaluate) = 0;
-
-	/// @returns a list of queries that the system was not able to respond to.
-	virtual std::vector<std::string> unhandledQueries() { return {}; }
-
 	/// @returns how many SMT solvers this interface has.
 	virtual size_t solvers() { return 1; }
-
-protected:
-	std::optional<unsigned> m_queryTimeout;
 };
 
 }

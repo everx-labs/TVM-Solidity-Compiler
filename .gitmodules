@@ -1,0 +1,9 @@
+[submodule "compiler/deps/fmtlib"]
+	path = compiler/deps/fmtlib
+	url = https://github.com/fmtlib/fmt.git
+[submodule "compiler/deps/range-v3"]
+	path = compiler/deps/range-v3
+	url = https://github.com/ericniebler/range-v3.git
+[submodule "compiler/deps/nlohmann-json"]
+	path = compiler/deps/nlohmann-json
+	url = https://github.com/nlohmann/json.git

@@ -488,8 +488,8 @@ Proved Targets
 
 If there are any proved targets, the SMTChecker issues one warning per engine stating
 how many targets were proved. If the user wishes to see all the specific
-proved targets, the CLI option ``--model-checker-show-proved`` and
-the JSON option ``settings.modelChecker.showProved = true`` can be used.
+proved targets, the CLI option ``--model-checker-show-proved-safe`` and
+the JSON option ``settings.modelChecker.showProvedSafe = true`` can be used.
 
 Unproved Targets
 ================
@@ -822,20 +822,16 @@ which is primarily an SMT solver and makes `Spacer
 <https://github.com/uuverifiers/eldarica>`_ which does both.
 
 The user can choose which solvers should be used, if available, via the CLI
-option ``--model-checker-solvers {all,cvc4,eld,smtlib2,z3}`` or the JSON option
+option ``--model-checker-solvers {all,cvc5,eld,smtlib2,z3}`` or the JSON option
 ``settings.modelChecker.solvers=[smtlib2,z3]``, where:
 
-- ``cvc4`` is only available if the ``solc`` binary is compiled with it. Only BMC uses ``cvc4``.
+- ``cvc5`` is used via its binary which must be installed in the system. Only BMC uses ``cvc5``.
 - ``eld`` is used via its binary which must be installed in the system. Only CHC uses ``eld``, and only if ``z3`` is not enabled.
 - ``smtlib2`` outputs SMT/Horn queries in the `smtlib2 <http://smtlib.cs.uiowa.edu/>`_ format.
   These can be used together with the compiler's `callback mechanism <https://github.com/ethereum/solc-js>`_ so that
   any solver binary from the system can be employed to synchronously return the results of the queries to the compiler.
   This can be used by both BMC and CHC depending on which solvers are called.
-- ``z3`` is available
-
-  - if ``solc`` is compiled with it;
-  - if a dynamic ``z3`` library of version >=4.8.x is installed in a Linux system (from Solidity 0.7.6);
-  - statically in ``soljson.js`` (from Solidity 0.6.9), that is, the JavaScript binary of the compiler.
+- ``z3`` is available statically in ``soljson.js`` (from Solidity 0.6.9), that is, the JavaScript binary of the compiler. Otherwise it is used via its binary which must be installed in the system.
 
 .. note::
   z3 version 4.8.16 broke ABI compatibility with previous versions and cannot
@@ -849,7 +845,7 @@ concerned about this option. More advanced users might apply this option to try
 alternative solvers on more complex problems.
 
 Please note that certain combinations of chosen engine and solver will lead to
-the SMTChecker doing nothing, for example choosing CHC and ``cvc4``.
+the SMTChecker doing nothing, for example choosing CHC and ``cvc5``.
 
 *******************************
 Abstraction and False Positives
@@ -935,16 +931,16 @@ the arguments.
 +-----------------------------------+--------------------------------------+
 |``addmod``, ``mulmod``             |Supported precisely.                  |
 +-----------------------------------+--------------------------------------+
-|``gasleft``, ``blockhash``,        |Abstracted with UF.                   |
-|``keccak256``, ``ecrecover``       |                                      |
-|``ripemd160``                      |                                      |
+|``gasleft``, ``blobhash``,         |Abstracted with UF.                   |
+|``blockhash``, ``keccak256``,      |                                      |
+|``ecrecover``, ``ripemd160``       |                                      |
 +-----------------------------------+--------------------------------------+
 |pure functions without             |Abstracted with UF                    |
 |implementation (external or        |                                      |
 |complex)                           |                                      |
 +-----------------------------------+--------------------------------------+
 |external functions without         |BMC: Erase state knowledge and assume |
-|implementation                     |result is nondeterminisc.             |
+|implementation                     |result is nondeterministic.           |
 |                                   |CHC: Nondeterministic summary.        |
 |                                   |Try to infer invariants that hold     |
 |                                   |after the call returns.               |

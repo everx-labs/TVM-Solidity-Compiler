@@ -26,6 +26,8 @@
 #include <libsolidity/interface/StandardCompiler.h>
 #include <libsolidity/interface/Version.h>
 
+#include <solc/CommandLineInterface.h>
+
 #include <cstdlib>
 #include <list>
 #include <string>
@@ -46,6 +48,10 @@ namespace
 // this may potentially change the pointer that was passed to the caller from solidity_alloc().
 static std::list<std::string> solidityAllocations;
 
+static std::string outStem;
+static std::string outDir;
+static bool doGenerateTvc = false;
+
 /// Find the equivalent to @p _data in the list of allocations of solidity_alloc(),
 /// removes it from the list and returns its value.
 ///
@@ -64,7 +70,7 @@ std::string takeOverAllocation(char const* _data)
 	abort();
 }
 
-/// Resizes a std::std::string to the proper length based on the occurrence of a zero terminator.
+/// Resizes a std::string to the proper length based on the occurrence of a zero terminator.
 void truncateCString(std::string& _data)
 {
 	size_t pos = _data.find('\0');
@@ -157,75 +163,63 @@ extern void solidity_reset() noexcept
 	solidityAllocations.clear();
 }
 
-// #define FILE_READER_DEBUG 1
-
-extern void* file_reader_new() noexcept
+int solc_main(int argc, char const* const* argv) SOLC_NOEXCEPT
 {
-#ifdef FILE_READER_DEBUG
-	cout << "file_reader_new" << endl;
-#endif
-	return new FileReader();
-}
-extern void file_reader_set_base_path(void *p, const char* path) noexcept
-{
-#ifdef FILE_READER_DEBUG
-	cout << "file_reader_set_base_path " << path << endl;
-#endif
-	FileReader *fileReader = (FileReader *)p;
-	fileReader->setBasePath(boost::filesystem::path(path));
-}
-extern void file_reader_add_include_path(void *p, const char* path) noexcept
-{
-#ifdef FILE_READER_DEBUG
-	cout << "file_reader_add_include_path " << path << endl;
-#endif
-	FileReader *fileReader = (FileReader *)p;
-	fileReader->addIncludePath(boost::filesystem::path(path));
-}
-extern void file_reader_allow_directory(void *p, const char* path) noexcept
-{
-#ifdef FILE_READER_DEBUG
-	cout << "file_reader_allow_directory " << path << endl;
-#endif
-	FileReader *fileReader = (FileReader *)p;
-	fileReader->allowDirectory(boost::filesystem::path(path));
-}
-extern void file_reader_add_or_update_file(void *p, const char* path, const char* content) noexcept
-{
-#ifdef FILE_READER_DEBUG
-	cout << "file_reader_add_or_update_file " << path << endl;
-#endif
-	FileReader *fileReader = (FileReader *)p;
-	fileReader->addOrUpdateFile(boost::filesystem::path(path), content);
-}
-extern char* file_reader_source_unit_name(void *p, const char* path) noexcept
-{
-	FileReader *fileReader = (FileReader *)p;
-	std::string name = fileReader->cliPathToSourceUnitName(boost::filesystem::path(path));
-#ifdef FILE_READER_DEBUG
-	cout << "file_reader_source_unit_name " << path << " " << name << endl;
-#endif
-	return solidityAllocations.emplace_back(name).data();
-}
-extern char* file_reader_read(void *p, const char* name, int* success) noexcept
-{
-#ifdef FILE_READER_DEBUG
-	cout << "file_reader_read " << name << endl;
-#endif
-	FileReader *fileReader = (FileReader *)p;
-	auto map = fileReader->sourceUnits();
-	if (map.count(name)) {
-#ifdef FILE_READER_DEBUG
-		cout << "cached" << endl;
-#endif
-		*success = true;
-		return solidityAllocations.emplace_back(map[name]).data();
+	try
+	{
+		solidity::frontend::CommandLineInterface cli(std::cin, std::cout, std::cerr);
+		int exitCode = cli.run(argc, argv) ? 0 : 1;
+		if (exitCode == 0)
+		{
+			outStem = cli.getOutStem();
+			outDir = cli.getOutDir();
+			doGenerateTvc = cli.doGenerateTvc();
+		}
+		return exitCode;
 	}
-	ReadCallback::Result res = fileReader->readFile("source", name);
-	*success = res.success;
-#ifdef FILE_READER_DEBUG
-	cout << "success " << res.success << endl;
-#endif
-	return solidityAllocations.emplace_back(res.responseOrErrorMessage).data();
+	catch (smtutil::SMTLogicError const& _exception)
+	{
+		std::cerr << "SMT logic error:" << std::endl;
+		std::cerr << boost::diagnostic_information(_exception);
+		frontend::printReportBug();
+		return 2;
+	}
+	catch (langutil::UnimplementedFeatureError const& _exception)
+	{
+		std::cerr << "Unimplemented feature:" << std::endl;
+		std::cerr << boost::diagnostic_information(_exception);
+		frontend::printReportBug();
+		return 2;
+	}
+	catch (langutil::InternalCompilerError const& _exception)
+	{
+		std::cerr << "Internal compiler error:" << std::endl;
+		std::cerr << boost::diagnostic_information(_exception);
+		frontend::printReportBug();
+		return 2;
+	}
+	catch (...)
+	{
+		std::cerr << "Uncaught exception:" << std::endl;
+		std::cerr << boost::current_exception_diagnostic_information() << std::endl;
+		frontend::printReportBug();
+		return 2;
+	}
 }
+
+char* get_out_stem() SOLC_NOEXCEPT
+{
+	return outStem.data();
+}
+
+char* get_out_dir() SOLC_NOEXCEPT
+{
+	return outDir.data();
+}
+
+bool do_generate_tvc() SOLC_NOEXCEPT
+{
+	return doGenerateTvc;
+}
+
 }

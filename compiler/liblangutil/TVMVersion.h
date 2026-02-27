@@ -71,7 +71,7 @@ private:
 
 	explicit TVMVersion(Version _version): m_version(_version) {}
 
-	Version m_version = Version::Ever;
+	Version m_version = Version::Ton;
 };
 
 }

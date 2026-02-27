@@ -1,0 +1,20 @@
+{
+  "contracts": {
+    "input.sol:C": {
+      "devdoc": {
+        "details": "This is devdoc.",
+        "kind": "dev",
+        "methods": {},
+        "version": 1
+      }
+    },
+    "input.sol:D": {
+      "devdoc": {
+        "kind": "dev",
+        "methods": {},
+        "version": 1
+      }
+    }
+  },
+  "version": "<VERSION REMOVED>"
+}

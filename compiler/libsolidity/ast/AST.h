@@ -33,8 +33,7 @@
 #include <libsolutil/FixedHash.h>
 #include <libsolutil/LazyInit.h>
 #include <libsolutil/Visitor.h>
-
-#include <json/json.h>
+#include <libsolutil/JSON.h>
 
 #include <range/v3/view/subrange.hpp>
 #include <range/v3/view/map.hpp>
@@ -45,12 +44,6 @@
 #include <utility>
 #include <vector>
 
-namespace solidity::yul
-{
-// Forward-declaration to <yul/AST.h>
-struct Block;
-struct Dialect;
-}
 
 namespace solidity::frontend
 {
@@ -193,6 +186,12 @@ public:
 	bool experimentalSolidity() const { return m_experimentalSolidity; }
 
 private:
+	void referencedSourceUnits(
+		std::set<SourceUnit const*>& _referencedSourceUnits,
+		bool _recurse,
+		std::set<SourceUnit const*>& _skipList
+	) const;
+
 	std::optional<std::string> m_licenseString;
 	std::vector<ASTPointer<ASTNode>> m_nodes;
 	bool m_experimentalSolidity = false;
@@ -641,7 +640,7 @@ public:
 	/// Returns the ether receiver function or nullptr if no receive function was specified.
 	FunctionDefinition const* receiveFunction() const;
 
-	/// Returns the ether onBounce function or nullptr if no onBounce function was specified.
+	/// Returns the ether onBouncedMessage function or nullptr if no onBouncedMessage function was specified.
 	FunctionDefinition const* onBounceFunction() const;
 
 	std::string fullyQualifiedName() const { return sourceUnitName() + ":" + name(); }
@@ -873,11 +872,19 @@ private:
 /**
  * Declaration of an Enum Value
  */
-class EnumValue: public Declaration
+class EnumValue: public Declaration, public StructurallyDocumented
 {
 public:
-	EnumValue(int64_t _id, SourceLocation const& _location, ASTPointer<ASTString> const& _name):
-		Declaration(_id, _location, _name, _location) {}
+	EnumValue(
+		int64_t _id,
+		SourceLocation const& _location,
+		ASTPointer<ASTString> const& _name,
+		ASTPointer<StructuredDocumentation> _documentation
+	):
+		Declaration(_id, _location, _name, _location),
+		StructurallyDocumented(std::move(_documentation))
+	{
+	}
 
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
@@ -1047,7 +1054,6 @@ public:
 		bool _isInline,
 		bool _responsible,
 		bool _externalMsg,
-		bool _internalMsg,
 		bool _freeInlineAssembly,
 		ASTPointer<Expression> const& _experimentalReturnExpression = {}
 	):
@@ -1063,12 +1069,11 @@ public:
 		m_inline(_isInline),
 		m_responsible{_responsible},
 		m_externalMsg{_externalMsg},
-		m_internalMsg{_internalMsg},
 		m_inlineAssembly{_freeInlineAssembly},
 		m_experimentalReturnExpression(_experimentalReturnExpression)
 	{
 		solAssert(_kind == Token::Constructor || _kind == Token::Function ||
-			  _kind == Token::Fallback || _kind == Token::Receive || _kind == Token::onBounce ||
+			  _kind == Token::Fallback || _kind == Token::Receive || _kind == Token::OnBouncedMessage ||
 			  _kind == Token::onTickTock
 		  , "");
 		solAssert(isOrdinary() == !name().empty(), "");
@@ -1083,7 +1088,7 @@ public:
 	bool isOrdinary() const { return m_kind == Token::Function; }
 	bool isConstructor() const { return m_kind == Token::Constructor; }
 	bool isFallback() const { return m_kind == Token::Fallback; }
-	bool isOnBounce() const { return m_kind == Token::onBounce; }
+	bool isOnBouncedMessage() const { return m_kind == Token::OnBouncedMessage; }
 	bool isReceive() const { return m_kind == Token::Receive; }
 	bool isOnTickTock() const { return m_kind == Token::onTickTock; }
 	bool isFree() const { return m_free; }
@@ -1136,7 +1141,6 @@ public:
 	bool isInline() const { return m_inline; }
 	bool isResponsible() const { return m_responsible; }
 	bool isExternalMsg() const { return m_externalMsg; }
-	bool isInternalMsg() const { return m_internalMsg; }
 	bool isInlineAssembly() const { return m_inlineAssembly; }
 	FunctionDefinition const& resolveVirtual(
 		ContractDefinition const& _mostDerivedContract,
@@ -1155,7 +1159,6 @@ private:
 	bool m_inline{};
 	bool m_responsible{};
 	bool m_externalMsg{};
-	bool m_internalMsg{};
 	bool m_inlineAssembly{};
 	ASTPointer<Expression> m_experimentalReturnExpression;
 };
@@ -1192,7 +1195,7 @@ public:
 		Mutability _mutability = Mutability::Mutable,
 		ASTPointer<OverrideSpecifier> _overrides = nullptr,
 		bool isStatic = false,
-		bool _noStorage = false,
+		bool _transient = false,
 		bool _isUnpacked = false,
 		ASTPointer<Expression> _typeExpression = {}
 	):
@@ -1204,7 +1207,7 @@ public:
 		m_mutability(_mutability),
 		m_overrides(std::move(_overrides)),
 		m_isStatic(isStatic),
-		m_noStorage(_noStorage),
+		m_transient(_transient),
 		m_isUnpacked(_isUnpacked),
 		m_typeExpression(std::move(_typeExpression))
 	{
@@ -1258,7 +1261,7 @@ public:
 	bool isConstant() const { return m_mutability == Mutability::Constant; }
 	bool immutable() const { return m_mutability == Mutability::Immutable; }
 	bool isStatic() const { return m_isStatic; }
-	bool isNoStorage() const { return m_noStorage; }
+	bool isTransient() const { return m_transient; }
 	bool isUnpacked() const { return m_isUnpacked; }
 	ASTPointer<OverrideSpecifier> const& overrides() const { return m_overrides; }
 
@@ -1287,7 +1290,7 @@ private:
 	Mutability m_mutability = Mutability::Mutable;
 	ASTPointer<OverrideSpecifier> m_overrides; ///< Contains the override specifier node
 	bool m_isStatic = false;
-	bool m_noStorage = false;
+	bool m_transient = false;
 	bool m_isUnpacked = false;
 	ASTPointer<Expression> m_typeExpression;
 };
@@ -1742,7 +1745,7 @@ public:
 		SourceLocation const& _location,
 		ASTPointer<ASTString> const& _docString,
 		std::vector<ASTPointer<Expression>> _lines
-	): Statement(_id, _location, _docString), m_lines{_lines} {}
+	): Statement(_id, _location, _docString), m_lines{std::move(_lines)} {}
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 	StatementAnnotation& annotation() const override;
@@ -1993,7 +1996,6 @@ private:
 	ASTPointer<Expression> m_condExpression;
 	/// For statement's loop expression. for (;;XXX). Can be empty
 	ASTPointer<ExpressionStatement> m_loopExpression;
-
 	/// The body of the loop
 	ASTPointer<Statement> m_body;
 };
@@ -2134,10 +2136,11 @@ public:
 		ASTPointer<ASTString> const& _docString,
 		ASTPointer<FunctionCall> _functionCall,
 		std::vector<ASTPointer<Expression>> _options,
-		std::vector<ASTPointer<ASTString>> _names
+		std::vector<ASTPointer<ASTString>> _names,
+		std::vector<SourceLocation> _nameLocations
 	):
 		Statement(_id, _location, _docString), m_eventCall(std::move(_functionCall)),
-		   m_options(std::move(_options)), m_names(std::move(_names))
+		   m_options(std::move(_options)), m_names(std::move(_names)), m_nameLocations(std::move(_nameLocations))
 	{
 		solAssert(_options.size() == _names.size(), "");
 	}
@@ -2148,11 +2151,13 @@ public:
 	FunctionCall const& eventCall() const { return *m_eventCall; }
 	const std::vector<ASTPointer<Expression>>& options() const { return m_options; }
 	const std::vector<ASTPointer<ASTString>>& names() const { return m_names; }
+	std::vector<SourceLocation> const& nameLocations() const { return m_nameLocations; }
 
 private:
 	ASTPointer<FunctionCall> m_eventCall;
 	std::vector<ASTPointer<Expression>> m_options;
 	std::vector<ASTPointer<ASTString>> m_names;
+	std::vector<SourceLocation> m_nameLocations;
 };
 
 /**
@@ -2276,7 +2281,7 @@ public:
 	):
 		Expression(_id, _location),
 		m_leftHandSide(std::move(_leftHandSide)),
-		m_assigmentOperator(_assignmentOperator),
+		m_assignmentOperator(_assignmentOperator),
 		m_rightHandSide(std::move(_rightHandSide))
 	{
 		solAssert(TokenTraits::isAssignmentOp(_assignmentOperator), "");
@@ -2285,12 +2290,12 @@ public:
 	void accept(ASTConstVisitor& _visitor) const override;
 
 	Expression const& leftHandSide() const { return *m_leftHandSide; }
-	Token assignmentOperator() const { return m_assigmentOperator; }
+	Token assignmentOperator() const { return m_assignmentOperator; }
 	Expression const& rightHandSide() const { return *m_rightHandSide; }
 
 private:
 	ASTPointer<Expression> m_leftHandSide;
-	Token m_assigmentOperator;
+	Token m_assignmentOperator;
 	ASTPointer<Expression> m_rightHandSide;
 };
 
@@ -2413,8 +2418,7 @@ public:
 		std::vector<ASTPointer<ASTString>> _names,
 		std::vector<SourceLocation> _nameLocations
 	):
-		Expression(_id, _location), m_expression(std::move(_expression)), m_arguments(std::move(_arguments)),
-		   m_names(std::move(_names)), m_nameLocations(std::move(_nameLocations))
+		Expression(_id, _location), m_expression(std::move(_expression)), m_arguments(std::move(_arguments)), m_names(std::move(_names)), m_nameLocations(std::move(_nameLocations))
 	{
 		solAssert(m_nameLocations.size() == m_names.size());
 	}
@@ -2981,6 +2985,38 @@ public:
 private:
 	ASTPointer<ASTString> m_nameParameter;
 	SourceLocation m_nameParameterLocation;
+};
+
+// TODO: NatSpec used on the quantifier should be recognized as applying to the function.
+class ForAllQuantifier: public ASTNode, public Scopable, public ScopeOpener
+{
+public:
+	ForAllQuantifier(
+		int64_t _id,
+		SourceLocation _location,
+		ASTPointer<ParameterList> _typeVariableDeclarations,
+		ASTPointer<FunctionDefinition> _quantifiedDeclaration
+	):
+		ASTNode(_id, std::move(_location)),
+		m_typeVariableDeclarations(std::move(_typeVariableDeclarations)),
+		m_quantifiedDeclaration(std::move(_quantifiedDeclaration))
+	{
+		solAssert(m_typeVariableDeclarations);
+		solAssert(m_quantifiedDeclaration);
+	}
+
+	void accept(ASTVisitor& _visitor) override;
+	void accept(ASTConstVisitor& _visitor) const override;
+	ForAllQuantifierAnnotation& annotation() const override { return initAnnotation<ForAllQuantifierAnnotation>(); }
+
+	bool experimentalSolidityOnly() const override { return true; }
+
+	ParameterList const& typeVariableDeclarations() const { return *m_typeVariableDeclarations; }
+	FunctionDefinition const& quantifiedDeclaration() const { return *m_quantifiedDeclaration; }
+
+private:
+	ASTPointer<ParameterList> m_typeVariableDeclarations;
+	ASTPointer<FunctionDefinition> m_quantifiedDeclaration;
 };
 
 /// @}

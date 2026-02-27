@@ -16,9 +16,9 @@
 
 #pragma once
 
-#include <variant>
-
 #include <libsolidity/codegen/TVMCommons.hpp>
+#include <libsolutil/JSON.h>
+#include <variant>
 
 namespace solidity::frontend {
 
@@ -26,38 +26,48 @@ class StackPusher;
 
 class TVMABI {
 public:
-	static Json::Value generateFunctionIdsJson(
+	constexpr static std::size_t INDENT_SPACES = 4;
+
+	static Json generateFunctionIdsJson(ContractDefinition const& contract, PragmaDirectiveHelper const& pragmaHelper);
+	static Json generatePrivateFunctionIdsJson(
 		ContractDefinition const& contract,
-		PragmaDirectiveHelper const& pragmaHelper
+		std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
+		PragmaDirectiveHelper const& pragmaHelper,
+		bool debugMode
 	);
-	static Json::Value generatePrivateFunctionIdsJson(
-			ContractDefinition const& contract,
-			const std::vector<ASTPointer<SourceUnit>>& _sourceUnits,
-			PragmaDirectiveHelper const& pragmaHelper
+	static void generateABI(
+		ContractDefinition const* contract,
+		std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
+		std::vector<PragmaDirective const*> const& pragmaDirectives,
+		std::ostream& out
 	);
-	static void generateABI(ContractDefinition const* contract,
-							std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
-							std::vector<PragmaDirective const *> const& pragmaDirectives, std::ostream* out = &std::cout);
-	static Json::Value generateABIJson(ContractDefinition const* contract,
-							std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
-							std::vector<PragmaDirective const *> const& pragmaDirectives);
+	static Json generateABIJson(
+		ContractDefinition const* contract,
+		std::vector<ASTPointer<SourceUnit>> const& _sourceUnits,
+		std::vector<PragmaDirective const*> const& pragmaDirectives
+	);
+
 private:
-	static std::vector<const FunctionDefinition *> publicFunctions(ContractDefinition const& contract);
-	static std::vector<const FunctionDefinition *> getters(ContractDefinition const& contract);
-	static void printData(const Json::Value& json, std::ostream* out);
-	static void print(const Json::Value& json, std::ostream* out);
-	static Json::Value toJson(
-		const std::string& fname,
-		const std::vector<VariableDeclaration const*> &params,
-		const std::vector<VariableDeclaration const*> &retParams,
+	static std::vector<FunctionDefinition const*> publicFunctions(ContractDefinition const& contract);
+	static std::vector<FunctionDefinition const*> getters(ContractDefinition const& contract);
+	static void
+	printVariable(Json const& json, std::ostream& out, std::string const& indentation, bool hasIndentInFirstLine);
+	static void printVariables(Json const& json, std::ostream& out, std::string const& indentation);
+	static void print(Json const& json, std::ostream& out);
+	static Json toJson(
+		std::string const& functionName,
+		std::vector<VariableDeclaration const*> const& params,
+		std::vector<VariableDeclaration const*> const& retParams,
 		FunctionDefinition const* funcDef = nullptr
 	);
-	static Json::Value encodeParams(const std::vector<VariableDeclaration const*> &params);
+	static Json encodeParams(std::vector<VariableDeclaration const*> const& params);
+
 public:
-	static Json::Value setupNameTypeComponents(const std::string& name, const Type* type);
+	static Json setupNameTypeComponents(std::string const& name, Type const* type);
+
 private:
-	static Json::Value setupStructComponents(const StructType* type);
-	static Json::Value setupTupleComponents(const TupleType* type);
+	static Json setupStructComponents(StructType const* type);
+	static Json setupTupleComponents(TupleType const* type);
 };
 
 class AbiPosition: boost::noncopyable {
@@ -69,66 +79,65 @@ public:
 
 class AbiV2Position: public AbiPosition {
 public:
-	AbiV2Position(int _bitOffset, int _refOffset, const std::vector<Type const *>& _types);
+	AbiV2Position(int _bitOffset, int _refOffset, std::vector<Type const*> const& _types);
 	bool skipType(Type const* type) override;
-	int countOfCreatedBuilders() const;
-	void skipTypes(std::vector<Type const *> const & _types);
-
+	void skipTypes(std::vector<Type const*> const& _types);
 	bool getDoLoadNextCell(int index) const { return m_doLoadNextCell.at(index); }
 	Type const* getType(int index) const { return m_types.at(index); }
 	int size() const { return m_doLoadNextCell.size(); }
 	int currentIndex() const { return m_curTypeIndex; }
+	int rootBits() const { return m_rootBits; }
+	int rootRefs() const { return m_rootRefs; }
 
 private:
 	int m_curTypeIndex{};
 	std::vector<Type const*> m_types;
 	// Do we load next cell before decoding current type?
 	std::vector<bool> m_doLoadNextCell;
-	int m_countOfCreatedBuilders{};
+	int m_rootBits = 0;
+	int m_rootRefs = 0;
 };
 
 class AbiPositionFromOneSlice: public AbiPosition {
 public:
-	bool skipType(Type const* /*type*/) override {
-		return false;
-	}
+	bool skipType(Type const* /*type*/) override { return false; }
 };
 
 class ChainDataDecoder: boost::noncopyable {
 public:
-	explicit ChainDataDecoder(StackPusher *pusher);
+	explicit ChainDataDecoder(StackPusher* pusher);
 
 private:
-	int offsetExternalFunction(bool hasCallback) const;
-	static int offsetInternalFunction(bool hasCallback);
+	int offsetExternalFunction(bool isResponsible) const;
+	static int offsetInternalFunction(bool isResponsible);
 
 public:
-	void decodePublicFunctionParameters(const std::vector<Type const*>& types, bool isResponsible, bool isInternal) const;
-	enum class DecodeType {
-		ONLY_EXT_MSG,
-		ONLY_INT_MSG,
-		BOTH
-	};
-	static DecodeType getDecodeType(FunctionDefinition const*);
-	void decodeFunctionParameters(const std::vector<Type const*>& types, bool isResponsible, DecodeType decodeType) const;
-	void decodeData(int offset, int usedRefs, const std::vector<Type const*>& types, bool withENDS) const;
-	void decodeParameters(const std::vector<Type const*>& types, AbiPosition& position) const;
-	void decodeParametersQ(const std::vector<Type const*>& types, AbiPosition& position) const;
+	void decodePublicFunctionParameters(
+		std::vector<Type const*> const& types,
+		bool isResponsible,
+		bool isInternal
+	) const;
+	void decodeFunctionParameters(std::vector<Type const*> const& types, bool isResponsible, bool isExternalMsg) const;
+	void decodeData(int offset, int usedRefs, std::vector<Type const*> const& types, bool withENDS) const;
+	void decodeParameters(std::vector<Type const*> const& types, AbiPosition& position) const;
+	void decodeParametersQ(std::vector<Type const*> const& types, AbiPosition& position) const;
 
 private:
 	void loadNextSlice() const;
+
 public:
-	void decodeParameter(Type const* type, AbiPosition* position,
+	void decodeParameter(
+		Type const* type,
+		AbiPosition* position,
 		bool isFirstCall = true,
-		bool loadForFirstCallIfNeeded = true) const;
+		bool loadForFirstCallIfNeeded = true
+	) const;
+
 private:
 	void decodeParameterQ(Type const* type, AbiPosition* position, int ind) const;
 
-private:
-	StackPusher *pusher{};
+	StackPusher* pusher{};
 };
-
-
 
 
 enum class ReasonOfOutboundMessage {
@@ -139,55 +148,60 @@ enum class ReasonOfOutboundMessage {
 
 class ChainDataEncoder: boost::noncopyable {
 public:
-	explicit ChainDataEncoder(StackPusher *pusher): pusher{pusher} {}
-	void createDefaultConstructorMsgBodyAndAppendToBuilder(int bitSizeBuilder) const;
-	void createDefaultConstructorMessage2() const;
+	explicit ChainDataEncoder(StackPusher* pusher):
+		pusher{pusher} {}
 
 	// returns pair (functionID, is_manually_overridden)
 	static uint32_t calculateConstructorFunctionID();
-	static std::pair<uint32_t, bool> calculateFunctionID(const CallableDeclaration *declaration);
+	static std::pair<uint32_t, bool> calculateFunctionID(CallableDeclaration const* declaration);
 	static uint32_t toHash256(std::string const& str);
+	static uint32_t toPrivateFunctionId(std::string const& str);
 	static uint32_t calculateFunctionID(
-		const std::string& name,
-		const std::vector<Type const*>& inputs,
-		const std::vector<VariableDeclaration const*> *outputs
+		std::string const& name,
+		std::vector<Type const*> const& inputs,
+		std::vector<VariableDeclaration const*> const* outputs
 	);
-	static uint32_t calculateFunctionIDWithReason(const CallableDeclaration *funcDef, const ReasonOfOutboundMessage &reason, bool isLib = false);
 	static uint32_t calculateFunctionIDWithReason(
-		const std::string& name,
+		CallableDeclaration const* funcDef,
+		ReasonOfOutboundMessage const& reason,
+		bool isLib = false
+	);
+	static uint32_t calculateFunctionIDWithReason(
+		std::string const& name,
 		std::vector<Type const*> inputs,
-		const std::vector<VariableDeclaration const*> *outputs,
-		const ReasonOfOutboundMessage &reason,
+		std::vector<VariableDeclaration const*> const* outputs,
+		ReasonOfOutboundMessage const& reason,
 		std::optional<uint32_t> functionId,
 		bool isResponsible
 	);
 
 	void createMsgBodyAndAppendToBuilder(
-		const std::vector<VariableDeclaration const*> &params,
-		const std::variant<uint32_t, std::function<void()>>& functionId,
-		const std::optional<uint32_t>& callbackFunctionId,
+		std::vector<VariableDeclaration const*> const& params,
+		std::variant<uint32_t, std::function<void()>> const& functionId,
+		std::optional<uint32_t> const& callbackFunctionId,
 		int bitSizeBuilder,
+		int refSizeBuilder,
 		bool reversedArgs = false
 	) const;
 
 	void createMsgBody(
-		const std::vector<VariableDeclaration const*> &params,
-		const std::variant<uint32_t, std::function<void()>>& functionId,
-		const std::optional<uint32_t>& callbackFunctionId,
-		AbiV2Position &position
+		std::vector<VariableDeclaration const*> const& params,
+		std::variant<uint32_t, std::function<void()>> const& functionId,
+		std::optional<uint32_t> const& callbackFunctionId,
+		AbiV2Position& position,
+		bool const reversedArgs
 	) const;
 
 	void encodeParameters(
-		const std::vector<Type const*>& types,
+		std::vector<Type const*> const& _types,
 		AbiV2Position& position,
 		bool hasUnpackedStateVars
 	) const;
 
 private:
-	static std::string toStringForCalcFuncID(Type const * type);
+	static std::string toStringForCalcFuncID(Type const* type);
 
-private:
-	StackPusher *pusher{};
+	StackPusher* pusher{};
 };
 
 class UnpackedCoderDecoder: boost::noncopyable {
@@ -200,7 +214,7 @@ public:
 		std::vector<Type const*> const& _varTypes,
 		std::vector<bool> const& _varNeeded
 	);
-	void unpackedData();
+	void unpackedData() const;
 
 	void packData(std::map<int, std::function<void()>> const& varIndexToPush);
 
@@ -212,10 +226,10 @@ private:
 	std::optional<TypeSize> isFixedSize(int i, int j) const;
 	std::optional<int> getFixedRef(int i, int j) const;
 	std::unique_ptr<AbiV2Position> createPosition() const;
-	void skipTypes(int beginIndex, int endIndex, std::unique_ptr<AbiV2Position>& position) const;
-	void skipTypesAndLoadCellIfNeeded(int index, std::unique_ptr<AbiV2Position>& position) const;
+	void skipTypes(int beginIndex, int endIndex, std::unique_ptr<AbiV2Position> const& position) const;
+	void skipTypesAndLoadCellIfNeeded(int index, std::unique_ptr<AbiV2Position> const& position) const;
 
-private:
+
 	StackPusher& pusher;
 	int const offset;
 	int const usedRefs;
@@ -234,4 +248,4 @@ private:
 	int lastIndexType = -1;
 };
 
-}	// solidity::frontend
+} // solidity::frontend

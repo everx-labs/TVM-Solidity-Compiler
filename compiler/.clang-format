@@ -17,8 +17,8 @@ AlwaysBreakAfterReturnType: None
 AlwaysBreakTemplateDeclarations: Yes
 BinPackArguments: false
 BinPackParameters: false
-BreakBeforeBinaryOperators: All
-BreakBeforeBraces: Allman
+BreakBeforeBinaryOperators: None
+BreakBeforeBraces: Attach
 ColumnLimit: 120
 ContinuationIndentWidth: 4
 FixNamespaceComments: false
@@ -28,13 +28,25 @@ MaxEmptyLinesToKeep: 2
 PenaltyBreakBeforeFirstCallParameter: 2000
 PointerAlignment: Left
 SpaceAfterCStyleCast: true
-SpaceAfterTemplateKeyword: false
+SpaceAfterTemplateKeyword: true
 SpaceBeforeCtorInitializerColon: false
 SpaceBeforeInheritanceColon: false
 SpaceBeforeParens: ControlStatements
 SpaceBeforeRangeBasedForLoopColon: false
 TabWidth: 4
 UseTab: Always
+
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowShortEnumsOnASingleLine: false
+BreakAfterReturnType: ExceptShortType
+BreakBeforeCloseBracketBracedList: true
+BreakBeforeCloseBracketFunction: true
+BreakBeforeCloseBracketIf: true
+BreakBinaryOperations: RespectPrecedence
+BreakConstructorInitializers: AfterColon
+PackConstructorInitializers: Never
+QualifierAlignment: Right
 
 # Local Variables:
 # mode: yaml
