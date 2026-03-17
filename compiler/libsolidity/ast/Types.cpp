@@ -497,6 +497,14 @@ MemberList::MemberMap AddressType::nativeMembers(ASTNode const*) const
 		{"isNone", TypeProvider::function(strings(), strings{"bool"}, FunctionType::Kind::AddressIsZero, StateMutability::Pure)},
 		{"isExternZero", TypeProvider::function(strings(), strings{"bool"}, FunctionType::Kind::AddressIsZero, StateMutability::Pure)}
 	};
+	members.emplace_back("currency", TypeProvider::function(
+		TypePointers{TypeProvider::extraCurrencyCollection()->keyType()},
+		TypePointers{TypeProvider::extraCurrencyCollection()->valueType()},
+		{""},
+		{""},
+		FunctionType::Kind::AddressCurrency,
+		StateMutability::Pure
+	));
 	members.emplace_back("unpack", TypeProvider::function(
 			TypePointers{},
 			TypePointers{TypeProvider::integer(32, IntegerType::Modifier::Signed), TypeProvider::uint256()},
@@ -511,14 +519,6 @@ MemberList::MemberMap AddressType::nativeMembers(ASTNode const*) const
 			strings{},
 			strings{std::string()},
 			FunctionType::Kind::AddressType,
-			StateMutability::Pure
-	));
-	members.emplace_back("isStdAddrWithoutAnyCast", TypeProvider::function(
-			TypePointers{},
-			TypePointers{TypeProvider::boolean()},
-			strings{},
-			strings{std::string()},
-			FunctionType::Kind::AddressIsStdAddrWithoutAnyCast,
 			StateMutability::Pure
 	));
 	members.emplace_back("transfer", TypeProvider::function(
@@ -612,14 +612,6 @@ MemberList::MemberMap AddressStdType::nativeMembers(ASTNode const*) const {
 		strings{},
 		strings{std::string()},
 		FunctionType::Kind::AddressType,
-		StateMutability::Pure
-	));
-	members.emplace_back("isStdAddrWithoutAnyCast", TypeProvider::function(
-		TypePointers{},
-		TypePointers{TypeProvider::boolean()},
-		strings{},
-		strings{std::string()},
-		FunctionType::Kind::AddressIsStdAddrWithoutAnyCast,
 		StateMutability::Pure
 	));
 	members.emplace_back("transfer", TypeProvider::function(
@@ -1119,42 +1111,31 @@ std::tuple<bool, rational> RationalNumberType::isValidLiteral(Literal const& _li
 		case Literal::SubDenomination::None:
 		case Literal::SubDenomination::Nano:
 		case Literal::SubDenomination::Nanoton:
-		case Literal::SubDenomination::Nanoever:
 		case Literal::SubDenomination::NTon:
 		case Literal::SubDenomination::Second:
 			break;
 		case Literal::SubDenomination::Micro:
 		case Literal::SubDenomination::Microton:
-		case Literal::SubDenomination::Microever:
 			value *= bigint("1000");
 			break;
 		case Literal::SubDenomination::Milli:
 		case Literal::SubDenomination::Milliton:
-		case Literal::SubDenomination::Milliever:
 			value *= bigint("1000000");
 			break;
 		case Literal::SubDenomination::Ton:
-		case Literal::SubDenomination::Ever:
 		case Literal::SubDenomination::SmallTon:
-		case Literal::SubDenomination::SmallEver:
 			value *= bigint("1000000000");
 			break;
 		case Literal::SubDenomination::Kiloton:
-		case Literal::SubDenomination::Kiloever:
 		case Literal::SubDenomination::KTon:
-		case Literal::SubDenomination::KEver:
 			value *= bigint("1000000000000");
 			break;
 		case Literal::SubDenomination::Megaton:
-		case Literal::SubDenomination::Megaever:
 		case Literal::SubDenomination::MTon:
-		case Literal::SubDenomination::MEver:
 			value *= bigint("1000000000000000");
 			break;
 		case Literal::SubDenomination::Gigaton:
-		case Literal::SubDenomination::Gigaever:
 		case Literal::SubDenomination::GTon:
-		case Literal::SubDenomination::GEver:
 			value *= bigint("1000000000000000000");
 			break;
 		case Literal::SubDenomination::Minute:
@@ -1238,7 +1219,6 @@ BoolResult RationalNumberType::isExplicitlyConvertibleTo(Type const& _convertTo)
 	else if (dynamic_cast<AddressType const*>(&_convertTo) || dynamic_cast<AddressStdType const*>(&_convertTo) || dynamic_cast<ContractType const*>(&_convertTo))
 		return (m_value == 0) ||
 			(!isNegative() &&
-			!isNegative() &&
 			!isFractional() &&
 			integerType());
 	else if (category == Category::Integer)
@@ -2031,7 +2011,7 @@ MemberList::MemberMap ArrayType::nativeMembers(ASTNode const*) const
 
 	if (isByteArrayOrString())
 	{
-		if (isByteArray())
+		if (isByteArray()) {
 			members.emplace_back("toSlice", TypeProvider::function(
 				TypePointers{},
 				TypePointers{TypeProvider::tvmslice()},
@@ -2040,6 +2020,15 @@ MemberList::MemberMap ArrayType::nativeMembers(ASTNode const*) const
 				FunctionType::Kind::ByteToSlice,
 				StateMutability::Pure
 			));
+			members.emplace_back("hash", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint256()},
+				strings{},
+				strings{""},
+				FunctionType::Kind::ByteArrayHash,
+				StateMutability::Pure
+			));
+		}
 		else
 			members.emplace_back("toSlice", TypeProvider::function(
 				TypePointers{},
@@ -2054,7 +2043,7 @@ MemberList::MemberMap ArrayType::nativeMembers(ASTNode const*) const
 				{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()},
 				{{}},
 				{{}, {}, {}},
-				FunctionType::Kind::TVMDataSize,
+				FunctionType::Kind::StringToSlice,
 				StateMutability::Pure
 		));
 		members.emplace_back("dataSizeQ", TypeProvider::function(
@@ -2062,7 +2051,7 @@ MemberList::MemberMap ArrayType::nativeMembers(ASTNode const*) const
 			{TypeProvider::optional(TypeProvider::tuple({TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()}))},
 			{{}},
 			{{}},
-			FunctionType::Kind::TVMDataSize,
+			FunctionType::Kind::StringToSlice,
 			StateMutability::Pure
 		));
 		members.emplace_back("append", TypeProvider::function(
@@ -3201,69 +3190,222 @@ std::string FunctionType::richIdentifier() const
 	std::string id = "t_function_";
 	switch (m_kind)
 	{
-	case Kind::Rist255FromHash: id += "rist255fromhash"; break;
-	case Kind::Rist255Validate: id += "rist255rist255validate"; break;
-	case Kind::Rist255Add: id += "rist255rist255add"; break;
-	case Kind::Rist255Sub: id += "rist255rist255sub"; break;
-	case Kind::Rist255Mul: id += "rist255rist255mul"; break;
-	case Kind::Rist255Mulbase: id += "rist255rist255mulbase"; break;
-	case Kind::Rist255L: id += "rist255rist255l"; break;
-	case Kind::Rist255QValidate: id += "rist255rist255qvalidate"; break;
-	case Kind::Rist255QAdd: id += "rist255rist255qadd"; break;
-	case Kind::Rist255QSub: id += "rist255rist255qsub"; break;
-	case Kind::Rist255QMul: id += "rist255rist255qmul"; break;
-	case Kind::Rist255QMulbase: id += "rist255rist255qmulbase"; break;
-
-
-	case Kind::HashExt: id += "hashext"; break;
-
-	case Kind::BlsVerify: id += "blsverify"; break;
+	case Kind::ABICodeSalt: id += "abicodesalt"; break;
+	case Kind::ABIDecode: id += "abidecode"; break;
+	case Kind::ABIDecodeData: id += "abidecodestatevars"; break;
+	case Kind::ABIDecodeFunctionParams: id += "abidecodefunctionparams"; break;
+	case Kind::ABIEncode: id += "abiencode"; break;
+	case Kind::ABIEncodeBody: id += "abiencodebody"; break;
+	case Kind::ABIEncodeCall: id += "abiencodecall"; break;
+	case Kind::ABIEncodeData: id += "abibuilddatainit"; break;
+	case Kind::ABIEncodeIntMsg: id += "abibuildintmsg"; break;
+	case Kind::ABIEncodePacked: id += "abiencodepacked"; break;
+	case Kind::ABIEncodeStateInit: id += "abiencodestateinit"; break;
+	case Kind::ABIEncodeWithSelector: id += "abiencodewithselector"; break;
+	case Kind::ABIEncodeWithSignature: id += "abiencodewithsignature"; break;
+	case Kind::ABIFunctionId: id += "abifunctionid"; break;
+	case Kind::ABISetCodeSalt: id += "abisetcodesalt"; break;
+	case Kind::ABIStateInitHash: id += "abistateinithash"; break;
+	case Kind::AddMod: id += "addmod"; break;
+	case Kind::AddressCurrency: id += "addresscurrency"; break;
+	case Kind::AddressIsZero: id += "addressiszero"; break;
+	case Kind::AddressMakeAddrExtern: id += "addressmakeaddrextern"; break;
+	case Kind::AddressMakeAddrStd: id += "addressmakeaddrstd"; break;
+	case Kind::AddressTransfer: id += "tvmtransfer"; break;
+	case Kind::AddressType: id += "addresstype"; break;
+	case Kind::AddressUnpack: id += "addressunpack"; break;
+	case Kind::ArrayEmpty: id += "arrayempty"; break;
+	case Kind::ArrayPop: id += "arraypop"; break;
+	case Kind::ArrayPush: id += "arraypush"; break;
+	case Kind::Assert: id += "assert"; break;
+	case Kind::BareCall: id += "barecall"; break;
+	case Kind::BareCallCode: id += "barecallcode"; break;
+	case Kind::BareDelegateCall: id += "baredelegatecall"; break;
+	case Kind::BareStaticCall: id += "barestaticcall"; break;
+	case Kind::BitSize: id += "bitsize"; break;
+	case Kind::BlobHash: id += "blobhash"; break;
+	case Kind::BlockHash: id += "blockhash"; break;
 	case Kind::BlsAggregate: id += "blsaggregate"; break;
-	case Kind::BlsFastAggregateVerify: id += "blsfastaggregateverify"; break;
 	case Kind::BlsAggregateVerify: id += "blsaggregateverify"; break;
+	case Kind::BlsFastAggregateVerify: id += "blsfastaggregateverify"; break;
 	case Kind::BlsG1Add: id += "blsg1add"; break;
-	case Kind::BlsG1Sub: id += "blsg1sub"; break;
-	case Kind::BlsG1Neg: id += "blsg1neg"; break;
-	case Kind::BlsG1Mul: id += "blsg1mul"; break;
-	case Kind::BlsMapToG1: id += "blsmaptog1"; break;
-	case Kind::BlsG1IsZero: id += "blsg1iszero"; break;
 	case Kind::BlsG1InGroup: id += "blsg1ingroup"; break;
-	case Kind::BlsG2Add: id += "blsg2add"; break;
-	case Kind::BlsG2Sub: id += "blsg2sub"; break;
-	case Kind::BlsG2Neg: id += "blsg2neg"; break;
-	case Kind::BlsG2Mul: id += "blsg2mul"; break;
-	case Kind::BlsMapToG2: id += "blsmaptog2"; break;
-	case Kind::BlsG2IsZero: id += "blsg2iszero"; break;
-	case Kind::BlsG2InGroup: id += "blsg2ingroup"; break;
-	case Kind::BlsG1Zero: id += "blsg1zero"; break;
-	case Kind::BlsG2Zero: id += "blsg2zero"; break;
-	case Kind::BlsPushR: id += "blspushr"; break;
+	case Kind::BlsG1IsZero: id += "blsg1iszero"; break;
+	case Kind::BlsG1Mul: id += "blsg1mul"; break;
 	case Kind::BlsG1MultiExp: id += "blsg1multiexp"; break;
+	case Kind::BlsG1Neg: id += "blsg1neg"; break;
+	case Kind::BlsG1Sub: id += "blsg1sub"; break;
+	case Kind::BlsG1Zero: id += "blsg1zero"; break;
+	case Kind::BlsG2Add: id += "blsg2add"; break;
+	case Kind::BlsG2InGroup: id += "blsg2ingroup"; break;
+	case Kind::BlsG2IsZero: id += "blsg2iszero"; break;
+	case Kind::BlsG2Mul: id += "blsg2mul"; break;
 	case Kind::BlsG2MultiExp: id += "blsg2multiexp"; break;
-
+	case Kind::BlsG2Neg: id += "blsg2neg"; break;
+	case Kind::BlsG2Sub: id += "blsg2sub"; break;
+	case Kind::BlsG2Zero: id += "blsg2zero"; break;
+	case Kind::BlsMapToG1: id += "blsmaptog1"; break;
+	case Kind::BlsMapToG2: id += "blsmaptog2"; break;
+	case Kind::BlsPairing: id += "blspairing"; break;
+	case Kind::BlsPushR: id += "blspushr"; break;
+	case Kind::BlsVerify: id += "blsverify"; break;
+	case Kind::ByteArrayHash: id += "bytearrayhash"; break;
+	case Kind::ByteArrayPush: id += "bytearraypush"; break;
+	case Kind::ByteToSlice: id += "bytetoslice"; break;
+	case Kind::BytesConcat: id += "bytesconcat"; break;
+	case Kind::ConfigGetForwardFee: id += "configgetforwardfee"; break;
+	case Kind::ConfigGetForwardFeeSimple: id += "configgetforwardfeesimple"; break;
+	case Kind::ConfigGetGasFee: id += "configgetgasfee"; break;
+	case Kind::ConfigGetGasFeeSimple: id += "configgetgasfeesimple"; break;
+	case Kind::ConfigGetOriginalFwdFee: id += "configgetoriginalfwdfee"; break;
+	case Kind::ConfigGetParam: id += "configgetparam"; break;
+	case Kind::ConfigGetPrecompiledGas: id += "configgetprecompiledgas"; break;
+	case Kind::ConfigGetStorageFee: id += "configgetstoragefee"; break;
+	case Kind::ConfigGlobalId: id += "configglobalid"; break;
+	case Kind::ConfigUnpackedConfig: id += "configunpackedconfig"; break;
+	case Kind::ConfigValueToGas: id += "configvaluetogas"; break;
+	case Kind::Creation: id += "creation"; break;
+	case Kind::Declaration: id += "declaration"; break;
+	case Kind::DelegateCall: id += "delegatecall"; break;
+	case Kind::Error: id += "error"; break;
+	case Kind::Event: id += "event"; break;
+	case Kind::External: id += "external"; break;
+	case Kind::Format: id += "format"; break;
+	case Kind::GasConsumed: id += "gasConsumed"; break;
+	case Kind::GasLeft: id += "gasleft"; break;
+	case Kind::HashExt: id += "hashext"; break;
 	case Kind::IntCast: id += "integercast"; break;
-	case Kind::Uint256Prefix: id += "uint256prefix"; break;
-
-	case Kind::StructUnpack: id += "structunpack"; break;
-
+	case Kind::Internal: id += "internal"; break;
+	case Kind::KECCAK256: id += "keccak256"; break;
+	case Kind::LogTVM: id += "logtvm"; break;
+	case Kind::MappingAt: id += "mappingat"; break;
+	case Kind::MappingDelMinOrMax: id += "mapdelmin"; break;
+	case Kind::MappingEmpty: id += "mapempty"; break;
+	case Kind::MappingExists: id += "mapexists"; break;
+	case Kind::MappingFetch: id += "mapfetch"; break;
+	case Kind::MappingGetMinMax: id += "mapgetminmax"; break;
+	case Kind::MappingGetNextKey: id += "mapgetnext"; break;
+	case Kind::MappingGetPrevKey: id += "mapgetprev"; break;
+	case Kind::MappingGetSet: id += "mappingsetget"; break;
+	case Kind::MappingKeys: id += "mappingkeys"; break;
+	case Kind::MappingReplaceOrAdd: id += "mappingreplaceoradd"; break;
+	case Kind::MappingValues: id += "mappingvalues"; break;
+	case Kind::MathAbs: id += "mathabs"; break;
+	case Kind::MathDivC: id += "divc"; break;
+	case Kind::MathDivMod: id += "mathdivmod"; break;
+	case Kind::MathDivR: id += "divr"; break;
+	case Kind::MathMax: id += "mathmax"; break;
+	case Kind::MathMin: id += "mathmin"; break;
+	case Kind::MathMinMax: id += "mathminmax"; break;
+	case Kind::MathModpow2: id += "mathmodpow2"; break;
+	case Kind::MathMulDiv: id += "mathmuldiv"; break;
+	case Kind::MathMulDivMod: id += "mathmuldivmod"; break;
+	case Kind::MathMulMod: id += "mathmulmod"; break;
+	case Kind::MathSign: id += "mathsign"; break;
+	case Kind::MetaType: id += "metatype"; break;
+	case Kind::MsgPubkey: id += "msgpubkey"; break;
+	case Kind::MulMod: id += "mulmod"; break;
+	case Kind::ObjectCreation: id += "objectcreation"; break;
 	case Kind::OptionalGet: id += "optionalmethod"; break;
 	case Kind::OptionalGetOr: id += "optionalgetor"; break;
 	case Kind::OptionalGetOrDefault: id += "optionalgetordefault"; break;
 	case Kind::OptionalHasValue: id += "optionalhasvalue"; break;
 	case Kind::OptionalReset: id += "optionalreset"; break;
 	case Kind::OptionalSet: id += "optionalmethod"; break;
-
+	case Kind::QGet: id += "qget"; break;
+	case Kind::QGetOr: id += "qgetor"; break;
+	case Kind::QGetOrDefault: id += "qgetordefault"; break;
+	case Kind::QIsNaN: id += "qisnan"; break;
+	case Kind::QToOptional: id += "qtooptional"; break;
+	case Kind::RIPEMD160: id += "ripemd160"; break;
+	case Kind::Require: id += "require"; break;
+	case Kind::Revert: id += "revert"; break;
+	case Kind::Rist255Add: id += "rist255rist255add"; break;
+	case Kind::Rist255FromHash: id += "rist255fromhash"; break;
+	case Kind::Rist255L: id += "rist255rist255l"; break;
+	case Kind::Rist255Mul: id += "rist255rist255mul"; break;
+	case Kind::Rist255Mulbase: id += "rist255rist255mulbase"; break;
+	case Kind::Rist255QAdd: id += "rist255rist255qadd"; break;
+	case Kind::Rist255QMul: id += "rist255rist255qmul"; break;
+	case Kind::Rist255QMulbase: id += "rist255rist255qmulbase"; break;
+	case Kind::Rist255QSub: id += "rist255rist255qsub"; break;
+	case Kind::Rist255QValidate: id += "rist255rist255qvalidate"; break;
+	case Kind::Rist255Sub: id += "rist255rist255sub"; break;
+	case Kind::Rist255Validate: id += "rist255rist255validate"; break;
+	case Kind::RndGetSeed: id += "rndgetseed"; break;
+	case Kind::RndNext: id += "rndnext"; break;
+	case Kind::RndSetSeed: id += "rndsetseed"; break;
+	case Kind::RndShuffle: id += "rndshuffle"; break;
+	case Kind::SHA256: id += "sha256"; break;
+	case Kind::Secp256k1AddTweakPublicKey: id += "secp256k1addtweakpublickey"; break;
+	case Kind::Secp256k1ECRecover: id += "secp256k1ecrecover"; break;
+	case Kind::Secp256r1CheckSign: id += "secp256r1checksign"; break;
+	case Kind::Selfdestruct: id += "selfdestruct"; break;
+	case Kind::Send: id += "send"; break;
+	case Kind::SetGas: id += "setgas"; break;
+	case Kind::SetValue: id += "setvalue"; break;
+	case Kind::Stoi: id += "stoi"; break;
+	case Kind::StringBuilderAppendByte: id += "stringbuilderappendbyte"; break;
+	case Kind::StringBuilderAppendByteNTimes: id += "stringbuilderappendbytentimes"; break;
+	case Kind::StringBuilderAppendString: id += "stringbuilderappendstring"; break;
+	case Kind::StringBuilderToString: id += "stringbuildertostring"; break;
+	case Kind::StringConcat: id += "stringconcat"; break;
 	case Kind::StringMethod: id += "stringmethod"; break;
 	case Kind::StringSubstr: id += "stringsubstr"; break;
 	case Kind::StringToLowerCase: id += "stringtolowercase"; break;
 	case Kind::StringToSlice: id += "stringtoslice"; break;
 	case Kind::StringToUpperCase: id += "stringtouppercase"; break;
-
+	case Kind::StructUnpack: id += "structunpack"; break;
+	case Kind::TVMAccept: id += "tvmaccept"; break;
+	case Kind::TVMBuilderHash: id += "tvmbuilderhash"; break;
+	case Kind::TVMBuilderMethods: id += "tvmbuildermethods"; break;
+	case Kind::TVMBuilderStore: id += "tvmbuilderstore"; break;
+	case Kind::TVMBuilderStoreInt: id += "tvmbuilderstoreint"; break;
+	case Kind::TVMBuilderStoreQ: id += "tvmbuilderstoreq"; break;
+	case Kind::TVMBuilderStoreTons: id += "tvmbuilderstoretons"; break;
+	case Kind::TVMBuilderStoreUint: id += "tvmbuilderstoreuint"; break;
+	case Kind::TVMBuyGas: id += "tvmbuygas"; break;
+	case Kind::TVMCellDataSize: id += "tvmdatasize"; break;
+	case Kind::TVMCellDataSizeQ: id += "tvmdatasizeq"; break;
+	case Kind::TVMCellDepth: id += "tvmcelldepth"; break;
+	case Kind::TVMCellExoticToSlice: id += "tvmcellexotictoslice"; break;
+	case Kind::TVMCellHash: id += "tvmcellhash"; break;
+	case Kind::TVMCellLevel: id += "tvmcelllevel"; break;
+	case Kind::TVMCellLevelMask: id += "tvmcelllevelmask"; break;
+	case Kind::TVMCellLoadExoticCell: id += "tvmcellloadexoticcell"; break;
+	case Kind::TVMCellLoadExoticCellQ: id += "tvmcellloadexoticcellq"; break;
+	case Kind::TVMCellToSlice: id += "tvmcelltoslice"; break;
+	case Kind::TVMChecksign: id += "tvmchecksign"; break;
+	case Kind::TVMCode: id += "tvmcode"; break;
+	case Kind::TVMCommit: id += "tvmcommit"; break;
+	case Kind::TVMDeploy: id += "tvmdeploy"; break;
+	case Kind::TVMDuePayment: id += "tvmduepayment"; break;
+	case Kind::TVMExit1: id += "tvmexit1"; break;
+	case Kind::TVMExit: id += "tvmexit"; break;
+	case Kind::TVMHash: id += "tvmhash"; break;
+	case Kind::TVMLoadLibrary: id += "tvmloadlibrary"; break;
+	case Kind::TVMPackData: id += "tvmpackdata"; break;
+	case Kind::TVMPrevBlocksInfo: id += "tvmprevblocksinfo"; break;
+	case Kind::TVMPrevKeyBlock: id += "tvmprevkeyblock"; break;
+	case Kind::TVMPrevMCBlocks100: id += "tvmprevmcblocks100"; break;
+	case Kind::TVMPrevMCBlocks: id += "tvmprevmcblocks"; break;
+	case Kind::TVMPubkey: id += "tvmpubkey"; break;
+	case Kind::TVMRawMsg: id += "tvmrawmsg"; break;
+	case Kind::TVMReplayProtInterval: id += "tvmreplayprotinterval"; break;
+	case Kind::TVMReplayProtTime: id += "tvmreplayprottime"; break;
+	case Kind::TVMResetStorage: id += "tvmresetstorage"; break;
+	case Kind::TVMSendRawMsg: id += "tvmsendmsg"; break;
+	case Kind::TVMSetGasLimit: id += "tvmsetgaslimit"; break;
+	case Kind::TVMSetPubkey: id += "tvmsetpubkey"; break;
+	case Kind::TVMSetReplayProtTime: id += "tvmsetreplayprottime"; break;
+	case Kind::TVMSetcode: id += "tvmsetcode"; break;
 	case Kind::TVMSliceCompare: id += "tvmslicecompare"; break;
 	case Kind::TVMSliceDataSize: id += "tvmslicedatasize"; break;
 	case Kind::TVMSliceEmpty: id += "tvmsliceempty"; break;
 	case Kind::TVMSliceHas: id += "tvmslicehas"; break;
+	case Kind::TVMSliceHash: id += "tvmslicehash"; break;
 	case Kind::TVMSliceLoad: id += "tvmsliceload"; break;
+	case Kind::TVMSliceLoadBouncedMsgTag: id += "tvmsliceloadbouncedmsgtag"; break;
 	case Kind::TVMSliceLoadFunctionParams: id += "tvmsliceloadfunctionparams"; break;
 	case Kind::TVMSliceLoadInt: id += "tvmsliceloadint"; break;
 	case Kind::TVMSliceLoadIntQ: id += "tvmsliceloadintq"; break;
@@ -3285,204 +3427,28 @@ std::string FunctionType::richIdentifier() const
 	case Kind::TVMSlicePreloadRef: id += "tvmslicepreloadref"; break;
 	case Kind::TVMSliceSize: id += "tvmslicesize"; break;
 	case Kind::TVMSliceSkip: id += "tvmsliceskip"; break;
-	case Kind::TVMSliceLoadBouncedMsgTag: id += "tvmsliceloadbouncedmsgtag"; break;
-
-	case Kind::TVMCellDepth: id += "tvmcelldepth"; break;
-	case Kind::TVMCellToSlice: id += "tvmcelltoslice"; break;
-	case Kind::TVMDataSize: id += "tvmdatasize"; break;
-	case Kind::TVMDataSizeQ: id += "tvmdatasizeq"; break;
-
-	case Kind::Format: id += "format"; break;
-	case Kind::Stoi: id += "stoi"; break;
-	case Kind::LogTVM: id += "logtvm"; break;
-	case Kind::TVMAccept: id += "tvmaccept"; break;
-
-	case Kind::ABIEncodeIntMsg: id += "abibuildintmsg"; break;
-	case Kind::ABICodeSalt: id += "abicodesalt"; break;
-	case Kind::ABIDecodeFunctionParams: id += "abidecodefunctionparams"; break;
-	case Kind::ABIDecodeData: id += "abidecodestatevars"; break;
-	case Kind::ABIEncodeBody: id += "abiencodebody"; break;
-	case Kind::ABIEncodeData: id += "abibuilddatainit"; break;
-	case Kind::ABIEncodeStateInit: id += "abiencodestateinit"; break;
-	case Kind::ABIFunctionId: id += "abifunctionid"; break;
-	case Kind::ABISetCodeSalt: id += "abisetcodesalt"; break;
-	case Kind::ABIStateInitHash: id += "abistateinithash"; break;
-
-	case Kind::TVMBuilderMethods: id += "tvmbuildermethods"; break;
-	case Kind::TVMBuilderStore: id += "tvmbuilderstore"; break;
-	case Kind::TVMBuilderStoreQ: id += "tvmbuilderstoreq"; break;
-	case Kind::TVMBuilderStoreInt: id += "tvmbuilderstoreint"; break;
-	case Kind::TVMBuilderStoreTons: id += "tvmbuilderstoretons"; break;
-	case Kind::TVMBuilderStoreUint: id += "tvmbuilderstoreuint"; break;
-	case Kind::TVMBuilderHash: id += "tvmbuilderhash"; break;
-
-	case Kind::StringBuilderToString: id += "stringbuildertostring"; break;
-	case Kind::StringBuilderAppendByte: id += "stringbuilderappendbyte"; break;
-	case Kind::StringBuilderAppendByteNTimes: id += "stringbuilderappendbytentimes"; break;
-	case Kind::StringBuilderAppendString: id += "stringbuilderappendstring"; break;
-
-	case Kind::TVMVectorEmpty: id += "tvmvectorempty"; break;
-	case Kind::TVMVectorLast: id += "tvmvectorlast"; break;
-	case Kind::TVMVectorLength: id += "tvmvectorlength"; break;
-	case Kind::TVMVectorPop: id += "tvmvectorpop"; break;
-	case Kind::TVMVectorPush: id += "tvmvectorpush"; break;
-
 	case Kind::TVMStackEmpty: id += "tvmstackempty"; break;
 	case Kind::TVMStackPop: id += "tvmstackpop"; break;
 	case Kind::TVMStackPush: id += "tvmstackpush"; break;
 	case Kind::TVMStackReverse: id += "tvmstackreverse"; break;
 	case Kind::TVMStackSort: id += "tvmstacksort"; break;
 	case Kind::TVMStackTop: id += "tvmstacktop"; break;
-
-	case Kind::TVMBuyGas: id += "tvmbuygas"; break;
-	case Kind::TVMChecksign: id += "tvmchecksign"; break;
-	case Kind::TVMCode: id += "tvmcode"; break;
-	case Kind::TVMCommit: id += "tvmcommit"; break;
-	case Kind::TVMConfigParam: id += "tvmconfigparam"; break;
-	case Kind::TVMDeploy: id += "tvmdeploy"; break;
-	case Kind::TVMDuePayment: id += "tvmduepayment"; break;
-	case Kind::TVMLoadLibrary: id += "tvmloadlibrary"; break;
-	case Kind::TVMDump: id += "tvmdump"; break;
-	case Kind::TVMExit1: id += "tvmexit1"; break;
-	case Kind::TVMExit: id += "tvmexit"; break;
-	case Kind::TVMHash: id += "tvmhash"; break;
-	case Kind::TVMInitCodeHash: id += "tvminitcodehash"; break;
-	case Kind::TVMP256Checksign: id += "tvmp256checksign"; break;
-	case Kind::TVMPubkey: id += "tvmpubkey"; break;
-	case Kind::TVMRawConfigParam: id += "tvmrawconfigparam"; break;
-	case Kind::TVMRawMsg: id += "tvmrawmsg"; break;
-	case Kind::TVMReplayProtInterval: id += "tvmreplayprotinterval"; break;
-	case Kind::TVMReplayProtTime: id += "tvmreplayprottime"; break;
-	case Kind::TVMResetStorage: id += "tvmresetstorage"; break;
-	case Kind::TVMSendRawMsg: id += "tvmsendmsg"; break;
-	case Kind::TVMSetGasLimit: id += "tvmsetgaslimit"; break;
-	case Kind::TVMSetPubkey: id += "tvmsetpubkey"; break;
-	case Kind::TVMSetReplayProtTime: id += "tvmsetreplayprottime"; break;
-	case Kind::TVMSetcode: id += "tvmsetcode"; break;
 	case Kind::TVMUnpackData: id += "tvmunpackdata"; break;
-	case Kind::TVMPackData: id += "tvmpackdata"; break;
-
-	case Kind::AddressTransfer: id += "tvmtransfer"; break;
-
-	case Kind::TXtimestamp: id += "txtimestamp"; break;
-
-	case Kind::QIsNaN: id += "qisnan"; break;
-	case Kind::QGet: id += "qget"; break;
-	case Kind::QGetOr: id += "qgetor"; break;
-	case Kind::QGetOrDefault: id += "qgetordefault"; break;
-	case Kind::QToOptional: id += "qtooptional"; break;
-
+	case Kind::TVMVectorEmpty: id += "tvmvectorempty"; break;
+	case Kind::TVMVectorLast: id += "tvmvectorlast"; break;
+	case Kind::TVMVectorLength: id += "tvmvectorlength"; break;
+	case Kind::TVMVectorPop: id += "tvmvectorpop"; break;
+	case Kind::TVMVectorPush: id += "tvmvectorpush"; break;
+	case Kind::TonCombArithOper: id += "toncombarithoper"; break;
+	case Kind::Transfer: id += "transfer"; break;
+	case Kind::UBitSize: id += "ubitsize"; break;
+	case Kind::Uint256Prefix: id += "uint256prefix"; break;
+	case Kind::Unwrap: id += "unwrap"; break;
+	case Kind::VariantIsNull: id += "variantisnull"; break;
 	case Kind::VariantIsUint: id += "variantisuint"; break;
 	case Kind::VariantToUint: id += "varianttouint"; break;
-
-	case Kind::MsgPubkey: id += "msgpubkey"; break;
-	case Kind::AddressIsZero: id += "addressiszero"; break;
-	case Kind::AddressUnpack: id += "addressunpack"; break;
-	case Kind::AddressType: id += "addresstype"; break;
-	case Kind::AddressIsStdAddrWithoutAnyCast: id += "addressisstdaddrwithoutanycast"; break;
-	case Kind::AddressMakeAddrExtern: id += "addressmakeaddrextern"; break;
-	case Kind::AddressMakeAddrStd: id += "addressmakeaddrstd"; break;
-
-	case Kind::MathAbs: id += "mathabs"; break;
-	case Kind::MathDivC: id += "divc"; break;
-	case Kind::MathDivR: id += "divr"; break;
-	case Kind::MathMin: id += "mathmin"; break;
-	case Kind::MathMax: id += "mathmax"; break;
-	case Kind::MathMinMax: id += "mathminmax"; break;
-	case Kind::MathModpow2: id += "mathmodpow2"; break;
-	case Kind::MathMulDiv: id += "mathmuldiv"; break;
-	case Kind::MathMulDivMod: id += "mathmuldivmod"; break;
-	case Kind::MathDivMod: id += "mathdivmod"; break;
-	case Kind::MathSign: id += "mathsign"; break;
-	case Kind::MathMulMod: id += "mathmulmod"; break;
-	case Kind::TonCombArithOper: id += "toncombarithoper"; break;
-
-	case Kind::MappingAt: id += "mappingat"; break;
-	case Kind::MappingDelMinOrMax: id += "mapdelmin"; break;
-	case Kind::MappingEmpty: id += "mapempty"; break;
-	case Kind::MappingExists: id += "mapexists"; break;
-	case Kind::MappingFetch: id += "mapfetch"; break;
-	case Kind::MappingGetMinMax: id += "mapgetminmax"; break;
-	case Kind::MappingGetNextKey: id += "mapgetnext"; break;
-	case Kind::MappingGetPrevKey: id += "mapgetprev"; break;
-	case Kind::MappingGetSet: id += "mappingsetget"; break;
-	case Kind::MappingKeys: id += "mappingkeys"; break;
-	case Kind::MappingReplaceOrAdd: id += "mappingreplaceoradd"; break;
-	case Kind::MappingValues: id += "mappingvalues"; break;
-
-	case Kind::Declaration: id += "declaration"; break;
-	case Kind::Internal: id += "internal"; break;
-	case Kind::External: id += "external"; break;
-	case Kind::DelegateCall: id += "delegatecall"; break;
-	case Kind::BareCall: id += "barecall"; break;
-	case Kind::BareCallCode: id += "barecallcode"; break;
-	case Kind::BareDelegateCall: id += "baredelegatecall"; break;
-	case Kind::BareStaticCall: id += "barestaticcall"; break;
-	case Kind::Creation: id += "creation"; break;
-	case Kind::Send: id += "send"; break;
-	case Kind::Transfer: id += "transfer"; break;
-	case Kind::KECCAK256: id += "keccak256"; break;
-	case Kind::Selfdestruct: id += "selfdestruct"; break;
-	case Kind::Revert: id += "revert"; break;
-	case Kind::ECRecover: id += "ecrecover"; break;
-	case Kind::SHA256: id += "sha256"; break;
-	case Kind::RIPEMD160: id += "ripemd160"; break;
-	case Kind::GasConsumed: id += "gasConsumed"; break;
-	case Kind::GasLeft: id += "gasleft"; break;
-	case Kind::Event: id += "event"; break;
-	case Kind::Error: id += "error"; break;
+	case Kind::VariantUncheckedCast: id += "variantuncheckedcast"; break;
 	case Kind::Wrap: id += "wrap"; break;
-	case Kind::Unwrap: id += "unwrap"; break;
-	case Kind::SetGas: id += "setgas"; break;
-	case Kind::SetValue: id += "setvalue"; break;
-	case Kind::BlockHash: id += "blockhash"; break;
-	case Kind::AddMod: id += "addmod"; break;
-	case Kind::MulMod: id += "mulmod"; break;
-
-	case Kind::BitSize: id += "bitsize"; break;
-	case Kind::GasToValue: id += "gastovalue"; break;
-	case Kind::UBitSize: id += "ubitsize"; break;
-	case Kind::ValueToGas: id += "valuetogas"; break;
-
-	case Kind::ArrayEmpty: id += "arrayempty"; break;
-	case Kind::ArrayPush: id += "arraypush"; break;
-	case Kind::ArrayPop: id += "arraypop"; break;
-
-	case Kind::ByteArrayPush: id += "bytearraypush"; break;
-	case Kind::ByteToSlice: id += "bytetoslice"; break;
-
-	case Kind::BytesConcat: id += "bytesconcat"; break;
-	case Kind::StringConcat: id += "stringconcat"; break;
-
-	case Kind::ObjectCreation: id += "objectcreation"; break;
-	case Kind::Assert: id += "assert"; break;
-	case Kind::Require: id += "require"; break;
-	case Kind::ABIEncode: id += "abiencode"; break;
-	case Kind::ABIEncodePacked: id += "abiencodepacked"; break;
-	case Kind::ABIEncodeWithSelector: id += "abiencodewithselector"; break;
-	case Kind::ABIEncodeCall: id += "abiencodecall"; break;
-	case Kind::ABIEncodeWithSignature: id += "abiencodewithsignature"; break;
-	case Kind::ABIDecode: id += "abidecode"; break;
-	case Kind::BlobHash: id += "blobhash"; break;
-	case Kind::MetaType: id += "metatype"; break;
-
-	case Kind::RndGetSeed: id += "rndgetseed"; break;
-	case Kind::RndNext: id += "rndnext"; break;
-	case Kind::RndSetSeed: id += "rndsetseed"; break;
-	case Kind::RndShuffle: id += "rndshuffle"; break;
-
-	case Kind::GoshApplyPatch: id += "goshapplypatch"; break;
-	case Kind::GoshApplyPatchQ: id += "goshapplypatchq"; break;
-	case Kind::GoshApplyZipPatch: id += "goshapplyzippatch"; break;
-	case Kind::GoshApplyZipPatchQ: id += "goshapplyzippatchq"; break;
-	case Kind::GoshDiff: id += "goshdiff"; break;
-	case Kind::GoshUnzip: id += "goshunzip"; break;
-	case Kind::GoshZip: id += "goshzip"; break;
-	case Kind::GoshZipDiff: id += "goshzipdiff"; break;
-	case Kind::GoshApplyBinPatch: id += "goshapplybinpatch"; break;
-	case Kind::GoshApplyBinPatchQ: id += "goshapplybinpatchq"; break;
-	case Kind::GoshApplyZipBinPatch: id += "goshapplyzipbinpatch"; break;
-	case Kind::GoshApplyZipBinPatchQ: id += "goshapplyzipbinpatchq"; break;
 	}
 	id += "_" + stateMutabilityToString(m_stateMutability);
 	id += identifierList(m_parameterTypes) + "returns" + identifierList(m_returnParameterTypes);
@@ -3946,7 +3912,7 @@ bool FunctionType::isBareCall() const
 	case Kind::BareCallCode:
 	case Kind::BareDelegateCall:
 	case Kind::BareStaticCall:
-	case Kind::ECRecover:
+	case Kind::Secp256k1ECRecover:
 	case Kind::SHA256:
 	case Kind::RIPEMD160:
 		return true;
@@ -4006,7 +3972,7 @@ bool FunctionType::isPure() const
 	//       the callgraph analyzer is in place
 	return
 		m_kind == Kind::KECCAK256 ||
-		m_kind == Kind::ECRecover ||
+		m_kind == Kind::Secp256k1ECRecover ||
 		m_kind == Kind::SHA256 ||
 		m_kind == Kind::RIPEMD160 ||
 		m_kind == Kind::AddMod ||
@@ -4646,12 +4612,16 @@ std::string MagicType::richIdentifier() const
 		return "t_magic_math";
 	case Kind::Rnd:
 		return "t_magic_rnd";
-	case Kind::Gosh:
-		return "t_magic_gosh";
 	case Kind::BLS:
 		return "t_magic_bls";
 	case Kind::RIST255:
 		return "t_magic_rist255";
+	case Kind::Config:
+		return "t_magic_config";
+	case Kind::Secp256k1:
+		return "t_magic_secp256k1";
+	case Kind::Secp256r1:
+		return "t_magic_secp256r1";
 	case Kind::Error:
 		return "t_error";
 	}
@@ -4684,10 +4654,13 @@ MemberList::MemberMap getTvmMembers() {
 		{"exit", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit, StateMutability::Pure)},
 		{"exit1", TypeProvider::function(strings{}, strings{}, FunctionType::Kind::TVMExit1, StateMutability::Pure)},
 		{"setGasLimit", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetGasLimit, StateMutability::Pure)},
-		{"initCodeHash", TypeProvider::function({}, {"uint256"}, FunctionType::Kind::TVMInitCodeHash, StateMutability::Pure)},
 		{"buyGas", TypeProvider::function({"uint"}, {}, FunctionType::Kind::TVMSetGasLimit, StateMutability::Pure)},
 		{"duePayment", TypeProvider::function({}, {TypeProvider::coins()}, {}, {""}, FunctionType::Kind::TVMDuePayment, StateMutability::Pure)},
 		{"loadLibrary", TypeProvider::function({TypeProvider::uint256()}, {TypeProvider::tvmcell()}, {""}, {""}, FunctionType::Kind::TVMLoadLibrary, StateMutability::Pure)},
+		{"prevBlocksInfo", TypeProvider::function({}, {TypeProvider::tvmVector(TypeProvider::variant())}, {}, {""}, FunctionType::Kind::TVMPrevBlocksInfo, StateMutability::Pure)},
+		{"prevMCBlocks", TypeProvider::function({}, {TypeProvider::tvmVector(TypeProvider::tvmVector(TypeProvider::variant()))}, {}, {""}, FunctionType::Kind::TVMPrevMCBlocks, StateMutability::Pure)},
+		{"prevKeyBlock", TypeProvider::function({}, {TypeProvider::tvmVector(TypeProvider::variant())}, {}, {""}, FunctionType::Kind::TVMPrevKeyBlock, StateMutability::Pure)},
+		{"prevMCBlocks100", TypeProvider::function({}, {TypeProvider::tvmVector(TypeProvider::tvmVector(TypeProvider::variant()))}, {}, {""}, FunctionType::Kind::TVMPrevMCBlocks100, StateMutability::Pure)},
 
 		// for stdlib
 		{"replayProtectionValue", TypeProvider::function({}, {"uint64"}, FunctionType::Kind::TVMReplayProtTime, StateMutability::Pure)},
@@ -4750,22 +4723,6 @@ MemberList::MemberMap getTvmMembers() {
 			FunctionType::Kind::TVMChecksign,
 			StateMutability::Pure
 		)},
-		{"p256CheckSign", TypeProvider::function(
-			TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
-			TypePointers{TypeProvider::boolean()},
-			strings{std::string(), std::string(), std::string()},
-			strings{std::string()},
-			FunctionType::Kind::TVMP256Checksign,
-			StateMutability::Pure
-		)},
-		{"p256CheckSign", TypeProvider::function(
-			TypePointers{TypeProvider::uint256(), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
-			TypePointers{TypeProvider::boolean()},
-			strings{std::string(), std::string(), std::string()},
-			strings{std::string()},
-			FunctionType::Kind::TVMP256Checksign,
-			StateMutability::Pure
-		)},
 		{"sendrawmsg", TypeProvider::function(
 			TypePointers{TypeProvider::tvmcell(), TypeProvider::uint(8)},
 			TypePointers{},
@@ -4780,22 +4737,6 @@ MemberList::MemberMap getTvmMembers() {
 			strings{{}, {}},
 			strings{{}},
 			FunctionType::Kind::TVMRawMsg,
-			StateMutability::Pure
-		)},
-		{"configParam", TypeProvider::function(
-			TypePointers{},
-			TypePointers{},
-			strings{},
-			strings{},
-			FunctionType::Kind::TVMConfigParam,
-			StateMutability::Pure
-		)},
-		{"rawConfigParam", TypeProvider::function(
-			{TypeProvider::integer(32, IntegerType::Modifier::Signed)},
-			{TypeProvider::optional(TypeProvider::tvmcell())},
-			{{}},
-			{{}},
-			FunctionType::Kind::TVMRawConfigParam,
 			StateMutability::Pure
 		)},
 		{"buildIntMsg", TypeProvider::function(
@@ -4899,25 +4840,6 @@ MemberList::MemberMap getTvmMembers() {
 			nullptr, FunctionType::Options::withArbitraryParameters()
 		)}
 	};
-
-	for (auto const type : std::vector<Type const*>{TypeProvider::int257(), TypeProvider::tvmslice()}) {
-		members.emplace_back("bindump", TypeProvider::function(
-			TypePointers{type},
-			TypePointers{},
-			strings{{}},
-			strings{},
-			FunctionType::Kind::TVMDump,
-			StateMutability::Pure
-		));
-		members.emplace_back("hexdump", TypeProvider::function(
-			TypePointers{type},
-			TypePointers{},
-			strings{{}},
-			strings{},
-			FunctionType::Kind::TVMDump,
-			StateMutability::Pure
-		));
-	}
 
 	members.push_back(
 		{"hash", TypeProvider::function(
@@ -5525,6 +5447,17 @@ MemberList::MemberMap getBLSMembers() {
 			FunctionType::Kind::BlsG2MultiExp,
 			StateMutability::Pure
 		)
+	},
+	{
+		"pairing",
+		TypeProvider::function(
+			TypePointers{TypeProvider::tvmVector(TypeProvider::tuple({TypeProvider::tvmslice(),TypeProvider::tvmslice()}))},
+			TypePointers{TypeProvider::boolean()},
+			strings{""},
+			strings{""},
+			FunctionType::Kind::BlsPairing,
+			StateMutability::Pure
+		)
 	}
 	});
 	auto args = TypePointers{TypeProvider::tvmslice()};
@@ -5581,6 +5514,23 @@ MemberList::MemberMap getBLSMembers() {
 			);
 		}
 		{
+			auto avArgs = args;
+			avArgs.insert(avArgs.end(), args.begin(), args.end());
+			auto avNames = argNames;
+			avNames.insert(avNames.end(), argNames.begin(), argNames.end());
+			members.emplace_back(
+				"pairing",
+				TypeProvider::function(
+					avArgs,
+					TypePointers{TypeProvider::boolean()},
+					avNames,
+					strings{""},
+					FunctionType::Kind::BlsPairing,
+					StateMutability::Pure
+				)
+			);
+		}
+		{
 			TypePointers mulArgs;
 			strings mulNames;
 			for (int i = 0; i < n; ++i) {
@@ -5617,89 +5567,6 @@ MemberList::MemberMap getBLSMembers() {
 		args.emplace_back(TypeProvider::tvmslice());
 		argNames.emplace_back("");
 	}
-	return members;
-}
-
-MemberList::MemberMap getGOSHMembers() {
-	MemberList::MemberMap members;
-	for (auto const&[name, type] : std::vector<std::tuple<std::string, FunctionType::Kind>>{
-			{"diff", FunctionType::Kind::GoshDiff},
-			{"applyPatch", FunctionType::Kind::GoshApplyPatch},
-	}) {
-		members.push_back({ name.c_str(),
-			TypeProvider::function(
-				{TypeProvider::stringMemory(), TypeProvider::stringMemory()},
-				{TypeProvider::stringMemory()},
-				{{}, {}},
-				{{}},
-				type,
-				StateMutability::Pure
-		)});
-	}
-
-	for (auto const&[name, type] : std::vector<std::tuple<std::string, FunctionType::Kind>>{
-			{"applyBinPatch", FunctionType::Kind::GoshApplyBinPatch},
-			{"applyZipBinPatch", FunctionType::Kind::GoshApplyZipBinPatch},
-			{"applyZipPatch", FunctionType::Kind::GoshApplyZipPatch},
-			{"zipDiff", FunctionType::Kind::GoshZipDiff},
-	}) {
-		members.push_back({ name.c_str(),
-			TypeProvider::function(
-				{TypeProvider::bytesMemory(), TypeProvider::bytesMemory()},
-				{TypeProvider::bytesMemory()},
-				{{}, {}},
-				{{}},
-				type,
-				StateMutability::Pure
-		)});
-	}
-
-	members.push_back({ "applyPatchQ",
-		TypeProvider::function(
-			{TypeProvider::stringMemory(), TypeProvider::stringMemory()},
-			{TypeProvider::optional(TypeProvider::stringMemory())},
-			{{}, {}},
-			{{}},
-			FunctionType::Kind::GoshApplyZipPatchQ,
-			StateMutability::Pure
-	)});
-
-	for (auto const&[name, type] : std::vector<std::tuple<std::string, FunctionType::Kind>>{
-			{"applyZipPatchQ", FunctionType::Kind::GoshApplyZipPatchQ},
-			{"applyBinPatchQ", FunctionType::Kind::GoshApplyBinPatchQ},
-			{"applyZipBinPatchQ", FunctionType::Kind::GoshApplyZipBinPatchQ},
-	}) {
-		members.push_back({ name.c_str(),
-			TypeProvider::function(
-				{TypeProvider::bytesMemory(), TypeProvider::bytesMemory()},
-				{TypeProvider::optional(TypeProvider::bytesMemory())},
-				{{}, {}},
-				{{}},
-				type,
-				StateMutability::Pure
-		)});
-	}
-
-	members.push_back({
-		"zip",
-		TypeProvider::function(
-			{TypeProvider::stringMemory()},
-			{TypeProvider::bytesMemory()},
-			{{}},
-			{{}},
-			FunctionType::Kind::GoshZip,
-			StateMutability::Pure
-	)});
-	members.push_back({
-		"unzip",
-		TypeProvider::function(
-			  {TypeProvider::bytesMemory()},
-			  {TypeProvider::stringMemory()},
-			  {{}},
-			  {{}},
-			  FunctionType::Kind::GoshUnzip,
-			  StateMutability::Pure
-	)});
 	return members;
 }
 
@@ -5840,6 +5707,109 @@ MemberList::MemberMap getRistMembers() {
 	};
 	return members;
 }
+
+MemberList::MemberMap getConfigMembers() {
+	MemberList::MemberMap members = {
+		{"unpackedConfig", TypeProvider::function(
+			{},
+			{TypeProvider::tvmVector(TypeProvider::variant())},
+			{},
+			{""},
+			FunctionType::Kind::ConfigUnpackedConfig,
+			StateMutability::Pure)
+		},
+		{"globalId", TypeProvider::function(strings{}, strings{"int32"}, FunctionType::Kind::ConfigGlobalId, StateMutability::Pure)},
+		{"getGasFee", TypeProvider::function(
+			strings{"uint63", "bool"}, strings{"coins"},
+			FunctionType::Kind::ConfigGetGasFee, StateMutability::Pure
+		)},
+		{"getStorageFee", TypeProvider::function(
+			strings{"uint63", "uint63", "uint63", "bool"}, strings{"uint192"},
+			FunctionType::Kind::ConfigGetStorageFee, StateMutability::Pure
+		)},
+		{"valueToGas", TypeProvider::function(
+			strings{"coins", "bool"}, strings{"coins"},
+			FunctionType::Kind::ConfigValueToGas, StateMutability::Pure
+		)},
+		{"getForwardFee", TypeProvider::function(
+			strings{"uint63", "uint63", "bool"}, strings{"coins"},
+			FunctionType::Kind::ConfigGetForwardFee, StateMutability::Pure
+		)},
+		{"getOriginalFwdFee", TypeProvider::function(
+			strings{"coins", "bool"}, strings{"coins"},
+			FunctionType::Kind::ConfigGetOriginalFwdFee, StateMutability::Pure
+		)},
+		{"getGasFeeSimple", TypeProvider::function(
+			strings{"uint63", "bool"}, strings{"coins"},
+			FunctionType::Kind::ConfigGetGasFeeSimple, StateMutability::Pure
+		)},
+		{"getForwardFeeSimple", TypeProvider::function(
+			strings{"uint63", "uint63", "bool"}, strings{"coins"},
+			FunctionType::Kind::ConfigGetForwardFeeSimple, StateMutability::Pure
+		)},
+		{"getParam", TypeProvider::function(
+			{TypeProvider::uint(32)},
+			{TypeProvider::optional(TypeProvider::tvmcell())},
+			{""},
+			{""},
+			FunctionType::Kind::ConfigGetParam,
+			StateMutability::Pure
+		)},
+		{"getPrecompiledGas", TypeProvider::function(
+			{},
+			{TypeProvider::optional(TypeProvider::uint(64))},
+			{},
+			{""},
+			FunctionType::Kind::ConfigGetPrecompiledGas,
+			StateMutability::Pure
+		)},
+	};
+	return members;
+}
+
+MemberList::MemberMap getSecp256k1Members() {
+	MemberList::MemberMap members = {
+		{ "ecrecover", TypeProvider::function(
+			TypePointers{TypeProvider::uint256(), TypeProvider::uint(8), TypeProvider::uint256(), TypeProvider::uint256()},
+			TypePointers{TypeProvider::optional(TypeProvider::tuple({TypeProvider::uint(8), TypeProvider::uint256(),TypeProvider::uint256()}))},
+			strings{"", "", "", ""},
+			strings{""},
+			FunctionType::Kind::Secp256k1ECRecover,
+			StateMutability::Pure
+		)},
+		{ "addTweakPublicKey", TypeProvider::function(
+			TypePointers{TypeProvider::uint256(), TypeProvider::uint256()},
+			TypePointers{TypeProvider::optional(TypeProvider::tuple({TypeProvider::uint(8), TypeProvider::uint256(),TypeProvider::uint256()}))},
+			strings{"", ""},
+			strings{""},
+			FunctionType::Kind::Secp256k1AddTweakPublicKey,
+			StateMutability::Pure
+		)}
+	};
+	return members;
+}
+
+MemberList::MemberMap getSecp256r1Members() {
+	MemberList::MemberMap members = {
+		{"checkSign", TypeProvider::function(
+			TypePointers{TypeProvider::tvmslice(), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::boolean()},
+			strings{std::string(), std::string(), std::string()},
+			strings{std::string()},
+			FunctionType::Kind::Secp256r1CheckSign,
+			StateMutability::Pure
+		)},
+		{"checkSign", TypeProvider::function(
+			TypePointers{TypeProvider::uint256(), TypeProvider::tvmslice(), TypeProvider::tvmslice()},
+			TypePointers{TypeProvider::boolean()},
+			strings{std::string(), std::string(), std::string()},
+			strings{std::string()},
+			FunctionType::Kind::Secp256r1CheckSign,
+			StateMutability::Pure
+		)},
+	};
+	return members;
+}
 }
 
 MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
@@ -5860,17 +5830,22 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 		});
 	case Kind::Message:
 		return MemberList::MemberMap({
-			{"sender", TypeProvider::address()},
-			{"pubkey", TypeProvider::function(strings(), strings{"bytes32"}, FunctionType::Kind::MsgPubkey, StateMutability::Pure)},
-			{"createdAt", TypeProvider::uint(32)},
-			{"gas", TypeProvider::uint256()},
+			// CommonMsgInfo + StateInit:
+			{"bounce", TypeProvider::boolean()},
+			{"bounced", TypeProvider::boolean()},
+			{"sender", TypeProvider::addressStd()},
 			{"value", TypeProvider::coins()},
-			{"data", TypeProvider::tvmcell()},
-			{"sig", TypeProvider::fixedBytes(4)},
 			{"currencies", TypeProvider::extraCurrencyCollection()},
-			{"body", TypeProvider::tvmslice()},
 			{"forwardFee", TypeProvider::coins()},
-			{"importFee", TypeProvider::coins()},
+			{"createdLogicalTime", TypeProvider::uint(64)},
+			{"createdAt", TypeProvider::uint(32)},
+			{"stateInit", TypeProvider::tvmcell()},
+
+			// Other fields
+			{"body", TypeProvider::tvmslice()},
+			{"data", TypeProvider::tvmcell()},
+			{"pubkey", TypeProvider::function(strings(), strings{"bytes32"}, FunctionType::Kind::MsgPubkey, StateMutability::Pure)},
+			{"originValue", TypeProvider::coins()},
 		});
 	case Kind::TVM: {
 		return getTvmMembers();
@@ -5886,7 +5861,6 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 			{"gasprice", TypeProvider::uint256()},
 			{"logicaltime", TypeProvider::uint(64)},
 			{"origin", TypeProvider::address()},
-			{"storageFee", TypeProvider::coins()},
 			{"storageFees", TypeProvider::coins()},
 			{"timestamp", TypeProvider::uint(64)},
 		});
@@ -5895,11 +5869,17 @@ MemberList::MemberMap MagicType::nativeMembers(ASTNode const*) const
 	case Kind::BLS: {
 		return getBLSMembers();
 	}
-	case Kind::Gosh: {
-		return getGOSHMembers();
-	}
 	case Kind::RIST255: {
 		return getRistMembers();
+	}
+	case Kind::Config: {
+		return getConfigMembers();
+	}
+	case Kind::Secp256k1: {
+		return getSecp256k1Members();
+	}
+	case Kind::Secp256r1: {
+		return getSecp256r1Members();
 	}
 	case Kind::Error:
 		return {};
@@ -5981,12 +5961,16 @@ std::string MagicType::toString(bool _withoutDataLocation) const
 		return "math";
 	case Kind::Rnd:
 		return "rnd";
-	case Kind::Gosh:
-		return "gosh";
 	case Kind::BLS:
 		return "bls";
 	case Kind::RIST255:
 		return "rist255";
+	case Kind::Config:
+		return "config";
+	case Kind::Secp256k1:
+		return "secp256k1";
+	case Kind::Secp256r1:
+		return "secp256r1";
 	case Kind::Error:
 		return "error";
 	}
@@ -6027,6 +6011,14 @@ TypeResult TvmSliceType::unaryOperatorResult(Token _operator) const  {
 
 MemberList::MemberMap TvmSliceType::nativeMembers(ASTNode const *) const {
 	MemberList::MemberMap members = {
+		{ "hash", TypeProvider::function(
+			{},
+			{TypeProvider::uint256()},
+			{},
+			{{}},
+			FunctionType::Kind::TVMSliceHash,
+			StateMutability::Pure
+		)},
 		{
 			"dataSize", TypeProvider::function(
 				{TypeProvider::uint256()},
@@ -6756,105 +6748,149 @@ TypeResult TvmCellType::unaryOperatorResult(Token _operator) const {
 MemberList::MemberMap TvmCellType::nativeMembers(const ASTNode *) const
 {
 	MemberList::MemberMap members = {
-		{
-			"depth",
-			TypeProvider::function(
-				TypePointers{},
-				TypePointers{TypeProvider::uint(16)},
-				strings{},
-				strings{std::string()},
-				FunctionType::Kind::TVMCellDepth,
-				StateMutability::Pure
-			)
-		},
-		{
-			"toSlice",
-			TypeProvider::function(
-				TypePointers{},
-				TypePointers{TypeProvider::tvmslice()},
-				strings{},
-				strings{std::string()},
-				FunctionType::Kind::TVMCellToSlice,
-				StateMutability::Pure
-			)
-		},
-		{
-			"exoticToSlice",
-			TypeProvider::function(
-				TypePointers{},
-				TypePointers{TypeProvider::tvmslice(), TypeProvider::boolean()},
-				strings{},
-				strings{std::string(), std::string()},
-				FunctionType::Kind::TVMCellToSlice,
-				StateMutability::Pure
-			)
-		},
-		{
-			"loadExoticCell",
-			TypeProvider::function(
-				TypePointers{},
-				TypePointers{TypeProvider::tvmcell()},
-				strings{},
-				strings{std::string()},
-				FunctionType::Kind::TVMCellToSlice,
-				StateMutability::Pure
-			)
-		},
-		{
-			"loadExoticCellQ",
-			TypeProvider::function(
-				TypePointers{},
-				TypePointers{TypeProvider::tvmcell(), TypeProvider::boolean()},
-				strings{},
-				strings{std::string(), std::string()},
-				FunctionType::Kind::TVMCellToSlice,
-				StateMutability::Pure
-			)
-		},
-		{
-			"dataSize",
-			TypeProvider::function(
-				{TypeProvider::uint256()},
-				{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()},
-				{{}},
-				{{}, {}, {}},
-				FunctionType::Kind::TVMDataSize,
-				StateMutability::Pure
-			)
-		},
-		{
-			"dataSizeQ",
-			TypeProvider::function(
-				{TypeProvider::uint256()},
-				{TypeProvider::optional(TypeProvider::tuple({TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()}))},
-				{{}},
-				{{}},
-				FunctionType::Kind::TVMDataSize,
-				StateMutability::Pure
-			)
-		}
+		{"depth", TypeProvider::function(
+			{},
+			{TypeProvider::uint(16)},
+			{},
+			{""},
+			FunctionType::Kind::TVMCellDepth,
+			StateMutability::Pure
+		)},
+		{"depth", TypeProvider::function(
+			{TypeProvider::uint(256)},
+			{TypeProvider::uint(16)},
+			{""},
+			{""},
+			FunctionType::Kind::TVMCellDepth,
+			StateMutability::Pure
+		)},
+		{"hash", TypeProvider::function(
+			{},
+			{TypeProvider::uint(256)},
+			{},
+			{""},
+			FunctionType::Kind::TVMCellHash,
+			StateMutability::Pure
+		)},
+		{"hash", TypeProvider::function(
+			{TypeProvider::uint(256)},
+			{TypeProvider::uint(256)},
+			{""},
+			{""},
+			FunctionType::Kind::TVMCellHash,
+			StateMutability::Pure
+		)},
+		{ "level", TypeProvider::function(
+			{},
+			{TypeProvider::uint(2)},
+			{},
+			{""},
+			FunctionType::Kind::TVMCellLevel,
+			StateMutability::Pure
+		)},
+		{ "levelMask", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::uint(3)},
+			strings{},
+			strings{""},
+			FunctionType::Kind::TVMCellLevelMask,
+			StateMutability::Pure
+		)},
+		{ "toSlice", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::tvmslice()},
+			strings{},
+			strings{std::string()},
+			FunctionType::Kind::TVMCellToSlice,
+			StateMutability::Pure
+		)},
+		{ "exoticToSlice", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::tvmslice(), TypeProvider::boolean()},
+			strings{},
+			strings{std::string(), std::string()},
+			FunctionType::Kind::TVMCellExoticToSlice,
+			StateMutability::Pure
+		)},
+		{ "loadExoticCell", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::tvmcell()},
+			strings{},
+			strings{std::string()},
+			FunctionType::Kind::TVMCellLoadExoticCell,
+			StateMutability::Pure
+		) },
+		{ "loadExoticCellQ", TypeProvider::function(
+			TypePointers{},
+			TypePointers{TypeProvider::tvmcell(), TypeProvider::boolean()},
+			strings{},
+			strings{std::string(), std::string()},
+			FunctionType::Kind::TVMCellLoadExoticCellQ,
+			StateMutability::Pure
+		) },
+		{ "dataSize", TypeProvider::function(
+			{TypeProvider::uint256()},
+			{TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()},
+			{{}},
+			{{}, {}, {}},
+			FunctionType::Kind::TVMCellDataSize,
+			StateMutability::Pure
+		) },
+		{ "dataSizeQ", TypeProvider::function(
+			{TypeProvider::uint256()},
+			{TypeProvider::optional(TypeProvider::tuple({TypeProvider::uint256(), TypeProvider::uint256(), TypeProvider::uint256()}))},
+			{{}},
+			{{}},
+			FunctionType::Kind::TVMCellDataSizeQ,
+			StateMutability::Pure
+		)}
 	};
 	return members;
 }
 
 MemberList::MemberMap Variant::nativeMembers(ASTNode const* /*_currentScope*/) const {
-	MemberList::MemberMap members;
-	members.emplace_back("isUint", TypeProvider::function(
-			{},
-			{TypeProvider::boolean()},
-			{},
-			{{}},
-			FunctionType::Kind::VariantIsUint,
-			StateMutability::Pure
-	));
-	members.emplace_back("toUint", TypeProvider::function(
-			{},
-			{TypeProvider::uint256()},
-			{},
-			{{}},
-			FunctionType::Kind::VariantToUint,
-			StateMutability::Pure
-	));
+	MemberList::MemberMap members {
+		{
+			"isUint", TypeProvider::function(
+				{},
+				{TypeProvider::boolean()},
+				{},
+				{{}},
+				FunctionType::Kind::VariantIsUint,
+				StateMutability::Pure
+			)
+		},
+		{
+			"toUint", TypeProvider::function(
+				{},
+				{TypeProvider::uint256()},
+				{},
+				{{}},
+				FunctionType::Kind::VariantToUint,
+				StateMutability::Pure
+			)
+		},
+		{
+			"uncheckedCast", TypeProvider::function(
+				{},
+				{},
+				{},
+				{},
+				FunctionType::Kind::VariantUncheckedCast,
+				StateMutability::Pure
+			)
+		},
+		{
+			"isNull", TypeProvider::function(
+				{},
+				{TypeProvider::boolean()},
+				{},
+				{""},
+				FunctionType::Kind::VariantIsNull,
+				StateMutability::Pure
+			)
+		}
+	};
 	return members;
 }
 
@@ -7170,6 +7206,16 @@ MemberList::MemberMap TvmBuilderType::nativeMembers(const ASTNode *) const
 			"toExoticCell", TypeProvider::function(
 				TypePointers{},
 				TypePointers{TypeProvider::tvmcell()},
+				strings{},
+				strings{std::string()},
+				FunctionType::Kind::TVMBuilderMethods,
+				StateMutability::Pure
+			)
+		},
+		{
+			"hash", TypeProvider::function(
+				TypePointers{},
+				TypePointers{TypeProvider::uint256()},
 				strings{},
 				strings{std::string()},
 				FunctionType::Kind::TVMBuilderMethods,

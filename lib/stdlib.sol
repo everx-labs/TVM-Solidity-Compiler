@@ -40,18 +40,11 @@ contract stdlib {
     }
 
     function __tonToGas(uint128 _ton, bool isMasterChain) private pure returns(uint128) {
-        return math.muldiv(_ton, 65536, __gasGasPrice(isMasterChain)); // round down
-    }
-
-    function __gasToTon(uint128 gas, bool isMasterChain) private pure returns(uint128) {
-        return math.muldivc(gas, __gasGasPrice(isMasterChain), 65536); // round up
-    }
-
-    function __gasGasPrice(bool isMasterChain) private pure returns(uint64 gasPrice) {
-        optional(TvmCell) optCell = tvm.rawConfigParam(isMasterChain? int32(20) : int32(21));
+        optional(TvmCell) optCell = config.getParam(isMasterChain? 20 : 21);
         require(optCell.hasValue(), 68);
         TvmSlice s = optCell.get().toSlice();
-        (, , , , gasPrice) = s.load(uint8, uint64, uint64, uint8, uint64);
+        (, , , , uint64 gasPrice) = s.load(uint8, uint64, uint64, uint8, uint64);
+        return math.muldiv(_ton, 65536, gasPrice); // round down
     }
 
     // a ** n
@@ -572,37 +565,6 @@ contract stdlib {
         builder.storeUint(codeHash, 256);
         builder.storeUint(dataHash, 256);
         return sha256(builder.toSlice());
-    }
-
-    function __forwardFee() private pure returns (varuint16) {
-        TvmSlice s = msg.data.toSlice();
-        uint1 tag = s.load(uint1);
-        if (tag == 0) {
-            // int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
-            //  src:MsgAddressInt dest:MsgAddressInt
-            //  value:CurrencyCollection ihr_fee:Grams fwd_fee:Grams
-            //  created_lt:uint64 created_at:uint32 = CommonMsgInfo;
-            s.load(uint3,
-                address, address,
-                varuint16, mapping(uint32 => varuint32), varuint16
-            );
-            return s.load(varuint16);
-        } else {
-            return 0;
-        }
-    }
-
-    function __importFee() private pure returns (varuint16) {
-        TvmSlice s = msg.data.toSlice();
-        uint2 tag = s.load(uint2);
-        if (tag == 2) {
-            // ext_in_msg_info$10 src:MsgAddressExt dest:MsgAddressInt
-            //  import_fee:Grams = CommonMsgInfo;
-            s.load(address, address);
-            return s.load(varuint16);
-        } else {
-            return 0;
-        }
     }
 
     struct Type {

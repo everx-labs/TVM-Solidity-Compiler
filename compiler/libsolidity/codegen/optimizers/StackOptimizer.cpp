@@ -241,28 +241,6 @@ bool StackOptimizer::visit(TvmUntil& _node) {
 	return false;
 }
 
-bool StackOptimizer::visit(TryCatch& _node) {
-	int const savedStack = size();
-	++m_tryCatchQty;
-
-	// try body
-	startScope();
-	_node.tryBody()->accept(*this);
-	endScope();
-	solAssert(savedStack == size(), "");
-
-	// catch body
-	startScope();
-	delta(2); // 2 error variables
-	_node.catchBody()->accept(*this);
-	endScope();
-
-	solAssert(savedStack == size(), "");
-	--m_tryCatchQty;
-	solAssert(m_tryCatchQty >= 0);
-	return false;
-}
-
 bool StackOptimizer::visit(While& _node) {
 	int savedStack = size();
 

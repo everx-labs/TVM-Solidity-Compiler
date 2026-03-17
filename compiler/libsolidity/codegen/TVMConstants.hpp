@@ -55,7 +55,6 @@ struct TvmConst {
 		constexpr static int ConstructorFlag = 6;
 		constexpr static int ResponsibleMessageFlag = 7;
 		constexpr static int ResponsibleParams = 8;
-		constexpr static int SenderAddress = 9;
 		constexpr static int FirstIndexForVariables = 10;
 	};
 	struct SENDRAWMSG {
@@ -90,18 +89,10 @@ struct TvmConst {
 		constexpr static int MessageIsExpired = 57;
 		constexpr static int MessageHasNoSignButHasPubkey = 58;
 		constexpr static int NoFallback = 60;
-		constexpr static int NoPubkeyInC4 = 61;
-		constexpr static int MigratePubkey = 62;
 		constexpr static int GetOptionalException = 63;
-		constexpr static int MsgWithKeyButNoSign = 64;
-		constexpr static int BadFunctionIdOfFuncCall = 65;
-		constexpr static int FormatWrongWidth = 66;
-		constexpr static int WrongWid = 67;
 		constexpr static int NoConfigParam20Or21 = 68;
 		constexpr static int Exponent00 = 69;
 		constexpr static int TooLongSubstr = 70;
-		constexpr static int ByExtMsgOnly = 71;
-		constexpr static int ByIntMsgOnly = 72;
 		constexpr static int WrongValueOfEnum = 73;
 		constexpr static int CallThatWasBeforeCtorCall = 76;
 		constexpr static int BadVariant = 77;

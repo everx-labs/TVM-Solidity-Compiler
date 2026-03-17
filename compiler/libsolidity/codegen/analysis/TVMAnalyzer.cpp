@@ -105,46 +105,6 @@ void TVMAnalyzer::endVisit(FunctionCall const&) {
 	m_functionCall.pop_back();
 }
 
-void TVMAnalyzer::endVisit(PragmaDirective const& _pragma) {
-	if (!_pragma.literals().empty() && _pragma.literals().at(0) == "copyleft") {
-		std::vector<ASTPointer<Expression>> params = _pragma.parameter();
-
-		auto checkConstInteger =
-			[&](Expression const& _e, SourceLocation const& loc, std::string const& msg, bigint const& max_val) {
-				if (_e.annotation().type->category() != Type::Category::RationalNumber) {
-					m_errorReporter.syntaxError(5514_error, loc, msg);
-					return;
-				}
-				auto number = dynamic_cast<RationalNumberType const*>(_e.annotation().type);
-				solAssert(number, "");
-				if (number->isFractional()) {
-					m_errorReporter.syntaxError(8784_error, loc, msg);
-					return;
-				}
-				bigint val = number->value2();
-				if (val < 0 || val >= max_val) {
-					m_errorReporter.syntaxError(5971_error, loc, msg);
-				}
-			};
-
-		// check type
-		checkConstInteger(
-			*params.at(0),
-			params.at(0)->location(),
-			"Expected constant integer type (uint8).",
-			bigint(1) << 8
-		);
-
-		// check address
-		checkConstInteger(
-			*params.at(1),
-			params.at(1)->location(),
-			"Expected constant integer type (uint256).",
-			bigint(1) << 256
-		);
-	}
-}
-
 bool TVMAnalyzerFlag128::visit(ContractDefinition const& contract) {
 	switch (contract.contractKind()) {
 	case ContractKind::Contract:
@@ -377,41 +337,6 @@ bool ExtraFlagAnalyzer::visit(FunctionCall const& _functionCall) {
 	return true;
 }
 
-bool ExtMsgAnalyzer::visit(FunctionDefinition const& _function) {
-	if (_function.isExternalMsg()) {
-		m_function = &_function;
-		return true;
-	}
-	return false;
-}
-
-void ExtMsgAnalyzer::endVisit(FunctionDefinition const&) { m_function = nullptr; }
-
-bool ExtMsgAnalyzer::visit(MemberAccess const& _memberAccess) {
-	if (m_function != nullptr) {
-		Type const* exprType = _memberAccess.expression().annotation().type;
-		if (auto magicType = to<MagicType>(exprType)) {
-			ASTString const& member = _memberAccess.memberName();
-
-			switch (magicType->kind()) {
-			case MagicType::Kind::Message:
-				if (isIn(member, "sender", "currencies", "createdAt")) {
-					m_errorReporter.typeError(
-						1897_error,
-						_memberAccess.location(),
-						SecondarySourceLocation().append("The declaration is here:", m_function->location()),
-						"\"msg." + member + "\" cannot be used in the function that marked as \"externalMsg\""
-					);
-				}
-				break;
-			default:
-				break;
-			}
-		}
-	}
-	return true;
-}
-
 bool TVMAnalyzerPackUnpack::visit(FunctionCall const& _functionCall) {
 	auto funcType = to<FunctionType>(_functionCall.expression().annotation().type);
 	if (funcType && funcType->kind() == FunctionType::Kind::TVMUnpackData) {
@@ -441,26 +366,17 @@ bool TVMAnalyzerPackUnpack::visit(VariableDeclaration const& _node) {
 	return true;
 }
 
-ContactsUsageScanner::ContactsUsageScanner(ContractDefinition const& cd) {
+MsgPubkeyAnalyzer::MsgPubkeyAnalyzer(ContractDefinition const& cd) {
 	for (ContractDefinition const* base: cd.annotation().linearizedBaseContracts) {
 		base->accept(*this);
 	}
 }
 
-bool ContactsUsageScanner::visit(FunctionCall const& _functionCall) {
+bool MsgPubkeyAnalyzer::visit(FunctionCall const& _functionCall) {
 	Expression const& expr = _functionCall.expression();
 	Type const* exprType = getType(&expr);
 	auto funType = to<FunctionType>(exprType);
 	if (funType) {
-		if (funType->hasDeclaration() &&
-			isIn(funType->kind(), FunctionType::Kind::Internal, FunctionType::Kind::DelegateCall)) {
-			// Library functions aren't part of contract definition, that's why we use lazy visiting
-			Declaration const& decl = funType->declaration();
-			if (!m_usedFunctions.contains(&decl)) {
-				m_usedFunctions.insert(&decl);
-				decl.accept(*this);
-			}
-		}
 		switch (funType->kind()) {
 		case FunctionType::Kind::MsgPubkey:
 			m_hasMsgPubkey = true;
@@ -470,27 +386,6 @@ bool ContactsUsageScanner::visit(FunctionCall const& _functionCall) {
 		}
 	}
 
-	return true;
-}
-
-bool ContactsUsageScanner::visit(MemberAccess const& _node) {
-	auto const& expr = _node.expression();
-	auto type = expr.annotation().type;
-
-	if (type->category() == Type::Category::Magic) {
-		auto identifier = to<Identifier>(&_node.expression());
-		if (identifier) {
-			if (identifier->name() == "msg" && _node.memberName() == "sender") {
-				m_hasMsgSender = true;
-			}
-		}
-	}
-	return true;
-}
-
-bool ContactsUsageScanner::visit(FunctionDefinition const& fd) {
-	if (fd.isResponsible())
-		m_hasResponsibleFunction = true;
 	return true;
 }
 

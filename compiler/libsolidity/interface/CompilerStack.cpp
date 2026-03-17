@@ -623,18 +623,9 @@ bool CompilerStack::analyzeLegacy(bool _noErrorsSoFar)
 	}
 
 	if (noErrors) {
-		if (m_tvmVersion == TVMVersion::ton()) {
-			TVMAnalyzerFlag128 tvmAnalyzer128(m_errorReporter);
-			for (Source const* source: m_sourceOrder)
-				if (source->ast && !tvmAnalyzer128.analyze(*source->ast))
-					noErrors = false;
-		}
-	}
-
-	if (noErrors) {
-		ExtMsgAnalyzer extMsgAnalyzer(m_errorReporter);
+		TVMAnalyzerFlag128 tvmAnalyzer128(m_errorReporter);
 		for (Source const* source: m_sourceOrder)
-			if (source->ast && !extMsgAnalyzer.analyze(*source->ast))
+			if (source->ast && !tvmAnalyzer128.analyze(*source->ast))
 				noErrors = false;
 	}
 

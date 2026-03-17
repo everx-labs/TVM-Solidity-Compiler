@@ -121,7 +121,6 @@ private:
 	void doWhile(WhileStatement const& _whileStatement);
 
 	void setCtorFlag() const;
-	void setCopyleft() const;
 
 	void pushMsgPubkey() const;
 	void checkSignatureAndReadPublicKey() const;

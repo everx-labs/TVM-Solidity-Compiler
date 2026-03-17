@@ -1,3 +1,48 @@
+### 0.81.0 (2026-03-18)
+
+Breaking changes:
+ * The compiler supports only two versions of VM: tycho and ton. The default version is tycho.
+ * Deleted `gosh.*` functions, `tvm.initCodeHash()`, `pragma copyleft ...`, `tx.storageFee`, `try-catch` statement, `*ever` [units](API.md#tvm-units), `tvm.hexdump()`, `tvm.bindump()`, `<address>.isStdAddrWithoutAnyCast()`, etc.
+ * Deleted `tvm.configParam()`, `tvm.rawConfigParam()`. Use [config.getParam()](API.md#configgetparam),
+ * Deleted `valueToGas()`. Use [config.valueToGas()](API.md#configvaluetogas),
+ * Deleted `gasToValue()`. Use [config.getGasFee()](API.md#configgetgasfee) or [config.getGasFeeSimple()](API.md#configgetgasfeesimple).
+ * Deleted `ecrecover()`. Use [secp256k1.ecrecover()](API.md#secp256k1ecrecover).
+ * Deleted `tvm.p256CheckSign()`. Use [secp256r1.checkSign()](API.md#secp256r1checksign).
+
+Compiler features:
+ * Support new functions:
+   * [msg.bounce](API.md#msgbounce)
+   * [msg.bounced](API.md#msgbounced)
+   * [msg.originValue](API.md#msgoriginvalue)
+   * [msg.createdLogicalTime](API.md#msgcreatedlogicaltime)
+   * [msg.stateInit](API.md#msgstateinit)
+   * [\<TvmCell\>.depth()](API.md#tvmcelldepth) (See option 2)
+   * [\<TvmCell\>.hash()](API.md#tvmcellhash)
+   * [\<TvmCell\>.level()](API.md#tvmcelllevel)
+   * [\<TvmCell\>.levelMask()](API.md#tvmcelllevelmask)
+   * [secp256k1.addTweakPublicKey()](API.md#secp256k1addtweakpublickey)
+   * [bls.pairing()](API.md#blspairing) 
+   * [tvm.prevBlocksInfo()](API.md#tvmprevblocksinfo)
+   * [tvm.prevMCBlocks()](API.md#tvmprevmcblocks)
+   * [tvm.prevKeyBlock()](API.md#tvmprevkeyblock)
+   * [tvm.prevMCBlocks100()](API.md#tvmprevmcblocks100)
+   * [config.globalId()](API.md#configglobalid)
+   * [config.getGasFee()](API.md#configgetgasfee)
+   * [config.getGasFeeSimple()](API.md#configgetgasfeesimple)
+   * [config.valueToGas()](API.md#configvaluetogas)
+   * [config.getStorageFee()](API.md#configgetstoragefee)
+   * [config.getForwardFee()](API.md#configgetforwardfee)
+   * [config.getForwardFeeSimple()](API.md#configgetforwardfeesimple)
+   * [config.getOriginalFwdFee()](API.md#configgetoriginalfwdfee)
+   * [config.getParam()](API.md#configgetparam)
+   * [config.unpackedConfig()](API.md#configunpackedconfig)
+   * [config.getPrecompiledGas()](API.md#configgetprecompiledgas)
+   * [<variant>.uncheckedCast()](API.md#variantuncheckedcast)
+   * [<variant>.isNull()](API.md#variantisnull)
+ * Assorted stack optimizations (for deploying contracts via contracts, checking signature of external messages, etc.) achieved by using new opcodes.
+
+`tvm.hash()` is deprecated. Use [<TvmCell>.hash()](API.md#tvmcellhash), [<TvmSlice>.hash()](API.md#tvmslicehash) or [<bytes>.hash()](API.md#byteshash).
+
 ### 0.80.0 (2026-02-09)
 
 Bugfixes:
@@ -51,7 +96,7 @@ Compiler features:
  * Support `bytesN` as mapping's key. See [here](https://github.com/everx-labs/ever-abi/pull/383). 
  * Optimize responsible functions.
  * Speed-up compilation of TVM-Solidity contracts.
- * Added undocumented functions: [ecrecover](API.md#ecrecover), [rist255 namespace](API.md#rist255-namespace).
+ * Added undocumented functions: ecrecover, [rist255 namespace](API.md#rist255-namespace).
 
 Misc:
  * In *.abi.json` files spaces are used instead of tabs.
@@ -93,7 +138,7 @@ Breaking changes:
  * Used other selectors. To update old Solidity contracts use [pragma upgrade oldsol](API.md#pragma-upgrade-oldsol) and
 function id 1666 for `onCodeUpgrade` in the new ones.
  * Now `_pubkey` in `*.abi.json` file  is `fixedbytes32`, not `uint256`.
- * Functions [gasToValue](API.md#gastovalue) and [valueToGas](API.md#valuetogas) changed their signatures:
+ * Functions `gasToValue` and `valueToGas` changed their signatures:
    * `gasToValue(coins gas, int8 wid)` -> `gasToValue(coins gas, bool isMasterchain)`
    * `valueToGas(coins gas, int8 wid)` -> `valueToGas(coins value, bool isMasterchain)`
 
@@ -211,7 +256,7 @@ Breaking changes:
    * [\<address\>.transfer()](API.md#addresstransfer)
    * [deploy via **new**](API.md#deploy-via-new)
    * [external function calls](API.md#external-function-calls)
-   * [\<address\>.balance](API.md#addressbalance)
+   * [\<address\>.balance](API.md#addressthisbalance)
    * [msg.value](API.md#msgvalue)
    * [abi.encodeIntMsg()](API.md#abiencodeintmsg)
    * [return](API.md#return)
@@ -290,7 +335,7 @@ Compiler features:
  * Supported creating empty cell via `TvmCell()`.
  * Supported `<TvmBuilder>.store()` for `varInt`/`varUint`.
  * Supported [msg.forwardFee](API.md#msgforwardfee).
- * Supported [msg.importFee](API.md#msgimportfee).
+ * Supported msg.importFee.
  * Supported [gasleft](API.md#gasleft).
  * Supported [\<mapping\>.getDel()](API.md#mappinggetdel).
 

@@ -248,13 +248,6 @@ ASTPointer<PragmaDirective> Parser::parsePragmaDirective(bool const _finishedPar
 				literal = TokenTraits::toString(token);
 			literals.push_back(literal);
 			tokens.push_back(token);
-			if (literal == "copyleft") {
-				m_scanner->next(); // skip "copyleft"
-				parameter.emplace_back(parsePrimaryExpression());
-				expectToken(Token::Comma);
-				parameter.emplace_back(parsePrimaryExpression());
-				break;
-			}
 		}
 		advance();
 	}
@@ -2745,12 +2738,17 @@ ASTPointer<Expression> Parser::parsePrimaryExpression()
 		else if (token == Token::Mapping)
 		{
 			ASTPointer<Mapping> map = parseMapping();
-			expression = nodeFactory.createNode<MappingNameExpression>(map);
+			expression = nodeFactory.createNode<ComplexNameExpression>(map);
 		}
 		else if (token == Token::Optional)
 		{
 			ASTPointer<Optional> opt = parseOptional();
-			expression = nodeFactory.createNode<OptionalNameExpression>(opt);
+			expression = nodeFactory.createNode<ComplexNameExpression>(opt);
+		}
+		else if (token == Token::TvmVector)
+		{
+			ASTPointer<TvmVector> vec = parseTvmVector();
+			expression = nodeFactory.createNode<ComplexNameExpression>(vec);
 		}
 		else
 			fatalParserError(6933_error, "Expected primary expression.");

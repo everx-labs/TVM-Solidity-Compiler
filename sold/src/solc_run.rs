@@ -15,8 +15,9 @@ use std::fs::File;
 use std::io::Write;
 
 use anyhow::{bail, format_err};
-use ever_assembler::{DbgInfo, Engine, Units};
-use ever_block::Status;
+use tsol_asm::Status;
+use tsol_asm::{DbgInfo, Engine, Units};
+use tycho_types::boc::Boc;
 
 use crate::libsolc;
 
@@ -80,7 +81,7 @@ pub fn run_compile(rust_strings: Vec<String>) -> Status {
                 .map_err(|e| format_err!("{}", e))?;
         }
         let (builder_data, dbg_node) = units.finalize();
-        let output = builder_data.into_cell()?;
+        let output = builder_data.build()?;
         let dbg_map = DbgInfo::from(output.clone(), dbg_node);
 
         let output_filename = if output_dir == "." {
@@ -89,7 +90,7 @@ pub fn run_compile(rust_strings: Vec<String>) -> Status {
             format!("{output_dir}/{output_tvc}")
         };
 
-        let bytes = ever_block::write_boc(&output)?;
+        let bytes = Boc::encode(&output);
         let mut file = File::create(output_filename)?;
         file.write_all(&bytes)?;
 

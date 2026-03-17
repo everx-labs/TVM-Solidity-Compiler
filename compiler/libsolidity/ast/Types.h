@@ -760,7 +760,7 @@ public:
 class TvmVectorType: public Type
 {
 public:
-	TvmVectorType(Type const* _type):
+	explicit TvmVectorType(Type const* _type):
 		m_type(_type) {}
 	bool operator==(Type const& _other) const override;
 	Category category() const override { return Category::TvmVector; }
@@ -1393,7 +1393,7 @@ public:
 		Send, ///< CALL, but without data and gas
 		Transfer, ///< CALL, but without data and throws on error
 
-		AddressIsStdAddrWithoutAnyCast, ///< address.isStdAddrWithoutAnyCast  for address
+		AddressCurrency, ///< address(this).currency() for address
 		AddressIsZero, ///< address.isStdZero() address.isExternZero() for address
 		AddressMakeAddrExtern, ///< address.makeAddrExtern() for address
 		AddressMakeAddrStd, ///< address.makeAddrStd() for address
@@ -1425,17 +1425,27 @@ public:
 
 		VariantIsUint,
 		VariantToUint,
+		VariantUncheckedCast, /// variant.uncheckedCast()
+		VariantIsNull, /// variant.isNull()
 
+		TVMCellDataSize, ///< cell.dataSize()
+		TVMCellDataSizeQ, ///< cell.dataSizeQ()
 		TVMCellDepth, ///< cell.depth()
+		TVMCellExoticToSlice, ///< cell.exoticToSlice()
+		TVMCellHash, ///< cell.hash()
+		TVMCellLevel, ///< cell.level()
+		TVMCellLevelMask, ///< cell.levelMask()
+		TVMCellLoadExoticCell, ///< cell.loadExoticCell
+		TVMCellLoadExoticCellQ, ///< cell.loadExoticCellQ
 		TVMCellToSlice, ///< cell.toSlice()
-		TVMDataSize, ///< cell.dataSize()
-		TVMDataSizeQ, ///< cell.dataSizeQ()
 
 		TVMSliceCompare, ///< slice.compare()
 		TVMSliceDataSize, ///< slice.dataSize()
 		TVMSliceEmpty, ///< slice.empty()
 		TVMSliceHas, ///< slice.hasXXX()
+		TVMSliceHash, ///< slice.hash()
 		TVMSliceLoad, ///< slice.load(types...)
+		TVMSliceLoadBouncedMsgTag, ///< slice.loadBouncedMsgTag()
 		TVMSliceLoadFunctionParams, ///< slice.loadFunctionParams(function_name)
 		TVMSliceLoadInt, ///< slice.loadInt()
 		TVMSliceLoadIntQ, ///< slice.loadIntQ()
@@ -1457,7 +1467,6 @@ public:
 		TVMSlicePreloadRef, ///< slice.preloadRef()
 		TVMSliceSize, ///< slice.size()
 		TVMSliceSkip, ///< slice.skip()
-		TVMSliceLoadBouncedMsgTag, ///< slice.loadBouncedMsgTag()
 
 		StructUnpack, ///< <struct>.unpack()
 
@@ -1490,9 +1499,13 @@ public:
 		KECCAK256, ///< KECCAK256
 		Selfdestruct, ///< SELFDESTRUCT
 		Revert, ///< REVERT
-		ECRecover, ///< CALL to special contract for ecrecover
 		SHA256, ///< CALL to special contract for sha256
 		RIPEMD160, ///< CALL to special contract for ripemd160
+
+		Secp256k1ECRecover, ///< secp256k1.ecrecover
+		Secp256k1AddTweakPublicKey, ///< secp256k1.addTweakPublicKey
+
+		Secp256r1CheckSign, ///< secp256r1.checkSign
 
 		HashExt,
 
@@ -1512,9 +1525,7 @@ public:
 		MulMod, ///< MULMOD
 
 		BitSize, ///< bitSize
-		GasToValue, ///< gasToValue
 		UBitSize, ///< uBitSize
-		ValueToGas, ///< valueToGas
 
 		MsgPubkey, ///< msg.pubkey()
 
@@ -1536,6 +1547,7 @@ public:
 		BlsAggregate, ///< bls.aggregate()
 		BlsFastAggregateVerify, ///< bls.fastAggregateVerify()
 		BlsAggregateVerify, ///< bls.aggregateVerify()
+		BlsPairing, ///< bls.pairing()
 		BlsG1Add,
 		BlsG1Sub,
 		BlsG1Neg,
@@ -1570,18 +1582,13 @@ public:
 		TVMAccept, ///< tvm.accept()
 		TVMBuyGas, ///< tvm.buyGas()
 		TVMChecksign, ///< tvm.checkSign()
-		TVMP256Checksign, ///< tvm.p256CheckSign()
 		TVMCode, ///< tvm.code()
 		TVMCommit, ///< tvm.commit()
-		TVMConfigParam, ///< tvm.configParam()
 		TVMDeploy, ///< functions to deploy contract from contract
-		TVMDump, ///< tvm.bindump() or tvm.hexdump()
 		TVMExit, ///< tvm.exit()
 		TVMExit1, ///< tvm.exit1()
 		TVMHash, ///< tvm.hash()
-		TVMInitCodeHash, ///< tvm.initCodeHash()
 		TVMPubkey, ///< tvm.pubkey()
-		TVMRawConfigParam, ///< tvm.rawConfigParam()
 		TVMReplayProtInterval, ///< tvm.replayProtInterval()
 		TVMReplayProtTime, ///< tvm.replayProtectionValue()
 		TVMResetStorage, ///< tvm.resetStorage()
@@ -1595,13 +1602,28 @@ public:
 		TVMLoadLibrary,
 		TVMUnpackData, ///< tvm.unpackData()
 		TVMPackData, ///< tvm.packData()
+		TVMPrevBlocksInfo, ///< tvm.prevBlocksInfo()
+		TVMPrevMCBlocks, ///< tvm.prevMCBlocks()
+		TVMPrevKeyBlock, ///< tvm.prevKeyBlock()
+		TVMPrevMCBlocks100, ///< tvm.prevMCBlocks100()
 
-		TXtimestamp, ///< tx.timestamp
+		ConfigGetForwardFee, ///< config.getForwardFee()
+		ConfigGetForwardFeeSimple, ///< config.getForwardFeeSimple()
+		ConfigGetGasFee, ///< config.getGasFee()
+		ConfigGetGasFeeSimple, ///< config.getGasFeeSimple()
+		ConfigGetOriginalFwdFee, ///< config.getOriginalFwdFee()
+		ConfigGetParam, ///< config.GetParam()
+		ConfigGetPrecompiledGas, ///< config.getPrecompiledGas()
+		ConfigGetStorageFee, ///< config.getStorageFee()
+		ConfigGlobalId, ///< config.globalId()
+		ConfigUnpackedConfig, ///< config.unpackedConfig()
+		ConfigValueToGas, ///< config.valueToGas
 
 		ArrayEmpty, ///< .empty()
 		ArrayPush, ///< .push() to a dynamically sized array in storage
 		ArrayPop, ///< .pop() from a dynamically sized array in storage
 
+		ByteArrayHash, ///< .hash()
 		ByteArrayPush, ///< .push() to a dynamically sized byte array in storage
 		ByteToSlice, ///< .toSlice()
 
@@ -1655,19 +1677,6 @@ public:
 		/// (i.e. when accessed directly via the name of the containing contract).
 		/// Cannot be called.
 		Declaration,
-
-		GoshApplyPatch,
-		GoshApplyPatchQ,
-		GoshApplyZipPatch,
-		GoshApplyZipPatchQ,
-		GoshDiff,
-		GoshUnzip,
-		GoshZip,
-		GoshZipDiff,
-		GoshApplyBinPatch,
-		GoshApplyBinPatchQ,
-		GoshApplyZipBinPatch,
-		GoshApplyZipBinPatchQ,
 	};
 	struct Options
 	{
@@ -2100,9 +2109,11 @@ public:
 		TVM, ///< "tvm"
 		Math, ///< "math"
 		Rnd, ///< "rnd"
-		Gosh, ///< "gosh"
 		BLS, ///< "bls"
 		RIST255, ///< "rist255"
+		Config, ///< "config"
+		Secp256k1, ///< "secp256k1"
+		Secp256r1, ///< "secp256r1"
 		Error, ///< custom error instance
 		MetaType ///< "type(...)"
 	};

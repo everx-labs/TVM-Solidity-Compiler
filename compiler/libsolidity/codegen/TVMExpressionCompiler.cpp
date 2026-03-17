@@ -774,95 +774,47 @@ void TVMExpressionCompiler::visitMsgMagic(MemberAccess const& _node) const {
 	// (DEPTH - 5) - transaction id (-2, -1, 0) for int, ext and ticktock
 
 
-	if (_node.memberName() == "sender") { // msg.sender
-		m_pusher.getGlob(TvmConst::C7::SenderAddress);
+	if (_node.memberName() == "bounce") { // msg.bounce
+		m_pusher << "INMSG_BOUNCE";
+	} else if (_node.memberName() == "bounced") { // msg.bounced
+		m_pusher << "INMSG_BOUNCED";
+	} else if (_node.memberName() == "sender") { // msg.sender
+		m_pusher << "INMSG_SRC";
 	} else if (_node.memberName() == "value") { // msg.value
-		if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-			m_pusher.push("INCOMINGVALUE");
-			m_pusher.indexNoexcep(0);
-		} else {
-			m_pusher.push(
-				createNode<HardCode>(
-					std::vector<std::string>{
-						"DEPTH",
-						"ADDCONST -2",
-						"PICK",
-					},
-					0,
-					1,
-					true
-				)
-			);
-		}
+		m_pusher << "INMSG_VALUE";
+	} else if (_node.memberName() == "originValue") { // msg.originValue
+		m_pusher << "INMSG_ORIGVALUE";
+	} else if (_node.memberName() == "currencies") { // msg.currencies
+		m_pusher << "INMSG_VALUEEXTRA";
+	} else if (_node.memberName() == "forwardFee") { // msg.forwardFee
+		m_pusher << "INMSG_FWDFEE";
+	} else if (_node.memberName() == "createdLogicalTime") { // msg.createdLogicalTime
+		m_pusher << "INMSG_LT";
+	} else if (_node.memberName() == "createdAt") { // msg.createdAt
+		m_pusher << "INMSG_UTIME";
+	} else if (_node.memberName() == "stateInit") { // msg.stateInit
+		m_pusher << "INMSG_STATEINIT";
+
+
+	} else if (_node.memberName() == "body") { // msg.body
+		m_pusher.push(
+			createNode<HardCode>(
+				std::vector<std::string>{
+					"DEPTH",
+					"ADDCONST -4",
+					"PICK",
+				},
+				0,
+				1,
+				true
+			)
+		);
 	} else if (_node.memberName() == "data") { // msg.data
 		m_pusher.push(
 			createNode<HardCode>(
 				std::vector<std::string>{
 					"DEPTH",
 					"ADDCONST -3",
-					"PICK",
-				},
-				0,
-				1,
-				true
-			)
-		);
-	} else if (_node.memberName() == "forwardFee") { // msg.forwardFee
-		m_pusher.pushFragment(0, 1, "__forwardFee");
-	} else if (_node.memberName() == "importFee") { // msg.importFee
-		m_pusher.pushFragment(0, 1, "__importFee");
-	} else if (_node.memberName() == "createdAt") { // msg.createdAt
-		m_pusher.startContinuation();
-		m_pusher.push(
-			createNode<HardCode>(
-				std::vector<std::string>{
-					"DEPTH",
-					"ADDCONST -3",
-					"PICK",
-					"CTOS",
-					"LDU 4",
-					"LDMSGADDR",
-					"LDMSGADDR",
-					"LDVARUINT16",
-					"LDDICT",
-					"LDVARUINT16",
-					"LDVARUINT16",
-					"LDU 64",
-					"PLDU 32",
-					"BLKDROP2 8, 1",
-				},
-				0,
-				1,
-				true
-			)
-		);
-		m_pusher.pushContAndCallX();
-	} else if (_node.memberName() == "currencies") { // msg.currencies
-		m_pusher.push(
-			createNode<HardCode>(
-				std::vector<std::string>{
-					"DEPTH",
-					"ADDCONST -3",
-					"PICK",
-					"CTOS",
-					"LDU 4",
-					"LDMSGADDR",
-					"LDMSGADDR",
-					"LDVARUINT16",
-					"PLDDICT",
-					"BLKDROP2 4, 1",
-				},
-				0,
-				1,
-				true
-			)
-		);
-	} else if (_node.memberName() == "body") {
-		m_pusher.push(
-			createNode<HardCode>(
-				std::vector<std::string>{
-					"DEPTH",
-					"ADDCONST -4",
 					"PICK",
 				},
 				0,
@@ -889,8 +841,6 @@ void TVMExpressionCompiler::visitMagic(MemberAccess const& _memberAccess) const 
 	case MagicType::Kind::Transaction: {
 		if (isIn(member, "timestamp", "logicaltime")) {
 			m_pusher << "LTIME";
-		} else if (member == "storageFee") {
-			m_pusher << "STORAGEFEE";
 		} else if (member == "storageFees") {
 			m_pusher << "STORAGEFEES";
 		} else {
@@ -996,29 +946,24 @@ void TVMExpressionCompiler::visit2(MemberAccess const& _node) {
 
 void TVMExpressionCompiler::checkForAddressMemberAccess(MemberAccess const& _node) const {
 	if (_node.memberName() == "balance") {
-		if (!isAddressThis(to<FunctionCall>(&_node.expression()))) {
-			cast_error(_node.expression(), "Only 'address(this).balance' is supported for member balance");
-		}
-		m_pusher << "GETPARAM 7";
+		solAssert(isAddressThis(to<FunctionCall>(&_node.expression())));
+		m_pusher << "BALANCE";
 		m_pusher.indexNoexcep(0);
 	}
 	if (_node.memberName() == "currencies") {
-		if (!isAddressThis(to<FunctionCall>(&_node.expression()))) {
-			cast_error(_node.expression(), "Only 'address(this).currencies' is supported for member currencies");
-		}
-		m_pusher << "GETPARAM 7";
+		solAssert(isAddressThis(to<FunctionCall>(&_node.expression())));
+		m_pusher << "BALANCE";
 		m_pusher.indexNoexcep(1);
 	}
 	if (_node.memberName() == "wid") {
 		compileNewExpr(&_node.expression());
-		m_pusher << "PARSEMSGADDR";
-		m_pusher.indexWithExcep(2);
+		m_pusher << "REWRITESTDADDR";
+		m_pusher.drop();
 	}
 	if (_node.memberName() == "value") {
 		compileNewExpr(&_node.expression());
-		m_pusher << "PARSEMSGADDR";
-		m_pusher.indexWithExcep(3);
-		m_pusher << "PLDU 256";
+		m_pusher << "REWRITESTDADDR";
+		m_pusher.dropUnder(1, 1);
 	}
 }
 
@@ -1133,7 +1078,7 @@ void TVMExpressionCompiler::visit2(IndexAccess const& indexAccess) {
 		return;
 	} else {
 		pushIndexAndConvert(indexAccess); // index
-		m_pusher.prepareKeyForDictOperations(indexAccess.indexExpression()->annotation().type, false);
+		m_pusher.prepareKeyForDictOperations(indexAccess.indexExpression()->annotation().type);
 		acceptExpr(&indexAccess.baseExpression()); // index dict
 	}
 
@@ -1235,7 +1180,7 @@ LValueInfo TVMExpressionCompiler::expandLValue(Expression const* const _expr, bo
 			if (index->baseExpression().annotation().type->category() == Type::Category::Mapping) {
 				// dict1
 				pushIndexAndConvert(*index); // dict1 index
-				m_pusher.prepareKeyForDictOperations(index->indexExpression()->annotation().type, false);
+				m_pusher.prepareKeyForDictOperations(index->indexExpression()->annotation().type);
 				// dict1 index
 				m_pusher.exchange(1);
 				// index dict1

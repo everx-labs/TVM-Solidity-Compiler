@@ -131,8 +131,7 @@ public:
 	bool visit(IndexRangeAccess const& _node) override;
 	bool visit(Identifier const& _node) override;
 	bool visit(ElementaryTypeNameExpression const& _node) override;
-	bool visit(MappingNameExpression const& _node) override;
-	bool visit(OptionalNameExpression const& _node) override;
+	bool visit(ComplexNameExpression const& _node) override;
 	bool visit(Literal const& _node) override;
 	bool visit(StructuredDocumentation const& _node) override;
 

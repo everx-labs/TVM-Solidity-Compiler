@@ -1,18 +1,17 @@
 <meta name="title" content="TVM-Solidity-Compiler">
 <meta name="description" content="Solidity compiler for TVM">
-<meta name='keywords' content='compiler, smart-contracts, blockchain, solidity, tvm, everscale, everos, venom-blockchain, venom-developer-program'>
+<meta name='keywords' content='compiler, smart-contracts, blockchain, solidity, tvm, ton, tycho'>
 
 # The TVM Solidity compiler
 
-[![GitHub](https://img.shields.io/github/license/everx-labs/TVM-Solidity-Compiler?style=for-the-badge)](./LICENSE)
-[![Everscale](https://custom-icon-badges.demolab.com/badge/-everscale-13173e?style=for-the-badge&logoColor=yellow&logo=everscale)](https://everscale.network/)
-
-
-Port of the Solidity smart-contract [compiler](https://github.com/ethereum/solidity) generating TVM bytecode for TVM compatible blockchains (Everscale, Venom, Gosh, TON). Please refer to upstream README.md for information on the language itself.
+Port of the Solidity smart-contract [compiler](https://github.com/ethereum/solidity) generating TVM bytecode for TVM compatible blockchains: [Tycho](https://github.com/broxus/tycho) and [TON](https://github.com/ton-blockchain/ton).
 
 ## TVM Solidity API reference
 
 [API documentation is here](https://github.com/broxus/TVM-Solidity-Compiler/blob/master/API.md)
+
+The compiler supports two versions of VM: [Tycho](https://github.com/broxus/tycho) and [TON](https://github.com/ton-blockchain/ton).
+Use `sold --tvm-version tycho ...` or `sold --tvm-version ton ...` to select the desired vm.
 
 ## Build and Install
 
@@ -54,9 +53,8 @@ cmake --build . --config Release -- /m
 ## Links
 
  * [Code samples for TON](https://github.com/broxus/TVM-Solidity-Samples) in TVM Solidity
- * [Ever assembler and disassembler](https://github.com/everx-labs/ever-assembler)
+ * [Assembler and disassembler](https://github.com/broxus/tsol-asm)
  * [Code samples](https://github.com/everx-labs/samples/tree/master/solidity) in TVM Solidity
- * [ever-cli](https://github.com/everx-labs/ever-cli) command line interface for TVM compatible blockchains
  * Example of usage `ever-cli` for working (deploying, calling etc.) with TVM compatible blockchains can be found there: [Write smart contract in Solidity](https://docs.ton.dev/86757ecb2/p/950f8a-write-smart-contract-in-solidity)
  * [Changelog](./Changelog.md)
 

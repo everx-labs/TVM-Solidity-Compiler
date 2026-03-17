@@ -76,10 +76,7 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 	solAssert(!_pragma.tokens().empty(), "");
 	solAssert(_pragma.tokens().size() == _pragma.literals().size(), "");
 	if (_pragma.tokens()[0] != Token::Identifier &&
-		!(
-			(_pragma.tokens().size() >= 3 && _pragma.tokens()[0] == Token::SubSmallTon && _pragma.tokens()[1] == Token::Sub && _pragma.tokens()[2] == Token::Identifier) ||
-			(_pragma.tokens().size() >= 3 && _pragma.tokens()[0] == Token::SubSmallEver && _pragma.tokens()[1] == Token::Sub && _pragma.tokens()[2] == Token::Identifier)
-		)
+		!(_pragma.tokens().size() >= 3 && _pragma.tokens()[0] == Token::SubSmallTon && _pragma.tokens()[1] == Token::Sub && _pragma.tokens()[2] == Token::Identifier)
 	)
 		m_errorReporter.syntaxError(5226_error, _pragma.location(), "Invalid pragma \"" + _pragma.literals()[0] + "\"");
 	else if (_pragma.literals()[0] == "experimental")
@@ -189,18 +186,6 @@ bool SyntaxChecker::visit(PragmaDirective const& _pragma)
 	else if (_pragma.literals()[0] == "ignoreIntOverflow")
 	{
 		return true;
-	}
-	else if (_pragma.literals()[0] == "copyleft")
-	{
-		if (m_FirstCopyleft) {
-			m_errorReporter.declarationError(
-				1595_error,
-				_pragma.location(),
-				SecondarySourceLocation().append("The previous declaration is here:", *m_FirstCopyleft),
-				"Pragma already defined."
-			);
-		}
-		m_FirstCopyleft = &_pragma.location();
 	}
 	else
 		m_errorReporter.syntaxError(4936_error, _pragma.location(), "Unknown pragma \"" + _pragma.literals()[0] + "\"");

@@ -510,7 +510,6 @@ Pointer<AsymGen> StackPusher::makeAsym(std::string const& cmd) {
 		asymOpcodes.insert({
 			"CDATASIZEQ",
 			"CONFIGPARAM",
-			"CONFIGPARAM",
 			"ECRECOVER",
 			"HASHEXTA_BLAKE2B",
 			"HASHEXTA_KECCAK256",
@@ -531,6 +530,7 @@ Pointer<AsymGen> StackPusher::makeAsym(std::string const& cmd) {
 			"RIST255_QMULBASE",
 			"RIST255_QSUB",
 			"SDATASIZEQ",
+			"SECP256K1_XONLY_PUBKEY_TWEAK_ADD",
 			"SPLITQ",
 			"STBQ",
 			"STIQ",
@@ -728,18 +728,6 @@ void StackPusher::_while(bool _withBreakOrReturn) {
 	m_instructions.back().push_back(b);
 }
 
-void StackPusher::tryOpcode(bool saveAltC2) {
-	solAssert(m_instructions.back().size() >= 2, "");
-	auto catchBody = std::dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
-	solAssert(catchBody != nullptr, "");
-	m_instructions.back().pop_back();
-	auto tryBody = std::dynamic_pointer_cast<CodeBlock>(m_instructions.back().back());
-	solAssert(tryBody != nullptr, "");
-	m_instructions.back().pop_back();
-	auto b = createNode<TryCatch>(tryBody, catchBody, saveAltC2);
-	m_instructions.back().push_back(b);
-}
-
 void StackPusher::ret() {
 	auto opcode = makeRET();
 	m_instructions.back().push_back(opcode);
@@ -855,8 +843,7 @@ void StackPusher::resetAllStateVars() {
 		position.skipTypes(getTypesFromVarDecls(usualStateVars));
 		ChainDataEncoder encode{this};
 		encode.encodeParameters(getTypesFromVarDecls(unpackedStateVars), position, false);
-		*this << "ENDC";
-		*this << "CTOS";
+		*this << "BTOS";
 		getStack().ensureSize(startSize + 1);
 	};
 
@@ -1513,7 +1500,6 @@ void StackPusher::pushZeroAddress() {
 	pushSlice("x8000000000000000000000000000000000000000000000000000000000000000001_");
 }
 
-
 void StackPusher::convert(Type const* leftType, Type const* rightType) {
 	TypeConversion{*this}.convert(leftType, rightType);
 }
@@ -1700,17 +1686,12 @@ void StackPusher::assignStackVariable(Declaration const* name) {
 	}
 }
 
-void StackPusher::prepareKeyForDictOperations(Type const* key, bool doIgnoreBytes) {
+void StackPusher::prepareKeyForDictOperations(Type const* key) {
 	// stack: key
-	if (isStringOrStringLiteralOrBytes(key) || key->category() == Type::Category::TvmCell) {
-		if (!doIgnoreBytes) {
-			*this << "HASHCU";
-		}
-	} else if (key->category() == Type::Category::Struct) {
+	if (key->category() == Type::Category::Struct) {
 		StructCompiler sc{this, to<StructType>(key)};
 		sc.tupleToBuilder();
-		*this << "ENDC";
-		*this << "CTOS";
+		*this << "BTOS";
 	}
 }
 
@@ -2487,6 +2468,7 @@ void TypeConversion::convert(Type const* leftType, Type const* rightType) {
 	case Type::Category::TvmStack:
 	case Type::Category::TvmVector:
 	case Type::Category::UserDefinedValueType:
+	case Type::Category::Variant:
 		break;
 	default:
 		solUnimplemented(rightType->toString());
@@ -2642,8 +2624,7 @@ void TypeConversion::convertIntegerToAddress(Type const* t) const {
 		m_pusher
 			<< "STSLICECONST x801_"; // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 // 10 0  00000000 1 = 801
 		m_pusher << "STU 256";		 // address:bits256
-		m_pusher << "ENDC";
-		m_pusher << "CTOS";
+		m_pusher << "BTOS";
 	}
 }
 

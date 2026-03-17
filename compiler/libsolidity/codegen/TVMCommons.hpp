@@ -173,15 +173,6 @@ public:
 		});
 	}
 
-	std::optional<std::vector<ASTPointer<Expression>>> hasCopyleft() const {
-		for (PragmaDirective const* pd: pragmaDirectives) {
-			if (pd->literals().size() == 1 && pd->literals()[0] == "copyleft") {
-				return pd->parameter();
-			}
-		}
-		return {};
-	}
-
 	bool hasUpgradeOldSol() const {
 		return std::ranges::any_of(pragmaDirectives, [](PragmaDirective const* pd) {
 			return pd->literals().size() == 2 && pd->literals()[0] == "upgrade" && pd->literals()[1] == "oldsol";

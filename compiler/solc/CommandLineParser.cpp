@@ -614,7 +614,7 @@ General Information)").c_str(),
 		(
 			g_strTVMVersion.c_str(),
 			po::value<std::string>()->value_name("version")->default_value(TVMVersion{}.name()),
-			"Select desired TVM version. Either ton, ever, gosh."
+			"Select desired TVM version. Either tycho, ton."
 		)
 	;
 	desc.add(outputOptions);

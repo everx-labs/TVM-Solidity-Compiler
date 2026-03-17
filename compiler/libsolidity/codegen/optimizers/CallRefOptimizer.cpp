@@ -227,11 +227,6 @@ public:
 		return true;
 	}
 
-	bool visit(TryCatch&) override {
-		addDefaultSize();
-		return true;
-	}
-
 	bool visit(Contract& _node) override { return visitNode(_node); }
 	bool visit(Function& _node) override { return visitNode(_node); }
 

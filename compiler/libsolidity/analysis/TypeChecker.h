@@ -89,7 +89,6 @@ private:
 	void typeCheckCallBack(FunctionType const* remoteFunction, Expression const& option) const;
 	TypePointers checkSliceDecode(std::vector<ASTPointer<Expression const>> const& arguments) const;
 	TypePointers checkSliceDecodeQ(std::vector<ASTPointer<Expression const>> const& arguments) const;
-	TypePointers getReturnTypesForTVMConfig(FunctionCall const& _functionCall) const;
 	TypePointers typeCheckMetaTypeFunctionAndRetrieveReturnType(FunctionCall const& _functionCall) const;
 
 	/// Performs type checks and determines result types for type conversion FunctionCall nodes.
@@ -177,6 +176,7 @@ public:
 		std::set<StructDefinition const*>& usedStructs,
 		bool doPrintErr
 	);
+	static std::string isNotSupportedString(langutil::TVMVersion const& tvmVersion);
 private:
 	bool visit(FunctionDefinition const& _function) override;
 	void endVisit(FunctionDefinition const& _function) override;
@@ -217,8 +217,7 @@ private:
 	void endVisit(IdentifierPath const& _identifierPath) override;
 	void endVisit(UserDefinedTypeName const& _userDefinedTypeName) override;
 	void endVisit(ElementaryTypeNameExpression const& _expr) override;
-	void endVisit(MappingNameExpression const& _expr) override;
-	void endVisit(OptionalNameExpression const& _expr) override;
+	void endVisit(ComplexNameExpression const& _expr) override;
 	void endVisit(InitializerList const& _expr) override;
 	void endVisit(CallList const& _expr) override;
 	void endVisit(Literal const& _literal) override;
@@ -289,9 +288,6 @@ private:
 	std::optional<uint8_t> m_eofVersion;
 
 	langutil::ErrorReporter& m_errorReporter;
-
-public:
-	static const std::string IS_NOT_SUPPORTED_VM;
 };
 
 }

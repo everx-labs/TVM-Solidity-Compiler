@@ -433,13 +433,6 @@ void While::accept(TvmAstVisitor& _visitor) {
 	}
 }
 
-void TryCatch::accept(TvmAstVisitor& _visitor) {
-	if (_visitor.visit(*this)) {
-		m_tryBody->accept(_visitor);
-		m_catchBody->accept(_visitor);
-	}
-}
-
 Function::Function(
 	int take,
 	int ret,
@@ -479,9 +472,6 @@ Pointer<StackGen> gen(std::string const& cmd) {
 		std::istringstream iss(cmd);
 		iss >> op >> param;
 	}
-
-	if (*GlobalParams::g_tvmVersion == langutil::TVMVersion::ton())
-		solAssert(!isIn(op, "COPYLEFT", "INITCODEHASH", "LDCONT", "STCONT"), "");
 
 	auto f = [&](std::string const& pattern) { return op == pattern; };
 
@@ -535,23 +525,38 @@ Pointer<StackGen> gen(std::string const& cmd) {
 		{"FALSE", {0, 1, true}},
 		{"GASCONSUMED", {0, 1, true}},
 		{"GASREMAINING", {0, 1}},
-		{"GETPARAM", {0, 1, true}},
+		{"BALANCE", {0, 1, true}},
+		{"GETPRECOMPILEDGAS", {0, 1, true}},
+		{"GLOBALID", {0, 1, true}},
 		{"INCOMINGVALUE", {0, 1, true}},
-		{"INITCODEHASH", {0, 1, true}},
+		{"INMSG_BOUNCE", {0, 1, true}},
+		{"INMSG_BOUNCED", {0, 1, true}},
+		{"INMSG_FWDFEE", {0, 1, true}},
+		{"INMSG_LT", {0, 1, true}},
+		{"INMSG_ORIGVALUE", {0, 1, true}},
+		{"INMSG_SRC", {0, 1, true}},
+		{"INMSG_STATEINIT", {0, 1, true}},
+		{"INMSG_UTIME", {0, 1, true}},
+		{"INMSG_VALUE", {0, 1, true}},
+		{"INMSG_VALUEEXTRA", {0, 1, true}},
 		{"LTIME", {0, 1, true}},
 		{"MYADDR", {0, 1, true}},
 		{"MYCODE", {0, 1, true}},
 		{"NEWC", {0, 1, true}},
 		{"NOW", {0, 1, true}},
 		{"NULL", {0, 1, true}},
+		{"PREVBLOCKSINFOTUPLE", {0, 1, true}},
+		{"PREVKEYBLOCK", {0, 1, true}},
+		{"PREVMCBLOCKS", {0, 1, true}},
+		{"PREVMCBLOCKS_100", {0, 1, true}},
 		{"PUSHINT", {0, 1, true}},
 		{"PUSHNAN", {0, 1, true}},
 		{"RANDSEED", {0, 1, true}},
 		{"RANDU256", {0, 1}},
 		{"RIST255_PUSHL", {0, 1, true}},
-		{"STORAGEFEE", {0, 1, true}},
 		{"STORAGEFEES", {0, 1, true}},
 		{"TRUE", {0, 1, true}},
+		{"UNPACKEDCONFIGTUPLE", {0, 1, true}},
 
 		{"ADDRAND", {1, 0}},
 		{"BUYGAS", {1, 0}},
@@ -565,7 +570,6 @@ Pointer<StackGen> gen(std::string const& cmd) {
 		{"ADDCONST", {1, 1}},
 		{"BBITS", {1, 1, true}},
 		{"BDEPTH", {1, 1}},
-		{"BINDUMP", {1, 1}},
 		{"BITNOT", {1, 1}}, // pseudo opcode. Alias for NOT
 		{"BITSIZE", {1, 1, true}},
 		{"BLESS", {1, 1}},
@@ -580,7 +584,12 @@ Pointer<StackGen> gen(std::string const& cmd) {
 		{"BREFS", {1, 1, true}},
 		{"BREMBITS", {1, 1, true}},
 		{"BREMREFS", {1, 1, true}},
-		{"CDEPTH", {1, 1}},
+		{"BTOS", {1, 1, true}},
+		{"CDEPTH", {1, 1, true}},
+		{"CDEPTHI", {1, 1, true}},
+		{"CHASHI", {1, 1, true}},
+		{"CLEVEL", {1, 1, true}},
+		{"CLEVELMASK", {1, 1, true}},
 		{"CONFIGOPTPARAM", {1, 1, true}},
 		{"CTOS", {1, 1}},
 		{"DEC", {1, 1}},
@@ -588,12 +597,11 @@ Pointer<StackGen> gen(std::string const& cmd) {
 		{"ENDC", {1, 1}},
 		{"EQINT", {1, 1, true}},
 		{"FITS", {1, 1}},
-		{"GASTOGRAM", {1, 1, true}},
-		{"GRAMTOGAS", {1, 1, true}},
+		{"GETEXTRABALANCE", {1, 1, true}},
 		{"GTINT", {1, 1, true}},
+		{"HASHBU", {1, 1, true}},
 		{"HASHCU", {1, 1, true}},
 		{"HASHSU", {1, 1, true}},
-		{"HEXDUMP", {1, 1}},
 		{"INC", {1, 1}},
 		{"INDEX2", {1, 1}},
 		{"INDEX3", {1, 1}},
@@ -627,7 +635,6 @@ Pointer<StackGen> gen(std::string const& cmd) {
 		{"QDEC", {1, 1, true}},
 		{"QFITS", {1, 1, true}},
 		{"QINC", {1, 1, true}},
-		{"QMODPOW2", {1, 1, true}},
 		{"QNEGATE", {1, 1, true}},
 		{"QNOT", {1, 1, true}}, // logical not
 		{"QSGN", {1, 1, true}},
@@ -649,9 +656,7 @@ Pointer<StackGen> gen(std::string const& cmd) {
 		{"TLEN", {1, 1}},
 		{"UBITSIZE", {1, 1}},
 		{"UFITS", {1, 1}},
-		{"UNZIP", {1, 1}},
 		{"XLOAD", {1, 1}},
-		{"ZIP", {1, 1}},
 
 		{"BBITREFS", {1, 2, true}},
 		{"BREMBITREFS", {1, 2, true}},
@@ -678,7 +683,6 @@ Pointer<StackGen> gen(std::string const& cmd) {
 		{"XCTOS", {1, 2}},
 		{"XLOADQ", {1, 2}},
 
-		{"COPYLEFT", {2, 0}},
 		{"RAWRESERVE", {2, 0}},
 		{"SENDRAWMSG", {2, 0}},
 
@@ -690,17 +694,9 @@ Pointer<StackGen> gen(std::string const& cmd) {
 		{"BLS_G2_ADD", {2, 1}},
 		{"BLS_G2_MUL", {2, 1}},
 		{"BLS_G2_SUB", {2, 1}},
+		{"CDEPTHIX", {2, 1, true}},
+		{"CHASHIX", {2, 1, true}},
 		{"CMP", {2, 1, true}},
-		{"DIFF", {2, 1}},
-		{"DIFF_PATCH", {2, 1}},
-		{"DIFF_PATCHQ", {2, 1, true}},
-		{"DIFF_PATCH_BINARY", {2, 1}},
-		{"DIFF_PATCH_BINARYQ", {2, 1, true}},
-		{"DIFF_PATCH_BINARY_ZIP", {2, 1}},
-		{"DIFF_PATCH_BINARY_ZIPQ", {2, 1, true}},
-		{"DIFF_PATCH_ZIP", {2, 1}},
-		{"DIFF_PATCH_ZIPQ", {2, 1, true}},
-		{"DIFF_ZIP", {2, 1}},
 		{"DIV", {2, 1}},
 		{"DIVC", {2, 1}},
 		{"DIVR", {2, 1}},
@@ -708,6 +704,8 @@ Pointer<StackGen> gen(std::string const& cmd) {
 		{"EQUAL", {2, 1, true}},
 		{"GEQ", {2, 1, true}},
 		{"GETGASFEE", {2, 1}},
+		{"GETGASFEESIMPLE", {2, 1, true}},
+		{"GETORIGINALFWDFEE", {2, 1, true}},
 		{"GREATER", {2, 1, true}},
 		{"INDEXVAR", {2, 1}}, // only for vector
 		{"LEQ", {2, 1, true}},
@@ -783,12 +781,12 @@ Pointer<StackGen> gen(std::string const& cmd) {
 		{"XOR", {2, 1, true}},
 
 		{"DIVMOD", {2, 2}},
-		{"QDIVMOD", {2, 2, true}},
 		{"LDIX", {2, 2}},
 		{"LDSAME", {2, 2, true}},
 		{"LDSLICEX", {2, 2}},
 		{"LDUX", {2, 2}},
 		{"MINMAX", {2, 2, true}},
+		{"QDIVMOD", {2, 2, true}},
 		{"QMINMAX", {2, 2, true}},
 
 		{"CDATASIZE", {2, 3}},
@@ -798,19 +796,22 @@ Pointer<StackGen> gen(std::string const& cmd) {
 
 		{"BLS_VERIFY", {3, 1}},
 		{"CHKSIGNS", {3, 1}},
-		{"P256_CHKSIGNU", {3, 1}},
-		{"P256_CHKSIGNS", {3, 1}},
 		{"CHKSIGNU", {3, 1}},
 		{"CONDSEL", {3, 1}},
+		{"GETFORWARDFEE", {3, 1}},
+		{"GETFORWARDFEESIMPLE", {3, 1}},
 		{"MULDIV", {3, 1}},
 		{"MULDIVC", {3, 1}},
 		{"MULDIVR", {3, 1}},
 		{"MULMOD", {3, 1}},
+		{"P256_CHKSIGNS", {3, 1}},
+		{"P256_CHKSIGNU", {3, 1}},
 		{"QMULDIV", {3, 1, true}},
 		{"QMULDIVC", {3, 1, true}},
 		{"QMULDIVR", {3, 1, true}},
 		{"SCHKBITREFSQ", {3, 1, true}},
 		{"SCUTFIRST", {3, 1}},
+		{"SCUTLAST", {3, 1}},
 		{"SETINDEXVAR", {3, 1}},
 		{"SETINDEXVARQ", {3, 1, true}},
 		{"SSKIPFIRST", {3, 1}},
@@ -819,7 +820,6 @@ Pointer<StackGen> gen(std::string const& cmd) {
 		{"STSAME", {3, 1}},
 		{"STUX", {3, 1}},
 		{"STUXR", {3, 1}},
-		{"SCUTLAST", {3, 1}},
 
 		{"DICTDEL", {3, 2}},
 		{"DICTIDEL", {3, 2}},
@@ -827,6 +827,8 @@ Pointer<StackGen> gen(std::string const& cmd) {
 		{"MULDIVMOD", {3, 2}},
 		{"QMULDIVMOD", {3, 2, true}},
 		{"SPLIT", {3, 2}},
+
+		{"GETSTORAGEFEE", {4, 1, true}},
 	};
 	static bool isInit = false;
 	if (!isInit) {
@@ -997,6 +999,10 @@ Pointer<Stack> makeBLKDROP2(int droppedCount, int leftCount) {
 		return makeDROP(droppedCount);
 	}
 	return createNode<Stack>(Stack::Opcode::BLKDROP2, droppedCount, leftCount);
+}
+
+Pointer<CellOrSliceOperation> makePUSHREFSLICE(std::string const& data) {
+	return createNode<CellOrSliceOperation>(CellOrSliceOperation::Type::PUSHREFSLICE, data, nullptr);
 }
 
 Pointer<CellOrSliceOperation> makePUSHREF(std::string const& data) {

@@ -1031,23 +1031,13 @@ bool ASTJsonExporter::visit(ElementaryTypeNameExpression const& _node)
 	return false;
 }
 
-bool ASTJsonExporter::visit(MappingNameExpression const& _node)
+bool ASTJsonExporter::visit(ComplexNameExpression const& _node)
 {
 	std::vector<std::pair<std::string, Json>> attributes = {
 		std::make_pair("typeName", toJson(_node.type()))
 	};
 	appendExpressionAttributes(attributes, _node.annotation());
-	setJsonNode(_node, "MappingNameExpression", std::move(attributes));
-	return false;
-}
-
-bool ASTJsonExporter::visit(OptionalNameExpression const& _node)
-{
-	std::vector<std::pair<std::string, Json>> attributes = {
-		std::make_pair("typeName", toJson(_node.type()))
-	};
-	appendExpressionAttributes(attributes, _node.annotation());
-	setJsonNode(_node, "OptionalNameExpression", std::move(attributes));
+	setJsonNode(_node, "ComplexNameExpression", std::move(attributes));
 	return false;
 }
 

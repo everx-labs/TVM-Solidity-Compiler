@@ -40,13 +40,12 @@ class TVMVersion:
 public:
 	TVMVersion() = default;
 
-	static TVMVersion ever() { return TVMVersion{Version::Ever}; }
+	static TVMVersion tycho() { return TVMVersion{Version::Tycho}; }
 	static TVMVersion ton() { return TVMVersion{Version::Ton}; }
-	static TVMVersion gosh() { return TVMVersion{Version::Gosh}; }
 
 	static std::optional<TVMVersion> fromString(std::string const& _version)
 	{
-		for (auto const& v: {ever(), ton(), gosh()})
+		for (auto const& v: {tycho(), ton()})
 			if (_version == v.name())
 				return v;
 		return std::nullopt;
@@ -59,19 +58,18 @@ public:
 	{
 		switch (m_version)
 		{
-		case Version::Ever: return "ever";
+		case Version::Tycho: return "tycho";
 		case Version::Ton: return "ton";
-		case Version::Gosh: return "gosh";
 		}
 		return "INVALID";
 	}
 
 private:
-	enum class Version { Ever, Ton, Gosh };
+	enum class Version { Tycho, Ton };
 
 	explicit TVMVersion(Version _version): m_version(_version) {}
 
-	Version m_version = Version::Ton;
+	Version m_version = Version::Tycho;
 };
 
 }

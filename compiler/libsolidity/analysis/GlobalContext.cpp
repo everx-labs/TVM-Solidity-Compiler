@@ -45,7 +45,6 @@ int magicVariableToID(std::string const& _name)
 		{"assert", -3},
 		{"block", -4},
 		{"blockhash", -5},
-		{"ecrecover", -6},
 		{"gasleft", -7},
 		{"keccak256", -8},
 		{"msg", -15},
@@ -63,8 +62,6 @@ int magicVariableToID(std::string const& _name)
 		{"type", -27},
 		{"this", -28},
 		{"blobhash", -29},
-		{"gasToValue", -60},
-		{"valueToGas", -61},
 		{"bitSize", -62},
 		{"uBitSize", -63},
 		{"tvm", -101},
@@ -73,7 +70,6 @@ int magicVariableToID(std::string const& _name)
 		{"format", -104},
 		{"rnd", -105},
 		{"stoi", -106},
-		{"gosh", -107},
 		{"bls", -108},
 		{"gasConsumed", -109},
 		{"sha256", -110},
@@ -82,6 +78,9 @@ int magicVariableToID(std::string const& _name)
 		{"keccak256", -113},
 		{"keccak512", -114},
 		{"rist255", -115},
+		{"config", -116},
+		{"secp256k1", -117},
+		{"secp256r1", -118},
 	};
 
 	if (auto id = magicVariables.find(_name); id != magicVariables.end())
@@ -112,10 +111,12 @@ inline std::vector<std::shared_ptr<MagicVariableDeclaration const>> constructMag
 		magicVarDecl("revert", TypeProvider::function(strings{"uint16", "uint32"}, strings{}, FunctionType::Kind::Revert, StateMutability::Pure)),
 		magicVarDecl("selfdestruct", TypeProvider::function(strings{"address payable"}, strings{}, FunctionType::Kind::Selfdestruct)),
 		magicVarDecl("format", TypeProvider::function(strings{}, strings{"string"}, FunctionType::Kind::Format, StateMutability::Pure, FunctionType::Options::withArbitraryParameters())),
-		magicVarDecl("gosh", TypeProvider::magic(MagicType::Kind::Gosh)),
 		magicVarDecl("logtvm", TypeProvider::function(strings{"string"}, strings{}, FunctionType::Kind::LogTVM, StateMutability::Pure)),
 		magicVarDecl("math", TypeProvider::magic(MagicType::Kind::Math)),
 		magicVarDecl("rnd", TypeProvider::magic(MagicType::Kind::Rnd)),
+		magicVarDecl("config", TypeProvider::magic(MagicType::Kind::Config)),
+		magicVarDecl("secp256k1", TypeProvider::magic(MagicType::Kind::Secp256k1)),
+		magicVarDecl("secp256r1", TypeProvider::magic(MagicType::Kind::Secp256r1)),
 		magicVarDecl("stoi", TypeProvider::function(
 			TypePointers{TypeProvider::stringStorage()},
 			TypePointers{TypeProvider::optional(TypeProvider::integer(256, IntegerType::Modifier::Signed))},
@@ -137,22 +138,9 @@ inline std::vector<std::shared_ptr<MagicVariableDeclaration const>> constructMag
 			StateMutability::Pure,
 			FunctionType::Options::withArbitraryParameters()
 		)),
-		magicVarDecl("valueToGas", TypeProvider::function({"coins", "bool"}, {"coins"}, FunctionType::Kind::ValueToGas, StateMutability::Pure)),
-		magicVarDecl("valueToGas", TypeProvider::function({"coins"}, {"coins"}, FunctionType::Kind::ValueToGas, StateMutability::Pure)),
-		magicVarDecl("gasToValue", TypeProvider::function({"coins", "bool"}, {"coins"}, FunctionType::Kind::GasToValue, StateMutability::Pure)),
-		magicVarDecl("gasToValue", TypeProvider::function({"coins"}, {"coins"}, FunctionType::Kind::GasToValue, StateMutability::Pure)),
 		magicVarDecl("bitSize", TypeProvider::function({"int"}, {"uint16"}, FunctionType::Kind::BitSize, StateMutability::Pure)),
 		magicVarDecl("uBitSize", TypeProvider::function({"uint"}, {"uint16"}, FunctionType::Kind::UBitSize, StateMutability::Pure)),
 		magicVarDecl("gasConsumed", TypeProvider::function(strings(), {"uint59"}, FunctionType::Kind::GasConsumed, StateMutability::Pure)),
-
-		magicVarDecl("ecrecover", TypeProvider::function(
-			TypePointers{TypeProvider::uint256(), TypeProvider::uint(8), TypeProvider::uint256(), TypeProvider::uint256()},
-			TypePointers{TypeProvider::optional(TypeProvider::tuple({TypeProvider::uint(8), TypeProvider::uint256(),TypeProvider::uint256()}))},
-			strings{"", "", "", ""},
-			strings{""},
-			FunctionType::Kind::ECRecover,
-			StateMutability::Pure
-		)),
 
 		magicVarDecl("sha256", TypeProvider::function({}, {}, FunctionType::Kind::SHA256, StateMutability::Pure, FunctionType::Options::withArbitraryParameters())),
 		magicVarDecl("sha512", TypeProvider::function({}, {}, FunctionType::Kind::HashExt, StateMutability::Pure, FunctionType::Options::withArbitraryParameters())),

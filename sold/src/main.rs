@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022-2025 EverX. All Rights Reserved.
+ * Copyright (C) 2022-2026 EverX. All Rights Reserved.
  *
  * Licensed under the SOFTWARE EVALUATION License (the "License"); you may not use
  * this file except in compliance with the License.
@@ -16,7 +16,7 @@ mod libsolc;
 mod solc_run;
 
 use clap::{CommandFactory, Parser};
-use ever_block::Status;
+use tsol_asm::Status;
 
 use crate::abi_utils::{
     decode_abi_param, decode_state_data, encode_body, encode_ext_message, encode_value,
@@ -67,7 +67,10 @@ fn main() {
     VERSION.set(solidity_version()).unwrap();
 
     let args: Vec<String> = std::env::args().collect();
-    let arg1 = args[1].clone();
+    let arg1 = match args.get(1) {
+        None => "".to_owned(),
+        Some(s) => s.to_owned(),
+    };
     let result = if args.len() == 1
         || (args.len() >= 2 && args[1] != "init" && args[1] != "encode" && args[1] != "decode")
     {

@@ -61,7 +61,6 @@ public:
 		TvmRepeat,
 		TvmUntil,
 		While,
-		TryCatch,
 		Function,
 		Contract
 	};
@@ -502,25 +501,6 @@ private:
 	Pointer<CodeBlock> m_body;
 };
 
-class TryCatch: public TvmAstNode {
-public:
-	TryCatch(Pointer<CodeBlock> _tryBody, Pointer<CodeBlock> _catchBody, bool _saveAltC2):
-		m_tryBody{std::move(_tryBody)},
-		m_catchBody{std::move(_catchBody)},
-		m_saveAltC2{_saveAltC2} {}
-	void accept(TvmAstVisitor& _visitor) override;
-	bool operator==(TvmAstNode const&) const override { return false; } // TODO
-	Pointer<CodeBlock> const& tryBody() const { return m_tryBody; }
-	Pointer<CodeBlock> const& catchBody() const { return m_catchBody; }
-	bool saveAltC2() const { return m_saveAltC2; }
-	Category category() const override { return Category::TryCatch; }
-
-private:
-	Pointer<CodeBlock> m_tryBody;
-	Pointer<CodeBlock> m_catchBody;
-	bool m_saveAltC2{};
-};
-
 class Function: public TvmAstNode {
 public:
 	Function(
@@ -620,6 +600,7 @@ Pointer<Stack> makeXCH_S_S(int i, int j);
 Pointer<Glob> makeGetGlob(int i);
 Pointer<Glob> makeSetGlob(int i);
 Pointer<Stack> makeBLKDROP2(int droppedCount, int leftCount);
+Pointer<CellOrSliceOperation> makePUSHREFSLICE(std::string const& data = "");
 Pointer<CellOrSliceOperation> makePUSHREF(std::string const& data = "");
 Pointer<Stack> makeREVERSE(int qty, int index);
 Pointer<Stack> makeROT();

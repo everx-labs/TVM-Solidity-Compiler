@@ -2698,13 +2698,13 @@ private:
  * mapping(uint=>address)
  * for example slice.decode(mapping(uint=>address))
  */
-class MappingNameExpression : public PrimaryExpression
+class ComplexNameExpression : public PrimaryExpression
 {
 public:
-	MappingNameExpression(
+	ComplexNameExpression(
 			int64_t _id,
 			SourceLocation const& _location,
-			ASTPointer<Mapping> const& _type
+			ASTPointer<TypeName> const& _type
 	):
 			PrimaryExpression(_id, _location),
 			m_type(_type)
@@ -2713,35 +2713,10 @@ public:
 	void accept(ASTVisitor& _visitor) override;
 	void accept(ASTConstVisitor& _visitor) const override;
 
-	Mapping const& type() const { return *m_type; }
+	TypeName const& type() const { return *m_type; }
 
 private:
-	ASTPointer<Mapping> m_type;
-};
-
-/**
- * Optional<type>
- * for example slice.decode(optional(uint))
- */
-class OptionalNameExpression : public PrimaryExpression
-{
-public:
-	OptionalNameExpression(
-			int64_t _id,
-			SourceLocation const& _location,
-			ASTPointer<Optional> const& _type
-	):
-			PrimaryExpression(_id, _location),
-			m_type(_type)
-	{
-	}
-	void accept(ASTVisitor& _visitor) override;
-	void accept(ASTConstVisitor& _visitor) const override;
-
-	Optional const& type() const { return *m_type; }
-
-private:
-	ASTPointer<Optional> m_type;
+	ASTPointer<TypeName> m_type;
 };
 
 /**
@@ -2769,18 +2744,6 @@ public:
 		MTon = static_cast<int>(Token::SubMTon),
 		Gigaton = static_cast<int>(Token::SubGigaton),
 		GTon = static_cast<int>(Token::SubGTon),
-
-		Nanoever = static_cast<int>(Token::SubNanoever),
-		Microever = static_cast<int>(Token::SubMicroever),
-		Milliever = static_cast<int>(Token::SubMilliever),
-		Ever = static_cast<int>(Token::SubEver),
-		SmallEver = static_cast<int>(Token::SubSmallEver),
-		Kiloever = static_cast<int>(Token::SubKiloever),
-		KEver = static_cast<int>(Token::SubKEver),
-		Megaever = static_cast<int>(Token::SubMegaever),
-		MEver = static_cast<int>(Token::SubMEver),
-		Gigaever = static_cast<int>(Token::SubGigaever),
-		GEver = static_cast<int>(Token::SubGEver),
 
 		Second = static_cast<int>(Token::SubSecond),
 		Minute = static_cast<int>(Token::SubMinute),

@@ -61,13 +61,14 @@ protected:
 	void integerMethods() const;
 	void variantMethods(MemberAccess const& _node) const;
 	void addressMethod();
-	bool checkForTvmConfigParamFunction(MemberAccess const& _node) const;
 	bool checkForTvmSendFunction(MemberAccess const& _node) const;
 	void msgFunction(MemberAccess const& _node) const;
 	void rndFunction(MemberAccess const& _node) const;
+	void configFunction(MemberAccess const& _node) const;
+	void secp256k1Function(MemberAccess const& _node) const;
+	void secp256r1Function(MemberAccess const& _node) const;
 	void rist255Function() const;
 	void blsFunction() const;
-	void goshFunction() const;
 	void codeSalt() const;
 	void setCodeSalt() const;
 	void functionId() const;
@@ -121,7 +122,6 @@ protected:
 		Data,
 		Library
 	};
-	std::pair<int, int> encodeStateInit(std::map<StateInitMembers, std::function<void()>> const& exprs) const;
 	std::pair<int, int>
 	encodeStateInitAndHash(std::map<StateInitMembers, std::function<void()>> const& exprs, bool savePrefixLength) const;
 	std::function<void()> generateDataSection(

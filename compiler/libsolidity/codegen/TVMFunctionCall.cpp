@@ -160,7 +160,6 @@ void FunctionCallCompiler::compile() {
 					abiBuildDataInit();
 				} else if (
 					checkForTvmSendFunction(*m_memberAccess) ||
-					checkForTvmConfigParamFunction(*m_memberAccess) ||
 					checkForTvmFunction(*m_memberAccess) ||
 					checkForTvmC4(*m_memberAccess) ||
 					checkTvmABIDeployMethods(category)
@@ -169,14 +168,18 @@ void FunctionCallCompiler::compile() {
 				} else {
 					reportError();
 				}
+			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "config") {
+				configFunction(*m_memberAccess);
+			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "secp256k1") {
+				secp256k1Function(*m_memberAccess);
+			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "secp256r1") {
+				secp256r1Function(*m_memberAccess);
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "bls") {
 				blsFunction();
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "rist255") {
 				rist255Function();
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "rnd") {
 				rndFunction(*m_memberAccess);
-			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "gosh") {
-				goshFunction();
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "msg") {
 				msgFunction(*m_memberAccess);
 			} else if (category == Type::Category::Magic && ident != nullptr && ident->name() == "abi") {
@@ -276,7 +279,7 @@ void FunctionCallCompiler::mappingGetSet() const {
 	ASTString const& memberName = m_memberAccess->memberName();
 	if (isIn(memberName, "fetch", "at")) {
 		pushArgs(); // index
-		m_pusher.prepareKeyForDictOperations(keyType, false);
+		m_pusher.prepareKeyForDictOperations(keyType);
 		acceptExpr(&m_memberAccess->expression()); // index dict
 		if (memberName == "fetch")
 			m_pusher.getDict(*keyType, *valueType, GetDictOperation::Fetch);
@@ -284,7 +287,7 @@ void FunctionCallCompiler::mappingGetSet() const {
 			m_pusher.getDict(*keyType, *valueType, GetDictOperation::GetFromArray);
 	} else if (memberName == "exists") {
 		pushArgs(); // index
-		m_pusher.prepareKeyForDictOperations(keyType, false);
+		m_pusher.prepareKeyForDictOperations(keyType);
 		acceptExpr(&m_memberAccess->expression()); // index dict
 		m_pusher.getDict(*keyType, *valueType, GetDictOperation::Exist);
 	} else if (isIn(memberName, "getDel")) {
@@ -292,7 +295,7 @@ void FunctionCallCompiler::mappingGetSet() const {
 		LValueInfo const lValueInfo = m_exprCompiler.expandLValue(&m_memberAccess->expression(), true);
 
 		pushArgAndConvert(0); // lValue... map key
-		m_pusher.prepareKeyForDictOperations(keyType, false);
+		m_pusher.prepareKeyForDictOperations(keyType);
 		m_pusher.blockSwap(1, 1); // lValue... key map
 
 		m_pusher.getDict(*keyType, *valueType, GetDictOperation::GetDelFromMapping); // lValue... map' value
@@ -306,7 +309,7 @@ void FunctionCallCompiler::mappingGetSet() const {
 		pushArgAndConvert(1);																   // lValue... map value
 		DataType const& dataType = m_pusher.prepareValueForDictOperations(keyType, valueType); // lValue... map value'
 		pushArgAndConvert(0); // mapLValue... map value key
-		m_pusher.prepareKeyForDictOperations(keyType, false);
+		m_pusher.prepareKeyForDictOperations(keyType);
 		m_pusher.rot(); // mapLValue... value key map
 
 		if (isIn(memberName, "replace", "add")) {
@@ -359,10 +362,10 @@ void FunctionCallCompiler::mappingPrevNextMethods() const {
 	Type const* valueType{};
 	std::tie(keyType, valueType) = dictKeyValue(m_memberAccess->expression().annotation().type);
 
-	pushArgAndConvert(0);								 // index
-	m_pusher.prepareKeyForDictOperations(keyType, true); // index'
-	acceptExpr(&m_memberAccess->expression());			 // index' dict
-	m_pusher.pushInt(dictKeyLength(keyType));			 // index' dict nbits
+	pushArgAndConvert(0);						   // index
+	m_pusher.prepareKeyForDictOperations(keyType); // index'
+	acceptExpr(&m_memberAccess->expression());	   // index' dict
+	m_pusher.pushInt(dictKeyLength(keyType));	   // index' dict nbits
 
 	DictPrevNext compiler{m_pusher, *keyType, *valueType, m_memberAccess->memberName()};
 	compiler.prevNext();
@@ -474,8 +477,7 @@ void FunctionCallCompiler::addressMethods(MemberAccess const& _node) const {
 			m_pusher << "STU 9";  // numb cntBit builder''
 			m_pusher.exchange(1); // numb builder'' cntBit
 			m_pusher << "STUX";	  // builder'''
-			m_pusher << "ENDC";
-			m_pusher << "CTOS"; // extAddress
+			m_pusher << "BTOS";	  // extAddress
 		}
 	} else if (_node.memberName() == "makeAddrStd") {
 		auto const& wid = ExprUtils::constValue(*m_arguments.at(0));
@@ -492,8 +494,7 @@ void FunctionCallCompiler::addressMethods(MemberAccess const& _node) const {
 			m_pusher << "STSLICECONST x9_";
 			m_pusher << "STI 8";
 			m_pusher << "STU 256";
-			m_pusher << "ENDC";
-			m_pusher << "CTOS";
+			m_pusher << "BTOS";
 		}
 	} else {
 		solUnimplemented("");
@@ -1052,7 +1053,7 @@ bool FunctionCallCompiler::checkTvmABIDeployMethods(Type::Category category) con
 			}
 		}
 
-		encodeStateInit(exprs);
+		encodeStateInitAndHash(exprs, false);
 		m_pusher << "ENDC";
 		return true;
 	}
@@ -1496,6 +1497,9 @@ void FunctionCallCompiler::sliceMethods(MemberAccess const& _node) const {
 		if (ret == 2) {
 			m_pusher.drop();
 		}
+	} else if (memberName == "hash") {
+		acceptExpr(&_node.expression());
+		m_pusher << "HASHSU";
 	} else {
 		solUnimplemented("");
 	}
@@ -1726,10 +1730,12 @@ void FunctionCallCompiler::builderMethods(MemberAccess const& _node) const {
 		acceptExpr(&_node.expression());
 		m_pusher << "TRUE";
 		m_pusher << "ENDXC";
+	} else if (memberName == "hash") {
+		acceptExpr(&_node.expression());
+		m_pusher << "HASHBU";
 	} else if (memberName == "toSlice") {
 		acceptExpr(&_node.expression());
-		m_pusher << "ENDC";
-		m_pusher << "CTOS";
+		m_pusher << "BTOS";
 	} else if (memberName == "depth") {
 		acceptExpr(&_node.expression());
 		m_pusher << "BDEPTH";
@@ -1841,6 +1847,9 @@ void FunctionCallCompiler::arrayMethods(MemberAccess const& _node) const {
 	} else if (_node.memberName() == "toSlice") {
 		acceptExpr(&_node.expression());
 		m_pusher << "CTOS";
+	} else if (_node.memberName() == "hash") {
+		acceptExpr(&_node.expression());
+		m_pusher << "HASHCU";
 	} else if (_node.memberName() == "dataSizeQ") {
 		acceptExpr(&_node.expression());
 		pushArgAndConvert(0);
@@ -1980,26 +1989,64 @@ bool FunctionCallCompiler::checkForOptionalMethods(MemberAccess const& _node) co
 }
 
 void FunctionCallCompiler::cellMethods(MemberAccess const& _node) const {
-	ASTString const& memberName = _node.memberName();
 	acceptExpr(&_node.expression());
-	if (memberName == "toSlice")
+
+	switch (m_funcType->kind()) {
+	case FunctionType::Kind::TVMCellToSlice: {
 		m_pusher << "CTOS";
-	else if (memberName == "exoticToSlice")
+		break;
+	}
+	case FunctionType::Kind::TVMCellExoticToSlice: {
 		m_pusher << "XCTOS";
-	else if (memberName == "loadExoticCell")
+		break;
+	}
+	case FunctionType::Kind::TVMCellLoadExoticCell: {
 		m_pusher << "XLOAD";
-	else if (memberName == "loadExoticCellQ")
+		break;
+	}
+	case FunctionType::Kind::TVMCellLoadExoticCellQ: {
 		m_pusher << "XLOADQ";
-	else if (memberName == "depth")
-		m_pusher << "CDEPTH";
-	else if (memberName == "dataSize") {
+		break;
+	}
+	case FunctionType::Kind::TVMCellDepth: {
+		if (m_arguments.empty()) {
+			m_pusher << "CDEPTH";
+		} else {
+			pushArgs();
+			m_pusher << "CDEPTHIX";
+		}
+		break;
+	}
+	case FunctionType::Kind::TVMCellHash: {
+		if (m_arguments.empty()) {
+			m_pusher << "HASHCU";
+		} else {
+			pushArgs();
+			m_pusher << "CHASHIX";
+		}
+		break;
+	}
+	case FunctionType::Kind::TVMCellDataSize: {
 		pushArgAndConvert(0);
 		m_pusher << "CDATASIZE";
-	} else if (memberName == "dataSizeQ") {
+		break;
+	}
+	case FunctionType::Kind::TVMCellDataSizeQ: {
 		pushArgAndConvert(0);
 		cellBitRefQty();
-	} else
+		break;
+	}
+	case FunctionType::Kind::TVMCellLevel: {
+		m_pusher << "CLEVEL";
+		break;
+	}
+	case FunctionType::Kind::TVMCellLevelMask: {
+		m_pusher << "CLEVELMASK";
+		break;
+	}
+	default:
 		solUnimplemented("");
+	}
 }
 
 void FunctionCallCompiler::integerMethods() const {
@@ -2059,6 +2106,15 @@ void FunctionCallCompiler::variantMethods(MemberAccess const& _node) const {
 	case FunctionType::Kind::VariantIsUint: {
 		acceptExpr(&_node.expression());
 		isUint();
+		break;
+	}
+	case FunctionType::Kind::VariantUncheckedCast: {
+		acceptExpr(&_node.expression());
+		break;
+	}
+	case FunctionType::Kind::VariantIsNull: {
+		acceptExpr(&_node.expression());
+		m_pusher << "ISNULL";
 		break;
 	}
 	default:
@@ -2204,200 +2260,12 @@ void FunctionCallCompiler::addressMethod() {
 	} else if (m_memberAccess->memberName() == "getType") {
 		acceptExpr(&m_memberAccess->expression());
 		m_pusher << "PLDU 2";
-	} else if (m_memberAccess->memberName() == "isStdAddrWithoutAnyCast") {
-		acceptExpr(&m_memberAccess->expression());
-		// t = (2, u, x, s); check t[0] == 2 and t[1] is null
-		m_pusher << "PARSEMSGADDR";
-		m_pusher.pushS(0);
-		m_pusher << "INDEX_NOEXCEP 0";
-		m_pusher << "EQINT 2"; // t tag==2
-
-		m_pusher.push(
-			createNode<HardCode>(
-				std::vector<std::string>{
-					"PUSHCONT {",
-					"	SECOND",
-					"	ISNULL",
-					"}",
-					"PUSHCONT {",
-					"	DROP",
-					"	FALSE",
-					"}",
-					"IFELSE"
-				},
-				2,
-				1,
-				true
-			)
-		);
+	} else if (m_memberAccess->memberName() == "currency") {
+		pushArgs();
+		m_pusher << "GETEXTRABALANCE";
 	} else {
 		solUnimplemented("");
 	}
-}
-
-bool FunctionCallCompiler::checkForTvmConfigParamFunction(MemberAccess const& _node) const {
-	if (_node.memberName() == "rawConfigParam") { // tvm.rawConfigParam
-		int const stackSize = m_pusher.stackSize();
-		pushArgAndConvert(0);
-		m_pusher << "CONFIGOPTPARAM";
-		solAssert(stackSize + 1 == m_pusher.stackSize(), "");
-		return true;
-	}
-	if (_node.memberName() == "configParam") { // tvm.configParam
-		int const stackSize = m_pusher.stackSize();
-		auto paramNumberLiteral = dynamic_cast<Literal const*>(m_arguments[0].get());
-
-		Type const* type = paramNumberLiteral->annotation().type;
-		u256 value = type->literalValue(paramNumberLiteral);
-		std::string paramNumber = value.str();
-
-		if (paramNumber == "1") {
-			//_ elector_addr:bits256 = ConfigParam 1;
-			m_pusher.pushInt(1);
-
-			m_pusher.startOpaque();
-			m_pusher.pushAsym("CONFIGPARAM");
-
-			m_pusher.startContinuation();
-			m_pusher << "CTOS";
-			m_pusher << "LDU 256";
-			m_pusher << "ENDS";
-			m_pusher << "TRUE";
-			m_pusher.endContinuation();
-
-			m_pusher.startContinuation();
-			m_pusher.pushInt(0);
-			m_pusher << "FALSE";
-			m_pusher.endContinuation();
-
-			m_pusher.ifElse();
-			m_pusher.endOpaque(1, 2);
-
-			solAssert(stackSize + 2 == m_pusher.stackSize(), "");
-		}
-
-		//	config_param15: uint32, uint32, uint32, uint32, bool
-		//	config_param17: uint32, uint32, uint32, uint32, bool
-		if (paramNumber == "15") {
-			//_ validators_elected_for:uint32 elections_start_before:uint32
-			//  elections_end_before:uint32 stake_held_for:uint32
-			//  = ConfigParam 15;
-			m_pusher.pushInt(15);
-
-			m_pusher.startOpaque();
-			m_pusher.pushAsym("CONFIGPARAM");
-
-			m_pusher.startContinuation();
-			m_pusher << "CTOS";
-			m_pusher << "LDU 32";
-			m_pusher << "LDU 32";
-			m_pusher << "LDU 32";
-			m_pusher << "LDU 32";
-			m_pusher << "ENDS";
-			m_pusher << "TRUE";
-			m_pusher.endContinuation();
-
-			m_pusher.startContinuation();
-			m_pusher.pushInt(0);
-			m_pusher.pushInt(0);
-			m_pusher.pushInt(0);
-			m_pusher.pushInt(0);
-			m_pusher.pushInt(0);
-			m_pusher.endContinuation();
-
-			m_pusher.ifElse();
-			m_pusher.endOpaque(1, 5);
-		}
-
-		if (paramNumber == "17") {
-			//_    min_stake:Grams    max_stake:Grams
-			//     min_total_stake:Grams    max_stake_factor:uint32 = ConfigParam 17;
-			m_pusher.pushInt(17);
-
-			m_pusher.startOpaque();
-			m_pusher.pushAsym("CONFIGPARAM");
-
-			m_pusher.startContinuation();
-			m_pusher << "CTOS";
-			m_pusher << "LDVARUINT16";
-			m_pusher << "LDVARUINT16";
-			m_pusher << "LDVARUINT16";
-			m_pusher << "LDU 32";
-			m_pusher << "ENDS";
-			m_pusher << "TRUE";
-			m_pusher.endContinuation();
-
-			m_pusher.startContinuation();
-			m_pusher.pushInt(0);
-			m_pusher.pushInt(0);
-			m_pusher.pushInt(0);
-			m_pusher.pushInt(0);
-			m_pusher.pushInt(0);
-			m_pusher.endContinuation();
-
-			m_pusher.ifElse();
-			m_pusher.endOpaque(1, 5);
-		}
-
-		//    function tvm_config_param34() private pure returns (
-		//        uint8 /*constructor_id*/,
-		//        uint32 /*utime_since*/,
-		//        uint32 /*utime_until*/,
-		//        uint16 /*total*/,
-		//        uint16 /*main*/,
-		//        uint64 /*total_weight*/,
-		//        mapping(uint16 => ValidatorDescr73) memory,
-		//        bool ok
-		//    ) { }
-		if (paramNumber == "34") {
-			// _ cur_validators:ValidatorSet = ConfigParam 34;
-			// validators#11 utime_since:uint32 utime_until:uint32
-			// total:(## 16) main:(## 16) { main <= total } { main >= 1 }
-			// list:(Hashmap 16 ValidatorDescr) = ValidatorSet;
-			// validators_ext#12 utime_since:uint32 utime_until:uint32
-			// total:(## 16) main:(## 16) { main <= total } { main >= 1 }
-			// total_weight:uint64 list:(HashmapE 16 ValidatorDescr) = ValidatorSet;
-			// validator#53 public_key:SigPubKey weight:uint64 = ValidatorDescr;
-			// validator_addr#73 public_key:SigPubKey weight:uint64 adnl_addr:bits256 = ValidatorDescr;
-			// ed25519_pubkey#8e81278a pubkey:bits256 = SigPubKey;  // 288 bits
-
-			m_pusher.pushInt(34);
-
-			m_pusher.startOpaque();
-
-			m_pusher.pushAsym("CONFIGPARAM");
-
-			m_pusher.startContinuation();
-			m_pusher << "CTOS";
-			m_pusher << "LDU 8";  // constructor
-			m_pusher << "LDU 32"; // utime_since
-			m_pusher << "LDU 32"; // utime_until
-			m_pusher << "LDU 16"; // total
-			m_pusher << "LDU 16"; // main
-			m_pusher << "LDU 64"; // total_weight
-			m_pusher << "LDDICT"; // ValidatorDescr
-			m_pusher << "ENDS";
-			m_pusher << "TRUE";
-			m_pusher.endContinuation();
-
-			m_pusher.startContinuation();
-			m_pusher << "PUSHINT 0"; // constructor
-			m_pusher << "PUSHINT 0"; // utime_since
-			m_pusher << "PUSHINT 0"; // utime_until
-			m_pusher << "PUSHINT 0"; // total
-			m_pusher << "PUSHINT 0"; // main
-			m_pusher << "PUSHINT 0"; // total_weight
-			m_pusher << "NULL";		 // ValidatorDescr
-			m_pusher << "FALSE";	 //
-			m_pusher.endContinuation();
-
-			m_pusher.ifElse();
-
-			m_pusher.endOpaque(1, 8);
-		}
-		return true;
-	}
-	return false;
 }
 
 bool FunctionCallCompiler::checkForTvmSendFunction(MemberAccess const& _node) const {
@@ -2457,6 +2325,114 @@ void FunctionCallCompiler::rndFunction(MemberAccess const& _node) const {
 			pushArgs();
 		}
 		m_pusher << "ADDRAND";
+		break;
+	}
+	default:
+		cast_error(_node, "Unsupported function call");
+	}
+}
+
+void FunctionCallCompiler::configFunction(MemberAccess const& _node) const {
+	switch (m_funcType->kind()) {
+	case FunctionType::Kind::ConfigGlobalId:
+		m_pusher << "GLOBALID";
+		break;
+	case FunctionType::Kind::ConfigUnpackedConfig:
+		m_pusher << "UNPACKEDCONFIGTUPLE";
+		break;
+	case FunctionType::Kind::ConfigGetGasFee:
+		pushArgs();
+		m_pusher << "GETGASFEE";
+		break;
+	case FunctionType::Kind::ConfigValueToGas: {
+		pushArgs();
+		m_pusher.pushFragmentInCallRef(2, 1, "__tonToGas");
+		break;
+	}
+	case FunctionType::Kind::ConfigGetGasFeeSimple:
+		pushArgs();
+		m_pusher << "GETGASFEESIMPLE";
+		break;
+	case FunctionType::Kind::ConfigGetStorageFee:
+		pushArgs();
+		m_pusher << "GETSTORAGEFEE";
+		break;
+	case FunctionType::Kind::ConfigGetForwardFee:
+		pushArgs();
+		m_pusher << "GETFORWARDFEE";
+		break;
+	case FunctionType::Kind::ConfigGetForwardFeeSimple:
+		pushArgs();
+		m_pusher << "GETFORWARDFEESIMPLE";
+		break;
+	case FunctionType::Kind::ConfigGetOriginalFwdFee:
+		pushArgs();
+		m_pusher << "GETORIGINALFWDFEE";
+		break;
+	case FunctionType::Kind::ConfigGetParam:
+		pushArgs();
+		m_pusher << "CONFIGOPTPARAM";
+		break;
+	case FunctionType::Kind::ConfigGetPrecompiledGas:
+		m_pusher << "GETPRECOMPILEDGAS";
+		break;
+	default:
+		cast_error(_node, "Unsupported function call");
+	}
+}
+
+void FunctionCallCompiler::secp256k1Function(MemberAccess const& _node) const {
+	auto kind = m_funcType->kind();
+
+	switch (kind) {
+	case FunctionType::Kind::Secp256k1ECRecover: {
+		pushArgs();
+		m_pusher.startOpaque();
+		{
+			m_pusher.pushAsym("ECRECOVER");
+			m_pusher.pushAsym("NULLSWAPIFNOT");
+			m_pusher.startContinuation();
+			{
+				m_pusher.makeTuple(3);
+			}
+			m_pusher.endContinuation();
+			m_pusher._if();
+		}
+		m_pusher.endOpaque(4, 1);
+		break;
+	}
+	case FunctionType::Kind::Secp256k1AddTweakPublicKey: {
+		pushArgs();
+		m_pusher.startOpaque();
+		{
+			m_pusher.pushAsym("SECP256K1_XONLY_PUBKEY_TWEAK_ADD");
+			m_pusher.pushAsym("NULLSWAPIFNOT");
+			m_pusher.startContinuation();
+			{
+				m_pusher.makeTuple(3);
+			}
+			m_pusher.endContinuation();
+			m_pusher._if();
+		}
+		m_pusher.endOpaque(2, 1);
+		break;
+	}
+	default:
+		cast_error(_node, "Unsupported function call");
+	}
+}
+
+void FunctionCallCompiler::secp256r1Function(MemberAccess const& _node) const {
+	auto kind = m_funcType->kind();
+
+	switch (kind) {
+	case FunctionType::Kind::Secp256r1CheckSign: {
+		pushArgs();
+		auto pubkeyType = m_funcType->parameterTypes().at(0);
+		if (pubkeyType->category() == Type::Category::TvmSlice)
+			m_pusher << "P256_CHKSIGNS";
+		else
+			m_pusher << "P256_CHKSIGNU";
 		break;
 	}
 	default:
@@ -2735,11 +2711,19 @@ void FunctionCallCompiler::blsFunction() const {
 		pushArgs();
 		m_pusher << "BLS_PUSHR";
 		break;
+	case FunctionType::Kind::BlsPairing:
 	case FunctionType::Kind::BlsG1MultiExp:
 	case FunctionType::Kind::BlsG2MultiExp: {
 		pushArgs();
-		std::string opcode =
-			m_funcType->kind() == FunctionType::Kind::BlsG1MultiExp ? "BLS_G1_MULTIEXP" : "BLS_G2_MULTIEXP";
+		std::string opcode;
+		if (m_funcType->kind() == FunctionType::Kind::BlsG1MultiExp)
+			opcode = "BLS_G1_MULTIEXP";
+		else if (m_funcType->kind() == FunctionType::Kind::BlsG2MultiExp)
+			opcode = "BLS_G2_MULTIEXP";
+		else if (m_funcType->kind() == FunctionType::Kind::BlsPairing)
+			opcode = "BLS_PAIRING";
+		else
+			solUnimplemented("");
 		if (useTuple) {
 			m_pusher.push(
 				createNode<HardCode>(
@@ -2782,42 +2766,6 @@ void FunctionCallCompiler::blsFunction() const {
 	}
 }
 
-void FunctionCallCompiler::goshFunction() const {
-	auto typeToOpcode = [&] {
-		switch (m_funcType->kind()) {
-		case FunctionType::Kind::GoshDiff:
-			return "DIFF";
-		case FunctionType::Kind::GoshApplyPatch:
-			return "DIFF_PATCH";
-		case FunctionType::Kind::GoshZip:
-			return "ZIP";
-		case FunctionType::Kind::GoshUnzip:
-			return "UNZIP";
-		case FunctionType::Kind::GoshZipDiff:
-			return "DIFF_ZIP";
-		case FunctionType::Kind::GoshApplyZipPatch:
-			return "DIFF_PATCH_ZIP";
-		case FunctionType::Kind::GoshApplyPatchQ:
-			return "DIFF_PATCHQ";
-		case FunctionType::Kind::GoshApplyZipPatchQ:
-			return "DIFF_PATCH_ZIPQ";
-		case FunctionType::Kind::GoshApplyBinPatch:
-			return "DIFF_PATCH_BINARY";
-		case FunctionType::Kind::GoshApplyBinPatchQ:
-			return "DIFF_PATCH_BINARYQ";
-		case FunctionType::Kind::GoshApplyZipBinPatch:
-			return "DIFF_PATCH_BINARY_ZIP";
-		case FunctionType::Kind::GoshApplyZipBinPatchQ:
-			return "DIFF_PATCH_BINARY_ZIPQ";
-		default:
-			solUnimplemented("Unsupported function call");
-		}
-	};
-
-	pushArgs();
-	std::string opcode = typeToOpcode();
-	m_pusher << opcode;
-}
 
 void FunctionCallCompiler::codeSalt() const {
 	pushArgs();									// code
@@ -3012,13 +2960,6 @@ bool FunctionCallCompiler::checkForTvmFunction(MemberAccess const& _node) const 
 		default:
 			solUnimplemented("");
 		}
-	} else if (name == "p256CheckSign") { // tvm.p256CheckSign
-		pushArgs();
-		auto pubkeyType = m_funcType->parameterTypes().at(0);
-		if (pubkeyType->category() == Type::Category::TvmSlice)
-			m_pusher << "P256_CHKSIGNS";
-		else
-			m_pusher << "P256_CHKSIGNU";
 	} else if (name == "checkSign") { // tvm.checkSign
 		size_t cnt = m_arguments.size();
 		if (getType(m_arguments[0].get())->category() == Type::Category::TvmSlice) {
@@ -3032,8 +2973,7 @@ bool FunctionCallCompiler::checkForTvmFunction(MemberAccess const& _node) const 
 				m_pusher << "NEWC";
 				m_pusher << "STU 256";
 				m_pusher << "STU 256";
-				m_pusher << "ENDC";
-				m_pusher << "CTOS";
+				m_pusher << "BTOS";
 			} else {
 				pushArgAndConvert(1);
 			}
@@ -3043,14 +2983,6 @@ bool FunctionCallCompiler::checkForTvmFunction(MemberAccess const& _node) const 
 	} else if (name == "setcode") { // tvm.setcode
 		pushArgs();
 		m_pusher << "SETCODE";
-	} else if (name == "bindump") { // tvm.bindump
-		pushArgs();
-		m_pusher << "BINDUMP";
-		m_pusher.drop();
-	} else if (name == "hexdump") { // tvm.hexdump
-		pushArgs();
-		m_pusher << "HEXDUMP";
-		m_pusher.drop();
 	} else if (name == "setCurrentCode") { // tvm.setCurrentCode
 		int const stackSize = m_pusher.stackSize();
 		pushArgs();
@@ -3103,8 +3035,6 @@ bool FunctionCallCompiler::checkForTvmFunction(MemberAccess const& _node) const 
 	} else if (name == "setGasLimit") {
 		pushArgs();
 		m_pusher << "SETGASLIMIT";
-	} else if (name == "initCodeHash") {
-		m_pusher << "INITCODEHASH";
 	} else if (name == "buyGas") {
 		pushArgs();
 		m_pusher << "BUYGAS";
@@ -3114,6 +3044,14 @@ bool FunctionCallCompiler::checkForTvmFunction(MemberAccess const& _node) const 
 		pushArgs();
 		TypeConversion tc{m_pusher};
 		tc.convertIntegerToLibraryExoticCell();
+	} else if (name == "prevBlocksInfo") {
+		m_pusher << "PREVBLOCKSINFOTUPLE";
+	} else if (name == "prevMCBlocks") {
+		m_pusher << "PREVMCBLOCKS";
+	} else if (name == "prevKeyBlock") {
+		m_pusher << "PREVKEYBLOCK";
+	} else if (name == "prevMCBlocks100") {
+		m_pusher << "PREVMCBLOCKS_100";
 	} else {
 		return false;
 	}
@@ -3446,23 +3384,6 @@ bool FunctionCallCompiler::checkHashFunctions() const {
 		hashExt();
 		break;
 	}
-
-	case FunctionType::Kind::ECRecover: {
-		pushArgs();
-		m_pusher.startOpaque();
-		{
-			m_pusher.pushAsym("ECRECOVER");
-			m_pusher.pushAsym("NULLSWAPIFNOT");
-			m_pusher.startContinuation();
-			{
-				m_pusher.makeTuple(3);
-			}
-			m_pusher.endContinuation();
-			m_pusher._if();
-		}
-		m_pusher.endOpaque(4, 1);
-		break;
-	}
 	default:
 		return false;
 	}
@@ -3476,29 +3397,6 @@ bool FunctionCallCompiler::checkSolidityUnits() const {
 	}
 
 	switch (m_funcType->kind()) {
-	case FunctionType::Kind::GasToValue: {
-		pushArgs();
-		if (m_arguments.size() == 1) {
-			solAssert(*GlobalParams::g_tvmVersion != TVMVersion::ton());
-			m_pusher << "GASTOGRAM";
-		} else {
-			if (*GlobalParams::g_tvmVersion == TVMVersion::ton())
-				m_pusher << "GETGASFEE";
-			else
-				m_pusher.pushFragmentInCallRef(2, 1, "__gasToTon");
-		}
-		return true;
-	}
-	case FunctionType::Kind::ValueToGas: {
-		pushArgs();
-		if (m_arguments.size() == 1) {
-			solAssert(*GlobalParams::g_tvmVersion != TVMVersion::ton());
-			m_pusher << "GRAMTOGAS";
-		} else {
-			m_pusher.pushFragmentInCallRef(2, 1, "__tonToGas");
-		}
-		return true;
-	}
 	case FunctionType::Kind::BitSize: {
 		pushArgs();
 		m_pusher << "BITSIZE";
@@ -3801,17 +3699,13 @@ void FunctionCallCompiler::createNewContract() const {
 
 		int bits;
 		int refs;
-		if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-			bool const savePrefixLength = pushPrefix != nullptr;
-			std::tie(bits, refs) = encodeStateInitAndHash(stateInitExprs, savePrefixLength);
-			// stack: [prefixLength] stateInit hash
-		} else {
-			std::tie(bits, refs) = encodeStateInit(stateInitExprs);
-			m_pusher.pushS(0);
-			m_pusher << "ENDC";
-			m_pusher << "HASHCU";
-			// stack: stateInit hash
-		}
+		bool const savePrefixLength = pushPrefix != nullptr;
+		std::tie(bits, refs) = encodeStateInitAndHash(stateInitExprs, savePrefixLength);
+		// stack: [prefixLength] stateInit
+		m_pusher.pushS(0);
+		// stack: [prefixLength] stateInit stateInit
+		m_pusher << "HASHBU";
+		// stack: [prefixLength] stateInit hash
 		stateInitInfo = StateInitInfo{true, bits, refs};
 	} else {
 		solUnimplemented("");
@@ -3988,8 +3882,7 @@ void FunctionCallCompiler::deployNewContract(
 
 	bool isDestBuilder = !m_isCurrentResultNeeded;
 	if (!isDestBuilder) {
-		m_pusher << "ENDC";
-		m_pusher << "CTOS";
+		m_pusher << "BTOS";
 	}
 
 	// stack: arg[n-1], ..., arg[1], arg[0], stateInit, destAddress
@@ -4148,55 +4041,6 @@ bool FunctionCallCompiler::structMethodCall() const {
 	return true;
 }
 
-std::pair<int, int>
-FunctionCallCompiler::encodeStateInit(std::map<StateInitMembers, std::function<void()>> const& exprs) const {
-	// TODO merge with encodeStateInitAndHash
-	solAssert(!exprs.contains(StateInitMembers::Special), "");
-	solAssert(!exprs.contains(StateInitMembers::Library), "");
-	solAssert(exprs.contains(StateInitMembers::Code), "Code must be present");
-	solAssert(exprs.contains(StateInitMembers::Data), "Data must be present");
-
-	int const ss = m_pusher.stackSize();
-
-	// _ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
-	// code:(Maybe ^Cell) data:(Maybe ^Cell)
-	// library:(HashmapE 256 SimpleLib) = StateInit;
-
-	bool const hasPrefixLength = exprs.contains(StateInitMembers::PrefixLength);
-	// stack: data
-	exprs.at(StateInitMembers::Data)();
-	// stack: code
-	exprs.at(StateInitMembers::Code)();
-
-	// stack: data code
-	// let's store split_depth and special options
-	if (exprs.contains(StateInitMembers::PrefixLength)) {
-		exprs.at(StateInitMembers::PrefixLength)();
-		m_pusher << "NEWC";
-		m_pusher.stones(1);
-		m_pusher << "STU 5";
-		m_pusher.stzeroes(1);
-	} else {
-		m_pusher << "NEWC";
-		// stack: data code builder
-		m_pusher << "STSLICECONST x2_"; // no split_depth and no special // 0 0
-	}
-
-	// stack: data code builder
-	m_pusher << "STDICT";		  // store code
-	m_pusher << "STDICT";		  // store data
-	m_pusher << "STSLICECONST 0"; // store library
-	// stack: stateInit
-	solAssert(ss + 1 == m_pusher.stackSize(), "");
-
-	int bitQty = 5;
-	if (hasPrefixLength) {
-		bitQty += 5;
-	}
-
-	return {bitQty, 2};
-}
-
 void FunctionCallCompiler::pushArgWithoutConvertion() const {
 	for (auto const& callIndex: m_declarationIndex) {
 		acceptExpr(m_arguments.at(callIndex).get());
@@ -4222,11 +4066,11 @@ std::pair<int, int> FunctionCallCompiler::encodeStateInitAndHash(
 	if (hasPrefixLength && savePrefixLength) {
 		exprs.at(StateInitMembers::PrefixLength)();
 	}
-	// stack: [prefixLength] code
-	exprs.at(StateInitMembers::Code)();
-	// stack: [prefixLength] code
+	// stack: [prefixLength]
 	exprs.at(StateInitMembers::Data)();
-	// stack: [prefixLength] code data
+	// stack: [prefixLength] data
+	exprs.at(StateInitMembers::Code)();
+	// stack: [prefixLength] data code
 	if (hasPrefixLength) {
 		if (savePrefixLength)
 			m_pusher.pushS(2);
@@ -4234,88 +4078,27 @@ std::pair<int, int> FunctionCallCompiler::encodeStateInitAndHash(
 			exprs.at(StateInitMembers::PrefixLength)();
 	}
 
-	// stack: [prefixLength] code data [prefixLength]
-	int shift = hasPrefixLength ? 1 : 0;
-	m_pusher.pushS(1 + shift); // stack: [prefixLength] code data [prefixLength] code
-	m_pusher.pushS(1 + shift); // stack: [prefixLength] code data [prefixLength] code data
-	m_pusher.pushS(1);		   // stack: [prefixLength] code data [prefixLength] code data code
-	m_pusher.pushS(1);		   // stack: [prefixLength] code data [prefixLength] code data code data
-
-	// stack: [prefixLength] code data [prefixLength] code data code data
-	m_pusher << "HASHCU";
-	m_pusher.blockSwap(1, 1);
-	m_pusher << "HASHCU";
-	m_pusher.blockSwap(2, 2);
-	m_pusher << "CDEPTH";
-	m_pusher.blockSwap(1, 1);
-	m_pusher << "CDEPTH";
-	// stack: [prefixLength] code data [prefixLength] dataHash codeHash dataDepth codeDepth
-
+	// stack: [prefixLength] data code [prefixLength]
 	m_pusher << "NEWC";
-	// stack: [prefixLength] code data [prefixLength] dataHash codeHash dataDepth codeDepth builder
-	m_pusher << "STSLICECONST x02"; // number of refs: code and data refs
+	// stack: [prefixLength] data code [prefixLength] builder
 
-	int bitQty = 5;
-	if (hasPrefixLength) {
-		bitQty += 5;
-	}
-	// See standard representation hash calculation
-	int const bitsDescriptor = bitQty / 8 + (bitQty + 7) / 8;
-	std::string strBitsDescriptor = std::format("x{:0{}x}", bitsDescriptor, 2);
-	m_pusher << ("STSLICECONST " + strBitsDescriptor);
-
-	if (hasPrefixLength) {
-		m_pusher << "STSLICECONST 1";
-		// stack: [prefixLength] code data [prefixLength] dataHash codeHash dataDepth codeDepth builder
-		m_pusher.pushS(5);
-		// stack: [prefixLength] code data [prefixLength] dataHash codeHash dataDepth codeDepth builder prefixLength
-		m_pusher.blockSwap(1, 1);
-		m_pusher << "STU 5";
-	} else {
-		m_pusher << "STSLICECONST 0";
-	}
-	m_pusher << "STSLICECONST 0"; // special
-	m_pusher << "STSLICECONST 1"; // code
-	m_pusher << "STSLICECONST 1"; // data
-	m_pusher << "STSLICECONST 0"; // library
-
-	// stack: code data [prefixLength] dataHash codeHash dataDepth codeDepth builder
-	int restBits = (bitQty + 7) / 8 * 8 - bitQty;
-	if (restBits > 0) {
-		// Add completion tag to have an integer number of bytes
-		m_pusher.stones(1);
-		m_pusher.stzeroes(restBits - 1);
-	}
-
-	m_pusher << "STU 16";
-	m_pusher << "STU 16";
-	m_pusher << "STU 256";
-	m_pusher << "STU 256";
-	m_pusher.pushInt(1);
-	m_pusher.pushStackGenOpcode("HASHEXT_SHA256", 2, 1);
-	// stack: [prefixLength] code data [prefixLength] hash
-	m_pusher.blockSwap(2 + shift, 1);
-	// stack: [prefixLength] hash code data [prefixLength]
-	m_pusher.exchange(0 + shift, 1 + shift);
-	// stack: [prefixLength] hash data code [prefixLength]
-	m_pusher << "NEWC";
-	// stack: [prefixLength] hash data code [prefixLength] builder
-
+	int bitQty = 0;
 	if (hasPrefixLength) {
 		m_pusher.stones(1);
 		m_pusher << "STU 5";
+		bitQty += 6;
 	} else {
 		m_pusher.stzeroes(1);
+		++bitQty;
 	}
 	m_pusher.stzeroes(1);		  // special:(Maybe TickTock)
 	m_pusher.stones(1);			  // code:(Maybe ^Cell)
 	m_pusher.stones(1);			  // data:(Maybe ^Cell)
 	m_pusher << "STSLICECONST 0"; // library:(HashmapE 256 SimpleLib)
-	m_pusher << "STREF";		  // store code
-	m_pusher << "STREF";		  // store data
-	// stack: [prefixLength] hash stateInit
-	m_pusher.blockSwap(1, 1);
-	// stack: [prefixLength] stateInit hash
+	bitQty += 4;
+	m_pusher << "STREF"; // store code
+	m_pusher << "STREF"; // store data
+	// stack: [prefixLength] stateInit
 
 	return {bitQty, 2};
 }

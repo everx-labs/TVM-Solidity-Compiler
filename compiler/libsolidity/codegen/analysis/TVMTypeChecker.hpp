@@ -36,7 +36,6 @@ public:
 	void checkDeprecation(FunctionCall const& _functionCall) const;
 	void checkSupport(FunctionCall const& _functionCall) const;
 	bool visit(FunctionCall const&) override;
-	bool visit(PragmaDirective const&) override;
 	bool visit(MemberAccess const&) override;
 	bool visit(FunctionCallOptions const& _node) override;
 	void endVisit(ContractDefinition const&) override;

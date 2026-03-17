@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022-2025 EverX. All Rights Reserved.
+ * Copyright (C) 2022-2026 EverX. All Rights Reserved.
  *
  * Licensed under the SOFTWARE EVALUATION License (the "License"); you may not use
  * this file except in compliance with the License.
@@ -141,7 +141,9 @@ fn main() {
             let boost_lib_dir = PathBuf::from(&boost_root_env).join("lib");
             if !boost_lib_dir.exists() {
                 let boost_lib_dir_display = format!("{boost_lib_dir:?}");
-                panic!("BOOST_ROOT was set to '{boost_root_env}', but '{boost_lib_dir_display}' does not exist.");
+                panic!(
+                    "BOOST_ROOT was set to '{boost_root_env}', but '{boost_lib_dir_display}' does not exist."
+                );
             }
             let boost_filesystem = boost_lib_dir.join("libboost_filesystem.a");
             let boost_program_options = boost_lib_dir.join("libboost_program_options.a");

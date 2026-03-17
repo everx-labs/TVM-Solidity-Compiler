@@ -54,7 +54,6 @@ private:
 	bool visit(FunctionCall const& _functionCall) override;
 	void endVisit(FunctionDefinition const&) override;
 	void endVisit(FunctionCall const&) override;
-	void endVisit(PragmaDirective const& _pragma) override;
 
 	FunctionDefinition const* m_currentFunction = nullptr;
 	std::vector<FunctionCall const*> m_functionCall;
@@ -87,19 +86,6 @@ private:
 	bool visit(FunctionCall const& _functionCall) override;
 };
 
-class ExtMsgAnalyzer: public BaseAnalyzer {
-public:
-	ExtMsgAnalyzer(langutil::ErrorReporter& _errorReporter):
-		BaseAnalyzer{_errorReporter} {}
-
-private:
-	bool visit(FunctionDefinition const& _function) override;
-	void endVisit(FunctionDefinition const& _function) override;
-	bool visit(MemberAccess const& _node) override;
-
-	FunctionDefinition const* m_function = nullptr;
-};
-
 class TVMAnalyzerPackUnpack: public BaseAnalyzer {
 public:
 	TVMAnalyzerPackUnpack(langutil::ErrorReporter& _errorReporter):
@@ -111,22 +97,15 @@ private:
 	bool visit(VariableDeclaration const& _node) override;
 };
 
-class ContactsUsageScanner: public ASTConstVisitor {
+class MsgPubkeyAnalyzer: public ASTConstVisitor {
 public:
-	explicit ContactsUsageScanner(ContractDefinition const& cd);
+	explicit MsgPubkeyAnalyzer(ContractDefinition const& cd);
 	bool visit(FunctionCall const& _functionCall) override;
-	bool visit(MemberAccess const& _node) override;
-	bool visit(FunctionDefinition const& fd) override;
 
 	bool hasMsgPubkey() const { return m_hasMsgPubkey; }
-	bool hasMsgSender() const { return m_hasMsgSender; }
-	bool hasResponsibleFunction() const { return m_hasResponsibleFunction; }
 
 private:
 	bool m_hasMsgPubkey{};
-	bool m_hasMsgSender{};
-	bool m_hasResponsibleFunction{};
-	std::set<Declaration const*> m_usedFunctions;
 };
 
 template <typename T>

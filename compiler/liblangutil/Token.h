@@ -221,17 +221,6 @@ namespace solidity::langutil
 	K(SubMTon, "MTon", 0)                                              \
 	K(SubGigaton, "gigaton", 0)                                        \
 	K(SubGTon, "GTon", 0)                                              \
-	K(SubNanoever, "nanoever", 0)                                      \
-	K(SubMicroever, "microever", 0)                                    \
-	K(SubMilliever, "milliever", 0)                                    \
-	K(SubEver, "Ever", 0)                                              \
-	K(SubSmallEver, "ever", 0)                                         \
-	K(SubKiloever, "kiloever", 0)                                      \
-	K(SubKEver, "kEver", 0)                                            \
-	K(SubMegaever, "megaever", 0)                                      \
-	K(SubMEver, "MEver", 0)                                            \
-	K(SubGigaever, "gigaever", 0)                                      \
-	K(SubGEver, "GEver", 0)                                            \
 	K(SubSecond, "seconds", 0)                                         \
 	K(SubMinute, "minutes", 0)                                         \
 	K(SubHour, "hours", 0)                                             \
@@ -378,7 +367,7 @@ namespace TokenTraits
 		return op == Token::Pure || op == Token::View || op == Token::Payable;
 	}
 
-	constexpr bool isTonSubdenomination(Token op) { return (Token::SubNano <= op && op <= Token::SubGEver); }
+	constexpr bool isTonSubdenomination(Token op) { return (Token::SubNano <= op && op <= Token::SubGTon); }
 	constexpr bool isTimeSubdenomination(Token op) { return op == Token::SubSecond || op == Token::SubMinute || op == Token::SubHour || op == Token::SubDay || op == Token::SubWeek || op == Token::SubYear; }
 	constexpr bool isReservedKeyword(Token op) { return (Token::After <= op && op <= Token::Var); }
 

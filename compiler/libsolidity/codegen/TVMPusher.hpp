@@ -116,7 +116,7 @@ public:
 	bool isOnBouncedMessageGenerated() const { return m_isOnBouncedMessageGenerated; }
 	void setIsOnBouncedMessage() { m_isOnBouncedMessageGenerated = true; }
 	bool isBaseFunction(CallableDeclaration const* d) const;
-	ContactsUsageScanner const& usage() const { return m_usage; }
+	MsgPubkeyAnalyzer const& usage() const { return m_usage; }
 
 	void addConstArray(std::string const& name, TupleExpression const* arr) { m_constArrays.emplace(name, arr); }
 	std::set<std::pair<std::string, TupleExpression const*>>& constArrays() { return m_constArrays; }
@@ -152,7 +152,7 @@ private:
 	FunctionDefinition const* m_fallback{};
 	bool m_isReceiveGenerated{};
 	bool m_isOnBouncedMessageGenerated{};
-	ContactsUsageScanner m_usage;
+	MsgPubkeyAnalyzer m_usage;
 
 	std::set<std::pair<std::string, TupleExpression const*>> m_constArrays;
 	std::set<std::pair<std::string, FunctionCall const*>> m_newArray;
@@ -243,7 +243,6 @@ public:
 	void repeat(bool _withBreakOrReturn);
 	void until(bool withBreakOrReturn);
 	void _while(bool _withBreakOrReturn);
-	void tryOpcode(bool saveAltC2);
 	void ret();
 	void retAlt();
 	void ifRetAlt();
@@ -313,7 +312,7 @@ public:
 	void exchange(int i, int j);
 	void rot();
 	void rotRev();
-	void prepareKeyForDictOperations(Type const* key, bool doIgnoreBytes);
+	void prepareKeyForDictOperations(Type const* key);
 	[[nodiscard]]
 	std::pair<int, int> build_int_msg_info(
 		std::set<int> const& isParamOnStack,

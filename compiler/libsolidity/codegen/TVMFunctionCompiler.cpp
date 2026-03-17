@@ -339,7 +339,6 @@ Pointer<Function> TVMFunctionCompiler::generateOnTickTock(TVMCompilerContext& ct
 	}
 
 	TVMFunctionCompiler funCompiler{pusher, 0, function, false, false, 0};
-	funCompiler.setCopyleft();
 	funCompiler.visitFunctionWithModifiers();
 
 
@@ -549,14 +548,6 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() const {
 		//	ext_in_msg_info$10 src:MsgAddressExt dest:MsgAddressInt
 		//	import_fee:Grams = CommonMsgInfo;
 
-		// get external address of sender
-		m_pusher.pushS(m_pusher.stackSize() + 1);
-		m_pusher << "CTOS";
-		m_pusher << "LDU 2";
-		m_pusher << "LDMSGADDR";
-		m_pusher.drop();
-		m_pusher.popS(1);
-
 		auto appendBodyForExtMsg = [&](int bitSizeBuilder, int refSizeBuilder) {
 			ChainDataEncoder{&m_pusher}.createMsgBodyAndAppendToBuilder(
 				ret,
@@ -569,7 +560,7 @@ void TVMFunctionCompiler::emitOnPublicFunctionReturn() const {
 		};
 
 		m_pusher.sendMessage(
-			{TvmConst::ext_msg_info::dest},
+			{},
 			{},
 			appendBodyForExtMsg,
 			nullptr,
@@ -835,40 +826,8 @@ bool TVMFunctionCompiler::visit(ExpressionStatement const& _statement) {
 	return false;
 }
 
-bool TVMFunctionCompiler::visit(TryStatement const& _tryState) {
-	// return flag
-	int const stackSize = m_pusher.stackSize();
-	CFAnalyzer ci{_tryState};
-	ControlFlowInfo info = beforeTryOrIfCheck(ci);
-	m_controlFlowInfo.push_back(info);
-
-	// try body
-	m_pusher.startContinuation();
-	int const startStackSize = m_pusher.stackSize();
-	_tryState.body().accept(*this);
-	m_pusher.drop(m_pusher.stackSize() - startStackSize);
-	m_pusher.endContinuation();
-
-	// try body
-	m_pusher.startContinuation();
-	if (_tryState.clause().parameters()) {
-		for (ASTPointer<VariableDeclaration> const& variable: _tryState.clause().parameters()->parameters()) {
-			m_pusher.getStack().add(variable.get(), true);
-		}
-	} else {
-		m_pusher.fixStack(+2);
-	}
-	_tryState.clause().block().accept(*this);
-	m_pusher.drop(m_pusher.stackSize() - startStackSize);
-	m_pusher.endContinuation();
-
-	m_pusher.tryOpcode(ci.canReturn() || ci.canBreak());
-
-	// bottom
-	afterTryOrIfCheck(info);
-
-	solAssert(stackSize == m_pusher.stackSize(), "TryStatement fail");
-
+bool TVMFunctionCompiler::visit(TryStatement const&) {
+	solUnimplemented("Try-Catch Statement is not implemented yet.");
 	return false;
 }
 
@@ -1361,7 +1320,7 @@ bool TVMFunctionCompiler::visit(Return const& _return) {
 	if (!_return.names().empty()) {
 		std::map<std::string, std::function<void()>> pushOption = {
 			{"bounce", nullptr},
-			{"dest", [&] { m_pusher.getGlob(TvmConst::C7::SenderAddress); }},
+			{"dest", [&] { m_pusher.push("INMSG_SRC"); }},
 			{"value", nullptr},
 			{"currencies", [&] { m_pusher << "NULL"; }},
 		};
@@ -1542,19 +1501,6 @@ void TVMFunctionCompiler::setCtorFlag() const {
 	m_pusher.setGlob(TvmConst::C7::ConstructorFlag);
 }
 
-void TVMFunctionCompiler::setCopyleft() const {
-	std::optional<std::vector<ASTPointer<Expression>>> const copyleft = m_pusher.ctx().pragmaHelper().hasCopyleft();
-	if (copyleft.has_value()) {
-		std::optional<bigint> const& addr = ExprUtils::constValue(*copyleft.value().at(1));
-		std::optional<bigint> const& type = ExprUtils::constValue(*copyleft.value().at(0));
-		std::string const addrSlice =
-			"x" + StrUtils::binaryStringToSlice(StrUtils::toBitString(addr.value(), 256, false).value());
-		m_pusher.pushSlice(addrSlice);
-		m_pusher.pushInt(type.value());
-		m_pusher << "COPYLEFT";
-	}
-}
-
 Pointer<Function>
 TVMFunctionCompiler::generateMainExternal(TVMCompilerContext& ctx, ContractDefinition const* contract) {
 	//	stack:
@@ -1569,7 +1515,6 @@ TVMFunctionCompiler::generateMainExternal(TVMCompilerContext& ctx, ContractDefin
 	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, contract};
 
-	funCompiler.setCopyleft();
 	pusher.pushFragmentInCallRef(0, 0, "c4_to_c7");
 	pusher.pushS(0);
 
@@ -1664,10 +1609,7 @@ void TVMFunctionCompiler::checkSignatureAndReadPublicKey() const {
 	m_pusher << "STSLICE";
 	m_pusher << "STSLICE";
 	// signatureSlice msgSlice builder
-	m_pusher << "ENDC";
-	// signatureSlice msgSlice signedCell
-
-	m_pusher << "HASHCU";
+	m_pusher << "HASHBU";
 	// signatureSlice msgSlice msgHash
 	pushMsgPubkey();
 	// signatureSlice msgSlice msgHash pubkey
@@ -1705,26 +1647,10 @@ TVMFunctionCompiler::generateMainInternal(TVMCompilerContext& ctx, ContractDefin
 	StackPusher pusher{&ctx};
 	TVMFunctionCompiler funCompiler{pusher, contract};
 
-	funCompiler.setCopyleft();
 	if (ctx.storageLayout().hasConstructor())
 		funCompiler.setCtorFlag();
 
-	pusher.pushS(1);
-	pusher << "CTOS";
-	// stack: int_msg_info
-
-	ContactsUsageScanner const& sc = pusher.ctx().usage();
-	if (sc.hasMsgSender() || sc.hasResponsibleFunction()) {
-		pusher << "LDU 4       ; bounced tail";
-		pusher << "LDMSGADDR   ; bounced src tail";
-		pusher.drop();
-		pusher.setGlob(TvmConst::C7::SenderAddress);
-		pusher << "MODPOW2 1";
-	} else {
-		pusher << "PLDU 4";
-		pusher << "MODPOW2 1";
-	}
-	// stack: isBounced
+	pusher << "INMSG_BOUNCED";
 
 	// bounced
 	if (!isEmptyFunction(contract->onBounceFunction())) {

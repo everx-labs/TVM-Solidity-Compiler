@@ -188,10 +188,7 @@ void TVMTypeChecker::check_onCodeUpgrade(FunctionDefinition const& f) const {
 }
 
 bool TVMTypeChecker::visit(TryStatement const& _tryStatement) {
-	if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-		m_errorReporter
-			.typeError(5512_error, _tryStatement.location(), "\"try-catch\"" + TypeChecker::IS_NOT_SUPPORTED_VM);
-	}
+	cast_error(_tryStatement, "Try-Catch Statement is not implemented yet.");
 	return true;
 }
 
@@ -356,6 +353,14 @@ void TVMTypeChecker::checkDeprecation(FunctionCall const& _functionCall) const {
 	case Type::Category::Function: {
 		auto functionType = to<FunctionType>(expressionType);
 		switch (functionType->kind()) {
+		case FunctionType::Kind::TVMHash: {
+			m_errorReporter.warning(
+				9979_error,
+				_functionCall.location(),
+				"\"tvm.hash()\" is deprecated. Use \"<TvmCell>.hash(), <TvmSlice>.hash() or <bytes>.hash()\"."
+			);
+			break;
+		}
 		case FunctionType::Kind::OptionalReset:
 			m_errorReporter.warning(
 				5380_error,
@@ -541,52 +546,7 @@ void TVMTypeChecker::checkSupport(FunctionCall const& _functionCall) const {
 				m_errorReporter.typeError(
 					5434_error,
 					_functionCall.location(),
-					"\"gasleft()\"" + TypeChecker::IS_NOT_SUPPORTED_VM
-				);
-			}
-			break;
-		case FunctionType::Kind::TVMInitCodeHash:
-			if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-				m_errorReporter.typeError(
-					4649_error,
-					_functionCall.location(),
-					"\"tvm.initCodeHash()\"" + TypeChecker::IS_NOT_SUPPORTED_VM
-				);
-			}
-			break;
-		case FunctionType::Kind::GasConsumed:
-			if (*GlobalParams::g_tvmVersion != TVMVersion::ton()) {
-				m_errorReporter.typeError(
-					9850_error,
-					_functionCall.location(),
-					"\"gasConsumed()\"" + TypeChecker::IS_NOT_SUPPORTED_VM
-				);
-			}
-			break;
-		case FunctionType::Kind::TonCombArithOper:
-			if (*GlobalParams::g_tvmVersion != TVMVersion::ton()) {
-				m_errorReporter.typeError(
-					4802_error,
-					_functionCall.location(),
-					"Ton combined arithmetic operation" + TypeChecker::IS_NOT_SUPPORTED_VM
-				);
-			}
-			break;
-		case FunctionType::Kind::ValueToGas:
-			if (*GlobalParams::g_tvmVersion == TVMVersion::ton() && args.size() == 1) {
-				m_errorReporter.typeError(
-					3014_error,
-					_functionCall.location(),
-					"\"valueToGas()\" with one argument" + TypeChecker::IS_NOT_SUPPORTED_VM
-				);
-			}
-			break;
-		case FunctionType::Kind::GasToValue:
-			if (*GlobalParams::g_tvmVersion == TVMVersion::ton() && args.size() == 1) {
-				m_errorReporter.typeError(
-					8339_error,
-					_functionCall.location(),
-					"\"gasToValue()\" with one argument" + TypeChecker::IS_NOT_SUPPORTED_VM
+					"\"gasleft()\"" + TypeChecker::isNotSupportedString(*GlobalParams::g_tvmVersion)
 				);
 			}
 			break;
@@ -683,6 +643,17 @@ bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
 			checkRange(value, 256, arguments.at(0)->location());
 			break;
 		}
+		case FunctionType::Kind::AddressCurrency: {
+			auto memberAccess = to<MemberAccess>(&_functionCall.expression());
+			if (!isAddressThis(to<FunctionCall>(&memberAccess->expression()))) {
+				m_errorReporter.typeError(
+					3317_error,
+					_functionCall.location(),
+					"Function \"currency\" is supported only for \"address(this)\" expression."
+				);
+			}
+			break;
+		}
 		default:
 			break;
 		}
@@ -695,22 +666,10 @@ bool TVMTypeChecker::visit(FunctionCall const& _functionCall) {
 	return true;
 }
 
-bool TVMTypeChecker::visit(PragmaDirective const& _pragma) {
-	if (!_pragma.literals().empty()) {
-		if (_pragma.literals().at(0) == "copyleft" && *GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-			m_errorReporter.typeError(
-				9186_error,
-				_pragma.location(),
-				"\"pragma copyleft ...\"" + TypeChecker::IS_NOT_SUPPORTED_VM
-			);
-		}
-	}
-	return true;
-}
-
 bool TVMTypeChecker::visit(MemberAccess const& _memberAccess) {
 	ASTString const& member = _memberAccess.memberName();
 	Type const* exprType = _memberAccess.expression().annotation().type;
+	auto const& memberName = _memberAccess.memberName();
 	switch (exprType->category()) {
 	case Type::Category::Magic: {
 		auto magicType = dynamic_cast<MagicType const*>(exprType);
@@ -723,38 +682,22 @@ bool TVMTypeChecker::visit(MemberAccess const& _memberAccess) {
 					R"("tx.timestamp" is deprecated. Use "tx.logicaltime".)"
 				);
 			}
-			if (member == "storageFee") {
-				if (*GlobalParams::g_tvmVersion == TVMVersion::ton()) {
-					m_errorReporter.typeError(
-						3428_error,
-						_memberAccess.location(),
-						"\"tx.storageFee\"" + TypeChecker::IS_NOT_SUPPORTED_VM
-					);
-				}
-			}
-			if (member == "storageFees") {
-				if (*GlobalParams::g_tvmVersion != TVMVersion::ton()) {
-					m_errorReporter.typeError(
-						5711_error,
-						_memberAccess.location(),
-						"\"tx.storageFees\"" + TypeChecker::IS_NOT_SUPPORTED_VM
-					);
-				}
-			}
-			break;
-		}
-		case MagicType::Kind::Gosh: {
-			if (*GlobalParams::g_tvmVersion != TVMVersion::gosh()) {
-				m_errorReporter.typeError(
-					4065_error,
-					_memberAccess.location(),
-					"\"gosh." + member + "\"" + TypeChecker::IS_NOT_SUPPORTED_VM
-				);
-			}
 			break;
 		}
 		default:
 			break;
+		}
+		break;
+	}
+	case Type::Category::Address:
+	case Type::Category::AddressStd: {
+		if (isIn(memberName, "balance", "currencies") &&
+			!isAddressThis(to<FunctionCall>(&_memberAccess.expression()))) {
+			m_errorReporter.typeError(
+				7699_error,
+				_memberAccess.memberLocation(),
+				"Member \"" + memberName + "\" is supported only for \"address(this)\" expression."
+			);
 		}
 		break;
 	}

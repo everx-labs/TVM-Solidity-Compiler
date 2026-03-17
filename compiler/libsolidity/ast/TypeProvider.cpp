@@ -123,7 +123,7 @@ std::array<std::unique_ptr<FixedBytesType>, 32> const TypeProvider::m_bytesM{{
 	{std::make_unique<FixedBytesType>(32)}
 }};
 
-std::array<std::unique_ptr<MagicType>, 11> const TypeProvider::m_magics{{
+std::array<std::unique_ptr<MagicType>, 14> const TypeProvider::m_magics{{
 	{std::make_unique<MagicType>(MagicType::Kind::Block)},
 	{std::make_unique<MagicType>(MagicType::Kind::Message)},
 	{std::make_unique<MagicType>(MagicType::Kind::Transaction)},
@@ -131,9 +131,11 @@ std::array<std::unique_ptr<MagicType>, 11> const TypeProvider::m_magics{{
 	{std::make_unique<MagicType>(MagicType::Kind::TVM)},
 	{std::make_unique<MagicType>(MagicType::Kind::Math)},
 	{std::make_unique<MagicType>(MagicType::Kind::Rnd)},
-	{std::make_unique<MagicType>(MagicType::Kind::Gosh)},
 	{std::make_unique<MagicType>(MagicType::Kind::BLS)},
 	{std::make_unique<MagicType>(MagicType::Kind::RIST255)},
+	{std::make_unique<MagicType>(MagicType::Kind::Config)},
+	{std::make_unique<MagicType>(MagicType::Kind::Secp256k1)},
+	{std::make_unique<MagicType>(MagicType::Kind::Secp256r1)},
 	{std::make_unique<MagicType>(MagicType::Kind::Error)}
 	// MetaType is stored separately
 }};

@@ -696,18 +696,6 @@ bool Printer::visit(TvmUntil& _node) {
 	return false;
 }
 
-bool Printer::visit(TryCatch& _node) {
-	if (_node.saveAltC2()) {
-		tabs();
-		m_out << "SAVEALT C2" << std::endl;
-	}
-	_node.tryBody()->accept(*this);
-	_node.catchBody()->accept(*this);
-	tabs();
-	m_out << "TRYKEEP" << std::endl;
-	return false;
-}
-
 bool Printer::visit(While& _node) {
 	if (!_node.isInfinite()) {
 		_node.condition()->accept(*this);

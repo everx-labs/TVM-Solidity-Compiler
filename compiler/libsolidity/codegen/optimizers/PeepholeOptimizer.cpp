@@ -1105,6 +1105,22 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(
 		if (-128 <= val + 1 && val + 1 < 128 && is(cmd2, "LEQ"))
 			return Result{2, gen("LESSINT " + toString(val + 1))};
 	}
+
+	// PUSHINT N
+	// CHASHIX | CDEPTHIX
+	//
+	// CHASHI N | CDEPTHI N
+	if (is(cmd1, "PUSHINT") && is(cmd2, "CHASHIX", "CDEPTHIX")) {
+		bigint val = pushintValue(cmd1);
+		if (0 <= val && val <= 3) {
+			if (is(cmd2, "CHASHIX"))
+				return Result{2, gen("CHASHI " + toString(val))};
+			if (is(cmd2, "CDEPTHIX"))
+				return Result{2, gen("CDEPTHI " + toString(val))};
+			solUnimplemented("");
+		}
+	}
+
 	if (_isBLKDROP1 && _isBLKDROP2) {
 		auto [drop1, rest1] = _isBLKDROP1.value();
 		auto [drop2, rest2] = _isBLKDROP2.value();
@@ -1434,6 +1450,22 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAt2(
 				cmd1PushCellOrSlice->child()
 			)
 		};
+	}
+
+	// ENDC
+	// HASHCU
+	// =>
+	// HASHBU
+	if (is(cmd1, "ENDC") && is(cmd2, "HASHCU")) {
+		return Result{2, gen("HASHBU")};
+	}
+
+	// ENDC
+	// CTOS
+	// =>
+	// BTOS
+	if (is(cmd1, "ENDC") && is(cmd2, "CTOS")) {
+		return Result{2, gen("BTOS")};
 	}
 
 	return {};
@@ -1998,8 +2030,15 @@ std::optional<Result> PrivatePeepholeOptimizer::optimizeAtInf(int idx1) const {
 			}
 
 			if (withBuilder && i != -1) {
+				if (is(get(i), "BTOS")) {
+					return Result{removedOpcodeQty + 1, genPushSlice(*slice)};
+				}
+
 				if (is(get(i), "ENDC"))
 					return Result{removedOpcodeQty + 1, makePUSHREF(*slice)};
+
+				if (is(get(i), "HASHBU"))
+					return Result{removedOpcodeQty + 1, makePUSHREF(*slice), gen("HASHCU")};
 
 				// ...
 				// STBREFR

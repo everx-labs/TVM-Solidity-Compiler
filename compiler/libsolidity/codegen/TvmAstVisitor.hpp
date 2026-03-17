@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2025 EverX. All Rights Reserved.
+ * Copyright (C) 2021-2026 EverX. All Rights Reserved.
  *
  * Licensed under the  terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License.
@@ -41,7 +41,6 @@ public:
 	virtual bool visit(TvmRepeat& _node) { return visitNode(_node); }
 	virtual bool visit(TvmUntil& _node) { return visitNode(_node); }
 	virtual bool visit(While& _node) { return visitNode(_node); }
-	virtual bool visit(TryCatch& _node) { return visitNode(_node); }
 	virtual bool visit(Contract& _node) { return visitNode(_node); }
 	virtual bool visit(Function& _node) { return visitNode(_node); }
 

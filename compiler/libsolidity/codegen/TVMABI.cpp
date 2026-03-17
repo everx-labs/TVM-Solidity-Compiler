@@ -1457,8 +1457,7 @@ void UnpackedCoderDecoder::packData(std::map<int, std::function<void()>> const& 
 		pusher << "STBREFR";
 	}
 
-	pusher << "ENDC";
-	pusher << "CTOS";
+	pusher << "BTOS";
 
 	solAssert(startStackSize == pusher.stackSize(), "startStackSize == pusher.stackSize()");
 }

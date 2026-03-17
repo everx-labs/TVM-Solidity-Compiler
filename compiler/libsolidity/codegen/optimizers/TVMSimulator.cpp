@@ -514,11 +514,6 @@ bool Simulator::visit(LogCircuit& _node) {
 	return false;
 }
 
-bool Simulator::visit(TryCatch& /*_node*/) {
-	setUnableToConvertOpcode();
-	return false;
-}
-
 bool Simulator::visit(TvmIfElse& _node) {
 	if (rest() == 0) {
 		setUnableToConvertOpcode();

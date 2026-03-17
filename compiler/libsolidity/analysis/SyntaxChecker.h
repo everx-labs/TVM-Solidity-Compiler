@@ -105,7 +105,6 @@ private:
 
 	/// Flag that indicates whether some version pragma was present.
 	std::optional<langutil::SourceLocation const* > m_versionPragma;
-	langutil::SourceLocation const* m_FirstCopyleft{};
 
 	/// Flag that indicates whether we are inside an unchecked block.
 	bool m_uncheckedArithmetic = false;

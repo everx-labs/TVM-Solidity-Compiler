@@ -115,8 +115,7 @@ public:
 	virtual bool visit(ElementaryTypeNameExpression& _node) { return visitNode(_node); }
 	virtual bool visit(Literal& _node) { return visitNode(_node); }
 	virtual bool visit(StructuredDocumentation& _node) { return visitNode(_node); }
-	virtual bool visit(MappingNameExpression& _node) { return visitNode(_node); }
-	virtual bool visit(OptionalNameExpression& _node) { return visitNode(_node); }
+	virtual bool visit(ComplexNameExpression& _node) { return visitNode(_node); }
 	virtual bool visit(ExternalMsgHeaders& _node) { return visitNode(_node); }
 	virtual bool visit(ReplayProtection& _node) { return visitNode(_node); }
 	/// Experimental Solidity nodes
@@ -190,8 +189,7 @@ public:
 	virtual void endVisit(ElementaryTypeNameExpression& _node) { endVisitNode(_node); }
 	virtual void endVisit(Literal& _node) { endVisitNode(_node); }
 	virtual void endVisit(StructuredDocumentation& _node) { endVisitNode(_node); }
-	virtual void endVisit(MappingNameExpression& _node) { endVisitNode(_node); }
-	virtual void endVisit(OptionalNameExpression& _node) { endVisitNode(_node); }
+	virtual void endVisit(ComplexNameExpression& _node) { endVisitNode(_node); }
 	virtual void endVisit(ExternalMsgHeaders& _node) { endVisitNode(_node); }
 	virtual void endVisit(ReplayProtection& _node) { endVisitNode(_node); }
 	/// Experimental Solidity nodes
@@ -287,8 +285,7 @@ public:
 	virtual bool visit(ElementaryTypeNameExpression const& _node) { return visitNode(_node); }
 	virtual bool visit(Literal const& _node) { return visitNode(_node); }
 	virtual bool visit(StructuredDocumentation const& _node) { return visitNode(_node); }
-	virtual bool visit(MappingNameExpression const& _node) { return visitNode(_node); }
-	virtual bool visit(OptionalNameExpression const& _node) { return visitNode(_node); }
+	virtual bool visit(ComplexNameExpression const& _node) { return visitNode(_node); }
 	virtual bool visit(ExternalMsgHeaders const& _node) { return visitNode(_node); }
 	virtual bool visit(ReplayProtection const& _node) { return visitNode(_node); }
 	/// Experimental Solidity nodes
@@ -362,8 +359,7 @@ public:
 	virtual void endVisit(ElementaryTypeNameExpression const& _node) { endVisitNode(_node); }
 	virtual void endVisit(Literal const& _node) { endVisitNode(_node); }
 	virtual void endVisit(StructuredDocumentation const& _node) { endVisitNode(_node); }
-	virtual void endVisit(MappingNameExpression const& _node) { endVisitNode(_node); }
-	virtual void endVisit(OptionalNameExpression const& _node) { endVisitNode(_node); }
+	virtual void endVisit(ComplexNameExpression const& _node) { endVisitNode(_node); }
 	virtual void endVisit(ExternalMsgHeaders const& _node) { endVisitNode(_node); }
 	virtual void endVisit(ReplayProtection const& _node) { endVisitNode(_node); }
 	/// Experimental Solidity nodes
